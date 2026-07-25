@@ -106,26 +106,10 @@ type counterpartyDecision struct {
 // that do not create are finished here.
 func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.UUID) (counterpartyDecision, error) {
 	cp := rec.Counterparty
-	if s.ensurer == nil || cp.Email == "" {
-		return counterpartyDecision{}, nil
+	row, decision, ok, err := s.derivationStart(ctx, tx, rec, activityID)
+	if err != nil || !ok {
+		return counterpartyDecision{}, err
 	}
-	actor, owner := capturePrincipal(ctx)
-	if owner.IsZero() {
-		// RC-8: a capture connector always acts for a granting human; with no
-		// owner nothing can honestly own the created rows. The ACTIVITY still
-		// stands — refusing the derivation is the honest answer, failing the
-		// capture would throw away a message we successfully read — so the
-		// fault is recorded for the nightly reconcile and creation is skipped.
-		if err := s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, "no granting human on the connector principal"); err != nil {
-			return counterpartyDecision{}, err
-		}
-		return counterpartyDecision{}, nil
-	}
-	row := dispositionRow{
-		Email: cp.Email, Domain: cp.Domain, DisplayName: cp.DisplayName,
-		ActivityID: activityID, OwnerID: owner,
-	}
-	decision := counterpartyDecision{owner: owner, capturedBy: actor.ID}
 
 	// T0 internal own-domain: colleagues, not customers. Creates nothing, and
 	// records nothing — an internal address is not a disposition anyone reviews.
@@ -167,28 +151,119 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 		row.SuppressOrg = true
 	}
 
+	// An address this workspace has ALREADY decided about is not ambiguous, and
+	// asking again would be both wasteful and wrong. A prior `real` verdict (or
+	// a person a human typed in) means the sender is a counterparty: ensure now.
+	// A prior `noise` verdict means the opposite, and re-deferring would buy the
+	// same paid answer over and over while the new message sat visible on the
+	// timeline until the next verdict landed.
 	if !decision.create {
-		// T4 ambiguous first-time sender. Nothing about this address yet says
-		// stranger or customer, and ADR-0063's create-on-sight is what
-		// manufactured junk from exactly this class. Defer: the activity
-		// stands, no record is minted, and the verdict engine answers the
-		// question the ledger now holds.
-		row.Status = PendingStatusPending
-		capped, err := recordDisposition(ctx, tx, row)
-		if err != nil {
+		alreadyKnown, judgedNoise, err := s.alreadyDecided(ctx, tx, rec, cp.Email)
+		if err != nil || judgedNoise {
 			return counterpartyDecision{}, err
 		}
-		if capped {
-			// The workspace is holding its ceiling of open questions, which an
-			// outsider can drive by mailing from fresh addresses. Say so where an
-			// operator will see it: silence here would read as a sender that was
-			// judged and dismissed, when in fact nothing was ever asked.
-			return counterpartyDecision{}, s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec,
-				"the workspace is at its open-disposition ceiling; the message stands unjudged")
-		}
-		return counterpartyDecision{}, nil
+		decision.create = alreadyKnown
+	}
+
+	if !decision.create {
+		return counterpartyDecision{}, s.deferAmbiguous(ctx, tx, rec, row)
 	}
 	return decision, nil
+}
+
+// deferAmbiguous is T4: a first-time sender nothing about this address yet calls
+// stranger or customer. ADR-0063's create-on-sight is what manufactured junk
+// from exactly this class, so the message is captured, no record is minted, and
+// the verdict engine answers the question the ledger now holds.
+func (s *Sink) deferAmbiguous(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, row dispositionRow) error {
+	row.Status = PendingStatusPending
+	capped, err := recordDisposition(ctx, tx, row)
+	if err != nil {
+		return err
+	}
+	if !capped {
+		return nil
+	}
+	// The workspace is holding its ceiling of open questions, which an outsider
+	// can drive by mailing from fresh addresses. Say so where an operator will
+	// see it: silence here would read as a sender that was judged and dismissed,
+	// when in fact nothing was ever asked.
+	return s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec,
+		"the workspace is at its open-disposition ceiling; the message stands unjudged")
+}
+
+// derivationStart settles whether a derivation is possible at all and builds the
+// two values the ladder works on. It reports ok=false when nothing can be
+// derived — no resolver wired, no counterparty address, or no granting human.
+//
+// The last of those is the one with teeth (RC-8): a capture connector always
+// acts for a human, and with no owner nothing can honestly own the created rows.
+// The ACTIVITY still stands — refusing the derivation is the honest answer,
+// where failing the capture would throw away a message we successfully read — so
+// the fault is recorded for the nightly reconcile and creation is skipped.
+func (s *Sink) derivationStart(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.UUID) (dispositionRow, counterpartyDecision, bool, error) {
+	cp := rec.Counterparty
+	if s.ensurer == nil || cp.Email == "" {
+		return dispositionRow{}, counterpartyDecision{}, false, nil
+	}
+	actor, owner := capturePrincipal(ctx)
+	if owner.IsZero() {
+		return dispositionRow{}, counterpartyDecision{}, false,
+			s.logBreadcrumbTx(ctx, tx, "capture_ensure_fault", rec, "no granting human on the connector principal")
+	}
+	row := dispositionRow{
+		Email: cp.Email, Domain: cp.Domain, DisplayName: cp.DisplayName,
+		ActivityID: activityID, OwnerID: owner,
+	}
+	return row, counterpartyDecision{owner: owner, capturedBy: actor.ID}, true, nil
+}
+
+// alreadyDecided applies the tier for an address this workspace has ALREADY
+// concluded about, which is not the ambiguous class however new the message is.
+// It reports whether the sender is a known counterparty, and whether a prior
+// verdict already judged them noise (in which case the caller stops: no record,
+// no new question, and no model call — the hide sweep folds this message in with
+// the rest of that sender's mail on its next pass).
+func (s *Sink) alreadyDecided(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, email string) (known, judgedNoise bool, err error) {
+	prior, err := s.priorDispositionTx(ctx, tx, email)
+	if err != nil {
+		return false, false, err
+	}
+	switch prior {
+	case PendingStatusReal:
+		return true, false, nil
+	case PendingStatusNoise:
+		return false, true, s.logBreadcrumbTx(ctx, tx, "capture_noise_sender", rec,
+			"a prior verdict already judged this sender noise")
+	default:
+		return false, false, nil
+	}
+}
+
+// priorDispositionTx reports what this workspace already concluded about an
+// address, or "" if it has never decided. A person that exists by any route —
+// an earlier verdict, a human typing them in, an import — counts as `real`:
+// what matters is that the address is already a known counterparty, not which
+// path made it one.
+func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) (string, error) {
+	normalized := normalizeEmail(email)
+	if normalized == "" {
+		return "", nil
+	}
+	var status string
+	err := tx.QueryRow(ctx, `
+		SELECT CASE
+		         WHEN EXISTS (SELECT 1 FROM person_email WHERE email = $1) THEN 'real'
+		         ELSE coalesce((
+		           SELECT status FROM capture_pending_counterparty
+		            WHERE email = $1 AND status IN ('real', 'noise')
+		            ORDER BY resolved_at DESC NULLS LAST
+		            LIMIT 1), '')
+		       END`, normalized).Scan(&status)
+	if err != nil {
+		return "", fmt.Errorf("capture: reading the prior disposition: %w", err)
+	}
+	return status, nil
 }
 
 // internalDomainTx reports whether domain is one of the workspace's own mail

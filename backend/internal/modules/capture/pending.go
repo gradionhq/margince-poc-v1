@@ -36,17 +36,17 @@ const (
 	PendingStatusReal       = "real"
 	PendingStatusNoise      = "noise"
 	PendingStatusSuppressed = "suppressed"
-	// PendingStatusRejected is part of the spec's status vocabulary (ADR-0072 §5)
-	// and is mirrored here for that reason, but nothing writes it yet: the
-	// approvals engine runs only the APPROVED branch, so a declined review offer
-	// has no effect hook to record itself through. A human's "no" currently
-	// leaves the row `unsure` — visibly undecided, which is at least honest.
-	// Closing that loop needs a reject seam in approvals, not a write here.
+	// PendingStatusRejected records a human's decline. The approvals engine has
+	// no reject hook — it runs only the approved branch — so the ledger learns
+	// of a decline by reconciling against the approval row (ReconcileDeclined)
+	// rather than by being told.
 	PendingStatusRejected = "rejected"
 )
 
 // PendingMaxAttempts bounds the verdict retries (ADR-0072 §5: retries=2). A row
-// that exhausts them is retired from the due-scan rather than retried forever.
+// that exhausts them is retired to `unsure` by RetireExhausted rather than
+// retried forever — exhaustion is a terminal state, never a row nothing will
+// ever pick up again.
 // Exported so the verdict engine can retire a row deliberately — a terminal
 // answer is reached by spending the attempts, not by a second spelling of
 // "give up".
@@ -84,7 +84,6 @@ type PendingCounterparty struct {
 	OwnerID     ids.UUID
 	Subject     string
 	Body        string
-	Attempts    int
 	// SuppressOrg carries the tier ladder's free-mail decision (CAP-PARAM-5)
 	// forward to whoever creates the records: a personal mailbox yields a person
 	// and never a company, however long after capture the verdict arrives.
@@ -136,11 +135,17 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 		// is asked, whereas ON CONFLICT DO NOTHING means the question is already
 		// open. The count is exact under RLS (the policy scopes it to this
 		// workspace) and only the ambiguous tier pays for it.
-		atCap, err := atDeferralCap(ctx, tx)
+		//
+		// The ceiling applies to NEW questions only. Once it is reached, every
+		// further message from any of the already-deferred senders would
+		// otherwise be reported as capped-and-unjudged, when its question is in
+		// fact open and will be answered — a breadcrumb that misdescribes the
+		// system is worse than none.
+		capped, err := capRefusesNewQuestion(ctx, tx, email)
 		if err != nil {
 			return false, err
 		}
-		if atCap {
+		if capped {
 			return true, nil
 		}
 	}
@@ -171,6 +176,31 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 		return false, fmt.Errorf("capture: recording the counterparty disposition: %w", err)
 	}
 	return false, nil
+}
+
+// capRefusesNewQuestion reports whether the ceiling turns this message away. The
+// ceiling applies to NEW questions only: a further message from an
+// already-deferred sender joins the open question and adds nothing to the count.
+func capRefusesNewQuestion(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
+	open, err := hasOpenQuestion(ctx, tx, email)
+	if err != nil || open {
+		return false, err
+	}
+	return atDeferralCap(ctx, tx)
+}
+
+// hasOpenQuestion reports whether this address already has a live disposition,
+// which a further message joins rather than adding to the ceiling.
+func hasOpenQuestion(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
+	var open bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM capture_pending_counterparty
+		   WHERE email = $1 AND status IN ('pending', 'unsure'))`, email).Scan(&open)
+	if err != nil {
+		return false, fmt.Errorf("capture: checking for an open disposition: %w", err)
+	}
+	return open, nil
 }
 
 // atDeferralCap reports whether this workspace already holds its ceiling of open
@@ -240,7 +270,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    LIMIT $1
 			    FOR UPDATE SKIP LOCKED)
 			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
-			          p.activity_id, p.owner_id, p.attempts, p.suppress_org,
+			          p.activity_id, p.owner_id, p.suppress_org,
 			          coalesce((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), ''),
 			          coalesce((SELECT a.body FROM activity a WHERE a.id = p.activity_id), '')`,
 			limit, pendingLease.String(), PendingMaxAttempts, claim)
@@ -251,7 +281,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 		for rows.Next() {
 			p := PendingCounterparty{Claim: claim}
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.Attempts, &p.SuppressOrg, &p.Subject, &p.Body); err != nil {
+				&p.ActivityID, &p.OwnerID, &p.SuppressOrg, &p.Subject, &p.Body); err != nil {
 				return err
 			}
 			out = append(out, p)
@@ -294,11 +324,20 @@ func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterp
 // releasing "its" row would otherwise cut short a lease someone else now holds.
 func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// The attempt is GIVEN BACK. ClaimDue spends one at claim time, before
+		// anything is known about how the batch goes, and every caller of Defer
+		// is a path where no model ever answered — a budget stop, a provider
+		// fault, a malformed reply. Charging the row for those would let two bad
+		// cycles exhaust an address's whole allowance without a single verdict
+		// having been attempted on its merits.
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET next_attempt_at = now() + $2::interval,
+			       attempts = greatest(attempts - 1, 0),
+			       disposition_reason = NULLIF($4, ''),
 			       claimed_until = NULL, claimed_by = NULL, updated_at = now()
-			 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`, p.ID, backoff.String(), p.Claim)
+			 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`,
+			p.ID, backoff.String(), p.Claim, reason)
 		return err
 	})
 	if err != nil {
@@ -310,11 +349,9 @@ func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff
 // Retire ends a claimed row at `unsure`: the model was asked its allowance of
 // times and never cleared the floor, so the question passes to a human.
 //
-// An explicit transition rather than a Defer with a doctored attempt count —
-// the previous spelling mutated the caller's struct to steer a branch, and left
-// the stored row reading `attempts = 1` while claiming it had spent them all.
-// A row that says why it stopped is worth more to an operator than one whose
-// reason has to be inferred from a counter.
+// Terminal by construction: it stamps the attempt count it asserts and the time
+// it stopped, so an operator reading the row sees why it ended rather than
+// having to infer it from a counter that says something else.
 func (s *PendingStore) Retire(ctx context.Context, p PendingCounterparty, reason string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
@@ -366,18 +403,23 @@ func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID
 // would strand it permanently — invisible to the review queue, still counting
 // against the workspace's open-question ceiling, and clearable only by hand.
 // A workspace that takes a weekend off would silently fill its own cap.
+//
+// A DECIDED offer is the opposite case and must not come back: re-staging one a
+// human already answered would ask them the same question every hour forever.
+// Expired means unanswered; decided means answered, whichever way.
 func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]PendingCounterparty, error) {
 	var out []PendingCounterparty
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
-			       p.activity_id, p.owner_id, p.attempts, p.suppress_org
+			       p.activity_id, p.owner_id, p.suppress_org
 			  FROM capture_pending_counterparty p
 			 WHERE p.status = 'unsure'
 			   AND NOT EXISTS (
 			     SELECT 1 FROM approval a
 			      WHERE a.id = p.proposal_id
-			        AND a.status = 'pending' AND a.expires_at > now())
+			        AND (a.decided_at IS NOT NULL
+			             OR (a.status = 'pending' AND a.expires_at > now())))
 			 ORDER BY p.resolved_at, p.created_at
 			 LIMIT $1`, limit)
 		if err != nil {
@@ -387,7 +429,7 @@ func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]Pending
 		for rows.Next() {
 			var p PendingCounterparty
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.Attempts, &p.SuppressOrg); err != nil {
+				&p.ActivityID, &p.OwnerID, &p.SuppressOrg); err != nil {
 				return err
 			}
 			out = append(out, p)
@@ -412,64 +454,6 @@ func (s *PendingStore) ResolveReviewed(ctx context.Context, tx pgx.Tx, id ids.UU
 		 WHERE id = $1 AND status = 'unsure'`, id, status, reason)
 	if err != nil {
 		return fmt.Errorf("capture: resolving reviewed disposition %s: %w", id, err)
-	}
-	return nil
-}
-
-// NoiseRedaction names one noise disposition whose undo window has expired.
-type NoiseRedaction struct {
-	ID         ids.UUID
-	ActivityID ids.UUID
-}
-
-// DueForRedaction lists noise dispositions resolved longer ago than window and
-// not yet redacted. The window is the undo period: until it passes, a wrong
-// verdict is fully recoverable because the mail is merely hidden.
-//
-// The cutoff is computed by the DATABASE from its own now(), like every other
-// due-scan here — the app's clock never decides whether someone's undo window
-// has run out.
-func (s *PendingStore) DueForRedaction(ctx context.Context, window time.Duration, limit int) ([]NoiseRedaction, error) {
-	var out []NoiseRedaction
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id, activity_id FROM capture_pending_counterparty
-			 WHERE status = 'noise' AND redacted_at IS NULL
-			   AND resolved_at IS NOT NULL AND resolved_at <= now() - $1::interval
-			 ORDER BY resolved_at
-			 LIMIT $2`, window.String(), limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var r NoiseRedaction
-			if err := rows.Scan(&r.ID, &r.ActivityID); err != nil {
-				return err
-			}
-			out = append(out, r)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, fmt.Errorf("capture: reading the redaction backlog: %w", err)
-	}
-	return out, nil
-}
-
-// MarkRedacted records that a disposition's content redaction completed. Stamped
-// only after the content is actually gone, so a crash between the two leaves the
-// row due again — redoing a redaction is harmless, skipping one is not.
-func (s *PendingStore) MarkRedacted(ctx context.Context, id ids.UUID) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			UPDATE capture_pending_counterparty
-			   SET redacted_at = now(), updated_at = now()
-			 WHERE id = $1 AND status = 'noise' AND redacted_at IS NULL`, id)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("capture: marking disposition %s redacted: %w", id, err)
 	}
 	return nil
 }

@@ -432,3 +432,121 @@ func TestABatchNoiseCannotHideAnotherSendersMailWithoutASoloConfirmation(t *test
 		t.Fatal("a solo-confirmed noise did not hide the message")
 	}
 }
+
+// A disposition covers the SENDER, so its effects cover every message that
+// sender wrote — not just the one that happened to raise the question. The
+// second and third mail from a stranger join the open question rather than
+// raising their own, so an effect keyed on the ledger row's single activity_id
+// would hide message #1 and leave the rest on the timeline with full bodies:
+// "noise is not shown" defeated by sending two emails instead of one.
+func TestANoiseVerdictHidesEveryMessageThatSenderWrote(t *testing.T) {
+	e := integration.Setup(t)
+	first := seedCapturedMail(t, e, "bulk@flood.example", "offer one")
+	second := seedCapturedMail(t, e, "bulk@flood.example", "offer two")
+	third := seedCapturedMail(t, e, "bulk@flood.example", "offer three")
+	dispositionID := seedPendingDisposition(t, e, "bulk@flood.example", "flood.example", first)
+
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
+	if err := engine.Run(context.Background(), 0); err != nil {
+		t.Fatalf("verdict pass: %v", err)
+	}
+
+	for _, id := range []ids.UUID{first, second, third} {
+		if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NOT NULL`, id); n != 1 {
+			t.Fatalf("activity %s stayed visible — the verdict must cover the sender, not one message", id)
+		}
+	}
+
+	backdateResolution(t, e, dispositionID, capture.NoiseUndoWindow+time.Hour)
+	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+		t.Fatalf("redaction sweep: %v", err)
+	}
+	if n := countIn(t, e, `
+		SELECT count(*) FROM activity
+		 WHERE counterparty_email = 'bulk@flood.example'
+		   AND (subject IS NOT NULL OR body IS NOT NULL OR raw IS NOT NULL)`); n != 0 {
+		t.Fatalf("%d of the sender's messages kept their content past the undo window", n)
+	}
+}
+
+// A row that spends its attempts without ever getting an answer must reach a
+// terminal state. ClaimDue refuses it at the bound, so without a retiring sweep
+// it is stranded exactly where nobody looks: still `pending`, invisible to the
+// review queue, and holding a slot against the deferral ceiling forever.
+func TestAnExhaustedDispositionIsRetiredRatherThanStranded(t *testing.T) {
+	e := integration.Setup(t)
+	activityID := seedCapturedMail(t, e, "stuck@limbo.example", "hello")
+	dispositionID := seedPendingDisposition(t, e, "stuck@limbo.example", "limbo.example", activityID)
+	spendAttempts(t, e, dispositionID, capture.PendingMaxAttempts)
+
+	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
+	if err := engine.ReconcileLedger(context.Background()); err != nil {
+		t.Fatalf("reconciling the ledger: %v", err)
+	}
+
+	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusUnsure {
+		t.Fatalf("exhausted disposition = %q, want unsure — exhaustion must be terminal, not a dead end", got)
+	}
+	// And having reached `unsure`, it is now something a human can be offered.
+	if err := engine.StageReviews(context.Background(), 0); err != nil {
+		t.Fatalf("staging reviews: %v", err)
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM approval WHERE kind = 'capture_counterparty'`); n != 1 {
+		t.Fatalf("%d proposals for a retired row, want 1", n)
+	}
+}
+
+// A human's decline closes the question. The approvals engine has no reject
+// hook, so the ledger reconciles against the approval row — without which the
+// row stays `unsure`, gets re-staged on the next tick, and asks the same person
+// the same question every hour forever while holding a cap slot.
+func TestADeclinedReviewClosesTheDispositionInsteadOfReasking(t *testing.T) {
+	e := integration.Setup(t)
+	activityID := seedCapturedMail(t, e, "declined@maybe.example", "hi")
+	dispositionID := seedPendingDisposition(t, e, "declined@maybe.example", "maybe.example", activityID)
+	retireToUnsure(t, e, dispositionID)
+
+	svc := approvalsServiceWithEffects(e.Pool)
+	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
+	if err := engine.StageReviews(context.Background(), 0); err != nil {
+		t.Fatalf("staging reviews: %v", err)
+	}
+	approvalID := stagedProposalID(t, e, dispositionID)
+	if _, err := svc.Decide(e.As(e.Rep1, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](approvalID), false, nil); err != nil {
+		t.Fatalf("declining the proposal: %v", err)
+	}
+
+	if err := engine.ReconcileLedger(context.Background()); err != nil {
+		t.Fatalf("reconciling the ledger: %v", err)
+	}
+	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusRejected {
+		t.Fatalf("declined disposition = %q, want rejected — a decline must close the question", got)
+	}
+	// Declining is non-destructive: no records, and the mail stays put.
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, activityID); n != 1 {
+		t.Fatal("declining a proposal hid the message")
+	}
+
+	// And the human is not asked again.
+	if err := engine.StageReviews(context.Background(), 0); err != nil {
+		t.Fatalf("second staging pass: %v", err)
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM approval WHERE kind = 'capture_counterparty'`); n != 1 {
+		t.Fatalf("%d proposals after a decline, want 1 — a decided offer must never be re-staged", n)
+	}
+}
+
+// spendAttempts drives a row to the attempt bound without running the model.
+func spendAttempts(t *testing.T, e *integration.Env, id ids.UUID, attempts int) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE capture_pending_counterparty SET attempts = $2 WHERE id = $1`, id, attempts)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("spending the attempts: %v", err)
+	}
+}

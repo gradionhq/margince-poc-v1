@@ -297,7 +297,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		))
 	}
 
-	if cfg.VerdictBrain != nil {
+	{
+		// Registered unconditionally: only the JUDGING stage needs a model, and
+		// the worker skips it when none is configured. Gating the whole worker on
+		// a brain would mean an AI-less deployment never staged a review for an
+		// existing unsure row and never redacted mail it had already hidden.
 		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
 		river.AddWorker(workers, &counterpartyVerdictWorker{engine: verdicts})
 		// Hourly, like classify: the ledger's due-index makes an empty pass one

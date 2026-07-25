@@ -109,7 +109,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails)
 		if err != nil {
 			return err
 		}
@@ -318,6 +318,28 @@ const subjectOnlyActivities = `
 	    WHERE o.activity_id = l.activity_id
 	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
 
+// unlinkedCapturedMail selects captured mail that is ABOUT the subject by
+// address but linked to nobody — the class the link-walk above cannot see.
+//
+// It exists because ADR-0072 stopped creating a counterparty for every captured
+// message. Under ADR-0063 every mail ensured a person, so a link always
+// existed and walking links covered everything; a deferred, noise-dispositioned
+// or still-unsure sender now produces activities with no link at all. Erasure
+// that only walks links would leave that mail — the address, the subject line
+// and the body — sitting in the timeline after the subject exercised Art. 17.
+//
+// Same exclusion as the link-walk: mail also linked to someone else belongs to
+// that person's record too, and redacting it would erase a different subject's
+// history.
+const unlinkedCapturedMail = `
+	SELECT a.id FROM activity a
+	WHERE a.counterparty_email = ANY($3)
+	  AND a.captured_by LIKE 'connector:%'
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link o
+	    WHERE o.activity_id = a.id
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
+
 // redactSubjectTimeline erases the subject's free text from the activity
 // timeline: subject/body of every subject-only activity are wiped (the
 // GENERATED search_tsv refreshes from the now-empty text, so the erased
@@ -326,12 +348,14 @@ const subjectOnlyActivities = `
 // the timeline text and its field-level provenance. It returns the
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]ids.UUID, error) {
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]ids.UUID, error) {
 	rows, err := tx.Query(ctx, `
-		UPDATE activity SET subject = $2, body = NULL,
+		UPDATE activity SET subject = $2, body = NULL, raw = NULL,
+		  counterparty_email = NULL,
 		  archived_at = coalesce(archived_at, now())
 		WHERE id IN (`+subjectOnlyActivities+`)
-		RETURNING id`, personID, erasedName)
+		   OR id IN (`+unlinkedCapturedMail+`)
+		RETURNING id`, personID, erasedName, emails)
 	if err != nil {
 		return nil, err
 	}

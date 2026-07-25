@@ -46,7 +46,8 @@ func (s *Store) UnlabeledCaptureEmails(ctx context.Context, limit, bodyLimit int
 			  AND archived_at IS NULL
 			  AND NOT EXISTS (
 			    SELECT 1 FROM capture_pending_counterparty p
-			     WHERE p.email = activity.counterparty_email
+			     WHERE p.workspace_id = activity.workspace_id
+			       AND p.email = activity.counterparty_email
 			       AND p.status IN ('pending', 'unsure'))
 			ORDER BY occurred_at
 			LIMIT $2`, bodyLimit, limit)

@@ -70,7 +70,10 @@ CREATE TABLE capture_pending_counterparty (
   -- When the verdict job may next consider this row. NULL retires it from the
   -- due-scan: either resolved, or out of attempts. Bounded retries live in the
   -- engine; this column is what the partial index below scans.
-  next_attempt_at timestamptz NULL DEFAULT now(),
+  -- No DEFAULT on purpose: every writer supplies this explicitly, and a default
+  -- of now() would make an insert that omits the column (a suppressed or an
+  -- unsure row) instantly due for a verdict it should never receive.
+  next_attempt_at timestamptz NULL,
 
   -- The 🟡 review-queue proposal an 'unsure' verdict staged, so a re-run finds
   -- the existing offer instead of staging a duplicate.

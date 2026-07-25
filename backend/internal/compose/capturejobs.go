@@ -221,10 +221,23 @@ type counterpartyVerdictWorker struct {
 }
 
 func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[CounterpartyVerdictArgs]) error {
-	if err := w.engine.Run(ctx, 0); err != nil {
+	// Judging is the only stage that needs a model, and it is skipped when none
+	// is configured. The other three still run: rows already on the ledger must
+	// still reach a human, declines must still close, and mail already hidden
+	// must still be redacted on schedule — turning AI off is not consent to
+	// retain the content of messages the workspace already decided were noise.
+	if w.engine.CanJudge() {
+		if err := w.engine.Run(ctx, 0); err != nil {
+			return err
+		}
+	}
+	if err := w.engine.ReconcileLedger(ctx); err != nil {
 		return err
 	}
 	if err := w.engine.StageReviews(ctx, 0); err != nil {
+		return err
+	}
+	if err := w.engine.HideNoiseStragglers(ctx); err != nil {
 		return err
 	}
 	return w.engine.RedactNoise(ctx, capture.NoiseUndoWindow, 0)

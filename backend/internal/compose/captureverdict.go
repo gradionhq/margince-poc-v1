@@ -107,6 +107,12 @@ func NewCounterpartyVerdictEngine(pool *pgxpool.Pool, brain completer, log *slog
 	}
 }
 
+// CanJudge reports whether a model lane was composed for this deployment. An
+// installation with no AI configured still runs every other stage — what it does
+// not do is fall back to creating records on sight, so deferred senders stay
+// deferred rather than becoming the junk this ADR exists to prevent.
+func (e *CounterpartyVerdictEngine) CanJudge() bool { return e.brain != nil }
+
 // systemVerdictActor names the engine in audit and provenance. The verdict pass
 // acts as a system principal rather than impersonating anyone: no human asked
 // for this decision, and the records it creates take their OWNER from the ledger
@@ -209,7 +215,7 @@ func (e *CounterpartyVerdictEngine) RedactNoise(ctx context.Context, window time
 			return err
 		}
 		for _, row := range due {
-			if _, err := e.activities.RedactCapturedNoise(wsCtx, ids.From[ids.ActivityKind](row.ActivityID)); err != nil {
+			if _, err := e.activities.RedactCapturedNoise(wsCtx, row.Email); err != nil {
 				// One activity's redaction failing must not strand the rest of
 				// the workspace's backlog; the row stays due for the next sweep.
 				e.log.WarnContext(ctx, "counterparty verdict: redacting a hidden activity failed",
@@ -217,42 +223,6 @@ func (e *CounterpartyVerdictEngine) RedactNoise(ctx context.Context, window time
 				continue
 			}
 			if err := e.pending.MarkRedacted(wsCtx, row.ID); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
-// StageReviews offers every `unsure` disposition without an offer yet to a
-// human. Run after a verdict pass — and independently of it, so a staging that
-// failed while the model was answering is picked up on the next cycle rather
-// than leaving a row nobody can act on.
-func (e *CounterpartyVerdictEngine) StageReviews(ctx context.Context, maxRows int) error {
-	if maxRows <= 0 {
-		maxRows = verdictCatchUpCap
-	}
-	workspaces, err := liveWorkspaceIDs(ctx, e.pool)
-	if err != nil {
-		return err
-	}
-	for _, ws := range workspaces {
-		wsCtx := e.workspaceCtx(ctx, ws)
-		rows, err := e.pending.AwaitingReview(wsCtx, maxRows)
-		if err != nil {
-			return err
-		}
-		for _, row := range rows {
-			proposalID, err := stageCounterpartyReview(wsCtx, e.approvals, row)
-			if err != nil {
-				e.log.WarnContext(ctx, "counterparty verdict: staging a review offer failed",
-					"disposition", row.ID.String(), "err", err)
-				continue
-			}
-			if proposalID.IsZero() {
-				continue
-			}
-			if err := e.pending.LinkProposal(wsCtx, row.ID, proposalID); err != nil {
 				return err
 			}
 		}
@@ -382,12 +352,13 @@ const verdictReason = "capture_counterparty_verdict"
 // the sender was ambiguous, created now under the human who granted the
 // connection — not under the job, which owns nothing.
 //
-// An address suppressed since capture (an erasure landed while the question was
-// open) resolves to `real` with nothing created. That is the correct outcome,
-// not a fault: erasure outranks a verdict, and the ledger row still records that
-// the question was answered.
+// An address suppressed since capture — an erasure landed while the question was
+// open — creates nothing, and says so: the row is corrected to `suppressed`
+// rather than left reading `real`. Erasure outranks a verdict, and a ledger (or
+// a SAR built from it) that reports `real` for someone with no record would be
+// describing a person who does not exist.
 func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty) error {
-	_, err := e.people.EnsureCounterpartyTx(ctx, tx, people.EnsureCounterpartyInput{
+	res, err := e.people.EnsureCounterpartyTx(ctx, tx, people.EnsureCounterpartyInput{
 		Email:       row.Email,
 		DisplayName: row.DisplayName,
 		Domain:      row.Domain,
@@ -398,9 +369,17 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 		SuppressOrg: row.SuppressOrg,
 	})
 	if errors.Is(err, people.ErrCounterpartySuppressed) {
-		return nil
+		_, correctErr := e.pending.Resolve(ctx, tx, row, capture.PendingStatusSuppressed,
+			"the address was erased before the verdict landed")
+		return correctErr
 	}
-	return err
+	if err != nil {
+		return err
+	}
+	// The ensure links the message that raised the question; the sender may have
+	// written several more while it was open, and all of them belong on this
+	// person's timeline rather than only the first.
+	return e.activities.LinkCapturedMailTx(ctx, tx, res.PersonID, row.Email)
 }
 
 // hideNoise is the `noise` effect's first stage: the mail stops being visible
@@ -408,7 +387,8 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 // hide-then-redact). The delay is the undo window — the whole reason a verdict
 // is allowed to hide anything is that a wrong one can still be taken back.
 func (e *CounterpartyVerdictEngine) hideNoise(ctx context.Context, tx pgx.Tx, row capture.PendingCounterparty) error {
-	return e.activities.HideCapturedNoiseTx(ctx, tx, ids.From[ids.ActivityKind](row.ActivityID))
+	_, err := e.activities.HideCapturedNoiseTx(ctx, tx, row.Email)
+	return err
 }
 
 // releaseBatch returns claimed rows to the queue after a batch-level fault. Best
