@@ -148,14 +148,6 @@ func verdictSchema() json.RawMessage {
 	))
 }
 
-func indexPendingByID(batch []capture.PendingCounterparty) map[string]capture.PendingCounterparty {
-	out := make(map[string]capture.PendingCounterparty, len(batch))
-	for _, row := range batch {
-		out[row.ID.String()] = row
-	}
-	return out
-}
-
 // truncateRunes bounds one body excerpt on a rune boundary, so a multi-byte
 // script is cut where the count says and the prompt stays valid text.
 func truncateRunes(s string, limit int) string {

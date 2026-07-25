@@ -139,6 +139,31 @@ const noiseMailScope = `
 	    SELECT 1 FROM person_email pe JOIN person pr ON pr.id = pe.person_id
 	     WHERE pe.email = p.email AND pr.archived_at IS NULL)`
 
+// noiseVerdictReach bounds how far past its own verdict a `noise` disposition
+// may reach forward in time.
+//
+// Without a bound the disposition is permanent and unbounded, and that is an
+// outsider's opening: forge one message as an address the workspace has never
+// written to, shape it to read as bulk marketing, and every mail the REAL owner
+// of that address sends afterwards is hidden within the hour and destroyed a
+// week later — never seen by a human, so the documented "reply to recover"
+// escape is unreachable in practice.
+//
+// A verdict is evidence about the mail that was in front of it. Mail arriving
+// materially later is NEW evidence: it falls outside the disposition's reach, so
+// it is not hidden, and it raises its own question to be judged on its own
+// merits. The grace period keeps the common case whole — a newsletter that sends
+// again the next morning is the same evidence, not new evidence.
+const noiseVerdictReach = 14 * 24 * time.Hour
+
+// withinVerdictReach is the scope clause that bounds a disposition to the mail
+// it is actually evidence about. Composed per query rather than folded into
+// noiseMailScope because it carries a duration the const cannot interpolate.
+func withinVerdictReach() string {
+	return `
+	  AND a.occurred_at <= p.resolved_at + ` + quoteInterval(noiseVerdictReach)
+}
+
 // NoiseMailToHide lists captured mail from judged-noise senders that is still
 // visible. Driven from the MAIL rather than from the address list: the work is
 // bounded by what is actually outstanding, so a workspace with thousands of
@@ -146,7 +171,7 @@ const noiseMailScope = `
 // who keeps writing after their verdict is folded in without a second pass
 // having to remember they exist.
 func (s *PendingStore) NoiseMailToHide(ctx context.Context, limit int) ([]ids.UUID, error) {
-	return s.noiseMail(ctx, `
+	return s.noiseMail(ctx, withinVerdictReach()+`
 		AND a.archived_at IS NULL`, limit)
 }
 
@@ -169,7 +194,7 @@ func (s *PendingStore) NoiseMailToHide(ctx context.Context, limit int) ([]ids.UU
 // would redact whatever that sender had written by the time it fired and retain
 // everything afterwards.
 func (s *PendingStore) NoiseMailToRedact(ctx context.Context, window time.Duration, limit int) ([]ids.UUID, error) {
-	return s.noiseMail(ctx, `
+	return s.noiseMail(ctx, withinVerdictReach()+`
 		AND p.resolved_at IS NOT NULL
 		AND a.archived_at IS NOT NULL AND a.archived_at <= now() - `+quoteInterval(window)+`
 		AND (a.subject IS NOT NULL OR a.body IS NOT NULL OR a.raw IS NOT NULL
@@ -188,7 +213,7 @@ func (s *PendingStore) NoiseMailForTx(ctx context.Context, tx pgx.Tx, email stri
 		SELECT DISTINCT a.id, a.occurred_at
 		  FROM activity a
 		  JOIN capture_pending_counterparty p ON p.email = a.counterparty_email
-		 WHERE p.email = $2 AND p.status = 'noise' AND `+noiseMailScope+`
+		 WHERE p.email = $2 AND p.status = 'noise' AND `+noiseMailScope+withinVerdictReach()+`
 		   AND a.archived_at IS NULL
 		 ORDER BY a.occurred_at
 		 LIMIT $1`, limit, normalizeEmail(email))

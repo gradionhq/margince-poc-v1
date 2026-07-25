@@ -272,9 +272,19 @@ func (s *Sink) priorDispositionTx(ctx context.Context, tx pgx.Tx, email string) 
 		           SELECT status FROM capture_pending_counterparty
 		            WHERE email = $1
 		              AND status IN ('real', 'noise', 'rejected', 'suppressed')
+		              -- A noise answer settles only the mail it can still reach.
+		              -- Past that, this message is new evidence and gets its own
+		              -- question: otherwise one forged message would silently
+		              -- bar an address forever, and later mail would be neither
+		              -- judged nor hidden -- the worst of both. The other
+		              -- answers do not expire, because real and a human decline
+		              -- are decisions about the SENDER, not about one message.
+		              AND (status <> 'noise'
+		                   OR resolved_at IS NULL
+		                   OR resolved_at >= now() - $2::interval)
 		            ORDER BY resolved_at DESC NULLS LAST
 		            LIMIT 1), '')
-		       END`, normalized).Scan(&status)
+		       END`, normalized, noiseVerdictReach.String()).Scan(&status)
 	if err != nil {
 		return "", fmt.Errorf("capture: reading the prior disposition: %w", err)
 	}

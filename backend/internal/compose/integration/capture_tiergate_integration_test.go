@@ -9,7 +9,15 @@ package integration
 // from the auto-create suite because the tiers are their own subject: one file
 // proves what each tier decides in isolation, the other what a capture writes.
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+)
 
 // The suppressing tiers, each on its own: a free-mail domain is a person and
 // never a company, mail infrastructure is neither while its activity stands,
@@ -174,5 +182,48 @@ func TestCaptureTierGateSuppressesAMachineLocalpartWithoutLosingTheMessage(t *te
 		SELECT count(*) FROM system_log
 		WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'v1@em.vendor.example'`); n != 1 {
 		t.Fatalf("%d suppression breadcrumbs, want 1 — the corroboration rule must be the one that fired", n)
+	}
+}
+
+// A noise verdict settles only the mail it can still reach (ADR-0072 §4). Past
+// that window the sender's next message is new evidence and raises its own
+// question — without which one forged message would bar an address from ever
+// becoming a record, while its later mail went neither judged nor hidden.
+func TestCaptureTierGateReopensASenderWhoseNoiseVerdictHasAged(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+
+	sync(t, email("stale@judged.example", "Judged", captureOwner, "aged1@judged.example", ""))
+	resolveDispositionAged(t, e, "stale@judged.example", "noise", 30*24*time.Hour)
+
+	sync(t, email("stale@judged.example", "Judged", captureOwner, "aged2@judged.example", ""))
+
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty
+		WHERE email = 'stale@judged.example' AND status = 'pending'`); n != 1 {
+		t.Fatalf("%d fresh questions for a sender whose verdict aged out, want 1", n)
+	}
+	// A RECENT verdict still settles the matter — the rule is about age, not
+	// about ignoring the ledger.
+	if n := countRows(t, e, `
+		SELECT count(*) FROM system_log WHERE action = 'capture_noise_sender'`); n != 0 {
+		t.Fatal("an aged-out verdict was still treated as settling the sender")
+	}
+}
+
+// resolveDispositionAged puts an address's disposition into a terminal state
+// resolved the given duration ago.
+func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ago time.Duration) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE capture_pending_counterparty
+			   SET status = $2, resolved_at = now() - $3::interval,
+			       next_attempt_at = NULL, claimed_until = NULL, claimed_by = NULL
+			 WHERE email = $1`, email, status, ago.String())
+		return err
+	})
+	if err != nil {
+		t.Fatalf("aging the disposition: %v", err)
 	}
 }

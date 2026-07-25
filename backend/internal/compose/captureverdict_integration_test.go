@@ -712,3 +712,41 @@ func backdateArchive(t *testing.T, e *integration.Env, id ids.UUID, by time.Dura
 		t.Fatalf("backdating the archive: %v", err)
 	}
 }
+
+// A noise verdict is evidence about the mail that was in front of it, so it
+// cannot reach forward forever. Otherwise one forged message — sent as an
+// address the workspace has never written to — would hide and destroy every mail
+// the real owner of that address ever sends afterwards, unseen, with the
+// "reply to recover" escape unreachable because the victim's mail is invisible.
+func TestANoiseVerdictCannotReachMailSentLongAfterIt(t *testing.T) {
+	e := integration.Setup(t)
+	poisoned := seedCapturedMail(t, e, "cfo@bigcorp.example", "🚀 crypto deals")
+	dispositionID := seedPendingDisposition(t, e, "cfo@bigcorp.example", "bigcorp.example", poisoned)
+
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
+	if err := engine.Run(context.Background(), 0); err != nil {
+		t.Fatalf("verdict pass: %v", err)
+	}
+
+	// Time passes — well past the window in which this verdict is evidence
+	// about anything — and then the real owner writes.
+	backdateResolution(t, e, dispositionID, 30*24*time.Hour)
+	genuine := seedCapturedMail(t, e, "cfo@bigcorp.example", "re: our contract renewal")
+	if err := engine.HideNoiseStragglers(context.Background()); err != nil {
+		t.Fatalf("straggler sweep: %v", err)
+	}
+
+	// The forged message is theirs to hide. The genuine one is not.
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NOT NULL`, poisoned); n != 1 {
+		t.Fatal("the judged message was not hidden")
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, genuine); n != 1 {
+		t.Fatal("mail sent long after the verdict was hidden by it — a forged message must not bar an address forever")
+	}
+
+	// That the same mail also raises a FRESH question is the ladder's half of
+	// this rule, proven where the real capture path runs
+	// (capture_tiergate_integration_test.go) — this fixture inserts activities
+	// directly and never consults the ladder.
+}

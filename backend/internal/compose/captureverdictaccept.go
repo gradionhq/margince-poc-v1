@@ -38,6 +38,9 @@ const (
 	// message, not the sender — the sender has no record yet, which is the
 	// whole question being asked.
 	counterpartyTargetType = "activity"
+	// counterpartyExecutorActor is the principal the accept executes as, in the
+	// contract's declared grammar for captured_by.
+	counterpartyExecutorActor = "agent:" + counterpartyProposalKind
 )
 
 // counterpartyProposal is the staged offer's payload: enough to create the
@@ -117,7 +120,7 @@ func counterpartyAcceptEffect(svc *approvals.Service, store *people.Store,
 		// came from a captured message rather than someone typing them in.
 		execCtx := principal.WithActor(ctx, principal.Principal{
 			Type:       principal.PrincipalSystem,
-			ID:         "agent:" + counterpartyProposalKind,
+			ID:         counterpartyExecutorActor,
 			UserID:     decider.UserID,
 			OnBehalfOf: decider.UserID,
 		})
@@ -140,7 +143,8 @@ func applyCounterpartyAccept(ctx context.Context, tx pgx.Tx, store *people.Store
 		OwnerID:     proposal.OwnerID,
 		ActivityID:  proposal.ActivityID,
 		SuppressOrg: proposal.SuppressOrg,
-		Provenance:  counterpartyProposalKind,
+		Source:      counterpartyProposalKind,
+		CapturedBy:  counterpartyExecutorActor,
 	})
 	if err != nil {
 		return err
