@@ -20,6 +20,26 @@ import (
 // fail records the terminal failure on the dossier and returns the cause
 // so River logs it on the job. A retry after a recorded failure is safe
 // by construction — BeginSiteRead CAS-misses and the attempt no-ops.
+// autoEnrichMaxPages is the page ceiling every AUTOMATIC read runs under
+// (ADR-0072 §9). A read nobody asked for should cost a fraction of one somebody
+// did: the setting is on by default and sweeps up to ten organizations a day
+// per workspace, so the deployment-wide crawler budget is the wrong unit here.
+const autoEnrichMaxPages = 12
+
+// pageCeiling is the page cap for one run: the automatic lane's own ceiling,
+// else whatever the job asked for. Both only narrow — withPageCeiling ignores a
+// value that is not lower than the configured cap, so neither this nor a job
+// payload can spend more than the operator allowed.
+func (w *siteDeepReadWorker) pageCeiling(args SiteDeepReadArgs) int {
+	if isAutoEnrichRequest(args.RequestedBy) {
+		if args.MaxPages > 0 && args.MaxPages < autoEnrichMaxPages {
+			return args.MaxPages
+		}
+		return autoEnrichMaxPages
+	}
+	return args.MaxPages
+}
+
 // autoEnrichEnabled re-reads the workspace's auto-enrich setting.
 func (w *siteDeepReadWorker) autoEnrichEnabled(ctx context.Context) (bool, error) {
 	settings, err := w.settings.Get(ctx)

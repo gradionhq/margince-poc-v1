@@ -50,6 +50,10 @@ type SiteDeepReadArgs struct {
 	SiteReadID     ids.UUID `json:"site_read_id"`
 	SeedURL        string   `json:"seed_url"`
 	RequestedBy    string   `json:"requested_by"`
+	// MaxPages is this run's page ceiling, or 0 for the deployment's own. It
+	// can only ever narrow: the worker clamps it against the configured cap, so
+	// a payload cannot raise what an operator set.
+	MaxPages int `json:"max_pages,omitempty"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
@@ -207,7 +211,8 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// The crawler owns the wall clock (caps.Wall); a seed page that
 	// cannot be read at all is a failed read, not an empty one.
 	progress, publishDraft := w.progressiveCallbacks(ctx, args.SiteReadID)
-	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress, publishDraft)
+	crawler := w.crawler.withPageCeiling(w.pageCeiling(args))
+	crawl, extraction, err := crawlAndExtract(ctx, crawler, w.extract, claim.SeedURL, progress, publishDraft)
 	if err != nil {
 		if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, err); deferred {
 			return deferErr

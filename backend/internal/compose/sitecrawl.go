@@ -119,6 +119,19 @@ type siteCrawler struct {
 	fetchWave int
 }
 
+// withPageCeiling returns a crawler that reads at most pages, or the receiver
+// unchanged when the ceiling is not lower. Narrowing only: a per-run cap is a
+// request to read LESS, and honouring one that asked for more would let a job
+// payload raise a deployment's own limit.
+func (c *siteCrawler) withPageCeiling(pages int) *siteCrawler {
+	if pages <= 0 || pages >= c.maxPages {
+		return c
+	}
+	narrowed := *c
+	narrowed.maxPages = pages
+	return &narrowed
+}
+
 func newSiteCrawler(fetch siteFetcher, caps CrawlCaps) *siteCrawler {
 	caps = caps.withDefaults()
 	return &siteCrawler{

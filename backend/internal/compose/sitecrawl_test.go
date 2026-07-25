@@ -684,3 +684,55 @@ func TestCrawlStopsWhenTheClockRunsOut(t *testing.T) {
 		t.Fatalf("Stopped = %v, want deadline", crawl.Stopped)
 	}
 }
+
+// A per-run page ceiling is a request to read LESS. Honouring one that asked
+// for more would let a job payload raise the limit an operator configured,
+// which is the one direction a cap must never move.
+func TestPageCeilingOnlyNarrows(t *testing.T) {
+	base := newSiteCrawler(nil, CrawlCaps{MaxPages: 20})
+	cases := map[string]struct {
+		ceiling int
+		want    int
+	}{
+		"lower narrows":         {12, 12},
+		"higher is ignored":     {40, 20},
+		"equal changes nothing": {20, 20},
+		"zero means unset":      {0, 20},
+		"negative is unset":     {-5, 20},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := base.withPageCeiling(c.ceiling).maxPages; got != c.want {
+				t.Errorf("ceiling %d gave maxPages %d, want %d", c.ceiling, got, c.want)
+			}
+		})
+	}
+	if base.maxPages != 20 {
+		t.Errorf("the shared crawler was mutated to %d — a per-run cap must not outlive its run", base.maxPages)
+	}
+}
+
+// The automatic lane runs under its own ceiling whatever the payload says: a
+// read nobody asked for should cost a fraction of one somebody did.
+func TestAutomaticReadsCarryTheirOwnPageCeiling(t *testing.T) {
+	w := &siteDeepReadWorker{}
+	cases := map[string]struct {
+		requestedBy string
+		maxPages    int
+		want        int
+	}{
+		"automatic, unset":           {systemAutoEnrichActor, 0, autoEnrichMaxPages},
+		"automatic asking for more":  {systemAutoEnrichActor, 40, autoEnrichMaxPages},
+		"automatic asking for less":  {systemAutoEnrichActor, 5, 5},
+		"human keeps the deployment": {"human:x", 0, 0},
+		"human may still narrow":     {"human:x", 8, 8},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := w.pageCeiling(SiteDeepReadArgs{RequestedBy: c.requestedBy, MaxPages: c.maxPages})
+			if got != c.want {
+				t.Errorf("ceiling = %d, want %d", got, c.want)
+			}
+		})
+	}
+}
