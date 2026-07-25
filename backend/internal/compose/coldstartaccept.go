@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -36,6 +37,7 @@ func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
 	svc.WithEffect(enrichProposalKind, scrapeAcceptEffect(svc, store))
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, store))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(pool, CaptureConfig{})))
+	svc.WithEffect(counterpartyProposalKind, counterpartyAcceptEffect(svc, store, capture.NewPendingStore(pool)))
 	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool)))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool)))

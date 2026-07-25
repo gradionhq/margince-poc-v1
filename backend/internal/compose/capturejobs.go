@@ -200,3 +200,32 @@ func (w *captureBackfillWorker) enqueueDigest(ctx context.Context, backfillID st
 			"backfill", backfillID, "err", err)
 	}
 }
+
+// CounterpartyVerdictArgs runs one counterparty-verdict pass (ADR-0072/A118 §4).
+type CounterpartyVerdictArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (CounterpartyVerdictArgs) Kind() string { return "capture_counterparty_verdict" }
+
+// counterpartyVerdictWorker drives the disposition ledger's three stages in the
+// order they depend on each other: judge what is due, offer to a human what
+// judging could not settle, then redact the noise whose undo window has closed.
+//
+// Judging and staging are separate stages rather than one, so a staging failure
+// never costs a verdict that was already paid for — the rows it missed are
+// picked up by the next tick, because the backlog is a query, not a queue this
+// worker holds.
+type counterpartyVerdictWorker struct {
+	river.WorkerDefaults[CounterpartyVerdictArgs]
+	engine *CounterpartyVerdictEngine
+}
+
+func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[CounterpartyVerdictArgs]) error {
+	if err := w.engine.Run(ctx, 0); err != nil {
+		return err
+	}
+	if err := w.engine.StageReviews(ctx, 0); err != nil {
+		return err
+	}
+	return w.engine.RedactNoise(ctx, capture.NoiseUndoWindow, 0)
+}

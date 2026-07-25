@@ -38,14 +38,24 @@ const (
 	PendingStatusRejected   = "rejected"
 )
 
-// pendingMaxAttempts bounds the verdict retries (ADR-0072 §5: retries=2). A row
+// PendingMaxAttempts bounds the verdict retries (ADR-0072 §5: retries=2). A row
 // that exhausts them is retired from the due-scan rather than retried forever.
-const pendingMaxAttempts = 2
+// Exported so the verdict engine can retire a row deliberately — a terminal
+// answer is reached by spending the attempts, not by a second spelling of
+// "give up".
+const PendingMaxAttempts = 2
 
 // pendingLease is how long a claimed row stays off other workers' scans. Longer
 // than a batch takes, short enough that a worker that died mid-batch releases
 // its rows by expiry instead of stranding them.
 const pendingLease = 15 * time.Minute
+
+// NoiseUndoWindow is how long a noise-dispositioned message stays merely hidden
+// before its content is redacted (ADR-0072 §4). The delay is the whole safety
+// margin on the one verdict that destroys anything: a wrong `noise` is fully
+// recoverable — un-archive and the mail is back — right up until the window
+// closes, which is why hiding is allowed to be automatic at all.
+const NoiseUndoWindow = 7 * 24 * time.Hour
 
 // PendingDeferralCap bounds how many open questions one workspace may hold at
 // once. Every deferral is a promised model call, and the party who creates them
@@ -205,7 +215,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			          p.activity_id, p.owner_id, p.attempts,
 			          coalesce((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), ''),
 			          coalesce((SELECT a.body FROM activity a WHERE a.id = p.activity_id), '')`,
-			limit, pendingLease.String(), pendingMaxAttempts, claim)
+			limit, pendingLease.String(), PendingMaxAttempts, claim)
 		if err != nil {
 			return err
 		}
@@ -256,7 +266,7 @@ func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterp
 // releasing "its" row would otherwise cut short a lease someone else now holds.
 func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if p.Attempts >= pendingMaxAttempts {
+		if p.Attempts >= PendingMaxAttempts {
 			_, err := tx.Exec(ctx, `
 				UPDATE capture_pending_counterparty
 				   SET status = 'unsure', disposition_reason = NULLIF($2, ''),
@@ -296,6 +306,132 @@ func (s *PendingStore) HasLivePending(ctx context.Context, email string) (bool, 
 		return false, fmt.Errorf("capture: reading the disposition ledger: %w", err)
 	}
 	return live, nil
+}
+
+// LinkProposal points an `unsure` row at the review-queue offer staged for it,
+// so a later pass finds the existing offer instead of staging a second one.
+// Guarded on the row still being `unsure` and still unlinked: a row a human has
+// already decided must not have a fresh proposal attached to it.
+func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_pending_counterparty
+			   SET proposal_id = $2, updated_at = now()
+			 WHERE id = $1 AND status = 'unsure' AND proposal_id IS NULL`, id, proposalID)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("capture: linking the review proposal for %s: %w", id, err)
+	}
+	return nil
+}
+
+// AwaitingReview lists `unsure` rows that have no review-queue offer yet — the
+// staging backlog. A row reaches this state by exhausting the model's attempts,
+// so what it needs next is a human, and until an offer exists nobody can give it
+// one.
+func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]PendingCounterparty, error) {
+	var out []PendingCounterparty
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
+			       p.activity_id, p.owner_id, p.attempts
+			  FROM capture_pending_counterparty p
+			 WHERE p.status = 'unsure' AND p.proposal_id IS NULL
+			 ORDER BY p.resolved_at NULLS LAST, p.created_at
+			 LIMIT $1`, limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var p PendingCounterparty
+			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
+				&p.ActivityID, &p.OwnerID, &p.Attempts); err != nil {
+				return err
+			}
+			out = append(out, p)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("capture: reading the review backlog: %w", err)
+	}
+	return out, nil
+}
+
+// ResolveReviewed closes an `unsure` row that a human decided, on the caller's
+// transaction. Unlike Resolve it carries no claim token — the authority here is
+// the redeemed approval, not a worker's lease, and an `unsure` row is held by
+// nobody. The CAS on `unsure` is what makes a replayed redemption a no-op.
+func (s *PendingStore) ResolveReviewed(ctx context.Context, tx pgx.Tx, id ids.UUID, status, reason string) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE capture_pending_counterparty
+		   SET status = $2, disposition_reason = NULLIF($3, ''),
+		       resolved_at = now(), next_attempt_at = NULL, updated_at = now()
+		 WHERE id = $1 AND status = 'unsure'`, id, status, reason)
+	if err != nil {
+		return fmt.Errorf("capture: resolving reviewed disposition %s: %w", id, err)
+	}
+	return nil
+}
+
+// NoiseRedaction names one noise disposition whose undo window has expired.
+type NoiseRedaction struct {
+	ID         ids.UUID
+	ActivityID ids.UUID
+}
+
+// DueForRedaction lists noise dispositions resolved longer ago than window and
+// not yet redacted. The window is the undo period: until it passes, a wrong
+// verdict is fully recoverable because the mail is merely hidden.
+//
+// The cutoff is computed by the DATABASE from its own now(), like every other
+// due-scan here — the app's clock never decides whether someone's undo window
+// has run out.
+func (s *PendingStore) DueForRedaction(ctx context.Context, window time.Duration, limit int) ([]NoiseRedaction, error) {
+	var out []NoiseRedaction
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, activity_id FROM capture_pending_counterparty
+			 WHERE status = 'noise' AND redacted_at IS NULL
+			   AND resolved_at IS NOT NULL AND resolved_at <= now() - $1::interval
+			 ORDER BY resolved_at
+			 LIMIT $2`, window.String(), limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r NoiseRedaction
+			if err := rows.Scan(&r.ID, &r.ActivityID); err != nil {
+				return err
+			}
+			out = append(out, r)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("capture: reading the redaction backlog: %w", err)
+	}
+	return out, nil
+}
+
+// MarkRedacted records that a disposition's content redaction completed. Stamped
+// only after the content is actually gone, so a crash between the two leaves the
+// row due again — redoing a redaction is harmless, skipping one is not.
+func (s *PendingStore) MarkRedacted(ctx context.Context, id ids.UUID) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_pending_counterparty
+			   SET redacted_at = now(), updated_at = now()
+			 WHERE id = $1 AND status = 'noise' AND redacted_at IS NULL`, id)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("capture: marking disposition %s redacted: %w", id, err)
+	}
+	return nil
 }
 
 // normalizeEmail is the ONE spelling of the ledger's identity: lowercased and

@@ -37,9 +37,13 @@ var companyContextPolicies = map[ai.Task]companyContextPolicy{
 	},
 	ai.TaskBriefRanking:    {},
 	ai.TaskCaptureClassify: {},
-	ai.TaskCertJudge:       {},
-	ai.TaskColdStart:       {},
-	ai.TaskDealHealth:      {},
+	// The verdict judges what a SENDER is, which its own headers and message
+	// carry; company context would add tokens to the cheapest rung of a
+	// high-volume background task without changing the question being asked.
+	ai.TaskCaptureCounterpartyVerdict: {},
+	ai.TaskCertJudge:                  {},
+	ai.TaskColdStart:                  {},
+	ai.TaskDealHealth:                 {},
 	ai.TaskDraftReply: {
 		scopes: []people.CompanyContextScope{
 			people.CompanyContextPositioning,
