@@ -58,6 +58,12 @@ type Dispatcher struct {
 	overlay *overlay.Provider
 	pool    *pgxpool.Pool
 	now     func() time.Time
+	// queryMode reads one workspace's x_sor_mode from the workspace row.
+	// Injected for the same reason now is (T11: no real dependency in a
+	// cache-behaviour test) — it is the seam that lets a unit test prove the
+	// write path ignores the cache, which is precisely the property that
+	// cannot be observed by seeding the cache and reading the answer back.
+	queryMode func(context.Context, ids.UUID) (bool, error)
 
 	mu    sync.Mutex
 	cache map[ids.UUID]sorModeCacheEntry
@@ -83,10 +89,12 @@ func NewDispatcher(native *Provider, overlayProvider *overlay.Provider, pool *pg
 // package's own tests to exercise the TTL boundary without a
 // time.Sleep.
 func newDispatcherWithClock(native *Provider, overlayProvider *overlay.Provider, pool *pgxpool.Pool, now func() time.Time) *Dispatcher {
-	return &Dispatcher{
+	d := &Dispatcher{
 		native: native, overlay: overlayProvider, pool: pool, now: now,
 		cache: make(map[ids.UUID]sorModeCacheEntry),
 	}
+	d.queryMode = d.queryOverlayMode
+	return d
 }
 
 var _ datasource.SystemOfRecordProvider = (*Dispatcher)(nil)
@@ -105,6 +113,40 @@ func (d *Dispatcher) isOverlay(ctx context.Context) (bool, error) {
 		return false, nil
 	}
 	return d.overlayModeFor(ctx, wsID)
+}
+
+// isOverlayForWrite answers the same question as isOverlay, but never from
+// the cache: it reads workspace.x_sor_mode fresh and refreshes the cached
+// entry with what it found.
+//
+// A cached answer is fine for a read — serving one request's list from the
+// pre-flip system of record for a moment costs a stale screen, and the next
+// request corrects it. A WRITE has no such second chance. The cache is
+// per-process and Invalidate only reaches the process that committed the
+// flip, so a second api replica (or a worker) can still hold 'native' for
+// the rest of the TTL after a workspace connects. A mutation dispatched on
+// that stale answer commits to a native table no overlay read ever serves
+// and that never reaches the incumbent — silent divergence, not a stale
+// screen. So every mutation boundary pays one workspace-row read to be sure.
+//
+// This narrows the window to the request's own duration; it does not erase
+// it, because the mode read and the mutation cannot share a transaction (on
+// the overlay side the canonical write commits at the incumbent, outside
+// any database of ours). What closes the remainder is the disconnect fence
+// on the overlay side and this check on the native side.
+func (d *Dispatcher) isOverlayForWrite(ctx context.Context) (bool, error) {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return false, nil
+	}
+	isOverlay, err := d.queryMode(ctx, wsID)
+	if err != nil {
+		return false, err
+	}
+	d.mu.Lock()
+	d.cache[wsID] = sorModeCacheEntry{overlay: isOverlay, expiresAt: d.now().Add(sorModeCacheTTL)}
+	d.mu.Unlock()
+	return isOverlay, nil
 }
 
 // Invalidate drops one workspace's cached x_sor_mode answer — called by
@@ -130,7 +172,7 @@ func (d *Dispatcher) overlayModeFor(ctx context.Context, wsID ids.UUID) (bool, e
 		return entry.overlay, nil
 	}
 
-	isOverlay, err := d.queryOverlayMode(ctx, wsID)
+	isOverlay, err := d.queryMode(ctx, wsID)
 	if err != nil {
 		return false, err
 	}
@@ -236,10 +278,13 @@ func (d *Dispatcher) StageSemantic(ctx context.Context, stageID ids.UUID) (strin
 }
 
 // Create dispatches to the overlay mirror or the native SoR modules per
-// ctx's workspace.x_sor_mode; overlay has no write-back path yet and
-// always answers apperrors.ErrUnsupportedBySoR until branch 2 lands it.
+// ctx's workspace.x_sor_mode. The mutating verbs here — and only these —
+// resolve the mode UNCACHED (isOverlayForWrite); see its doc for why a write
+// cannot take the cached answer a read happily takes. Overlay serves update
+// and archive; every other write verb it declares unsupported and refuses at
+// the provider (overlay.SupportsWrite).
 func (d *Dispatcher) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
-	ov, err := d.isOverlay(ctx)
+	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -250,12 +295,25 @@ func (d *Dispatcher) Create(ctx context.Context, in datasource.CreateInput) (dat
 }
 
 // Update dispatches to the overlay mirror or the native SoR modules per
-// ctx's workspace.x_sor_mode; see Create's doc on overlay's write gap.
+// ctx's workspace.x_sor_mode; see Create's doc on the uncached mode read.
 func (d *Dispatcher) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
-	ov, err := d.isOverlay(ctx)
+	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
+	return d.updateInMode(ctx, ov, in)
+}
+
+// updateInMode is Update for a caller that has ALREADY paid the fresh
+// isOverlayForWrite read for this request — the REST write shadow, which must
+// resolve the mode itself to choose between the native module handler and the
+// overlay path before it can dispatch at all.
+//
+// Without it that shadow would read workspace.x_sor_mode twice per mutation:
+// once to route, once inside this dispatch. Both reads are fresh, so the
+// second is not a correctness gain, only a second round trip — and
+// isOverlayForWrite's own contract is that a mutation boundary pays ONE.
+func (d *Dispatcher) updateInMode(ctx context.Context, ov bool, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	if ov {
 		return d.overlay.Update(ctx, in)
 	}
@@ -263,10 +321,10 @@ func (d *Dispatcher) Update(ctx context.Context, in datasource.UpdateInput) (dat
 }
 
 // AdvanceDeal dispatches to the overlay mirror or the native SoR
-// modules per ctx's workspace.x_sor_mode; see Create's doc on overlay's
-// write gap.
+// modules per ctx's workspace.x_sor_mode; see Create's doc on the uncached
+// mode read.
 func (d *Dispatcher) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealInput) (datasource.EntityRef, error) {
-	ov, err := d.isOverlay(ctx)
+	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -280,10 +338,16 @@ func (d *Dispatcher) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealI
 // per ctx's workspace.x_sor_mode; see Create's doc on overlay's write
 // gap.
 func (d *Dispatcher) Archive(ctx context.Context, ref datasource.EntityRef) (datasource.EntityRef, error) {
-	ov, err := d.isOverlay(ctx)
+	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
+	return d.archiveInMode(ctx, ov, ref)
+}
+
+// archiveInMode is Archive for a caller that already resolved the mode this
+// request — see updateInMode.
+func (d *Dispatcher) archiveInMode(ctx context.Context, ov bool, ref datasource.EntityRef) (datasource.EntityRef, error) {
 	if ov {
 		return d.overlay.Archive(ctx, ref)
 	}
@@ -291,9 +355,9 @@ func (d *Dispatcher) Archive(ctx context.Context, ref datasource.EntityRef) (dat
 }
 
 // Merge dispatches to the overlay mirror or the native SoR modules per
-// ctx's workspace.x_sor_mode; see Create's doc on overlay's write gap.
+// ctx's workspace.x_sor_mode; see Create's doc on the uncached mode read.
 func (d *Dispatcher) Merge(ctx context.Context, in datasource.MergeInput) (datasource.EntityRef, error) {
-	ov, err := d.isOverlay(ctx)
+	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
@@ -304,10 +368,10 @@ func (d *Dispatcher) Merge(ctx context.Context, in datasource.MergeInput) (datas
 }
 
 // PromoteLead dispatches to the overlay mirror or the native SoR
-// modules per ctx's workspace.x_sor_mode; see Create's doc on overlay's
-// write gap.
+// modules per ctx's workspace.x_sor_mode; see Create's doc on the uncached
+// mode read.
 func (d *Dispatcher) PromoteLead(ctx context.Context, id ids.UUID, trigger string, evidenceNote *string) (datasource.EntityRef, bool, error) {
-	ov, err := d.isOverlay(ctx)
+	ov, err := d.isOverlayForWrite(ctx)
 	if err != nil {
 		return datasource.EntityRef{}, false, err
 	}

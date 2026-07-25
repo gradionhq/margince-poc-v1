@@ -79,16 +79,16 @@ var overlayRecordWriteTools = map[string]bool{
 }
 
 // overlayModeChecker resolves whether the request's workspace is in overlay
-// mode. It is the Dispatcher's own resolver, kept as a one-method interface
-// so the guard is unit-testable without the full dispatch. NOTE: the answer
-// rides the Dispatcher's short TTL cache, so a non-connecting process can
-// serve the pre-flip mode for up to that TTL after a mode change on another
-// instance (the connecting process invalidates its own cache). Closing that
-// last window needs an uncached, in-transaction mode read on the write path
-// and lands with the branch-2 write-back work; this guard closes the far
-// larger hole — that human/static writes were not mode-checked at all.
+// mode. It is the Dispatcher's own write-path resolver, kept as a one-method
+// interface so the guard is unit-testable without the full dispatch.
+//
+// It is deliberately the UNCACHED resolver (dispatcher.go's
+// isOverlayForWrite), not the read path's cached one: this guard runs only on
+// mutating requests, and a mutation routed on a stale mode is the silent
+// divergence the guard exists to prevent — see isOverlayForWrite's own doc
+// for what that costs and what it still cannot promise.
 type overlayModeChecker interface {
-	isOverlay(ctx context.Context) (bool, error)
+	isOverlayForWrite(ctx context.Context) (bool, error)
 }
 
 // overlayWriteGuard refuses a mutating REST request whose native module
@@ -102,8 +102,16 @@ type overlayModeChecker interface {
 // since its native table is the live one in overlay mode too. The guarded set
 // is keyed off the generated agentPolicies table (the contract's own
 // op→tool classification), so it never drifts from the contract. It runs for
-// every principal — the reason it is a standalone middleware rather than part
-// of the agent-only gate.
+// every principal on the REST surface — the reason it is a standalone
+// middleware rather than part of the agent-only gate.
+//
+// REST is the limit of its reach, and deliberately so: the MCP tool registry
+// and the automation engine call the same seam verbs without passing through
+// any router. The declaration those callers are held to is the provider's own
+// (overlay.SupportsWrite, enforced by requireSupportedWrite inside each write
+// verb). This guard exists on top of that because it can refuse BEFORE a
+// native module handler writes its own table, which the provider — never
+// reached on the native path — cannot do.
 func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -129,7 +137,7 @@ func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler 
 				next.ServeHTTP(w, r)
 				return
 			}
-			inOverlay, err := mode.isOverlay(r.Context())
+			inOverlay, err := mode.isOverlayForWrite(r.Context())
 			if err != nil {
 				httperr.Write(w, r, err)
 				return

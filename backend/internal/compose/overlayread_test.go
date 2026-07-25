@@ -7,8 +7,9 @@ import "testing"
 
 // TestClampOverlaySearchLimit pins the guard on the overlay search limit:
 // a bound integer that slips past request validation (a negative or an
-// oversized ?limit=) must never reach a slice capacity, so it is clamped
-// to the contract's 1..100 range before it sizes any allocation.
+// oversized ?limit=) must never reach a slice capacity, so it is clamped to
+// the SHARED Limit parameter's 1..200 range — the same range /search
+// declares in native mode — before it sizes any allocation.
 func TestClampOverlaySearchLimit(t *testing.T) {
 	cases := []struct{ in, want int }{
 		{-1, 1},
@@ -16,7 +17,8 @@ func TestClampOverlaySearchLimit(t *testing.T) {
 		{1, 1},
 		{25, 25},
 		{100, 100},
-		{101, overlaySearchMaxLimit},
+		{200, 200},
+		{201, overlaySearchMaxLimit},
 		{1 << 30, overlaySearchMaxLimit},
 	}
 	for _, c := range cases {

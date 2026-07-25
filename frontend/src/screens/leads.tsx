@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
+import { isOption } from "../app/options";
 import { navigate } from "../app/router";
 import {
   Badge,
@@ -634,9 +635,11 @@ function LeadOverviewPane({
                     className="input"
                     aria-label={t("lead.trigger")}
                     value={trigger}
-                    onChange={(event) =>
-                      setTrigger(event.target.value as PromoteTrigger)
-                    }
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const triggers = PROMOTE_TRIGGERS.map((o) => o.value);
+                      if (isOption(value, triggers)) setTrigger(value);
+                    }}
                   >
                     {PROMOTE_TRIGGERS.map((option) => (
                       <option key={option.value} value={option.value}>

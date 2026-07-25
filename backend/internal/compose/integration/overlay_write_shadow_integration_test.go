@@ -180,6 +180,11 @@ func TestOverlayUpdateDealWritesBackAndReturnsTheMirroredRow(t *testing.T) {
 // the contract's own 200-with-body (never a bare 204 for a domain row,
 // matching every native ArchivePerson/ArchiveOrganization/ArchiveDeal), and
 // the incumbent — not just the mirror — loses the record.
+//
+// The body must describe the record as it is AFTER the call: the contract
+// defines the archive response as one that "now carries a non-null
+// archived_at", and a body reporting the record as live is a write reported
+// as not having happened.
 func TestOverlayArchivePersonWritesBack(t *testing.T) {
 	e := setupOverlayWrite(t)
 	e.seed(t, "person", "9101", map[string]any{"first_name": "Ada", "last_name": "Overlay"})
@@ -192,10 +197,19 @@ func TestOverlayArchivePersonWritesBack(t *testing.T) {
 	if person.FullName != "Ada Overlay" {
 		t.Fatalf("archived person body FullName = %q, want the pre-archive %q", person.FullName, "Ada Overlay")
 	}
+	if person.ArchivedAt == nil {
+		t.Fatal("archived person body carries archived_at: null — the response claims a record the incumbent just archived is still live")
+	}
 
 	if _, err := e.fake.Get(context.Background(), "person", "9101"); err == nil {
 		t.Fatal("the fake incumbent still holds the archived person — the archive never reached the seam")
 	}
+	// The contract also promises an archived row stays fetchable by id. It is
+	// not, on this path: an incumbent archive stops serving the object, so the
+	// mirror purges rather than flags it. Pinned as the KNOWN divergence it is
+	// — the upstream question is what archive means when the system of record
+	// is an incumbent, and this assertion is what will fail loudly the day
+	// that answer lands.
 	if status := e.call(t, "GET", "/v1/people/"+id, nil, nil, nil); status != http.StatusNotFound {
 		t.Fatalf("GET the archived person = %d, want 404 (the mirror row is purged by the archive itself)", status)
 	}
