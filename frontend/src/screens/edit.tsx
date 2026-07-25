@@ -172,7 +172,7 @@ export function EditRecordModal({
         {title}
       </h2>
       {notice && (
-        <p className="t-caption" style={{ marginBottom: 12 }}>
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
           {notice}
         </p>
       )}
