@@ -175,9 +175,10 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	for _, id := range ids {
 		raw, err := c.api.GetMIME(ctx, access, id)
 		if errors.Is(err, connector.ErrSkip) {
-			// An oversized message is a per-message drop (truncated MIME is
-			// not honest evidence), never a pull-stopping fault — the cursor
-			// still advances past it.
+			// A message the provider refuses to hand over: deleted since the
+			// delta named it, or oversized (truncated MIME is not honest
+			// evidence). Either is a per-message drop, never a pull-stopping
+			// fault — the cursor still advances past it.
 			continue
 		}
 		if err != nil {
@@ -185,7 +186,9 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 			// cursor so the next cycle retries from the same watermark.
 			return nil, err
 		}
-		if _, err := captureOne(ctx, raw, sink, owner); err != nil {
+		// The incremental delta reads the inbox folder only, so nothing it
+		// yields is mail the owner sent.
+		if _, err := captureOne(ctx, raw, sink, owner, false); err != nil {
 			return nil, err
 		}
 	}
@@ -218,7 +221,7 @@ func (c *Connector) selectMessages(ctx context.Context, access, start string) ([
 // a no-op; only a real Sink write fault returns a non-nil error (which stops
 // the pull). It is a package function (no receiver) so a pull holds no shared
 // state.
-func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string) (captured bool, err error) {
+func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string, sentByOwner bool) (captured bool, err error) {
 	msg, err := mailmap.Parse(raw, owner)
 	if err != nil {
 		return false, nil //nolint:nilerr // a single unparseable message is a skip, not a fatal pull error (mirrors the Gmail connector)
@@ -226,6 +229,7 @@ func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner stri
 	if _, drop := msg.SkipReason(); drop {
 		return false, nil
 	}
+	msg = msg.AttestSentByOwner(sentByOwner)
 	if _, err := sink.Upsert(ctx, msg.ToRecord(connectorName, raw)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			return false, nil

@@ -48,6 +48,19 @@ type Message struct {
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
 	autoSubmit       bool
 	listUnsubscribe  bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
+	sentByOwner      bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+}
+
+// AttestSentByOwner returns a copy carrying the provider's own attestation
+// that the authenticated mailbox owner sent this message — Gmail's SENT
+// label, an IMAP \Sent special-use mailbox, Microsoft's SentItems folder.
+// The signal cannot come from Parse: every header this package reads is
+// attacker-controlled, and the T1 correspondence-positive gate (ADR-0072 §1)
+// treats a sent message as affirmative intent toward its recipient. Only a
+// connector holding an authenticated provider handle can vouch for it.
+func (m Message) AttestSentByOwner(sent bool) Message {
+	m.sentByOwner = sent
+	return m
 }
 
 // Counterparty is the non-owner address on the message (the person this
@@ -80,11 +93,11 @@ func Parse(raw []byte, owner string) (Message, error) {
 	body := extractText(reader)
 
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
-	direction := "inbound"
+	direction := connector.DirectionInbound
 	counterparty := from
 	counterpartyName := displayName(fromList, counterparty)
 	if strings.ToLower(from) == ownerLower && ownerLower != "" {
-		direction = "outbound"
+		direction = connector.DirectionOutbound
 		counterparty = firstNonOwner(toList, ownerLower)
 		counterpartyName = displayName(toList, counterparty)
 	}
@@ -208,7 +221,7 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			Domain:          domainOf(m.counterparty),
 			Direction:       m.direction,
 			ListUnsubscribe: m.listUnsubscribe,
-		},
+		}.WithOwnerAttestation(m.sentByOwner),
 		ThreadKey: m.threadKey,
 	}
 }

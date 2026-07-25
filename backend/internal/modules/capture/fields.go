@@ -15,7 +15,7 @@ type ActivityFields struct {
 	Subject    string
 	Body       string
 	OccurredAt time.Time
-	Direction  string // inbound | outbound | "" (not directional)
+	Direction  string // connector.DirectionInbound | DirectionOutbound | "" (not directional)
 }
 
 // LeadFields is a captured prospect bound for the lead pool — never

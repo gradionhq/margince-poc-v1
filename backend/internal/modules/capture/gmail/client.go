@@ -19,6 +19,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,23 @@ type OAuth interface {
 	AccessToken(ctx context.Context, refreshToken string) (accessToken string, err error)
 }
 
+// sentLabelID is Gmail's system label for the mailbox owner's own sent mail.
+// System label ids are stable strings, not localized names.
+const sentLabelID = "SENT"
+
+// Message is one fetched Gmail message: the decoded RFC822 bytes plus the one
+// thing the bytes cannot honestly tell us — whether Gmail itself filed the
+// message under SENT (ADR-0072 §1's provider evidence). Both come off the same
+// messages.get response, so the signal costs no extra call.
+type Message struct {
+	RFC822 []byte
+	// FiledAsSent is the provider half of the T1 evidence and nothing more:
+	// Gmail labelled this message SENT. On its own it does not mean the owner
+	// wrote it — mailmap composes it with the message's authorship before any
+	// attestation is claimed.
+	FiledAsSent bool
+}
+
 // API is the read-only Gmail surface the connector uses. All calls take a
 // short-lived access token (minted from the refresh token per Sync).
 type API interface {
@@ -92,8 +110,9 @@ type API interface {
 	// History returns the message ids added since startHistoryID and the
 	// advanced historyId; ErrHistoryGone if the cursor is too old.
 	History(ctx context.Context, accessToken, startHistoryID string) (addedIDs []string, historyID string, err error)
-	// GetRaw fetches one message as its decoded RFC822 bytes (format=RAW).
-	GetRaw(ctx context.Context, accessToken, msgID string) (rfc822 []byte, err error)
+	// GetRaw fetches one message as its decoded RFC822 bytes (format=RAW)
+	// together with Gmail's own SENT filing of it, read off the same response.
+	GetRaw(ctx context.Context, accessToken, msgID string) (Message, error)
 	// EstimateAfter returns the provider-side message count for a query
 	// (resultSizeEstimate) — the backfill preview's number.
 	EstimateAfter(ctx context.Context, accessToken, query string) (int, error)
@@ -247,9 +266,10 @@ func (a *httpAPI) History(ctx context.Context, accessToken, startHistoryID strin
 	return ids, latest, nil
 }
 
-func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte, error) {
+func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) (Message, error) {
 	var out struct {
-		Raw string `json:"raw"`
+		Raw      string   `json:"raw"`
+		LabelIDs []string `json:"labelIds"` //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
 	}
 	q := url.Values{"format": {"RAW"}}
 	status, err := a.get(ctx, accessToken, "/messages/"+url.PathEscape(msgID), q, &out, maxRawMessageBytes)
@@ -258,17 +278,26 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 		// let the pull continue rather than abort on a message that no longer
 		// exists (get maps every non-200 to ErrUnreachable; the 404 is not a
 		// reachability problem).
-		return nil, ErrMessageGone
+		return Message{}, ErrMessageGone
 	}
 	if err != nil {
-		return nil, err
+		return Message{}, err
 	}
 	// Gmail encodes the RFC822 as web-safe (URL) base64, padding-optional.
 	decoded, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(out.Raw, "="))
 	if err != nil {
-		return nil, fmt.Errorf("gmail: decoding raw message %s: %w", msgID, ErrUnreachable)
+		return Message{}, fmt.Errorf("gmail: decoding raw message %s: %w", msgID, ErrUnreachable)
 	}
-	return decoded, nil
+	return Message{RFC822: decoded, FiledAsSent: hasSentLabel(out.LabelIDs)}, nil
+}
+
+// hasSentLabel reports whether Gmail filed this message under SENT — the
+// provider's own attestation that the authenticated mailbox owner sent it.
+// Gmail sets the label on delivery to the sender's own mailbox; a message that
+// merely claims the owner in its From header never carries it, which is exactly
+// why the T1 correspondence gate (ADR-0072 §1) reads this and not the header.
+func hasSentLabel(labelIDs []string) bool {
+	return slices.Contains(labelIDs, sentLabelID)
 }
 
 // Watch registers a users.watch so Gmail publishes change notifications for

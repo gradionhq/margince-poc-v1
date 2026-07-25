@@ -167,7 +167,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	}
 
 	for _, id := range ids {
-		raw, err := c.api.GetRaw(ctx, access, id)
+		msg, err := c.api.GetRaw(ctx, access, id)
 		if errors.Is(err, ErrMessageGone) {
 			// Deleted or moved since enumeration — nothing to capture. Skip it
 			// and keep going; one vanished id must not abort the batch and
@@ -179,7 +179,7 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 			// cursor so the next cycle retries from the same watermark.
 			return nil, err
 		}
-		if _, err := captureOne(ctx, raw, sink, owner); err != nil {
+		if _, err := captureOne(ctx, msg, sink, owner); err != nil {
 			return nil, err
 		}
 	}
@@ -226,15 +226,16 @@ func (c *Connector) backfill(ctx context.Context, access string) ([]string, stri
 // the IMAP connector uses. A parse failure or a deliberate skip is a no-op;
 // only a real Sink write fault returns a non-nil error (which stops the pull).
 // It is a package function (no receiver) so a pull holds no shared state.
-func captureOne(ctx context.Context, raw []byte, sink connector.Sink, owner string) (captured bool, err error) {
-	msg, err := mailmap.Parse(raw, owner)
+func captureOne(ctx context.Context, fetched Message, sink connector.Sink, owner string) (captured bool, err error) {
+	msg, err := mailmap.Parse(fetched.RFC822, owner)
 	if err != nil {
 		return false, nil //nolint:nilerr // a single unparseable message is a skip, not a fatal pull error (mirrors the IMAP connector)
 	}
 	if _, drop := msg.SkipReason(); drop {
 		return false, nil
 	}
-	if _, err := sink.Upsert(ctx, msg.ToRecord(connectorName, raw)); err != nil {
+	msg = msg.AttestSentByOwner(fetched.FiledAsSent)
+	if _, err := sink.Upsert(ctx, msg.ToRecord(connectorName, fetched.RFC822)); err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			return false, nil
 		}

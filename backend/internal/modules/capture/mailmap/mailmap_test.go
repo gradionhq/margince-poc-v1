@@ -247,3 +247,53 @@ func TestParseCarriesCounterpartyAndThreadKey(t *testing.T) {
 		}
 	})
 }
+
+// The T1 correspondence gate's evidence is the provider's, not the message's
+// (ADR-0072 §1). Parse must never infer it: a message whose From header names
+// the mailbox owner parses as outbound — that is what direction means — and it
+// still attests nothing, because anyone can write that header. Only a
+// connector holding an authenticated provider handle may set the attestation.
+func TestSentByOwnerComesFromTheProviderNotTheHeaders(t *testing.T) {
+	spoofed := crlf(
+		"From: me@myco.com", "To: victim@evil.example", "Subject: pay this invoice",
+		"Message-ID: <spoof1@evil.example>", "Content-Type: text/plain", "", "wire it", "",
+	)
+	msg, err := Parse(spoofed, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	rec := msg.ToRecord("imap", spoofed)
+	if rec.Counterparty.Direction != "outbound" {
+		t.Fatalf("Direction = %q, want outbound — the From header claims the owner", rec.Counterparty.Direction)
+	}
+	if rec.Counterparty.SentByOwner() {
+		t.Fatal("SentByOwner = true from headers alone: a forged From:owner would whitelist its recipient past suppression")
+	}
+	if attested := msg.AttestSentByOwner(true).ToRecord("imap", spoofed); !attested.Counterparty.SentByOwner() {
+		t.Fatal("AttestSentByOwner(true) must carry the provider's attestation onto the record")
+	}
+}
+
+// Placement is not authorship. A server-side rule can file a third party's
+// message into a \Sent mailbox or Sent Items, and the counterparty of such a
+// message is its SENDER — attesting on the provider's filing alone would stamp
+// a stranger's address as the workspace's own correspondence and hand them the
+// T1 spare past T2 suppression, which is the same bypass the forged header
+// would have bought.
+func TestAttestationRequiresAuthorshipNotJustPlacement(t *testing.T) {
+	filed := crlf(
+		"From: blast@sendgrid.net", "To: me@myco.com", "Subject: deal",
+		"Message-ID: <filed1@sendgrid.net>", "Content-Type: text/plain", "", "hi", "",
+	)
+	msg, err := Parse(filed, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	rec := msg.AttestSentByOwner(true).ToRecord("imap", filed)
+	if rec.Counterparty.Email != "blast@sendgrid.net" {
+		t.Fatalf("Counterparty = %q, want the sender — this message is inbound", rec.Counterparty.Email)
+	}
+	if rec.Counterparty.SentByOwner() {
+		t.Fatal("a third party's message filed into the sent container attested the owner's authorship")
+	}
+}

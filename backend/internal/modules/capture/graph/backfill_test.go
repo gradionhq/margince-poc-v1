@@ -91,3 +91,88 @@ func TestBackfillMalformedAuthRejected(t *testing.T) {
 		t.Fatal("BackfillPage with malformed auth must fail")
 	}
 }
+
+// The Graph half of the T1 correspondence evidence (ADR-0072 §1). Only the
+// backfill can supply it: the incremental delta reads the inbox folder alone,
+// while the backfill walks /me/messages across the whole mailbox, Sent Items
+// included. Attestation needs BOTH halves, so each fixture below withholds a
+// different one and only the third carries both.
+func TestBackfillAttestsOnlyMailFiledInSentItemsAndWrittenByTheOwner(t *testing.T) {
+	api := &fakeAPI{
+		listIDs: []string{"m-in", "m-forged", "m-out"},
+		sentIDs: map[string]bool{"m-out": true},
+		raws: map[string][]byte{
+			// Neither half: a stranger's mail, filed in the inbox.
+			"m-in": rawMsg("in@mail.example", "alice@acme.com"),
+			// Authorship claimed, placement absent — what a spoofer sends: the
+			// From header names the owner, yet Graph filed it in the inbox
+			// because the owner never sent it.
+			"m-forged": rawMsg("forged@mail.example", owner),
+			// Both halves.
+			"m-out": rawMsg("out@mail.example", owner),
+		},
+	}
+	sink := &recordingSink{}
+	if _, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink); err != nil {
+		t.Fatalf("BackfillPage: %v", err)
+	}
+	if len(sink.recs) != 3 {
+		t.Fatalf("sink received %d records, want 3", len(sink.recs))
+	}
+	attested := map[string]bool{}
+	for _, rec := range sink.recs {
+		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner()
+	}
+	if attested["in@mail.example"] {
+		t.Error("an inbox-filed stranger's message attested the owner's authorship")
+	}
+	if attested["forged@mail.example"] {
+		t.Error("a forged From:owner message attested on authorship alone — the folder must be load-bearing")
+	}
+	if !attested["out@mail.example"] {
+		t.Error("a Sent-Items-filed message the owner wrote did not attest")
+	}
+}
+
+// A page that cannot tell sent mail from received must capture nothing rather
+// than stamp its whole window un-attested: the activity natural key would make
+// that guess permanent, silently costing the mailbox its T1 evidence. The
+// engine retries the page from its committed token, as with any provider fault.
+func TestBackfillStopsWhenTheSentFolderCannotBeResolved(t *testing.T) {
+	api := &fakeAPI{
+		listIDs:       []string{"m-out"},
+		sentIDs:       map[string]bool{"m-out": true},
+		sentFolderErr: ErrUnreachable,
+		raws:          map[string][]byte{"m-out": rawMsg("out@mail.example", owner)},
+	}
+	sink := &recordingSink{}
+	if _, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("BackfillPage = %v, want the page to stop on the unresolved folder", err)
+	}
+	if len(sink.recs) != 0 {
+		t.Fatalf("%d records captured, want none — nothing may land with guessed provenance", len(sink.recs))
+	}
+}
+
+// An oversized message is a deliberate per-message drop, and the backfill must
+// step over it exactly as the incremental pull does. Failing the page instead
+// would send the engine back to the same committed token, onto the same
+// message, forever — one unreadable mail would wedge the whole backfill.
+func TestBackfillSkipsAnUnreadableMessageAndKeepsGoing(t *testing.T) {
+	api := &fakeAPI{
+		listIDs: []string{"m-huge", "m-ok"},
+		raws:    map[string][]byte{"m-ok": rawMsg("ok@mail.example", "alice@acme.com")},
+		skipIDs: map[string]bool{"m-huge": true},
+	}
+	sink := &recordingSink{}
+	res, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink)
+	if err != nil {
+		t.Fatalf("BackfillPage must not fail on a skippable message: %v", err)
+	}
+	if res.Captured != 1 || res.Skipped != 1 || res.Scanned != 2 {
+		t.Fatalf("tally = %+v, want scanned=2 captured=1 skipped=1", res)
+	}
+	if len(sink.recs) != 1 {
+		t.Fatalf("sink received %d records, want the readable one", len(sink.recs))
+	}
+}

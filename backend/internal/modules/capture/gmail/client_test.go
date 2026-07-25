@@ -56,7 +56,13 @@ func googleStub(t *testing.T) *httptest.Server {
 
 	mux.HandleFunc("/messages/m1", func(w http.ResponseWriter, _ *http.Request) {
 		raw := base64.RawURLEncoding.EncodeToString([]byte("Subject: hi\r\n\r\nbody"))
-		writeJSON(w, map[string]any{"id": "m1", "raw": raw})
+		writeJSON(w, map[string]any{"id": "m1", "raw": raw, "labelIds": []string{"INBOX", "UNREAD"}})
+	})
+
+	// The same mailbox's own outgoing copy: Gmail files it under SENT.
+	mux.HandleFunc("/messages/m-sent", func(w http.ResponseWriter, _ *http.Request) {
+		raw := base64.RawURLEncoding.EncodeToString([]byte("Subject: quote\r\n\r\nattached"))
+		writeJSON(w, map[string]any{"id": "m-sent", "raw": raw, "labelIds": []string{"SENT"}})
 	})
 
 	// A message whose RAW body is larger than the old 8 MiB read cap — a phone
@@ -176,10 +182,11 @@ func TestListRecentReturnsIDs(t *testing.T) {
 
 func TestGetRawDecodesBase64URL(t *testing.T) {
 	_, api := newTestClients(t)
-	raw, err := api.GetRaw(context.Background(), "access-2", "m1")
+	msg, err := api.GetRaw(context.Background(), "access-2", "m1")
 	if err != nil {
 		t.Fatalf("GetRaw: %v", err)
 	}
+	raw := msg.RFC822
 	if !strings.Contains(string(raw), "Subject: hi") {
 		t.Errorf("decoded RFC822 = %q, want it to contain the header", raw)
 	}
@@ -192,15 +199,37 @@ func TestGetRawDecodesBase64URL(t *testing.T) {
 // the entire pull as a spurious "unreachable".
 func TestGetRawDecodesAMessageLargerThanEightMiB(t *testing.T) {
 	_, api := newTestClients(t)
-	raw, err := api.GetRaw(context.Background(), "access-2", "big")
+	msg, err := api.GetRaw(context.Background(), "access-2", "big")
 	if err != nil {
 		t.Fatalf("GetRaw on a >8 MiB message: %v", err)
 	}
+	raw := msg.RFC822
 	if len(raw) < 9<<20 {
 		t.Fatalf("decoded %d bytes, want the full body (~9 MiB) — the response was truncated", len(raw))
 	}
 	if !bytes.HasPrefix(raw, []byte("Subject: big")) {
 		t.Fatalf("decoded body does not start with the header: %q", raw[:32])
+	}
+}
+
+// The Gmail half of the T1 correspondence evidence (ADR-0072 §1): SENT is a
+// label Gmail applies to the authenticated mailbox's own outgoing copy, so it
+// rides along on the same messages.get response the body already needs.
+func TestGetRawReadsTheSentLabelAsTheOwnersAttestation(t *testing.T) {
+	_, api := newTestClients(t)
+	inbound, err := api.GetRaw(context.Background(), "access-2", "m1")
+	if err != nil {
+		t.Fatalf("GetRaw: %v", err)
+	}
+	if inbound.FiledAsSent {
+		t.Error("an INBOX message must not attest that the owner sent it")
+	}
+	outbound, err := api.GetRaw(context.Background(), "access-2", "m-sent")
+	if err != nil {
+		t.Fatalf("GetRaw on the sent copy: %v", err)
+	}
+	if !outbound.FiledAsSent {
+		t.Error("a SENT-labelled message must attest that the owner sent it")
 	}
 }
 
