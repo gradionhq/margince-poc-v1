@@ -164,10 +164,10 @@ func TestSyncStopsOnGetMIMEFault(t *testing.T) {
 	}
 }
 
-func TestSyncSkipsAutomatedMail(t *testing.T) {
+func TestSyncSkipsDeliverySystemMail(t *testing.T) {
 	auto := func(w http.ResponseWriter, _ *http.Request) {
 		//craft:ignore swallowed-errors test stub write; a short write surfaces as the client-side assertion failure
-		_, _ = w.Write([]byte("From: no-reply@x.com\r\nTo: rep@myco.com\r\nSubject: hi\r\nMessage-ID: <a@x>\r\nContent-Type: text/plain\r\n\r\nx"))
+		_, _ = w.Write([]byte("From: mailer-daemon@x.com\r\nTo: rep@myco.com\r\nSubject: hi\r\nMessage-ID: <a@x>\r\nContent-Type: text/plain\r\n\r\nx"))
 	}
 	c := realConn(t, fullStub(t, map[string]http.HandlerFunc{"/me/messages/m1/$value": auto}))
 	auth := authViaStub(t, c)
@@ -176,6 +176,6 @@ func TestSyncSkipsAutomatedMail(t *testing.T) {
 		t.Fatalf("Sync: %v", err)
 	}
 	if len(sink.recs) != 0 {
-		t.Fatalf("automated mail should be skipped, but %d record(s) landed", len(sink.recs))
+		t.Fatalf("delivery-system mail should be skipped, but %d record(s) landed", len(sink.recs))
 	}
 }
