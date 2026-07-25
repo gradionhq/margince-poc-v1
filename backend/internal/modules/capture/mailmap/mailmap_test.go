@@ -379,6 +379,12 @@ func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
 		"unknown extension token": {"Auto-Submitted: auto-forwarded"},
 		// A comment must not smuggle a reply through either.
 		"commented auto-reply": {"Auto-Submitted: auto-replied (out of office)"},
+		// A header that is PRESENT but yields no keyword — an unclosed comment
+		// swallows the value — is unreadable, not absent. Only absent means a
+		// person wrote it, so these must not fail open into ordinary mail.
+		"unclosed leading comment": {"Auto-Submitted: (swallows auto-replied"},
+		"empty comment only":       {"Auto-Submitted: ()"},
+		"whitespace after comment": {"Auto-Submitted: (nothing left)   "},
 	}
 	for name, headers := range dropped {
 		t.Run(name, func(t *testing.T) {
