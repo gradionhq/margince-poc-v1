@@ -314,6 +314,13 @@ func TestWatchTreatsThrottlingAsThrottlingNotRejectedAuth(t *testing.T) {
 		"403 rate limited": {http.StatusForbidden, `{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`},
 		"403 daily quota":  {http.StatusForbidden, `{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}`},
 		"403 newer enum":   {http.StatusForbidden, `{"error":{"details":[{"reason":"RATE_LIMIT_EXCEEDED"}]}}`},
+		// The shape Google actually sends: a limit reason alongside the 403's own
+		// status restated as PERMISSION_DENIED. Letting that status speak for the
+		// body would park a merely-paced mailbox.
+		"403 with the status populated": {
+			http.StatusForbidden,
+			`{"error":{"code":403,"errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded"}],"status":"PERMISSION_DENIED"}}`,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			mux := http.NewServeMux()

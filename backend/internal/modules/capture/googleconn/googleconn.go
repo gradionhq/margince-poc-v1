@@ -150,30 +150,33 @@ type googleErrorBody struct {
 	} `json:"error"`
 }
 
-// rawReasons lists every reason Google's envelope names, in the order a reader
-// would weigh them: the classic errors[] entries, then the ErrorInfo details[],
-// then the overall status. Values are raw — each caller decides what validation
-// means for its own question.
-func rawReasons(body []byte) []string {
+// reasonCodes separates the SPECIFIC reason codes (the classic errors[] entries,
+// then the ErrorInfo details[]) from the overall status, because the two callers
+// need opposite things from the status.
+//
+// Reason wants it as a last-resort fallback. The quota verdict must not let it
+// vote at all: that predicate is only ever asked about a 403, and on a 403 the
+// status is PERMISSION_DENIED by construction — the canonical restatement of the
+// HTTP code the caller already branched on. Folding it into a conjunction would
+// veto every throttling verdict on the one status code it is consulted for, and
+// park a merely-paced mailbox as though its credential had been revoked.
+func reasonCodes(body []byte) (codes []string, status string) {
 	var parsed googleErrorBody
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil
+		return nil, ""
 	}
-	out := make([]string, 0, len(parsed.Error.Errors)+len(parsed.Error.Details)+1)
+	codes = make([]string, 0, len(parsed.Error.Errors)+len(parsed.Error.Details))
 	for _, e := range parsed.Error.Errors {
 		if e.Reason != "" {
-			out = append(out, e.Reason)
+			codes = append(codes, e.Reason)
 		}
 	}
 	for _, d := range parsed.Error.Details {
 		if d.Reason != "" {
-			out = append(out, d.Reason)
+			codes = append(codes, d.Reason)
 		}
 	}
-	if parsed.Error.Status != "" {
-		out = append(out, parsed.Error.Status)
-	}
-	return out
+	return codes, parsed.Error.Status
 }
 
 // Reason extracts Google's machine reason code from an error body. It is
@@ -186,22 +189,27 @@ func rawReasons(body []byte) []string {
 // all (an HTML error page from a proxy, say) — an absent reason must never look
 // like a present one, so a decode failure yields "" rather than a guess.
 func Reason(body []byte) string {
-	// Take the first reason that survives validation, not merely the first one
-	// present: a value MachineReason refuses must not shadow a usable code that
+	codes, status := reasonCodes(body)
+	// Take the first code that survives validation, not merely the first one
+	// present: a value MachineReason refuses must not shadow a usable one that
 	// follows it, or the body ends up LESS diagnosable than it really was.
-	for _, raw := range rawReasons(body) {
+	for _, raw := range codes {
 		if r := connector.MachineReason(raw); r != "" {
 			return r
 		}
 	}
-	return ""
+	return connector.MachineReason(status)
 }
 
-// Google's quota codes end in "LimitExceeded" across the whole classic family
-// (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded, and the
-// per-product ones), so the suffix is matched rather than a list that would need
-// extending every time Google adds another. quotaExceeded and the two newer
-// ErrorInfo enums have their own spellings.
+// The rate/quota codes the Gmail and Calendar APIs return: the classic family
+// (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded) shares the
+// "LimitExceeded" suffix, so matching the suffix covers a new per-product RATE
+// limit without an edit here; quotaExceeded and the newer ErrorInfo enums have
+// their own spellings. The suffix is not a blanket rule for every Google API —
+// the Drive family spells permanent capacity errors the same way
+// (teamDriveFileLimitExceeded), and those no retry can clear — so a connector
+// added to this package for another API must check its own vocabulary rather
+// than assume this set.
 const (
 	limitExceededSuffix     = "LimitExceeded"
 	reasonQuotaExceeded     = "quotaExceeded"
@@ -227,28 +235,37 @@ func isRateLimitReason(reason string) bool {
 // credential — retryable weather (honor Retry-After, back off) as against a
 // rejected grant, which parks the connection until its human reconnects.
 //
-// It reads the PARSED reason fields, never the raw bytes: a substring scan over
-// the whole body also matches the literal sitting in Google's prose message,
-// and reading that as throttling means a genuinely revoked credential is
-// retried instead of being handed back to its human.
+// It reads the PARSED reason codes, never the raw bytes: a substring scan over
+// the whole body also matches the literal sitting in Google's prose message, and
+// reading that as throttling means a revoked credential is retried instead of
+// being handed back to its human.
 //
-// It requires every reason the body names to be a limit, not merely one of them,
-// because a body naming both a refusal and a limit is ambiguous and the
-// conservative direction is to park. A reason that is present but not
-// code-shaped counts against the verdict for the same reason: it is something
-// Google said that we could not read, which is not evidence of throttling.
-// Deliberately NOT delegated to Reason — that answers "the single most
-// diagnosable reason", and a first entry it skips could otherwise let a later
-// limit code speak for a body whose first word was a refusal.
+// A code we can read and that is NOT a limit vetoes the verdict: a body naming
+// both a refusal and a limit is ambiguous, and a refusal is the more specific
+// claim. A code we cannot read is no evidence either way rather than
+// counter-evidence — the two errors are not equally cheap. Parking a healthy
+// connection stops capture until a human re-runs OAuth and nothing else catches
+// it, whereas a grant that really is revoked is refused again at the token
+// endpoint on the very next sync. So an unreadable field must not be able to
+// turn a rate limit into a reauth prompt.
 func RateLimitBody(body []byte) bool {
-	named := false
-	for _, raw := range rawReasons(body) {
-		if !isRateLimitReason(connector.MachineReason(raw)) {
-			return false
-		}
-		named = true
+	codes, status := reasonCodes(body)
+	if len(codes) == 0 {
+		// Nothing specific was named, so the status is all the body says.
+		return isRateLimitReason(connector.MachineReason(status))
 	}
-	return named
+	limit := false
+	for _, raw := range codes {
+		switch code := connector.MachineReason(raw); {
+		case code == "":
+			continue // unreadable — no evidence either way
+		case isRateLimitReason(code):
+			limit = true
+		default:
+			return false // a readable refusal: park rather than retry
+		}
+	}
+	return limit
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google does

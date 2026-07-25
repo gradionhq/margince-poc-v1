@@ -296,11 +296,12 @@ func TestMisconfiguredIsFalseWithoutAProviderReason(t *testing.T) {
 	}
 }
 
-// The predicate that decides park-vs-backoff, tested where it lives. A body
-// naming both a refusal and a limit is ambiguous, and the conservative direction
-// is to park: reading it as throttling would retry a revoked credential instead
-// of handing it back to its human.
-func TestRateLimitBodyRequiresEveryNamedReasonToBeALimit(t *testing.T) {
+// The predicate that decides park-vs-backoff, tested where it lives — including
+// against the envelopes Google really sends, status field and all. A readable
+// refusal beside a limit parks (the refusal is the more specific claim); a field
+// we cannot read does not, because parking a healthy connection is the more
+// expensive mistake.
+func TestRateLimitBodyDistinguishesThrottlingFromARefusal(t *testing.T) {
 	for name, tc := range map[string]struct {
 		body string
 		want bool
@@ -313,6 +314,24 @@ func TestRateLimitBodyRequiresEveryNamedReasonToBeALimit(t *testing.T) {
 		"resource exhausted":                    {`{"error":{"status":"RESOURCE_EXHAUSTED"}}`, true},
 		"a limit family we have not enumerated": {`{"error":{"errors":[{"reason":"concurrentLimitExceeded"}]}}`, true},
 
+		// The envelopes Google actually sends. On a 403 the status is
+		// PERMISSION_DENIED — the HTTP code restated, carrying nothing the caller
+		// has not already branched on. Letting it speak for the body would veto
+		// every throttling verdict here, since this predicate is asked about
+		// nothing but 403s.
+		"real gmail per-user limit, status populated": {
+			`{"error":{"code":403,"message":"User-rate limit exceeded.","errors":[{"domain":"usageLimits","reason":"userRateLimitExceeded"}],"status":"PERMISSION_DENIED"}}`,
+			true,
+		},
+		"real calendar quota, status populated": {
+			`{"error":{"code":403,"message":"Calendar usage limits exceeded.","errors":[{"domain":"usageLimits","reason":"quotaExceeded"}],"status":"PERMISSION_DENIED"}}`,
+			true,
+		},
+		"modern ErrorInfo limit, status populated": {
+			`{"error":{"code":403,"errors":[{"reason":"rateLimitExceeded"}],"details":[{"reason":"RATE_LIMIT_EXCEEDED"}],"status":"PERMISSION_DENIED"}}`,
+			true,
+		},
+
 		// The refusal cases. Each names something that is NOT a limit, so the
 		// verdict must be "not throttling" however the limit code is dressed up.
 		"a refusal first, a limit after": {`{"error":{"errors":[{"reason":"authError"},{"reason":"quotaExceeded"}]}}`, false},
@@ -320,12 +339,16 @@ func TestRateLimitBodyRequiresEveryNamedReasonToBeALimit(t *testing.T) {
 		"a refusal with a limit status":  {`{"error":{"status":"RESOURCE_EXHAUSTED","errors":[{"reason":"authError"}]}}`, false},
 		"a limit named only in prose":    {`{"error":{"errors":[{"reason":"authError","message":"quotaExceeded"}]}}`, false},
 		"prose alone":                    {`{"error":{"message":"rateLimitExceeded for this user"}}`, false},
-		// A reason present but not code-shaped is something Google said that we
-		// could not read — not evidence of throttling, and it must not be skipped
-		// so a later limit code can speak for the whole body.
-		"an unreadable reason before a limit": {`{"error":{"errors":[{"reason":"Rate Limit Exceeded"},{"reason":"rateLimitExceeded"}]}}`, false},
-		"names nothing at all":                {`{"error":{"code":403}}`, false},
-		"not google's envelope":               {`<html>502 from a proxy</html>`, false},
+		// A reason we cannot read is no evidence either way. It must not veto a
+		// limit the body also names: parking a healthy connection stops capture
+		// until a human re-runs OAuth, while a genuinely revoked grant is refused
+		// again at the token endpoint on the next sync — the two mistakes are not
+		// equally cheap.
+		"an unreadable reason does not veto a limit": {`{"error":{"errors":[{"reason":"Rate Limit Exceeded"},{"reason":"rateLimitExceeded"}]}}`, true},
+		// But a reason we CAN read and that is not a limit does veto it.
+		"a readable refusal vetoes a later limit": {`{"error":{"errors":[{"reason":"authError"},{"reason":"rateLimitExceeded"}]}}`, false},
+		"names nothing at all":                    {`{"error":{"code":403}}`, false},
+		"not google's envelope":                   {`<html>502 from a proxy</html>`, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := RateLimitBody([]byte(tc.body)); got != tc.want {
