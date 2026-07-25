@@ -326,7 +326,6 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 		Domain:      row.Domain,
 		OwnerID:     row.OwnerID,
 		ActivityID:  row.ActivityID,
-		SuppressOrg: row.SuppressOrg,
 		Source:      verdictReason,
 		CapturedBy:  verdictActor,
 	})
@@ -351,7 +350,6 @@ type counterpartyCreation struct {
 	Domain      string
 	OwnerID     ids.UUID
 	ActivityID  ids.UUID
-	SuppressOrg bool
 	// Source is the provenance CHANNEL — which mechanism produced these records.
 	Source string
 	// CapturedBy is the acting PRINCIPAL, in the contract's declared grammar
@@ -380,7 +378,6 @@ func createCounterpartyRecords(ctx context.Context, tx pgx.Tx, store *people.Sto
 		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
 		Source:      in.Source,
 		CapturedBy:  in.CapturedBy,
-		SuppressOrg: in.SuppressOrg,
 	})
 	if errors.Is(err, people.ErrCounterpartySuppressed) {
 		return true, nil

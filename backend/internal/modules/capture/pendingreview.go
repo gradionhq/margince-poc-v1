@@ -65,7 +65,7 @@ func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]Pending
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT p.id, p.email, coalesce(p.domain, ''), coalesce(left(p.display_name, $2), ''),
-			       p.activity_id, p.owner_id, p.suppress_org
+			       p.activity_id, p.owner_id
 			  FROM capture_pending_counterparty p
 			 WHERE p.status = 'unsure'
 			   AND NOT EXISTS (
@@ -74,7 +74,7 @@ func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]Pending
 			        AND (a.decided_at IS NOT NULL
 			             OR (a.status = 'pending' AND a.expires_at > now())))
 			 ORDER BY p.resolved_at, p.created_at
-			 LIMIT $1`, limit, MaxVerdictSubjectChars)
+			 LIMIT $1`, limit, MaxCapturedNameChars)
 		if err != nil {
 			return err
 		}
@@ -82,7 +82,7 @@ func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]Pending
 		for rows.Next() {
 			var p PendingCounterparty
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.SuppressOrg); err != nil {
+				&p.ActivityID, &p.OwnerID); err != nil {
 				return err
 			}
 			out = append(out, p)

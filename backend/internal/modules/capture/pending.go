@@ -61,8 +61,12 @@ const PendingMaxAttempts = 2
 // bounded on the review path too, where it reaches a staged proposal and the
 // SAR export rather than a prompt.
 const (
-	MaxVerdictSubjectChars = 300
-	MaxVerdictBodyChars    = 1200
+	MaxCapturedSubjectChars = 300
+	MaxCapturedBodyChars    = 1200
+	// The display name gets its own bound rather than borrowing the subject's:
+	// they are different fields on different paths, and a later tuning of one
+	// must not silently move the other.
+	MaxCapturedNameChars = 300
 )
 
 // pendingLease is how long a claimed row stays off other workers' scans. It has
@@ -100,10 +104,6 @@ type PendingCounterparty struct {
 	OwnerID     ids.UUID
 	Subject     string
 	Body        string
-	// SuppressOrg carries the tier ladder's free-mail decision (CAP-PARAM-5)
-	// forward to whoever creates the records: a personal mailbox yields a person
-	// and never a company, however long after capture the verdict arrives.
-	SuppressOrg bool
 
 	// Claim is this lease's token, minted by the ClaimDue that handed the row
 	// out. Every write back to the ledger presents it, so a worker holding an
@@ -180,14 +180,14 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 	_, err = tx.Exec(ctx, `
 		INSERT INTO capture_pending_counterparty
 		  (workspace_id, email, domain, display_name, activity_id, owner_id, status,
-		   disposition_reason, next_attempt_at, suppress_org)
+		   disposition_reason, next_attempt_at)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''),
-		        CASE WHEN $8::boolean THEN now() END, $9)
+		        CASE WHEN $8::boolean THEN now() END)
 		ON CONFLICT `+conflict+`
 		DO NOTHING`,
 		email, strings.ToLower(strings.TrimSpace(in.Domain)), in.DisplayName,
-		in.ActivityID, in.OwnerID, in.Status, in.Reason, due, in.SuppressOrg)
+		in.ActivityID, in.OwnerID, in.Status, in.Reason, due)
 	if err != nil {
 		return false, fmt.Errorf("capture: recording the counterparty disposition: %w", err)
 	}
@@ -243,7 +243,6 @@ type dispositionRow struct {
 	OwnerID     ids.UUID
 	Status      string
 	Reason      string
-	SuppressOrg bool
 }
 
 // PendingStore reads and resolves the ledger. It is the verdict engine's seam
@@ -286,11 +285,11 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    LIMIT $1
 			    FOR UPDATE SKIP LOCKED)
 			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(left(p.display_name, $5), ''),
-			          p.activity_id, p.owner_id, p.suppress_org,
-			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), $5), ''),
-			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id), $6), '')`,
+			          p.activity_id, p.owner_id,
+			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), $6), ''),
+			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id), $7), '')`,
 			limit, pendingLease.String(), PendingMaxAttempts, claim,
-			MaxVerdictSubjectChars, MaxVerdictBodyChars)
+			MaxCapturedNameChars, MaxCapturedSubjectChars, MaxCapturedBodyChars)
 		if err != nil {
 			return err
 		}
@@ -298,7 +297,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 		for rows.Next() {
 			p := PendingCounterparty{Claim: claim}
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.SuppressOrg, &p.Subject, &p.Body); err != nil {
+				&p.ActivityID, &p.OwnerID, &p.Subject, &p.Body); err != nil {
 				return err
 			}
 			out = append(out, p)

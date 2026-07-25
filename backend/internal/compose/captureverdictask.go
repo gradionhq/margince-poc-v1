@@ -148,13 +148,3 @@ func verdictSchema() json.RawMessage {
 		"results",
 	))
 }
-
-// truncateRunes bounds one body excerpt on a rune boundary, so a multi-byte
-// script is cut where the count says and the prompt stays valid text.
-func truncateRunes(s string, limit int) string {
-	runes := []rune(s)
-	if len(runes) <= limit {
-		return s
-	}
-	return string(runes[:limit])
-}

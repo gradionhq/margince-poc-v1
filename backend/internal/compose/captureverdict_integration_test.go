@@ -30,43 +30,25 @@ import (
 )
 
 // scriptedVerdictBrain answers each verdict call from a script, keyed by the
-// disposition id in the prompt. A solo re-ask (a single-id call) can be told to
-// stay below the floor, which is how the terminal-unsure path is reached.
+// disposition id in the prompt. A confidence below the floor stays below it on
+// the re-ask too, which is how the terminal-unsure path is reached.
 type scriptedVerdictBrain struct {
 	verdicts   map[string]string  // by disposition id; default "real"
 	confidence map[string]float64 // by disposition id; default 0.95
-	// soloVerdicts is what the model answers when asked about ONE sender, with
-	// no other sender's text in the prompt. Where it differs from verdicts, the
-	// difference IS the injection: the batch answer was dictated by a
-	// co-batched attacker, the solo answer was judged on the sender's own mail.
-	soloVerdicts map[string]string
-	soloStaysLow bool
-	calls        int
+	calls      int
 }
 
 func (s *scriptedVerdictBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
 	s.calls++
 	askedFor := promptIDs(req.Messages[0].Content)
 	results := make([]map[string]any, 0, len(askedFor))
-	solo := len(askedFor) == 1
 	for _, id := range askedFor {
 		verdict := s.verdicts[id]
-		if solo && s.soloVerdicts != nil {
-			if v, ok := s.soloVerdicts[id]; ok {
-				verdict = v
-			}
-		}
 		if verdict == "" {
 			verdict = capture.PendingStatusReal
 		}
 		conf, ok := s.confidence[id]
 		if !ok {
-			conf = 0.95
-		}
-		// The solo re-ask is the ladder escalation: it normally clears the floor
-		// the batch call could not, unless the script says this address is one
-		// the model simply cannot judge.
-		if solo && conf < verdictConfidenceFloor && !s.soloStaysLow {
 			conf = 0.95
 		}
 		results = append(results, map[string]any{"id": id, "verdict": verdict, "confidence": conf})
@@ -197,9 +179,8 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 
 	// The model says "noise" — but never confidently enough to act on it.
 	brain := &scriptedVerdictBrain{
-		verdicts:     map[string]string{dispositionID.String(): capture.PendingStatusNoise},
-		confidence:   map[string]float64{dispositionID.String(): 0.4},
-		soloStaysLow: true,
+		verdicts:   map[string]string{dispositionID.String(): capture.PendingStatusNoise},
+		confidence: map[string]float64{dispositionID.String(): 0.4},
 	}
 	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
 	if err := engine.Run(context.Background(), 0); err != nil {
@@ -338,7 +319,8 @@ func countIn(t *testing.T, e *integration.Env, query string, args ...any) int {
 }
 
 // The accept branch: a human says yes, and the records capture withheld are
-// path by which an `unsure` sender ever becomes a record.
+// created while the disposition closes as `real`, both on the redemption's
+// transaction — the only path by which an `unsure` sender becomes a record.
 func TestCounterpartyAcceptCreatesTheRecordsAndClosesTheDisposition(t *testing.T) {
 	e := integration.Setup(t)
 	activityID := seedCapturedMail(t, e, "dana@acceptco.example", "about your services")
@@ -457,11 +439,11 @@ func (b *promptRecordingBrain) Complete(_ context.Context, req model.Request) (m
 	return model.Response{Text: string(payload)}, nil
 }
 
-// Two senders in one claim reach opposite verdicts, each decided from its own
-// message alone. The attacker's mail is condemned and hidden; the prospect
-// beside it in the same pass is created and left visible — which is what "judged
-// on its own message" has to mean in practice, not merely that the prompts are
-// separate.
+// Two senders in one claim reach OPPOSITE dispositions and the effects stay
+// separate: the spam is hidden, the prospect beside it in the same pass is
+// created and left visible. That the prompts themselves cannot mix is asserted
+// by TestEachSendersPromptContainsOnlyThatSendersText; this is the other half —
+// that one sender's verdict does not spill onto its neighbour's records.
 func TestEachSenderIsJudgedOnItsOwnMessage(t *testing.T) {
 	e := integration.Setup(t)
 	victimActivity := seedCapturedMail(t, e, "victim@realprospect.example", "quote please")
@@ -470,13 +452,7 @@ func TestEachSenderIsJudgedOnItsOwnMessage(t *testing.T) {
 	attacker := seedPendingDisposition(t, e, "attacker@evil.example", "evil.example", attackerActivity)
 
 	brain := &scriptedVerdictBrain{
-		// What a successfully-injected model returns for the whole batch...
 		verdicts: map[string]string{
-			victim.String():   capture.PendingStatusNoise,
-			attacker.String(): capture.PendingStatusNoise,
-		},
-		// ...and what each says when asked alone, on its own message only.
-		soloVerdicts: map[string]string{
 			victim.String():   capture.PendingStatusReal,
 			attacker.String(): capture.PendingStatusNoise,
 		},
@@ -487,18 +463,18 @@ func TestEachSenderIsJudgedOnItsOwnMessage(t *testing.T) {
 	}
 
 	if got := dispositionStatus(t, e, victim); got != capture.PendingStatusReal {
-		t.Fatalf("victim disposition = %q, want real — a batch answer condemned a sender the solo pass cleared", got)
+		t.Fatalf("victim disposition = %q, want real — one sender's verdict reached another", got)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, victimActivity); n != 1 {
-		t.Fatal("the victim's mail was hidden on a batch verdict — noise must survive a solo pass first")
+		t.Fatal("the prospect's mail was hidden by the spam sender's verdict")
 	}
-	// The defence is not "never believe noise": the attacker's own solo answer
-	// still convicts them, so the gate stays useful rather than merely safe.
+	// Separation is not timidity: the spam sender's own verdict still convicts
+	// them, so the gate stays useful rather than merely safe.
 	if got := dispositionStatus(t, e, attacker); got != capture.PendingStatusNoise {
-		t.Fatalf("attacker disposition = %q, want noise — a solo-confirmed noise must still apply", got)
+		t.Fatalf("attacker disposition = %q, want noise", got)
 	}
 	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NOT NULL`, attackerActivity); n != 1 {
-		t.Fatal("a solo-confirmed noise did not hide the message")
+		t.Fatal("a noise verdict did not hide its own sender's message")
 	}
 }
 
@@ -660,8 +636,6 @@ func TestAForgedSenderCannotReachTheWorkspacesOwnCorrespondence(t *testing.T) {
 	// the T1 signal that they are a counterparty, so the sweep lets go. Both
 	// messages are archived and aged past the window first — otherwise the
 	// assertions below would hold whatever the scope rule did.
-	archiveDirectly(t, e, forged)
-	archiveDirectly(t, e, ownSent)
 	backdateArchive(t, e, forged)
 	backdateArchive(t, e, ownSent)
 	if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
@@ -893,19 +867,5 @@ func suppressAddress(t *testing.T, e *integration.Env, email string) {
 	})
 	if err != nil {
 		t.Fatalf("suppressing the address: %v", err)
-	}
-}
-
-// archiveDirectly hides a message without going through a verdict, so a test can
-// set up the state a sweep is supposed to act on.
-func archiveDirectly(t *testing.T, e *integration.Env, id ids.UUID) {
-	t.Helper()
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(),
-			`UPDATE activity SET archived_at = now() WHERE id = $1`, id)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("archiving: %v", err)
 	}
 }

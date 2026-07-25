@@ -100,21 +100,3 @@ func TestValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
 		t.Fatalf("the validation message is %d bytes — model-chosen text must be clamped before it reaches a log", len(msg))
 	}
 }
-
-// The prompt truncates each body on a RUNE boundary, so a multi-byte script is
-// cut where the count says and the prompt stays valid text rather than ending
-// in half a character.
-func TestTruncateRunesCutsOnACharacterBoundary(t *testing.T) {
-	// Four-byte runes: a byte-wise cut would split one and produce U+FFFD.
-	body := strings.Repeat("😀", 10)
-	got := truncateRunes(body, 4)
-	if want := strings.Repeat("😀", 4); got != want {
-		t.Fatalf("truncateRunes = %q, want %q", got, want)
-	}
-	if strings.ContainsRune(got, '�') {
-		t.Fatal("the cut landed mid-rune")
-	}
-	if short := truncateRunes("abc", 10); short != "abc" {
-		t.Fatalf("a string under the limit was altered: %q", short)
-	}
-}
