@@ -182,13 +182,33 @@ func (s *MirrorStore) ingestReporting(ctx context.Context, rec Record) (bool, er
 	return landed, nil
 }
 
-// ingestTx is Ingest's body, taking the transaction rather than opening
-// one, so a caller that must commit MORE than the cache refresh in the
-// same transaction can. The write-back path is that caller: a human
-// mutation's audit_log and event_outbox rows commit with the mirror
-// refresh they describe, or neither lands (writeaudit.go). It reports
-// whether the upsert actually landed a row, so the caller can hold the
-// sync metric until its own commit succeeds.
+// priorOwnerOf reads the owner a mirror row currently records, before an
+// ingest overwrites it — the one signal Ingest ever sees that an incumbent
+// user's identity is newly relevant (a Record carries an owner id, never an
+// owner email).
+func (s *MirrorStore) priorOwnerOf(ctx context.Context, tx pgx.Tx, objectClass, externalID string) (string, error) {
+	var owner string
+	err := tx.QueryRow(
+		ctx,
+		`SELECT coalesce(owner_external_id, '') FROM overlay_mirror WHERE object_class = $1 AND external_id = $2`,
+		objectClass, externalID,
+	).Scan(&owner)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return "", fmt.Errorf("overlay: reading the prior owner of %s/%s: %w", objectClass, externalID, err)
+	}
+	// No row yet is not an error: a first ingest has no prior owner, which
+	// reads as the empty string and makes the owner-change check below true
+	// exactly when the incoming record names one.
+	return owner, nil
+}
+
+// ingestTx is Ingest's body, taking the transaction rather than opening one,
+// so a caller that must commit MORE than the cache refresh in the same
+// transaction can. The write-back path is that caller: a human mutation's
+// audit_log and event_outbox rows commit with the mirror refresh they
+// describe, or neither lands (writeaudit.go). It reports whether the upsert
+// actually landed a row, so the caller can hold the sync metric until its
+// own commit succeeds.
 func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool, error) {
 	if rec.ObjectClass == "" || rec.ExternalID == "" {
 		return false, fmt.Errorf("overlay: ingest requires a non-empty object class and external id")
@@ -212,13 +232,9 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	if err := lockWorkspaceVisibility(ctx, tx); err != nil {
 		return false, err
 	}
-	var priorOwner string
-	if err := tx.QueryRow(
-		ctx,
-		`SELECT coalesce(owner_external_id, '') FROM overlay_mirror WHERE object_class = $1 AND external_id = $2`,
-		rec.ObjectClass, rec.ExternalID,
-	).Scan(&priorOwner); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false, fmt.Errorf("overlay: reading the prior owner of %s/%s: %w", rec.ObjectClass, rec.ExternalID, err)
+	priorOwner, err := s.priorOwnerOf(ctx, tx, rec.ObjectClass, rec.ExternalID)
+	if err != nil {
+		return false, err
 	}
 
 	tag, err := tx.Exec(

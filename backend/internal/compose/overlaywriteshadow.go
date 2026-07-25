@@ -128,6 +128,17 @@ func respondWithMirroredRecord[Res any](s Server, w http.ResponseWriter, r *http
 	httperr.WriteJSON(w, http.StatusOK, body)
 }
 
+// archiveWire pairs the two per-entity pieces an archive shadow needs: the
+// mapper that assembles the contract body from a mirror record, and the
+// setter that stamps the archive instant onto it. They travel together
+// because neither is meaningful without the other — assembling a body and
+// then forgetting to mark it archived is exactly the bug the stamp exists to
+// fix.
+type archiveWire[Res any] struct {
+	assemble     func(context.Context, datasource.Record) (Res, error)
+	markArchived func(*Res, time.Time)
+}
+
 // overlayArchive serves one archive shadow: the native module handler off
 // overlay mode, otherwise a dispatched seam Archive answered with the
 // archived row's last-known state — the contract's own archive response
@@ -167,9 +178,7 @@ func respondWithMirroredRecord[Res any](s Server, w http.ResponseWriter, r *http
 // window — an incumbent update landing in that gap is not reflected —
 // whereas the native path reads and archives in one transaction.
 func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
-	et datasource.EntityType, id crmcontracts.Id, native func(),
-	wire func(context.Context, datasource.Record) (Res, error),
-	markArchived func(*Res, time.Time),
+	et datasource.EntityType, id crmcontracts.Id, native func(), wire archiveWire[Res],
 ) {
 	ov, ok := s.overlayWriteMode(w, r)
 	if !ok {
@@ -189,12 +198,12 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		httperr.Write(w, r, err)
 		return
 	}
-	body, err := wire(r.Context(), rec)
+	body, err := wire.assemble(r.Context(), rec)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	markArchived(&body, time.Now().UTC())
+	wire.markArchived(&body, time.Now().UTC())
 	httperr.WriteJSON(w, http.StatusOK, body)
 }
 
@@ -207,8 +216,10 @@ func (s Server) UpdatePerson(w http.ResponseWriter, r *http.Request, id crmcontr
 // ArchivePerson shadows the person archive.
 func (s Server) ArchivePerson(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	overlayArchive(s, w, r, datasource.EntityPerson, id,
-		func() { s.peopleHandlers.ArchivePerson(w, r, id) }, overlayWirePerson,
-		func(p *crmcontracts.Person, at time.Time) { p.ArchivedAt = &at })
+		func() { s.peopleHandlers.ArchivePerson(w, r, id) }, archiveWire[crmcontracts.Person]{
+			assemble:     overlayWirePerson,
+			markArchived: func(p *crmcontracts.Person, at time.Time) { p.ArchivedAt = &at },
+		})
 }
 
 // UpdateOrganization shadows the organization update.
@@ -220,8 +231,10 @@ func (s Server) UpdateOrganization(w http.ResponseWriter, r *http.Request, id cr
 // ArchiveOrganization shadows the organization archive.
 func (s Server) ArchiveOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	overlayArchive(s, w, r, datasource.EntityOrganization, id,
-		func() { s.peopleHandlers.ArchiveOrganization(w, r, id) }, overlayWireOrganization,
-		func(o *crmcontracts.Organization, at time.Time) { o.ArchivedAt = &at })
+		func() { s.peopleHandlers.ArchiveOrganization(w, r, id) }, archiveWire[crmcontracts.Organization]{
+			assemble:     overlayWireOrganization,
+			markArchived: func(o *crmcontracts.Organization, at time.Time) { o.ArchivedAt = &at },
+		})
 }
 
 // UpdateDeal shadows the deal update.
@@ -233,8 +246,10 @@ func (s Server) UpdateDeal(w http.ResponseWriter, r *http.Request, id crmcontrac
 // ArchiveDeal shadows the deal archive.
 func (s Server) ArchiveDeal(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	overlayArchive(s, w, r, datasource.EntityDeal, id,
-		func() { s.dealsHandlers.ArchiveDeal(w, r, id) }, overlayWireDeal,
-		func(d *crmcontracts.Deal, at time.Time) { d.ArchivedAt = &at })
+		func() { s.dealsHandlers.ArchiveDeal(w, r, id) }, archiveWire[crmcontracts.Deal]{
+			assemble:     overlayWireDeal,
+			markArchived: func(d *crmcontracts.Deal, at time.Time) { d.ArchivedAt = &at },
+		})
 }
 
 // UpdateLead shadows the lead update. Lead has no archive shadow: it is not
