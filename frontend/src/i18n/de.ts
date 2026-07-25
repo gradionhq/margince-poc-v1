@@ -281,6 +281,58 @@ export const de = {
   "overlay.unavailable":
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
 
+  "overlay.title": "HubSpot-Spiegel",
+  "overlay.sub":
+    "Verbindet das führende CRM des Workspaces, damit Datensätze aus dessen Spiegel statt aus nativen Tabellen gelesen werden.",
+  "overlay.loading": "Lade die Anbieter-Verbindung…",
+  "overlay.notConfigured":
+    "Overlay-Modus ist in diesem Deployment nicht konfiguriert.",
+  "overlay.loadFailed": "Die Anbieter-Verbindung konnte nicht geladen werden.",
+  "overlay.empty":
+    "Kein führendes System verbunden. Verbinde HubSpot, um Datensätze aus dessen Spiegel zu lesen.",
+  "overlay.adminOnly":
+    "Bitte eine Admin- oder Ops-Person bitten, HubSpot zu verbinden oder zu trennen.",
+  "overlay.region": "Region",
+  "overlay.regionEu1": "EU",
+  "overlay.regionUs": "USA",
+  "overlay.token": "Private-App-Token",
+  "overlay.tokenHint": "Wird im Vault versiegelt; wird nie wieder angezeigt.",
+  "overlay.connect": "HubSpot verbinden",
+  "overlay.connecting": "Verbinde…",
+  "overlay.reconnect": "Erneut verbinden",
+  "overlay.statusActive": "Verbunden",
+  "overlay.statusRevoked": "Widerrufen",
+  "overlay.statusError": "Sync-Fehler",
+  "overlay.connectedAt": "Verbunden {at}",
+  "overlay.syncTitle": "Spiegel-Synchronisierung",
+  "overlay.syncLoading": "Lade Sync-Status…",
+  "overlay.syncLoadFailed": "Sync-Status konnte nicht geladen werden.",
+  "overlay.syncEmpty": "Noch nichts synchronisiert.",
+  "overlay.syncStateFresh": "Aktuell",
+  "overlay.syncStatePending": "Sync ausstehend",
+  "overlay.syncStateStale": "Veraltet",
+  "overlay.backfillDone": "Backfill abgeschlossen",
+  "overlay.backfillPending": "Backfill läuft",
+  "overlay.lastSynced": "Zuletzt synchronisiert {at}",
+  "overlay.neverSynced": "Noch nie synchronisiert",
+  "overlay.budgetTitle": "API-Budget",
+  "overlay.budgetLoading": "Lade das Budget-Fenster…",
+  "overlay.budgetLoadFailed": "Das Budget-Fenster konnte nicht geladen werden.",
+  "overlay.budgetHeadroom": "Spielraum: {headroom}",
+  "overlay.budgetSources":
+    "Force-Fresh {forceFresh} · Poller {poller} · Capture {capture}",
+  "overlay.budgetSearch": "Such-API: {consumed} / {limit} pro Sekunde",
+  "overlay.bandOk": "Gesund",
+  "overlay.bandWarn": "Nähert sich dem Limit",
+  "overlay.bandShed": "Drosselt Last",
+  "overlay.reconcile": "Jetzt synchronisieren",
+  "overlay.reconcileQueued":
+    "Abgleich eingereiht — der Worker holt ihn beim nächsten Poll ab (etwa alle 2 Minuten).",
+  "overlay.disconnect": "Trennen",
+  "overlay.disconnectTitle": "HubSpot trennen?",
+  "overlay.disconnectBody":
+    "Dies löscht die gespiegelten Daten und schaltet den Workspace zurück auf native Datensätze. Das Audit-Protokoll bleibt erhalten.",
+
   "people.name": "Name",
   "people.email": "E-Mail",
   "people.capturedBy": "Erfasst von",

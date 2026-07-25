@@ -164,6 +164,20 @@ export function canManageRates(roles: readonly string[] | undefined): boolean {
   return (roles ?? []).some((role) => role === "admin" || role === "ops");
 }
 
+// overlay_connection is admin/ops-owned in the seeded role matrix
+// (identity/internal/policy/policy.go: connecting/disconnecting the
+// workspace's incumbent binding is destructive workspace-wide config — it
+// purges the mirror and flips sor_mode for everyone — so create/update/
+// delete are admin/ops-only; every role may still read the connection
+// status). The server enforces it; this predicate keeps the connect/
+// reconnect/disconnect/reconcile controls honestly disabled for a role
+// whose call could only 403.
+export function canManageOverlay(
+  roles: readonly string[] | undefined,
+): boolean {
+  return (roles ?? []).some((role) => role === "admin" || role === "ops");
+}
+
 // The minimal read surface QueryGate/QueryStates need. A real react-query
 // `UseQueryResult<Data>` is structurally assignable to it, and a hook that
 // MERGES several queries (e.g. the decided-approvals fan-out) can return a
