@@ -380,7 +380,13 @@ const messageOp = "message"
 // on (which are fixed for the deployment and, under test, an ephemeral port).
 func (a *httpAPI) requestOp(fullURL string) string {
 	op, _, _ := strings.Cut(fullURL, "?")
-	return strings.TrimPrefix(op, a.base)
+	trimmed := strings.TrimPrefix(op, a.base)
+	if trimmed == "" {
+		// The base itself, with nothing after it: name the root rather than
+		// render an empty op behind a leading colon.
+		return "/"
+	}
+	return trimmed
 }
 
 // graphErrorBody is the subset of Microsoft's OData error envelope that names

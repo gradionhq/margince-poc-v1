@@ -295,3 +295,72 @@ func TestMisconfiguredIsFalseWithoutAProviderReason(t *testing.T) {
 		t.Error("Misconfigured(nil) = true, want false")
 	}
 }
+
+// The predicate that decides park-vs-backoff, tested where it lives. A body
+// naming both a refusal and a limit is ambiguous, and the conservative direction
+// is to park: reading it as throttling would retry a revoked credential instead
+// of handing it back to its human.
+func TestRateLimitBodyRequiresEveryNamedReasonToBeALimit(t *testing.T) {
+	for name, tc := range map[string]struct {
+		body string
+		want bool
+	}{
+		"classic rate limit":                    {`{"error":{"errors":[{"reason":"rateLimitExceeded"}]}}`, true},
+		"per-user rate limit":                   {`{"error":{"errors":[{"reason":"userRateLimitExceeded"}]}}`, true},
+		"daily limit":                           {`{"error":{"errors":[{"reason":"dailyLimitExceeded"}]}}`, true},
+		"quota":                                 {`{"error":{"errors":[{"reason":"quotaExceeded"}]}}`, true},
+		"newer errorinfo enum":                  {`{"error":{"details":[{"reason":"RATE_LIMIT_EXCEEDED"}]}}`, true},
+		"resource exhausted":                    {`{"error":{"status":"RESOURCE_EXHAUSTED"}}`, true},
+		"a limit family we have not enumerated": {`{"error":{"errors":[{"reason":"concurrentLimitExceeded"}]}}`, true},
+
+		// The refusal cases. Each names something that is NOT a limit, so the
+		// verdict must be "not throttling" however the limit code is dressed up.
+		"a refusal first, a limit after": {`{"error":{"errors":[{"reason":"authError"},{"reason":"quotaExceeded"}]}}`, false},
+		"a disabled API and a limit":     {`{"error":{"details":[{"reason":"SERVICE_DISABLED"},{"reason":"RATE_LIMIT_EXCEEDED"}]}}`, false},
+		"a refusal with a limit status":  {`{"error":{"status":"RESOURCE_EXHAUSTED","errors":[{"reason":"authError"}]}}`, false},
+		"a limit named only in prose":    {`{"error":{"errors":[{"reason":"authError","message":"quotaExceeded"}]}}`, false},
+		"prose alone":                    {`{"error":{"message":"rateLimitExceeded for this user"}}`, false},
+		// A reason present but not code-shaped is something Google said that we
+		// could not read — not evidence of throttling, and it must not be skipped
+		// so a later limit code can speak for the whole body.
+		"an unreadable reason before a limit": {`{"error":{"errors":[{"reason":"Rate Limit Exceeded"},{"reason":"rateLimitExceeded"}]}}`, false},
+		"names nothing at all":                {`{"error":{"code":403}}`, false},
+		"not google's envelope":               {`<html>502 from a proxy</html>`, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := RateLimitBody([]byte(tc.body)); got != tc.want {
+				t.Errorf("RateLimitBody(%s) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+// Reason answers a different question from RateLimitBody — "the most diagnosable
+// code" — so it walks past a value it cannot use rather than letting it shadow a
+// usable one, which would make the body less diagnosable than it really was.
+func TestReasonSkipsAnUnusableValueForAUsableOne(t *testing.T) {
+	for name, tc := range map[string]struct{ body, want string }{
+		"prose first, code second": {
+			`{"error":{"errors":[{"reason":"not a code at all"},{"reason":"accessNotConfigured"}]}}`,
+			"accessNotConfigured",
+		},
+		"oversized first, code in details": {
+			`{"error":{"errors":[{"reason":"` + strings.Repeat("a", 70) + `"}],"details":[{"reason":"SERVICE_DISABLED"}]}}`,
+			"SERVICE_DISABLED",
+		},
+		"unusable everywhere but the status": {
+			`{"error":{"errors":[{"reason":"has spaces"}],"status":"PERMISSION_DENIED"}}`,
+			"PERMISSION_DENIED",
+		},
+		"first usable code wins": {
+			`{"error":{"errors":[{"reason":"authError"},{"reason":"accessNotConfigured"}]}}`,
+			"authError",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Reason([]byte(tc.body)); got != tc.want {
+				t.Errorf("Reason = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

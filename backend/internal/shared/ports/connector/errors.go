@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
+	"unicode/utf8"
 )
 
 // The shared sync-failure vocabulary (ADR-0063). Providers wrap their own
@@ -88,18 +89,28 @@ func (e *ProviderError) Error() string {
 	return fmt.Sprintf("%s: provider said %d: %v", op, e.Status, e.Class)
 }
 
-// maxOpLen bounds the rendered call name. Op is provider-fed on some paths (a
-// continuation link, a path carrying a provider-assigned id), and this string is
-// not only logged — a sync failure persists it in a system_log row — so the same
-// amplification bound Reason gets applies here. Truncation is visible rather than
-// silent: an operator sees the ellipsis and knows the name was longer.
+// maxOpLen bounds the rendered call name. Op carries provider-supplied path
+// segments on some calls (a message id, a continuation link's path), and this
+// string is not only logged — a sync failure persists it as the detail of a
+// system_log row — so the same amplification bound Reason gets applies here.
+// Truncation is visible rather than silent: an operator sees the ellipsis and
+// knows the name was longer.
 const maxOpLen = 120
 
+// boundedOp truncates on a RUNE boundary. A byte-offset cut can split a UTF-8
+// sequence, and this string is bound for a jsonb column: the encoder replaces
+// the broken bytes, so what an operator would read is a mangled tail in the one
+// record that explains a failure. Cutting short of the boundary keeps the
+// truncated name valid text.
 func boundedOp(op string) string {
 	if len(op) <= maxOpLen {
 		return op
 	}
-	return op[:maxOpLen] + "…"
+	cut := maxOpLen
+	for cut > 0 && !utf8.RuneStart(op[cut]) {
+		cut--
+	}
+	return op[:cut] + "…"
 }
 
 // maxReasonLen bounds a machine reason. Every real one is a short identifier

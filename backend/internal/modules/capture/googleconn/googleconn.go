@@ -54,10 +54,11 @@ var ErrUnreachable = fmt.Errorf("googleconn: could not reach Google: %w", connec
 
 // Get performs an authorized GET against base+path and JSON-decodes the 200
 // body into out. It returns the HTTP status (so a caller can special-case a
-// provider code like 404/410) and maps a 401/403 to ErrAuthRejected and any
-// other non-2xx/transport failure to ErrUnreachable — each carrying the path and
-// Google's own machine reason so the failure is diagnosable. Google's raw body is
-// never surfaced to the caller.
+// provider code like 404/410) alongside the classified failure: a 429 or a
+// quota-reason 403 becomes a RateLimitedError carrying Retry-After, a 401/403
+// ErrAuthRejected, and any other non-2xx or transport fault ErrUnreachable —
+// each carrying the path and Google's own machine reason so the failure is
+// diagnosable. Google's raw body is never surfaced to the caller.
 //
 //craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func Get(ctx context.Context, client *http.Client, base, accessToken, path string, q url.Values, out any) (int, error) {
@@ -149,6 +150,32 @@ type googleErrorBody struct {
 	} `json:"error"`
 }
 
+// rawReasons lists every reason Google's envelope names, in the order a reader
+// would weigh them: the classic errors[] entries, then the ErrorInfo details[],
+// then the overall status. Values are raw — each caller decides what validation
+// means for its own question.
+func rawReasons(body []byte) []string {
+	var parsed googleErrorBody
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(parsed.Error.Errors)+len(parsed.Error.Details)+1)
+	for _, e := range parsed.Error.Errors {
+		if e.Reason != "" {
+			out = append(out, e.Reason)
+		}
+	}
+	for _, d := range parsed.Error.Details {
+		if d.Reason != "" {
+			out = append(out, d.Reason)
+		}
+	}
+	if parsed.Error.Status != "" {
+		out = append(out, parsed.Error.Status)
+	}
+	return out
+}
+
 // Reason extracts Google's machine reason code from an error body. It is
 // exported because the Google connector that predates this package still runs
 // its own transport (Gmail's, which needs a 96 MiB read cap for RAW messages)
@@ -159,59 +186,69 @@ type googleErrorBody struct {
 // all (an HTML error page from a proxy, say) — an absent reason must never look
 // like a present one, so a decode failure yields "" rather than a guess.
 func Reason(body []byte) string {
-	var parsed googleErrorBody
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return ""
-	}
 	// Take the first reason that survives validation, not merely the first one
 	// present: a value MachineReason refuses must not shadow a usable code that
 	// follows it, or the body ends up LESS diagnosable than it really was.
-	for _, e := range parsed.Error.Errors {
-		if r := connector.MachineReason(e.Reason); r != "" {
+	for _, raw := range rawReasons(body) {
+		if r := connector.MachineReason(raw); r != "" {
 			return r
 		}
 	}
-	for _, d := range parsed.Error.Details {
-		if r := connector.MachineReason(d.Reason); r != "" {
-			return r
-		}
-	}
-	return connector.MachineReason(parsed.Error.Status)
+	return ""
 }
 
-// The Google reason codes that mean THROTTLING rather than a bad credential.
-// Retryable: the registry honors Retry-After and backs off, where a rejected
-// grant would park the connection until its human reconnects. Google spells the
-// same fact in both its classic camelCase reasons and its newer ErrorInfo enums.
+// Google's quota codes end in "LimitExceeded" across the whole classic family
+// (rateLimitExceeded, userRateLimitExceeded, dailyLimitExceeded, and the
+// per-product ones), so the suffix is matched rather than a list that would need
+// extending every time Google adds another. quotaExceeded and the two newer
+// ErrorInfo enums have their own spellings.
 const (
-	reasonRateLimitExceeded     = "rateLimitExceeded"
-	reasonUserRateLimitExceeded = "userRateLimitExceeded"
-	reasonDailyLimitExceeded    = "dailyLimitExceeded"
-	reasonQuotaExceeded         = "quotaExceeded"
-	reasonRateLimitEnum         = "RATE_LIMIT_EXCEEDED"
-	reasonResourceExhausted     = "RESOURCE_EXHAUSTED"
+	limitExceededSuffix     = "LimitExceeded"
+	reasonQuotaExceeded     = "quotaExceeded"
+	reasonQuotaExceededEnum = "QUOTA_EXCEEDED"
+	reasonRateLimitEnum     = "RATE_LIMIT_EXCEEDED"
+	reasonResourceExhausted = "RESOURCE_EXHAUSTED"
 )
 
-// RateLimitBody reports whether a 403 body names one of Google's rate/quota
-// reasons. It decides a classification, so it reads the parsed machine reason
-// and not the raw bytes: a substring scan over the whole body also matches the
-// literal appearing in prose, or in a later errors[] entry when the FIRST entry
-// says the grant was refused — and misreading that as throttling means a
-// genuinely revoked credential is retried forever instead of being handed back
-// to its human. The conservative direction is to park, so anything that does not
-// positively name a limit is not a limit.
-//
-// Exported for the same reason Reason is: Gmail runs its own transport, and a
-// narrower copy of this predicate there parked merely-throttled mailboxes as if
-// their credential had been revoked. One spelling, both connectors.
-func RateLimitBody(body []byte) bool {
-	switch Reason(body) {
-	case reasonRateLimitExceeded, reasonUserRateLimitExceeded, reasonDailyLimitExceeded,
-		reasonQuotaExceeded, reasonRateLimitEnum, reasonResourceExhausted:
+// isRateLimitReason reports whether one parsed reason code names throttling.
+func isRateLimitReason(reason string) bool {
+	if strings.HasSuffix(reason, limitExceededSuffix) {
+		return true
+	}
+	switch reason {
+	case reasonQuotaExceeded, reasonQuotaExceededEnum, reasonRateLimitEnum, reasonResourceExhausted:
 		return true
 	default:
 		return false
 	}
+}
+
+// RateLimitBody reports whether a 403 body names throttling rather than a bad
+// credential — retryable weather (honor Retry-After, back off) as against a
+// rejected grant, which parks the connection until its human reconnects.
+//
+// It reads the PARSED reason fields, never the raw bytes: a substring scan over
+// the whole body also matches the literal sitting in Google's prose message,
+// and reading that as throttling means a genuinely revoked credential is
+// retried instead of being handed back to its human.
+//
+// It requires every reason the body names to be a limit, not merely one of them,
+// because a body naming both a refusal and a limit is ambiguous and the
+// conservative direction is to park. A reason that is present but not
+// code-shaped counts against the verdict for the same reason: it is something
+// Google said that we could not read, which is not evidence of throttling.
+// Deliberately NOT delegated to Reason — that answers "the single most
+// diagnosable reason", and a first entry it skips could otherwise let a later
+// limit code speak for a body whose first word was a refusal.
+func RateLimitBody(body []byte) bool {
+	named := false
+	for _, raw := range rawReasons(body) {
+		if !isRateLimitReason(connector.MachineReason(raw)) {
+			return false
+		}
+		named = true
+	}
+	return named
 }
 
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google does

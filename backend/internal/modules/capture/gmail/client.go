@@ -274,8 +274,8 @@ func (a *httpAPI) GetRaw(ctx context.Context, accessToken, msgID string) ([]byte
 // Watch registers a users.watch so Gmail publishes change notifications for
 // the mailbox to the Pub/Sub topic. Gmail returns the mailbox's current
 // historyId and an expiration as a string of milliseconds since the epoch;
-// re-calling watch renews it (Gmail keeps one watch per mailbox). A 401/403
-// maps to ErrAuthRejected, anything else to ErrUnreachable — Google's raw body
+// re-calling watch renews it (Gmail keeps one watch per mailbox). A non-200 is
+// classified by classifyStatus like every other Gmail call — Google's raw body
 // never reaches the caller.
 func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string, time.Time, error) {
 	reqBody, err := json.Marshal(map[string]string{"topicName": topic})
@@ -315,9 +315,10 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 // classifyStatus is the ONE status verdict for every Gmail call: throttling
 // first (a 429, or a 403 whose reason names a limit) so a paced mailbox backs off
 // with the provider's own Retry-After; then a refused credential; then anything
-// else non-OK. It returns nil for a 200. Both callers go through it — when only
-// one of them knew about quota, a throttled users.watch renewal came back as a
-// rejected credential and parked the mailbox until a human reconnected.
+// else non-OK. It returns nil for a 200. Every call goes through it so the ladder
+// cannot fork per call site and disagree about what the same 403 means — which it
+// did, leaving one caller unable to see a rate limit at all and discarding the
+// Retry-After Google had supplied.
 func classifyStatus(resp *http.Response, op string, body []byte) error {
 	switch {
 	case resp.StatusCode == http.StatusTooManyRequests:
@@ -362,10 +363,9 @@ const (
 )
 
 // get performs an authorized GET and JSON-decodes into out. It returns the
-// HTTP status (so History can special-case 404) and maps a 401/403 to
-// ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable,
-// each carrying Google's own reason code. Google's raw body is never surfaced
-// to the caller.
+// HTTP status (so History can special-case 404) alongside the failure
+// classifyStatus assigns, each carrying Google's own reason code. Google's raw
+// body is never surfaced to the caller.
 //
 //craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any, maxBytes int64) (int, error) {

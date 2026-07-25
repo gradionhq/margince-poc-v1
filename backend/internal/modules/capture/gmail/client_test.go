@@ -300,9 +300,11 @@ func TestGmailTransportCarriesGooglesReasonAndSharesTheQuotaVerdict(t *testing.T
 	}
 }
 
-// users.watch renewal runs on the sync path like any other call, so a throttled
-// renewal must back off with the provider's Retry-After — not come back as a
-// refused credential and park the mailbox until a human intervenes.
+// users.watch renewal is a Gmail call like any other, so a throttled renewal
+// must read as throttling and carry the provider's Retry-After — not as a
+// refused credential with the delay thrown away. (The renewal's own failure is
+// logged and skipped rather than parking the connection; what is wrong is the
+// verdict, and the next caller to trust it.)
 func TestWatchTreatsThrottlingAsThrottlingNotRejectedAuth(t *testing.T) {
 	for name, tc := range map[string]struct {
 		status int

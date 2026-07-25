@@ -518,7 +518,10 @@ up)
     admin_email="$(sed -n 's/^[[:space:]]*email:[[:space:]]*\(.*\)$/\1/p' "$deploy_cfg" | head -1)"
     echo "  login    ${admin_email} / $(cat "$admin_pw_file")  (bootstrap admin — cold start, no other data)"
     echo "  demo     make seed-dev  — adds the demo records + rep seats on top"
-    echo "  logs     ${log}"
+    # Name the reading tool, not just the file: the raw log interleaves three
+    # processes, and `make dev-logs` is what makes that legible.
+    echo "  logs     make dev-logs${slug:+ DEV_SLUG=$slug}  — coloured per process (ROLE=/LEVEL=/ALL=1 to filter)"
+    echo "           ${log}"
     echo "  stop     make dev-stop${slug:+ DEV_SLUG=$slug}"
   else
     echo "FAIL: $label FE did not become ready in time — see ${log}" >&2

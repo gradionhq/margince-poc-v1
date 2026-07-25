@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // A machine reason is a short identifier by definition, but it is parsed out of
@@ -66,5 +67,39 @@ func TestProviderReasonIsEmptyForAPlainError(t *testing.T) {
 	}
 	if got := ProviderReason(nil); got != "" {
 		t.Errorf("ProviderReason(nil) = %q, want \"\"", got)
+	}
+}
+
+// Op carries provider-supplied path segments, and the rendered error is
+// persisted as a system_log detail — so an oversized one is truncated, and the
+// truncation must not leave broken text in the one record that explains a
+// failure.
+func TestErrorTruncatesAnOversizedOpOnARuneBoundary(t *testing.T) {
+	// A multi-byte rune straddling the cut is the case a byte-offset slice breaks.
+	op := "/messages/" + strings.Repeat("a", maxOpLen-11) + "é" + strings.Repeat("b", 50)
+	err := error(&ProviderError{Op: op, Status: 403, Reason: "authError", Class: ErrAuthRejected})
+
+	msg := err.Error()
+	if !utf8.ValidString(msg) {
+		t.Errorf("Error() is not valid UTF-8 after truncation: %q", msg)
+	}
+	if !strings.Contains(msg, "…") {
+		t.Errorf("Error() = %q, want a visible truncation marker", msg)
+	}
+	if strings.Contains(msg, strings.Repeat("b", 50)) {
+		t.Error("Error() kept the oversized tail; the bound did not apply")
+	}
+	// The bound must not disturb the rest of the line.
+	if !strings.Contains(msg, "403") || !strings.Contains(msg, "authError") {
+		t.Errorf("Error() = %q, want the status and reason intact", msg)
+	}
+}
+
+// An op inside the bound is rendered whole — truncation must not be silently
+// lossy for the ordinary case.
+func TestErrorKeepsAnOpWithinTheBound(t *testing.T) {
+	err := error(&ProviderError{Op: "/calendars/primary", Status: 403, Class: ErrAuthRejected})
+	if msg := err.Error(); !strings.Contains(msg, "/calendars/primary") || strings.Contains(msg, "…") {
+		t.Errorf("Error() = %q, want the op verbatim and no truncation marker", msg)
 	}
 }
