@@ -22,6 +22,25 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**Two post-paint races closed (`fix/overlay-carried-forward`).** Both were
+carried forward from the overlay-UI PR (#258) rather than worked around.
+*Forms:* the create and edit modals seeded their fields in a passive effect,
+which React runs only after the browser paints — so the form sat on screen
+blank and typeable for that gap, and anything typed into it was written
+through empty state and thrown away by the seed landing a commit later. The
+field snapped back and Save carried the edit the user never made. Both modals
+now seed during render on the closed→open transition, so the inputs' first
+commit already carries their values. This reached every `EditAction` call
+site, native mode included. *Overlay:* Disconnect's post-commit vault delete
+ran on the caller's cancellable request context, so a client hanging up on
+its 204 cancelled the cleanup deterministically, orphaning a credential no
+retry could reach. The detach + deadline + never-fail-the-caller shape
+reconnect and connect already carried is now one function
+(`deleteUnreferencedRef`) all three paths share. The earlier STATUS entry
+also blamed `RecordFormBody`'s per-field closure writers; that half is wrong
+and was dropped — React flushes discrete input events synchronously, so two
+field writes never share a batch.
+
 **Connections surface + IMAP lifecycle unification (`feat/connections-ui`).**
 The Settings → Integrations `ConnectorsCard` (#230) is now the full connected-
 inboxes surface the onboarding copy always promised: one shared connector-
@@ -842,25 +861,6 @@ tooling and gate suite the baseline needs. Merged so far:
 ## Pick up here
 
 Open work, roughly in priority order:
-
-- **`EditAction` prefill race — every call site, native mode included.** In
-  `frontend/src/screens/edit.tsx`, the open-transition `useEffect` that
-  prefills the edit modal's form values (around line 159) is not the only
-  writer of that state: `RecordFormBody`'s per-field `onChange` also calls
-  `setValues` from the `values` it holds in its own closure rather than a
-  functional update. If a keystroke lands in the same tick the modal opens,
-  whichever `setValues` call commits second wins with the state it captured
-  BEFORE the other ran — so a fast typist's first keystroke can commit
-  through with every other field back to blank, and Save then writes those
-  blanks over the record's real values. The prefill effect and the per-field
-  writer both need to update off the current state (a functional `setValues`
-  update, or gating input until prefill has committed) rather than each
-  closing over a `values` snapshot the other can invalidate. It reaches
-  every `EditAction` call site — this is a form-state bug, not an
-  overlay-specific one, and it can silently overwrite real field data on
-  save. Reproduces at roughly 22 of 25 runs when a test types into a
-  freshly-opened modal without first waiting for a known prefilled value to
-  appear; waiting for that value before typing avoids it.
 
 - **Capture quality gates + captured-company auto-enrichment — spec ratified,
   implementation in flight (margince-foundation ADR-0072/A118).**
