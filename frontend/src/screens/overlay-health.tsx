@@ -24,28 +24,51 @@ export type SyncStatus = components["schemas"]["OverlaySyncStatus"];
 export type SyncObject = NonNullable<SyncStatus["objects"]>[number];
 export type Budget = components["schemas"]["OverlayBudget"];
 export type BudgetBand = components["schemas"]["OverlayBudgetBand"];
+type SyncState = NonNullable<SyncObject["state"]>;
 
-const SYNC_STATE_TONE: Record<string, "success" | "warn" | "danger"> = {
+// Keyed on the schema's own enum (not a bare `string`) so adding a state/band
+// upstream is a compile error here until this map catches up — but the
+// server is a separately-deployed process, so a value it sends can still
+// outrun what this build was generated against. `Partial` makes that gap
+// visible in the type (`MessageKey | undefined`) rather than let a stale map
+// silently promise every key exists; labelOrRaw's fallback is what actually
+// closes it at render time — see below.
+const SYNC_STATE_TONE: Partial<
+  Record<SyncState, "success" | "warn" | "danger">
+> = {
   fresh: "success",
   pending_sync: "warn",
   stale: "danger",
 };
-const SYNC_STATE_LABEL: Record<string, MessageKey> = {
+const SYNC_STATE_LABEL: Partial<Record<SyncState, MessageKey>> = {
   fresh: "overlay.syncStateFresh",
   pending_sync: "overlay.syncStatePending",
   stale: "overlay.syncStateStale",
 };
 
-const BAND_TONE: Record<BudgetBand, "success" | "warn" | "danger"> = {
+const BAND_TONE: Partial<Record<BudgetBand, "success" | "warn" | "danger">> = {
   ok: "success",
   warn: "warn",
   shed: "danger",
 };
-const BAND_LABEL: Record<BudgetBand, MessageKey> = {
+const BAND_LABEL: Partial<Record<BudgetBand, MessageKey>> = {
   ok: "overlay.bandOk",
   warn: "overlay.bandWarn",
   shed: "overlay.bandShed",
 };
+
+// A state/band this build doesn't recognize must never render as blank or
+// as the literal string "undefined" (t(undefined) does exactly that) — the
+// honest fallback is the server's own raw value, the same "never fabricate,
+// never hide a server fact" rule `headroom` above already follows.
+function labelOrRaw<K extends string>(
+  t: ReturnType<typeof useT>,
+  map: Partial<Record<K, MessageKey>>,
+  value: K,
+): string {
+  const key = map[value];
+  return key ? t(key) : value;
+}
 
 // converged is true once every reported object class has both landed its
 // backfill and settled at "fresh" — absent `objects` means nothing has
@@ -112,7 +135,7 @@ function SyncStatusPanel({
             >
               <span className="t-mono">{o.object ?? "—"}</span>
               <Badge tone={o.state ? SYNC_STATE_TONE[o.state] : undefined}>
-                {o.state ? t(SYNC_STATE_LABEL[o.state]) : "—"}
+                {o.state ? labelOrRaw(t, SYNC_STATE_LABEL, o.state) : "—"}
               </Badge>
               <span className="t-small">
                 {o.backfillComplete
@@ -178,7 +201,7 @@ function BudgetSearchRow({
       </span>
       {search.band && (
         <Badge tone={BAND_TONE[search.band]}>
-          {t(BAND_LABEL[search.band])}
+          {labelOrRaw(t, BAND_LABEL, search.band)}
         </Badge>
       )}
     </div>
@@ -216,7 +239,7 @@ function BudgetPanel({ query }: Readonly<{ query: QueryLike<Budget> }>) {
       >
         {budget.band && (
           <Badge tone={BAND_TONE[budget.band]}>
-            {t(BAND_LABEL[budget.band])}
+            {labelOrRaw(t, BAND_LABEL, budget.band)}
           </Badge>
         )}
         <span className="t-mono t-small">

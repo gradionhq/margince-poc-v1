@@ -87,7 +87,7 @@ curl -sS 'http://localhost:8080/v1/people?limit=10'        -b cookies.txt | jq '
 curl -sS 'http://localhost:8080/v1/organizations?limit=10' -b cookies.txt | jq '.data[].name'
 curl -sS http://localhost:8080/v1/overlay/budget           -b cookies.txt | jq  # window/consumed/band + per-source sources + ~unknown headroom + search
 ```
-Or just open **http://localhost:8080** and log in — records list and open normally, a topbar mode chip
+Or just open **http://localhost:8080** and log in — records list and open normally, a top bar mode chip
 marks this as an overlay installation, and Settings → Integrations' overlay card shows the per-object
 sync status and the HubSpot rate budget. No screen renders a per-record freshness affordance (there is no
 `last_synced_at` on a record read — see the next section for what a write does and does not touch).

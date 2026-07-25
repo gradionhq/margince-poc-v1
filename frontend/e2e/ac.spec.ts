@@ -497,6 +497,14 @@ test.describe("B-EP09.23: overlay mode", () => {
     // The whole cache is invalidated on success (/me included) — the chip
     // (driven purely off /me) disappears once the app re-reads native.
     await expect(page.locator(".badge-accent")).toHaveCount(0);
+    // The connection row survives disconnect (revoked, never deleted —
+    // backend/internal/modules/overlay/teardown.go's revokeConnection), so
+    // the card's own re-read must show that, not vanish or revert to
+    // "active": the revoked badge plus a working Reconnect affordance.
+    await expect(page.getByText("Widerrufen")).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Erneut verbinden" }),
+    ).toBeVisible();
   });
 
   test("AC-overlay-7: every 360 panel renders its unavailable state, never an error box", async ({

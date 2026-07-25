@@ -391,6 +391,14 @@ export async function mockApi(
     ...briefRun,
     items: briefRun.items.map((item) => ({ ...item })),
   };
+  // per-page connection state so a DELETE is reflected on the next GET —
+  // the real Disconnect (overlay/teardown.go's revokeConnection) flips the
+  // row's status to "revoked" and never deletes it (overlay/connection.go's
+  // Service.Get: a revoked connection still reads back, its status column
+  // carrying that fact), so the mock must answer the same shape instead of
+  // vanishing the row or reporting 404 — a 404 means no connection was ever
+  // inserted, a different state than "disconnected".
+  let connection = { ...overlayConnection };
 
   await target.route(/\/v1\//, async (route) => {
     const url = new URL(route.request().url());
@@ -417,7 +425,7 @@ export async function mockApi(
     // caller that never passes { sor: "overlay" } sees the native mock
     // completely unchanged.
     if (path === "/overlay/connection" && method === "GET") {
-      return json(overlayConnection);
+      return json(connection);
     }
     if (path === "/overlay/connection" && method === "DELETE") {
       // The real disconnect purges the mirror and flips workspace.x_sor_mode
@@ -425,6 +433,11 @@ export async function mockApi(
       // this flag, read fresh by /me above on the app's next refetch
       // (OverlayCard's onSuccess invalidates every query, /me included).
       sorMode = "native";
+      // The connection row itself survives disconnect (revoked, not
+      // deleted) — a refetch of the card must see the same revoked-state
+      // reconnect affordance the real backend answers, not a stale "active"
+      // that the real backend can never produce.
+      connection = { ...connection, status: "revoked" };
       return route.fulfill({ status: 202 });
     }
     if (path === "/overlay/sync-status") {

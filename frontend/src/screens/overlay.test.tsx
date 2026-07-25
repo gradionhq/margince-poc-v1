@@ -187,6 +187,41 @@ describe("the overlay card", () => {
     expect(screen.getByText(/~unknown/)).toBeTruthy();
   });
 
+  it("renders a sync state or budget band this build doesn't recognize as the server's own raw value, not blank or literal 'undefined'", async () => {
+    // A state/band the running server added after this frontend's schema
+    // was generated — the honest fallback is the server's raw string, the
+    // same rule `~unknown` headroom above already follows for a value the
+    // server explicitly declines to compute for us.
+    const unknownSyncStatus = {
+      objects: [
+        {
+          object: "organization",
+          lastSyncedAt: "2026-07-25T08:00:00Z",
+          state: "syncing",
+          backfillComplete: false,
+        },
+      ],
+    };
+    const unknownBandBudget = {
+      window: "2026-07-25T08:00:00Z/PT1H",
+      consumed: 5,
+      limit: 1000,
+      band: "critical",
+      headroom: 995,
+    };
+    stubApi({
+      "GET /me": meRoute(["admin"]),
+      "GET /overlay/connection": () => jsonResponse(activeConnection),
+      "GET /overlay/sync-status": () => jsonResponse(unknownSyncStatus),
+      "GET /overlay/budget": () => jsonResponse(unknownBandBudget),
+    });
+    render(<OverlayCard />);
+    expect(await screen.findByText("organization")).toBeTruthy();
+    expect(screen.getByText("syncing")).toBeTruthy();
+    expect(screen.getByText("critical")).toBeTruthy();
+    expect(screen.queryByText("undefined")).toBeNull();
+  });
+
   it("keeps showing sync and budget when the connection is in error", async () => {
     stubApi({
       "GET /me": meRoute(["admin"]),
