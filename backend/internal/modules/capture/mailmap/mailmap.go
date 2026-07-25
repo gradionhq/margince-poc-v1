@@ -168,8 +168,8 @@ func (m Message) SkipReason() (string, bool) {
 	if m.autoSubmit {
 		return "auto-submitted", true
 	}
-	if isMachineSender(m.from) {
-		return "automated sender", true
+	if isDeliverySystemSender(m.from) {
+		return "delivery-system sender", true
 	}
 	return "", false
 }
@@ -312,9 +312,19 @@ func firstNonOwner(list []*mail.Address, ownerLower string) string {
 	return firstAddress(list)
 }
 
-// isMachineSender flags the common no-reply / bounce localparts that carry
-// no human counterparty worth a CRM row.
-func isMachineSender(addr string) bool {
+// isDeliverySystemSender flags mail from the message-transport system itself —
+// a bounce, a DSN, a postmaster notice. There is no correspondent behind it and
+// nothing on the other end to have a relationship with, so it is dropped before
+// anything is written.
+//
+// Deliberately NARROWER than "looks automated". A no-reply or notifications
+// address is a real organization writing to the workspace — a signed envelope,
+// an invoice, a shipping notice — and ADR-0072 §1 is explicit that such a
+// message keeps its place on the timeline while the tier gate suppresses the
+// person and company derivation. Dropping it here would make that promise false
+// and would starve the T2 corroboration rule (CAP-PARAM-6), which exists to
+// recognize exactly these machine localparts, of the mail it judges.
+func isDeliverySystemSender(addr string) bool {
 	local, _, found := strings.Cut(strings.ToLower(addr), "@")
 	if !found {
 		return false
@@ -322,7 +332,7 @@ func isMachineSender(addr string) bool {
 	local = strings.ReplaceAll(local, ".", "")
 	local = strings.ReplaceAll(local, "-", "")
 	switch local {
-	case "noreply", "donotreply", "mailerdaemon", "postmaster", "bounce", "bounces", "notifications", "notification":
+	case "mailerdaemon", "postmaster", "bounce", "bounces":
 		return true
 	}
 	return false

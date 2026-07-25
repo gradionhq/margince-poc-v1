@@ -133,3 +133,31 @@ func TestCaptureTierGateLetsCorrespondencePrecedeSuppression(t *testing.T) {
 		}
 	})
 }
+
+// The corroboration rule (CAP-PARAM-6) suppresses a prefix-subdomain sender
+// only when something confirms it is bulk infrastructure — a List-Unsubscribe
+// header, or a machine localpart. The machine-localpart half was unreachable
+// while the mapper dropped those senders outright, so this pins both halves of
+// ADR-0072 §1's promise at once: the derivation is suppressed AND the message
+// still reaches the timeline, which is the whole reason a DocuSign envelope is
+// worth capturing.
+func TestCaptureTierGateSuppressesAMachineLocalpartWithoutLosingTheMessage(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+
+	sync(t, email("no-reply@em.vendor.example", "Vendor", autoCreateOwner, "v1@em.vendor.example", ""))
+
+	if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'v1@em.vendor.example'`); n != 1 {
+		t.Fatalf("%d activities for the vendor envelope, want 1 — the timeline row must stand", n)
+	}
+	if n := countRows(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		WHERE pe.email = 'no-reply@em.vendor.example'`); n != 0 {
+		t.Fatal("a machine localpart on a prefix subdomain must derive no person")
+	}
+	if n := countRows(t, e, `
+		SELECT count(*) FROM system_log
+		WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'v1@em.vendor.example'`); n != 1 {
+		t.Fatalf("%d suppression breadcrumbs, want 1 — the corroboration rule must be the one that fired", n)
+	}
+}

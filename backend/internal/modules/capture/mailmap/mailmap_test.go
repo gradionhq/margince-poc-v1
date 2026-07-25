@@ -134,10 +134,10 @@ func TestParseCarriesListUnsubscribeOntoCounterparty(t *testing.T) {
 	}
 }
 
-func TestSkipReasonDropsAutomatedMail(t *testing.T) {
+func TestSkipReasonDropsDeliverySystemMail(t *testing.T) {
 	cases := map[string][]byte{
-		"no-reply sender": crlf(
-			"From: no-reply@newsletter.com", "To: me@myco.com", "Subject: Weekly digest",
+		"delivery-system sender": crlf(
+			"From: mailer-daemon@newsletter.com", "To: me@myco.com", "Subject: Weekly digest",
 			"Message-ID: <n1@newsletter.com>", "Content-Type: text/plain", "", "news", "",
 		),
 		"auto-submitted header": crlf(
@@ -295,5 +295,39 @@ func TestAttestationRequiresAuthorshipNotJustPlacement(t *testing.T) {
 	}
 	if rec.Counterparty.SentByOwner() {
 		t.Fatal("a third party's message filed into the sent container attested the owner's authorship")
+	}
+}
+
+// ADR-0072 §1 promises that a transactional sender's message keeps its place on
+// the timeline while the tier gate suppresses the person and company it would
+// otherwise derive. A no-reply localpart is the ordinary shape of exactly that
+// mail — a signed envelope, an invoice, a shipping notice — so dropping it here
+// would make the promise false before the gate ever ran, and would starve the
+// T2 corroboration rule of the machine localparts it exists to recognize.
+func TestANoReplyVendorMessageReachesTheTierGate(t *testing.T) {
+	envelope := crlf(
+		"From: no-reply@eu.docusign.net", "To: me@myco.com", "Subject: Completed: Order form",
+		"Message-ID: <ds1@eu.docusign.net>", "Content-Type: text/plain", "", "signed", "",
+	)
+	msg, err := Parse(envelope, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if reason, drop := msg.SkipReason(); drop {
+		t.Fatalf("a no-reply vendor envelope was dropped as %q — the tier gate never sees it", reason)
+	}
+
+	// The transport system's own mail is different: there is no correspondent
+	// behind a bounce, so nothing downstream could act on it.
+	bounce := crlf(
+		"From: mailer-daemon@eu.docusign.net", "To: me@myco.com", "Subject: Undeliverable",
+		"Message-ID: <b1@eu.docusign.net>", "Content-Type: text/plain", "", "failed", "",
+	)
+	msg, err = Parse(bounce, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if _, drop := msg.SkipReason(); !drop {
+		t.Fatal("a bounce reached the tier gate — there is no counterparty behind the transport system")
 	}
 }
