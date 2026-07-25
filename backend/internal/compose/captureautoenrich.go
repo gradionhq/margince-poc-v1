@@ -158,6 +158,10 @@ func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org ca
 				SiteReadID:     read.ID,
 				SeedURL:        read.SeedURL,
 				RequestedBy:    read.RequestedBy,
+				// Declared in the payload as well as enforced at the worker: a
+				// job carries what it was queued to cost, so an operator
+				// reading river_job sees the ceiling without inferring it.
+				MaxPages: autoEnrichMaxPages,
 			}, siteDeepReadInsertOpts())
 			return insErr
 		})
