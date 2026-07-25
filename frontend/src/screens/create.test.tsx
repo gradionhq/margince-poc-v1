@@ -7,7 +7,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
+import { type ReactNode, useLayoutEffect, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
@@ -234,6 +234,57 @@ describe("multiselect CreateField", () => {
     expect(splitMultiselectValue(values.event_types)).toEqual([
       "person.created",
     ]);
+  });
+});
+
+// The create modal's counterpart to the edit modal's prefill (edit.test.tsx):
+// the reset has to land in the commit that puts the form back on screen, not
+// one commit later — otherwise a reopened modal shows the abandoned attempt.
+describe("create modal reset", () => {
+  it("is blank in the very commit that puts a reopened form on screen", async () => {
+    const seeded: CreateField[] = [
+      { key: "name", labelText: "Name", type: "text", required: true },
+    ];
+    // What the Name input holds each time the open modal reaches the DOM. A
+    // layout effect runs inside that commit — before the browser paints and
+    // before any passive effect — so it sees exactly the first frame a user
+    // could see and type into.
+    const firstFrames: string[] = [];
+    function OpenHarness() {
+      const [open, setOpen] = useState(false);
+      useLayoutEffect(() => {
+        const name = screen.queryByLabelText(
+          "Name *",
+        ) as HTMLInputElement | null;
+        if (name) {
+          firstFrames.push(name.value);
+        }
+      });
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Open
+          </button>
+          <CreateRecordModal
+            open={open}
+            onClose={() => setOpen(false)}
+            title="New record"
+            fields={seeded}
+            pending={false}
+            error={null}
+            onSubmit={vi.fn()}
+          />
+        </>
+      );
+    }
+    render(<OpenHarness />);
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    await userEvent.type(screen.getByLabelText("Name *"), "Abandoned");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    // Resetting in a passive effect leaves the abandoned attempt on screen for
+    // the frame between the reopen and the reset.
+    expect(firstFrames.at(-1)).toBe("");
   });
 });
 
