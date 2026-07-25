@@ -12,6 +12,7 @@ package graph
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -66,6 +67,15 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 	res := connector.BackfillPageResult{NextToken: next, Scanned: len(msgs)}
 	for _, msg := range msgs {
 		raw, err := c.api.GetMIME(ctx, access, msg.ID)
+		if errors.Is(err, connector.ErrSkip) {
+			// A deliberate per-message drop — an oversized MIME blob, which is
+			// not honest evidence truncated. Counted and stepped over, the same
+			// as the incremental pull does: returning it here would fail the
+			// page, and the engine would retry the page from its committed
+			// token straight back onto the same message, forever.
+			res.Skipped++
+			continue
+		}
 		if err != nil {
 			// A fetch fault is transient — stop the page without advancing
 			// so the engine retries this page from its committed token.

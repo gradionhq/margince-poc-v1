@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -50,6 +51,7 @@ type fakeAPI struct {
 	estimateAfter time.Time
 	listIDs       []string
 	sentIDs       map[string]bool // listed ids Graph filed under Sent Items
+	skipIDs       map[string]bool // ids GetMIME refuses as a per-message drop
 	sentFolderErr error
 	listNext      string
 	listCalls     int
@@ -74,6 +76,9 @@ func (f *fakeAPI) Delta(_ context.Context, _, deltaLink string) ([]string, strin
 }
 
 func (f *fakeAPI) GetMIME(_ context.Context, _, id string) ([]byte, error) {
+	if f.skipIDs[id] {
+		return nil, fmt.Errorf("graph: message %s exceeds the size cap: %w", id, connector.ErrSkip)
+	}
 	if f.getErr != nil {
 		return nil, f.getErr
 	}

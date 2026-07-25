@@ -153,3 +153,26 @@ func TestBackfillStopsWhenTheSentFolderCannotBeResolved(t *testing.T) {
 		t.Fatalf("%d records captured, want none — nothing may land with guessed provenance", len(sink.recs))
 	}
 }
+
+// An oversized message is a deliberate per-message drop, and the backfill must
+// step over it exactly as the incremental pull does. Failing the page instead
+// would send the engine back to the same committed token, onto the same
+// message, forever — one unreadable mail would wedge the whole backfill.
+func TestBackfillSkipsAnUnreadableMessageAndKeepsGoing(t *testing.T) {
+	api := &fakeAPI{
+		listIDs: []string{"m-huge", "m-ok"},
+		raws:    map[string][]byte{"m-ok": rawMsg("ok@mail.example", "alice@acme.com")},
+		skipIDs: map[string]bool{"m-huge": true},
+	}
+	sink := &recordingSink{}
+	res, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", sink)
+	if err != nil {
+		t.Fatalf("BackfillPage must not fail on a skippable message: %v", err)
+	}
+	if res.Captured != 1 || res.Skipped != 1 || res.Scanned != 2 {
+		t.Fatalf("tally = %+v, want scanned=2 captured=1 skipped=1", res)
+	}
+	if len(sink.recs) != 1 {
+		t.Fatalf("sink received %d records, want the readable one", len(sink.recs))
+	}
+}
