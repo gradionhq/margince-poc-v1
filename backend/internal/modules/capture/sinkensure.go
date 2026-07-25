@@ -66,10 +66,48 @@ func (s *Sink) WithEnsurer(ensurer CounterpartyEnsurer, freemail *FreemailList, 
 // the capture transaction committed, and NEVER fails the capture — a fault
 // lands in system_log for the nightly reconcile (the link-less connector
 // activity is the retry marker).
-func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedRecord, ref datasource.EntityRef) {
-	cp := rec.Counterparty
-	if s.ensurer == nil || cp.Email == "" || ref.Type != datasource.EntityActivity {
+func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedRecord, ref datasource.EntityRef, decision counterpartyDecision) {
+	if !decision.create {
 		return
+	}
+	cp := rec.Counterparty
+	err := s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
+		Email:       cp.Email,
+		DisplayName: cp.DisplayName,
+		Domain:      cp.Domain,
+		OwnerID:     decision.owner,
+		ActivityID:  ref.ID,
+		Source:      captureSource(rec),
+		CapturedBy:  decision.capturedBy,
+		SuppressOrg: decision.suppressOrg,
+	})
+	if err != nil {
+		s.logEnsureFault(ctx, rec, err)
+	}
+}
+
+// counterpartyDecision is what the tiered gate concluded inside the capture
+// transaction, for the post-commit step to act on. Creation is deliberately
+// NOT done in that transaction: the timeline row must never be lost to a
+// resolver fault, and the 60 s capture budget must not wait on record creation.
+type counterpartyDecision struct {
+	create      bool
+	suppressOrg bool
+	owner       ids.UUID
+	capturedBy  string
+}
+
+// decideCounterparty runs the tiered creation gate (ADR-0072 §1) and records
+// what it decided, both INSIDE the capture transaction — so there is no window
+// in which an activity exists with no disposition, and a T2 suppression or a T4
+// deferral is durable the moment the mail lands.
+//
+// It decides only. The classes that create do so after the commit; the classes
+// that do not create are finished here.
+func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, activityID ids.UUID) (counterpartyDecision, error) {
+	cp := rec.Counterparty
+	if s.ensurer == nil || cp.Email == "" {
+		return counterpartyDecision{}, nil
 	}
 	actor, _ := principal.Actor(ctx) // Upsert already validated a connector actor
 	owner := actor.OnBehalfOf
@@ -77,20 +115,30 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 		owner = actor.UserID
 	}
 	if owner.IsZero() {
-		// RC-8: a capture connector always acts for a granting human; with
-		// no owner nothing can honestly own the created rows.
-		s.logEnsureFault(ctx, rec, errors.New("no granting human on the connector principal"))
-		return
+		// RC-8: a capture connector always acts for a granting human; with no
+		// owner nothing can honestly own the created rows. The ACTIVITY still
+		// stands — refusing the derivation is the honest answer, failing the
+		// capture would throw away a message we successfully read — so the
+		// fault is recorded for the nightly reconcile and creation is skipped.
+		if err := s.logFaultTx(ctx, tx, rec, errors.New("no granting human on the connector principal")); err != nil {
+			return counterpartyDecision{}, err
+		}
+		return counterpartyDecision{}, nil
 	}
-	internal, err := s.internalDomain(ctx, cp.Domain)
+	row := dispositionRow{
+		Email: cp.Email, Domain: cp.Domain, DisplayName: cp.DisplayName,
+		ActivityID: activityID, OwnerID: owner,
+	}
+	decision := counterpartyDecision{owner: owner, capturedBy: actor.ID}
+
+	// T0 internal own-domain: colleagues, not customers. Creates nothing, and
+	// records nothing — an internal address is not a disposition anyone reviews.
+	internal, err := s.internalDomainTx(ctx, tx, cp.Domain)
 	if err != nil {
-		s.logEnsureFault(ctx, rec, err)
-		return
+		return counterpartyDecision{}, err
 	}
 	if internal {
-		// Colleagues, not customers: mail on the workspace's own domain
-		// creates nothing.
-		return
+		return counterpartyDecision{}, nil
 	}
 	// T2 transactional / ESP infrastructure (CAP-PARAM-6, ADR-0072): a
 	// DocuSign envelope or a SendGrid relay is not a counterparty's company.
@@ -107,50 +155,60 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 			// demonstrated intent, whatever their mail plumbing looks like.
 			// Asked only here — the tier below is the only place the answer
 			// changes an outcome, and asking costs a query per captured message.
-			corresponded, err := s.correspondencePositive(ctx, cp.Email)
+			corresponded, err := s.correspondencePositiveTx(ctx, tx, cp.Email)
 			if err != nil {
-				s.logEnsureFault(ctx, rec, err)
-				return
+				return counterpartyDecision{}, err
 			}
 			if !corresponded {
+				// T2 stands: person and org are suppressed, the activity keeps
+				// its place on the timeline, and the reason lands on the ledger
+				// so a wrong registry entry is queryable, not only logged.
+				row.Status, row.Reason = PendingStatusSuppressed, reason
+				if err := recordDisposition(ctx, tx, row); err != nil {
+					return counterpartyDecision{}, err
+				}
 				s.logSuppression(ctx, rec, reason)
-				return
+				return counterpartyDecision{}, nil
 			}
 			// The rule matched and T1 overrode it. Recorded on its own so a
 			// spare is as diagnosable as a suppression — this is the one path
 			// that lets an address the registry calls infrastructure become a
 			// record, and ops must be able to see it happen.
 			s.logCorrespondenceSpare(ctx, rec, reason)
+			decision.create = true
 		}
 	}
-	suppressOrg := s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
-	err = s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
-		Email:       cp.Email,
-		DisplayName: cp.DisplayName,
-		Domain:      cp.Domain,
-		OwnerID:     owner,
-		ActivityID:  ref.ID,
-		Source:      captureSource(rec),
-		CapturedBy:  actor.ID,
-		SuppressOrg: suppressOrg,
-	})
-	if err != nil {
-		s.logEnsureFault(ctx, rec, err)
+
+	// T3 free-mail (CAP-PARAM-5): a personal mailbox is a person, never a
+	// company — gmail.com is not an organization whatever else is true of it.
+	decision.suppressOrg = s.freemail != nil && s.freemail.IsFreemail(cp.Domain)
+
+	if !decision.create {
+		// T4 ambiguous first-time sender (ADR-0072 §1). Nothing about this
+		// address yet says stranger or customer, and ADR-0063's create-on-sight
+		// is what manufactured junk from exactly this class. Defer instead: the
+		// activity stands, no record is minted, and the verdict engine answers
+		// the question the ledger now holds.
+		row.Status = PendingStatusPending
+		if err := recordDisposition(ctx, tx, row); err != nil {
+			return counterpartyDecision{}, err
+		}
+		return counterpartyDecision{}, nil
 	}
+	return decision, nil
 }
 
-// internalDomain reports whether domain is one of the workspace's own mail
-// domains (the colleagues gate).
-func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) {
+// internalDomainTx reports whether domain is one of the workspace's own mail
+// domains (the colleagues gate). Runs on the capture transaction: the tier
+// ladder decides and records atomically with the activity it is about.
+func (s *Sink) internalDomainTx(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
 	if domain == "" {
 		return false, nil
 	}
 	var internal bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM workspace_email_domain WHERE domain = lower($1))`,
-			domain).Scan(&internal)
-	})
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM workspace_email_domain WHERE domain = lower($1))`,
+		domain).Scan(&internal)
 	if err != nil {
 		return false, fmt.Errorf("capture: internal-domain gate: %w", err)
 	}
@@ -169,19 +227,17 @@ func (s *Sink) internalDomain(ctx context.Context, domain string) (bool, error) 
 // The first outbound message to an address counts immediately: writing to
 // someone is affirmative intent toward them, and it is the message being
 // captured right now that supplies it (the activity commits before this runs).
-func (s *Sink) correspondencePositive(ctx context.Context, email string) (bool, error) {
-	normalized := strings.ToLower(strings.TrimSpace(email))
+func (s *Sink) correspondencePositiveTx(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
+	normalized := normalizeEmail(email)
 	if normalized == "" {
 		return false, nil
 	}
 	var corresponded bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (
-			  SELECT 1 FROM activity
-			  WHERE counterparty_email = $1 AND counterparty_outbound_attested
-			)`, normalized).Scan(&corresponded)
-	})
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+		  SELECT 1 FROM activity
+		  WHERE counterparty_email = $1 AND counterparty_outbound_attested
+		)`, normalized).Scan(&corresponded)
 	if err != nil {
 		return false, fmt.Errorf("capture: correspondence-positive gate: %w", err)
 	}
@@ -237,6 +293,23 @@ func (s *Sink) logCorrespondenceSpare(ctx context.Context, rec connector.Normali
 	if err != nil {
 		slog.ErrorContext(ctx, "capture: recording correspondence spare", "err", err, "reason", reason)
 	}
+}
+
+// logFaultTx records an ensure fault on the caller's capture transaction. Same
+// breadcrumb as logEnsureFault, written where the tier ladder runs: it must
+// commit with the activity it is about, not in a transaction that could fail
+// separately and leave the fault invisible.
+func (s *Sink) logFaultTx(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, cause error) error {
+	_, err := storekit.LogSystem(ctx, tx, "capture_ensure_fault", map[string]any{
+		fieldReason:       "counterparty_ensure_failed",
+		fieldSourceSystem: rec.NaturalKey.SourceSystem,
+		fieldSourceID:     rec.NaturalKey.SourceID,
+		"error":           cause.Error(),
+	})
+	if err != nil {
+		return fmt.Errorf("capture: recording ensure fault: %w", err)
+	}
+	return nil
 }
 
 // logEnsureFault records an auto-create failure in system_log — the
