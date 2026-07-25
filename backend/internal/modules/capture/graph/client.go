@@ -365,6 +365,15 @@ func (a *httpAPI) ListAfter(ctx context.Context, accessToken string, after time.
 	}
 	msgs := make([]MessageRef, 0, len(out.Value))
 	for _, m := range out.Value {
+		if m.ParentFolderID == "" {
+			// Every Graph message lives in a folder, so a listed one naming none
+			// is a truncated answer, not a message outside the hierarchy. It
+			// cannot be captured on a guess in EITHER direction: attested, an
+			// empty id would match an unresolved folder; un-attested, the
+			// activity natural key would permanently discard evidence the owner
+			// really did produce. Refusing the page keeps both off the table.
+			return nil, "", fmt.Errorf("graph: message %s listed without a parent folder: %w", m.ID, ErrUnreachable)
+		}
 		msgs = append(msgs, MessageRef{ID: m.ID, ParentFolderID: m.ParentFolderID})
 	}
 	return msgs, out.NextLink, nil

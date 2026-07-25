@@ -173,3 +173,22 @@ func TestBackfillStopsWhenTheSentFolderIDComesBackEmpty(t *testing.T) {
 		t.Fatalf("SentFolderID on an id-less 2xx = %v, want ErrUnreachable — an empty id must never reach the comparison", err)
 	}
 }
+
+// The mirror of the empty-folder-id case, and it must fail the same way. A
+// listed message naming no parent folder cannot be captured on a guess in
+// either direction: attested, an empty id would match an unresolved folder;
+// un-attested, the activity natural key would permanently discard evidence the
+// owner really did produce. The page stops instead.
+func TestListAfterRefusesAMessageWithNoParentFolder(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		//craft:ignore swallowed-errors test stub write; a short write surfaces as the client-side assertion failure
+		_, _ = w.Write([]byte(`{"value":[{"id":"m-truncated"}]}`))
+	}))
+	defer srv.Close()
+
+	_, _, err := NewAPI(srv.Client(), srv.URL).ListAfter(context.Background(), "access-2", time.Time{}, "", 100)
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("ListAfter on a folder-less message = %v, want ErrUnreachable", err)
+	}
+}
