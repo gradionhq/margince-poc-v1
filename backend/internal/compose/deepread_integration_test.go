@@ -94,6 +94,7 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 		extract:    evidenceExtractor{brain: brain, factBrain: brain},
 		approvals:  svc,
 		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
+		settings:   capture.NewSettings(e.Pool),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 	}, svc
 }
@@ -762,5 +763,70 @@ func TestDeepReadFinishSurvivesACancelledWorkContext(t *testing.T) {
 	}
 	if got.Status != "partial" {
 		t.Fatalf("dossier status = %q, want partial — the terminal write was starved by the dead work context", got.Status)
+	}
+}
+
+// Turning auto-enrich off must stop the SPENDING, not just the queuing. The
+// sweep checks the flag before it enqueues, but a job queued while the flag was
+// on outlives that check — so without a re-read when the worker claims it, an
+// operator who switched the feature off would keep paying for crawls and model
+// calls until the queue drained.
+//
+// The assertion that matters is pageCalls: cancelling after the crawl would
+// record the same status and save nothing.
+func TestDeepReadCancelsAnAutoEnrichJobWhenTheSettingWentOff(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	site := acmeDeepSite()
+	worker, _ := newDeepReadTestWorker(e, site, acmeDeepBrain())
+	read, args := startDeepRead(t, e, org)
+	// The DOSSIER ROW is what marks this read automatic. The payload is left
+	// saying a human asked, so the test also proves which of the two governs:
+	// if the worker trusted the payload it would skip the check entirely.
+	e.WsExec(t, `UPDATE site_read SET requested_by = $1 WHERE id = $2`, systemAutoEnrichActor, read.ID)
+
+	// Set directly: the subject here is the worker re-reading the flag, not the
+	// admin-only RBAC on the settings endpoint, which has its own test.
+	e.WsExec(t, `UPDATE workspace SET capture_auto_enrich = false WHERE id = $1`, e.WS)
+
+	if err := worker.run(context.Background(), args); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if n := len(site.pageCalls); n != 0 {
+		t.Errorf("the crawler fetched %d pages — cancelling after the crawl saves nothing", n)
+	}
+	done, err := e.People.GetSiteRead(e.As(e.Rep1, nil, integration.AdminPerms), orgIDOf(org), read.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if done.Status != "cancelled" {
+		t.Errorf("status = %q, want cancelled — the read did not fail, it was withdrawn", done.Status)
+	}
+}
+
+// Provenance follows the dossier row, not the job payload. The human named on
+// what a read creates is the one who asked for it, and the row is where that is
+// recorded — a payload naming someone else would hang their name on the rows,
+// which no later gate catches, because provenance is written once and never
+// re-derived.
+func TestDeepReadAttributesItsWritesToTheRequesterTheRowNames(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	worker, _ := newDeepReadTestWorker(e, acmeDeepSite(), acmeDeepBrain())
+	read, args := startDeepRead(t, e, org)
+
+	// The row says Rep2 asked; the payload still says Rep1. If the worker
+	// believes the payload, the staged proposal carries the wrong human.
+	e.WsExec(t, `UPDATE site_read SET requested_by = $1 WHERE id = $2`, "human:"+e.Rep2.String(), read.ID)
+
+	if err := worker.run(context.Background(), args); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'deepread' AND on_behalf_of = $1`, e.Rep2); n != 1 {
+		t.Errorf("%d proposals on behalf of the requester the row names, want 1", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'deepread' AND on_behalf_of = $1`, e.Rep1); n != 0 {
+		t.Errorf("%d proposals attributed to the payload's requester — the row is the authority", n)
 	}
 }

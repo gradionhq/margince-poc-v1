@@ -7888,7 +7888,7 @@ export interface components {
             /** Format: uri */
             seed_url: string;
             /** @enum {string} */
-            status: "queued" | "deferred" | "running" | "done" | "partial" | "failed";
+            status: "queued" | "deferred" | "running" | "done" | "partial" | "failed" | "cancelled";
             /** @enum {string|null} */
             status_code: null | "budget_deferred";
             /** @description Safe guidance only; never provider payload, prompt, SQL, or stack data. */

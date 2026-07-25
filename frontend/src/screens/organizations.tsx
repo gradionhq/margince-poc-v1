@@ -464,6 +464,7 @@ const SITE_READ_STATUS_LABELS: Record<SiteReadReport["status"], MessageKey> = {
   running: "deepread.statusRunning",
   done: "deepread.statusDone",
   partial: "deepread.statusPartial",
+  cancelled: "deepread.statusCancelled",
   failed: "deepread.statusFailed",
 };
 

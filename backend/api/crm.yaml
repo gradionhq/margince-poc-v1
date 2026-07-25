@@ -10998,7 +10998,7 @@ components:
         read_id: { type: string, format: uuid }
         organization_id: { type: string, format: uuid }
         seed_url: { type: string, format: uri }
-        status: { type: string, enum: [queued, deferred, running, done, partial, failed] }
+        status: { type: string, enum: [queued, deferred, running, done, partial, failed, cancelled] }
         status_code: { type: [string, 'null'], enum: [null, budget_deferred] }
         status_detail: { type: [string, 'null'], description: 'Safe guidance only; never provider payload, prompt, SQL, or stack data.' }
         next_attempt_at: { type: [string, 'null'], format: date-time }

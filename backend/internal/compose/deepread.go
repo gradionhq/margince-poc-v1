@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,7 +36,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // SiteDeepReadArgs is one queued deep read. The args carry everything the
@@ -50,6 +48,10 @@ type SiteDeepReadArgs struct {
 	SiteReadID     ids.UUID `json:"site_read_id"`
 	SeedURL        string   `json:"seed_url"`
 	RequestedBy    string   `json:"requested_by"`
+	// MaxPages is this run's page ceiling, or 0 for the deployment's own. It
+	// can only ever narrow: the worker clamps it against the configured cap, so
+	// a payload cannot raise what an operator set.
+	MaxPages int `json:"max_pages,omitempty"`
 }
 
 // Kind is the stable job identifier River persists in river_job.
@@ -85,9 +87,14 @@ type siteDeepReadWorker struct {
 	extract    evidenceExtractor
 	approvals  *approvals.Service
 	autoEnrich *capture.AutoEnrichStore
-	log        *slog.Logger
-	caps       CrawlCaps
-	now        func() time.Time
+	// settings answers the auto-enrich flag at CLAIM time. The sweep checks it
+	// too, but a job queued while the flag was on outlives that check: without
+	// re-reading here, switching the feature off would keep costing crawls and
+	// model calls until the queue drained.
+	settings *capture.SettingsStore
+	log      *slog.Logger
+	caps     CrawlCaps
+	now      func() time.Time
 }
 
 // newSiteDeepReadWorker assembles the worker-role deep read over one
@@ -104,6 +111,7 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
 		approvals:  approvals.NewService(pool),
 		autoEnrich: capture.NewAutoEnrichStore(pool),
+		settings:   capture.NewSettings(pool),
 		log:        log,
 		caps:       caps,
 		now:        time.Now,
@@ -135,29 +143,6 @@ func (w *siteDeepReadWorker) reclaimAfter() time.Duration {
 	return w.Timeout(nil) + time.Minute
 }
 
-// run is the whole deep read, River-agnostic so tests drive it directly.
-// Retry semantics rest on BeginSiteRead's CAS: any terminal outcome
-// (done, partial, failed) leaves the dossier past "queued", so a River
-// retry — including one after a recorded failure — CAS-misses and
-// no-ops. One honest outcome per dossier, no zombie re-crawls; reading
-// the site again is a human's next start, never an automatic retry.
-// deepReadWorkerCtx attaches the worker's principal, workspace and correlation
-// onto the job context — the values every store write (and terminalCtx) needs.
-func deepReadWorkerCtx(ctx context.Context, args SiteDeepReadArgs) context.Context {
-	requester := requestedByUserID(args.RequestedBy)
-	ctx = principal.WithWorkspaceID(ctx, args.WorkspaceID)
-	ctx = principal.WithActor(ctx, principal.Principal{
-		Type:       principal.PrincipalSystem,
-		ID:         "agent:deepread",
-		UserID:     requester,
-		OnBehalfOf: requester,
-	})
-	if args.SiteReadID.IsZero() {
-		return principal.WithCorrelationID(ctx, ids.NewV7())
-	}
-	return principal.WithCorrelationID(ctx, args.SiteReadID)
-}
-
 func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) error {
 	ctx = deepReadWorkerCtx(ctx, args)
 
@@ -169,6 +154,33 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 			return nil
 		}
 		return fmt.Errorf("site deep read %s: begin: %w", args.SiteReadID, err)
+	}
+	// Before ANY spend: an operator who turned auto-enrich off gets no further
+	// crawling and no further model calls, including from work queued while it
+	// was on. Only the automatic lane is gated — a human who asked for a read
+	// is not governed by the automatic-enrichment setting.
+	// Everything past the claim runs as the requester the ROW names, so the
+	// provenance on what this read writes is the row's answer too.
+	ctx = withClaimedRequester(ctx, claim.RequestedBy, args.SiteReadID)
+
+	// claim.RequestedBy, never args: the dossier row is the authority on who
+	// asked for this read, and the job payload is metadata that travelled
+	// beside it. Everything downstream that decides SPEND or AUTHORITY reads
+	// the row — a payload disagreeing with it must not buy a wider budget or
+	// skip a confirm-first proposal.
+	if isAutoEnrichRequest(claim.RequestedBy) {
+		enabled, err := w.autoEnrichEnabled(ctx)
+		if err != nil {
+			// Recorded, not returned raw: the read is already claimed, so a
+			// bare error would leave it running until the reclaim window
+			// expires. Every other fault on this path records itself, and the
+			// sweep re-enqueues the org on its next pass.
+			return w.fail(ctx, args.SiteReadID,
+				fmt.Errorf("site deep read %s: reading the auto-enrich setting: %w", args.SiteReadID, err))
+		}
+		if !enabled {
+			return w.abandon(ctx, args.SiteReadID, "auto_enrich_disabled")
+		}
 	}
 	if w.extract.brain == nil {
 		return w.fail(ctx, args.SiteReadID,
@@ -183,7 +195,8 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	// The crawler owns the wall clock (caps.Wall); a seed page that
 	// cannot be read at all is a failed read, not an empty one.
 	progress, publishDraft := w.progressiveCallbacks(ctx, args.SiteReadID)
-	crawl, extraction, err := crawlAndExtract(ctx, w.crawler, w.extract, claim.SeedURL, progress, publishDraft)
+	crawler := w.crawler.withPageCeiling(w.pageCeiling(claim.RequestedBy, args.MaxPages))
+	crawl, extraction, err := crawlAndExtract(ctx, crawler, w.extract, claim.SeedURL, progress, publishDraft)
 	if err != nil {
 		if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, err); deferred {
 			return deferErr
@@ -225,7 +238,7 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 
 	var proposalIDs []ids.UUID
 	if claim.OrganizationID != nil {
-		if isAutoEnrichRequest(args.RequestedBy) {
+		if isAutoEnrichRequest(claim.RequestedBy) {
 			// The auto-enrich lane applies the org's fields + facts directly
 			// (fill-empty, human-precedence) instead of staging a confirm-first
 			// proposal — the system chose to enrich this company, so there is no
@@ -442,37 +455,8 @@ func (w *siteDeepReadWorker) finish(ctx context.Context, readID ids.UUID, status
 	return nil
 }
 
-// fail records the terminal failure on the dossier and returns the cause
-// so River logs it on the job. A retry after a recorded failure is safe
-// by construction — BeginSiteRead CAS-misses and the attempt no-ops.
-func (w *siteDeepReadWorker) fail(ctx context.Context, readID ids.UUID, cause error) error {
-	tctx, cancel := terminalCtx(ctx)
-	defer cancel()
-	if err := w.people.FinishSiteRead(tctx, readID, people.FinishSiteReadInput{Status: "failed"}); err != nil {
-		return errors.Join(cause, fmt.Errorf("recording the failure on the dossier: %w", err))
-	}
-	return cause
-}
-
 // deepReadProposalKind is the staged proposal's wire identity — one
 // spelling for the staging worker and the accept executor
 // (deepreadaccept.go). Distinct from the quick scrape's "enrich": a deep
 // read's acceptance also lands category facts.
 const deepReadProposalKind = "deepread"
-
-// requestedByUserID recovers the human uuid behind a "human:<uuid>"
-// requested_by so the staged proposal carries OnBehalfOf. A requester
-// without a recoverable uuid yields the zero uuid — the approval's
-// on_behalf_of is then honestly NULL rather than the read failing over
-// provenance.
-func requestedByUserID(requestedBy string) ids.UUID {
-	_, raw, found := strings.Cut(requestedBy, ":")
-	if !found {
-		return ids.UUID{}
-	}
-	id, err := ids.Parse(raw)
-	if err != nil {
-		return ids.UUID{}
-	}
-	return id
-}
