@@ -92,6 +92,7 @@ export const de = {
   "search.why": "Warum dieses Ergebnis",
   "search.relevance": "Relevanz {pct}%",
   "search.tier.authoritative": "verifiziert",
+  "search.tier.mirrored": "aus HubSpot",
 
   "context.title": "Verwandte Belege",
   "context.empty": "Noch nichts Verwandtes.",
@@ -280,6 +281,13 @@ export const de = {
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
   "overlay.unavailable":
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
+  "overlay.chipLabel": "Liest aus HubSpot",
+  "overlay.chipAria":
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+  "overlay.refused":
+    "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
+  "overlay.emptyOwnerHint":
+    "Eine leere Liste bedeutet hier meist, dass die HubSpot-E-Mail des Owners keinem Workspace-Benutzer entspricht — nicht, dass das HubSpot-Portal leer ist.",
 
   "overlay.title": "HubSpot-Spiegel",
   "overlay.sub":

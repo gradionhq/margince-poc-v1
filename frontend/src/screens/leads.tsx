@@ -730,7 +730,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
         body,
       });
       if (error) {
-        throwProblem(error);
+        throwProblem(error, t);
       }
       return data;
     },
@@ -814,7 +814,7 @@ export function LeadScreen({ id }: Readonly<{ id: string }>) {
                         params: { path: { id } },
                       });
                       if (error) {
-                        throwProblem(error);
+                        throwProblem(error, t);
                       }
                       return data;
                     }}

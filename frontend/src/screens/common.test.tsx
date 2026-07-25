@@ -9,15 +9,18 @@ import {
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
-import { LocaleProvider } from "../i18n";
+import { LocaleProvider, translate } from "../i18n";
 import {
   canManageCustomFields,
   isConsentNotGranted,
   problemExistingId,
+  problemMessage,
   provenanceOf,
   throwProblem,
 } from "./common";
 import { CreateAction } from "./create";
+
+const t = (key: Parameters<typeof translate>[1]) => translate("en", key);
 
 // Dedupe "view existing record" foundation (P-16): a create that collides on
 // a duplicate_email/duplicate_domain gets its RFC-7807 body preserved
@@ -86,6 +89,38 @@ describe("CreateAction dedupe link", () => {
     );
     await userEvent.click(screen.getByText("View existing record"));
     await waitFor(() => expect(window.location.hash).toBe("#/contacts/01ABC"));
+  });
+});
+
+describe("problemMessage", () => {
+  it("translates an unsupported_by_sor refusal when given a translator", () => {
+    expect(
+      problemMessage(
+        { code: "unsupported_by_sor", detail: "write not supported by SoR" },
+        t,
+      ),
+    ).toBe(t("overlay.refused"));
+    expect(
+      problemMessage(
+        { code: "unsupported_in_overlay_mode", detail: "422 read gap" },
+        t,
+      ),
+    ).toBe(t("overlay.refused"));
+  });
+
+  it("keeps the server detail when no translator is given", () => {
+    expect(
+      problemMessage({
+        code: "unsupported_by_sor",
+        detail: "write not supported by SoR",
+      }),
+    ).toBe("write not supported by SoR");
+  });
+
+  it("keeps the server detail for an unrelated code even with a translator", () => {
+    expect(
+      problemMessage({ code: "version_skew", detail: "record changed" }, t),
+    ).toBe("record changed");
   });
 });
 

@@ -307,7 +307,23 @@ export function provenanceOf(capturedBy: string | undefined): Provenance {
 
 // RFC 7807 bodies carry the honest detail; surface it instead of a generic
 // failure so the error state names its cause.
-export function problemMessage(problem: unknown): string {
+//
+// A refusal overlay mode causes is a state, not a fault: the server's own
+// detail is terse sentinel text (e.g. "unsupported by the system of record
+// provider"), so a caller holding a translator gets copy naming the mode
+// that refused instead. Callers without a translator — and every other
+// problem code — keep the server's own detail verbatim, exactly as before.
+export function problemMessage(
+  problem: unknown,
+  t?: (key: MessageKey) => string,
+): string {
+  const code = problemCode(problem);
+  if (
+    t &&
+    (code === "unsupported_by_sor" || code === "unsupported_in_overlay_mode")
+  ) {
+    return t("overlay.refused");
+  }
   if (problem && typeof problem === "object") {
     const record = problem as Record<string, unknown>;
     if (typeof record.detail === "string") {
@@ -325,15 +341,18 @@ export function problemMessage(problem: unknown): string {
 // details.existing_id for the dedupe "view existing" link.
 export class ProblemError extends Error {
   readonly problem: unknown;
-  constructor(problem: unknown) {
-    super(problemMessage(problem));
+  constructor(problem: unknown, t?: (key: MessageKey) => string) {
+    super(problemMessage(problem, t));
     this.name = "ProblemError";
     this.problem = problem;
   }
 }
 
-export function throwProblem(problem: unknown): never {
-  throw new ProblemError(problem);
+export function throwProblem(
+  problem: unknown,
+  t?: (key: MessageKey) => string,
+): never {
+  throw new ProblemError(problem, t);
 }
 
 // Pull the collided record's id + code out of a duplicate (409) problem body,

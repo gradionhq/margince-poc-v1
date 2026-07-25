@@ -75,6 +75,30 @@ describe("SearchScreen", () => {
     expect(hitLink.className).toContain("entity-link");
   });
 
+  it("badges an external-tier hit as mirrored", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          data: [
+            {
+              type: "person",
+              id: "p1",
+              title: "Dana Buyer",
+              trust_tier: "external",
+            },
+          ],
+          page: { next_cursor: null, has_more: false },
+        }),
+      ),
+    );
+    render(<SearchScreen q="acme" />);
+    await waitFor(() => expect(screen.getByText("Dana Buyer")).toBeTruthy());
+    expect(screen.getByText("from HubSpot")).toBeTruthy();
+    // authoritative's badge never renders alongside a mirrored hit.
+    expect(screen.queryByText("verified")).toBeNull();
+  });
+
   it("shows an honest empty state", async () => {
     vi.stubGlobal(
       "fetch",

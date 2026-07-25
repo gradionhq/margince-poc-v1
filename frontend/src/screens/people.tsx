@@ -485,7 +485,7 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                           },
                         );
                         if (error) {
-                          throwProblem(error);
+                          throwProblem(error, t);
                         }
                         return data;
                       }}

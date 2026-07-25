@@ -1122,7 +1122,7 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
                 },
               );
               if (error) {
-                throwProblem(error);
+                throwProblem(error, t);
               }
               return data;
             }}

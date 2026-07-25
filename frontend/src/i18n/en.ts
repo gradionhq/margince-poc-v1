@@ -88,6 +88,7 @@ export const en = {
   "search.why": "Why this result",
   "search.relevance": "relevance {pct}%",
   "search.tier.authoritative": "verified",
+  "search.tier.mirrored": "from HubSpot",
 
   "context.title": "Related evidence",
   "context.empty": "Nothing related yet.",
@@ -274,6 +275,13 @@ export const en = {
     "Sorting and filters read through HubSpot — open it there",
   "overlay.unavailable":
     "Not available while reading from HubSpot — open it in HubSpot",
+  "overlay.chipLabel": "Reading from HubSpot",
+  "overlay.chipAria":
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
+  "overlay.refused":
+    "Not available while reading from HubSpot — the mirror can't serve this write.",
+  "overlay.emptyOwnerHint":
+    "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
 
   "overlay.title": "HubSpot mirror",
   "overlay.sub":

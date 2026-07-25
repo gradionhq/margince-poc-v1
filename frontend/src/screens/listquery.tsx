@@ -250,6 +250,7 @@ export function ListGate<Row>({
   children: (rows: Row[]) => ReactNode;
 }>): ReactNode {
   const t = useT();
+  const overlay = useSorMode() === "overlay";
   const { rows, isPending, isError, error, refetch, hasMore, loadMore } = state;
 
   if (isPending) {
@@ -277,7 +278,21 @@ export function ListGate<Row>({
   }
 
   if (rows.length === 0) {
-    return <EmptyState>{empty}</EmptyState>;
+    return (
+      <EmptyState>
+        <p>{empty}</p>
+        {/* An empty overlay list is far more often a mirror row whose
+            HubSpot owner email has no matching workspace user (so
+            mirror_visibility never grants it to anyone) than a genuinely
+            empty HubSpot portal — name that cause rather than leaving the
+            caller's generic empty copy to imply "there is nothing here". */}
+        {overlay && (
+          <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+            {t("overlay.emptyOwnerHint")}
+          </p>
+        )}
+      </EmptyState>
+    );
   }
 
   return (

@@ -141,6 +141,9 @@ function SearchHit({ hit }: Readonly<{ hit: SearchResult }>) {
         {hit.trust_tier === "authoritative" && (
           <Badge tone="success">{t("search.tier.authoritative")}</Badge>
         )}
+        {hit.trust_tier === "external" && (
+          <Badge tone="accent">{t("search.tier.mirrored")}</Badge>
+        )}
       </div>
       {hit.snippet && <p className="search-hit-snippet">“{hit.snippet}”</p>}
       {typeof hit.score === "number" && (
