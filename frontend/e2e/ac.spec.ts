@@ -366,26 +366,25 @@ test.describe("B-EP09.23: overlay mode", () => {
   test("AC-overlay-3: an ordinary edit succeeds in overlay mode — the mirror write-back seam accepts it", async ({
     page,
   }) => {
-    // Update (unlike Create) writes back through the incumbent seam and
-    // succeeds (overlay/provider_writes.go) — but every 360 in this branch
-    // hides its Edit affordance uniformly in overlay (contract MeResponse's
-    // own guidance: "hiding mirrored-entity write controls" for a mirrored
-    // screen), so there is no click path to it yet. This exercises the mock's
-    // fidelity to that server contract directly over the page's own network
-    // stack (still intercepted by mockApi, not a bypass of it).
+    // Update writes back through the incumbent seam and succeeds
+    // (overlay/provider_writes.go) — so the deal 360's Edit affordance
+    // renders in overlay too (deals.tsx's DealBadges) and this drives it for
+    // real: click Edit, change the name, save, and see the 360 render the
+    // saved value — the same click path AC-deal-* exercises in native mode.
     await mockApi(page, { sor: "overlay" });
     await page.goto("/#/deals/d-fleet");
-    const response = await page.evaluate(async () => {
-      const res = await fetch("/v1/deals/d-fleet", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json", "If-Match": "1" },
-        body: JSON.stringify({ name: "Fleet retrofit — expanded scope" }),
-      });
-      return { status: res.status, body: await res.json() };
-    });
-    expect(response.status).toBe(200);
-    expect(response.body.name).toBe("Fleet retrofit — expanded scope");
-    expect(response.body.id).toBe("d-fleet");
+    await page.getByTestId("edit-record").click();
+    const name = page.getByLabel("Deal-Name *");
+    // Wait for the modal's own prefill to land before typing over it — the
+    // form seeds its fields from the fetched record on open, and typing
+    // into it before that commits races the prefill, not the write-back
+    // this test is about.
+    await expect(name).toHaveValue("Fleet retrofit");
+    await name.fill("Fleet retrofit — expanded scope");
+    await page.getByRole("button", { name: "Speichern" }).click();
+    await expect(
+      page.getByText("Fleet retrofit — expanded scope"),
+    ).toBeVisible();
   });
 
   test("AC-overlay-4: an unsupported verb explains itself rather than failing", async ({

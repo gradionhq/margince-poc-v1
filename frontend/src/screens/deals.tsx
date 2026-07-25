@@ -1200,11 +1200,13 @@ function DealBadges({
 }>) {
   const t = useT();
   const cf = useObjectCustomFields("deal");
-  // Edit/archive/reopen/share are all hidden in overlay; only the status
-  // badge (a read) stays. Edit/archive/reopen write to a mirrored deal
-  // (unsupported_by_sor). Share is hidden too: a record grant probes the
-  // native deal row (auth.EnsureLinkTarget), which a mirror deal has no row
-  // in, so the grant 404s — and overlay visibility is governed by
+  // The seam serves update and archive for a mirrored deal (write-back
+  // projects onto the incumbent, overlay/provider_writes.go), so Edit and
+  // Archive render in overlay too. Reopen and share stay hidden: reopen
+  // dials advance under the hood, which the seam refuses outright (a mirror
+  // deal carries no native pipeline/stage, OVA-MAP-6), and a record grant
+  // probes the native deal row (auth.EnsureLinkTarget), which a mirror deal
+  // has no row in, so the grant 404s — overlay visibility is governed by
   // mirror_visibility, which record_grant does not feed.
   const overlay = useSorMode() === "overlay";
   if (deal.archived_at != null) {
@@ -1213,67 +1215,62 @@ function DealBadges({
   return (
     <>
       <Badge tone={dealStatusTone(deal.status)}>{deal.status}</Badge>
-      {!overlay && (
-        <>
-          <EditAction
-            label={t("deal.edit")}
-            fields={[
-              ...dealEditFields(t, {
-                orgs,
-                me: meId,
-                currentOwner: deal.owner_id ?? null,
-                currency: deal.currency ?? "EUR",
-              }),
-              ...cf.formFields,
-            ]}
-            record={{
-              id: deal.id,
-              version: deal.version,
-              name: deal.name,
-              amount:
-                deal.amount_minor != null
-                  ? String(deal.amount_minor / 100)
-                  : "",
-              currency: deal.currency ?? "EUR",
-              owner_id: deal.owner_id ?? "",
-              organization_id: deal.organization_id ?? "",
-              partner_org_id: deal.partner_org_id ?? "",
-              forecast_category: deal.forecast_category ?? "",
-              expected_close_date: deal.expected_close_date ?? "",
-              wait_until: deal.wait_until ?? "",
-              ...cf.recordSlice(deal),
-            }}
-            update={async (values) => {
-              const { data, error } = await api.PATCH("/deals/{id}", {
-                params: { path: { id: deal.id }, ...ifMatch(deal.version) },
-                body: { ...mapDealUpdate(values), ...cf.toBody(values) },
-              });
-              if (error) {
-                throwProblem(error);
-              }
-              return data;
-            }}
-            invalidate="deals"
-            recordKey="deal"
-          />
-          <ArchiveAction
-            label={t("deal.archive")}
-            confirmText={t("deal.archiveConfirm")}
-            archive={async () => {
-              const { data, error } = await api.DELETE("/deals/{id}", {
-                params: { path: { id: deal.id } },
-              });
-              if (error) {
-                throwProblem(error);
-              }
-              return data;
-            }}
-            invalidate="deals"
-            recordKey="deal"
-            onArchived={() => navigate({ screen: "deals" })}
-          />
-        </>
-      )}
+      <EditAction
+        label={t("deal.edit")}
+        notice={overlay ? t("overlay.partialWriteBack") : undefined}
+        fields={[
+          ...dealEditFields(t, {
+            orgs,
+            me: meId,
+            currentOwner: deal.owner_id ?? null,
+            currency: deal.currency ?? "EUR",
+          }),
+          ...cf.formFields,
+        ]}
+        record={{
+          id: deal.id,
+          version: deal.version,
+          name: deal.name,
+          amount:
+            deal.amount_minor != null ? String(deal.amount_minor / 100) : "",
+          currency: deal.currency ?? "EUR",
+          owner_id: deal.owner_id ?? "",
+          organization_id: deal.organization_id ?? "",
+          partner_org_id: deal.partner_org_id ?? "",
+          forecast_category: deal.forecast_category ?? "",
+          expected_close_date: deal.expected_close_date ?? "",
+          wait_until: deal.wait_until ?? "",
+          ...cf.recordSlice(deal),
+        }}
+        update={async (values) => {
+          const { data, error } = await api.PATCH("/deals/{id}", {
+            params: { path: { id: deal.id }, ...ifMatch(deal.version) },
+            body: { ...mapDealUpdate(values), ...cf.toBody(values) },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="deals"
+        recordKey="deal"
+      />
+      <ArchiveAction
+        label={t("deal.archive")}
+        confirmText={t("deal.archiveConfirm")}
+        archive={async () => {
+          const { data, error } = await api.DELETE("/deals/{id}", {
+            params: { path: { id: deal.id } },
+          });
+          if (error) {
+            throwProblem(error);
+          }
+          return data;
+        }}
+        invalidate="deals"
+        recordKey="deal"
+        onArchived={() => navigate({ screen: "deals" })}
+      />
       {!overlay && <ShareAction recordType="deal" recordId={deal.id} />}
       {!overlay && (deal.status === "won" || deal.status === "lost") && (
         <ReopenAction dealId={deal.id} openStages={openStages} />

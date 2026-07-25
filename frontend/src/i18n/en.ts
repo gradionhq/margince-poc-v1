@@ -284,6 +284,8 @@ export const en = {
     "This filter or sort isn't available while reading from HubSpot — remove it and try again.",
   "overlay.emptyOwnerHint":
     "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
+  "overlay.partialWriteBack":
+    "Only the fields HubSpot accepts are written back — anything else here, including custom fields and owner, is saved but not applied to HubSpot.",
 
   "overlay.title": "HubSpot mirror",
   "overlay.sub":

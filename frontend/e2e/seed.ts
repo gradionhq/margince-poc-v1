@@ -381,6 +381,11 @@ export async function mockApi(
 
   // per-page automation state so the create→paused→enable flow is coherent
   let automations = [{ ...seededAutomation }];
+  // per-page deal patch state so an overlay-mode edit's re-read (the screen
+  // invalidates ["deal", id] after a save) reflects the write instead of
+  // reverting to the seed — the same "mirror re-read reflects write-back"
+  // shape overlay.Provider.Update gives via mirrorWriteResult.
+  const dealPatches: Record<string, Partial<(typeof deals)[number]>> = {};
   // per-page brief state so act/dismiss marks stick within a test
   const brief = {
     ...briefRun,
@@ -466,11 +471,13 @@ export async function mockApi(
       // Update DOES write back through the incumbent seam and succeed
       // (overlay/provider_writes.go Update) — the mock echoes the patched
       // fields onto the matching seeded deal, same shape a real mirror
-      // re-read would answer.
+      // re-read would answer, and remembers the patch so a follow-up GET
+      // (the screen's post-save refetch) reflects it too.
       const id = path.slice("/deals/".length);
       const base = deals.find((deal) => deal.id === id) ?? deals[0];
       const body = route.request().postDataJSON();
-      return json({ ...base, ...body });
+      dealPatches[id] = { ...dealPatches[id], ...body };
+      return json({ ...base, ...dealPatches[id] });
     }
     if (path === "/company/context/capabilities") {
       return json({
@@ -624,7 +631,8 @@ export async function mockApi(
       return json(page([]));
     }
     if (path.startsWith("/deals/")) {
-      return json(deals.find((deal) => path.endsWith(deal.id)) ?? deals[0]);
+      const base = deals.find((deal) => path.endsWith(deal.id)) ?? deals[0];
+      return json({ ...base, ...dealPatches[base.id] });
     }
     if (path === "/brief" && method === "GET") {
       return json(brief);
