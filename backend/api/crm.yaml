@@ -111,6 +111,8 @@ tags:
     description: Deals, including stage advancement.
   - name: Pipelines
     description: Pipelines and their ordered stages.
+  - name: Projects
+    description: Projects — the body of work a client relationship is made of; their phase ladder and stakeholders.
   - name: Activities
     description: Polymorphic activity timeline (email/call/meeting/note/task).
   - name: Leads
@@ -1295,6 +1297,239 @@ paths:
               schema: { $ref: '#/components/schemas/RelationshipListResponse' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  # ---------------------------- /projects -----------------------------------
+  /projects:
+    get:
+      tags: [Projects]
+      operationId: listProjects
+      summary: List projects (live by default; cursor-paginated).
+      x-mcp-tool: { verb: search_records, record_type: project, tier: auto_execute }
+      parameters:
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/IncludeArchived'
+        - name: organization_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: The anchor company. A project has exactly one.
+        - name: owner_id
+          in: query
+          schema: { type: string, format: uuid }
+        - name: phase
+          in: query
+          schema: { type: string, enum: [initiative, pursuing, delivering, closed] }
+          description: Omit for all phases; `phase != closed` is the open-projects slice the link ladder probes.
+        - name: key
+          in: query
+          schema: { type: string }
+          description: Exact (case-insensitive) key lookup.
+        - name: q
+          in: query
+          schema: { type: string }
+          description: Name/key quick-find (trigram + weighted tsvector).
+      responses:
+        '200':
+          description: A page of projects.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProjectListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: A sort or filter field outside the allow-list.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      tags: [Projects]
+      operationId: createProject
+      summary: Create a project on a company.
+      description: |
+        `organization_id` is required — a project has exactly one anchor company.
+        A `key` is optional but must match `^[A-Za-z][A-Za-z0-9_-]{1,23}$` and be unique
+        among live projects; a collision is `409` carrying the existing project's id.
+        The project starts in `initiative` and its creation row is appended to the phase history.
+      x-mcp-tool: { verb: create_record, record_type: project, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateProjectRequest' }
+      responses:
+        '201':
+          description: Created project.
+          headers:
+            Location: { schema: { type: string } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409':
+          description: A live project already holds this key.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /projects/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Projects]
+      operationId: getProject
+      summary: Get a project by id.
+      x-mcp-tool: { verb: read_record, record_type: project, tier: auto_execute }
+      responses:
+        '200':
+          description: The project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Projects]
+      operationId: updateProject
+      summary: Update a project.
+      description: |
+        `phase` is NOT settable here — a transition goes through `advanceProjectPhase` so the
+        history row and `project.phase_changed` are written from the same transaction.
+      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateProjectRequest' }
+      responses:
+        '200':
+          description: The updated project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    delete:
+      tags: [Projects]
+      operationId: archiveProject
+      summary: Archive a project (soft delete; archive is the delete).
+      description: |
+        Archives the project and its phase history, and frees its key for reuse. It does NOT
+        archive the activities or deals it grouped — the grouping dies, the history does not.
+      x-mcp-tool: { verb: archive_record, record_type: project, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - $ref: '#/components/parameters/ApprovalToken'
+      responses:
+        '204': { description: Archived. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /projects/{id}/advance:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Projects]
+      operationId: advanceProjectPhase
+      summary: Move a project along the phase ladder (audit-logged with prior + next phase).
+      description: |
+        The one phase-transition verb. Writes one phase-history row in the same transaction as
+        the row update and emits `project.phase_changed` instead of `project.updated`.
+        Transitions may move in either direction (a closed project may re-open); every
+        transition is recorded. Closing without a `reason` is `422 closed_reason_required`.
+      x-mcp-tool: { verb: advance_project_phase, record_type: project, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdvanceProjectPhaseRequest' }
+      responses:
+        '200':
+          description: The project at its new phase.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Project' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422':
+          description: Validation error (e.g. closing without a reason).
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /projects/{id}/stakeholders:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Projects]
+      operationId: listProjectStakeholders
+      summary: List a project's stakeholders (project↔person relationships).
+      description: |
+        `relationship` rows of kind `project_stakeholder` — the deal-stakeholder surface's twin,
+        reusing its role vocabulary and adding the delivery roles. One person may hold edges on
+        several projects at the same company simultaneously.
+      responses:
+        '200':
+          description: Stakeholder relationships for the project.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RelationshipListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      tags: [Projects]
+      operationId: setProjectStakeholder
+      summary: Attach a person to a project with a role (idempotent per person).
+      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetProjectStakeholderRequest' }
+      responses:
+        '200':
+          description: The stakeholder edge.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Relationship' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /projects/{id}/stakeholders/{person_id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+      - { name: person_id, in: path, required: true, schema: { type: string, format: uuid } }
+    delete:
+      tags: [Projects]
+      operationId: removeProjectStakeholder
+      summary: Detach a person from a project (archives the edge).
+      x-mcp-tool: { verb: update_record, record_type: project, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/ApprovalToken'
+      responses:
+        '204': { description: Detached. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   # ---------------------------- /pipelines ----------------------------------
   /pipelines:
     get:
@@ -2353,7 +2588,7 @@ paths:
         - $ref: '#/components/parameters/IncludeArchived'
         - name: kind
           in: query
-          schema: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
+          schema: { type: string, enum: [employment, deal_stakeholder, project_stakeholder, partner_of, referred_by, co_sell_with] }
         - name: person_id
           in: query
           schema: { type: string, format: uuid }
@@ -8864,21 +9099,23 @@ components:
       type: object
       description: |
         The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
-        `employment` (person↔org), `deal_stakeholder` (deal↔person), and the partner edges
+        `employment` (person↔org), `deal_stakeholder` (deal↔person), `project_stakeholder`
+        (project↔person — the deal-stakeholder shape applied to a body of work), and the partner edges
         (A41/ADR-0032, org↔org via `counterparty_org_id`): `partner_of` (org served by a partner
         org), `referred_by` (org referred by a partner org), `co_sell_with` (org co-sold with a partner org).
       required: [id, workspace_id, kind, source, captured_by, created_at, updated_at]
       properties:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
-        kind: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
+        kind: { type: string, enum: [employment, deal_stakeholder, project_stakeholder, partner_of, referred_by, co_sell_with] }
         person_id: { type: [string, 'null'], format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
         counterparty_org_id: { type: [string, 'null'], format: uuid, description: 'The other org on a partner edge (partner_of/referred_by/co_sell_with). Null for employment/deal_stakeholder.' }
         deal_id: { type: [string, 'null'], format: uuid }
+        project_id: { type: [string, 'null'], format: uuid, description: 'The project on a project_stakeholder edge. Null for every other kind.' }
         role:
           type: [string, 'null']
-          description: 'employment: cto/vp_sales/...; stakeholder: champion/economic_buyer/blocker/influencer/user.'
+          description: 'employment: cto/vp_sales/...; deal or project stakeholder: champion/economic_buyer/blocker/influencer/user, plus sponsor/project_lead/delivery_lead/subject_matter_expert on a project.'
         is_current_primary: { type: boolean, default: false, description: Employment — the one current primary employer (≤1 per person). }
         started_at: { type: [string, 'null'], format: date }
         ended_at: { type: [string, 'null'], format: date, description: Null = current/ongoing. }
@@ -8893,11 +9130,12 @@ components:
       type: object
       required: [kind, source]
       properties:
-        kind: { type: string, enum: [employment, deal_stakeholder, partner_of, referred_by, co_sell_with] }
+        kind: { type: string, enum: [employment, deal_stakeholder, project_stakeholder, partner_of, referred_by, co_sell_with] }
         person_id: { type: [string, 'null'], format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
         counterparty_org_id: { type: [string, 'null'], format: uuid }
         deal_id: { type: [string, 'null'], format: uuid }
+        project_id: { type: [string, 'null'], format: uuid }
         role: { type: [string, 'null'] }
         is_current_primary: { type: boolean, default: false }
         started_at: { type: [string, 'null'], format: date }
@@ -9013,6 +9251,103 @@ components:
       required: [data, page]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/Deal' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+
+    # ---- Project ----
+    Project:
+      type: object
+      description: A project — the body of work a client relationship is made of. Mirrors the `project` table.
+      required: [id, workspace_id, name, organization_id, phase, source, captured_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        workspace_id: { type: string, format: uuid }
+        name: { type: string }
+        key:
+          type: [string, 'null']
+          pattern: '^[A-Za-z][A-Za-z0-9_-]{1,23}$'
+          description: 'The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it.'
+        organization_id:
+          type: string
+          format: uuid
+          description: 'The anchor company — required and singular. A company has many projects; a project has one company.'
+        owner_id: { type: [string, 'null'], format: uuid }
+        phase:
+          type: string
+          enum: [initiative, pursuing, delivering, closed]
+          default: initiative
+          readOnly: true
+          description: 'Read-only here — transitions go through advanceProjectPhase so the history row and project.phase_changed are written from one transaction.'
+        closed_reason: { type: [string, 'null'], description: Required when phase=closed. }
+        description: { type: [string, 'null'] }
+        started_at: { type: [string, 'null'], format: date }
+        target_end_date: { type: [string, 'null'], format: date }
+        ended_at: { type: [string, 'null'], format: date }
+        last_activity_at:
+          type: [string, 'null']
+          format: date-time
+          readOnly: true
+          description: 'Maintained from the timeline on link write; a read accelerator, never a second truth — a rebuild must reproduce it exactly.'
+        source: { type: string }
+        captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal; never client-supplied.' }
+        raw: { type: [object, 'null'], additionalProperties: true }
+        version: { $ref: '#/components/schemas/RowVersion' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        archived_at: { type: [string, 'null'], format: date-time }
+      additionalProperties: true
+      x-extension: true
+
+    CreateProjectRequest:
+      type: object
+      required: [name, organization_id, source]
+      properties:
+        name: { type: string }
+        key: { type: [string, 'null'], pattern: '^[A-Za-z][A-Za-z0-9_-]{1,23}$' }
+        organization_id: { type: string, format: uuid }
+        owner_id: { type: [string, 'null'], format: uuid }
+        description: { type: [string, 'null'] }
+        started_at: { type: [string, 'null'], format: date }
+        target_end_date: { type: [string, 'null'], format: date }
+        source: { type: string }
+      additionalProperties: true
+      x-extension: true
+
+    UpdateProjectRequest:
+      type: object
+      description: 'Note `phase` is absent by design — it moves only through advanceProjectPhase.'
+      properties:
+        name: { type: string }
+        key: { type: [string, 'null'], pattern: '^[A-Za-z][A-Za-z0-9_-]{1,23}$' }
+        owner_id: { type: [string, 'null'], format: uuid }
+        description: { type: [string, 'null'] }
+        started_at: { type: [string, 'null'], format: date }
+        target_end_date: { type: [string, 'null'], format: date }
+        ended_at: { type: [string, 'null'], format: date }
+      additionalProperties: true
+      x-extension: true
+
+    AdvanceProjectPhaseRequest:
+      type: object
+      required: [to_phase]
+      properties:
+        to_phase: { type: string, enum: [initiative, pursuing, delivering, closed] }
+        reason: { type: [string, 'null'], description: 'Required when to_phase=closed (422 closed_reason_required); recorded on the phase-history row either way.' }
+
+    SetProjectStakeholderRequest:
+      type: object
+      required: [person_id, role]
+      properties:
+        person_id: { type: string, format: uuid }
+        role:
+          type: string
+          enum: [champion, economic_buyer, blocker, influencer, user, sponsor, project_lead, delivery_lead, subject_matter_expert]
+          description: 'The deal-stakeholder vocabulary plus the delivery roles a body of work running past close needs.'
+
+    ProjectListResponse:
+      type: object
+      required: [data, page]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Project' } }
         page: { $ref: '#/components/schemas/PageInfo' }
 
     # ---- Pipeline + Stage ----
