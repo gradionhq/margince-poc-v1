@@ -11,6 +11,7 @@ package deals
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -58,6 +59,12 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 			return fmt.Errorf("read project before update: %w", err)
 		}
 
+		if in.Key != nil && (current.Key == nil || !strings.EqualFold(*current.Key, *in.Key)) {
+			if err := ensureProjectKeyFree(ctx, tx, in.Key); err != nil {
+				return err
+			}
+		}
+
 		p := projectUpdatePatch(current, in)
 		storekit.SetCustomFieldPatch(p, active, in.CustomFields, current.AdditionalProperties)
 		if p.Empty() {
@@ -65,7 +72,7 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 			return nil
 		}
 		if err := p.ApplyGuarded(ctx, tx, projectObject, id.UUID, in.IfVersion); err != nil {
-			if conflict := projectKeyConflict(ctx, tx, err, in.Key); conflict != nil {
+			if conflict := projectKeyConflict(err, in.Key); conflict != nil {
 				return conflict
 			}
 			if constraint, ok := storekit.CheckViolation(err); ok {

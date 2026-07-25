@@ -96,6 +96,10 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 		return crmcontracts.Project{}, err
 	}
 
+	if err := ensureProjectKeyFree(ctx, tx, in.Key); err != nil {
+		return crmcontracts.Project{}, err
+	}
+
 	id := ids.New[ids.ProjectKind]()
 	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 11)
 	args := []any{
@@ -108,7 +112,7 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11`+cfHolders+`)`,
 		append(args, cfArgs...)...)
 	if err != nil {
-		if conflict := projectKeyConflict(ctx, tx, err, in.Key); conflict != nil {
+		if conflict := projectKeyConflict(err, in.Key); conflict != nil {
 			return crmcontracts.Project{}, conflict
 		}
 		// Covers the owner FK; the organization target was pre-checked.
@@ -222,28 +226,37 @@ func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion 
 	return out, err
 }
 
-// projectKeyConflict turns a uq_project_key collision into the typed 409
-// the contract names, carrying the id of the live project already holding
-// the key — a caller that collided wants to open that project, not to be
-// told "taken" and left hunting for it.
-func projectKeyConflict(ctx context.Context, tx pgx.Tx, err error, key *string) error {
+// ensureProjectKeyFree resolves a key collision BEFORE the write, so the
+// 409 can carry the id of the project already holding the key — a caller
+// that collided wants to open that project, not to be told "taken" and
+// left hunting for it. It has to run first: once a unique violation has
+// aborted the transaction, no further query in it can answer anything.
+func ensureProjectKeyFree(ctx context.Context, tx pgx.Tx, key *string) error {
+	if key == nil || *key == "" {
+		return nil
+	}
+	var existing ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM project WHERE lower(key) = lower($1) AND archived_at IS NULL`, *key).Scan(&existing)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("check project key availability: %w", err)
+	}
+	return &ProjectKeyTakenError{Key: *key, ExistingID: &existing}
+}
+
+// projectKeyConflict maps the index's own refusal. The pre-check above
+// answers the ordinary case with an id; this covers the narrow race where
+// a concurrent write took the key in between, where there is no id to
+// name — a conflict without the pointer beats turning a 409 into a 500.
+func projectKeyConflict(err error, key *string) error {
 	constraint, ok := storekit.UniqueViolation(err)
 	if !ok || constraint != "uq_project_key" || key == nil {
 		return nil
 	}
-	var existing ids.UUID
-	lookupErr := tx.QueryRow(ctx,
-		`SELECT id FROM project WHERE lower(key) = lower($1) AND archived_at IS NULL`, *key).Scan(&existing)
-	if lookupErr != nil {
-		// The row is gone between the insert and this read (a concurrent
-		// archive). The collision was still real, so answer the conflict
-		// without an id rather than turning a 409 into a 500.
-		if errors.Is(lookupErr, pgx.ErrNoRows) {
-			return &ProjectKeyTakenError{Key: *key}
-		}
-		return fmt.Errorf("resolve conflicting project key: %w", lookupErr)
-	}
-	return &ProjectKeyTakenError{Key: *key, ExistingID: &existing}
+	return &ProjectKeyTakenError{Key: *key}
 }
 
 // projectCheckError names the schema-side business rules that can still

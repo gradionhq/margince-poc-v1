@@ -696,6 +696,7 @@ func (e AuditHistoryEntryActorType) Valid() bool {
 // Defines values for AuditLogEntryAction.
 const (
 	AuditLogEntryActionActivityRelink  AuditLogEntryAction = "activity_relink"
+	AuditLogEntryActionAdvancePhase    AuditLogEntryAction = "advance_phase"
 	AuditLogEntryActionAdvanceStage    AuditLogEntryAction = "advance_stage"
 	AuditLogEntryActionAnonymize       AuditLogEntryAction = "anonymize"
 	AuditLogEntryActionApprove         AuditLogEntryAction = "approve"
@@ -724,6 +725,8 @@ const (
 func (e AuditLogEntryAction) Valid() bool {
 	switch e {
 	case AuditLogEntryActionActivityRelink:
+		return true
+	case AuditLogEntryActionAdvancePhase:
 		return true
 	case AuditLogEntryActionAdvanceStage:
 		return true
