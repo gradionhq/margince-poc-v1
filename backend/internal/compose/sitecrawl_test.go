@@ -19,6 +19,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // fakeSite is an in-memory site behind the siteFetcher seam. It records every
@@ -734,5 +735,27 @@ func TestAutomaticReadsCarryTheirOwnPageCeiling(t *testing.T) {
 				t.Errorf("ceiling = %d, want %d", got, c.want)
 			}
 		})
+	}
+}
+
+// Only a human requester can be a human owner. A system namespace that happened
+// to name a uuid would otherwise be attributed to a person who never asked for
+// the read — the provenance mistake this path exists to avoid.
+func TestOnlyAHumanNamespaceYieldsAnOwner(t *testing.T) {
+	human := ids.NewV7()
+	if got := requestedByUserID("human:" + human.String()); got != human {
+		t.Errorf("human requester = %v, want %v", got, human)
+	}
+	for _, requestedBy := range []string{
+		"system:" + ids.NewV7().String(), // a system uuid is not a person
+		systemAutoEnrichActor,
+		"agent:" + ids.NewV7().String(),
+		human.String(), // no namespace at all
+		"human:not-a-uuid",
+		"",
+	} {
+		if got := requestedByUserID(requestedBy); !got.IsZero() {
+			t.Errorf("%q yielded owner %v — on_behalf_of must be NULL rather than a wrong human", requestedBy, got)
+		}
 	}
 }

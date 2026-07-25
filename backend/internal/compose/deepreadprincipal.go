@@ -19,7 +19,7 @@ import (
 
 // run is the whole deep read, River-agnostic so tests drive it directly.
 // Retry semantics rest on BeginSiteRead's CAS: any terminal outcome
-// (done, partial, failed) leaves the dossier past "queued", so a River
+// (done, partial, failed, cancelled) leaves the dossier past "queued", so a River
 // retry — including one after a recorded failure — CAS-misses and
 // no-ops. One honest outcome per dossier, no zombie re-crawls; reading
 // the site again is a human's next start, never an automatic retry.
@@ -60,8 +60,11 @@ func withClaimedRequester(ctx context.Context, requestedBy string, readID ids.UU
 // on_behalf_of is then honestly NULL rather than the read failing over
 // provenance.
 func requestedByUserID(requestedBy string) ids.UUID {
-	_, raw, found := strings.Cut(requestedBy, ":")
-	if !found {
+	namespace, raw, found := strings.Cut(requestedBy, ":")
+	// Only a HUMAN requester can be a human owner. A system namespace naming a
+	// uuid would otherwise be attributed to a person who did not ask for the
+	// read, which is the provenance mistake this whole path exists to avoid.
+	if !found || namespace != "human" {
 		return ids.UUID{}
 	}
 	id, err := ids.Parse(raw)

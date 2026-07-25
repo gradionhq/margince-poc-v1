@@ -30,7 +30,7 @@ type SiteReadClaim struct {
 
 // FinishSiteReadInput is the worker's completed crawl report.
 type FinishSiteReadInput struct {
-	Status        string // done | partial | failed
+	Status        string // done | partial | failed | cancelled
 	Pages         []SiteReadPage
 	Skipped       []SiteReadSkip
 	StoppedReason *string
