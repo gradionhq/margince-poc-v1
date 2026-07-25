@@ -232,11 +232,13 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 			 VALUES ($1, `+ws+`, 'Counterparty GmbH', true, 'manual', 'human:x')`, orgID); err != nil {
 			return err
 		}
-		// The held-evidence email: subject-only to the person, but also linked
-		// to the org under legal_hold.
+		// The held-evidence note: subject-only to the person, but also linked
+		// to the org under legal_hold. A 'note' kind (not correspondence)
+		// carries no statutory floor, so its survival here is attributable to
+		// the legal_hold alone, not the GoBD floor this binary also arms.
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'email', 'Contract terms', 'The signed terms are attached.', now(), 'manual', 'human:x')`,
+			 VALUES ($1, `+ws+`, 'note', 'Contract terms', 'The signed terms are attached.', now(), 'manual', 'human:x')`,
 			heldActivity); err != nil {
 			return err
 		}
@@ -250,10 +252,11 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 			 VALUES (`+ws+`, $1, 'organization', $2)`, heldActivity, orgID); err != nil {
 			return err
 		}
-		// The sibling email: subject-only and NOT transitively held.
+		// The sibling note: subject-only, NOT transitively held, and (being a
+		// note) not floor-shielded either — so it IS redacted.
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
-			 VALUES ($1, `+ws+`, 'email', 'Lunch?', 'Free on Friday?', now(), 'manual', 'human:x')`,
+			 VALUES ($1, `+ws+`, 'note', 'Lunch?', 'Free on Friday?', now(), 'manual', 'human:x')`,
 			freeActivity); err != nil {
 			return err
 		}
@@ -280,7 +283,7 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 		if name != "Erased Subject" {
 			return fmt.Errorf("person not erased: full_name = %q", name)
 		}
-		// The transitively-held email is untouched: retention would freeze it,
+		// The transitively-held note is untouched: retention would freeze it,
 		// so the erase cascade must too.
 		var subject string
 		var body *string
@@ -291,7 +294,7 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 		if subject != "Contract terms" || body == nil || *body != "The signed terms are attached." {
 			return fmt.Errorf("held evidence was destroyed: subject=%q body=%v", subject, body)
 		}
-		// The sibling email carries no hold and IS redacted.
+		// The sibling note carries no hold and IS redacted.
 		var freeSubject string
 		var freeBody *string
 		if err := tx.QueryRow(ctx,
@@ -299,7 +302,96 @@ func TestErasurePreservesActivityUnderTransitiveHold(t *testing.T) {
 			return err
 		}
 		if freeSubject != "Erased Subject" || freeBody != nil {
-			return fmt.Errorf("unheld subject-only email not redacted: subject=%q body=%v", freeSubject, freeBody)
+			return fmt.Errorf("unheld subject-only note not redacted: subject=%q body=%v", freeSubject, freeBody)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestErasePersonHonoursCommercialCorrespondenceFloor pins F-012: the
+// person-erase cascade applies the SAME statutory correspondence floor the
+// retention activity selectors do. With the GoBD floor armed in this binary
+// (retention_jurisdiction_integration_test.go's init), a recent email is a
+// Handelsbrief the floor shields — erasing the person it hangs off must not
+// null its body. A same-age note is not correspondence and IS redacted, so
+// the floor discriminates rather than blanket-skipping the whole timeline.
+func TestErasePersonHonoursCommercialCorrespondenceFloor(t *testing.T) {
+	e := Setup(t)
+	admin := e.Admin()
+
+	personID := ids.NewV7()
+	email := ids.NewV7()
+	note := ids.NewV7()
+
+	err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		ws := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO person (id, workspace_id, full_name, first_name, source, captured_by)
+			 VALUES ($1, `+ws+`, 'Floored Subject', 'Floored', 'manual', 'human:x')`, personID); err != nil {
+			return err
+		}
+		// A recent external email — commercial correspondence within the floor.
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, `+ws+`, 'email', 'Invoice 2026-0042', 'Please find the invoice attached.', now() - interval '400 days', 'manual', 'human:x')`,
+			email); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+			 VALUES (`+ws+`, $1, 'person', $2)`, email, personID); err != nil {
+			return err
+		}
+		// A same-age internal note — no statutory floor.
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, captured_by)
+			 VALUES ($1, `+ws+`, 'note', 'Internal jotting', 'Chase them next week.', now() - interval '400 days', 'manual', 'human:x')`,
+			note); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+			 VALUES (`+ws+`, $1, 'person', $2)`, note, personID)
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, personID, "test"); err != nil {
+		t.Fatalf("erasing the subject → %v", err)
+	}
+
+	err = database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
+		ctx := context.Background()
+		var name string
+		if err := tx.QueryRow(ctx, `SELECT full_name FROM person WHERE id = $1`, personID).Scan(&name); err != nil {
+			return err
+		}
+		if name != "Erased Subject" {
+			return fmt.Errorf("person not erased: full_name = %q", name)
+		}
+		// The Handelsbrief is shielded by the floor.
+		var subject string
+		var body *string
+		if err := tx.QueryRow(ctx, `SELECT subject, body FROM activity WHERE id = $1`, email).Scan(&subject, &body); err != nil {
+			return err
+		}
+		if subject != "Invoice 2026-0042" || body == nil || *body != "Please find the invoice attached." {
+			return fmt.Errorf("correspondence destroyed below the GoBD floor: subject=%q body=%v", subject, body)
+		}
+		// The note carries no floor and IS redacted.
+		var noteSubject string
+		var noteBody *string
+		if err := tx.QueryRow(ctx, `SELECT subject, body FROM activity WHERE id = $1`, note).Scan(&noteSubject, &noteBody); err != nil {
+			return err
+		}
+		if noteSubject != "Erased Subject" || noteBody != nil {
+			return fmt.Errorf("unfloored note not redacted: subject=%q body=%v", noteSubject, noteBody)
 		}
 		return nil
 	})

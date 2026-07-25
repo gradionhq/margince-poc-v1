@@ -81,6 +81,10 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		return err
 	}
 	subject := ids.From[ids.PersonKind](personID)
+	// The statutory correspondence floor the retention engine applies to its
+	// activity selectors applies here too: erasing the person a Handelsbrief
+	// hangs off must not destroy the correspondence itself below its floor.
+	floorInterval, floorAnchor := statutoryFloorArgs()
 	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "person", subject.UUID); err != nil {
 			return err
@@ -109,7 +113,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, floorInterval, floorAnchor)
 		if err != nil {
 			return err
 		}
@@ -123,7 +127,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		// transaction (objects first). A failure here — including a
 		// misconfigured store — rolls the whole erasure back, so it stays
 		// retryable and never commits a half-erasure.
-		if err := e.eraseAttachments(ctx, tx, subjectAttachmentsWhere, subject); err != nil {
+		if err := e.eraseAttachments(ctx, tx, subjectAttachmentsWhere, subject, floorInterval, floorAnchor); err != nil {
 			return err
 		}
 		rawPurged, aiPayloadsPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
@@ -149,10 +153,12 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 }
 
 // subjectAttachmentsWhere selects the attachments Art. 17 erasure removes for
-// a person: those hung off the person and those on the person's subject-only
-// activities. $1 is the person id throughout.
-const subjectAttachmentsWhere = `(entity_type = 'person' AND entity_id = $1)
-	   OR (entity_type = 'activity' AND entity_id IN (` + subjectOnlyActivities + `))`
+// a person: those hung off the person and those on the person's destroyable
+// subject-only activities (floor-shielded correspondence keeps its
+// attachments too). $1 is the person id; $2/$3 are the statutory floor's
+// interval and calendar-year-end anchor.
+var subjectAttachmentsWhere = `(entity_type = 'person' AND entity_id = $1)
+	   OR (entity_type = 'activity' AND entity_id IN (` + subjectOnlyDestroyable + `))`
 
 // eraseAttachments purges the matched attachments' objects and deletes their
 // rows within the caller's transaction, objects FIRST: the keys live in the
@@ -325,6 +331,19 @@ const subjectOnlyActivities = `
 	    WHERE h.activity_id = l.activity_id
 	      AND (coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
 
+// subjectOnlyDestroyable narrows subjectOnlyActivities to the rows a
+// person-erase may actually destroy: subject-only AND not shielded by the
+// statutory correspondence floor. $1 is the person; $2/$3 are the floor's
+// interval and calendar-year-end anchor — the SAME pins the retention
+// activity selectors pass — so the person-erase cascade can never destroy a
+// Handelsbrief younger than the floor the nightly evaluator refuses to touch
+// (a GoBD floor bypass, F-012). With no jurisdiction floor compiled in the
+// predicate reduces to a no-op, so a non-DE install erases exactly as before.
+var subjectOnlyDestroyable = `
+	SELECT a.id FROM activity a
+	WHERE a.id IN (` + subjectOnlyActivities + `)
+	  ` + correspondenceFloorPredicate(2, 3)
+
 // redactSubjectTimeline erases the subject's free text from the activity
 // timeline: subject/body of every subject-only activity are wiped (the
 // GENERATED search_tsv refreshes from the now-empty text, so the erased
@@ -333,12 +352,12 @@ const subjectOnlyActivities = `
 // the timeline text and its field-level provenance. It returns the
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]ids.UUID, error) {
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
 	rows, err := tx.Query(ctx, `
-		UPDATE activity SET subject = $2, body = NULL,
+		UPDATE activity SET subject = $4, body = NULL,
 		  archived_at = coalesce(archived_at, now())
-		WHERE id IN (`+subjectOnlyActivities+`)
-		RETURNING id`, personID, erasedName)
+		WHERE id IN (`+subjectOnlyDestroyable+`)
+		RETURNING id`, personID, floorInterval, floorAnchor, erasedName)
 	if err != nil {
 		return nil, err
 	}
@@ -347,11 +366,13 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 		return nil, err
 	}
 	// The redacted rows' field-level provenance goes with the fields it
-	// annotated — origin metadata must not outlive the erased text.
+	// annotated — origin metadata must not outlive the erased text. A
+	// floor-shielded correspondence row is excluded here too: its provenance
+	// stays with the evidence it annotates.
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM field_provenance
-		WHERE object_type = 'activity' AND object_id IN (`+subjectOnlyActivities+`)`,
-		personID); err != nil {
+		WHERE object_type = 'activity' AND object_id IN (`+subjectOnlyDestroyable+`)`,
+		personID, floorInterval, floorAnchor); err != nil {
 		return nil, err
 	}
 	return redacted, nil
