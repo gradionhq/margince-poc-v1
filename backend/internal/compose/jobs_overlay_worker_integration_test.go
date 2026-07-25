@@ -418,8 +418,7 @@ func TestWorkerCleanStopsOnMidSweepDisconnect(t *testing.T) {
 // teardown purged; (2) the fence's ErrConnectionGone must be mapped to
 // apperrors.ErrModeNotOverlay before it can cross the wire, or this
 // answers an opaque 500 instead. Deleting either one independently fails
-// this test — verified by falsification while writing it, not merely
-// asserted here.
+// this test.
 func TestOnDemandReconcileRacingDisconnectAnswersModeNotOverlay(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()

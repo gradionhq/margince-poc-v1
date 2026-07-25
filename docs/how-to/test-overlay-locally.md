@@ -118,6 +118,7 @@ custom field and `owner_id` — has no writable counterpart and is dropped from 
 | organization | `display_name`, `industry` |
 | lead | `full_name` |
 | deal | `name`, `expected_close_date`, `amount_minor` + `currency` (a pair — supply both or neither; `pipeline_id`/`stage_id` are read-only and always `null` in overlay) |
+| activity | varies by engagement kind (`activityWriteSpecs`): `subject` + `body` for call/meeting/email/task, `body` only for note; plus `direction` (call, email), `duration_seconds` (call), or `due_at` (task) — `occurred_at` and `meeting_status` are read-only for every kind |
 
 A `PATCH` touching only fields outside that table still answers **200 with the change never applied** —
 the mapping drops what it doesn't recognize instead of rejecting it, so nothing in the response says so.

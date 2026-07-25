@@ -17,11 +17,10 @@ import { describe, expect, it } from "vitest";
 // `!overlay` (create.tsx, merge.tsx, DealBadges, …), so the untranslated
 // fallback is latent, not a live user-facing bug — but it fires the moment
 // a workspace's overlay mode flips mid-session and a stale ["me"] cache
-// still shows the affordance (task-6 review round 2). This test does not
-// discover a NEW refused call site by itself: it pins the swept set below,
-// so an edit that drops the `t` argument from one of these lines — the
-// exact way three of them were missed the first time — fails loudly here
-// instead of only in a stale-cache bug report. The swept set (11 ops per
+// still shows the affordance. This test does not discover a NEW refused
+// call site by itself: it pins the swept set below, so an edit that drops
+// the `t` argument from one of these lines fails loudly here instead of
+// only in a stale-cache bug report. The swept set (11 ops per
 // overlaywrite.go, minus DELETE /activities/{id}, which no SPA screen
 // calls):
 //   create person/org/deal/lead, log-activity (POST /activities, both its

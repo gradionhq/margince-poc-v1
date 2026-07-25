@@ -128,7 +128,13 @@ func (s *Service) reconnectConnection(ctx context.Context, in ConnectInput, ref 
 // points at the new ref, so the old blob is unreferenced; a failure leaves an
 // inert, encrypted-at-rest blob, logged for operational cleanup rather than
 // failing a reconnect that has already committed — the same posture
-// Disconnect's own post-commit delete carries (teardown.go:100-110).
+// Disconnect's own post-commit delete carries (teardown.go:94-105). The
+// delete runs after commit, so it must outlive the request: ctx is the
+// caller's cancellable context, and a client that hangs up right after the
+// reconnect response would otherwise cancel this cleanup before it starts,
+// stranding the superseded blob every time — the same shape
+// cleanupOrphanedRef (connection.go) already guards against with its own
+// short-lived, uncancellable context.
 func (s *Service) deleteSupersededRef(ctx context.Context, ref keyvault.Ref) {
 	if ref == "" {
 		return
@@ -137,7 +143,9 @@ func (s *Service) deleteSupersededRef(ctx context.Context, ref keyvault.Ref) {
 	if !ok {
 		return
 	}
-	if err := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), ref); err != nil {
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.vault.Delete(cleanupCtx, ids.From[ids.WorkspaceKind](ws), ref); err != nil {
 		s.log.ErrorContext(ctx, "overlay: reconnect committed, but deleting the superseded incumbent credential failed — the orphaned (inert) blob needs cleanup",
 			"credential_ref", string(ref), "err", err)
 	}

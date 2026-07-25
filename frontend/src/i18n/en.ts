@@ -285,7 +285,7 @@ export const en = {
   "overlay.emptyOwnerHint":
     "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
   "overlay.partialWriteBack":
-    "Only the fields HubSpot accepts are written back — anything else here, including custom fields and owner, is saved but not applied to HubSpot.",
+    "Only the fields HubSpot accepts are written back — anything else here, including custom fields and owner, is not applied at all; HubSpot's current value is kept.",
 
   "overlay.title": "HubSpot mirror",
   "overlay.sub":
