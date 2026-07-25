@@ -94,6 +94,40 @@ func TestDispatcherWriteVerbsIgnoreAStaleCachedMode(t *testing.T) {
 	}
 }
 
+// TestOverlayWriteShadowResolvesTheModeOnce pins isOverlayForWrite's own
+// contract — a mutation boundary pays ONE workspace-row read.
+//
+// The REST write shadow has to resolve the mode itself to choose between the
+// native module handler and the overlay path, so a shadow that then called
+// the exported Dispatcher.Update would read the same row a second time. Both
+// reads are fresh, so the second buys no correctness — it is a round trip per
+// write, and it makes the doc above false.
+func TestOverlayWriteShadowResolvesTheModeOnce(t *testing.T) {
+	wsID := ids.NewV7()
+	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
+	ctx := principal.WithWorkspaceID(context.Background(), wsID)
+	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
+
+	// What the shadow does: resolve once, then dispatch with that answer.
+	ov, err := d.isOverlayForWrite(ctx)
+	if err != nil {
+		t.Fatalf("resolving the write mode: %v", err)
+	}
+	if !ov {
+		t.Fatal("the workspace row says overlay; the write mode resolved native")
+	}
+	if _, err := d.updateInMode(ctx, ov, datasource.UpdateInput{Ref: ref}); err == nil {
+		t.Error("updateInMode: want the overlay provider's own error, got nil")
+	}
+	if _, err := d.archiveInMode(ctx, ov, ref); err == nil {
+		t.Error("archiveInMode: want the overlay provider's own error, got nil")
+	}
+
+	if *calls != 1 {
+		t.Errorf("the shadow's update+archive path read workspace.x_sor_mode %d times, want exactly 1", *calls)
+	}
+}
+
 // TestDispatcherReadVerbsStillUseTheCachedMode is the other half of the
 // trade: reads keep the cache, because paying a workspace-row read on every
 // Read/Search is the cost the cache exists to avoid, and a read served from

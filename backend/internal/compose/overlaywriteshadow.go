@@ -94,7 +94,9 @@ func overlayUpdate[Req any, Res any](s Server, w http.ResponseWriter, r *http.Re
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	ref, err := s.sorDispatch.Update(r.Context(), datasource.UpdateInput{
+	// ov is already the fresh answer overlayWriteMode just read, so dispatch
+	// with it rather than making the Dispatcher re-read the same row.
+	ref, err := s.sorDispatch.updateInMode(r.Context(), bool(ov), datasource.UpdateInput{
 		Ref:    datasource.EntityRef{Type: et, ID: ids.UUID(id)},
 		Patch:  &req,
 		Source: restWriteSource,
@@ -194,7 +196,7 @@ func overlayArchive[Res any](s Server, w http.ResponseWriter, r *http.Request,
 		httperr.Write(w, r, err)
 		return
 	}
-	if _, err := s.sorDispatch.Archive(r.Context(), ref); err != nil {
+	if _, err := s.sorDispatch.archiveInMode(r.Context(), bool(ov), ref); err != nil {
 		httperr.Write(w, r, err)
 		return
 	}

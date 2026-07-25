@@ -301,6 +301,19 @@ func (d *Dispatcher) Update(ctx context.Context, in datasource.UpdateInput) (dat
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
+	return d.updateInMode(ctx, ov, in)
+}
+
+// updateInMode is Update for a caller that has ALREADY paid the fresh
+// isOverlayForWrite read for this request — the REST write shadow, which must
+// resolve the mode itself to choose between the native module handler and the
+// overlay path before it can dispatch at all.
+//
+// Without it that shadow would read workspace.x_sor_mode twice per mutation:
+// once to route, once inside this dispatch. Both reads are fresh, so the
+// second is not a correctness gain, only a second round trip — and
+// isOverlayForWrite's own contract is that a mutation boundary pays ONE.
+func (d *Dispatcher) updateInMode(ctx context.Context, ov bool, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	if ov {
 		return d.overlay.Update(ctx, in)
 	}
@@ -329,6 +342,12 @@ func (d *Dispatcher) Archive(ctx context.Context, ref datasource.EntityRef) (dat
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
+	return d.archiveInMode(ctx, ov, ref)
+}
+
+// archiveInMode is Archive for a caller that already resolved the mode this
+// request — see updateInMode.
+func (d *Dispatcher) archiveInMode(ctx context.Context, ov bool, ref datasource.EntityRef) (datasource.EntityRef, error) {
 	if ov {
 		return d.overlay.Archive(ctx, ref)
 	}
