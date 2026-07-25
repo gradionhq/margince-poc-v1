@@ -175,9 +175,10 @@ func (c *Connector) Sync(ctx context.Context, auth connector.Auth, cursor connec
 	for _, id := range ids {
 		raw, err := c.api.GetMIME(ctx, access, id)
 		if errors.Is(err, connector.ErrSkip) {
-			// An oversized message is a per-message drop (truncated MIME is
-			// not honest evidence), never a pull-stopping fault — the cursor
-			// still advances past it.
+			// A message the provider refuses to hand over: deleted since the
+			// delta named it, or oversized (truncated MIME is not honest
+			// evidence). Either is a per-message drop, never a pull-stopping
+			// fault — the cursor still advances past it.
 			continue
 		}
 		if err != nil {

@@ -68,11 +68,13 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 	for _, msg := range msgs {
 		raw, err := c.api.GetMIME(ctx, access, msg.ID)
 		if errors.Is(err, connector.ErrSkip) {
-			// A deliberate per-message drop — an oversized MIME blob, which is
-			// not honest evidence truncated. Counted and stepped over, the same
-			// as the incremental pull does: returning it here would fail the
-			// page, and the engine would retry the page from its committed
-			// token straight back onto the same message, forever.
+			// A message the provider refuses to hand over: deleted between the
+			// listing and the fetch, or an oversized MIME blob that truncated
+			// would not be honest evidence. Both are per-message drops, counted
+			// and stepped over the same way the incremental pull does —
+			// returning either here would fail the page, and the engine would
+			// retry from its committed token straight back onto the same
+			// message, forever.
 			res.Skipped++
 			continue
 		}
