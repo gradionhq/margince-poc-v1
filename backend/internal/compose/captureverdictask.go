@@ -35,9 +35,9 @@ func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.Pending
 	var prompt strings.Builder
 	prompt.WriteString("First-time sender (untrusted; judge it by its id):\n")
 	fmt.Fprintf(&prompt, "<untrusted id=%q>From: %s <%s>\nSubject: %s\n%s</untrusted>\n",
-		row.ID.String(), fenceUntrusted(truncateRunes(row.DisplayName, capture.MaxVerdictSubjectChars)),
+		row.ID.String(), fenceUntrusted(row.DisplayName),
 		fenceUntrusted(row.Email), fenceUntrusted(row.Subject),
-		fenceUntrusted(truncateRunes(row.Body, verdictBodyLimit)))
+		fenceUntrusted(row.Body))
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id.`)
 
 	req := model.Request{

@@ -97,7 +97,7 @@ func TestCaptureLedgerRefusesAVerdictFromAnExpiredClaim(t *testing.T) {
 
 	// The first worker stalls past its lease — expressed as the row becoming
 	// claimable again, which is what a wall-clock expiry means to every other
-	// worker. Forced rather than waited for: a test that sleeps out a 15-minute
+	// worker. Forced rather than waited for: a test that sleeps out a 45-minute
 	// lease proves the same thing 15 minutes later.
 	expireClaimLease(t, e, stale[0].ID)
 

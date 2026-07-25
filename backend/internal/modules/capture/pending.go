@@ -52,12 +52,14 @@ const (
 // "give up".
 const PendingMaxAttempts = 2
 
-// The bounds on what a claimed row carries into a prompt. Subject, body and
-// display name are all straight from the message headers, which an outsider
-// writes and no format limits: a folded Subject can be megabytes. Bounding them
-// in SQL rather than at prompt-assembly time keeps the unbounded text out of the
+// The bounds on what a row carries out of the ledger. Subject, body and display
+// name are all straight from the message headers, which an outsider writes and
+// no format limits: a folded Subject can be megabytes. Bounding them in SQL
+// rather than at prompt-assembly time keeps the unbounded text out of the
 // worker's memory as well as out of the model's context, and stops a mail run
-// from turning into the workspace's whole model budget.
+// from turning into the workspace's whole model budget. The display name is
+// bounded on the review path too, where it reaches a staged proposal and the
+// SAR export rather than a prompt.
 const (
 	MaxVerdictSubjectChars = 300
 	MaxVerdictBodyChars    = 1200
@@ -283,7 +285,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    ORDER BY next_attempt_at
 			    LIMIT $1
 			    FOR UPDATE SKIP LOCKED)
-			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
+			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(left(p.display_name, $5), ''),
 			          p.activity_id, p.owner_id, p.suppress_org,
 			          coalesce(left((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), $5), ''),
 			          coalesce(left((SELECT a.body FROM activity a WHERE a.id = p.activity_id), $6), '')`,
@@ -328,6 +330,31 @@ func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterp
 		return false, fmt.Errorf("capture: resolving disposition %s: %w", p.ID, err)
 	}
 	return tag.RowsAffected() == 1, nil
+}
+
+// CorrectResolution moves a row from the status this caller just wrote to a
+// corrected one, on the same transaction that wrote it.
+//
+// It exists because the claim CAS is spent by then: Resolve clears claimed_by,
+// so a second Resolve for the corrected status would match nothing and report
+// success — leaving the ledger asserting a disposition the caller had already
+// discovered was wrong. This CASes on the status instead, which is the thing
+// that is still true inside this transaction.
+func (s *PendingStore) CorrectResolution(ctx context.Context, tx pgx.Tx, id ids.UUID, from, to, reason string) error {
+	tag, err := tx.Exec(ctx, `
+		UPDATE capture_pending_counterparty
+		   SET status = $3, disposition_reason = NULLIF($4, ''), updated_at = now()
+		 WHERE id = $1 AND status = $2`, id, from, to, reason)
+	if err != nil {
+		return fmt.Errorf("capture: correcting disposition %s: %w", id, err)
+	}
+	if tag.RowsAffected() != 1 {
+		// The caller wrote `from` moments ago on this very transaction, so a
+		// miss means the two have drifted apart — worth failing the write
+		// rather than committing a status nobody intended.
+		return fmt.Errorf("capture: correcting disposition %s: expected status %q", id, from)
+	}
+	return nil
 }
 
 // Defer returns a claimed row to the queue for a later pass. Ending a row is
@@ -387,94 +414,6 @@ func (s *PendingStore) Retire(ctx context.Context, p PendingCounterparty, reason
 	})
 	if err != nil {
 		return fmt.Errorf("capture: retiring disposition %s: %w", p.ID, err)
-	}
-	return nil
-}
-
-// LinkProposal points an `unsure` row at the review-queue offer staged for it,
-// so a later pass finds the existing offer instead of staging a second one. A
-// dead link (the previous offer expired) is overwritten — the pairing that
-// matters is row-to-LIVE-offer, and refusing to re-link would strand the row
-// the moment its first proposal aged out.
-//
-// Guarded on the row still being `unsure`: one a human has already decided must
-// never have a fresh proposal attached to it.
-func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID) error {
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			UPDATE capture_pending_counterparty
-			   SET proposal_id = $2, updated_at = now()
-			 WHERE id = $1 AND status = 'unsure'`, id, proposalID)
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("capture: linking the review proposal for %s: %w", id, err)
-	}
-	return nil
-}
-
-// AwaitingReview lists `unsure` rows with no LIVE review-queue offer — the
-// staging backlog. A row reaches this state by exhausting the model's attempts,
-// so what it needs next is a human, and until a live offer exists nobody can
-// give it one.
-//
-// "No live offer", not "no offer": a staged proposal expires after a day if
-// nobody acts on it, and a row whose only offer has expired is exactly as
-// undecidable as one that never had a proposal. Keying on proposal_id alone
-// would strand it permanently — invisible to the review queue, still counting
-// against the workspace's open-question ceiling, and clearable only by hand.
-// A workspace that takes a weekend off would silently fill its own cap.
-//
-// A DECIDED offer is the opposite case and must not come back: re-staging one a
-// human already answered would ask them the same question every hour forever.
-// Expired means unanswered; decided means answered, whichever way.
-func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]PendingCounterparty, error) {
-	var out []PendingCounterparty
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
-			       p.activity_id, p.owner_id, p.suppress_org
-			  FROM capture_pending_counterparty p
-			 WHERE p.status = 'unsure'
-			   AND NOT EXISTS (
-			     SELECT 1 FROM approval a
-			      WHERE a.id = p.proposal_id
-			        AND (a.decided_at IS NOT NULL
-			             OR (a.status = 'pending' AND a.expires_at > now())))
-			 ORDER BY p.resolved_at, p.created_at
-			 LIMIT $1`, limit)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var p PendingCounterparty
-			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.SuppressOrg); err != nil {
-				return err
-			}
-			out = append(out, p)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, fmt.Errorf("capture: reading the review backlog: %w", err)
-	}
-	return out, nil
-}
-
-// ResolveReviewed closes an `unsure` row that a human decided, on the caller's
-// transaction. Unlike Resolve it carries no claim token — the authority here is
-// the redeemed approval, not a worker's lease, and an `unsure` row is held by
-// nobody. The CAS on `unsure` is what makes a replayed redemption a no-op.
-func (s *PendingStore) ResolveReviewed(ctx context.Context, tx pgx.Tx, id ids.UUID, status, reason string) error {
-	_, err := tx.Exec(ctx, `
-		UPDATE capture_pending_counterparty
-		   SET status = $2, disposition_reason = NULLIF($3, ''),
-		       resolved_at = now(), next_attempt_at = NULL, updated_at = now()
-		 WHERE id = $1 AND status = 'unsure'`, id, status, reason)
-	if err != nil {
-		return fmt.Errorf("capture: resolving reviewed disposition %s: %w", id, err)
 	}
 	return nil
 }

@@ -23,8 +23,7 @@ import (
 // policy"). TestNoPayloadTasksMatchTheTaskContract holds this set to the
 // contract, so a newly pinned task cannot be registered and then forgotten here.
 var payloadCaptureForbidden = map[Task]bool{
-	// The verdict batches carry first-time senders' addresses and mail
-	// excerpts — people who never transacted with this workspace and may never
+	// A verdict call carries a first-time sender's address and mail excerpt — people who never transacted with this workspace and may never
 	// become records at all (ADR-0072/A118 §4). Retaining their mail to decide
 	// whether to retain their mail is the thing the gate exists to avoid.
 	TaskCaptureCounterpartyVerdict: true,

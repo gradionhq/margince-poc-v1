@@ -47,8 +47,6 @@ const (
 	// prompt batch — each sender is judged on its own call — so this only bounds
 	// how much work a single claim takes on before committing its results.
 	verdictClaimSize = 8
-	// verdictBodyLimit truncates each body excerpt for the prompt.
-	verdictBodyLimit = 1200
 	// verdictConfidenceFloor is the ADR-0072 §4 pin. Below it the item is
 	// re-asked SOLO once; still below, it is terminally `unsure` — never
 	// guessed into `noise`, which is the only verdict that hides anything.
@@ -180,7 +178,7 @@ func (e *CounterpartyVerdictEngine) Run(ctx context.Context, maxVerdicts int) er
 				// allowance without a verdict ever being attempted on its
 				// merits — an infrastructure condition turned into a per-sender
 				// terminal answer nobody asked for.
-				e.releaseBatch(wsCtx, batch, true)
+				e.releaseBatch(wsCtx, batch)
 				e.log.InfoContext(ctx, "counterparty verdict: budget exhausted, stopping the pass", "resolved", resolved)
 				return nil
 			}
@@ -336,9 +334,12 @@ func (e *CounterpartyVerdictEngine) createCounterparty(ctx context.Context, tx p
 		return err
 	}
 	if suppressed {
-		_, correctErr := e.pending.Resolve(ctx, tx, row, capture.PendingStatusSuppressed,
+		// The verdict was already written by apply(), and writing it spent the
+		// claim — so this corrects the status it just set rather than trying to
+		// resolve the row a second time.
+		return e.pending.CorrectResolution(ctx, tx, row.ID,
+			capture.PendingStatusReal, capture.PendingStatusSuppressed,
 			"the address was erased before the verdict landed")
-		return correctErr
 	}
 	return nil
 }
@@ -411,7 +412,10 @@ func (e *CounterpartyVerdictEngine) hideNoise(ctx context.Context, tx pgx.Tx, ro
 }
 
 // releaseBatch returns claimed rows to the queue when the pass stops before
-// reaching them. Best
+// reaching them — so the attempt is always refunded here: by definition no model
+// saw these. The row that CAUSED the stop was already deferred by judgeClaimed,
+// and its claim is spent, so this pass over it is a deliberate no-op rather than
+// a second refund. Best
 // effort by nature: the lease expiry is the backstop that makes this an
 // optimization rather than a correctness requirement, so a release that itself
 // fails is logged and the row waits out its lease.
@@ -420,9 +424,9 @@ func (e *CounterpartyVerdictEngine) hideNoise(ctx context.Context, tx pgx.Tx, ro
 // read back by operators and by the review queue, and a provider's raw message
 // is exactly the kind of internal detail that must not travel there. The cause
 // reaches the log instead, where it belongs.
-func (e *CounterpartyVerdictEngine) releaseBatch(ctx context.Context, batch []capture.PendingCounterparty, refundAttempt bool) {
+func (e *CounterpartyVerdictEngine) releaseBatch(ctx context.Context, batch []capture.PendingCounterparty) {
 	for _, row := range batch {
-		if err := e.pending.Defer(ctx, row, verdictRetryBackoff, "the verdict could not be completed", refundAttempt); err != nil {
+		if err := e.pending.Defer(ctx, row, verdictRetryBackoff, "the pass stopped before reaching this sender", true); err != nil {
 			e.log.WarnContext(ctx, "counterparty verdict: releasing a claimed row failed",
 				"disposition", row.ID.String(), "err", err)
 		}
