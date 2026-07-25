@@ -1,13 +1,13 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import type { UseQueryResult } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
 import type { components } from "../api/schema";
 import { Badge, Button, SectionHeader } from "../design-system/atoms";
 import { formatDateTime } from "../format/format";
 import { type Locale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import type { QueryLike } from "./common";
 
 // The overlay card's read-only health surface (Settings → Integrations):
 // per-object mirror sync freshness and the incumbent API budget window.
@@ -65,7 +65,7 @@ function SyncStatusPanel({
   query,
   locale,
 }: Readonly<{
-  query: UseQueryResult<SyncStatus>;
+  query: QueryLike<SyncStatus>;
   locale: Locale;
 }>) {
   const t = useT();
@@ -177,7 +177,7 @@ function BudgetSearchRow({
   );
 }
 
-function BudgetPanel({ query }: Readonly<{ query: UseQueryResult<Budget> }>) {
+function BudgetPanel({ query }: Readonly<{ query: QueryLike<Budget> }>) {
   const t = useT();
   if (query.isPending) {
     return <p className="t-small">{t("overlay.budgetLoading")}</p>;
@@ -242,8 +242,8 @@ export function OverlayLiveSection({
   reconcileError,
   onDisconnect,
 }: Readonly<{
-  sync: UseQueryResult<SyncStatus>;
-  budget: UseQueryResult<Budget>;
+  sync: QueryLike<SyncStatus>;
+  budget: QueryLike<Budget>;
   locale: Locale;
   canManage: boolean;
   onReconcile: () => void;
