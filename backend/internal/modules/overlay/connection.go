@@ -15,7 +15,10 @@ package overlay
 // inserting a fresh one — lives in reconnect.go
 // (reconnectConnection/deleteSupersededRef/existingConnectionStatus),
 // split out purely to stay under the file-length cap; cleanupOrphanedRef
-// stays here since both branches call it.
+// stays here since both branches call it. The write shape the two
+// branches share once their own row-level work is done — Audit + Emit +
+// the workspace mode flip — is activateConnection (activation.go), so
+// neither this file nor reconnect.go carries its own copy of it.
 
 import (
 	"context"
@@ -367,9 +370,11 @@ func incumbentConnectedPayload(incumbent, region string, scopes []string, status
 	}
 }
 
-// insertConnection runs Connect's write-shape transaction: the domain
-// row + Audit + Emit + the workspace mode flip, all in one
-// database.WithWorkspaceTx.
+// insertConnection runs Connect's fresh-connect branch: INSERT the domain
+// row, then hand off to activateConnection (activation.go) for the write
+// shape both branches share (Audit + Emit + the workspace mode flip), all
+// in one database.WithWorkspaceTx. There is no prior state to record, so
+// the audit action is "create" and before is nil.
 func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
 	var out Connection
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -389,35 +394,11 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 			return scanErr
 		}
 
-		after := map[string]any{
-			auditFieldIncumbent: in.Incumbent,
-			auditFieldRegion:    in.Region,
-			"scopes":            leastPrivilegeHubSpotScopes,
-			auditFieldStatus:    statusActive,
+		activated, actErr := activateConnection(ctx, tx, id, in, connectedAt, "create", nil)
+		if actErr != nil {
+			return actErr
 		}
-		auditID, auditErr := storekit.Audit(ctx, tx, "create", "incumbent_connection", id, nil, after)
-		if auditErr != nil {
-			return fmt.Errorf("overlay: auditing the incumbent connection: %w", auditErr)
-		}
-		if emitErr := storekit.EmitEvent(ctx, tx, auditID, id,
-			incumbentConnectedPayload(in.Incumbent, in.Region, leastPrivilegeHubSpotScopes, statusActive)); emitErr != nil {
-			return fmt.Errorf("overlay: emitting incumbent.connected: %w", emitErr)
-		}
-
-		if _, updErr := tx.Exec(ctx, `
-			UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = $1
-			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
-			in.Incumbent); updErr != nil {
-			return fmt.Errorf("overlay: flipping the workspace to overlay mode: %w", updErr)
-		}
-
-		out = Connection{
-			Incumbent:   in.Incumbent,
-			Region:      in.Region,
-			Status:      statusActive,
-			ConnectedAt: connectedAt,
-			Scopes:      leastPrivilegeHubSpotScopes,
-		}
+		out = activated
 		return nil
 	})
 	if err != nil {

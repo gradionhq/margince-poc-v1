@@ -10,7 +10,10 @@ package overlay
 // applies. Split out of connection.go (which keeps the fresh-insert path,
 // Get, and the shared cleanupOrphanedRef both branches call) purely to stay
 // under the file-length cap — a mechanical relocation of the
-// reconnect-specific symbols, with no change to their logic.
+// reconnect-specific symbols, with no change to their logic. The write
+// shape once the row itself is revived — Audit + Emit + the workspace mode
+// flip, identical to what a fresh insert needs — is activateConnection
+// (activation.go), not duplicated here.
 
 import (
 	"context"
@@ -21,7 +24,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -30,8 +32,9 @@ import (
 
 // reconnectConnection revives the workspace's revoked incumbent_connection
 // row: the same UNIQUE(workspace_id) row, re-pointed at a freshly sealed
-// credential and flipped back to active, in ONE transaction with the audit +
-// event pair, the tombstone clear, and the workspace mode flip.
+// credential and flipped back to active, in ONE transaction with the
+// tombstone clear and activateConnection's audit + event + mode-flip (the
+// write shape a fresh insert needs too, shared rather than repeated here).
 //
 // Clearing overlay_tombstone here is the point of the flow, not a cleanup
 // detail: teardown deliberately leaves a tombstone per purged record so a
@@ -75,35 +78,11 @@ func (s *Service) reconnectConnection(ctx context.Context, in ConnectInput, ref 
 			auditFieldRegion:    previousRegion,
 			auditFieldStatus:    statusRevoked,
 		}
-		after := map[string]any{
-			auditFieldIncumbent: in.Incumbent,
-			auditFieldRegion:    in.Region,
-			"scopes":            leastPrivilegeHubSpotScopes,
-			auditFieldStatus:    statusActive,
+		activated, actErr := activateConnection(ctx, tx, id, in, connectedAt, "update", before)
+		if actErr != nil {
+			return actErr
 		}
-		auditID, auditErr := storekit.Audit(ctx, tx, "update", "incumbent_connection", id, before, after)
-		if auditErr != nil {
-			return fmt.Errorf("overlay: auditing the incumbent reconnect: %w", auditErr)
-		}
-		if emitErr := storekit.EmitEvent(ctx, tx, auditID, id,
-			incumbentConnectedPayload(in.Incumbent, in.Region, leastPrivilegeHubSpotScopes, statusActive)); emitErr != nil {
-			return fmt.Errorf("overlay: emitting incumbent.connected on reconnect: %w", emitErr)
-		}
-
-		if _, updErr := tx.Exec(ctx, `
-			UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = $1
-			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
-			in.Incumbent); updErr != nil {
-			return fmt.Errorf("overlay: flipping the workspace to overlay mode on reconnect: %w", updErr)
-		}
-
-		out = Connection{
-			Incumbent:   in.Incumbent,
-			Region:      in.Region,
-			Status:      statusActive,
-			ConnectedAt: connectedAt,
-			Scopes:      leastPrivilegeHubSpotScopes,
-		}
+		out = activated
 		return nil
 	})
 	if err != nil {
