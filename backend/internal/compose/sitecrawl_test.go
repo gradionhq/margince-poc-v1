@@ -729,7 +729,7 @@ func TestAutomaticReadsCarryTheirOwnPageCeiling(t *testing.T) {
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			got := w.pageCeiling(SiteDeepReadArgs{RequestedBy: c.requestedBy, MaxPages: c.maxPages})
+			got := w.pageCeiling(c.requestedBy, c.maxPages)
 			if got != c.want {
 				t.Errorf("ceiling = %d, want %d", got, c.want)
 			}

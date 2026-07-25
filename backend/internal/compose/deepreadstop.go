@@ -27,17 +27,19 @@ import (
 const autoEnrichMaxPages = 12
 
 // pageCeiling is the page cap for one run: the automatic lane's own ceiling,
-// else whatever the job asked for. Both only narrow — withPageCeiling ignores a
+// else whatever the job asked for. requestedBy comes from the CLAIMED dossier
+// row, not the job payload — the row is what says this read was automatic, and
+// a payload that disagreed would otherwise buy the wider budget. Both only narrow — withPageCeiling ignores a
 // value that is not lower than the configured cap, so neither this nor a job
 // payload can spend more than the operator allowed.
-func (w *siteDeepReadWorker) pageCeiling(args SiteDeepReadArgs) int {
-	if isAutoEnrichRequest(args.RequestedBy) {
-		if args.MaxPages > 0 && args.MaxPages < autoEnrichMaxPages {
-			return args.MaxPages
+func (w *siteDeepReadWorker) pageCeiling(requestedBy string, askedFor int) int {
+	if isAutoEnrichRequest(requestedBy) {
+		if askedFor > 0 && askedFor < autoEnrichMaxPages {
+			return askedFor
 		}
 		return autoEnrichMaxPages
 	}
-	return args.MaxPages
+	return askedFor
 }
 
 // autoEnrichEnabled re-reads the workspace's auto-enrich setting.

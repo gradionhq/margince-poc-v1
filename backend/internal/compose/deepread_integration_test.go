@@ -780,7 +780,10 @@ func TestDeepReadCancelsAnAutoEnrichJobWhenTheSettingWentOff(t *testing.T) {
 	site := acmeDeepSite()
 	worker, _ := newDeepReadTestWorker(e, site, acmeDeepBrain())
 	read, args := startDeepRead(t, e, org)
-	args.RequestedBy = systemAutoEnrichActor
+	// The DOSSIER ROW is what marks this read automatic. The payload is left
+	// saying a human asked, so the test also proves which of the two governs:
+	// if the worker trusted the payload it would skip the check entirely.
+	e.WsExec(t, `UPDATE site_read SET requested_by = $1 WHERE id = $2`, systemAutoEnrichActor, read.ID)
 
 	// Set directly: the subject here is the worker re-reading the flag, not the
 	// admin-only RBAC on the settings endpoint, which has its own test.
