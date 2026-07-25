@@ -143,7 +143,7 @@ function OverlayConnectForm({
           {error}
         </p>
       )}
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: "var(--space-2)" }}>
         <Button
           small
           variant="primary"
@@ -174,7 +174,7 @@ function ConnectionSummary({
     <div
       style={{
         display: "flex",
-        gap: 8,
+        gap: "var(--space-2)",
         alignItems: "center",
         flexWrap: "wrap",
       }}
@@ -341,7 +341,7 @@ export function OverlayCard() {
         <>
           <ConnectionSummary connection={connection.data} locale={locale} />
           {connection.data.status === "revoked" && (
-            <div style={{ marginTop: 10 }}>
+            <div style={{ marginTop: "var(--space-3)" }}>
               <OverlayConnectForm
                 canManage={canManage}
                 reconnect

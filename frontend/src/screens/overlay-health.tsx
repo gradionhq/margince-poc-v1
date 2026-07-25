@@ -83,7 +83,7 @@ function SyncStatusPanel({
   }
   const objects: SyncObject[] = query.data?.objects ?? [];
   return (
-    <div style={{ marginTop: 10 }}>
+    <div style={{ marginTop: "var(--space-3)" }}>
       <SectionHeader title={t("overlay.syncTitle")} />
       {objects.length === 0 && (
         <p className="t-small">{t("overlay.syncEmpty")}</p>
@@ -94,7 +94,7 @@ function SyncStatusPanel({
             listStyle: "none",
             display: "flex",
             flexDirection: "column",
-            gap: 6,
+            gap: "var(--space-2)",
           }}
         >
           {objects.map((o, i) => (
@@ -102,7 +102,7 @@ function SyncStatusPanel({
               key={o.object ?? i}
               style={{
                 display: "flex",
-                gap: 8,
+                gap: "var(--space-2)",
                 alignItems: "center",
                 flexWrap: "wrap",
               }}
@@ -142,7 +142,7 @@ function BudgetSourcesLine({
 }: Readonly<{ sources: NonNullable<Budget["sources"]> }>) {
   const t = useT();
   return (
-    <p className="t-small" style={{ marginTop: 4 }}>
+    <p className="t-small" style={{ marginTop: "var(--space-1)" }}>
       {t("overlay.budgetSources", {
         forceFresh: sources.force_fresh ?? 0,
         poller: sources.poller ?? 0,
@@ -160,7 +160,12 @@ function BudgetSearchRow({
   const t = useT();
   return (
     <div
-      style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}
+      style={{
+        display: "flex",
+        gap: "var(--space-2)",
+        alignItems: "center",
+        marginTop: "var(--space-1)",
+      }}
     >
       <span className="t-small">
         {t("overlay.budgetSearch", {
@@ -196,12 +201,12 @@ function BudgetPanel({ query }: Readonly<{ query: QueryLike<Budget> }>) {
     return null;
   }
   return (
-    <div style={{ marginTop: 10 }}>
+    <div style={{ marginTop: "var(--space-3)" }}>
       <SectionHeader title={t("overlay.budgetTitle")} />
       <div
         style={{
           display: "flex",
-          gap: 8,
+          gap: "var(--space-2)",
           alignItems: "center",
           flexWrap: "wrap",
         }}
@@ -258,7 +263,13 @@ export function OverlayLiveSection({
       <SyncStatusPanel query={sync} locale={locale} />
       <BudgetPanel query={budget} />
       {canManage && (
-        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <div
+          style={{
+            display: "flex",
+            gap: "var(--space-2)",
+            marginTop: "var(--space-3)",
+          }}
+        >
           <Button small onClick={onReconcile} disabled={reconcilePending}>
             <RefreshCw aria-hidden /> {t("overlay.reconcile")}
           </Button>
@@ -268,7 +279,7 @@ export function OverlayLiveSection({
         </div>
       )}
       {reconcileQueued && (
-        <p className="t-small" style={{ marginTop: 6 }}>
+        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
           {t("overlay.reconcileQueued")}
         </p>
       )}
