@@ -975,10 +975,41 @@ Open work, roughly in priority order:
   subtest that writes to a `gmail.com` address and asserts a person but no
   organization;
   the ladder wording needs reconciling upstream.
-  **Still open (contract-first-gated on ADR-0072):** the rest of 2b — the pending
-  ledger + deferred creation + the `capture_counterparty_verdict` job + review
-  queue + noise hide-then-redact — and 3 (corroborated signature org-name
-  promotion).
+  **2b core (#260, in review).** The disposition ledger
+  (`capture_pending_counterparty`, migration 0126) and the verdict engine that
+  resolves it. Three dispositions with a deliberate asymmetry: `real` creates the
+  person+org capture withheld, on the SAME transaction that resolves the ledger
+  row (a new `people.EnsureCounterpartyTx`, shared with the review-queue accept);
+  `noise` archives the message immediately and redacts subject/body/raw in place
+  only after a 7-day undo window, keeping the row and its natural key as the
+  replay tombstone; `unsure` — including every answer below the 0.7 floor —
+  creates nothing, hides nothing, and stages a 🟡 proposal whose accept ADDS and
+  whose reject does nothing (which is what keeps approvals approve-only-effects).
+  `unsure` is deliberately absent from the vocabulary the model may answer with:
+  abstention is derived from reported confidence, never self-declared.
+  The `capture_counterparty_verdict` task is registered and pinned
+  **no-payload-capture** — the batches carry first-time senders' mail, so the
+  prohibition outranks the operator's `ai.capture_payloads` posture, held to the
+  task contract by a fitness test. Ships two aicert scenarios including the
+  release-blocking false-noise case.
+  Three defects fixed there are worth naming because the pattern recurs:
+  `next_attempt_at` was stamped from the app clock and compared against Postgres
+  `now()` (a cross-clock comparison — the local PG container runs ~13ms behind its
+  host, enough to make a "due now" row unclaimable; the same shape in
+  `AutoEnrichStore.MarkQueued` is fixed with it, while `site_read`'s stays
+  app-stamped by design); a lease guarded only by expiry let a stale worker
+  overwrite a live verdict, so every claim now mints a token; and the
+  `<untrusted>` prompt fence was forgeable by sender-controlled text, now defused
+  in the data at every fencing site (verdict, classify, signature-enrich, deep-read
+  passages).
+  **New product parameter needing founder sign-off:** `PendingDeferralCap` = 500
+  open questions per workspace. Every deferral is a promised model call and the
+  party creating them is an outsider, so the queue needs a ceiling; at the cap
+  capture stops asking and messages land unjudged. The ADR names no such bound —
+  it wants a CAP-PARAM entry once the value is confirmed.
+  **Still open:** phase 3 (corroborated signature org-name promotion), and
+  linking a deferred message's activity to the person a later `real` verdict
+  creates (the ledger row carries `activity_id` for exactly this).
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
