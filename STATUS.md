@@ -1002,6 +1002,21 @@ Open work, roughly in priority order:
   `<untrusted>` prompt fence was forgeable by sender-controlled text, now defused
   in the data at every fencing site (verdict, classify, signature-enrich, deep-read
   passages).
+  **Follow-ups both review lanes agreed to defer (not blockers).** (1) The
+  deferral-cap freeze: an outsider parking 500 pending/unsure rows stops NEW
+  corporate-domain senders from being deferred at all. It fails in the safe
+  direction — the mail still lands, the breadcrumb fires, nothing is hidden or
+  destroyed — but it is outsider-triggerable and self-sustaining, and wants a
+  per-sender-domain sub-cap or an age-out for `unsure`. (2) The capture natural
+  key is the sender-chosen `Message-ID`, so a resender who varies it gets a
+  fresh activity each time; the disposition still joins the open question, so
+  the cost is timeline rows for mail they sent anyway. (3) The first-mover
+  forged-`From` case is the feature's designed residual: an outsider who knows a
+  prospect's address before that prospect writes in can pre-poison it, and the
+  prospect's cold email is then hidden for the undo window. The 14-day verdict
+  reach, the person/attested-outbound escapes and the 7-day window bound it —
+  worth naming in the ADR's residuals list beside the T1 attestation notes.
+
   **New product parameter needing founder sign-off:** `PendingDeferralCap` = 500
   open questions per workspace. Every deferral is a promised model call and the
   party creating them is an outsider, so the queue needs a ceiling; at the cap
