@@ -15,190 +15,17 @@ package integration
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
-
-const autoCreateOwner = "owner@myco.example"
-
-// mailBatchConnector replays a fixed batch of RFC822 messages through the
-// production mailmap → Sink path — the provider I/O faked, nothing else.
-type mailBatchConnector struct {
-	raws [][]byte
-	sent map[string]bool // Message-IDs the provider filed as the owner's own sent mail
-}
-
-func (m *mailBatchConnector) Descriptor() connector.Descriptor {
-	return connector.Descriptor{
-		Name: "gmail", Version: "1",
-		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierAutoExecute,
-		Produces: []datasource.EntityType{datasource.EntityActivity},
-	}
-}
-
-func (m *mailBatchConnector) Authenticate(context.Context, connector.AuthRequest) (connector.Auth, error) {
-	return connector.Auth("token"), nil
-}
-
-func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
-	for _, raw := range m.raws {
-		msg, err := mailmap.Parse(raw, autoCreateOwner)
-		if err != nil {
-			return nil, err
-		}
-		if _, drop := msg.SkipReason(); drop {
-			continue
-		}
-		// The provider's own attestation, which a real Gmail sync reads off the
-		// message's SENT label. Keyed by Message-ID so a fixture can be the
-		// owner's outgoing mail without the test forging a From header — which
-		// is precisely what the attestation must not be derivable from.
-		msg = msg.AttestSentByOwner(m.sent[msg.ID()])
-		if _, err := sink.Upsert(ctx, msg.ToRecord("gmail", raw)); err != nil {
-			return nil, err
-		}
-	}
-	return connector.Cursor(fmt.Sprintf(`{"email":%q}`, autoCreateOwner)), nil
-}
-
-func (m *mailBatchConnector) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
-	return nil, connector.ErrSkip
-}
-
-func (m *mailBatchConnector) HealthCheck(context.Context, connector.Auth) error { return nil }
-
-func email(from, fromName, to, msgID, refs string) []byte {
-	fromHeader := from
-	if fromName != "" {
-		fromHeader = fmt.Sprintf("%s <%s>", fromName, from)
-	}
-	lines := []string{
-		"From: " + fromHeader,
-		"To: " + to,
-		"Subject: project",
-		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
-		"Message-ID: <" + msgID + ">",
-	}
-	if refs != "" {
-		lines = append(lines, "References: <"+refs+">")
-	}
-	lines = append(lines, "Content-Type: text/plain", "", "hello", "")
-	return []byte(strings.Join(lines, "\r\n"))
-}
-
-// emailWithListUnsub builds a message carrying an RFC 2369 List-Unsubscribe
-// header — the bulk-mail corroboration the transactional prefix rule needs.
-func emailWithListUnsub(from, fromName, to, msgID string) []byte {
-	lines := []string{
-		fmt.Sprintf("From: %s <%s>", fromName, from),
-		"To: " + to,
-		"Subject: newsletter",
-		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
-		"Message-ID: <" + msgID + ">",
-		"List-Unsubscribe: <https://example.com/unsub>",
-		"Content-Type: text/plain", "", "hello", "",
-	}
-	return []byte(strings.Join(lines, "\r\n"))
-}
-
-func countRows(t *testing.T, e *searchEnv, query string) int {
-	t.Helper()
-	var n int
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), query).Scan(&n)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return n
-}
-
-// captureEnv is the production capture wiring one test drives: the real
-// registry and resolver (not a bare sink — the auto-create resolver and the
-// tier gate are what these tests prove), a connected gmail connection, and the
-// two pull shapes. Built per test so each starts from a clean mailbox.
-type captureEnv struct {
-	e        *searchEnv
-	sync     func(t *testing.T, raws ...[]byte)
-	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
-}
-
-func newCaptureEnv(t *testing.T) captureEnv {
-	t.Helper()
-	e := setupSearch(t)
-	conn := &mailBatchConnector{}
-	// The PRODUCTION wiring, not the bare test sink: the auto-create
-	// resolver and the free-mail gate are exactly what this test proves.
-	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
-	registry.Register(conn)
-
-	// The production authority resolves the granting human's LIVE role, so
-	// the rep needs a real one: capture writes activities and the ensure
-	// path creates people/organizations under the same derived principal.
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		var roleID string
-		if err := tx.QueryRow(context.Background(), `
-			INSERT INTO role (workspace_id, key, name, permissions)
-			VALUES ($1, 'capture_rep', 'Capture Rep',
-			        '{"objects":{"activity":{"create":true,"read":true},"person":{"create":true,"read":true},"organization":{"create":true,"read":true}},"row_scope":"all"}'::jsonb)
-			RETURNING id`, e.WS).Scan(&roleID); err != nil {
-			return err
-		}
-		_, err := tx.Exec(context.Background(),
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-			e.WS, roleID, e.Rep1)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("seeding the capture role: %v", err)
-	}
-
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
-	sync := func(t *testing.T, raws ...[]byte) {
-		t.Helper()
-		conn.raws, conn.sent = raws, nil
-		if err := registry.SyncOnce(wsCtx, connID); err != nil {
-			t.Fatalf("SyncOnce: %v", err)
-		}
-	}
-	// syncSent is the same pull with the provider attesting the listed
-	// Message-IDs as mail the mailbox owner sent.
-	syncSent := func(t *testing.T, sent map[string]bool, raws ...[]byte) {
-		t.Helper()
-		conn.raws, conn.sent = raws, sent
-		if err := registry.SyncOnce(wsCtx, connID); err != nil {
-			t.Fatalf("SyncOnce: %v", err)
-		}
-	}
-
-	// The anchor sync seeds the mailbox's own domain as internal — every tier
-	// below depends on the workspace knowing which domain is its own.
-	sync(t)
-	if n := countRows(t, e, `SELECT count(*) FROM workspace_email_domain WHERE domain = 'myco.example'`); n != 1 {
-		t.Fatalf("workspace domain seeded %d times, want 1", n)
-	}
-	return captureEnv{e: e, sync: sync, syncSent: syncSent}
-}
 
 // The ADR-0063 auto-create path: a captured thread yields exactly one person,
 // one company and one employment, and a replay adds nothing.
@@ -207,9 +34,9 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 	e, sync := env.e, env.sync
 	t.Run("a thread becomes one person, one company, one employment", func(t *testing.T) {
 		sync(t,
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""),
-			email(autoCreateOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "m3@acme.example", "m1@acme.example"),
+			email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""),
+			email(captureOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
+			email("alice@acme.example", "Alice Example", captureOwner, "m3@acme.example", "m1@acme.example"),
 		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
@@ -252,7 +79,7 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		}
 	})
 	t.Run("a replay creates nothing new", func(t *testing.T) {
-		sync(t, email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""))
+		sync(t, email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'alice@acme.example'`); n != 1 {
@@ -264,8 +91,13 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 	})
 	t.Run("a fuzzy near-match creates anyway and queues the pair", func(t *testing.T) {
 		// A near-identical name on the SAME employer domain: the PO-F-1
-		// score (0.55·name + 0.45·org) crosses the review threshold.
-		sync(t, email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""))
+		// score (0.55·name + 0.45·org) crosses the review threshold. The
+		// near-match needs someone to be near, so this captures both halves
+		// rather than leaning on whoever a sibling subtest created.
+		sync(t,
+			email("alice@acme.example", "Alice Example", captureOwner, "fz0@acme.example", ""),
+			email("alice2@acme.example", "Alice Exampel", captureOwner, "f1@acme.example", ""),
+		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'alice2@acme.example'`); n != 1 {
@@ -284,8 +116,8 @@ func TestCaptureRecordsProvenanceWithoutTheMessageBody(t *testing.T) {
 	// thread — an inbound leg and the owner's reply — rather than reading rows
 	// another test happened to leave behind.
 	sync(t,
-		email("alice@acme.example", "Alice Example", autoCreateOwner, "p1@acme.example", ""),
-		email(autoCreateOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
+		email("alice@acme.example", "Alice Example", captureOwner, "p1@acme.example", ""),
+		email(captureOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
 	)
 
 	t.Run("captured mail stamps the counterparty email on the activity", func(t *testing.T) {
@@ -332,7 +164,7 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
-		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
+		sync(t, email("carol@myco.example", "Carol Colleague", captureOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'carol@myco.example'`); n != 0 {
@@ -352,7 +184,7 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sync(t, email("dave@dead.example", "Dave Gone", autoCreateOwner, "d1@dead.example", ""))
+		sync(t, email("dave@dead.example", "Dave Gone", captureOwner, "d1@dead.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'dave@dead.example'`); n != 0 {
@@ -379,8 +211,8 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 					RowScope: principal.RowScopeAll,
 				},
 			}), ids.NewV7())
-		raw := email("ghost@nowhere.example", "Ghost Sender", autoCreateOwner, "g1@nowhere.example", "")
-		msg, err := mailmap.Parse(raw, autoCreateOwner)
+		raw := email("ghost@nowhere.example", "Ghost Sender", captureOwner, "g1@nowhere.example", "")
+		msg, err := mailmap.Parse(raw, captureOwner)
 		if err != nil {
 			t.Fatal(err)
 		}
