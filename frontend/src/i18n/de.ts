@@ -298,8 +298,12 @@ export const de = {
   "overlay.token": "Private-App-Token",
   "overlay.tokenHint": "Wird im Vault versiegelt; wird nie wieder angezeigt.",
   "overlay.connect": "HubSpot verbinden",
-  "overlay.connecting": "Verbinde…",
   "overlay.reconnect": "Erneut verbinden",
+  "overlay.connectConfirmTitle": "HubSpot für den ganzen Workspace verbinden?",
+  "overlay.reconnectConfirmTitle":
+    "HubSpot für den ganzen Workspace erneut verbinden?",
+  "overlay.connectConfirmBody":
+    "Dies schaltet die Lesezugriffe aller Sitze sofort auf den HubSpot-Spiegel um, und Datensätze werden schreibgeschützt, wo immer der Spiegel kein Schreiben unterstützt. Dies betrifft die gesamte Installation, nicht nur die eigene Sitzung.",
   "overlay.statusActive": "Verbunden",
   "overlay.statusRevoked": "Widerrufen",
   "overlay.statusError": "Sync-Fehler",

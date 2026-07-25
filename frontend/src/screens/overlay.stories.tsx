@@ -8,11 +8,12 @@ import { OverlayCard } from "./overlay";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 // OverlayCard stories for the fe-uat render gate: the not-yet-connected
-// empty state, an in-flight connect, the connected states crossed with the
-// sync/budget bands the health panel branches on, an errored connection
-// (which still shows its health, per overlay.tsx's `live` doc), a revoked
-// connection's Reconnect affordance, and the deployment-unconfigured (501)
-// calm state — all off the same wire shapes overlay.test.tsx exercises.
+// empty state, the connect confirm-first gate, the connected states crossed
+// with the sync/budget bands the health panel branches on, an errored
+// connection (which still shows its health, per overlay.tsx's `live` doc),
+// a revoked connection's Reconnect affordance, and the deployment-
+// unconfigured (501) calm state — all off the same wire shapes
+// overlay.test.tsx exercises.
 
 type Connection = components["schemas"]["OverlayConnection"];
 type SyncStatus = components["schemas"]["OverlaySyncStatus"];
@@ -114,10 +115,11 @@ export const NotConnected: Story = {
   },
 };
 
-// A submitted connect that has not answered yet — the token field's own
-// mutation stays pending indefinitely (the fixture route never resolves)
-// so the captured frame shows the honest "Connecting…" disabled state.
-export const Connecting: Story = {
+// Submitting the connect form never mutates directly — it opens the
+// confirm-first dialog naming the org-wide consequence (every seat's reads
+// switch source). This story captures that dialog open, before any confirm
+// click, so the gate itself is visible in the render gallery.
+export const ConnectConfirm: Story = {
   render: () => {
     installFetchStub({
       "GET /me": admin(),
@@ -140,7 +142,7 @@ export const Connecting: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Connect HubSpot" }),
     );
-    await canvas.findByText("Connecting…");
+    await canvas.findByText(/switches every seat's reads to HubSpot/);
   },
 };
 

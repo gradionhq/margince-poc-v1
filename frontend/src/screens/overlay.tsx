@@ -18,6 +18,7 @@ import { ConfirmModal } from "../design-system/confirmmodal";
 import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import type { QueryLike } from "./common";
 import {
   canManageOverlay,
   ProblemError,
@@ -25,6 +26,7 @@ import {
   throwProblem,
   useMe,
 } from "./common";
+import type { Budget, SyncStatus } from "./overlay-health";
 import { converged, OverlayLiveSection } from "./overlay-health";
 
 // The overlay card (Settings → Integrations): the incumbent connection
@@ -35,9 +37,19 @@ import { converged, OverlayLiveSection } from "./overlay-health";
 // number. Mirrors connectors.tsx's shape (structure, ConfirmModal usage,
 // Badge tones, error handling) against a different set of endpoints — read
 // that file first if this one is confusing on its own. The sync-status/
-// budget rendering lives in the companion overlay-health.tsx purely to
-// keep this file under the length cap, the same split connectors.tsx
-// itself uses for connector-status.tsx.
+// budget rendering lives in the companion overlay-health.tsx, split out
+// purely to keep this file under the length cap and its own functions
+// under the cognitive-complexity gate — that file has exactly one caller
+// (this one), unlike connector-status.tsx's genuine two-caller reuse
+// (connectors.tsx and home.tsx).
+//
+// Connect/reconnect is confirm-first, the same posture as Disconnect: both
+// flip `workspace.x_sor_mode` for the whole installation (every seat's
+// reads switch source, and writes the mirror can't serve become
+// read-only), so filling in a token must never fire the mutation by
+// itself — OverlayConnectForm only ever hands the typed
+// (region, token) up to a request-confirm callback; OverlayCard owns the
+// ConfirmModal that actually calls `connect.mutate`.
 
 type Connection = components["schemas"]["OverlayConnection"];
 type ConnectionStatus = Connection["status"];
@@ -71,19 +83,19 @@ function overlayProblemCode(error: unknown): string | null {
 // affordance. A non-admin/ops seat sees an honest note instead of a form it
 // could only submit into a 403 (connect/disconnect are admin/ops-only,
 // identity/internal/policy's overlay_connection posture) — the server stays
-// the RBAC authority regardless.
+// the RBAC authority regardless. Submitting never mutates directly: it only
+// hands the typed values to `onRequestConfirm`, which OverlayCard uses to
+// open the shared connect ConfirmModal — the actual `POST
+// /overlay/connection` fires only from that modal's confirm, never from
+// this form's own submit.
 function OverlayConnectForm({
   canManage,
   reconnect,
-  pending,
-  error,
-  onSubmit,
+  onRequestConfirm,
 }: Readonly<{
   canManage: boolean;
   reconnect: boolean;
-  pending: boolean;
-  error: string | null;
-  onSubmit: (region: Region, token: string) => void;
+  onRequestConfirm: (region: Region, token: string) => void;
 }>) {
   const t = useT();
   const [region, setRegion] = useState<Region>("eu1");
@@ -100,7 +112,7 @@ function OverlayConnectForm({
         if (!ready) {
           return;
         }
-        onSubmit(region, token);
+        onRequestConfirm(region, token);
       }}
     >
       <div className="field">
@@ -134,28 +146,10 @@ function OverlayConnectForm({
         />
         <p className="t-caption">{t("overlay.tokenHint")}</p>
       </div>
-      {error && (
-        <p
-          role="alert"
-          className="t-caption"
-          style={{ color: "var(--danger)" }}
-        >
-          {error}
-        </p>
-      )}
       <div style={{ display: "flex", gap: "var(--space-2)" }}>
-        <Button
-          small
-          variant="primary"
-          type="submit"
-          disabled={!ready || pending}
-        >
+        <Button small variant="primary" type="submit" disabled={!ready}>
           <Plug aria-hidden />{" "}
-          {pending
-            ? t("overlay.connecting")
-            : reconnect
-              ? t("overlay.reconnect")
-              : t("overlay.connect")}
+          {reconnect ? t("overlay.reconnect") : t("overlay.connect")}
         </Button>
       </div>
     </form>
@@ -194,6 +188,65 @@ function ConnectionSummary({
   );
 }
 
+// The full "a connection exists" body (summary + revoked reconnect + live
+// health/actions) — split out of OverlayCard purely to keep that function's
+// branch count under the cognitive-complexity gate.
+function ConnectedBody({
+  connection,
+  locale,
+  canManage,
+  live,
+  sync,
+  budget,
+  onReconnectRequest,
+  onReconcile,
+  reconcilePending,
+  reconcileQueued,
+  reconcileError,
+  onDisconnect,
+}: Readonly<{
+  connection: Connection;
+  locale: Locale;
+  canManage: boolean;
+  live: boolean;
+  sync: QueryLike<SyncStatus>;
+  budget: QueryLike<Budget>;
+  onReconnectRequest: (region: Region, token: string) => void;
+  onReconcile: () => void;
+  reconcilePending: boolean;
+  reconcileQueued: boolean;
+  reconcileError: string | null;
+  onDisconnect: () => void;
+}>) {
+  return (
+    <>
+      <ConnectionSummary connection={connection} locale={locale} />
+      {connection.status === "revoked" && (
+        <div style={{ marginTop: "var(--space-3)" }}>
+          <OverlayConnectForm
+            canManage={canManage}
+            reconnect
+            onRequestConfirm={onReconnectRequest}
+          />
+        </div>
+      )}
+      {live && (
+        <OverlayLiveSection
+          sync={sync}
+          budget={budget}
+          locale={locale}
+          canManage={canManage}
+          onReconcile={onReconcile}
+          reconcilePending={reconcilePending}
+          reconcileQueued={reconcileQueued}
+          reconcileError={reconcileError}
+          onDisconnect={onDisconnect}
+        />
+      )}
+    </>
+  );
+}
+
 export function OverlayCard() {
   const t = useT();
   const { locale } = useLocale();
@@ -201,6 +254,15 @@ export function OverlayCard() {
   const canManage = canManageOverlay(me.data?.roles);
   const queryClient = useQueryClient();
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
+  // Connect/reconnect is confirm-first (same posture as Disconnect below):
+  // the form only stages the typed values here, never mutates directly —
+  // the ConfirmModal rendered at the bottom of this component is the one
+  // place `connect.mutate` is ever called.
+  const [pendingConnect, setPendingConnect] = useState<{
+    reconnect: boolean;
+    region: Region;
+    token: string;
+  } | null>(null);
 
   const connection = useQuery({
     queryKey: ["overlay", "connection"],
@@ -264,7 +326,10 @@ export function OverlayCard() {
         throwProblem(error);
       }
     },
-    onSuccess: () => queryClient.invalidateQueries(),
+    onSuccess: () => {
+      setPendingConnect(null);
+      queryClient.invalidateQueries();
+    },
   });
 
   // Disconnect flips the workspace back to native, same blast radius as
@@ -329,47 +394,57 @@ export function OverlayCard() {
           <OverlayConnectForm
             canManage={canManage}
             reconnect={false}
-            pending={connect.isPending}
-            error={connect.isError ? connect.error.message : null}
-            onSubmit={(region, token) =>
-              connect.mutate({ region, privateAppToken: token })
+            onRequestConfirm={(region, token) =>
+              setPendingConnect({ reconnect: false, region, token })
             }
           />
         </EmptyState>
       )}
       {connection.isSuccess && connection.data && (
-        <>
-          <ConnectionSummary connection={connection.data} locale={locale} />
-          {connection.data.status === "revoked" && (
-            <div style={{ marginTop: "var(--space-3)" }}>
-              <OverlayConnectForm
-                canManage={canManage}
-                reconnect
-                pending={connect.isPending}
-                error={connect.isError ? connect.error.message : null}
-                onSubmit={(region, token) =>
-                  connect.mutate({ region, privateAppToken: token })
-                }
-              />
-            </div>
-          )}
-          {live && (
-            <OverlayLiveSection
-              sync={sync}
-              budget={budget}
-              locale={locale}
-              canManage={canManage}
-              onReconcile={() => reconcile.mutate()}
-              reconcilePending={reconcile.isPending}
-              reconcileQueued={reconcile.isSuccess}
-              reconcileError={
-                reconcile.isError ? reconcile.error.message : null
-              }
-              onDisconnect={() => setConfirmingDisconnect(true)}
-            />
-          )}
-        </>
+        <ConnectedBody
+          connection={connection.data}
+          locale={locale}
+          canManage={canManage}
+          live={live}
+          sync={sync}
+          budget={budget}
+          onReconnectRequest={(region, token) =>
+            setPendingConnect({ reconnect: true, region, token })
+          }
+          onReconcile={() => reconcile.mutate()}
+          reconcilePending={reconcile.isPending}
+          reconcileQueued={reconcile.isSuccess}
+          reconcileError={reconcile.isError ? reconcile.error.message : null}
+          onDisconnect={() => setConfirmingDisconnect(true)}
+        />
       )}
+      <ConfirmModal
+        open={pendingConnect !== null}
+        onClose={() => setPendingConnect(null)}
+        title={
+          pendingConnect?.reconnect
+            ? t("overlay.reconnectConfirmTitle")
+            : t("overlay.connectConfirmTitle")
+        }
+        confirmLabel={
+          pendingConnect?.reconnect
+            ? t("overlay.reconnect")
+            : t("overlay.connect")
+        }
+        pending={connect.isPending}
+        error={connect.isError ? connect.error.message : null}
+        onConfirm={() => {
+          if (!pendingConnect) {
+            return;
+          }
+          connect.mutate({
+            region: pendingConnect.region,
+            privateAppToken: pendingConnect.token,
+          });
+        }}
+      >
+        <p className="t-small">{t("overlay.connectConfirmBody")}</p>
+      </ConfirmModal>
       <ConfirmModal
         open={confirmingDisconnect}
         onClose={() => setConfirmingDisconnect(false)}

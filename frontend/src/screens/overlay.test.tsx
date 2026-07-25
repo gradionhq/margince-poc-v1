@@ -200,7 +200,45 @@ describe("the overlay card", () => {
     expect(screen.getByText("Approaching limit")).toBeTruthy();
   });
 
-  it("offers Reconnect for a revoked connection", async () => {
+  it("does not connect until the confirmation is accepted", async () => {
+    const calls = stubApi({
+      "GET /me": meRoute(["admin"]),
+      "GET /overlay/connection": () =>
+        jsonResponse({ detail: "not found" }, 404),
+      "POST /overlay/connection": () => jsonResponse(activeConnection, 201),
+    });
+    render(<OverlayCard />);
+    await userEvent.type(
+      await screen.findByLabelText("Private-app token"),
+      "pat-secret",
+    );
+    // Submitting the form only opens the confirmation — it must not POST yet.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Connect HubSpot" }),
+    );
+    expect(
+      calls.filter(
+        (r) => r.url.endsWith("/overlay/connection") && r.method === "POST",
+      ),
+    ).toHaveLength(0);
+    expect(
+      await screen.findByText(/switches every seat's reads to HubSpot/),
+    ).toBeTruthy();
+    // Two buttons now share the label (the form's trigger, already submitted,
+    // and the modal's own confirm) — the modal's is the last one in the DOM,
+    // the same convention connectors.test.tsx's disconnect-confirm test uses.
+    const confirms = screen.getAllByRole("button", { name: "Connect HubSpot" });
+    await userEvent.click(confirms[confirms.length - 1]);
+    await waitFor(() =>
+      expect(
+        calls.filter(
+          (r) => r.url.endsWith("/overlay/connection") && r.method === "POST",
+        ),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("offers Reconnect for a revoked connection, gated by the same confirm step", async () => {
     const calls = stubApi({
       "GET /me": meRoute(["admin"]),
       "GET /overlay/connection": () => jsonResponse(revokedConnection),
@@ -212,7 +250,14 @@ describe("the overlay card", () => {
       screen.getByLabelText("Private-app token"),
       "pat-secret",
     );
-    await userEvent.click(screen.getByRole("button", { name: /Reconnect/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(
+      calls.filter(
+        (r) => r.url.endsWith("/overlay/connection") && r.method === "POST",
+      ),
+    ).toHaveLength(0);
+    const confirms = screen.getAllByRole("button", { name: "Reconnect" });
+    await userEvent.click(confirms[confirms.length - 1]);
     await waitFor(() =>
       expect(
         calls.filter(
@@ -231,7 +276,6 @@ describe("the overlay card", () => {
     });
     const { client } = render(<OverlayCard />);
     await screen.findByLabelText("Private-app token");
-    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
     await userEvent.type(
       screen.getByLabelText("Private-app token"),
       "pat-secret",
@@ -239,10 +283,61 @@ describe("the overlay card", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Connect HubSpot" }),
     );
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    const confirms = await screen.findAllByRole("button", {
+      name: "Connect HubSpot",
+    });
+    await userEvent.click(confirms[confirms.length - 1]);
     await waitFor(() => expect(invalidateSpy).toHaveBeenCalled());
     // Called with no arguments — the whole cache, not one targeted key —
     // because the workspace's data source itself just changed (/me included).
     expect(invalidateSpy).toHaveBeenCalledWith();
+  });
+
+  it("surfaces a concurrent already-connected conflict instead of guessing", async () => {
+    stubApi({
+      "GET /me": meRoute(["admin"]),
+      "GET /overlay/connection": () =>
+        jsonResponse({ detail: "not found" }, 404),
+      "POST /overlay/connection": () =>
+        jsonResponse(
+          {
+            code: "incumbent_already_connected",
+            detail: "an active incumbent connection already exists",
+          },
+          409,
+        ),
+    });
+    render(<OverlayCard />);
+    await userEvent.type(
+      await screen.findByLabelText("Private-app token"),
+      "pat-secret",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Connect HubSpot" }),
+    );
+    const confirms = await screen.findAllByRole("button", {
+      name: "Connect HubSpot",
+    });
+    await userEvent.click(confirms[confirms.length - 1]);
+    expect(
+      await screen.findByText(/an active incumbent connection already exists/),
+    ).toBeTruthy();
+  });
+
+  it("does not offer reconcile/disconnect to a non-admin seat on a live connection", async () => {
+    stubApi({
+      "GET /me": meRoute(["rep"]),
+      "GET /overlay/connection": () => jsonResponse(activeConnection),
+      "GET /overlay/sync-status": () => jsonResponse(syncStatusFixture),
+      "GET /overlay/budget": () => jsonResponse(budgetFixture),
+    });
+    render(<OverlayCard />);
+    // The health rows still render (read is granted to every role) — only
+    // the mutating actions are withheld.
+    expect(await screen.findByText("person")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Sync now" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Disconnect" })).toBeNull();
   });
 
   it("reports a queued sweep rather than a finished one", async () => {

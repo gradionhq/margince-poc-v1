@@ -291,8 +291,11 @@ export const en = {
   "overlay.token": "Private-app token",
   "overlay.tokenHint": "Sealed into the vault; never shown again.",
   "overlay.connect": "Connect HubSpot",
-  "overlay.connecting": "Connecting…",
   "overlay.reconnect": "Reconnect",
+  "overlay.connectConfirmTitle": "Connect HubSpot for the whole workspace?",
+  "overlay.reconnectConfirmTitle": "Reconnect HubSpot for the whole workspace?",
+  "overlay.connectConfirmBody":
+    "This switches every seat's reads to HubSpot's mirror immediately, and records become read-only wherever the mirror can't serve a write. This affects the whole installation, not just your own session.",
   "overlay.statusActive": "Connected",
   "overlay.statusRevoked": "Revoked",
   "overlay.statusError": "Sync error",
