@@ -27,7 +27,7 @@ import (
 // drives. Lives on its own because both the auto-create suite and the tier-gate
 // suite are its callers, and neither owns it.
 
-const autoCreateOwner = "owner@myco.example"
+const captureOwner = "owner@myco.example"
 
 // mailBatchConnector replays a fixed batch of RFC822 messages through the
 // production mailmap → Sink path — the provider I/O faked, nothing else.
@@ -51,7 +51,7 @@ func (m *mailBatchConnector) Authenticate(context.Context, connector.AuthRequest
 
 func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
 	for _, raw := range m.raws {
-		msg, err := mailmap.Parse(raw, autoCreateOwner)
+		msg, err := mailmap.Parse(raw, captureOwner)
 		if err != nil {
 			return nil, err
 		}
@@ -67,7 +67,7 @@ func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ conne
 			return nil, err
 		}
 	}
-	return connector.Cursor(fmt.Sprintf(`{"email":%q}`, autoCreateOwner)), nil
+	return connector.Cursor(fmt.Sprintf(`{"email":%q}`, captureOwner)), nil
 }
 
 func (m *mailBatchConnector) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
@@ -136,8 +136,6 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	t.Helper()
 	e := setupSearch(t)
 	conn := &mailBatchConnector{}
-	// The PRODUCTION wiring, not the bare test sink: the auto-create
-	// resolver and the free-mail gate are exactly what this test proves.
 	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
 	registry.Register(conn)
 

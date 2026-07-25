@@ -34,9 +34,9 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 	e, sync := env.e, env.sync
 	t.Run("a thread becomes one person, one company, one employment", func(t *testing.T) {
 		sync(t,
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""),
-			email(autoCreateOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "m3@acme.example", "m1@acme.example"),
+			email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""),
+			email(captureOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
+			email("alice@acme.example", "Alice Example", captureOwner, "m3@acme.example", "m1@acme.example"),
 		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
@@ -79,7 +79,7 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		}
 	})
 	t.Run("a replay creates nothing new", func(t *testing.T) {
-		sync(t, email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""))
+		sync(t, email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'alice@acme.example'`); n != 1 {
@@ -95,8 +95,8 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 		// near-match needs someone to be near, so this captures both halves
 		// rather than leaning on whoever a sibling subtest created.
 		sync(t,
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "fz0@acme.example", ""),
-			email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""),
+			email("alice@acme.example", "Alice Example", captureOwner, "fz0@acme.example", ""),
+			email("alice2@acme.example", "Alice Exampel", captureOwner, "f1@acme.example", ""),
 		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
@@ -116,8 +116,8 @@ func TestCaptureRecordsProvenanceWithoutTheMessageBody(t *testing.T) {
 	// thread — an inbound leg and the owner's reply — rather than reading rows
 	// another test happened to leave behind.
 	sync(t,
-		email("alice@acme.example", "Alice Example", autoCreateOwner, "p1@acme.example", ""),
-		email(autoCreateOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
+		email("alice@acme.example", "Alice Example", captureOwner, "p1@acme.example", ""),
+		email(captureOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
 	)
 
 	t.Run("captured mail stamps the counterparty email on the activity", func(t *testing.T) {
@@ -164,7 +164,7 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 	env := newCaptureEnv(t)
 	e, sync := env.e, env.sync
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
-		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
+		sync(t, email("carol@myco.example", "Carol Colleague", captureOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'carol@myco.example'`); n != 0 {
@@ -184,7 +184,7 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sync(t, email("dave@dead.example", "Dave Gone", autoCreateOwner, "d1@dead.example", ""))
+		sync(t, email("dave@dead.example", "Dave Gone", captureOwner, "d1@dead.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'dave@dead.example'`); n != 0 {
@@ -211,8 +211,8 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 					RowScope: principal.RowScopeAll,
 				},
 			}), ids.NewV7())
-		raw := email("ghost@nowhere.example", "Ghost Sender", autoCreateOwner, "g1@nowhere.example", "")
-		msg, err := mailmap.Parse(raw, autoCreateOwner)
+		raw := email("ghost@nowhere.example", "Ghost Sender", captureOwner, "g1@nowhere.example", "")
+		msg, err := mailmap.Parse(raw, captureOwner)
 		if err != nil {
 			t.Fatal(err)
 		}

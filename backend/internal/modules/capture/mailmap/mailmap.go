@@ -113,7 +113,7 @@ func Parse(raw []byte, owner string) (Message, error) {
 
 	autoSubmitted, precedence := header.Values("Auto-Submitted"), header.Values("Precedence")
 	autoReply := isAutoReply(autoSubmitted, precedence)
-	machineTouched := isMachineTouched(autoSubmitted, precedence, hasAutoresponderHeader(header))
+	machineTouched := isMachineTouched(autoSubmitted, precedence, hasMachineHandledHeader(header))
 
 	return Message{
 		messageID:        strings.TrimSpace(messageID),
@@ -304,22 +304,6 @@ func firstNonOwner(list []*mail.Address, ownerLower string) string {
 	}
 	return firstAddress(list)
 }
-
-// isAutoReply reads the RFC 3834 Auto-Submitted header and the legacy
-// Precedence hint for mail generated IN RESPONSE to something the workspace
-// sent — a vacation responder, an auto-reply. Nobody chose to write it, so it
-// is dropped before anything is written.
-//
-// Deliberately narrower than RFC 3834's whole vocabulary. Transactional mail
-// must reach the tier gate: `auto-generated` covers the signed envelopes,
-// invoices and shipping notices ADR-0072 §1 keeps on the timeline, and
-// `Precedence: bulk`/`list` is what a newsletter carries. The gate cannot judge
-// what it never sees.
-//
-// Auto-replies stay dropped, and that is load-bearing beyond noise: an
-// autoresponder answering a stranger produces a genuine owner-authored message,
-// which is the one shape that could induce a T1 correspondence spare for an
-// address nobody chose to write to (ADR-0072 residual (b)).
 
 func orDash(s string) string {
 	if s == "" {
