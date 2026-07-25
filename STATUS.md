@@ -1002,6 +1002,22 @@ Open work, roughly in priority order:
   `<untrusted>` prompt fence was forgeable by sender-controlled text, now defused
   in the data at every fencing site (verdict, classify, signature-enrich, deep-read
   passages).
+  **Known cost of the prompt fence, with the intended fix.** `fenceUntrusted`
+  replaces every `<` in untrusted text with a lookalike. That is what makes the
+  boundary unforgeable — a marker cannot be spelled without its bracket, in any
+  script, with zero-width filler mid-word, or spliced across two fields — but it
+  is a blunt instrument: three callers (`sitesnippet`, `modelraterefresh`,
+  `enrichextract`) feed evidence gates that want VERBATIM quotes, so a pricing
+  page reading `<10 users` is quoted back as `‹10 users`. The gates still pass
+  (both sides compare the same fenced text); what suffers is fidelity of stored
+  evidence. The right fix is a per-call NONCE boundary — the sender cannot
+  predict it, so the data needs no editing at all — applied to ALL twelve prompt
+  builders at once. A first attempt at that was reverted: narrowing the strip
+  while migrating only one prompt left the other eleven weaker than before, and
+  the hand-rolled case-insensitive scanner it introduced panicked on `Ⱥ` and let
+  `İ</untrusted>` through — both reachable from an email body. Do it as one
+  migration with `regexp` doing the case folding, or not at all.
+
   **Follow-ups both review lanes agreed to defer (not blockers).** (1) The
   deferral-cap freeze: an outsider parking 500 pending/unsure rows stops NEW
   corporate-domain senders from being deferred at all. It fails in the safe
