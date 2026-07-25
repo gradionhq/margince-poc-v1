@@ -385,6 +385,11 @@ func TestOnlyAutoRepliesAreDroppedBeforeTheTierGate(t *testing.T) {
 		"unclosed leading comment": {"Auto-Submitted: (swallows auto-replied"},
 		"empty comment only":       {"Auto-Submitted: ()"},
 		"whitespace after comment": {"Auto-Submitted: (nothing left)   "},
+		// A header written with no value at all is malformed, not missing. The
+		// two are indistinguishable once both collapse to "", so presence is
+		// asked of the header set rather than inferred from the value.
+		"present but empty":      {"Auto-Submitted:"},
+		"present but whitespace": {"Auto-Submitted:    "},
 	}
 	for name, headers := range dropped {
 		t.Run(name, func(t *testing.T) {
