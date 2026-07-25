@@ -116,6 +116,10 @@ type API interface {
 // The folder is the T1 correspondence evidence (ADR-0072 §1) — Microsoft moves
 // a message into Sent Items because the authenticated account sent it, which no
 // amount of header forgery can imitate.
+//
+// ParentFolderID is never empty: ListAfter refuses a listed message that names
+// no folder, so a caller comparing it against SentFolderID can never be
+// comparing two absent values.
 type MessageRef struct {
 	ID             string
 	ParentFolderID string

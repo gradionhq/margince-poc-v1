@@ -14,7 +14,7 @@
 -- message's own authorship agree: placement alone is not authorship either,
 -- since a server-side rule can file a stranger's mail into the sent container.
 --
--- Three residuals this column does NOT close, recorded so nobody later reads
+-- Four residuals this column does NOT close, recorded so nobody later reads
 -- them as bugs. (a) An owner-side rule that files spoofed own-domain mail into
 -- Sent Items or a \Sent mailbox defeats the conjunction on Graph and IMAP;
 -- Gmail is not reachable this way, since SENT is applied by the send path and

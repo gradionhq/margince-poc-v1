@@ -450,3 +450,38 @@ func TestRequestOpReducesAURLToItsPath(t *testing.T) {
 		})
 	}
 }
+
+// A 2xx that names no folder is not an answer. Left as "", it would compare
+// equal to the empty parentFolderId of any message the same degraded response
+// returned, so the ABSENCE of the evidence would read as the evidence and
+// attest a whole page — and the activity natural key would make it permanent.
+func TestSentFolderIDRefusesA2xxThatNamesNoFolder(t *testing.T) {
+	srv := jsonStub(t, map[string]any{})
+	_, err := NewAPI(srv.Client(), srv.URL).SentFolderID(context.Background(), "access-2")
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("SentFolderID on an id-less 2xx = %v, want ErrUnreachable — an empty id must never reach the comparison", err)
+	}
+}
+
+// The mirror case, and it must fail the same way. A listed message naming no
+// parent folder cannot be captured on a guess in either direction: attested, an
+// empty id would match an unresolved folder; un-attested, the activity natural
+// key would permanently discard evidence the owner really did produce.
+func TestListAfterRefusesAMessageWithNoParentFolder(t *testing.T) {
+	srv := jsonStub(t, map[string]any{"value": []map[string]any{{"id": "m-truncated"}}})
+	_, _, err := NewAPI(srv.Client(), srv.URL).ListAfter(context.Background(), "access-2", time.Time{}, "", 100)
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("ListAfter on a folder-less message = %v, want ErrUnreachable", err)
+	}
+}
+
+// jsonStub serves one canned JSON body on every path — enough for the
+// degraded-response cases, which are about what the client REFUSES to decode.
+func jsonStub(t *testing.T, body map[string]any) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
