@@ -81,6 +81,7 @@ var anchorLinkColumn = map[string]string{
 	string(datasource.EntityPerson):       "person_id",
 	string(datasource.EntityOrganization): "organization_id",
 	string(datasource.EntityDeal):         "deal_id",
+	string(datasource.EntityProject):      "project_id",
 }
 
 // assembleGraph is the fixed-depth context walk (B-EP05.20a): anchor →
@@ -236,6 +237,7 @@ var relatedHops = []graphHop{
 	{entity: string(datasource.EntityPerson), column: "person_id", title: "full_name"},
 	{entity: string(datasource.EntityOrganization), column: "organization_id", title: "display_name"},
 	{entity: string(datasource.EntityDeal), column: "deal_id", title: "name"},
+	{entity: string(datasource.EntityProject), column: "project_id", title: "name"},
 }
 
 func (s *Store) relatedViaLinks(ctx context.Context, tx pgx.Tx, anchorType string, anchorID ids.UUID, activityIDs []ids.ActivityID, maxItems int) ([]graphSection, error) {

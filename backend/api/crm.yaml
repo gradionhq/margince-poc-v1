@@ -1104,6 +1104,10 @@ paths:
           in: query
           schema: { type: boolean }
           description: Deterministic stalled flag (no activity past the threshold).
+        - name: project_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: Filter to the deals belonging to one body of work.
         - name: partner_org_id
           in: query
           schema: { type: string, format: uuid }
@@ -2789,7 +2793,7 @@ paths:
       parameters:
         - name: resource
           in: query
-          schema: { type: string, enum: [people, organizations, deals, activities, leads, partners] }
+          schema: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
         - $ref: '#/components/parameters/IncludeArchived'
       responses:
         '200':
@@ -3279,7 +3283,7 @@ paths:
           in: query
           schema:
             type: array
-            items: { type: string, enum: [person, organization, deal, activity, lead] }
+            items: { type: string, enum: [person, organization, deal, activity, lead, project] }
           style: form
           explode: false
           description: Restrict to these object types (default all).
@@ -7343,7 +7347,7 @@ paths:
         - name: entity_type
           in: query
           required: true
-          schema: { type: string, enum: [person, organization, deal, activity, lead] }
+          schema: { type: string, enum: [person, organization, deal, activity, lead, project] }
         - name: entity_id
           in: query
           required: true
@@ -7376,7 +7380,7 @@ paths:
               type: object
               required: [entity_type, entity_id, file]
               properties:
-                entity_type: { type: string, enum: [person, organization, deal, activity, lead] }
+                entity_type: { type: string, enum: [person, organization, deal, activity, lead, project] }
                 entity_id: { type: string, format: uuid }
                 file: { type: string, format: binary }
       responses:
@@ -9174,6 +9178,7 @@ components:
         stage_id: { type: [string, 'null'], format: uuid, description: 'Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).' }
         organization_id: { type: [string, 'null'], format: uuid, description: Primary org; never a raw lead. }
         partner_org_id: { type: [string, 'null'], format: uuid, description: 'Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.' }
+        project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422.' }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost], default: open }
         lost_reason: { type: [string, 'null'], description: Required when status=lost. }
@@ -9213,6 +9218,7 @@ components:
         pipeline_id: { type: string, format: uuid }
         stage_id: { type: string, format: uuid }
         organization_id: { type: [string, 'null'], format: uuid }
+        project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this deal belongs to; must name the same company as the deal.' }
         owner_id: { type: [string, 'null'], format: uuid }
         expected_close_date: { type: [string, 'null'], format: date, description: 'Deals are born open, so a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11).' }
         source: { type: string }
@@ -9227,6 +9233,7 @@ components:
         currency: { type: [string, 'null'], pattern: '^[A-Z]{3}$' }
         organization_id: { type: [string, 'null'], format: uuid }
         partner_org_id: { type: [string, 'null'], format: uuid }
+        project_id: { type: [string, 'null'], format: uuid }
         owner_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [open, won, lost] }
         lost_reason: { type: [string, 'null'] }
@@ -9540,7 +9547,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         workspace_id: { type: string, format: uuid }
-        entity_type: { type: string, enum: [person, organization, deal, activity, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, activity, lead, project] }
         entity_id: { type: string, format: uuid }
         filename: { type: string }
         content_type: { type: [string, 'null'] }
@@ -10053,7 +10060,7 @@ components:
         workspace_id: { type: string, format: uuid }
         owner_id: { type: string, format: uuid }
         shared_scope: { type: string, enum: [private, team, workspace], default: private, description: V1 enforces private. }
-        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners] }
+        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
         name: { type: string }
         query:
           type: object
@@ -10068,7 +10075,7 @@ components:
       type: object
       required: [resource, name, query]
       properties:
-        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners] }
+        resource: { type: string, enum: [people, organizations, deals, activities, leads, partners, projects] }
         name: { type: string }
         query: { type: object, additionalProperties: true }
 
@@ -10576,7 +10583,7 @@ components:
       type: object
       required: [type, id]
       properties:
-        type: { type: string, enum: [person, organization, deal, activity, lead] }
+        type: { type: string, enum: [person, organization, deal, activity, lead, project] }
         id: { type: string, format: uuid }
         title: { type: [string, 'null'], description: Display label (name/subject). }
         snippet: { type: [string, 'null'] }

@@ -31,6 +31,7 @@ type UpdateDealInput struct {
 	AmountMinor           *int64
 	Currency              *string
 	OrganizationID        *ids.OrganizationID
+	ProjectID             *ids.ProjectID
 	OwnerID               *ids.UserID
 	PartnerOrganizationID *ids.OrganizationID
 	ExpectedClose         *time.Time
@@ -117,6 +118,9 @@ func updateDealInTx(ctx context.Context, tx pgx.Tx, id ids.DealID, in UpdateDeal
 	}
 
 	if err := p.ApplyGuarded(ctx, tx, "deal", id.UUID, in.IfVersion); err != nil {
+		if constraint, ok := storekit.CheckViolation(err); ok && constraint == dealProjectSameOrgConstraint {
+			return crmcontracts.Deal{}, &DealProjectOrgMismatchError{}
+		}
 		return crmcontracts.Deal{}, fmt.Errorf("apply deal patch: %w", err)
 	}
 	if err := recordDealUpdate(ctx, tx, id, current, in, p); err != nil {

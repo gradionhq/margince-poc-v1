@@ -35,9 +35,9 @@ func (t archiveRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "archive_record", Version: "1.0.0",
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierConfirmationRequired,
-		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal",
+		OpenAPIOp: "archivePerson/archiveOrganization/archiveDeal/archiveProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","project"]},
 			"id":{"type":"string","format":"uuid"},
 			"approval_id":{"type":"string","format":"uuid","description":"Set on retry after a human approved the staged call"}},
 			"additionalProperties":false}`),

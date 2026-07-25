@@ -54,6 +54,7 @@ var segmentEngines = map[string]storekit.Query{
 			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
 			"organization_id":   {Expr: "t.organization_id", Type: storekit.FieldID},
 			"partner_org_id":    {Expr: "t.partner_org_id", Type: storekit.FieldID},
+			"project_id":        {Expr: "t.project_id", Type: storekit.FieldID},
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"forecast_category": {Expr: "t.forecast_category", Type: storekit.FieldPicklist},
 		},
@@ -65,6 +66,15 @@ var segmentEngines = map[string]storekit.Query{
 			"status":            {Expr: "t.status", Type: storekit.FieldPicklist},
 			"owner_id":          {Expr: colOwnerID, Type: storekit.FieldID},
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
+		},
+	},
+	"project": {
+		Table:     "project",
+		BaseWhere: whereArchivedNull,
+		Fields: map[string]storekit.Field{
+			"owner_id":        {Expr: colOwnerID, Type: storekit.FieldID},
+			"organization_id": {Expr: "t.organization_id", Type: storekit.FieldID},
+			"phase":           {Expr: "t.phase", Type: storekit.FieldPicklist},
 		},
 	},
 }

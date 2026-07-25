@@ -38,6 +38,7 @@ const (
 	entityDeal         = "deal"
 	entityLead         = "lead"
 	entityActivity     = "activity"
+	entityProject      = "project"
 )
 
 // embedText mirrors each entity's search_tsv source columns — the
@@ -49,6 +50,7 @@ var embedText = map[string]string{
 	entityDeal:         `SELECT name FROM deal WHERE id = $1 AND archived_at IS NULL`,
 	entityLead:         `SELECT concat_ws(' ', full_name, company_name, title) FROM lead WHERE id = $1 AND archived_at IS NULL`,
 	entityActivity:     `SELECT concat_ws(' ', subject, body) FROM activity WHERE id = $1 AND archived_at IS NULL`,
+	entityProject:      `SELECT concat_ws(' ', name, key, description) FROM project WHERE id = $1 AND archived_at IS NULL`,
 }
 
 // HandleEvent maintains embeddings for created/updated/captured

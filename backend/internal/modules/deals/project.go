@@ -30,6 +30,12 @@ import (
 // spelled once.
 const projectObject = "project"
 
+// dealProjectSameOrgConstraint is the constraint trigger that enforces
+// "a deal and its project name the same company" — a rule spanning two
+// rows, so it cannot be a CHECK and its name is what the deal write paths
+// match on to answer 422 rather than 500.
+const dealProjectSameOrgConstraint = "deal_project_same_org"
+
 // PhaseInitiative is where every project is born: the ladder's head. A
 // project only ever leaves it through AdvanceProjectPhase, which is what
 // keeps the phase and its history in one transaction.

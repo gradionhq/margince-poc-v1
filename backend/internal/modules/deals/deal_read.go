@@ -51,6 +51,7 @@ type ListDealsInput struct {
 	StageID         *ids.StageID
 	OwnerID         *ids.UserID
 	OrganizationID  *ids.OrganizationID
+	ProjectID       *ids.ProjectID
 	PartnerOrgID    *ids.OrganizationID
 	PartnerSourced  *bool
 	Status          *string
@@ -197,6 +198,9 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	if in.OrganizationID != nil {
 		where = append(where, storekit.SQLf("organization_id = $%d", arg(*in.OrganizationID)))
 	}
+	if in.ProjectID != nil {
+		where = append(where, storekit.SQLf("project_id = $%d", arg(*in.ProjectID)))
+	}
 	if in.PartnerOrgID != nil {
 		where = append(where, storekit.SQLf("partner_org_id = $%d", arg(*in.PartnerOrgID)))
 	}
@@ -223,7 +227,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 }
 
 const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
-	organization_id, owner_id, partner_org_id, status, lost_reason,
+	organization_id, project_id, owner_id, partner_org_id, status, lost_reason,
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
@@ -248,7 +252,7 @@ func readDeal(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.A
 func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Deal, error) {
 	var d crmcontracts.Deal
 	var id, wsID, pipelineID, stageID ids.UUID
-	var orgID, ownerID, partnerID *ids.UUID
+	var orgID, projectID, ownerID, partnerID *ids.UUID
 	var status string
 	var forecastCat *string
 	var expectedClose, waitUntil *time.Time
@@ -257,7 +261,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 
 	dests := []any{
 		&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
-		&orgID, &ownerID, &partnerID, &status, &d.LostReason,
+		&orgID, &projectID, &ownerID, &partnerID, &status, &d.LostReason,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
 		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,
 	}
@@ -280,6 +284,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	sid := openapi_types.UUID(stageID)
 	d.StageId = &sid
 	d.OrganizationId = uuidPtr(orgID)
+	d.ProjectId = uuidPtr(projectID)
 	d.OwnerId = uuidPtr(ownerID)
 	d.PartnerOrgId = uuidPtr(partnerID)
 	d.Status = crmcontracts.DealStatus(status)

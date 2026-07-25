@@ -44,79 +44,134 @@ func ref(t datasource.EntityType, id openapi_types.UUID) datasource.EntityRef {
 }
 
 func (p *Provider) Read(ctx context.Context, r datasource.EntityRef) (datasource.Record, error) {
-	if r.Type != datasource.EntityDeal {
+	switch r.Type {
+	case datasource.EntityDeal:
+		v, err := p.store.GetDeal(ctx, ids.From[ids.DealKind](r.ID), storekit.LiveOnly)
+		if err != nil {
+			return datasource.Record{}, err
+		}
+		return datasource.NewRecord(r, v, v.Version)
+	case datasource.EntityProject:
+		v, err := p.store.GetProject(ctx, ids.From[ids.ProjectKind](r.ID), storekit.LiveOnly)
+		if err != nil {
+			return datasource.Record{}, err
+		}
+		return datasource.NewRecord(r, v, v.Version)
+	default:
 		return datasource.Record{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.GetDeal(ctx, ids.From[ids.DealKind](r.ID), storekit.LiveOnly)
-	if err != nil {
-		return datasource.Record{}, err
-	}
-	return datasource.NewRecord(r, v, v.Version)
 }
 
 // SearchEntity lists deals under the shared search contract.
 func (p *Provider) SearchEntity(ctx context.Context, t datasource.EntityType, text *string, limit int, cursor *string) ([]datasource.Record, string, bool, error) {
-	if t != datasource.EntityDeal {
-		return nil, "", false, &datasource.UnsupportedEntityError{Type: string(t)}
-	}
-	rows, page, err := p.store.ListDeals(ctx, ListDealsInput{Query: text, Limit: &limit, Cursor: cursor})
-	if err != nil {
-		return nil, "", false, err
-	}
-	records := make([]datasource.Record, 0, len(rows))
-	for _, v := range rows {
-		rec, err := datasource.NewRecord(ref(datasource.EntityDeal, v.Id), v, v.Version)
+	switch t {
+	case datasource.EntityDeal:
+		rows, page, err := p.store.ListDeals(ctx, ListDealsInput{Query: text, Limit: &limit, Cursor: cursor})
 		if err != nil {
 			return nil, "", false, err
 		}
-		records = append(records, rec)
+		records := make([]datasource.Record, 0, len(rows))
+		for _, v := range rows {
+			rec, err := datasource.NewRecord(ref(datasource.EntityDeal, v.Id), v, v.Version)
+			if err != nil {
+				return nil, "", false, err
+			}
+			records = append(records, rec)
+		}
+		return records, page.NextCursor, page.HasMore, nil
+	case datasource.EntityProject:
+		rows, page, err := p.store.ListProjects(ctx, ListProjectsInput{Query: text, Limit: &limit, Cursor: cursor})
+		if err != nil {
+			return nil, "", false, err
+		}
+		records := make([]datasource.Record, 0, len(rows))
+		for _, v := range rows {
+			rec, err := datasource.NewRecord(ref(datasource.EntityProject, v.Id), v, v.Version)
+			if err != nil {
+				return nil, "", false, err
+			}
+			records = append(records, rec)
+		}
+		return records, page.NextCursor, page.HasMore, nil
+	default:
+		return nil, "", false, &datasource.UnsupportedEntityError{Type: string(t)}
 	}
-	return records, page.NextCursor, page.HasMore, nil
 }
 
 func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datasource.EntityRef, error) {
-	if in.EntityType != datasource.EntityDeal {
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}
-	}
 	raw, err := datasource.RawFields(in.Fields)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	var req crmcontracts.CreateDealRequest
-	if err := datasource.StrictDecode(raw, &req); err != nil {
-		return datasource.EntityRef{}, err
+	switch in.EntityType {
+	case datasource.EntityDeal:
+		var req crmcontracts.CreateDealRequest
+		if err := datasource.StrictDecode(raw, &req); err != nil {
+			return datasource.EntityRef{}, err
+		}
+		req.Source = in.Source
+		mapped, err := dealCreateInput(req)
+		if err != nil {
+			return datasource.EntityRef{}, err
+		}
+		v, err := p.store.CreateDeal(ctx, mapped)
+		return ref(datasource.EntityDeal, v.Id), err
+	case datasource.EntityProject:
+		var req crmcontracts.CreateProjectRequest
+		if err := datasource.StrictDecode(raw, &req); err != nil {
+			return datasource.EntityRef{}, err
+		}
+		req.Source = in.Source
+		mapped, err := projectCreateInput(req)
+		if err != nil {
+			return datasource.EntityRef{}, err
+		}
+		v, err := p.store.CreateProject(ctx, mapped)
+		return ref(datasource.EntityProject, v.Id), err
+	default:
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}
 	}
-	req.Source = in.Source
-	mapped, err := dealCreateInput(req)
-	if err != nil {
-		return datasource.EntityRef{}, err
-	}
-	v, err := p.store.CreateDeal(ctx, mapped)
-	return ref(datasource.EntityDeal, v.Id), err
 }
 
 func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datasource.EntityRef, error) {
-	if in.Ref.Type != datasource.EntityDeal {
-		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
-	}
 	raw, err := datasource.RawFields(in.Patch)
 	if err != nil {
 		return datasource.EntityRef{}, err
 	}
-	var req crmcontracts.UpdateDealRequest
-	if err := datasource.StrictDecode(raw, &req); err != nil {
-		return datasource.EntityRef{}, err
+	switch in.Ref.Type {
+	case datasource.EntityDeal:
+		var req crmcontracts.UpdateDealRequest
+		if err := datasource.StrictDecode(raw, &req); err != nil {
+			return datasource.EntityRef{}, err
+		}
+		v, err := p.store.UpdateDeal(ctx, ids.From[ids.DealKind](in.Ref.ID), dealUpdateInput(req, in.IfVersion))
+		return ref(datasource.EntityDeal, v.Id), err
+	case datasource.EntityProject:
+		var req crmcontracts.UpdateProjectRequest
+		if err := datasource.StrictDecode(raw, &req); err != nil {
+			return datasource.EntityRef{}, err
+		}
+		v, err := p.store.UpdateProject(ctx, ids.From[ids.ProjectKind](in.Ref.ID), projectUpdateInput(req, in.IfVersion))
+		return ref(datasource.EntityProject, v.Id), err
+	default:
+		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
 	}
-	v, err := p.store.UpdateDeal(ctx, ids.From[ids.DealKind](in.Ref.ID), dealUpdateInput(req, in.IfVersion))
-	return ref(datasource.EntityDeal, v.Id), err
 }
 
 func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasource.EntityRef, error) {
-	if r.Type != datasource.EntityDeal {
+	switch r.Type {
+	case datasource.EntityDeal:
+		v, err := p.store.ArchiveDeal(ctx, ids.From[ids.DealKind](r.ID))
+		return ref(datasource.EntityDeal, v.Id), err
+	case datasource.EntityProject:
+		// No If-Match on the seam's archive verb: the agent surface has no
+		// version to carry, so the archive runs unguarded exactly as the
+		// deal's does.
+		v, err := p.store.ArchiveProject(ctx, ids.From[ids.ProjectKind](r.ID), nil)
+		return ref(datasource.EntityProject, v.Id), err
+	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}
 	}
-	v, err := p.store.ArchiveDeal(ctx, ids.From[ids.DealKind](r.ID))
-	return ref(datasource.EntityDeal, v.Id), err
 }
 
 func (p *Provider) AdvanceDeal(ctx context.Context, in datasource.AdvanceDealInput) (datasource.EntityRef, error) {

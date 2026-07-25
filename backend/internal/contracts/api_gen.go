@@ -625,6 +625,7 @@ const (
 	AttachmentEntityTypeLead         AttachmentEntityType = "lead"
 	AttachmentEntityTypeOrganization AttachmentEntityType = "organization"
 	AttachmentEntityTypePerson       AttachmentEntityType = "person"
+	AttachmentEntityTypeProject      AttachmentEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the AttachmentEntityType enum.
@@ -639,6 +640,8 @@ func (e AttachmentEntityType) Valid() bool {
 	case AttachmentEntityTypeOrganization:
 		return true
 	case AttachmentEntityTypePerson:
+		return true
+	case AttachmentEntityTypeProject:
 		return true
 	default:
 		return false
@@ -2360,11 +2363,12 @@ func (e CreateRecordGrantRequestSubjectType) Valid() bool {
 
 // Defines values for CreateRelationshipRequestKind.
 const (
-	CreateRelationshipRequestKindCoSellWith      CreateRelationshipRequestKind = "co_sell_with"
-	CreateRelationshipRequestKindDealStakeholder CreateRelationshipRequestKind = "deal_stakeholder"
-	CreateRelationshipRequestKindEmployment      CreateRelationshipRequestKind = "employment"
-	CreateRelationshipRequestKindPartnerOf       CreateRelationshipRequestKind = "partner_of"
-	CreateRelationshipRequestKindReferredBy      CreateRelationshipRequestKind = "referred_by"
+	CreateRelationshipRequestKindCoSellWith         CreateRelationshipRequestKind = "co_sell_with"
+	CreateRelationshipRequestKindDealStakeholder    CreateRelationshipRequestKind = "deal_stakeholder"
+	CreateRelationshipRequestKindEmployment         CreateRelationshipRequestKind = "employment"
+	CreateRelationshipRequestKindPartnerOf          CreateRelationshipRequestKind = "partner_of"
+	CreateRelationshipRequestKindProjectStakeholder CreateRelationshipRequestKind = "project_stakeholder"
+	CreateRelationshipRequestKindReferredBy         CreateRelationshipRequestKind = "referred_by"
 )
 
 // Valid indicates whether the value is a known member of the CreateRelationshipRequestKind enum.
@@ -2377,6 +2381,8 @@ func (e CreateRelationshipRequestKind) Valid() bool {
 	case CreateRelationshipRequestKindEmployment:
 		return true
 	case CreateRelationshipRequestKindPartnerOf:
+		return true
+	case CreateRelationshipRequestKindProjectStakeholder:
 		return true
 	case CreateRelationshipRequestKindReferredBy:
 		return true
@@ -2393,6 +2399,7 @@ const (
 	CreateSavedViewRequestResourceOrganizations CreateSavedViewRequestResource = "organizations"
 	CreateSavedViewRequestResourcePartners      CreateSavedViewRequestResource = "partners"
 	CreateSavedViewRequestResourcePeople        CreateSavedViewRequestResource = "people"
+	CreateSavedViewRequestResourceProjects      CreateSavedViewRequestResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the CreateSavedViewRequestResource enum.
@@ -2409,6 +2416,8 @@ func (e CreateSavedViewRequestResource) Valid() bool {
 	case CreateSavedViewRequestResourcePartners:
 		return true
 	case CreateSavedViewRequestResourcePeople:
+		return true
+	case CreateSavedViewRequestResourceProjects:
 		return true
 	default:
 		return false
@@ -4235,11 +4244,12 @@ func (e RefreshAcceptedStatus) Valid() bool {
 
 // Defines values for RelationshipKind.
 const (
-	RelationshipKindCoSellWith      RelationshipKind = "co_sell_with"
-	RelationshipKindDealStakeholder RelationshipKind = "deal_stakeholder"
-	RelationshipKindEmployment      RelationshipKind = "employment"
-	RelationshipKindPartnerOf       RelationshipKind = "partner_of"
-	RelationshipKindReferredBy      RelationshipKind = "referred_by"
+	RelationshipKindCoSellWith         RelationshipKind = "co_sell_with"
+	RelationshipKindDealStakeholder    RelationshipKind = "deal_stakeholder"
+	RelationshipKindEmployment         RelationshipKind = "employment"
+	RelationshipKindPartnerOf          RelationshipKind = "partner_of"
+	RelationshipKindProjectStakeholder RelationshipKind = "project_stakeholder"
+	RelationshipKindReferredBy         RelationshipKind = "referred_by"
 )
 
 // Valid indicates whether the value is a known member of the RelationshipKind enum.
@@ -4252,6 +4262,8 @@ func (e RelationshipKind) Valid() bool {
 	case RelationshipKindEmployment:
 		return true
 	case RelationshipKindPartnerOf:
+		return true
+	case RelationshipKindProjectStakeholder:
 		return true
 	case RelationshipKindReferredBy:
 		return true
@@ -4322,6 +4334,7 @@ const (
 	SavedViewResourceOrganizations SavedViewResource = "organizations"
 	SavedViewResourcePartners      SavedViewResource = "partners"
 	SavedViewResourcePeople        SavedViewResource = "people"
+	SavedViewResourceProjects      SavedViewResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the SavedViewResource enum.
@@ -4338,6 +4351,8 @@ func (e SavedViewResource) Valid() bool {
 	case SavedViewResourcePartners:
 		return true
 	case SavedViewResourcePeople:
+		return true
+	case SavedViewResourceProjects:
 		return true
 	default:
 		return false
@@ -4396,6 +4411,7 @@ const (
 	SearchResultTypeLead         SearchResultType = "lead"
 	SearchResultTypeOrganization SearchResultType = "organization"
 	SearchResultTypePerson       SearchResultType = "person"
+	SearchResultTypeProject      SearchResultType = "project"
 )
 
 // Valid indicates whether the value is a known member of the SearchResultType enum.
@@ -4410,6 +4426,8 @@ func (e SearchResultType) Valid() bool {
 	case SearchResultTypeOrganization:
 		return true
 	case SearchResultTypePerson:
+		return true
+	case SearchResultTypeProject:
 		return true
 	default:
 		return false
@@ -6010,6 +6028,7 @@ const (
 	ListAttachmentsParamsEntityTypeLead         ListAttachmentsParamsEntityType = "lead"
 	ListAttachmentsParamsEntityTypeOrganization ListAttachmentsParamsEntityType = "organization"
 	ListAttachmentsParamsEntityTypePerson       ListAttachmentsParamsEntityType = "person"
+	ListAttachmentsParamsEntityTypeProject      ListAttachmentsParamsEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ListAttachmentsParamsEntityType enum.
@@ -6025,6 +6044,8 @@ func (e ListAttachmentsParamsEntityType) Valid() bool {
 		return true
 	case ListAttachmentsParamsEntityTypePerson:
 		return true
+	case ListAttachmentsParamsEntityTypeProject:
+		return true
 	default:
 		return false
 	}
@@ -6037,6 +6058,7 @@ const (
 	UploadAttachmentMultipartBodyEntityTypeLead         UploadAttachmentMultipartBodyEntityType = "lead"
 	UploadAttachmentMultipartBodyEntityTypeOrganization UploadAttachmentMultipartBodyEntityType = "organization"
 	UploadAttachmentMultipartBodyEntityTypePerson       UploadAttachmentMultipartBodyEntityType = "person"
+	UploadAttachmentMultipartBodyEntityTypeProject      UploadAttachmentMultipartBodyEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the UploadAttachmentMultipartBodyEntityType enum.
@@ -6051,6 +6073,8 @@ func (e UploadAttachmentMultipartBodyEntityType) Valid() bool {
 	case UploadAttachmentMultipartBodyEntityTypeOrganization:
 		return true
 	case UploadAttachmentMultipartBodyEntityTypePerson:
+		return true
+	case UploadAttachmentMultipartBodyEntityTypeProject:
 		return true
 	default:
 		return false
@@ -6530,11 +6554,12 @@ func (e ListRecordGrantsParamsSubjectType) Valid() bool {
 
 // Defines values for ListRelationshipsParamsKind.
 const (
-	ListRelationshipsParamsKindCoSellWith      ListRelationshipsParamsKind = "co_sell_with"
-	ListRelationshipsParamsKindDealStakeholder ListRelationshipsParamsKind = "deal_stakeholder"
-	ListRelationshipsParamsKindEmployment      ListRelationshipsParamsKind = "employment"
-	ListRelationshipsParamsKindPartnerOf       ListRelationshipsParamsKind = "partner_of"
-	ListRelationshipsParamsKindReferredBy      ListRelationshipsParamsKind = "referred_by"
+	ListRelationshipsParamsKindCoSellWith         ListRelationshipsParamsKind = "co_sell_with"
+	ListRelationshipsParamsKindDealStakeholder    ListRelationshipsParamsKind = "deal_stakeholder"
+	ListRelationshipsParamsKindEmployment         ListRelationshipsParamsKind = "employment"
+	ListRelationshipsParamsKindPartnerOf          ListRelationshipsParamsKind = "partner_of"
+	ListRelationshipsParamsKindProjectStakeholder ListRelationshipsParamsKind = "project_stakeholder"
+	ListRelationshipsParamsKindReferredBy         ListRelationshipsParamsKind = "referred_by"
 )
 
 // Valid indicates whether the value is a known member of the ListRelationshipsParamsKind enum.
@@ -6547,6 +6572,8 @@ func (e ListRelationshipsParamsKind) Valid() bool {
 	case ListRelationshipsParamsKindEmployment:
 		return true
 	case ListRelationshipsParamsKindPartnerOf:
+		return true
+	case ListRelationshipsParamsKindProjectStakeholder:
 		return true
 	case ListRelationshipsParamsKindReferredBy:
 		return true
@@ -6562,6 +6589,7 @@ const (
 	SearchParamsTypesLead         SearchParamsTypes = "lead"
 	SearchParamsTypesOrganization SearchParamsTypes = "organization"
 	SearchParamsTypesPerson       SearchParamsTypes = "person"
+	SearchParamsTypesProject      SearchParamsTypes = "project"
 )
 
 // Valid indicates whether the value is a known member of the SearchParamsTypes enum.
@@ -6576,6 +6604,8 @@ func (e SearchParamsTypes) Valid() bool {
 	case SearchParamsTypesOrganization:
 		return true
 	case SearchParamsTypesPerson:
+		return true
+	case SearchParamsTypesProject:
 		return true
 	default:
 		return false
@@ -6668,6 +6698,7 @@ const (
 	Organizations ListSavedViewsParamsResource = "organizations"
 	Partners      ListSavedViewsParamsResource = "partners"
 	People        ListSavedViewsParamsResource = "people"
+	Projects      ListSavedViewsParamsResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
@@ -6684,6 +6715,8 @@ func (e ListSavedViewsParamsResource) Valid() bool {
 	case Partners:
 		return true
 	case People:
+		return true
+	case Projects:
 		return true
 	default:
 		return false
@@ -8336,11 +8369,14 @@ type CreateDealRequest struct {
 	Currency    *string `json:"currency,omitempty"`
 
 	// ExpectedCloseDate Deals are born open, so a date before today is rejected 422 (INV-CLOSE-PAST, formulas §11).
-	ExpectedCloseDate    *openapi_types.Date    `json:"expected_close_date,omitempty"`
-	Name                 string                 `json:"name"`
-	OrganizationId       *openapi_types.UUID    `json:"organization_id,omitempty"`
-	OwnerId              *openapi_types.UUID    `json:"owner_id,omitempty"`
-	PipelineId           openapi_types.UUID     `json:"pipeline_id"`
+	ExpectedCloseDate *openapi_types.Date `json:"expected_close_date,omitempty"`
+	Name              string              `json:"name"`
+	OrganizationId    *openapi_types.UUID `json:"organization_id,omitempty"`
+	OwnerId           *openapi_types.UUID `json:"owner_id,omitempty"`
+	PipelineId        openapi_types.UUID  `json:"pipeline_id"`
+
+	// ProjectId The body of work this deal belongs to; must name the same company as the deal.
+	ProjectId            *openapi_types.UUID    `json:"project_id,omitempty"`
 	Source               string                 `json:"source"`
 	StageId              openapi_types.UUID     `json:"stage_id"`
 	AdditionalProperties map[string]interface{} `json:"-"`
@@ -8544,6 +8580,7 @@ type CreateRelationshipRequest struct {
 	Kind              CreateRelationshipRequestKind `json:"kind"`
 	OrganizationId    *openapi_types.UUID           `json:"organization_id,omitempty"`
 	PersonId          *openapi_types.UUID           `json:"person_id,omitempty"`
+	ProjectId         *openapi_types.UUID           `json:"project_id,omitempty"`
 	Role              *string                       `json:"role,omitempty"`
 	Source            string                        `json:"source"`
 	StartedAt         *openapi_types.Date           `json:"started_at,omitempty"`
@@ -8761,9 +8798,12 @@ type Deal struct {
 	PartnerOrgId *openapi_types.UUID `json:"partner_org_id,omitempty"`
 
 	// PipelineId Native mode: always a non-null pipeline FK. Overlay mode: NULL — an overlay-mirror deal has no native Margince pipeline row; the incumbent's own pipeline id rides `raw` and the code-declared stage→semantic mapping drives tier resolution (overlay-augmentation OVA-MAP-6). A zero/placeholder UUID here is forbidden (dangling FK).
-	PipelineId *openapi_types.UUID     `json:"pipeline_id"`
-	Raw        *map[string]interface{} `json:"raw,omitempty"`
-	Source     string                  `json:"source"`
+	PipelineId *openapi_types.UUID `json:"pipeline_id"`
+
+	// ProjectId The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422.
+	ProjectId *openapi_types.UUID     `json:"project_id,omitempty"`
+	Raw       *map[string]interface{} `json:"raw,omitempty"`
+	Source    string                  `json:"source"`
 
 	// StageId Native mode: always a non-null stage FK; must belong to pipeline_id. Overlay mode: NULL (see pipeline_id; the incumbent dealstage id rides `raw`, OVA-MAP-6).
 	StageId *openapi_types.UUID `json:"stage_id"`
@@ -10559,7 +10599,8 @@ type RejectVoiceDraftRequest struct {
 }
 
 // Relationship The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
-// `employment` (person↔org), `deal_stakeholder` (deal↔person), and the partner edges
+// `employment` (person↔org), `deal_stakeholder` (deal↔person), `project_stakeholder`
+// (project↔person — the deal-stakeholder shape applied to a body of work), and the partner edges
 // (A41/ADR-0032, org↔org via `counterparty_org_id`): `partner_of` (org served by a partner
 // org), `referred_by` (org referred by a partner org), `co_sell_with` (org co-sold with a partner org).
 type Relationship struct {
@@ -10583,7 +10624,10 @@ type Relationship struct {
 	OrganizationId   *openapi_types.UUID `json:"organization_id,omitempty"`
 	PersonId         *openapi_types.UUID `json:"person_id,omitempty"`
 
-	// Role employment: cto/vp_sales/...; stakeholder: champion/economic_buyer/blocker/influencer/user.
+	// ProjectId The project on a project_stakeholder edge. Null for every other kind.
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
+
+	// Role employment: cto/vp_sales/...; deal or project stakeholder: champion/economic_buyer/blocker/influencer/user, plus sponsor/project_lead/delivery_lead/subject_matter_expert on a project.
 	Role      *string             `json:"role,omitempty"`
 	Source    string              `json:"source"`
 	StartedAt *openapi_types.Date `json:"started_at,omitempty"`
@@ -11237,6 +11281,7 @@ type UpdateDealRequest struct {
 	OrganizationId       *openapi_types.UUID      `json:"organization_id,omitempty"`
 	OwnerId              *openapi_types.UUID      `json:"owner_id,omitempty"`
 	PartnerOrgId         *openapi_types.UUID      `json:"partner_org_id,omitempty"`
+	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
 	Status               *UpdateDealRequestStatus `json:"status,omitempty"`
 	WaitUntil            *openapi_types.Date      `json:"wait_until,omitempty"`
 	AdditionalProperties map[string]interface{}   `json:"-"`
@@ -12508,6 +12553,9 @@ type ListDealsParams struct {
 
 	// Stalled Deterministic stalled flag (no activity past the threshold).
 	Stalled *bool `form:"stalled,omitempty" json:"stalled,omitempty"`
+
+	// ProjectId Filter to the deals belonging to one body of work.
+	ProjectId *openapi_types.UUID `form:"project_id,omitempty" json:"project_id,omitempty"`
 
 	// PartnerOrgId Filter to deals attributed to a specific partner org (deal.partner_org_id).
 	PartnerOrgId *openapi_types.UUID `form:"partner_org_id,omitempty" json:"partner_org_id,omitempty"`
@@ -14694,6 +14742,14 @@ func (a *CreateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "pipeline_id")
 	}
 
+	if raw, found := object["project_id"]; found {
+		err = json.Unmarshal(raw, &a.ProjectId)
+		if err != nil {
+			return fmt.Errorf("error reading 'project_id': %w", err)
+		}
+		delete(object, "project_id")
+	}
+
 	if raw, found := object["source"]; found {
 		err = json.Unmarshal(raw, &a.Source)
 		if err != nil {
@@ -14772,6 +14828,13 @@ func (a CreateDealRequest) MarshalJSON() ([]byte, error) {
 	object["pipeline_id"], err = json.Marshal(a.PipelineId)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'pipeline_id': %w", err)
+	}
+
+	if a.ProjectId != nil {
+		object["project_id"], err = json.Marshal(a.ProjectId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'project_id': %w", err)
+		}
 	}
 
 	object["source"], err = json.Marshal(a.Source)
@@ -16085,6 +16148,14 @@ func (a *Deal) UnmarshalJSON(b []byte) error {
 		delete(object, "pipeline_id")
 	}
 
+	if raw, found := object["project_id"]; found {
+		err = json.Unmarshal(raw, &a.ProjectId)
+		if err != nil {
+			return fmt.Errorf("error reading 'project_id': %w", err)
+		}
+		delete(object, "project_id")
+	}
+
 	if raw, found := object["raw"]; found {
 		err = json.Unmarshal(raw, &a.Raw)
 		if err != nil {
@@ -16297,6 +16368,13 @@ func (a Deal) MarshalJSON() ([]byte, error) {
 	object["pipeline_id"], err = json.Marshal(a.PipelineId)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling 'pipeline_id': %w", err)
+	}
+
+	if a.ProjectId != nil {
+		object["project_id"], err = json.Marshal(a.ProjectId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'project_id': %w", err)
+		}
 	}
 
 	if a.Raw != nil {
@@ -18703,6 +18781,14 @@ func (a *UpdateDealRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "partner_org_id")
 	}
 
+	if raw, found := object["project_id"]; found {
+		err = json.Unmarshal(raw, &a.ProjectId)
+		if err != nil {
+			return fmt.Errorf("error reading 'project_id': %w", err)
+		}
+		delete(object, "project_id")
+	}
+
 	if raw, found := object["status"]; found {
 		err = json.Unmarshal(raw, &a.Status)
 		if err != nil {
@@ -18812,6 +18898,13 @@ func (a UpdateDealRequest) MarshalJSON() ([]byte, error) {
 		object["partner_org_id"], err = json.Marshal(a.PartnerOrgId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'partner_org_id': %w", err)
+		}
+	}
+
+	if a.ProjectId != nil {
+		object["project_id"], err = json.Marshal(a.ProjectId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'project_id': %w", err)
 		}
 	}
 
@@ -25981,6 +26074,19 @@ func (siw *ServerInterfaceWrapper) ListDeals(w http.ResponseWriter, r *http.Requ
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "stalled"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "stalled", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "project_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "project_id", r.URL.Query(), &params.ProjectId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "project_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "project_id", Err: err})
 		}
 		return
 	}

@@ -94,10 +94,10 @@ func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "search_records", Version: "1.0.0",
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads",
+		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
 		InputSchema: schema(`{"type":"object","properties":{
 			"q":{"type":"string","description":"Full-text query over names/titles"},
-			"record_type":{"type":"string","enum":["person","organization","deal","lead"],"description":"Restrict to one type; omit to sweep all four"},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","project"],"description":"Restrict to one type; omit to sweep all five"},
 			"limit":{"type":"integer","minimum":1,"maximum":50},
 			"cursor":{"type":"string","description":"Keyset cursor (single record_type only)"}},
 			"additionalProperties":false}`),
@@ -177,9 +177,9 @@ func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "read_record", Version: "1.0.0",
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity",
+		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity/getProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
 			"id":{"type":"string","format":"uuid"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -211,9 +211,9 @@ func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
 		Name: "create_record", Version: "1.0.0",
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
-		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead",
+		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
-			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity"]},
+			"record_type":{"type":"string","enum":["person","organization","deal","lead","activity","project"]},
 			"fields":{"type":"object","description":"The crm.yaml create-request body for the record_type (a task is record_type=activity, kind=task)"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
@@ -257,7 +257,7 @@ func (t logActivity) Spec() mcp.ToolSpec {
 			"direction":{"type":"string","enum":["inbound","outbound"]},
 			"due_at":{"type":"string","format":"date-time"},
 			"links":{"type":"array","items":{"type":"object","required":["entity_type","entity_id"],"properties":{
-				"entity_type":{"type":"string","enum":["person","organization","deal"]},
+				"entity_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
 				"entity_id":{"type":"string","format":"uuid"}},"additionalProperties":false}},
 			"source_system":{"type":"string"},"source_id":{"type":"string"}},
 			"additionalProperties":false}`),

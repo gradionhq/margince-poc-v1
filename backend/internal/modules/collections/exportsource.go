@@ -36,6 +36,7 @@ var viewResourceToEngine = map[string]string{
 	"organizations": "organization",
 	"deals":         "deal",
 	"leads":         "lead",
+	"projects":      "project",
 }
 
 // SavedViewFilterSource resolves a saved view to its export filter. It

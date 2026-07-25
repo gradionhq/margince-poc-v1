@@ -38,7 +38,7 @@ type anchorArgs struct {
 }
 
 const anchorSchema = `{"type":"object","required":["record_type","record_id"],"properties":{
-	"record_type":{"type":"string","enum":["person","organization","deal","lead"]},
+	"record_type":{"type":"string","enum":["person","organization","deal","lead","project"]},
 	"record_id":{"type":"string","format":"uuid"},
 	"max_items":{"type":"integer","minimum":1,"maximum":20}},
 	"additionalProperties":false}`
