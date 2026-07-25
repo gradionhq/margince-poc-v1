@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-// The Graph HTTP request path: the one call every read on the API surface goes
-// through, and the single verdict it maps a response onto. Split out of
-// client.go because it belongs to no individual read, so a reader asking "how
-// does a Graph failure become a sentinel" finds one file rather than a tail.
-// (The OAuth handshake does not come through here — it runs on the shared
-// capture/oauthflow client, with its own classification.)
+// The Graph HTTP request path: the authorized JSON GET every listing and lookup
+// goes through, and the single verdict EVERY call maps its response onto —
+// including the raw-MIME fetch, which builds its own request because it streams
+// bytes rather than decoding JSON. Split out of client.go because it belongs to
+// no individual read, so a reader asking "how does a Graph failure become a
+// sentinel" finds one file rather than a tail. (The OAuth handshake does not
+// come through here — it runs on the shared capture/oauthflow client, with its
+// own classification.)
 
 package graph
 
