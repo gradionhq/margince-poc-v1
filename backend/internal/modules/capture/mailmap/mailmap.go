@@ -46,9 +46,13 @@ type Message struct {
 	threadKey        string   // conversation identity: References root / In-Reply-To / own Message-ID
 	senderDomain     string   // lowercased domain of From — for the RC-2 gate
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
-	autoReply        bool     // generated in RESPONSE to us — nobody chose to write it
-	listUnsubscribe  bool     // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
-	sentByOwner      bool     // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+	autoReply        bool     // a reply nobody chose to write: kept off the timeline
+	// autoish is the BROADER question — did any machine have a hand in this?
+	// It never drops a message; it only refuses the outbound attestation, so a
+	// responder's reply cannot vouch for an address the owner never chose.
+	autoish         bool
+	listUnsubscribe bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
+	sentByOwner     bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
 }
 
 // AttestSentByOwner returns a copy carrying the provider's own attestation
@@ -59,7 +63,12 @@ type Message struct {
 // treats a sent message as affirmative intent toward its recipient. Only a
 // connector holding an authenticated provider handle can vouch for it.
 func (m Message) AttestSentByOwner(sent bool) Message {
-	m.sentByOwner = sent
+	// A machine-touched message never attests, however the provider filed it.
+	// An autoresponder's reply IS genuinely owner-authored and genuinely in
+	// Sent, so nothing downstream could tell it from correspondence the owner
+	// chose — and it would spare an address the owner never chose to write to
+	// (ADR-0072 residual (b)).
+	m.sentByOwner = sent && !m.autoish
 	return m
 }
 
@@ -102,7 +111,9 @@ func Parse(raw []byte, owner string) (Message, error) {
 		counterpartyName = displayName(toList, counterparty)
 	}
 
-	autoReply := isAutoReply(header.Has("Auto-Submitted"), header.Get("Auto-Submitted"), header.Get("Precedence"))
+	autoSubmitted, precedence := header.Values("Auto-Submitted"), header.Values("Precedence")
+	autoReply := isAutoReply(autoSubmitted, precedence)
+	autoish := isMachineTouched(autoSubmitted, precedence, header.Has("X-Autoreply"), header.Has("X-Autorespond"))
 
 	return Message{
 		messageID:        strings.TrimSpace(messageID),
@@ -118,6 +129,7 @@ func Parse(raw []byte, owner string) (Message, error) {
 		senderDomain:     domainOf(from),
 		recipientDomains: domainsOf(toList),
 		autoReply:        autoReply,
+		autoish:          autoish,
 		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
 	}, nil
 }
@@ -157,7 +169,8 @@ func displayName(list []*mail.Address, addr string) string {
 
 // SkipReason names why a message is intentionally dropped, or reports that
 // it should be captured. The rule set keeps automated/system noise off the
-// timeline: no stable id, no sender, auto-submitted, or a machine sender.
+// timeline: no stable id, no sender, an auto-reply, or the delivery system
+// itself.
 func (m Message) SkipReason() (string, bool) {
 	if m.messageID == "" {
 		return "no Message-ID", true
@@ -166,7 +179,7 @@ func (m Message) SkipReason() (string, bool) {
 		return "no From address", true
 	}
 	if m.autoReply {
-		return "auto-reply", true
+		return autoReplied, true
 	}
 	if isDeliverySystemSender(m.from) {
 		return "delivery-system sender", true
@@ -329,8 +342,18 @@ func isDeliverySystemSender(addr string) bool {
 	if !found {
 		return false
 	}
-	local = strings.ReplaceAll(local, ".", "")
-	local = strings.ReplaceAll(local, "-", "")
+	// BATV/prvs signs the RETURN PATH, so the tag sits before any separator a
+	// normalization would strip.
+	if strings.HasPrefix(local, "prvs=") || strings.HasPrefix(local, "msprvs1=") {
+		return true
+	}
+	// VERP encodes the original recipient into the bounce address
+	// (`bounces-12345@`, `bounce+tag@`), so the trailing tag is dropped before
+	// matching. `_` is stripped for parity with the T2 registry's own reading
+	// of these localparts (CAP-PARAM-6) — one spelling, two rules.
+	local, _, _ = strings.Cut(local, "+")
+	local = strings.NewReplacer(".", "", "-", "", "_", "").Replace(local)
+	local = strings.TrimRight(local, "0123456789")
 	switch local {
 	case "mailerdaemon", "postmaster", "bounce", "bounces":
 		return true
@@ -343,58 +366,95 @@ func isDeliverySystemSender(addr string) bool {
 // sent — a vacation responder, an auto-reply. Nobody chose to write it, so it
 // is dropped before anything is written.
 //
-// Deliberately narrower than RFC 3834's whole vocabulary. `auto-generated`
-// covers the signed envelopes, invoices and shipping notices ADR-0072 §1 keeps
-// on the timeline, and `Precedence: bulk`/`list` is what a newsletter carries —
-// the very corroboration the T2 registry reads (CAP-PARAM-6). Dropping those
-// here would re-open, through a second door, the contradiction that narrowing
-// the machine-sender filter closed: the tier gate cannot judge mail it never
-// sees.
+// Deliberately narrower than RFC 3834's whole vocabulary. Transactional mail
+// must reach the tier gate: `auto-generated` covers the signed envelopes,
+// invoices and shipping notices ADR-0072 §1 keeps on the timeline, and
+// `Precedence: bulk`/`list` is what a newsletter carries. The gate cannot judge
+// what it never sees.
 //
 // Auto-replies stay dropped, and that is load-bearing beyond noise: an
 // autoresponder answering a stranger produces a genuine owner-authored message,
 // which is the one shape that could induce a T1 correspondence spare for an
 // address nobody chose to write to (ADR-0072 residual (b)).
-func isAutoReply(hasAutoSubmitted bool, autoSubmitted, precedence string) bool {
-	// RFC 3834 §5: the value may carry parameters after a semicolon
-	// (`auto-replied; owner-email=…`), and RFC 5322 permits comments anywhere
-	// around it (`auto-generated (invoice)`). Match the keyword alone — with
-	// the default below being "treat as a reply", a comment left in place would
-	// silently discard the ordinary and transactional mail this filter exists
-	// to let through.
-	keyword, _, _ := strings.Cut(stripComments(autoSubmitted), ";")
-	switch {
-	case !hasAutoSubmitted:
-		// No such header, which is nearly all mail: a person wrote it. Presence
-		// is asked of the header set, not inferred from the value — a header
-		// written with no value at all is malformed, not missing, and the two
-		// are indistinguishable once both have collapsed to "".
-	case strings.EqualFold(strings.TrimSpace(keyword), "no"):
-		// Explicitly not automatic.
-	case strings.EqualFold(strings.TrimSpace(keyword), autoGenerated):
-		// The signed envelopes and notices ADR-0072 §1 keeps on the timeline.
-	default:
-		// Everything else is treated as a reply: `auto-replied`,
-		// `auto-notified`, an extension token a future RFC or a provider
-		// invents — and a header that is PRESENT but yields no keyword at all,
-		// which an unclosed comment produces. Absent and unreadable are not the
-		// same claim, and only the first of them means a person wrote this.
-		return true
-	}
+// The two RFC 3834 values that mean a person's mail reaches the tier gate:
+// `no` is not automatic at all, and `auto-generated` is mail a system
+// originated on its own — an invoice, a notice, a signed envelope — as opposed
+// to mail it generated in reply to something we sent.
+const (
+	notAutomatic  = "no"
+	autoGenerated = "auto-generated"
+	// autoReplied is the RFC 3834 keyword, the legacy Precedence spelling, and
+	// the reason SkipReason gives — one string because they name one thing.
+	autoReplied = "auto-reply"
+)
 
-	switch strings.ToLower(strings.TrimSpace(stripComments(precedence))) {
-	case "junk", "auto_reply":
-		return true
+// reachesGate reports whether an Auto-Submitted value names mail the tier gate
+// should judge. RFC 3834 §5 allows parameters after a semicolon
+// (`auto-replied; owner-email=…`) and RFC 5322 allows comments around the value
+// (`auto-generated (invoice)`), so only the keyword decides.
+func reachesGate(autoSubmitted string) bool {
+	keyword, _, _ := strings.Cut(stripHeaderComments(autoSubmitted), ";")
+	keyword = strings.TrimSpace(keyword)
+	return strings.EqualFold(keyword, notAutomatic) || strings.EqualFold(keyword, autoGenerated)
+}
+
+func isAutoReply(autoSubmitted, precedence []string) bool {
+	for _, v := range autoSubmitted {
+		// Every occurrence is read, not the topmost: a relay that PREPENDS its
+		// own `auto-generated` would otherwise mask the responder's
+		// `auto-replied` sitting underneath it.
+		if !reachesGate(v) {
+			return true
+		}
+	}
+	for _, v := range precedence {
+		switch strings.ToLower(strings.TrimSpace(stripHeaderComments(v))) {
+		case "auto_reply", autoReplied, "auto_replied", "auto-replied":
+			return true
+		}
 	}
 	return false
 }
 
-// stripComments removes RFC 5322 comments — parenthesized runs, which may nest
-// and may contain quoted pairs — leaving the header's semantic value. Header
-// values are attacker-shaped text, so this walks the bytes rather than trusting
-// a pattern: an unclosed parenthesis simply swallows the rest, which keeps a
-// malformed value from resolving to a keyword it does not carry.
-func stripComments(value string) string {
+// isMachineTouched reports whether ANY machine hand shows on this message —
+// including the bulk-family markers a newsletter carries, which isAutoReply
+// deliberately lets through so the tier gate can judge them.
+//
+// The two questions are separate because they pull opposite ways on the same
+// headers. Keeping transactional mail on the timeline means the drop filter has
+// to be narrow; refusing to let an autoresponder vouch for a stranger means the
+// attestation veto has to be wide. One boolean serving both is why narrowing
+// the drop kept re-opening the spare. This one only ever withholds evidence.
+func isMachineTouched(autoSubmitted, precedence []string, autoreplyHeaders ...bool) bool {
+	for _, present := range autoreplyHeaders {
+		if present {
+			return true
+		}
+	}
+	for _, v := range autoSubmitted {
+		if !strings.EqualFold(strings.TrimSpace(stripHeaderComments(v)), notAutomatic) {
+			return true
+		}
+	}
+	for _, v := range precedence {
+		switch strings.ToLower(strings.TrimSpace(stripHeaderComments(v))) {
+		case "bulk", "list", "junk", "auto_reply", autoReplied, "auto_replied", "auto-replied":
+			return true
+		}
+	}
+	return false
+}
+
+// stripHeaderComments removes RFC 5322 comments — parenthesized runs, which may
+// nest and may contain quoted pairs. Header values are attacker-shaped text, so
+// this walks the bytes rather than trusting a pattern: an unclosed parenthesis
+// swallows the rest, which keeps a malformed value from resolving to a keyword
+// it does not carry.
+//
+// A `(` inside a quoted-string is NOT distinguished from a real comment. That
+// is safe for both callers, which read only the keyword before the first
+// semicolon, and it fails toward swallowing rather than inventing a keyword.
+func stripHeaderComments(value string) string {
 	var out strings.Builder
 	depth := 0
 	for i := 0; i < len(value); i++ {
@@ -413,11 +473,6 @@ func stripComments(value string) string {
 	}
 	return strings.TrimSpace(out.String())
 }
-
-// autoGenerated is the RFC 3834 value for mail a system originated on its own —
-// an invoice, a shipping notice, a signed envelope — as opposed to mail it
-// generated in reply to something we sent.
-const autoGenerated = "auto-generated"
 
 func orDash(s string) string {
 	if s == "" {

@@ -264,8 +264,13 @@ func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
 	})
 	t.Run("a fuzzy near-match creates anyway and queues the pair", func(t *testing.T) {
 		// A near-identical name on the SAME employer domain: the PO-F-1
-		// score (0.55·name + 0.45·org) crosses the review threshold.
-		sync(t, email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""))
+		// score (0.55·name + 0.45·org) crosses the review threshold. The
+		// near-match needs someone to be near, so this captures both halves
+		// rather than leaning on whoever a sibling subtest created.
+		sync(t,
+			email("alice@acme.example", "Alice Example", autoCreateOwner, "fz0@acme.example", ""),
+			email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""),
+		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'alice2@acme.example'`); n != 1 {
