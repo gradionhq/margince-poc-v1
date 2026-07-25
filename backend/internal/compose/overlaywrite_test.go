@@ -5,8 +5,13 @@ package compose
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
@@ -170,5 +175,94 @@ func TestGuardRefusalMatchesProviderCapability(t *testing.T) {
 				t.Errorf("status = %d, want %d", status, wantStatus)
 			}
 		})
+	}
+}
+
+// serverDeclaredMethods parses this package's own hand-written source (test
+// files excluded) and returns the set of method names declared with a
+// receiver of type Server — a static-source check, not reflection: every
+// contract op Server does not shadow directly is instead SATISFIED BY
+// PROMOTION from an embedded module handler (e.g. people.Handlers), which
+// carries the identical method name. Reflection over Server{}'s resolved
+// method set cannot tell a hand-written shadow apart from a promoted
+// fallback (both simply appear as "Server has a method named X"), so the
+// fitness test below reads the source directly, the same static-analysis
+// idiom backend/arch_test.go already uses for its own package-boundary
+// fitness functions.
+func serverDeclaredMethods(t *testing.T) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package compose's directory: %v", err)
+	}
+	fset := token.NewFileSet()
+	declared := map[string]bool{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		for _, decl := range file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv == nil || len(fd.Recv.List) != 1 {
+				continue
+			}
+			recv := fd.Recv.List[0].Type
+			if star, ok := recv.(*ast.StarExpr); ok {
+				recv = star.X
+			}
+			if ident, ok := recv.(*ast.Ident); ok && ident.Name == "Server" {
+				declared[fd.Name.Name] = true
+			}
+		}
+	}
+	return declared
+}
+
+// overlayEntityTitles is the Go-identifier title-case for each mirrored
+// entity type, spelling the Update<Title>/Archive<Title> shadow method
+// names the same way the contract's own generated operation names do.
+var overlayEntityTitles = map[string]string{
+	string(datasource.EntityPerson):       "Person",
+	string(datasource.EntityOrganization): "Organization",
+	string(datasource.EntityDeal):         "Deal",
+	string(datasource.EntityLead):         "Lead",
+	string(datasource.EntityActivity):     "Activity",
+}
+
+// TestOverlayWriteShadowsCoverEverySupportedWrite is the fitness function
+// this task exists to keep true: for every mirrored type × verb the
+// provider actually supports (overlay.SupportsWrite), Server must declare
+// its own Update<Type>/Archive<Type> shadow. A supported write with no
+// shadow falls through to the native handler's promoted method instead —
+// exactly the bug class overlaywrite.go's guard was widened to allow
+// through to (Task 3's report), on the understanding that a shadow would
+// catch it here.
+func TestOverlayWriteShadowsCoverEverySupportedWrite(t *testing.T) {
+	declared := serverDeclaredMethods(t)
+	verbPrefixes := map[overlay.WriteVerb]string{
+		overlay.WriteUpdate:  "Update",
+		overlay.WriteArchive: "Archive",
+	}
+	for et := range overlayMirroredTypes {
+		title, ok := overlayEntityTitles[et]
+		if !ok {
+			t.Fatalf("overlayMirroredTypes has %q with no entry in overlayEntityTitles — add one so this fitness function can name its shadow", et)
+		}
+		for verb, prefix := range verbPrefixes {
+			if !overlay.SupportsWrite(verb, datasource.EntityType(et)) {
+				continue
+			}
+			method := prefix + title
+			if !declared[method] {
+				t.Errorf("overlay.SupportsWrite(%s, %s) is true but Server declares no %s shadow — "+
+					"this write would fall through to the native handler's promoted method and commit to the empty overlay-mode table",
+					verb, et, method)
+			}
+		}
 	}
 }
