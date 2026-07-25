@@ -235,8 +235,7 @@ func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ag
 // organization called "Gmail" from it, which is precisely the junk ADR-0072
 // exists to prevent.
 //
-// The invariant used to be carried by a flag on the ledger row; it is now
-// carried by tier ORDER alone, so it is asserted here rather than left to
+// Nothing but tier ORDER enforces this, so it is asserted rather than left to
 // whoever next edits the ladder.
 func TestCaptureTierGateNeverDefersAFreeMailSender(t *testing.T) {
 	env := newCaptureEnv(t)
