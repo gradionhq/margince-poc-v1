@@ -23,9 +23,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
+
+// watchOp names the users.watch call in a ProviderError. The other Gmail calls
+// carry their API path as the op; watch is a POST built by hand, so it names
+// itself.
+const watchOp = "watch"
 
 // httpTimeout bounds every Google call so a stalled OAuth/Gmail request can't
 // pin an API callback or the fleet-wide sync poller (http.DefaultClient has no
@@ -290,10 +296,14 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return "", time.Time{}, ErrAuthRejected
+		return "", time.Time{}, &connector.ProviderError{
+			Op: watchOp, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrAuthRejected,
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return "", time.Time{}, ErrUnreachable
+		return "", time.Time{}, &connector.ProviderError{
+			Op: watchOp, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrUnreachable,
+		}
 	}
 	var out struct {
 		HistoryID  string `json:"historyId"`  //nolint:tagliatelle // Google's wire format (camelCase); must match to decode
@@ -374,10 +384,14 @@ func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Value
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, ErrAuthRejected
+		return resp.StatusCode, &connector.ProviderError{
+			Op: path, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrAuthRejected,
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, ErrUnreachable
+		return resp.StatusCode, &connector.ProviderError{
+			Op: path, Status: resp.StatusCode, Reason: googleconn.Reason(body), Class: ErrUnreachable,
+		}
 	}
 	if err := json.Unmarshal(body, out); err != nil {
 		return resp.StatusCode, fmt.Errorf("gmail: decoding %s: %w", path, ErrUnreachable)

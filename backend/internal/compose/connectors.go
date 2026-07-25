@@ -24,6 +24,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -35,6 +36,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -191,6 +193,50 @@ const (
 	returnToSettings   = "settings"
 )
 
+// The OAuth-return outcomes the landing surface renders. They are a closed set
+// the SPA maps to copy (an unrecognized one renders nothing), and they exist
+// because "it failed, try again" is only honest for SOME failures: a declined
+// consent is not a failure at all, a refused credential needs its human to
+// reconnect, and a provider API that was never enabled for the deployment needs
+// an administrator — retrying that one forever cannot work.
+const (
+	outcomeOK            = "ok"
+	outcomeDenied        = "denied"
+	outcomeRejected      = "rejected"
+	outcomeMisconfigured = "misconfigured"
+	outcomeError         = "error"
+)
+
+// connectFailureOutcome picks the landing outcome for a failed consent
+// completion, so what the human reads matches what they can actually do about
+// it. Anything we cannot attribute to the provider stays the generic error —
+// an honest "we don't know yet", never a guess at whose fault it is.
+func connectFailureOutcome(err error) string {
+	switch {
+	case googleconn.Misconfigured(err):
+		return outcomeMisconfigured
+	case errors.Is(err, connector.ErrAuthRejected):
+		return outcomeRejected
+	default:
+		return outcomeError
+	}
+}
+
+// logConnectFailure records a failed consent completion for the operator. The
+// misconfigured case gets its own line naming the remedy: it is the one failure
+// here that no user action can clear, and the reason code alone
+// ("accessNotConfigured") does not tell whoever reads the log what to go do.
+func logConnectFailure(ctx context.Context, provider string, err error) {
+	if googleconn.Misconfigured(err) {
+		slog.ErrorContext(ctx,
+			"connector callback: this provider's API is not enabled for the deployment — "+
+				"enable it in the Google Cloud project behind the OAuth client, then reconnect",
+			"err", err, "provider", provider)
+		return
+	}
+	slog.ErrorContext(ctx, "connector callback: token exchange", "err", err, "provider", provider)
+}
+
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {
 	if h.registry == nil {
 		httperr.NotImplemented(w, r, "ListConnectors")
@@ -294,21 +340,29 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 	ctx := r.Context()
+	// The signed state is the only trustworthy carrier here (no session cookie
+	// on the cross-site redirect), and it is what names the surface the human
+	// started from. Verify it BEFORE branching on the outcome: a denial that
+	// began in Settings has to land back in Settings, or the person never sees
+	// the note explaining what happened. An unverifiable state yields no
+	// trustworthy ReturnTo, so those paths keep the default.
+	st, err := h.signer.verify(params.State, time.Now())
+	stateTrusted := err == nil && st.Provider == string(provider)
+	returnTo := returnToOnboarding
+	if stateTrusted {
+		returnTo = st.ReturnTo
+	}
 	// The user denied consent at the provider — surface it honestly, never as
 	// an error.
 	if params.Error != nil && *params.Error != "" {
-		http.Redirect(w, r, h.landingURL("denied", returnToOnboarding), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeDenied, returnTo), http.StatusFound)
 		return
 	}
-	// The signed state is the only trustworthy carrier here (no session cookie
-	// on the cross-site redirect). A bad/expired/mismatched state or a missing
-	// code cannot proceed — redirect with an honest error, details logged only.
-	// No verified state exists yet, so the redirect keeps the default rather
-	// than reading a ReturnTo we cannot trust.
-	st, err := h.signer.verify(params.State, time.Now())
-	if err != nil || st.Provider != string(provider) || params.Code == nil || *params.Code == "" {
+	// A bad/expired/mismatched state or a missing code cannot proceed —
+	// redirect with an honest error, details logged only.
+	if !stateTrusted || params.Code == nil || *params.Code == "" {
 		slog.WarnContext(ctx, "connector callback rejected", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error", returnToOnboarding), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
 	// CSRF: the SameSite=Lax oauth_csrf cookie must match the nonce in the
@@ -332,8 +386,8 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 
 	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
 	if err != nil {
-		slog.ErrorContext(ctx, "connector callback: token exchange", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error", st.ReturnTo), http.StatusFound)
+		logConnectFailure(ctx, string(provider), err)
+		http.Redirect(w, r, h.landingURL(connectFailureOutcome(err), st.ReturnTo), http.StatusFound)
 		return
 	}
 
@@ -352,10 +406,10 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	})
 	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
 		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL("error", st.ReturnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, st.ReturnTo), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, h.landingURL("ok", st.ReturnTo), http.StatusFound)
+	http.Redirect(w, r, h.landingURL(outcomeOK, st.ReturnTo), http.StatusFound)
 }
 
 func (h connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {

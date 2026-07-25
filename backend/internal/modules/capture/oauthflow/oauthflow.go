@@ -94,11 +94,31 @@ func (c *Client) AuthCodeURL(state, redirectURI string) string {
 	return c.cfg.AuthURL + "?" + q.Encode()
 }
 
+// tokenOp names the handshake step in a ProviderError, so a failure reads as
+// the token exchange rather than as an anonymous rejection.
+const tokenOp = "token"
+
 // tokenResponse is the subset of the token endpoint payload both providers
-// return that this flow reads.
+// return that this flow reads. The error field is RFC 6749 §5.2's fixed code
+// (invalid_grant, invalid_client, unauthorized_client, …) — the single most
+// useful fact about a refused exchange, and a closed vocabulary rather than
+// provider prose, so it is safe to carry into a log. error_description is
+// deliberately NOT read: it is free text, and the body stops here.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	Error        string `json:"error"`
+}
+
+// oauthErrorCode extracts the RFC 6749 error code from a token-endpoint error
+// body, "" when the body carries none or does not decode — an unparsable body
+// must not masquerade as a named reason.
+func oauthErrorCode(body []byte) string {
+	var parsed tokenResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	return parsed.Error
 }
 
 // Exchange redeems the authorization code for a durable refresh token.
@@ -175,10 +195,14 @@ func (c *Client) token(ctx context.Context, form url.Values) (tokenResponse, err
 		return tokenResponse{}, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return tokenResponse{}, c.cfg.AuthRejected
+		return tokenResponse{}, &connector.ProviderError{
+			Op: tokenOp, Status: resp.StatusCode, Reason: oauthErrorCode(body), Class: c.cfg.AuthRejected,
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return tokenResponse{}, c.cfg.Unreachable
+		return tokenResponse{}, &connector.ProviderError{
+			Op: tokenOp, Status: resp.StatusCode, Reason: oauthErrorCode(body), Class: c.cfg.Unreachable,
+		}
 	}
 	if readErr != nil {
 		// A truncated body that happens to be valid-JSON prefix must never

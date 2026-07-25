@@ -1225,6 +1225,13 @@ export const en = {
   "connectors.oauthDenied": "You declined access — nothing was connected.",
   "connectors.oauthError":
     "The connection couldn't be completed — please try again.",
+  // Two failures that "try again" would be wrong about: the provider refused
+  // the grant (retrying the same way repeats it), and the provider's API isn't
+  // enabled for this deployment (no user action can clear it).
+  "connectors.oauthRejected":
+    "The provider declined the connection. Make sure you accept every permission it asks for, then try connecting again.",
+  "connectors.oauthMisconfigured":
+    "This deployment can't complete that connection yet — the provider's API isn't enabled for it. An administrator needs to enable it; the server log names which API.",
   "connectors.dismissOutcome": "Dismiss",
 
   // The always-present "Add a connection" affordance (Task 1): the empty

@@ -6,6 +6,7 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 const testStateKey = "a-32-byte-or-longer-signing-key!!"
@@ -214,5 +216,89 @@ func TestLandingURLMapsReturnToThroughAClosedSet(t *testing.T) {
 				t.Errorf("landingURL(ok, %q) = %q, want %q", tc.returnTo, got, tc.want)
 			}
 		})
+	}
+}
+
+// What the human reads has to match what they can do. Three failures that all
+// used to render "please try again": one where trying again is right, one where
+// it repeats the same refusal, and one that no user action can ever clear.
+func TestConnectFailureOutcomeMatchesTheRemedy(t *testing.T) {
+	disabledAPI := &connector.ProviderError{
+		Op: "/calendars/primary", Status: http.StatusForbidden,
+		Reason: "accessNotConfigured", Class: gcal.ErrAuthRejected,
+	}
+	revokedGrant := &connector.ProviderError{
+		Op: "token", Status: http.StatusBadRequest,
+		Reason: "invalid_grant", Class: gcal.ErrAuthRejected,
+	}
+	unreachable := &connector.ProviderError{
+		Op: "token", Status: http.StatusBadGateway, Class: gcal.ErrUnreachable,
+	}
+
+	for _, tc := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"a disabled provider API needs an administrator", disabledAPI, outcomeMisconfigured},
+		{"a refused grant needs its human", revokedGrant, outcomeRejected},
+		{"an unreachable provider is worth retrying", unreachable, outcomeError},
+		{"a bare auth sentinel carries no remedy detail", gcal.ErrAuthRejected, outcomeRejected},
+		{"an unattributed failure stays generic", errors.New("something of ours broke"), outcomeError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := connectFailureOutcome(tc.err); got != tc.want {
+				t.Errorf("connectFailureOutcome(%v) = %q, want %q", tc.err, got, tc.want)
+			}
+		})
+	}
+}
+
+// A human who declines consent from Settings has to land back in Settings — on
+// the onboarding screen they never see the note explaining what happened. The
+// signed state is what names the surface, so it is verified before the outcome
+// is branched on.
+func TestCallbackDenialReturnsToTheSurfaceItStartedFrom(t *testing.T) {
+	h := wiredHandlers()
+	denied := "access_denied"
+	state := h.signer.sign(connectState{
+		Workspace: ids.MustParse("11111111-1111-1111-1111-111111111111"),
+		User:      ids.MustParse("22222222-2222-2222-2222-222222222222"),
+		Provider:  "gmail",
+		Nonce:     "a-nonce",
+		ReturnTo:  returnToSettings,
+	}, time.Now().Add(time.Minute))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/connectors/gmail/callback", nil)
+	h.ConnectorOAuthCallback(rec, req, "gmail", crmcontracts.ConnectorOAuthCallbackParams{
+		Error: &denied,
+		State: state,
+	})
+
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/settings/integrations/denied" {
+		t.Errorf("Location = %q, want the denial to land back in Settings", loc)
+	}
+}
+
+// The mirror of the above: a denial whose state cannot be trusted has no
+// trustworthy ReturnTo either, so it keeps the default rather than honoring a
+// surface an attacker chose.
+func TestCallbackDenialWithUntrustedStateKeepsTheDefaultSurface(t *testing.T) {
+	h := wiredHandlers()
+	denied := "access_denied"
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/connectors/gmail/callback", nil)
+	h.ConnectorOAuthCallback(rec, req, "gmail", crmcontracts.ConnectorOAuthCallbackParams{
+		Error: &denied,
+		State: "forged",
+	})
+
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied" {
+		t.Errorf("Location = %q, want the onboarding default", loc)
 	}
 }

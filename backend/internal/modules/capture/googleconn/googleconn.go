@@ -87,10 +87,12 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 		return resp.StatusCode, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return resp.StatusCode, ErrAuthRejected
+		return resp.StatusCode, rejected(path, resp.StatusCode, body)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return resp.StatusCode, ErrUnreachable
+		return resp.StatusCode, &connector.ProviderError{
+			Op: path, Status: resp.StatusCode, Reason: Reason(body), Class: ErrUnreachable,
+		}
 	}
 	if readErr != nil {
 		// A truncated body that happens to be a valid-JSON prefix must never
@@ -101,6 +103,83 @@ func Get(ctx context.Context, client *http.Client, base, accessToken, path strin
 		return resp.StatusCode, fmt.Errorf("googleconn: decoding %s: %w", path, ErrUnreachable)
 	}
 	return resp.StatusCode, nil
+}
+
+// The Google reason codes that mean THE DEPLOYMENT IS NOT CONFIGURED, not that
+// a credential went bad: the API this connector calls was never enabled for the
+// Google Cloud project behind the OAuth client. Google reports it as a 403 —
+// indistinguishable, by status alone, from a revoked grant — so without the
+// reason code the failure reads as "reconnect to resume", advice that can never
+// work: only an administrator enabling the API in the project fixes it.
+// accessNotConfigured is the classic reason; SERVICE_DISABLED is the same fact
+// in Google's newer ErrorInfo details.
+const (
+	reasonAccessNotConfigured = "accessNotConfigured"
+	reasonServiceDisabled     = "SERVICE_DISABLED"
+)
+
+// Misconfigured reports whether err is a Google refusal that names a disabled
+// API rather than a bad credential — the one auth-rejected case a human cannot
+// fix by reconnecting.
+func Misconfigured(err error) bool {
+	switch connector.ProviderReason(err) {
+	case reasonAccessNotConfigured, reasonServiceDisabled:
+		return true
+	default:
+		return false
+	}
+}
+
+// rejected builds the auth-rejected failure for a 401/403, carrying Google's
+// reason code so the log distinguishes a revoked grant from a disabled API.
+func rejected(path string, status int, body []byte) error {
+	return &connector.ProviderError{
+		Op: path, Status: status, Reason: Reason(body), Class: ErrAuthRejected,
+	}
+}
+
+// googleErrorBody is the subset of Google's standard error envelope that names
+// the failure. errors[].reason is the classic form; details[].reason is the
+// google.rpc.ErrorInfo form the newer APIs return; status is the enum both
+// carry. Only these fixed machine codes are read — the prose message stays in
+// the body and never travels.
+type googleErrorBody struct {
+	Error struct {
+		Status string `json:"status"`
+		Errors []struct {
+			Reason string `json:"reason"`
+		} `json:"errors"`
+		Details []struct {
+			Reason string `json:"reason"`
+		} `json:"details"`
+	} `json:"error"`
+}
+
+// Reason extracts Google's machine reason code from an error body. It is
+// exported because the Google connector that predates this package still runs
+// its own transport (Gmail's, which needs a 96 MiB read cap for RAW messages)
+// and must name a failure the SAME way — otherwise one disabled-API 403 stays
+// diagnosable on calendar and undiagnosable on mail.
+//
+// It returns "" when the body names no reason or isn't Google's envelope at
+// all (an HTML error page from a proxy, say) — an absent reason must never look
+// like a present one, so a decode failure yields "" rather than a guess.
+func Reason(body []byte) string {
+	var parsed googleErrorBody
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	for _, e := range parsed.Error.Errors {
+		if e.Reason != "" {
+			return e.Reason
+		}
+	}
+	for _, d := range parsed.Error.Details {
+		if d.Reason != "" {
+			return d.Reason
+		}
+	}
+	return parsed.Error.Status
 }
 
 // isRateLimitBody reports whether a 403 body carries one of Google's

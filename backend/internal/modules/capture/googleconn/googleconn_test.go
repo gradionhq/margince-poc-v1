@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,5 +198,100 @@ func TestGetUnreachableHost(t *testing.T) {
 	srv.Close()
 	if _, err := Get(context.Background(), srv.Client(), url, "tok", "/x", nil, &out); !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("Get to a dead host err = %v, want ErrUnreachable", err)
+	}
+}
+
+// A disabled API and a revoked grant are both 403s. They schedule the same way,
+// but a human can only fix one of them — so the reason code has to survive the
+// transport, or the two stay indistinguishable in a log.
+func TestForbiddenCarriesGoogleReasonAndStaysAuthRejected(t *testing.T) {
+	mux := http.NewServeMux()
+	// Google's classic envelope for an API that was never enabled.
+	mux.HandleFunc("/disabled", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"errors":[{"reason":"accessNotConfigured"}],"status":"PERMISSION_DENIED"}}`))
+	})
+	// The newer ErrorInfo form of the same fact.
+	mux.HandleFunc("/disabled-details", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":403,"details":[{"reason":"SERVICE_DISABLED"}]}}`))
+	})
+	// A revoked/insufficient grant: rejected, but NOT a misconfiguration.
+	mux.HandleFunc("/revoked", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":401,"errors":[{"reason":"authError"}]}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	var out struct{}
+	for _, tc := range []struct {
+		path          string
+		wantStatus    int
+		wantReason    string
+		wantMisconfig bool
+	}{
+		{"/disabled", http.StatusForbidden, "accessNotConfigured", true},
+		{"/disabled-details", http.StatusForbidden, "SERVICE_DISABLED", true},
+		{"/revoked", http.StatusUnauthorized, "authError", false},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			_, err := Get(context.Background(), srv.Client(), srv.URL, "tok", tc.path, nil, &out)
+			// Classification must be untouched: the scheduler still sees auth.
+			if !errors.Is(err, ErrAuthRejected) {
+				t.Fatalf("err = %v, want ErrAuthRejected", err)
+			}
+			pe, ok := errors.AsType[*connector.ProviderError](err)
+			if !ok {
+				t.Fatalf("err = %v, want a *connector.ProviderError carrying the detail", err)
+			}
+			if pe.Status != tc.wantStatus {
+				t.Errorf("Status = %d, want %d", pe.Status, tc.wantStatus)
+			}
+			if pe.Reason != tc.wantReason {
+				t.Errorf("Reason = %q, want %q", pe.Reason, tc.wantReason)
+			}
+			if pe.Op != tc.path {
+				t.Errorf("Op = %q, want the failing path %q", pe.Op, tc.path)
+			}
+			if got := Misconfigured(err); got != tc.wantMisconfig {
+				t.Errorf("Misconfigured = %v, want %v", got, tc.wantMisconfig)
+			}
+			// The operator has to be able to read all three facts at a glance.
+			if msg := err.Error(); !strings.Contains(msg, tc.path) || !strings.Contains(msg, tc.wantReason) {
+				t.Errorf("Error() = %q, want it to name both the call and the reason", msg)
+			}
+		})
+	}
+}
+
+// A body that is not Google's envelope must yield no reason at all: an absent
+// reason that reads as a present one would misroute the operator.
+func TestReasonIsEmptyForABodyThatNamesNone(t *testing.T) {
+	for name, body := range map[string]string{
+		"not json":       "<html>502 from a proxy</html>",
+		"empty":          "",
+		"no reason":      `{"error":{"code":403}}`,
+		"unrelated json": `{"ok":true}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := Reason([]byte(body)); got != "" {
+				t.Errorf("Reason(%q) = %q, want \"\"", body, got)
+			}
+		})
+	}
+}
+
+// Misconfigured must answer false for errors that carry no provider detail at
+// all — a plain sentinel is not evidence of a disabled API.
+func TestMisconfiguredIsFalseWithoutAProviderReason(t *testing.T) {
+	if Misconfigured(ErrAuthRejected) {
+		t.Error("Misconfigured(bare ErrAuthRejected) = true, want false")
+	}
+	if Misconfigured(nil) {
+		t.Error("Misconfigured(nil) = true, want false")
 	}
 }
