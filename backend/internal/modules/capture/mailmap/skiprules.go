@@ -123,26 +123,84 @@ func isMalformedValue(value string) bool {
 }
 
 // hasWellFormedParameters reports whether everything after the keyword parses as
-// RFC 3834 §5 parameters, which are `attribute=value` pairs. A bare token out
-// there is not a parameter, so a value like `no;auto-replied` does not mean what
-// its keyword claims — it means the sender wrote something we cannot read, and
-// the veto treats unreadable as machine-touched.
+// RFC 3834 §5 parameters: semicolon-separated `attribute=value` pairs, where the
+// attribute is an RFC 2045 token. Anything else means the sender wrote something
+// we cannot read, and the veto treats unreadable as machine-touched.
+//
+// The segments are found with the same scan as the keyword, not by splitting on
+// semicolons: a parameter value may legally contain one inside a quoted-string
+// (`x="a;b"`), and cutting there would condemn a perfectly ordinary value.
 func hasWellFormedParameters(value string) bool {
-	whole, wellFormed := scanValue(value, false)
+	params, wellFormed := parameterSegments(value)
 	if !wellFormed {
 		return false
 	}
-	keyword, _ := scanValue(value, true)
-	rest := strings.TrimPrefix(whole, keyword)
-	for _, param := range strings.Split(rest, ";") {
-		if param = strings.TrimSpace(param); param == "" {
-			continue
-		}
-		if !strings.Contains(param, "=") {
+	for _, param := range params {
+		attribute, parameterValue, found := strings.Cut(param, "=")
+		// The attribute is not trimmed: RFC 2045 puts no space around the `=`,
+		// so `a =b` is not a parameter either.
+		if !found || !isToken(attribute) || !isParameterValue(parameterValue) {
 			return false
 		}
 	}
 	return true
+}
+
+// parameterSegments returns the parameter region split at the semicolons that
+// separate parameters — those outside any comment or quoted-string — dropping
+// the keyword and any empty segments a trailing separator leaves.
+func parameterSegments(value string) (params []string, wellFormed bool) {
+	whole, wellFormed := scanValue(value, false)
+	if !wellFormed {
+		return nil, false
+	}
+	keyword, _ := scanValue(value, true)
+	rest := strings.TrimPrefix(whole, keyword)
+	var current strings.Builder
+	quoted := false
+	for i := 0; i < len(rest); i++ {
+		switch c := rest[i]; {
+		case c == '"':
+			quoted = !quoted
+			current.WriteByte(c)
+		case c == ';' && !quoted:
+			params = appendParameter(params, current.String())
+			current.Reset()
+		default:
+			current.WriteByte(c)
+		}
+	}
+	return appendParameter(params, current.String()), true
+}
+
+// appendParameter adds one segment unless it is empty — `no;` and `no;;` carry
+// no parameter, which is not the same as carrying a malformed one.
+func appendParameter(params []string, segment string) []string {
+	if segment = strings.TrimSpace(segment); segment != "" {
+		return append(params, segment)
+	}
+	return params
+}
+
+// isParameterValue reports whether s could be a parameter value at all, which
+// is only "there is one". Deliberately not an RFC 2045 token test: RFC 3834 §5's
+// own example is `owner-email=alice@example.com`, and `@` is a tspecial — a
+// strict reading would veto the canonical form and starve the gate of evidence
+// to catch spellings nobody sends. What this rule is for is noticing that the
+// parameter region holds something that is not a parameter at all.
+func isParameterValue(s string) bool {
+	return strings.TrimSpace(s) != ""
+}
+
+// isToken reports whether s is an RFC 2045 token: at least one character, none
+// of them a space, a control, or one of the tspecials that structure a header.
+func isToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	return !strings.ContainsAny(s, "()<>@,;:\\\"/[]?= \t") && strings.IndexFunc(s, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}) < 0
 }
 
 // reachesGate reports whether an Auto-Submitted value names mail the tier gate

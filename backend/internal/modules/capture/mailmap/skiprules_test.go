@@ -200,3 +200,46 @@ func TestDeliverySystemSendersAreRecognizedInTheShapesTheyArriveIn(t *testing.T)
 		}
 	}
 }
+
+// The parameter region, both directions in one table. RFC 3834 §5 parameters
+// are semicolon-separated `attribute=value` pairs with an RFC 2045 token on the
+// left, and a value that is a token or a quoted-string on the right. Anything
+// else means the sender wrote something we cannot read.
+//
+// This is a table rather than prose because reading the code did not find the
+// holes here — three separate rounds of review passed over `no;auto-replied`,
+// `no; =value` and `no; a=`, all of which vouched for an address. Running
+// the spellings against the rule found them at once, so the spellings stay.
+func TestParameterRegionDecidesWhatTheKeywordMayClaim(t *testing.T) {
+	readable := []string{
+		`no`, `no; a=b`, `no; a=b; c=d`, `no; x="a;b"`, `no;`, `no;;`,
+		// RFC 3834 §5's own example: the value is an address, and `@` is a
+		// tspecial — reading values strictly would veto the canonical form.
+		`no; owner-email=alice@example.com`,
+		`no; a=b=c`,
+	}
+	for _, v := range readable {
+		t.Run("readable "+v, func(t *testing.T) {
+			if isMachineTouched([]string{v}, nil, false) {
+				t.Fatalf("%q was read as machine-touched — it is a legal value and must vouch", v)
+			}
+		})
+	}
+
+	unreadable := []string{
+		`no; auto-replied`, // a bare token is not a parameter
+		`no; =value`,       // no attribute
+		`no; a=`,           // no value
+		`no; a =b`,         // RFC 2045 puts no space around the `=`
+		`no; "a=b"`,        // the whole pair quoted is not a pair
+		`no; ==`, `no; =`,  // neither half present
+		`no; a=b; auto-replied`, // one bad parameter spoils the value
+	}
+	for _, v := range unreadable {
+		t.Run("unreadable "+v, func(t *testing.T) {
+			if !isMachineTouched([]string{v}, nil, false) {
+				t.Fatalf("%q vouched for an address — its parameters do not parse", v)
+			}
+		})
+	}
+}
