@@ -88,6 +88,7 @@ export const en = {
   "search.why": "Why this result",
   "search.relevance": "relevance {pct}%",
   "search.tier.authoritative": "verified",
+  "search.tier.mirrored": "from HubSpot",
 
   "context.title": "Related evidence",
   "context.empty": "Nothing related yet.",
@@ -274,6 +275,71 @@ export const en = {
     "Sorting and filters read through HubSpot — open it there",
   "overlay.unavailable":
     "Not available while reading from HubSpot — open it in HubSpot",
+  "overlay.chipLabel": "Reading from HubSpot",
+  "overlay.chipAria":
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
+  "overlay.refused":
+    "Not available while reading from HubSpot — the mirror can't serve this write.",
+  "overlay.filterUnsupported":
+    "This filter or sort isn't available while reading from HubSpot — remove it and try again.",
+  "overlay.emptyOwnerHint":
+    "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
+  "overlay.partialWriteBack":
+    "Only the fields HubSpot accepts are written back — anything else here, including custom fields and owner, is not applied at all; HubSpot's current value is kept.",
+
+  "overlay.title": "HubSpot mirror",
+  "overlay.sub":
+    "Connect the workspace's incumbent CRM so records read from its mirror instead of native tables.",
+  "overlay.loading": "Loading the incumbent connection…",
+  "overlay.notConfigured": "Overlay mode isn't configured in this deployment.",
+  "overlay.loadFailed": "Couldn't load the incumbent connection.",
+  "overlay.empty":
+    "No incumbent is connected. Connect HubSpot to read records from its mirror.",
+  "overlay.adminOnly":
+    "Ask an admin or ops teammate to connect or disconnect HubSpot.",
+  "overlay.region": "Region",
+  "overlay.regionEu1": "EU",
+  "overlay.regionUs": "United States",
+  "overlay.token": "Private-app token",
+  "overlay.tokenHint": "Sealed into the vault; never shown again.",
+  "overlay.connect": "Connect HubSpot",
+  "overlay.reconnect": "Reconnect",
+  "overlay.connectConfirmTitle": "Connect HubSpot for the whole workspace?",
+  "overlay.reconnectConfirmTitle": "Reconnect HubSpot for the whole workspace?",
+  "overlay.connectConfirmBody":
+    "This switches every seat's reads to HubSpot's mirror immediately, and records become read-only wherever the mirror can't serve a write. This affects the whole installation, not just your own session.",
+  "overlay.statusActive": "Connected",
+  "overlay.statusRevoked": "Revoked",
+  "overlay.statusError": "Sync error",
+  "overlay.connectedAt": "Connected {at}",
+  "overlay.syncTitle": "Mirror sync",
+  "overlay.syncLoading": "Loading sync status…",
+  "overlay.syncLoadFailed": "Couldn't load sync status.",
+  "overlay.syncEmpty": "Nothing has synced yet.",
+  "overlay.syncStateFresh": "Fresh",
+  "overlay.syncStatePending": "Pending sync",
+  "overlay.syncStateStale": "Stale",
+  "overlay.backfillDone": "Backfill complete",
+  "overlay.backfillPending": "Backfill in progress",
+  "overlay.lastSynced": "Last synced {at}",
+  "overlay.neverSynced": "Never synced",
+  "overlay.budgetTitle": "API budget",
+  "overlay.budgetLoading": "Loading the budget window…",
+  "overlay.budgetLoadFailed": "Couldn't load the budget window.",
+  "overlay.budgetHeadroom": "Headroom: {headroom}",
+  "overlay.budgetSources":
+    "Force-fresh {forceFresh} · Poller {poller} · Capture {capture}",
+  "overlay.budgetSearch": "Search API: {consumed} / {limit} per second",
+  "overlay.bandOk": "Healthy",
+  "overlay.bandWarn": "Approaching limit",
+  "overlay.bandShed": "Shedding load",
+  "overlay.reconcile": "Sync now",
+  "overlay.reconcileQueued":
+    "Sweep queued — the worker picks it up on its next poll (about every 2 minutes).",
+  "overlay.disconnect": "Disconnect",
+  "overlay.disconnectTitle": "Disconnect HubSpot?",
+  "overlay.disconnectBody":
+    "This purges the mirrored data and switches the workspace back to native records. The audit trail is kept.",
 
   "people.name": "Name",
   "people.email": "Email",

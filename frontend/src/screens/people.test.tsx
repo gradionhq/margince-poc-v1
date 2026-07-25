@@ -399,6 +399,91 @@ describe("PersonScreen — archive (P-3)", () => {
   });
 });
 
+describe("PersonScreen — overlay mode write affordances", () => {
+  // The mirror's own write-back seam serves update and archive for a person
+  // (overlay/provider_writes.go SupportsWrite), so both render here; merge
+  // has no incumbent-first projection and stays refused, so it stays hidden.
+  function meResponse() {
+    return jsonResponse({
+      user: { id: "u1", email: "me@brandt.example", locale: "en-US" },
+      roles: ["admin"],
+      teams: [],
+      system_of_record: { mode: "overlay" },
+    });
+  }
+
+  it("serves Edit and Archive, hides Merge", async () => {
+    stubFetch(async (url, method) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      if (method === "PATCH") {
+        return jsonResponse(anna);
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    expect(screen.getByTestId("archive-record")).toBeTruthy();
+    expect(screen.queryByTestId("merge-record")).toBeNull();
+  });
+
+  it("Edit's real click path PATCHes and the 360 shows the saved title", async () => {
+    // Mutable so the refetch after a successful save (useUpdateRecord
+    // invalidates the record query) reflects the write, not a stale echo —
+    // the same "mirror re-read reflects write-back" shape
+    // overlay.Provider.Update gives via mirrorWriteResult.
+    let current = anna;
+    stubFetch(async (url, method, request) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      if (method === "PATCH") {
+        const body = JSON.parse(await request.text());
+        current = { ...current, ...body };
+        return jsonResponse(current);
+      }
+      return jsonResponse(current);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    const title = await screen.findByLabelText("Title");
+    await userEvent.clear(title);
+    await userEvent.type(title, "VP Procurement");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByText("VP Procurement")).toBeTruthy();
+  });
+
+  it("names the partial write-back in the edit form", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/me")) {
+        return meResponse();
+      }
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(anna);
+    });
+    render(<PersonScreen id="p-1" />);
+
+    await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
+    await userEvent.click(screen.getByTestId("edit-record"));
+    expect(
+      screen.getByText(/Only the fields HubSpot accepts are written back/),
+    ).toBeTruthy();
+  });
+});
+
 describe("ContactsScreen — archived marking (P-3)", () => {
   it("shows an Archived badge on a row with archived_at set", async () => {
     stubFetch(async () =>

@@ -7,6 +7,7 @@ import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
 import { NAV, RAIL_LESS_SCREENS } from "./nav";
 import { type Route, routeHash, useRoute } from "./router";
+import { SorModeChip } from "./sormodechip";
 import "./shell.css";
 
 // The app shell (B-EP09.4): WorkspaceRail + top bar. The top bar shows only
@@ -147,6 +148,7 @@ export function TopBar({
       </span>
       <div className="r">
         {actions}
+        <SorModeChip />
         <button
           type="button"
           className="iconbtn searchbar"

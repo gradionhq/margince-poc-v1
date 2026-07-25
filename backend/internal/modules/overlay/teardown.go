@@ -190,10 +190,12 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 // they are what keeps a stray in-flight sweep from resurrecting a
 // purged row after this transaction lands. Clearing them belongs to
 // the reconnect flow — establishing a NEW connection is the fresh
-// trust decision that may mirror those records again, so that flow
-// clears the workspace's tombstones as part of connecting. No such
-// flow exists in branch 1: Connect refuses a workspace holding any
-// connection row, revoked included (hasConnection).
+// trust decision that may mirror those records again, so
+// Connect.reconnectConnection (connection.go) clears the workspace's
+// overlay_tombstone rows as part of reviving a revoked connection.
+// Connect's pre-flight (existingConnectionStatus) still refuses a
+// second connect while the existing row is active, but a revoked row
+// is exactly what that reconnect flow revives in place.
 func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	// Tombstone every row the mirror currently holds BEFORE purging it —
 	// the same in-SQL discipline as the ingest upsert (mirrorstore.go):

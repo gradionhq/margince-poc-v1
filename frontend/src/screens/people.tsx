@@ -14,6 +14,7 @@ import {
 import { RecordView, type TimelineEntry } from "../design-system/composed";
 import { ProvenanceTag } from "../design-system/trust";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   OverlayUnavailable,
@@ -245,12 +246,13 @@ async function createContact(
   values: Record<string, string>,
   rows: FormRows | undefined,
   customFields: Record<string, unknown>,
+  t: (key: MessageKey) => string,
 ): Promise<Person> {
   const { data, error } = await api.POST("/people", {
     body: { ...mapPersonBody(values, rows ?? {}), ...customFields },
   });
   if (error) {
-    throwProblem(error);
+    throwProblem(error, t);
   }
   return data;
 }
@@ -323,7 +325,7 @@ export function ContactsScreen() {
           invalidate="people"
           screen="contacts"
           create={(values, rows) =>
-            createContact(values, rows, cf.toBody(values))
+            createContact(values, rows, cf.toBody(values), t)
           }
           resolveExisting={(_code, id) => ({ screen: "contacts", id })}
           fields={[...contactCreateFields(t), ...cf.formFields]}
@@ -429,12 +431,13 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                   // unarchive path), so offering those buttons would only
                   // 404. The badge is the whole affordance.
                   <Badge tone="warn">{t("record.archived")}</Badge>
-                ) : overlay ? // Edit/merge/archive all write to a mirrored record — hidden
-                // in overlay (every such write answers unsupported_by_sor).
-                null : (
+                ) : (
                   <>
                     <EditAction
                       label={t("record.edit")}
+                      notice={
+                        overlay ? t("overlay.partialWriteBack") : undefined
+                      }
                       fields={[...personEditFields, ...cf.formFields]}
                       record={{
                         id: person.id,
@@ -468,34 +471,40 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                       invalidate="people"
                       recordKey="person"
                     />
-                    <MergeAction
-                      label={t("merge.person")}
-                      sourceId={person.id}
-                      sourceName={person.full_name}
-                      searchTargets={searchPeopleTargets}
-                      merge={async (targetId) => {
-                        const { data, error } = await api.POST(
-                          "/people/{id}/merge",
-                          {
-                            params: {
-                              path: { id: person.id },
-                              ...ifMatch(person.version),
+                    {/* Merge has no incumbent-first projection — the seam
+                        refuses it outright (overlay/provider_writes.go
+                        Merge) — unlike edit/archive below, which it
+                        serves, so it stays hidden here. */}
+                    {!overlay && (
+                      <MergeAction
+                        label={t("merge.person")}
+                        sourceId={person.id}
+                        sourceName={person.full_name}
+                        searchTargets={searchPeopleTargets}
+                        merge={async (targetId) => {
+                          const { data, error } = await api.POST(
+                            "/people/{id}/merge",
+                            {
+                              params: {
+                                path: { id: person.id },
+                                ...ifMatch(person.version),
+                              },
+                              body: { target_id: targetId },
                             },
-                            body: { target_id: targetId },
-                          },
-                        );
-                        if (error) {
-                          throwProblem(error);
-                        }
-                        return data;
-                      }}
-                      invalidate="people"
-                      recordKey="person"
-                      survivorRoute={(targetId) => ({
-                        screen: "contacts",
-                        id: targetId,
-                      })}
-                    />
+                          );
+                          if (error) {
+                            throwProblem(error, t);
+                          }
+                          return data;
+                        }}
+                        invalidate="people"
+                        recordKey="person"
+                        survivorRoute={(targetId) => ({
+                          screen: "contacts",
+                          id: targetId,
+                        })}
+                      />
+                    )}
                     <ArchiveAction
                       label={t("record.archive")}
                       confirmText={t("record.archiveConfirm")}
@@ -515,7 +524,14 @@ export function PersonScreen({ id }: Readonly<{ id: string }>) {
                       recordKey="person"
                       onArchived={() => navigate({ screen: "contacts" })}
                     />
-                    <ShareAction recordType="person" recordId={person.id} />
+                    {/* A record grant probes the native row via
+                        auth.EnsureLinkTarget, which a mirrored record has
+                        no row for — sharing stays hidden in overlay
+                        regardless of record type (see deals.tsx's
+                        DealBadges). */}
+                    {!overlay && (
+                      <ShareAction recordType="person" recordId={person.id} />
+                    )}
                   </>
                 )}
               </>
