@@ -319,16 +319,9 @@ func (a *httpAPI) Watch(ctx context.Context, accessToken, topic string) (string,
 	return out.HistoryID, time.UnixMilli(ms), nil
 }
 
-// get performs an authorized GET and JSON-decodes into out. It returns the
-// HTTP status (so History can special-case 404) and maps a 401/403 to
-// ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable.
-// Google's raw body is never surfaced to the caller.
-//
 // retryAfter parses the provider's Retry-After (delta-seconds form; Google
 // does not send HTTP-dates here). Zero when absent — the caller's own backoff
 // takes over.
-//
-//craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func retryAfter(resp *http.Response) time.Duration {
 	if s := resp.Header.Get("Retry-After"); s != "" {
 		if secs, err := strconv.Atoi(s); err == nil && secs > 0 {
@@ -351,6 +344,13 @@ const (
 	maxRawMessageBytes   = 96 << 20 // 96 MiB — a full-size RAW message
 )
 
+// get performs an authorized GET and JSON-decodes into out. It returns the
+// HTTP status (so History can special-case 404) and maps a 401/403 to
+// ErrAuthRejected and any other non-2xx/transport failure to ErrUnreachable,
+// each carrying Google's own reason code. Google's raw body is never surfaced
+// to the caller.
+//
+//craft:ignore naked-any out is the caller-supplied JSON decode target — its concrete type varies per endpoint
 func (a *httpAPI) get(ctx context.Context, accessToken, path string, q url.Values, out any, maxBytes int64) (int, error) {
 	u := a.base + path
 	if len(q) > 0 {
