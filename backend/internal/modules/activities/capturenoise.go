@@ -53,7 +53,10 @@ func (s *Store) HideCapturedNoiseTx(ctx context.Context, tx pgx.Tx, id ids.Activ
 	if tag.RowsAffected() == 0 {
 		return nil
 	}
-	auditID, err := storekit.Audit(ctx, tx, "capture_noise_hidden", "activity", id.UUID, nil, nil)
+	// 'archive' is the audit vocabulary's own verb for exactly this, and the
+	// vocabulary is a closed CHECK: a machine-decided hide is still an archive,
+	// so it is recorded as one rather than as a private synonym.
+	auditID, err := storekit.Audit(ctx, tx, "archive", "activity", id.UUID, nil, nil)
 	if err != nil {
 		return fmt.Errorf("activities: auditing the noise hide: %w", err)
 	}
@@ -94,7 +97,10 @@ func (s *Store) RedactCapturedNoise(ctx context.Context, id ids.ActivityID) (boo
 			return nil
 		}
 		redacted = true
-		if _, err := storekit.Audit(ctx, tx, "capture_noise_redacted", "activity", id.UUID, nil, nil); err != nil {
+		// 'erase' is the closed vocabulary's verb for content destruction, which
+		// is precisely what this is — narrower in scope than an Art. 17 erasure,
+		// identical in kind.
+		if _, err := storekit.Audit(ctx, tx, "erase", "activity", id.UUID, nil, nil); err != nil {
 			return fmt.Errorf("activities: auditing the noise redaction: %w", err)
 		}
 		return nil

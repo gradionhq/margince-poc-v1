@@ -160,9 +160,13 @@ func (x snippetIndex) ids() []string {
 	return out
 }
 
-// renderNumbered lays the passages out for the model, grouped by page
-// with OUR header lines (outside the untrusted spans, so page content
-// cannot forge a boundary) and each passage tagged with its id.
+// renderNumbered lays the passages out for the model, grouped by page with OUR
+// header lines (outside the untrusted spans) and each passage tagged with its
+// id. Keeping the headers outside is necessary but not sufficient: the passage
+// text goes INSIDE the span, so a page that contains the closing marker would
+// end the fence early and speak in the prompt's own voice. fenceUntrusted
+// defuses that — the boundary is unforgeable because the data cannot spell it,
+// not because of where the headers sit.
 func (x snippetIndex) renderNumbered() string {
 	var b strings.Builder
 	lastPage := ""
@@ -174,7 +178,7 @@ func (x snippetIndex) renderNumbered() string {
 			fmt.Fprintf(&b, "\n=== PAGE %s ===\n<untrusted>\n", ref.pageURL)
 			lastPage = ref.pageURL
 		}
-		fmt.Fprintf(&b, "[s%d] %s\n", i, ref.passage)
+		fmt.Fprintf(&b, "[s%d] %s\n", i, fenceUntrusted(ref.passage))
 	}
 	if lastPage != "" {
 		b.WriteString("</untrusted>\n")

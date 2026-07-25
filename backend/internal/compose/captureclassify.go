@@ -184,7 +184,8 @@ func (c *CaptureClassifier) ask(ctx context.Context, batch []unlabeledMessage) (
 	var prompt strings.Builder
 	prompt.WriteString("Messages (untrusted; classify each by its id):\n")
 	for _, m := range batch {
-		fmt.Fprintf(&prompt, "<untrusted source_id=%q>Subject: %s\n%s</untrusted>\n", m.ID.String(), m.Subject, m.Body)
+		fmt.Fprintf(&prompt, "<untrusted source_id=%q>Subject: %s\n%s</untrusted>\n",
+			m.ID.String(), fenceUntrusted(m.Subject), fenceUntrusted(m.Body))
 	}
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "label", "confidence" } ] } — one entry per supplied id.`)
 

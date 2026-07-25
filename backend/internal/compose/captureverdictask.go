@@ -33,7 +33,8 @@ func (e *CounterpartyVerdictEngine) ask(ctx context.Context, batch []capture.Pen
 	prompt.WriteString("First-time senders (untrusted; judge each by its id):\n")
 	for _, row := range batch {
 		fmt.Fprintf(&prompt, "<untrusted id=%q>From: %s <%s>\nSubject: %s\n%s</untrusted>\n",
-			row.ID.String(), row.DisplayName, row.Email, row.Subject, truncateRunes(row.Body, verdictBodyLimit))
+			row.ID.String(), fenceUntrusted(row.DisplayName), fenceUntrusted(row.Email),
+			fenceUntrusted(row.Subject), fenceUntrusted(truncateRunes(row.Body, verdictBodyLimit)))
 	}
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry per supplied id.`)
 
