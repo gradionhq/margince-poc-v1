@@ -11,7 +11,11 @@ package overlay
 // (mirrorstore.go), which is a derived-cache refresh with no audit
 // trail. Disconnect's teardown/purge/scrub lives in teardown.go — this
 // file only flips the connection row and the workspace mode columns on
-// the way in.
+// the way in. Connect's OTHER branch — reviving a revoked row instead of
+// inserting a fresh one — lives in reconnect.go
+// (reconnectConnection/deleteSupersededRef/existingConnectionStatus),
+// split out purely to stay under the file-length cap; cleanupOrphanedRef
+// stays here since both branches call it.
 
 import (
 	"context"
@@ -422,121 +426,6 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 	return out, nil
 }
 
-// reconnectConnection revives the workspace's revoked incumbent_connection
-// row: the same UNIQUE(workspace_id) row, re-pointed at a freshly sealed
-// credential and flipped back to active, in ONE transaction with the audit +
-// event pair, the tombstone clear, and the workspace mode flip.
-//
-// Clearing overlay_tombstone here is the point of the flow, not a cleanup
-// detail: teardown deliberately leaves a tombstone per purged record so a
-// stray in-flight sweep cannot resurrect it (purgeMirror), and only a NEW
-// connection — a fresh trust decision by an admin — may mirror them again.
-func (s *Service) reconnectConnection(ctx context.Context, in ConnectInput, ref keyvault.Ref, accountID string) (Connection, error) {
-	var out Connection
-	var supersededRef string
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var id ids.UUID
-		var previousIncumbent, previousRegion string
-		// The pre-read is FOR UPDATE so a concurrent reconnect serializes behind
-		// it rather than both reviving the same row.
-		if scanErr := tx.QueryRow(ctx, `
-			SELECT id, incumbent, region, credential_ref FROM incumbent_connection
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			  AND status = 'revoked'
-			FOR UPDATE`).Scan(&id, &previousIncumbent, &previousRegion, &supersededRef); scanErr != nil {
-			return scanErr
-		}
-
-		var connectedAt time.Time
-		if scanErr := tx.QueryRow(ctx, `
-			UPDATE incumbent_connection SET
-			  incumbent = $2, region = $3, credential_ref = $4, scopes = $5,
-			  incumbent_account_id = NULLIF($6, ''),
-			  status = 'active', connected_at = now(), revoked_at = NULL
-			WHERE id = $1
-			RETURNING connected_at`,
-			id, in.Incumbent, in.Region, string(ref), leastPrivilegeHubSpotScopes, accountID,
-		).Scan(&connectedAt); scanErr != nil {
-			return scanErr
-		}
-
-		if _, delErr := tx.Exec(ctx, `DELETE FROM overlay_tombstone`); delErr != nil {
-			return fmt.Errorf("overlay: clearing the teardown tombstones on reconnect: %w", delErr)
-		}
-
-		before := map[string]any{
-			auditFieldIncumbent: previousIncumbent,
-			auditFieldRegion:    previousRegion,
-			auditFieldStatus:    statusRevoked,
-		}
-		after := map[string]any{
-			auditFieldIncumbent: in.Incumbent,
-			auditFieldRegion:    in.Region,
-			"scopes":            leastPrivilegeHubSpotScopes,
-			auditFieldStatus:    statusActive,
-		}
-		auditID, auditErr := storekit.Audit(ctx, tx, "update", "incumbent_connection", id, before, after)
-		if auditErr != nil {
-			return fmt.Errorf("overlay: auditing the incumbent reconnect: %w", auditErr)
-		}
-		if emitErr := storekit.EmitEvent(ctx, tx, auditID, id,
-			incumbentConnectedPayload(in.Incumbent, in.Region, leastPrivilegeHubSpotScopes, statusActive)); emitErr != nil {
-			return fmt.Errorf("overlay: emitting incumbent.connected on reconnect: %w", emitErr)
-		}
-
-		if _, updErr := tx.Exec(ctx, `
-			UPDATE workspace SET x_sor_mode = 'overlay', x_incumbent = $1
-			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
-			in.Incumbent); updErr != nil {
-			return fmt.Errorf("overlay: flipping the workspace to overlay mode on reconnect: %w", updErr)
-		}
-
-		out = Connection{
-			Incumbent:   in.Incumbent,
-			Region:      in.Region,
-			Status:      statusActive,
-			ConnectedAt: connectedAt,
-			Scopes:      leastPrivilegeHubSpotScopes,
-		}
-		return nil
-	})
-	if err != nil {
-		// A concurrent reconnect already revived the row, so the FOR UPDATE
-		// pre-read found no revoked row: the same lost-race outcome the insert
-		// path answers, and the ref this attempt sealed is orphaned exactly the
-		// same way.
-		if errors.Is(err, pgx.ErrNoRows) {
-			ws, ok := principal.WorkspaceID(ctx)
-			if !ok {
-				return Connection{}, apperrors.ErrIncumbentAlreadyConnected
-			}
-			return Connection{}, s.cleanupOrphanedRef(ctx, ws, ref)
-		}
-		return Connection{}, err
-	}
-	s.deleteSupersededRef(ctx, keyvault.Ref(supersededRef))
-	return out, nil
-}
-
-// deleteSupersededRef removes the credential a reconnect replaced. The row now
-// points at the new ref, so the old blob is unreferenced; a failure leaves an
-// inert, encrypted-at-rest blob, logged for operational cleanup rather than
-// failing a reconnect that has already committed — the same posture
-// Disconnect's own post-commit delete carries (teardown.go:100-110).
-func (s *Service) deleteSupersededRef(ctx context.Context, ref keyvault.Ref) {
-	if ref == "" {
-		return
-	}
-	ws, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return
-	}
-	if err := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), ref); err != nil {
-		s.log.ErrorContext(ctx, "overlay: reconnect committed, but deleting the superseded incumbent credential failed — the orphaned (inert) blob needs cleanup",
-			"credential_ref", string(ref), "err", err)
-	}
-}
-
 // cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but lost
 // the UNIQUE(workspace_id) race to persist (the INSERT hit the unique
 // constraint after vault.Put already ran) — the row definitively did not
@@ -553,32 +442,6 @@ func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyva
 		return fmt.Errorf("overlay: connect lost a concurrent race (already connected) and failed to clean up its orphaned vault entry: %w", delErr)
 	}
 	return apperrors.ErrIncumbentAlreadyConnected
-}
-
-// existingConnectionStatus reports the workspace's incumbent_connection
-// status, if it has a row at all. Connect's pre-flight distinguishes the two
-// states the UNIQUE(workspace_id) row can be in: an active (or errored)
-// connection refuses a second connect, while a revoked one — the residue
-// Disconnect leaves so a stray in-flight sweep cannot resurrect a purged row —
-// is what a reconnect revives.
-func (s *Service) existingConnectionStatus(ctx context.Context) (status string, found bool, err error) {
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		scanErr := tx.QueryRow(ctx, `
-			SELECT status FROM incumbent_connection
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`).Scan(&status)
-		if errors.Is(scanErr, pgx.ErrNoRows) {
-			return nil
-		}
-		if scanErr != nil {
-			return scanErr
-		}
-		found = true
-		return nil
-	})
-	if err != nil {
-		return "", false, fmt.Errorf("overlay: checking for an existing incumbent connection: %w", err)
-	}
-	return status, found, nil
 }
 
 // Get reads the workspace's current incumbent connection. Gated by
