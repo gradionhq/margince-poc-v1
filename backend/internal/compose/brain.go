@@ -51,6 +51,12 @@ type ModelPath struct {
 	// the highest-volume, cheapest task, routed L-S with the C-C solo
 	// re-ask riding the same ladder.
 	CaptureClassify completer
+	// CounterpartyVerdict is the ADR-0072/A118 creation gate for the
+	// ambiguous first-time sender: real | noise, floor 0.7, below-floor
+	// abstains to unsure. A separate task from CaptureClassify on purpose —
+	// classify labels a known contact's mail for attention, this decides
+	// whether a stranger becomes a record at all.
+	CounterpartyVerdict completer
 	// SignatureEnrich is the §2.9 evidence-or-omit field extraction lane.
 	SignatureEnrich completer
 	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
@@ -155,18 +161,19 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		return routerBrain{router: router, task: task, companyContext: companyContext}
 	}
 	return ModelPath{
-		Agent:           agentBrain{router: router, companyContext: companyContext},
-		ColdStart:       brain(ai.TaskColdStart),
-		SiteExtract:     brain(ai.TaskSiteExtract),
-		SiteFactExtract: brain(ai.TaskSiteFactExtract),
-		RateExtract:     brain(ai.TaskRateExtract),
-		BriefRank:       brain(ai.TaskBriefRanking),
-		DraftReply:      brain(ai.TaskDraftReply),
-		OfferDraft:      brain(ai.TaskOfferDraft),
-		CaptureClassify: brain(ai.TaskCaptureClassify),
-		SignatureEnrich: brain(ai.TaskEnrich),
-		VoiceBuild:      brain(ai.TaskVoiceBuild),
-		Embedder:        router,
+		Agent:               agentBrain{router: router, companyContext: companyContext},
+		ColdStart:           brain(ai.TaskColdStart),
+		SiteExtract:         brain(ai.TaskSiteExtract),
+		SiteFactExtract:     brain(ai.TaskSiteFactExtract),
+		RateExtract:         brain(ai.TaskRateExtract),
+		BriefRank:           brain(ai.TaskBriefRanking),
+		DraftReply:          brain(ai.TaskDraftReply),
+		OfferDraft:          brain(ai.TaskOfferDraft),
+		CaptureClassify:     brain(ai.TaskCaptureClassify),
+		CounterpartyVerdict: brain(ai.TaskCaptureCounterpartyVerdict),
+		SignatureEnrich:     brain(ai.TaskEnrich),
+		VoiceBuild:          brain(ai.TaskVoiceBuild),
+		Embedder:            router,
 	}
 }
 

@@ -11,6 +11,8 @@ const (
 	// TaskBriefRanking is the one Premium-frontier default (§1.2 RATIFY): genuinely multi-hop reasoning
 	TaskBriefRanking    Task = "brief_ranking"
 	TaskCaptureClassify Task = "capture_classify"
+	// TaskCaptureCounterpartyVerdict is ADR-0072/A118: the ambiguous first-time-sender creation gate — real|noise|unsure per address, floor 0.7 (below → unsure, never noise). No-payload capture policy (verdict batches never persist to ai_call_payload). Release-blocking false-noise eval threshold.
+	TaskCaptureCounterpartyVerdict Task = "capture_counterparty_verdict"
 	// TaskCertJudge is the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding
 	TaskCertJudge  Task = "cert_judge"
 	TaskColdStart  Task = "cold_start"
@@ -55,7 +57,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "8ed3fc2c0129f09b9b37e93d203e54bce1d41166a1ec721b9c57785f2aab7118"
+const TaskContractHash = "2563ee2d8a5f97d3c98d9608f7fede5ce2f2aa05a470b8405a2274aa5245d01a"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -65,6 +67,7 @@ func AllTasks() []Task {
 		TaskAgentLoop,
 		TaskBriefRanking,
 		TaskCaptureClassify,
+		TaskCaptureCounterpartyVerdict,
 		TaskCertJudge,
 		TaskColdStart,
 		TaskDealHealth,
@@ -84,22 +87,23 @@ func AllTasks() []Task {
 // taskLadders is the §1.2 routing table: primary tier first, then the
 // fallback rungs fired on provider error or schema-validation failure.
 var taskLadders = map[Task][]Tier{
-	TaskAgentLoop:       {TierCheapCloud, TierPremium},
-	TaskBriefRanking:    {TierPremium, TierCheapCloud},
-	TaskCaptureClassify: {TierLocalSmall, TierCheapCloud},
-	TaskCertJudge:       {TierPremium, TierCheapCloud},
-	TaskColdStart:       {TierCheapCloud, TierPremium},
-	TaskDealHealth:      {TierCheapCloud, TierPremium},
-	TaskDraftReply:      {TierCheapCloud, TierPremium},
-	TaskEnrich:          {TierLocalSmall, TierCheapCloud},
-	TaskNlSearch:        {TierCheapCloud, TierPremium},
-	TaskOfferDraft:      {TierCheapCloud, TierPremium},
-	TaskRateExtract:     {TierPremium, TierCheapCloud},
-	TaskSiteExtract:     {TierPremium},
-	TaskSiteFactExtract: {TierCheapCloud, TierPremium},
-	TaskSummarize:       {TierCheapCloud, TierPremium},
-	TaskTranscript:      {TierCheapCloud, TierPremium},
-	TaskVoiceBuild:      {TierCheapCloud, TierPremium},
+	TaskAgentLoop:                  {TierCheapCloud, TierPremium},
+	TaskBriefRanking:               {TierPremium, TierCheapCloud},
+	TaskCaptureClassify:            {TierLocalSmall, TierCheapCloud},
+	TaskCaptureCounterpartyVerdict: {TierLocalSmall, TierCheapCloud},
+	TaskCertJudge:                  {TierPremium, TierCheapCloud},
+	TaskColdStart:                  {TierCheapCloud, TierPremium},
+	TaskDealHealth:                 {TierCheapCloud, TierPremium},
+	TaskDraftReply:                 {TierCheapCloud, TierPremium},
+	TaskEnrich:                     {TierLocalSmall, TierCheapCloud},
+	TaskNlSearch:                   {TierCheapCloud, TierPremium},
+	TaskOfferDraft:                 {TierCheapCloud, TierPremium},
+	TaskRateExtract:                {TierPremium, TierCheapCloud},
+	TaskSiteExtract:                {TierPremium},
+	TaskSiteFactExtract:            {TierCheapCloud, TierPremium},
+	TaskSummarize:                  {TierCheapCloud, TierPremium},
+	TaskTranscript:                 {TierCheapCloud, TierPremium},
+	TaskVoiceBuild:                 {TierCheapCloud, TierPremium},
 }
 
 // degradeTo is the one-tier-down move economy mode applies at 80–100%
@@ -114,22 +118,23 @@ var degradeTo = map[Tier]Tier{
 // taskExecutionModes is the scheduling contract compiled from
 // execution_mode. Every task is present by construction.
 var taskExecutionModes = map[Task]ExecutionMode{
-	TaskAgentLoop:       ExecutionModeBackground,
-	TaskBriefRanking:    ExecutionModeBackground,
-	TaskCaptureClassify: ExecutionModeBackground,
-	TaskCertJudge:       ExecutionModeBackground,
-	TaskColdStart:       ExecutionModeInteractive,
-	TaskDealHealth:      ExecutionModeInteractive,
-	TaskDraftReply:      ExecutionModeInteractive,
-	TaskEnrich:          ExecutionModeBackground,
-	TaskNlSearch:        ExecutionModeInteractive,
-	TaskOfferDraft:      ExecutionModeInteractive,
-	TaskRateExtract:     ExecutionModeBackground,
-	TaskSiteExtract:     ExecutionModeBackground,
-	TaskSiteFactExtract: ExecutionModeBackground,
-	TaskSummarize:       ExecutionModeInteractive,
-	TaskTranscript:      ExecutionModeInteractive,
-	TaskVoiceBuild:      ExecutionModeBackground,
+	TaskAgentLoop:                  ExecutionModeBackground,
+	TaskBriefRanking:               ExecutionModeBackground,
+	TaskCaptureClassify:            ExecutionModeBackground,
+	TaskCaptureCounterpartyVerdict: ExecutionModeBackground,
+	TaskCertJudge:                  ExecutionModeBackground,
+	TaskColdStart:                  ExecutionModeInteractive,
+	TaskDealHealth:                 ExecutionModeInteractive,
+	TaskDraftReply:                 ExecutionModeInteractive,
+	TaskEnrich:                     ExecutionModeBackground,
+	TaskNlSearch:                   ExecutionModeInteractive,
+	TaskOfferDraft:                 ExecutionModeInteractive,
+	TaskRateExtract:                ExecutionModeBackground,
+	TaskSiteExtract:                ExecutionModeBackground,
+	TaskSiteFactExtract:            ExecutionModeBackground,
+	TaskSummarize:                  ExecutionModeInteractive,
+	TaskTranscript:                 ExecutionModeInteractive,
+	TaskVoiceBuild:                 ExecutionModeBackground,
 }
 
 // knownTiers is the routing config's tier-name validation set: the
