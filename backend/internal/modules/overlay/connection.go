@@ -207,14 +207,15 @@ func (s *Service) WithLogger(log *slog.Logger) *Service {
 // the mirror on Disconnect and flips sor_mode for every seat), so it is
 // admin/ops-only (identity/internal/policy), the same posture as quota.
 //
-// UNIQUE(workspace_id) means a second Connect on an already-connected
-// workspace answers apperrors.ErrIncumbentAlreadyConnected. existingConnection
-// checks for that BEFORE sealing anything, so the common duplicate-connect
-// case never touches the vault; the vault.Put below still runs ahead of the
-// insert (put-then-commit, the same posture capture.Registry.Connect
+// UNIQUE(workspace_id) means a second Connect on an already-active
+// connection answers apperrors.ErrIncumbentAlreadyConnected; a revoked one
+// reconnects instead (reconnectConnection). existingConnectionStatus checks
+// for that BEFORE sealing anything, so the common duplicate-connect case
+// never touches the vault; the vault.Put below still runs ahead of the
+// insert/update (put-then-commit, the same posture capture.Registry.Connect
 // documents), so a genuine concurrent-Connect race can still lose the
-// INSERT after sealing — that path deletes its own orphaned ref rather
-// than leaving it unreferenced.
+// INSERT/UPDATE after sealing — that path deletes its own orphaned ref
+// rather than leaving it unreferenced.
 func (s *Service) Connect(ctx context.Context, in ConnectInput) (Connection, error) {
 	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionCreate); err != nil {
 		return Connection{}, err

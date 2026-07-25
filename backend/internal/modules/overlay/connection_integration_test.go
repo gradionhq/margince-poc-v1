@@ -246,6 +246,17 @@ func TestConnectAfterDisconnectRevivesTheConnection(t *testing.T) {
 		t.Fatalf("Disconnect: %v", err)
 	}
 
+	// Stand in for a tombstone Disconnect's own purgeMirror would have
+	// written for a row that existed in the mirror at teardown time (this
+	// fixture wires no incumbent factory, so purgeMirror ran over an empty
+	// overlay_mirror and left none) — without a real row here, the
+	// tombstones != 0 assertion below is vacuous: it would also read 0 if
+	// the reconnect's DELETE never ran at all.
+	const tombstonedObjectClass, tombstonedExternalID = "contact", "100214862042"
+	if err := seedTombstone(ctx, pool, tombstonedObjectClass, tombstonedExternalID); err != nil {
+		t.Fatalf("seeding a tombstone to prove reconnect clears it: %v", err)
+	}
+
 	second, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "us", Token: "pat-second"})
 	if err != nil {
 		t.Fatalf("reconnect: %v", err)
