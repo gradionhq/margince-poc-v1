@@ -24,6 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -35,7 +36,13 @@ const (
 	PendingStatusReal       = "real"
 	PendingStatusNoise      = "noise"
 	PendingStatusSuppressed = "suppressed"
-	PendingStatusRejected   = "rejected"
+	// PendingStatusRejected is part of the spec's status vocabulary (ADR-0072 §5)
+	// and is mirrored here for that reason, but nothing writes it yet: the
+	// approvals engine runs only the APPROVED branch, so a declined review offer
+	// has no effect hook to record itself through. A human's "no" currently
+	// leaves the row `unsure` — visibly undecided, which is at least honest.
+	// Closing that loop needs a reject seam in approvals, not a write here.
+	PendingStatusRejected = "rejected"
 )
 
 // PendingMaxAttempts bounds the verdict retries (ADR-0072 §5: retries=2). A row
@@ -78,6 +85,10 @@ type PendingCounterparty struct {
 	Subject     string
 	Body        string
 	Attempts    int
+	// SuppressOrg carries the tier ladder's free-mail decision (CAP-PARAM-5)
+	// forward to whoever creates the records: a personal mailbox yields a person
+	// and never a company, however long after capture the verdict arrives.
+	SuppressOrg bool
 
 	// Claim is this lease's token, minted by the ClaimDue that handed the row
 	// out. Every write back to the ledger presents it, so a worker holding an
@@ -103,6 +114,21 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 	if email == "" {
 		return false, errors.New("capture: a disposition needs a normalized counterparty address")
 	}
+	// Deletion sticks, at the WRITE and not only in the erasure sweep. An erased
+	// subject's address must not re-materialize here — a fresh ledger row would
+	// restore their address and header display name in a new table, and a
+	// deferred row additionally hands their subject and body to the routed model
+	// provider on the verdict call. The two sibling paths (captureLead,
+	// EnsureCounterpartyTx) already refuse a suppressed address; this is the
+	// same invariant, not a new rule.
+	suppressed, err := storekit.EmailSuppressed(ctx, tx, email)
+	if err != nil {
+		return false, fmt.Errorf("capture: checking the suppression list: %w", err)
+	}
+	if suppressed {
+		return false, nil
+	}
+
 	due := in.Status == PendingStatusPending
 	if due {
 		// Asked before the insert rather than folded into it as a WHERE, because
@@ -130,16 +156,17 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 	// from the app process makes the comparison a cross-clock one: an app running
 	// even milliseconds ahead of the database writes a row that is not yet due and
 	// silently waits out the skew before anything claims it.
-	_, err := tx.Exec(ctx, `
+	_, err = tx.Exec(ctx, `
 		INSERT INTO capture_pending_counterparty
-		  (workspace_id, email, domain, display_name, activity_id, owner_id, status, disposition_reason, next_attempt_at)
+		  (workspace_id, email, domain, display_name, activity_id, owner_id, status,
+		   disposition_reason, next_attempt_at, suppress_org)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, $5, $6, NULLIF($7, ''),
-		        CASE WHEN $8::boolean THEN now() END)
+		        CASE WHEN $8::boolean THEN now() END, $9)
 		ON CONFLICT `+conflict+`
 		DO NOTHING`,
 		email, strings.ToLower(strings.TrimSpace(in.Domain)), in.DisplayName,
-		in.ActivityID, in.OwnerID, in.Status, in.Reason, due)
+		in.ActivityID, in.OwnerID, in.Status, in.Reason, due, in.SuppressOrg)
 	if err != nil {
 		return false, fmt.Errorf("capture: recording the counterparty disposition: %w", err)
 	}
@@ -170,6 +197,7 @@ type dispositionRow struct {
 	OwnerID     ids.UUID
 	Status      string
 	Reason      string
+	SuppressOrg bool
 }
 
 // PendingStore reads and resolves the ledger. It is the verdict engine's seam
@@ -212,7 +240,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 			    LIMIT $1
 			    FOR UPDATE SKIP LOCKED)
 			RETURNING p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
-			          p.activity_id, p.owner_id, p.attempts,
+			          p.activity_id, p.owner_id, p.attempts, p.suppress_org,
 			          coalesce((SELECT a.subject FROM activity a WHERE a.id = p.activity_id), ''),
 			          coalesce((SELECT a.body FROM activity a WHERE a.id = p.activity_id), '')`,
 			limit, pendingLease.String(), PendingMaxAttempts, claim)
@@ -223,7 +251,7 @@ func (s *PendingStore) ClaimDue(ctx context.Context, limit int) ([]PendingCounte
 		for rows.Next() {
 			p := PendingCounterparty{Claim: claim}
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.Attempts, &p.Subject, &p.Body); err != nil {
+				&p.ActivityID, &p.OwnerID, &p.Attempts, &p.SuppressOrg, &p.Subject, &p.Body); err != nil {
 				return err
 			}
 			out = append(out, p)
@@ -257,23 +285,15 @@ func (s *PendingStore) Resolve(ctx context.Context, tx pgx.Tx, p PendingCounterp
 	return tag.RowsAffected() == 1, nil
 }
 
-// Defer returns a claimed row to the queue for a later pass, or retires it to
-// 'unsure' when it has used its attempts. A row that never gets a usable verdict
-// must stop costing model calls; retiring leaves the record and its reason, so
-// the question is visibly unanswered rather than silently dropped.
+// Defer returns a claimed row to the queue for a later pass. Ending a row is
+// Retire's job, not this one: a deferral says "ask again later", and conflating
+// the two is how a row ends up retired for reasons that had nothing to do with
+// the question (a provider outage, a budget stop).
 //
 // Guarded by the same claim as Resolve, for the same reason: a stalled worker
 // releasing "its" row would otherwise cut short a lease someone else now holds.
 func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff time.Duration, reason string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if p.Attempts >= PendingMaxAttempts {
-			_, err := tx.Exec(ctx, `
-				UPDATE capture_pending_counterparty
-				   SET status = 'unsure', disposition_reason = NULLIF($2, ''),
-				       next_attempt_at = NULL, claimed_until = NULL, claimed_by = NULL, updated_at = now()
-				 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`, p.ID, reason, p.Claim)
-			return err
-		}
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET next_attempt_at = now() + $2::interval,
@@ -287,37 +307,46 @@ func (s *PendingStore) Defer(ctx context.Context, p PendingCounterparty, backoff
 	return nil
 }
 
-// HasLivePending reports whether an address currently has an open question.
-// Attention-classify and the digest read this to leave a deferred sender's mail
-// out of the population they act on (ADR-0072 §5).
-func (s *PendingStore) HasLivePending(ctx context.Context, email string) (bool, error) {
-	normalized := normalizeEmail(email)
-	if normalized == "" {
-		return false, nil
-	}
-	var live bool
+// Retire ends a claimed row at `unsure`: the model was asked its allowance of
+// times and never cleared the floor, so the question passes to a human.
+//
+// An explicit transition rather than a Defer with a doctored attempt count —
+// the previous spelling mutated the caller's struct to steer a branch, and left
+// the stored row reading `attempts = 1` while claiming it had spent them all.
+// A row that says why it stopped is worth more to an operator than one whose
+// reason has to be inferred from a counter.
+func (s *PendingStore) Retire(ctx context.Context, p PendingCounterparty, reason string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (
-			  SELECT 1 FROM capture_pending_counterparty
-			   WHERE email = $1 AND status IN ('pending', 'unsure'))`, normalized).Scan(&live)
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_pending_counterparty
+			   SET status = 'unsure', disposition_reason = NULLIF($2, ''),
+			       attempts = $4, resolved_at = now(),
+			       next_attempt_at = NULL, claimed_until = NULL, claimed_by = NULL,
+			       updated_at = now()
+			 WHERE id = $1 AND status = 'pending' AND claimed_by = $3`,
+			p.ID, reason, p.Claim, PendingMaxAttempts)
+		return err
 	})
 	if err != nil {
-		return false, fmt.Errorf("capture: reading the disposition ledger: %w", err)
+		return fmt.Errorf("capture: retiring disposition %s: %w", p.ID, err)
 	}
-	return live, nil
+	return nil
 }
 
 // LinkProposal points an `unsure` row at the review-queue offer staged for it,
-// so a later pass finds the existing offer instead of staging a second one.
-// Guarded on the row still being `unsure` and still unlinked: a row a human has
-// already decided must not have a fresh proposal attached to it.
+// so a later pass finds the existing offer instead of staging a second one. A
+// dead link (the previous offer expired) is overwritten — the pairing that
+// matters is row-to-LIVE-offer, and refusing to re-link would strand the row
+// the moment its first proposal aged out.
+//
+// Guarded on the row still being `unsure`: one a human has already decided must
+// never have a fresh proposal attached to it.
 func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_pending_counterparty
 			   SET proposal_id = $2, updated_at = now()
-			 WHERE id = $1 AND status = 'unsure' AND proposal_id IS NULL`, id, proposalID)
+			 WHERE id = $1 AND status = 'unsure'`, id, proposalID)
 		return err
 	})
 	if err != nil {
@@ -326,19 +355,30 @@ func (s *PendingStore) LinkProposal(ctx context.Context, id, proposalID ids.UUID
 	return nil
 }
 
-// AwaitingReview lists `unsure` rows that have no review-queue offer yet — the
+// AwaitingReview lists `unsure` rows with no LIVE review-queue offer — the
 // staging backlog. A row reaches this state by exhausting the model's attempts,
-// so what it needs next is a human, and until an offer exists nobody can give it
-// one.
+// so what it needs next is a human, and until a live offer exists nobody can
+// give it one.
+//
+// "No live offer", not "no offer": a staged proposal expires after a day if
+// nobody acts on it, and a row whose only offer has expired is exactly as
+// undecidable as one that never had a proposal. Keying on proposal_id alone
+// would strand it permanently — invisible to the review queue, still counting
+// against the workspace's open-question ceiling, and clearable only by hand.
+// A workspace that takes a weekend off would silently fill its own cap.
 func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]PendingCounterparty, error) {
 	var out []PendingCounterparty
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT p.id, p.email, coalesce(p.domain, ''), coalesce(p.display_name, ''),
-			       p.activity_id, p.owner_id, p.attempts
+			       p.activity_id, p.owner_id, p.attempts, p.suppress_org
 			  FROM capture_pending_counterparty p
-			 WHERE p.status = 'unsure' AND p.proposal_id IS NULL
-			 ORDER BY p.resolved_at NULLS LAST, p.created_at
+			 WHERE p.status = 'unsure'
+			   AND NOT EXISTS (
+			     SELECT 1 FROM approval a
+			      WHERE a.id = p.proposal_id
+			        AND a.status = 'pending' AND a.expires_at > now())
+			 ORDER BY p.resolved_at, p.created_at
 			 LIMIT $1`, limit)
 		if err != nil {
 			return err
@@ -347,7 +387,7 @@ func (s *PendingStore) AwaitingReview(ctx context.Context, limit int) ([]Pending
 		for rows.Next() {
 			var p PendingCounterparty
 			if err := rows.Scan(&p.ID, &p.Email, &p.Domain, &p.DisplayName,
-				&p.ActivityID, &p.OwnerID, &p.Attempts); err != nil {
+				&p.ActivityID, &p.OwnerID, &p.Attempts, &p.SuppressOrg); err != nil {
 				return err
 			}
 			out = append(out, p)

@@ -3,7 +3,8 @@
 
 package compose
 
-// The one place untrusted text is made safe to put inside an <untrusted> fence.
+// The one place untrusted text is made safe to put inside an <untrusted> fence
+// — every prompt that fences data calls this, and there is no second spelling.
 //
 // Every prompt that shows a model captured data wraps it in <untrusted> markers
 // and tells the model that what sits between them is DATA, never instructions.
@@ -29,7 +30,12 @@ import "regexp"
 // tolerate it. Deliberately broad: the cost of neutralizing a marker that
 // appears innocently in someone's mail is a slightly odd-looking prompt, while
 // the cost of missing one is a prompt written by the sender.
-var untrustedMarker = regexp.MustCompile(`(?i)<\s*/?\s*untrusted`)
+// The character class is deliberately wider than Go's \s (which is ASCII only):
+// a vertical tab, a non-breaking space or a zero-width joiner between the
+// bracket and the word is invisible to \s but may still read as a boundary to a
+// tokenizer. \p{Zs} covers unicode spaces, \p{Cf} the format/zero-width
+// characters an attacker would reach for first.
+var untrustedMarker = regexp.MustCompile(`(?i)<[\s\p{Zs}\p{Cf}]*/?[\s\p{Zs}\p{Cf}]*untrusted`)
 
 // fenceUntrusted makes s safe to place between <untrusted> markers by defusing
 // any marker it contains. The replacement is visible on purpose — a reader of a

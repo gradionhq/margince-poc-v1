@@ -29,6 +29,13 @@ type UnlabeledEmail struct {
 
 // UnlabeledCaptureEmails reads the oldest connector-captured emails not
 // yet labeled — the partial-index backlog (idx_activity_unlabeled).
+//
+// Mail from a sender whose disposition is still open is left out (ADR-0072 §5).
+// Labeling routes attention, and a message from someone the workspace has not
+// yet decided is a counterparty at all should not be competing for attention —
+// least of all when the pending question may resolve to `noise` and hide it. It
+// re-enters the backlog by itself once the verdict lands, because this is a
+// query over live state rather than a queue anything has to remember to refill.
 func (s *Store) UnlabeledCaptureEmails(ctx context.Context, limit, bodyLimit int) ([]UnlabeledEmail, error) {
 	var out []UnlabeledEmail
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -37,6 +44,10 @@ func (s *Store) UnlabeledCaptureEmails(ctx context.Context, limit, bodyLimit int
 			FROM activity
 			WHERE capture_label IS NULL AND captured_by LIKE 'connector:%' AND kind = 'email'
 			  AND archived_at IS NULL
+			  AND NOT EXISTS (
+			    SELECT 1 FROM capture_pending_counterparty p
+			     WHERE p.email = activity.counterparty_email
+			       AND p.status IN ('pending', 'unsure'))
 			ORDER BY occurred_at
 			LIMIT $2`, bodyLimit, limit)
 		if err != nil {

@@ -161,6 +161,10 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// Its domain already says what it is, so it is not the ambiguous class.
 	if s.freemail != nil && s.freemail.IsFreemail(cp.Domain) {
 		decision.create, decision.suppressOrg = true, true
+		// Recorded on the ledger too, not only on this decision: if anything ever
+		// lets a free-mail sender reach T4, whoever creates the records days
+		// later must still know that gmail.com names a person and not a company.
+		row.SuppressOrg = true
 	}
 
 	if !decision.create {
@@ -204,7 +208,7 @@ func (s *Sink) internalDomainTx(ctx context.Context, tx pgx.Tx, domain string) (
 	return internal, nil
 }
 
-// correspondencePositive reports whether the workspace has ever sent mail to
+// correspondencePositiveTx reports whether the workspace has ever sent mail to
 // email — the T1 evidence (ADR-0072 §1). It reads only
 // `counterparty_outbound_attested`, the provider's own attestation that the
 // mailbox owner sent the message, and never `direction`: direction is derived

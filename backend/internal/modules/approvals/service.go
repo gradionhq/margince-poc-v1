@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -57,6 +58,20 @@ func NewService(pool *pgxpool.Pool) *Service {
 func (s *Service) WithEffect(kind string, effect ApprovedEffect) *Service {
 	s.effects[kind] = effect
 	return s
+}
+
+// EffectKinds lists the staging kinds this service has an executor for. It
+// exists so the composition root's fitness test can hold EVERY stageable kind to
+// a decision-grant mapping, not just the ones that happen to be agent tools — a
+// kind registered here but missing from decisionGrants stages proposals that no
+// human can see or decide, which fails silently and looks like nothing happened.
+func (s *Service) EffectKinds() []string {
+	kinds := make([]string, 0, len(s.effects))
+	for kind := range s.effects {
+		kinds = append(kinds, kind)
+	}
+	sort.Strings(kinds)
+	return kinds
 }
 
 // audit appends this module's audit rows — same append-only table, this

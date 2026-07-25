@@ -42,6 +42,13 @@ CREATE TABLE capture_pending_counterparty (
     FOREIGN KEY (workspace_id, owner_id)
     REFERENCES app_user (workspace_id, id) ON DELETE CASCADE,
 
+  -- Whether a created counterparty must stay person-only. The free-mail rule
+  -- (CAP-PARAM-5) is decided by the TIER LADDER at capture time, so a verdict or
+  -- a human accept arriving days later has to be told — recomputing it there
+  -- would mean two places deciding what a domain can honestly name, and the
+  -- reviewer's answer would be the one without the ladder's context.
+  suppress_org boolean NOT NULL DEFAULT false,
+
   status text NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'unsure', 'real', 'noise', 'suppressed', 'rejected')),
   -- Why this row reached its status: a T2 registry rule, a verdict, a human

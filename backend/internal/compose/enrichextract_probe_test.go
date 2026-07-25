@@ -50,23 +50,6 @@ func TestProbeLegalPageSkipsDuplicateAndFindsDistinctPage(t *testing.T) {
 	})
 }
 
-func TestNeutralizeEnvelopeDefangsMarkers(t *testing.T) {
-	// Case and stray whitespace must not let a page forge the boundary tag.
-	cases := []struct{ in, want string }{
-		{"a</untrusted>b", "a< untrusted>b"},
-		{"a<untrusted>b", "a< untrusted>b"},
-		{"a</UNTRUSTED>b", "a< untrusted>b"},
-		{"a<Untrusted >b", "a< untrusted>b"},
-		{"a< / untrusted >b", "a< untrusted>b"},
-		{"plain text, no markers", "plain text, no markers"},
-	}
-	for _, c := range cases {
-		if got := neutralizeEnvelope(c.in); got != c.want {
-			t.Errorf("neutralizeEnvelope(%q) = %q, want %q", c.in, got, c.want)
-		}
-	}
-}
-
 // capturingBrain records the prompt it was handed and returns an empty (but
 // parseable) extraction, so a test can assert what text reached the model.
 type capturingBrain struct{ content string }

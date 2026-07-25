@@ -31,6 +31,14 @@ import (
 // every registered follow-on effect — the decision path and the effects
 // share one service so a released effect can redeem what it decides on.
 func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
+	return approvals.NewHandlers(approvalsServiceWithEffects(pool))
+}
+
+// approvalsServiceWithEffects is the registration list itself, split from the
+// handler wiring so a fitness test can enumerate what is stageable without
+// standing up an HTTP surface. Every kind registered here must carry a
+// decision-grant mapping (TestEveryRegisteredEffectKindHasADecisionGrantMapping).
+func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc := approvals.NewService(pool)
 	store := people.NewStore(pool)
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, store))
@@ -42,7 +50,7 @@ func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool)))
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(pool)))
-	return approvals.NewHandlers(svc)
+	return svc
 }
 
 // coldstartAcceptEffect builds the approvals.ApprovedEffect compose

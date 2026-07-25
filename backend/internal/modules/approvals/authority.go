@@ -65,6 +65,11 @@ var decisionGrants = map[string][]struct {
 	// team page) captures them as a LEAD through the capture sink — the
 	// effect is a lead create, so deciding it needs that grant.
 	"site_lead": {{"lead", principal.ActionCreate}},
+	// Accepting a capture_counterparty proposal (ADR-0072/A118: a first-time
+	// sender the verdict engine could not judge) creates the person and, unless
+	// the domain is free-mail, the organization behind them — so deciding it
+	// needs both create grants, exactly as if the approver had typed them in.
+	"capture_counterparty": {{"person", principal.ActionCreate}, {"organization", principal.ActionCreate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{"deal", principal.ActionUpdate}},

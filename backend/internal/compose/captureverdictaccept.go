@@ -53,6 +53,7 @@ type counterpartyProposal struct {
 	Domain        string   `json:"domain"`
 	OwnerID       ids.UUID `json:"owner_id"`
 	ActivityID    ids.UUID `json:"activity_id"`
+	SuppressOrg   bool     `json:"suppress_org"`
 }
 
 // stageCounterpartyReview offers one unresolvable sender to a human. Returns the
@@ -66,6 +67,7 @@ func stageCounterpartyReview(ctx context.Context, svc *approvals.Service, row ca
 		Domain:        row.Domain,
 		OwnerID:       row.OwnerID,
 		ActivityID:    row.ActivityID,
+		SuppressOrg:   row.SuppressOrg,
 	}
 	body, err := json.Marshal(proposal)
 	if err != nil {
@@ -137,6 +139,7 @@ func applyCounterpartyAccept(ctx context.Context, tx pgx.Tx, store *people.Store
 		ActivityID:  ids.From[ids.ActivityKind](proposal.ActivityID),
 		Source:      counterpartyProposalKind,
 		CapturedBy:  counterpartyProposalKind,
+		SuppressOrg: proposal.SuppressOrg,
 	})
 	// An address erased while the offer sat in the inbox creates nothing;
 	// erasure outranks an approval, and the question is still answered.

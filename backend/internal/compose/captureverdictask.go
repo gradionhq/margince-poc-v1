@@ -90,15 +90,20 @@ func validateVerdictPayload(payload verdictPayload, batch []capture.PendingCount
 		want[row.ID.String()] = true
 	}
 	for _, r := range payload.Results {
+		// Every echoed token is MODEL output, and a sender who got the model to
+		// obey can choose it — so it is bounded before it reaches an error string
+		// that ends up in the operator's log. An unbounded echo is how another
+		// party's text, or a megabyte of it, gets written to disk by a validator
+		// that was only trying to be helpful.
 		if !want[r.ID] {
-			return fmt.Sprintf("result id %q was not requested", r.ID)
+			return fmt.Sprintf("result id %q was not requested", clampToken(r.ID))
 		}
 		if seen[r.ID] {
-			return fmt.Sprintf("result id %q appears twice", r.ID)
+			return fmt.Sprintf("result id %q appears twice", clampToken(r.ID))
 		}
 		seen[r.ID] = true
 		if !verdictLabels[r.Verdict] {
-			return fmt.Sprintf("verdict %q is not real|noise", r.Verdict)
+			return fmt.Sprintf("verdict %q is not real|noise", clampToken(r.Verdict))
 		}
 		if r.Confidence < 0 || r.Confidence > 1 {
 			return fmt.Sprintf("confidence %v is outside [0,1]", r.Confidence)
@@ -110,6 +115,20 @@ func validateVerdictPayload(payload verdictPayload, batch []capture.PendingCount
 		}
 	}
 	return ""
+}
+
+// maxEchoedToken bounds how much model-chosen text any validation message may
+// repeat back. Long enough to identify a malformed id at a glance, short enough
+// that the log cannot be used as a writing surface.
+const maxEchoedToken = 64
+
+// clampToken bounds one echoed token on a rune boundary.
+func clampToken(s string) string {
+	runes := []rune(s)
+	if len(runes) <= maxEchoedToken {
+		return s
+	}
+	return string(runes[:maxEchoedToken]) + "…"
 }
 
 // verdictSchema is the generation-time shape guardrail.

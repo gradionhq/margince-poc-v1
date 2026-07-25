@@ -210,10 +210,13 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err := s.emitReply(ctx, tx, auditID, id, rec, fields); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
-	// The tiered creation gate decides and records in THIS transaction, so an
-	// activity never exists without a disposition. A gate fault fails the
-	// capture rather than silently creating: the connector retries the message,
-	// which the natural key makes idempotent.
+	// The tiered creation gate decides and records in THIS transaction, so a
+	// SUCCESSFUL gate leaves no window between an activity landing and its
+	// disposition being known. A gate FAULT is contained by the savepoint inside
+	// decideCounterpartyGuarded: it costs the derivation only, the message still
+	// commits, and the link-less activity plus its capture_ensure_fault
+	// breadcrumb are what the reconcile pass looks for. Failing the whole capture
+	// would throw away a message we had already successfully read.
 	decision, err := s.decideCounterpartyGuarded(ctx, tx, rec, id.UUID)
 	if err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
