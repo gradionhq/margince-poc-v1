@@ -263,10 +263,10 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	verb, before := "create", map[string]any(nil)
 	if priorStatus != nil {
 		verb = "update"
-		before = map[string]any{"provider": in.provider, "status": *priorStatus, "account_label": priorLabel}
+		before = connectionAuditImage(in.provider, *priorStatus, priorLabel)
 	}
 	if err := auditLifecycle(ctx, tx, verb, captureConnectionObject, id, before,
-		map[string]any{"provider": in.provider, "status": "connected", "account_label": in.accountLabel}); err != nil {
+		connectionAuditImage(in.provider, "connected", in.accountLabel)); err != nil {
 		return ids.Nil, nil, err
 	}
 	// A (re)connect starts the scheduling ladder clean: a row parked by

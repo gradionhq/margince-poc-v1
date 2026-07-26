@@ -302,7 +302,7 @@ func WithGraphCapture(c GraphConfig) Option {
 		}
 		if s.connectorHandlers.registry == nil {
 			s.connectorHandlers.registry = NewCaptureRegistry(pool, s.vault, s.captureConfig)
-			s.connectorHandlers.authority = identity.NewService(pool)
+			s.authority = identity.NewService(pool)
 			s.signer = newStateSigner([]byte(c.StateKey))
 			s.publicBaseURL = c.PublicBaseURL
 			s.apiBaseURL = c.APIBaseURL

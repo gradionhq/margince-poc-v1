@@ -236,8 +236,8 @@ func (r *Registry) withdrawConnection(ctx context.Context, userID ids.UUID, name
 		// Withdrawing a connector is a human's deliberate act over their own
 		// mailbox and is attributed like any other record mutation.
 		return auditLifecycle(ctx, tx, "archive", captureConnectionObject, connID,
-			map[string]any{"provider": name, "status": priorStatus, "account_label": priorLabel},
-			map[string]any{"provider": name, "status": "disconnected", "account_label": priorLabel})
+			connectionAuditImage(name, priorStatus, priorLabel),
+			connectionAuditImage(name, "disconnected", priorLabel))
 	})
 	if err != nil {
 		return nil, err

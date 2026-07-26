@@ -137,8 +137,8 @@ func (e *Exclusions) Delete(ctx context.Context, id ids.UUID) error {
 			return err
 		}
 		return auditLifecycle(ctx, tx, "archive", captureExclusionRuleObject, r.ID,
-			map[string]any{"kind": r.Kind, "value": r.Value, "archived": false},
-			map[string]any{"kind": r.Kind, "value": r.Value, "archived": true})
+			exclusionAuditImage(r.Kind, r.Value, false),
+			exclusionAuditImage(r.Kind, r.Value, true))
 	})
 	if err != nil {
 		return fmt.Errorf("capture: deleting exclusion rule: %w", err)

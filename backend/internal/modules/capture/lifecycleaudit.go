@@ -45,3 +45,29 @@ func auditLifecycle(ctx context.Context, tx pgx.Tx, verb, object string, id ids.
 	}
 	return nil
 }
+
+// connectionAuditImage is one side of a connector connection's audit trail.
+// The shape is spelled once so a grant and its withdrawal are diffable field
+// for field. accountLabel stays a pointer: a connector that cannot name its
+// account records no claim about it, which is not the same as naming an empty
+// one. The credential ref is deliberately absent — the vault is the custodian
+// of that secret and the audit spine must not become a second one.
+func connectionAuditImage(provider, status string, accountLabel *string) map[string]any {
+	return map[string]any{
+		"provider":      provider,
+		"status":        status,
+		"account_label": accountLabel,
+	}
+}
+
+// exclusionAuditImage is one side of an exclusion rule's audit trail. The
+// archived flag is what makes a removal legible: the rule's kind and value
+// survive on both images, so the trail answers WHICH privacy boundary moved,
+// not merely that one did.
+func exclusionAuditImage(kind, value string, archived bool) map[string]any {
+	return map[string]any{
+		"kind":     kind,
+		"value":    value,
+		"archived": archived,
+	}
+}
