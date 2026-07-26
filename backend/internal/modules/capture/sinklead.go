@@ -20,6 +20,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -116,11 +117,20 @@ func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.Normaliz
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return ids.LeadID{}, false, fmt.Errorf("capture: lead upsert: %w", err)
 	}
+	// Replay: the natural key already landed. Returning a record is a read, so
+	// the row scope binds here too — ownership can move after the first
+	// capture, and a replay must not hand back a lead the caller lost sight of.
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&id)
 	if err != nil {
 		return ids.LeadID{}, false, fmt.Errorf("capture: lead replay lookup: %w", err)
+	}
+	if err := auth.EnsureVisible(ctx, tx, "lead", id.UUID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return ids.LeadID{}, false, skipInvisibleIncumbent(rec, "lead")
+		}
+		return ids.LeadID{}, false, err
 	}
 	return id, false, nil
 }
@@ -140,6 +150,16 @@ func (s *Sink) findLeadCollision(ctx context.Context, tx pgx.Tx, rec connector.N
 		return nil, nil, nil
 	}
 	if err != nil {
+		return nil, nil, err
+	}
+	// An incumbent outside the granting human's row scope is not the
+	// connector's to resolve: it can be neither merged into nor ignored in
+	// favour of a second row, so the record is skipped and the address stays
+	// where a human with the scope to see both can act on it.
+	if err := auth.EnsureVisible(ctx, tx, "lead", existing.UUID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return nil, nil, skipInvisibleIncumbent(rec, "lead")
+		}
 		return nil, nil, err
 	}
 	captured, err := json.Marshal(fields)
