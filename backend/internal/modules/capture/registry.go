@@ -129,15 +129,9 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	if !ok || actor.Type != principal.PrincipalHuman {
 		return ids.Nil, errors.New("capture: only a human grants a connector")
 	}
-	for _, scope := range c.Descriptor().Scopes {
-		if !actor.Scopes.Has(scope) {
-			return ids.Nil, fmt.Errorf("capture: connector %s needs scope %q the granting human does not hold: %w",
-				name, scope, apperrors.ErrScopeExceeded)
-		}
-	}
-	scopes := make([]string, 0, len(c.Descriptor().Scopes))
-	for _, s := range c.Descriptor().Scopes {
-		scopes = append(scopes, string(s))
+	scopes, err := grantedScopes(c, actor, name)
+	if err != nil {
+		return ids.Nil, err
 	}
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
@@ -156,56 +150,20 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
 	}
-	// Display-only; a connector that cannot name its account simply does not
-	// implement the seam. This must not fail the connect — a missing label is a
-	// blank line in the UI, not a lost connection.
-	var accountLabel *string
-	if labeler, ok := c.(connector.AccountLabeler); ok {
-		if label, err := labeler.AccountLabel(auth); err == nil && label != "" {
-			accountLabel = &label
-		} else if err != nil {
-			slog.WarnContext(ctx, "capture: connector could not name its account", "provider", name, "err", err)
-		}
+	row := connectionUpsert{
+		userID:       actor.UserID,
+		provider:     name,
+		scopes:       scopes,
+		ref:          ref,
+		accountLabel: accountLabelFor(ctx, c, auth, name),
 	}
 	var id ids.UUID
 	var priorRef *string
-	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		// Capture the credential_ref this (re)connect is about to overwrite,
-		// if a row for this (workspace, user, provider) already exists. The
-		// FOR UPDATE lock holds the row still for the span of this
-		// transaction, so a concurrent disconnect/reconnect on the same row
-		// serializes behind this one rather than racing it. Without this
-		// read, the upsert below would silently orphan the previous secret
-		// in the vault — every reconnect (including the reauth_required →
-		// Reconnect flow) would leak the prior credential.
-		if err := tx.QueryRow(ctx, `
-			SELECT credential_ref FROM capture_connection
-			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND user_id = $1 AND provider = $2
-			   FOR UPDATE`,
-			actor.UserID, name).Scan(&priorRef); err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return err
-		}
-		if err := tx.QueryRow(ctx, `
-			INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5)
-			ON CONFLICT (workspace_id, user_id, provider)
-			DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
-			              account_label = EXCLUDED.account_label
-			RETURNING id`,
-			name, actor.UserID, scopes, string(ref), accountLabel).Scan(&id); err != nil {
-			return err
-		}
-		// A (re)connect starts the scheduling ladder clean: a row parked by
-		// reauth_required or degraded by backoff is due immediately with a
-		// fresh credential (ADR-0063).
-		_, err = tx.Exec(ctx, `
-			UPDATE capture_sync_state
-			SET next_sync_at = now(), consecutive_failures = 0, last_error_class = NULL
-			WHERE connection_id = $1`, id)
+	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		var err error
+		id, priorRef, err = upsertConnection(ctx, tx, row)
 		return err
-	})
-	if err != nil {
+	}); err != nil {
 		return ids.Nil, fmt.Errorf("capture: storing connection: %w", err)
 	}
 	// The row now names the fresh ref; a prior ref (a genuine reconnect over
@@ -220,6 +178,113 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 		keyvault.DeleteDetached(ctx, r.vault, slog.Default(), ws, keyvault.Ref(*priorRef), "reconnect")
 	}
 	return id, nil
+}
+
+// grantedScopes runs the grant-time scope intersection and returns the
+// connector's declared scopes as the strings the row freezes. A connector
+// demanding a scope the granting human does not hold is refused here rather
+// than discovered at 3am mid-sync.
+func grantedScopes(c connector.Connector, actor principal.Principal, name string) ([]string, error) {
+	declared := c.Descriptor().Scopes
+	out := make([]string, 0, len(declared))
+	for _, scope := range declared {
+		if !actor.Scopes.Has(scope) {
+			return nil, fmt.Errorf("capture: connector %s needs scope %q the granting human does not hold: %w",
+				name, scope, apperrors.ErrScopeExceeded)
+		}
+		out = append(out, string(scope))
+	}
+	return out, nil
+}
+
+// accountLabelFor asks the connector to name the account it just authorized.
+// Display-only; a connector that cannot name its account simply does not
+// implement the seam. This must not fail the connect — a missing label is a
+// blank line in the UI, not a lost connection.
+func accountLabelFor(ctx context.Context, c connector.Connector, auth connector.Auth, name string) *string {
+	labeler, ok := c.(connector.AccountLabeler)
+	if !ok {
+		return nil
+	}
+	label, err := labeler.AccountLabel(auth)
+	if err != nil {
+		slog.WarnContext(ctx, "capture: connector could not name its account", "provider", name, "err", err)
+		return nil
+	}
+	if label == "" {
+		return nil
+	}
+	return &label
+}
+
+// connectionUpsert is one connect transaction's write: the granting human, the
+// provider and the scopes frozen at grant time, the ref naming the freshly
+// sealed credential, and the display-only account label.
+type connectionUpsert struct {
+	userID       ids.UUID
+	provider     string
+	scopes       []string
+	ref          keyvault.Ref
+	accountLabel *string
+}
+
+// upsertConnection writes (or re-points) the caller's connection row and
+// audits the change inside the connect transaction. It returns the row id and
+// the credential ref this write superseded — nil for a first-time connect —
+// which the caller destroys once the transaction has committed.
+func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.UUID, *string, error) {
+	// Capture what this (re)connect is about to overwrite, if a row for this
+	// (workspace, user, provider) already exists. The FOR UPDATE lock holds the
+	// row still for the span of this transaction, so a concurrent
+	// disconnect/reconnect on the same row serializes behind this one rather
+	// than racing it. Without the credential_ref read the upsert below would
+	// silently orphan the previous secret in the vault — every reconnect
+	// (including the reauth_required → Reconnect flow) would leak the prior
+	// credential; status and account_label are the audit before-image, which
+	// only this read can supply.
+	var priorRef, priorStatus, priorLabel *string
+	if err := tx.QueryRow(ctx, `
+		SELECT credential_ref, status, account_label FROM capture_connection
+		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND user_id = $1 AND provider = $2
+		   FOR UPDATE`,
+		in.userID, in.provider).Scan(&priorRef, &priorStatus, &priorLabel); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return ids.Nil, nil, err
+	}
+	var id ids.UUID
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5)
+		ON CONFLICT (workspace_id, user_id, provider)
+		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
+		              account_label = EXCLUDED.account_label
+		RETURNING id`,
+		in.provider, in.userID, in.scopes, string(in.ref), in.accountLabel).Scan(&id); err != nil {
+		return ids.Nil, nil, err
+	}
+	// A grant is a human's deliberate act over their own mailbox, so it is
+	// attributed like any other record mutation. A row that already existed is
+	// a reconnect (an update over the same connection), never a second create.
+	// The images carry the connection, never the credential ref or auth bytes.
+	verb, before := "create", map[string]any(nil)
+	if priorStatus != nil {
+		verb = "update"
+		before = map[string]any{"provider": in.provider, "status": *priorStatus, "account_label": priorLabel}
+	}
+	if err := auditLifecycle(ctx, tx, verb, captureConnectionObject, id, before,
+		map[string]any{"provider": in.provider, "status": "connected", "account_label": in.accountLabel}); err != nil {
+		return ids.Nil, nil, err
+	}
+	// A (re)connect starts the scheduling ladder clean: a row parked by
+	// reauth_required or degraded by backoff is due immediately with a fresh
+	// credential (ADR-0063).
+	if _, err := tx.Exec(ctx, `
+		UPDATE capture_sync_state
+		SET next_sync_at = now(), consecutive_failures = 0, last_error_class = NULL
+		WHERE connection_id = $1`, id); err != nil {
+		return ids.Nil, nil, err
+	}
+	return id, priorRef, nil
 }
 
 // SyncOnce runs one incremental sync for a connection: builds the
@@ -353,104 +418,6 @@ func (r *Registry) resolveCredential(ctx context.Context, credentialRef *string,
 	}
 	// A row not yet backfilled: the credential still lives in the column.
 	return connector.Auth(authBytes), nil
-}
-
-// BackfillCredentials migrates every legacy capture_connection row whose
-// credential still lives in the auth bytea column onto the vault: it seals the
-// bytes, records the credential_ref, and clears auth. It is idempotent — a row
-// that already carries a ref is skipped — so a re-run or a crash-retry is
-// safe, which is what lets it run on every boot. It walks every live workspace
-// under that workspace's own GUC, since capture_connection is RLS-scoped.
-// One workspace's failure must not starve the rest of the fleet (the same
-// invariant retention and the close-date sweep hold): the walk continues past
-// a failing workspace and returns the count migrated plus the joined errors.
-func (r *Registry) BackfillCredentials(ctx context.Context) (int, error) {
-	if r.vault == nil {
-		return 0, errors.New("capture: cannot backfill connector credentials without a keyvault")
-	}
-	// rls-exempt: fleet enumeration — the workspace table is not workspace-scoped; this reads every tenant before entering each workspace's own GUC.
-	rows, err := r.pool.Query(ctx, `SELECT id FROM workspace WHERE archived_at IS NULL ORDER BY created_at`)
-	if err != nil {
-		return 0, fmt.Errorf("capture: listing workspaces for credential backfill: %w", err)
-	}
-	workspaces, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-	if err != nil {
-		return 0, err
-	}
-	total := 0
-	var errs error
-	for _, wsID := range workspaces {
-		// The backfill's UPDATE runs under the workspace GUC only (a raw
-		// relocation, not an audited domain write), so no actor/correlation
-		// context is set — nothing here reads it.
-		wsCtx := principal.WithWorkspaceID(ctx, wsID)
-		migrated, err := r.backfillWorkspace(wsCtx, ids.From[ids.WorkspaceKind](wsID))
-		if err != nil {
-			errs = errors.Join(errs, fmt.Errorf("capture: backfilling workspace %s: %w", wsID, err))
-			continue
-		}
-		total += migrated
-	}
-	return total, errs
-}
-
-// backfillWorkspace migrates one workspace's legacy rows. Each secret is
-// sealed OUTSIDE the update tx (put-then-commit); the update then claims the
-// row only if it still has no ref, so a concurrent backfill (two worker pods
-// at boot) cannot double-migrate — the loser's sealed secret is a harmless
-// orphan, never a corrupted row.
-func (r *Registry) backfillWorkspace(ctx context.Context, ws ids.WorkspaceID) (int, error) {
-	type legacyRow struct {
-		id   ids.UUID
-		auth []byte
-	}
-	var pending []legacyRow
-	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id, auth FROM capture_connection
-			WHERE credential_ref IS NULL AND auth IS NOT NULL`)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var l legacyRow
-			if err := rows.Scan(&l.id, &l.auth); err != nil {
-				return err
-			}
-			pending = append(pending, l)
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return 0, err
-	}
-
-	migrated := 0
-	for _, l := range pending {
-		ref, err := r.vault.Put(ctx, ws, l.auth)
-		if err != nil {
-			return migrated, err
-		}
-		var claimed bool
-		err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-			ct, err := tx.Exec(ctx, `
-				UPDATE capture_connection SET credential_ref = $2, auth = NULL
-				WHERE id = $1 AND credential_ref IS NULL`, l.id, string(ref))
-			if err != nil {
-				return err
-			}
-			claimed = ct.RowsAffected() == 1
-			return nil
-		})
-		if err != nil {
-			return migrated, err
-		}
-		if claimed {
-			migrated++
-		}
-	}
-	return migrated, nil
 }
 
 // connectorContext builds the acting principal: connector identity,

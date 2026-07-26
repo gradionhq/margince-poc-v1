@@ -110,11 +110,11 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 // already-fully-disconnected connection is a no-op.
 //
 // Ordering closes the leak this method exists to close, and a naive order would
-// re-open it. The credential_ref is KEPT through the status flip so a crash
-// between the phases leaves a recoverable state: the retry predicate keys on
-// 'credential_ref IS NOT NULL', so a half-finished disconnect converges rather
-// than orphaning the secret. Delete is idempotent (keyvault contract), so the
-// retry is safe.
+// re-open it. Phase 1 (withdrawConnection) keeps the credential_ref through the
+// status flip so a crash between the phases leaves a recoverable state: the
+// retry predicate keys on 'credential_ref IS NOT NULL', so a half-finished
+// disconnect converges rather than orphaning the secret. Delete is idempotent
+// (keyvault contract), so the retry is safe.
 func (r *Registry) Disconnect(ctx context.Context, name string) error {
 	actor, ok := principal.Actor(ctx)
 	if !ok || actor.Type != principal.PrincipalHuman {
@@ -125,38 +125,9 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 		return errors.New("capture: disconnect without a workspace in context")
 	}
 
-	// Phase 1: stop capture. Flip status and clear the legacy auth bytea (a row
-	// whose vault migration never ran holds its credential there — it must not
-	// escape erasure through the older column). Keep credential_ref: phase 2
-	// needs it, and a crash between phases leaves a recoverable state.
-	//
-	// The predicate matches a row that is either still LIVE (status <>
-	// 'disconnected') or still holds a ref (a prior call's phase 2 failed and
-	// this call is retrying it):
-	//   - fresh vault row (connected, ref set): live → matches, ref returned.
-	//   - legacy row (connected, ref NULL, credential in auth): live →
-	//     matches; auth is erased here, ref stays NULL — nothing to
-	//     vault-delete, phase 2/3 are a no-op below.
-	//   - partial-failure retry (already disconnected, ref still set):
-	//     ref IS NOT NULL → matches, retries the vault delete.
-	//   - fully done (disconnected, ref NULL): matches neither arm →
-	//     ErrNoRows → idempotent no-op.
-	// A credential_ref-only predicate (the prior version) misses the legacy
-	// case entirely: credential_ref IS NULL there even though a live secret
-	// sits in auth, so the row would never match and disconnect would be a
-	// silent no-op that leaves the row connected and the credential intact.
-	var ref *string
-	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(
-			ctx, `
-			UPDATE capture_connection
-			   SET status = 'disconnected', auth = NULL
-			 WHERE user_id = $1 AND provider = $2
-			   AND (status <> 'disconnected' OR credential_ref IS NOT NULL)
-			RETURNING credential_ref`,
-			actor.UserID, name,
-		).Scan(&ref)
-	}); err != nil {
+	// Phase 1: stop capture.
+	ref, err := r.withdrawConnection(ctx, actor.UserID, name)
+	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// No row to flip: never connected, or already fully disconnected
 			// (disconnected + no ref) on a prior call. Idempotent no-op.
@@ -200,6 +171,67 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 			actor.UserID, name, *ref)
 		return err
 	})
+}
+
+// withdrawConnection is Disconnect's phase 1: flip the caller's connection for
+// provider name to 'disconnected', clear the legacy auth bytea (a row whose
+// vault migration never ran holds its credential there — it must not escape
+// erasure through the older column), and audit the withdrawal. It returns the
+// credential_ref the row still names, which the caller destroys next; nil means
+// there is no vaulted secret to destroy. pgx.ErrNoRows means nothing matched.
+//
+// credential_ref is deliberately KEPT here: phase 2 needs it, and a crash
+// between the phases must leave a recoverable state.
+//
+// The predicate matches a row that is either still LIVE (status <>
+// 'disconnected') or still holds a ref (a prior call stopped between phases):
+//   - fresh vault row (connected, ref set): live → matches, ref returned.
+//   - legacy row (connected, ref NULL, credential in auth): live → matches;
+//     auth is erased here, ref stays NULL — nothing to vault-delete.
+//   - half-finished retry (already disconnected, ref still set):
+//     ref IS NOT NULL → matches, retries the vault delete.
+//   - fully done (disconnected, ref NULL): matches neither arm → ErrNoRows →
+//     idempotent no-op.
+//
+// A credential_ref-only predicate misses the legacy case entirely:
+// credential_ref IS NULL there even though a live secret sits in auth, so the
+// row would never match and disconnect would be a silent no-op that leaves the
+// row connected and the credential intact.
+//
+// The row is read FOR UPDATE before the flip so the audit before-image is the
+// status the human is actually withdrawing from, and so a concurrent reconnect
+// serializes behind this transaction rather than racing it.
+func (r *Registry) withdrawConnection(ctx context.Context, userID ids.UUID, name string) (*string, error) {
+	var ref *string
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		var connID ids.UUID
+		var priorStatus string
+		var priorLabel *string
+		if err := tx.QueryRow(ctx, `
+			SELECT id, status, account_label FROM capture_connection
+			 WHERE user_id = $1 AND provider = $2
+			   AND (status <> 'disconnected' OR credential_ref IS NOT NULL)
+			 FOR UPDATE`,
+			userID, name).Scan(&connID, &priorStatus, &priorLabel); err != nil {
+			return err
+		}
+		if err := tx.QueryRow(ctx, `
+			UPDATE capture_connection
+			   SET status = 'disconnected', auth = NULL
+			 WHERE id = $1
+			RETURNING credential_ref`, connID).Scan(&ref); err != nil {
+			return err
+		}
+		// Withdrawing a connector is a human's deliberate act over their own
+		// mailbox and is attributed like any other record mutation.
+		return auditLifecycle(ctx, tx, "archive", captureConnectionObject, connID,
+			map[string]any{"provider": name, "status": priorStatus, "account_label": priorLabel},
+			map[string]any{"provider": name, "status": "disconnected", "account_label": priorLabel})
+	})
+	if err != nil {
+		return nil, err
+	}
+	return ref, nil
 }
 
 // DueConnection names one connected connection to sync, with the workspace it
