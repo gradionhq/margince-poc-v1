@@ -10,16 +10,16 @@
   "reliability": 0,
   "score_p50": 100,
   "score_min": 100,
-  "latency_p50": 1241,
-  "latency_p95": 1350,
-  "mean_tokens": 473,
+  "latency_p50": 990,
+  "latency_p95": 1116,
+  "mean_tokens": 470,
   "mean_tokens_in": 217,
-  "mean_tokens_out": 256,
+  "mean_tokens_out": 253,
   "mean_cached_tokens": 0,
   "mean_cache_write_tokens": 0,
-  "est_cost_microusd": 438,
+  "est_cost_microusd": 433,
   "judge_served_model": "gemini-3.5-flash",
   "self_judged": false,
   "served_identity_source": "response",
-  "ran_at": "2026-07-20T11:44:55Z"
+  "ran_at": "2026-07-26T06:21:59Z"
 }

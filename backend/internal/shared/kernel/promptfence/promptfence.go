@@ -144,14 +144,15 @@ func MarkerIn(system string) (string, bool) {
 	return found[1], true
 }
 
-// FromMarker rebuilds the fence a prompt already declares, for the layer that
-// adds a span to a prompt someone else built. The composition layer injects a
-// context block into a request whose system prompt has already named ONE
-// boundary and said it is the only one; the honest way to add data to that
-// prompt is to use that same boundary, not to declare a second one beside it.
+// FromMarker rebuilds a fence from a marker, for the layer that adds a span to a
+// prompt someone else built. The composition layer injects a context block into a
+// request whose system prompt has already named ONE boundary and said it is the
+// only one; the honest way to add data to that prompt is to use that same
+// boundary, not to declare a second one beside it.
 //
-// ok=false when the prompt declares none, and the caller must then fail closed
-// rather than fall back to a fixed container.
+// ok=false for anything this package could not have minted, and the caller must
+// then fail closed rather than fall back to a fixed container. This is also the
+// shape check on a marker read back from storage.
 func FromMarker(marker string) (Fence, bool) {
 	nonce, hasPrefix := strings.CutPrefix(marker, markerPrefix)
 	if !hasPrefix {
@@ -201,14 +202,11 @@ func (f *Fence) UnmarshalJSON(data []byte) error {
 		f.nonce = ""
 		return nil
 	}
-	nonce, ok := strings.CutPrefix(marker, markerPrefix)
+	restored, ok := FromMarker(marker)
 	if !ok {
-		return errors.New("promptfence: stored marker does not carry the fence prefix")
+		return errors.New("promptfence: stored marker is not one this package could have minted")
 	}
-	if _, err := ids.Parse(nonce); err != nil {
-		return errors.New("promptfence: stored marker's nonce is not a UUID")
-	}
-	f.nonce = marker
+	*f = restored
 	return nil
 }
 
