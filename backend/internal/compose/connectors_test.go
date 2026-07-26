@@ -325,6 +325,9 @@ func TestCallbackDenialWithUntrustedStateKeepsTheDefaultSurface(t *testing.T) {
 		State: "forged",
 	})
 
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", rec.Code)
+	}
 	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied/gmail" {
 		t.Errorf("Location = %q, want the onboarding default", loc)
 	}

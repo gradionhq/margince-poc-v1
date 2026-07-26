@@ -78,6 +78,11 @@ func TestCallbackRefusesADeadGrantorBeforeExchangingTheCode(t *testing.T) {
 	if oauth.exchanged {
 		t.Error("the code was exchanged for a credential the granting human can no longer hold")
 	}
+	// A Location on anything but a redirect status navigates no browser, so the
+	// landing is only proven by the pair.
+	if rec.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", rec.Code)
+	}
 	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/error/gmail"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}

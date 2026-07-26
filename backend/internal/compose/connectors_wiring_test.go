@@ -101,6 +101,9 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	if oauth.exchanged {
 		t.Fatal("token exchange ran without a matching nonce cookie (CSRF gate bypassed)")
 	}
+	if rec.Code != http.StatusFound {
+		t.Fatalf("no-cookie status = %d, want 302", rec.Code)
+	}
 	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error/gmail" {
 		t.Errorf("no-cookie Location = %q, want the error landing", loc)
 	}
