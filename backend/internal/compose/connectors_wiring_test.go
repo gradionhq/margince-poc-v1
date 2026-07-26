@@ -13,6 +13,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -37,9 +38,9 @@ type recordingOAuth struct{ exchanged bool }
 
 func (o *recordingOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
 
-func (o *recordingOAuth) Exchange(context.Context, string, string) (string, error) {
+func (o *recordingOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
 	o.exchanged = true
-	return "refresh", nil
+	return oauthflow.TokenGrant{RefreshToken: "refresh"}, nil
 }
 
 func (o *recordingOAuth) AccessToken(context.Context, string) (string, error) { return "access", nil }
@@ -189,7 +190,7 @@ func TestContractMapping(t *testing.T) {
 	watch := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	c := toContractConnection(capture.ConnectionView{
 		ID: id, Provider: "gmail", Status: "connected",
-		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, Scopes: []string{"read"},
+		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, ProviderScopes: []string{"https://www.googleapis.com/auth/gmail.readonly"},
 	})
 	if c.Provider != "gmail" || c.Status != crmcontracts.CaptureConnectionStatusConnected || c.SyncCursor == nil || *c.SyncCursor != `{"history_id":"7"}` {
 		t.Errorf("mapping wrong: %+v", c)
@@ -201,7 +202,12 @@ func TestContractMapping(t *testing.T) {
 	if got := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "reauth_required"}); got.Status != crmcontracts.CaptureConnectionStatusReauthRequired {
 		t.Errorf("reauth_required → %q, want reauth_required", got.Status)
 	}
-	// A row with no scopes maps to an empty slice, never null.
+	// The wire `scopes` is the PROVIDER's vocabulary, not the internal one.
+	if len(c.Scopes) != 1 || c.Scopes[0] != "https://www.googleapis.com/auth/gmail.readonly" {
+		t.Errorf("scopes = %v, want the provider-granted set", c.Scopes)
+	}
+	// A connection whose grant was never recorded maps to an empty slice,
+	// never null.
 	if c2 := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "connected"}); c2.Scopes == nil {
 		t.Error("nil scopes should map to an empty slice")
 	}

@@ -44,7 +44,17 @@ type Connector struct {
 // New returns a Calendar connector over the given OAuth + API surfaces.
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
-var _ connector.Connector = (*Connector)(nil)
+var (
+	_ connector.Connector     = (*Connector)(nil)
+	_ connector.GrantedScoper = (*Connector)(nil)
+)
+
+// GrantedScopes reports the Google scopes this calendar connection actually
+// holds — the shared Google bundle reader; Google's vocabulary, never this
+// system's.
+func (c *Connector) GrantedScopes(auth connector.Auth) ([]string, error) {
+	return googleconn.GrantedScopes(auth)
+}
 
 // cursorState is the persisted incremental watermark: Calendar's syncToken.
 type cursorState struct {

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
@@ -28,8 +29,8 @@ import (
 type staleOAuth struct{}
 
 func (staleOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
-func (staleOAuth) Exchange(context.Context, string, string) (string, error) {
-	return "", errors.New("gmail: exchange refused")
+func (staleOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
+	return oauthflow.TokenGrant{}, errors.New("gmail: exchange refused")
 }
 
 func (staleOAuth) AccessToken(context.Context, string) (string, error) {

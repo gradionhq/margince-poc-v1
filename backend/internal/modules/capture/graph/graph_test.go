@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -22,11 +23,12 @@ import (
 
 type fakeOAuth struct {
 	refresh, access string
+	granted         []string
 }
 
 func (f fakeOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
-func (f fakeOAuth) Exchange(context.Context, string, string) (string, error) {
-	return f.refresh, nil
+func (f fakeOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
+	return oauthflow.TokenGrant{RefreshToken: f.refresh, Scopes: f.granted}, nil
 }
 func (f fakeOAuth) AccessToken(context.Context, string) (string, error) { return f.access, nil }
 

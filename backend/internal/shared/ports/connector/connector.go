@@ -84,6 +84,19 @@ type AccountLabeler interface {
 	AccountLabel(auth Auth) (string, error)
 }
 
+// GrantedScoper reports the PROVIDER scopes a connection actually holds — the
+// provider's own vocabulary ("Mail.Read"), read back from the Auth bundle the
+// consent sealed. Distinct from Descriptor.Scopes, which is this system's
+// internal permission vocabulary; the two never share storage.
+//
+// Optional and type-asserted like AccountLabeler: a connector that cannot know
+// its granted scopes (a direct-credential one, with no consent step) simply
+// does not implement it, and the connection records no claim rather than a
+// false one.
+type GrantedScoper interface {
+	GrantedScopes(auth Auth) ([]string, error)
+}
+
 // Descriptor — declared capabilities; ⊆ the granting human's scopes.
 type Descriptor struct {
 	Name     string // stable id: "gmail", "gcal", "hubspot", "coldstart-scrape"

@@ -23,7 +23,6 @@ package compose
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -292,43 +291,19 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
-	// CSRF: the SameSite=Lax nonce cookie must match the nonce in the signed
-	// state, proving the browser completing the flow is the one that started
-	// it. Without this, an attacker could trick a victim into completing the
-	// attacker's flow and link the victim's mailbox to the attacker's account
-	// (account-linking CSRF). The signed state is already verified by this
-	// point — what this check establishes is the BROWSER's identity — so the
-	// redirect can honor the surface the flow started from. The state's own
-	// version names which cookie its initiator actually set.
-	cookieName := csrfCookieName(string(provider))
-	if st.Version < stateVersionNamespacedCSRF {
-		cookieName = legacyCSRFCookieName(string(provider))
-	}
-	csrf, cerr := r.Cookie(cookieName)
-	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
-		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", string(provider))
+	// CSRF: the nonce cookie must match the nonce in the signed state, proving
+	// the browser completing the flow is the one that started it. Without this,
+	// an attacker could trick a victim into completing the attacker's flow and
+	// link the victim's mailbox to the attacker's account (account-linking
+	// CSRF). The signed state is already verified by this point — what this
+	// establishes is the BROWSER's identity — so the redirect can honor the
+	// surface the flow started from.
+	if !consumeCSRFNonce(w, r, string(provider), st) {
 		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
-	// One-shot: clear the cookie that was just consumed — the same name it was
-	// read under, or a stale nonce poisons the next flow — with the same secure
-	// attributes as when it was set, so the delete is honored.
-	http.SetCookie(w, &http.Cookie{
-		Name: cookieName, Path: "/v1/connectors", MaxAge: -1,
-		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
-	})
 
-	// Reconstruct the granting human's authority from the trusted (signed)
-	// state: workspace + user id. A minimal read-scoped human principal is
-	// what Registry.Connect needs — it stamps granted_by and checks the
-	// connector's read scope.
-	runCtx := principal.WithWorkspaceID(ctx, st.Workspace)
-	runCtx = principal.WithActor(runCtx, principal.Principal{
-		Type:   principal.PrincipalHuman,
-		ID:     "human:" + st.User.String(),
-		UserID: st.User,
-		Scopes: principal.NewScopeSet(principal.ScopeRead),
-	})
+	runCtx := grantorContext(ctx, st)
 	// The grant needs LIVE authority, resolved before the code is spent: an
 	// exchanged authorization code is a real provider credential, and one
 	// minted for a human who may no longer hold it has to be revoked at the
@@ -354,6 +329,20 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		return
 	}
 	http.Redirect(w, r, h.landingURL(outcomeOK, returnTo), http.StatusFound)
+}
+
+// grantorContext reconstructs the granting human's authority from the trusted
+// (signed) state: workspace + user id. A minimal read-scoped human principal is
+// what Registry.Connect needs — it stamps granted_by and checks the connector's
+// read scope; the live authority behind it is resolved separately.
+func grantorContext(ctx context.Context, st connectState) context.Context {
+	runCtx := principal.WithWorkspaceID(ctx, st.Workspace)
+	return principal.WithActor(runCtx, principal.Principal{
+		Type:   principal.PrincipalHuman,
+		ID:     "human:" + st.User.String(),
+		UserID: st.User,
+		Scopes: principal.NewScopeSet(principal.ScopeRead),
+	})
 }
 
 // requireLiveGrantor resolves the human named by the signed state against
@@ -392,7 +381,7 @@ func toContractConnection(v capture.ConnectionView) crmcontracts.CaptureConnecti
 		Id:             openapi_types.UUID(v.ID),
 		Provider:       crmcontracts.CaptureConnectionProvider(v.Provider),
 		Status:         crmcontracts.CaptureConnectionStatus(v.Status),
-		Scopes:         v.Scopes,
+		Scopes:         v.ProviderScopes,
 		WatchExpiresAt: v.WatchExpiresAt,
 		AccountLabel:   v.AccountLabel,
 	}

@@ -34,7 +34,14 @@ type ConnectionView struct {
 	Status         string     // connected | disconnected | error | reauth_required (capture_connection.status)
 	Cursor         []byte     // the incremental-sync watermark (jsonb bytes), or nil
 	WatchExpiresAt *time.Time // push/delta subscription renewal deadline, or nil
-	Scopes         []string   // the scopes frozen at grant time
+
+	// ProviderScopes is what the PROVIDER granted, in the provider's own
+	// vocabulary — the fact the contract's CaptureConnection.scopes names, and
+	// the one a human can act on. Nil for a connection whose connector cannot
+	// report it, or one made before the grant was recorded: absence, not an
+	// empty grant. The internal permission scopes stay in the row's own
+	// `scopes` column and are not a list-surface concern.
+	ProviderScopes []string
 
 	// AccountLabel is the display-only mailbox address the connector reported
 	// at connect time (AccountLabeler), or nil when the connector implements
@@ -64,7 +71,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 	var out []ConnectionView
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
-			SELECT c.id, c.provider, c.status, c.sync_cursor, c.watch_expires_at, c.scopes,
+			SELECT c.id, c.provider, c.status, c.sync_cursor, c.watch_expires_at, c.provider_scopes,
 			       c.account_label, s.last_synced_at, s.last_error_class, s.next_sync_at
 			FROM capture_connection c
 			LEFT JOIN capture_sync_state s ON s.connection_id = c.id
@@ -76,7 +83,7 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 		defer rows.Close()
 		for rows.Next() {
 			var v ConnectionView
-			if err := rows.Scan(&v.ID, &v.Provider, &v.Status, &v.Cursor, &v.WatchExpiresAt, &v.Scopes,
+			if err := rows.Scan(&v.ID, &v.Provider, &v.Status, &v.Cursor, &v.WatchExpiresAt, &v.ProviderScopes,
 				&v.AccountLabel, &v.LastSyncedAt, &v.LastErrorClass, &v.NextSyncDueAt); err != nil {
 				return err
 			}

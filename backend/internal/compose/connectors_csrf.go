@@ -9,6 +9,12 @@ package compose
 // consent is the browser that started it — the signed state alone only proves
 // who started it.
 
+import (
+	"crypto/subtle"
+	"log/slog"
+	"net/http"
+)
+
 // oauthCSRFCookie is the base name of the per-flow nonce cookie (SameSite=Lax
 // so it rides the top-level redirect back from the provider) that must match
 // the nonce in the signed state.
@@ -38,4 +44,27 @@ func legacyCSRFCookieName(provider string) string {
 		return oauthCSRFCookie
 	}
 	return csrfCookieName(provider)
+}
+
+// consumeCSRFNonce checks the flow's nonce cookie against the nonce bound into
+// the signed state, and clears the cookie once it has matched — the nonce is
+// one-shot, and a stale one left behind poisons the next flow. The state's own
+// version names which cookie its initiator actually set. False means the
+// browser completing this consent is not the browser that started it.
+func consumeCSRFNonce(w http.ResponseWriter, r *http.Request, provider string, st connectState) bool {
+	name := csrfCookieName(provider)
+	if st.Version < stateVersionNamespacedCSRF {
+		name = legacyCSRFCookieName(provider)
+	}
+	csrf, err := r.Cookie(name)
+	if err != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
+		slog.WarnContext(r.Context(), "connector callback: CSRF nonce missing/mismatched", "err", err, "provider", provider)
+		return false
+	}
+	// Cleared with the same attributes it was set with, so the delete is honored.
+	http.SetCookie(w, &http.Cookie{
+		Name: name, Path: "/v1/connectors", MaxAge: -1,
+		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
+	})
+	return true
 }

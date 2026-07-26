@@ -19,6 +19,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -32,8 +33,8 @@ func (refusingOAuth) AuthCodeURL(state, redirectURI string) string {
 	return "https://consent.test/authorize?redirect_uri=" + url.QueryEscape(redirectURI) + "&state=" + url.QueryEscape(state)
 }
 
-func (refusingOAuth) Exchange(context.Context, string, string) (string, error) {
-	return "", gmail.ErrAuthRejected
+func (refusingOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
+	return oauthflow.TokenGrant{}, gmail.ErrAuthRejected
 }
 
 func (refusingOAuth) AccessToken(context.Context, string) (string, error) {
