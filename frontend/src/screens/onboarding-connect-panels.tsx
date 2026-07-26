@@ -47,6 +47,15 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
 
 type OAuthProvider = "gmail" | "graph";
 
+const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
+
+// The consent return carries its provider as a route segment. A route segment
+// is just text, so it is narrowed by membership in the known set — never
+// asserted into the union — and an unrecognized one is treated as absent.
+function asOAuthProvider(value: string | undefined): OAuthProvider | null {
+  return OAUTH_PROVIDERS.find((p) => p === value) ?? null;
+}
+
 const OAUTH_COPY: Record<
   OAuthProvider,
   {
@@ -135,14 +144,19 @@ export function OAuthConnectPanel({
   );
 }
 
-// Post-consent: the callback route carries no provider, so this reads the
-// roster and shows whichever OAuth mailbox is now live. The row IS the proof
-// — never a static claim the server hasn't confirmed.
+// Post-consent: the roster row IS the proof a connection happened — never a
+// static claim the server hasn't confirmed. The import offered next belongs to
+// the mailbox that just connected, so the returning provider is matched
+// exactly: the roster is provider-ordered, and taking whichever OAuth row
+// comes first would offer to import Gmail after a Microsoft consent.
 export function OAuthReturnPanel({
   outcome,
+  provider,
   onComplete,
 }: Readonly<{
   outcome?: string;
+  /** The provider the consent returned for, from the deep-link route. */
+  provider?: string;
   onComplete: (skipped: boolean) => Promise<void>;
 }>) {
   const t = useT();
@@ -157,10 +171,14 @@ export function OAuthReturnPanel({
       return data;
     },
   });
-  const live = connections.data?.data.find(
-    (c) =>
-      (c.provider === "gmail" || c.provider === "graph") &&
-      c.status === "connected",
+  const returning = asOAuthProvider(provider);
+  // A return link minted before the provider rode the route (an in-flight
+  // consent across a deploy) names no provider; the roster's first live OAuth
+  // mailbox is the best available answer there, and the only one.
+  const live = connections.data?.data.find((c) =>
+    returning === null
+      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
+      : c.provider === returning && c.status === "connected",
   );
 
   if (outcome === "denied") {

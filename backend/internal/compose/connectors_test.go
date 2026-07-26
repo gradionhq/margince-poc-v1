@@ -174,7 +174,7 @@ func TestCallbackDeniedRedirectsHonestly(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied/gmail" {
 		t.Errorf("Location = %q, want the denied landing", loc)
 	}
 }
@@ -194,7 +194,7 @@ func TestCallbackBadStateRedirectsError(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error/gmail" {
 		t.Errorf("Location = %q, want the error landing", loc)
 	}
 }
@@ -206,17 +206,30 @@ func TestLandingURLMapsReturnToThroughAClosedSet(t *testing.T) {
 		returnTo string
 		want     string
 	}{
-		{"settings", "settings", "https://crm.example.com/#/settings/integrations/ok"},
-		{"onboarding", "onboarding", "https://crm.example.com/#/onboarding/connect/ok"},
-		{"absent falls back to onboarding", "", "https://crm.example.com/#/onboarding/connect/ok"},
-		{"unknown falls back to onboarding", "elsewhere", "https://crm.example.com/#/onboarding/connect/ok"},
-		{"a URL is never reflected", "https://evil.example/", "https://crm.example.com/#/onboarding/connect/ok"},
+		{"settings", "settings", "https://crm.example.com/#/settings/integrations/ok/graph"},
+		{"onboarding", "onboarding", "https://crm.example.com/#/onboarding/connect/ok/graph"},
+		{"absent falls back to onboarding", "", "https://crm.example.com/#/onboarding/connect/ok/graph"},
+		{"unknown falls back to onboarding", "elsewhere", "https://crm.example.com/#/onboarding/connect/ok/graph"},
+		{"a URL is never reflected", "https://evil.example/", "https://crm.example.com/#/onboarding/connect/ok/graph"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := h.landingURL("ok", tc.returnTo); got != tc.want {
-				t.Errorf("landingURL(ok, %q) = %q, want %q", tc.returnTo, got, tc.want)
+			if got := h.landingURL("ok", tc.returnTo, "graph"); got != tc.want {
+				t.Errorf("landingURL(ok, %q, graph) = %q, want %q", tc.returnTo, got, tc.want)
 			}
 		})
+	}
+}
+
+// The landing surface has to know WHICH mailbox this round-trip connected: a
+// workspace with both Gmail and Microsoft live would otherwise offer the
+// import for whichever one the roster lists first.
+func TestLandingURLNamesTheProviderTheConsentReturnedFor(t *testing.T) {
+	h := connectorHandlers{publicBaseURL: "https://crm.example.com"}
+	for _, provider := range []string{"gmail", "graph", "gcal"} {
+		want := "https://crm.example.com/#/onboarding/connect/ok/" + provider
+		if got := h.landingURL(outcomeOK, returnToOnboarding, provider); got != want {
+			t.Errorf("landingURL(ok, onboarding, %q) = %q, want %q", provider, got, want)
+		}
 	}
 }
 
@@ -293,7 +306,7 @@ func TestCallbackDenialReturnsToTheSurfaceItStartedFrom(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/settings/integrations/denied" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/settings/integrations/denied/gmail" {
 		t.Errorf("Location = %q, want the denial to land back in Settings", loc)
 	}
 }
@@ -312,7 +325,7 @@ func TestCallbackDenialWithUntrustedStateKeepsTheDefaultSurface(t *testing.T) {
 		State: "forged",
 	})
 
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/denied/gmail" {
 		t.Errorf("Location = %q, want the onboarding default", loc)
 	}
 }

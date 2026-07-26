@@ -8,6 +8,7 @@ export type Route = {
   screen: string;
   id?: string;
   id2?: string;
+  id3?: string;
 };
 
 export function parseHash(hash: string): Route {
@@ -21,15 +22,20 @@ export function parseHash(hash: string): Route {
   if (parts.length === 0) {
     return { screen: "home" };
   }
-  return { screen: parts[0], id: parts[1], id2: parts[2] };
+  return { screen: parts[0], id: parts[1], id2: parts[2], id3: parts[3] };
 }
 
 export function routeHash(route: Route): string {
-  const base = `#/${route.screen}`;
-  if (!route.id) {
-    return base;
+  // The segments are positional and have no placeholder, so a gap ends the
+  // path: an id3 with no id2 cannot be serialized without inventing one.
+  const path: string[] = [];
+  for (const segment of [route.screen, route.id, route.id2, route.id3]) {
+    if (!segment) {
+      break;
+    }
+    path.push(segment);
   }
-  return route.id2 ? `${base}/${route.id}/${route.id2}` : `${base}/${route.id}`;
+  return `#/${path.join("/")}`;
 }
 
 export function navigate(route: Route): void {

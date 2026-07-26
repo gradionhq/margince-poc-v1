@@ -107,7 +107,7 @@ func TestConcurrentGmailAndGraphConsentDoNotClobberEachOther(t *testing.T) {
 	jar.attach(req)
 	h.ConnectorOAuthCallback(rec, req, "gmail", crmcontracts.ConnectorOAuthCallbackParams{State: gmailState, Code: &code})
 
-	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/rejected"; got != want {
+	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/rejected/gmail"; got != want {
 		t.Fatalf("gmail callback landed on %q, want %q — the graph flow must not invalidate the gmail nonce", got, want)
 	}
 	// The nonce is one-shot: the cookie the callback consumed is cleared, and
@@ -140,7 +140,7 @@ func TestCallbackAcceptsAConsentStartedBeforeTheCookieWasNamespaced(t *testing.T
 	req.AddCookie(&http.Cookie{Name: oauthCSRFCookie, Value: "legacy-nonce"})
 	h.ConnectorOAuthCallback(rec, req, "gmail", crmcontracts.ConnectorOAuthCallbackParams{State: state, Code: &code})
 
-	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/rejected"; got != want {
+	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/rejected/gmail"; got != want {
 		t.Fatalf("pre-namespacing callback landed on %q, want %q", got, want)
 	}
 	// The legacy cookie is the one that must be cleared; leaving it set

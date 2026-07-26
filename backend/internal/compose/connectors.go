@@ -281,14 +281,14 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// The user denied consent at the provider — surface it honestly, never as
 	// an error.
 	if params.Error != nil && *params.Error != "" {
-		http.Redirect(w, r, h.landingURL(outcomeDenied, returnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeDenied, returnTo, string(provider)), http.StatusFound)
 		return
 	}
 	// A bad/expired/mismatched state or a missing code cannot proceed —
 	// redirect with an honest error, details logged only.
 	if !stateTrusted || params.Code == nil || *params.Code == "" {
 		slog.WarnContext(ctx, "connector callback rejected", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
 		return
 	}
 	// CSRF: the nonce cookie must match the nonce in the signed state, proving
@@ -299,7 +299,7 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	// establishes is the BROWSER's identity — so the redirect can honor the
 	// surface the flow started from.
 	if !consumeCSRFNonce(w, r, string(provider), st) {
-		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
 		return
 	}
 
@@ -312,23 +312,23 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 	if err := h.requireLiveGrantor(runCtx, st); err != nil {
 		slog.WarnContext(ctx, "connector callback: the granting human no longer holds live authority",
 			"err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
 		return
 	}
 
 	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
 	if err != nil {
 		logConnectFailure(ctx, string(provider), err)
-		http.Redirect(w, r, h.landingURL(connectFailureOutcome(string(provider), err), returnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(connectFailureOutcome(string(provider), err), returnTo, string(provider)), http.StatusFound)
 		return
 	}
 
 	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
 		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
-		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo, string(provider)), http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, h.landingURL(outcomeOK, returnTo), http.StatusFound)
+	http.Redirect(w, r, h.landingURL(outcomeOK, returnTo, string(provider)), http.StatusFound)
 }
 
 // grantorContext reconstructs the granting human's authority from the trusted

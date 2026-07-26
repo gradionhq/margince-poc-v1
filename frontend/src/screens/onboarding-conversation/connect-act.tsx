@@ -48,6 +48,8 @@ type ConnectActProps = Readonly<{
   persist: (input: WizardPersistInput) => Promise<boolean>;
   /** The OAuth consent return's outcome from the deep-link route. */
   outcome?: string;
+  /** The provider that consent returned for, from the same route. */
+  returningProvider?: string;
 }>;
 
 export function ConnectAct({
@@ -55,6 +57,7 @@ export function ConnectAct({
   dispatch,
   persist,
   outcome,
+  returningProvider,
 }: ConnectActProps) {
   const t = useT();
   // The OAuth return view no longer depends on which chip was open when the
@@ -96,7 +99,11 @@ export function ConnectAct({
             <p>{t("ob.s4.sub")}</p>
           </div>
           {outcome !== undefined ? (
-            <OAuthReturnPanel outcome={outcome} onComplete={finish} />
+            <OAuthReturnPanel
+              outcome={outcome}
+              provider={returningProvider}
+              onComplete={finish}
+            />
           ) : (
             <>
               {provider === null && (

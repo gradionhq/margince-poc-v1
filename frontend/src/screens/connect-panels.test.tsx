@@ -85,6 +85,57 @@ it("OAuthReturnPanel shows the live OAuth mailbox after consent", async () => {
   expect(await screen.findByText("Live and capturing")).toBeTruthy();
 });
 
+// The roster is provider-ordered, so "the first connected OAuth row" is Gmail
+// whenever a workspace holds both. A Microsoft consent that lands on Gmail
+// offers to import the wrong mailbox — the import the human is about to
+// approve must be the mailbox they just connected.
+it("OAuthReturnPanel offers the import for the mailbox the consent returned for", async () => {
+  const statusReads: string[] = [];
+  const connection = (provider: string) => ({
+    id: provider,
+    provider,
+    status: "connected",
+    scopes: ["read"],
+  });
+  installFetchStub({
+    "GET /connectors": () =>
+      jsonResponse({ data: [connection("gmail"), connection("graph")] }),
+    "GET /connectors/gmail/backfill": () => {
+      statusReads.push("gmail");
+      return jsonResponse({ state: "idle" });
+    },
+    "GET /connectors/graph/backfill": () => {
+      statusReads.push("graph");
+      return jsonResponse({ state: "idle" });
+    },
+  });
+  render(
+    <OAuthReturnPanel outcome="ok" provider="graph" onComplete={vi.fn()} />,
+  );
+  await screen.findByText("Live and capturing");
+  await waitFor(() => expect(statusReads).toEqual(["graph"]));
+});
+
+// A provider whose consent succeeded at the provider but whose row never
+// landed is a confirm failure, not an invitation to import somebody else's
+// mailbox.
+it("OAuthReturnPanel reports a confirm-failure when the returning provider is not connected", async () => {
+  installFetchStub({
+    "GET /connectors": () =>
+      jsonResponse({
+        data: [
+          { id: "g1", provider: "gmail", status: "connected", scopes: [] },
+        ],
+      }),
+  });
+  render(
+    <OAuthReturnPanel outcome="ok" provider="graph" onComplete={vi.fn()} />,
+  );
+  expect(
+    await screen.findByText("We couldn't confirm the connection."),
+  ).toBeTruthy();
+});
+
 it("OAuthReturnPanel reports a confirm-failure when no connection came back", async () => {
   installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
   render(<OAuthReturnPanel outcome="ok" onComplete={vi.fn()} />);

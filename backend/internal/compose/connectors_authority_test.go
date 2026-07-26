@@ -78,7 +78,7 @@ func TestCallbackRefusesADeadGrantorBeforeExchangingTheCode(t *testing.T) {
 	if oauth.exchanged {
 		t.Error("the code was exchanged for a credential the granting human can no longer hold")
 	}
-	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/error"; got != want {
+	if got, want := rec.Header().Get("Location"), "https://app.test/#/onboarding/connect/error/gmail"; got != want {
 		t.Errorf("Location = %q, want %q", got, want)
 	}
 }

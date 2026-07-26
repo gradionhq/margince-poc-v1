@@ -26,12 +26,19 @@ import (
 // is resolved through a closed set: it is an enum, never a URL, so no caller
 // input ever reaches the Location header. Anything unrecognized — including an
 // absent value and a URL-shaped one — lands on onboarding.
-func (h connectorHandlers) landingURL(outcome, returnTo string) string {
+//
+// The provider rides the route too, because a workspace can hold several
+// connected mailboxes and the landing surface has no other way to tell which
+// one this round-trip was for — it would otherwise offer the import for
+// whichever mailbox the roster happens to list first. It is likewise a closed
+// enum: only a provider this deployment has a registered OAuth app for ever
+// reaches here.
+func (h connectorHandlers) landingURL(outcome, returnTo, provider string) string {
 	route := "/#/onboarding/connect/"
 	if returnTo == returnToSettings {
 		route = "/#/settings/integrations/"
 	}
-	return strings.TrimRight(h.publicBaseURL, "/") + route + outcome
+	return strings.TrimRight(h.publicBaseURL, "/") + route + outcome + "/" + provider
 }
 
 const (
