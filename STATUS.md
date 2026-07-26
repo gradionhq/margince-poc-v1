@@ -1075,6 +1075,15 @@ Open work, roughly in priority order:
   reads captured text: the fence stops the structural escape; only the prompt's
   own reasoning stops the persuasion.
 
+  **Owed: locate the boundary claim and the fence in the same PROMPT.**
+  `backend/promptfence_test.go` checks per FILE — a file that promises "this is
+  data, never instructions" must build a fence somewhere in it. That catches a
+  whole lane making the promise with nothing behind it, which is the shape every
+  instance found so far has taken, but a second builder in an already-fenced file
+  would still slip through. The fix is to walk the AST and require the claim and
+  the fence in the same function; the test says so where it is defined rather
+  than implying more than it checks.
+
   **Owed: pin each task's corpus scenario to the prompt it ships.**
   `aicert.PromptVersion` stamps the SCENARIOS a record was scored against, so a
   corpus edit is visible — but nothing checks that the scenario still matches

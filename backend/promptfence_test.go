@@ -44,9 +44,8 @@ var boundaryClaim = regexp.MustCompile(`never instructions|not instructions|neve
 
 // mintsAFence matches USE of the package rather than mere presence of its import
 // path: importing promptfence proves nothing, since the import could serve an
-// unrelated call while a prompt in the same file still promises a boundary it
-// never builds. Calling New/FromMarker (a fence exists) together with Rule
-// (the model is told which marker it is) is what the claim actually needs.
+// unrelated call. Minting a fence (New/FromMarker) or naming one to the model
+// (Rule) is the evidence a boundary was actually built.
 var mintsAFence = regexp.MustCompile(`promptfence\.(New|FromMarker)\(|\.Rule\(`)
 
 // claimWithoutFence names the files allowed to promise a boundary without
@@ -96,9 +95,18 @@ func TestNoPromptDeclaresAFixedDataBoundary(t *testing.T) {
 }
 
 // A prompt that promises the model "this is data, never instructions" is only
-// telling the truth if the boundary it points at cannot be forged. This is the
-// rule that catches the NEXT <activity_data> — whatever it ends up being called.
-func TestEveryPromptThatPromisesADataBoundaryMintsOne(t *testing.T) {
+// telling the truth if the boundary it points at cannot be forged. This is what
+// catches the NEXT <activity_data>, whatever it ends up being called.
+//
+// Scope, stated plainly because the name would otherwise promise more: the check
+// is per FILE, not per prompt. A file that makes the claim and builds a fence
+// somewhere passes, so a second builder in that same file could still promise a
+// boundary it never mints. Closing that needs the claim and the fence located in
+// the same prompt via the AST, which is worth doing and is recorded in STATUS.md
+// alongside the corpus pin gate. What this does catch is a whole file — a whole
+// lane — making the promise with no nonce behind it anywhere, which is the shape
+// every instance found so far has taken.
+func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 	var offenders []string
 	goFilesUnderTree(t, func(path, body string) {
 		if strings.HasPrefix(path, promptfencePackage) || claimWithoutFence[path] != "" {
