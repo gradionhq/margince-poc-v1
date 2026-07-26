@@ -60,12 +60,15 @@ func (s *scriptedVerdictBrain) Complete(_ context.Context, req model.Request) (m
 	return model.Response{Text: string(payload)}, nil
 }
 
-// promptIDs pulls the disposition ids out of the verdict prompt.
+// promptIDs pulls the disposition ids out of the verdict prompt. It keys off
+// the id attribute rather than the marker around it: the marker is minted per
+// call, so a test that spelled it would be asserting against a boundary the
+// engine never used.
 func promptIDs(prompt string) []string {
 	var out []string
 	rest := prompt
 	for {
-		i := indexAfter(rest, `<untrusted id="`)
+		i := indexAfter(rest, ` id="`)
 		if i < 0 {
 			return out
 		}
@@ -409,7 +412,9 @@ func TestEachSendersPromptContainsOnlyThatSendersText(t *testing.T) {
 		t.Fatalf("%d prompts for two senders, want at least one each", len(brain.prompts))
 	}
 	for _, prompt := range brain.prompts {
-		if strings.Count(prompt, "<untrusted id=") != 1 {
+		// One id attribute means one fenced sender; the marker itself is minted
+		// per call and is not something a test can spell.
+		if strings.Count(prompt, ` id="`) != 1 {
 			t.Fatalf("a prompt carried more than one sender:\n%s", prompt)
 		}
 		// Neither sender's id may appear in the other's prompt: there is then no
