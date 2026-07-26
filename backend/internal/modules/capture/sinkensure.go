@@ -31,7 +31,16 @@ import (
 // chokepoint. Compose injects the people module's implementation; capture
 // itself never touches person/organization SQL.
 type CounterpartyEnsurer interface {
-	EnsureCounterparty(ctx context.Context, in EnsureRequest) error
+	EnsureCounterparty(ctx context.Context, in EnsureRequest) (EnsureOutcome, error)
+}
+
+// EnsureOutcome reports what an ensure actually MINTED, as opposed to resolved
+// onto rows that already existed. A backfill's yield is the sum of these over
+// its own pages; without them the run can only guess from a clock window, and a
+// guess credits it with every other connection's captures.
+type EnsureOutcome struct {
+	PersonCreated       bool
+	OrganizationCreated bool
 }
 
 // EnsureRequest names one captured message's counterparty for the resolver.
@@ -71,7 +80,7 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 		return
 	}
 	cp := rec.Counterparty
-	err := s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
+	outcome, err := s.ensurer.EnsureCounterparty(ctx, EnsureRequest{
 		Email:       cp.Email,
 		DisplayName: cp.DisplayName,
 		Domain:      cp.Domain,
@@ -83,7 +92,11 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 	})
 	if err != nil {
 		s.logEnsureFault(ctx, rec, err)
+		return
 	}
+	// Nil unless a backfill page is running: incremental sync creates
+	// counterparties too, and they belong to no run.
+	yieldCollectorFrom(ctx).count(outcome)
 }
 
 // counterpartyDecision is what the tiered gate concluded inside the capture

@@ -60,17 +60,26 @@ func New(oauth OAuth, api API) *Connector {
 }
 
 var (
-	_ connector.Connector  = (*Connector)(nil)
-	_ connector.Backfiller = (*Connector)(nil)
+	_ connector.Connector      = (*Connector)(nil)
+	_ connector.Backfiller     = (*Connector)(nil)
+	_ connector.GrantedScoper  = (*Connector)(nil)
+	_ connector.AccountLabeler = (*Connector)(nil)
 )
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
 // The refresh token is the durable secret; the short-lived access token is
 // re-minted from it each Sync and never stored.
 type authState struct {
-	RefreshToken string   `json:"refresh_token"`
-	Owner        string   `json:"owner_email"`
-	Scopes       []string `json:"scopes"`
+	RefreshToken string `json:"refresh_token"`
+	Owner        string `json:"owner_email"`
+	// Scopes is this system's INTERNAL permission vocabulary (the connector's
+	// declared principal scopes), frozen at grant time.
+	Scopes []string `json:"scopes"`
+	// Granted is what MICROSOFT says it granted, in Microsoft's own
+	// vocabulary. A separate field because the two vocabularies mean different
+	// things and must never overwrite one another; empty for a bundle sealed
+	// before the grant was recorded.
+	Granted []string `json:"granted_scopes,omitempty"`
 }
 
 // cursorState is the persisted incremental watermark: Graph's deltaLink, plus
@@ -121,10 +130,11 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 	if p.Code == "" {
 		return nil, fmt.Errorf("graph: authorization code required: %w", ErrAuthRejected)
 	}
-	refresh, err := c.oauth.Exchange(ctx, p.Code, p.RedirectURI)
+	grant, err := c.oauth.Exchange(ctx, p.Code, p.RedirectURI)
 	if err != nil {
 		return nil, err
 	}
+	refresh := grant.RefreshToken
 	access, err := c.oauth.AccessToken(ctx, refresh)
 	if err != nil {
 		return nil, err
@@ -133,13 +143,41 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 	if err != nil {
 		return nil, err
 	}
-	state := authState{RefreshToken: refresh, Owner: owner, Scopes: scopeStrings(c.Descriptor().Scopes)}
+	state := authState{
+		RefreshToken: refresh, Owner: owner,
+		Scopes: scopeStrings(c.Descriptor().Scopes), Granted: grant.Scopes,
+	}
 	//nolint:gosec // G117: sealing the connector's own refresh token into the opaque Auth bundle IS the intended path — the registry stores it encrypted in the vault, never logged or returned
 	auth, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("graph: encoding auth state: %w", err)
 	}
 	return auth, nil
+}
+
+// AccountLabel reports the authorizing mailbox, read from the sealed bundle the
+// caller already holds — no vault round-trip, no network. It is what lets a
+// human holding two Microsoft connections tell them apart, and what binds a
+// connection's cursor to an account rather than a row. A bundle that names no
+// mailbox reports none: absence is not a failure.
+func (c *Connector) AccountLabel(auth connector.Auth) (string, error) {
+	var st authState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", fmt.Errorf("graph: malformed auth bundle: %w", err)
+	}
+	return st.Owner, nil
+}
+
+// GrantedScopes reports the Microsoft scopes this connection actually holds,
+// read from the sealed bundle the consent produced — Microsoft's vocabulary,
+// never this system's. A bundle sealed before the grant was recorded reports
+// none.
+func (c *Connector) GrantedScopes(auth connector.Auth) ([]string, error) {
+	var st authState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return nil, fmt.Errorf("graph: malformed auth bundle: %w", err)
+	}
+	return st.Granted, nil
 }
 
 // Sync mints a fresh access token, then pulls incrementally: with no cursor

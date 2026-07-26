@@ -204,13 +204,10 @@ func (e *estEnv) insertRate(t *testing.T, ws ids.UUID, model string, in, out int
 // priced at cloud-model, embeddings at embed-model, enrich at a real $0
 // local-model — every task observed and priced, yields present, over real PG.
 //
-// This fixture seeds people_created=10 / organizations_created=2 — the
-// FUTURE-populated-counters state. Production does NOT reach it today: the
-// backfill loop (capture/backfill.go RunBackfillStep) never increments those
-// counters, so a real completed run carries 0 (see the follow-up flag in the
-// PR and TestEstimatorEnrichFloorsWhenPeopleCreatedZero for today's reality).
-// The case is retained so the observed-enrich path stays covered for when the
-// counters are populated.
+// The fixture's people_created=10 / organizations_created=2 is what a completed
+// run that minted counterparties leaves behind; the zero-yield case, which
+// floors the enrich estimate instead of pricing it, is
+// TestEstimatorEnrichFloorsWhenPeopleCreatedZero.
 func TestEstimatorPricesObservedHistory(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)

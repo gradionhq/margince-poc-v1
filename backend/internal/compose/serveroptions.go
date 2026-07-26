@@ -16,6 +16,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -82,7 +83,10 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// OAuth app; WithGmailCapture later replaces this with its own
 		// gmail-carrying registry when the app is configured.
 		if s.connectorHandlers.registry == nil {
-			s.connectorHandlers = connectorHandlers{registry: NewCaptureRegistry(pool, vault, s.captureConfig)}
+			s.connectorHandlers = connectorHandlers{
+				registry:  NewCaptureRegistry(pool, vault, s.captureConfig),
+				authority: identity.NewService(pool),
+			}
 		}
 		// The overlay incumbent connection lifecycle needs the same
 		// custodian: Connect seals the private-app token, Disconnect

@@ -107,7 +107,12 @@ const tokenOp = "token"
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
-	Error        string `json:"error"`
+	// Scope is the space-delimited set the provider actually granted, which
+	// can be narrower than the set requested — a human may decline part of a
+	// consent screen. Omitted by providers that granted exactly what was
+	// asked for (RFC 6749 §5.1).
+	Scope string `json:"scope"`
+	Error string `json:"error"`
 }
 
 // oauthErrorCode extracts the RFC 6749 error code from a token-endpoint error
@@ -146,10 +151,19 @@ func Misconfigured(err error) bool {
 	}
 }
 
+// TokenGrant is what a completed consent yields: the durable refresh token
+// and the scopes the provider says it granted. The two travel together
+// because the second is only ever knowable at the moment of the first — a
+// later refresh does not re-report the grant.
+type TokenGrant struct {
+	RefreshToken string
+	Scopes       []string
+}
+
 // Exchange redeems the authorization code for a durable refresh token.
 // A consent that returns no refresh token did not grant offline access —
 // the connector cannot sync later, so it is a rejected authorization.
-func (c *Client) Exchange(ctx context.Context, code, redirectURI string) (string, error) {
+func (c *Client) Exchange(ctx context.Context, code, redirectURI string) (TokenGrant, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -160,12 +174,23 @@ func (c *Client) Exchange(ctx context.Context, code, redirectURI string) (string
 	c.addScope(form)
 	tok, err := c.token(ctx, form)
 	if err != nil {
-		return "", err
+		return TokenGrant{}, err
 	}
 	if tok.RefreshToken == "" {
-		return "", fmt.Errorf("%s: consent returned no refresh token: %w", c.cfg.Provider, c.cfg.AuthRejected)
+		return TokenGrant{}, fmt.Errorf("%s: consent returned no refresh token: %w", c.cfg.Provider, c.cfg.AuthRejected)
 	}
-	return tok.RefreshToken, nil
+	return TokenGrant{RefreshToken: tok.RefreshToken, Scopes: c.grantedScopes(tok.Scope)}, nil
+}
+
+// grantedScopes reads the response's granted set. An ABSENT scope means the
+// provider granted exactly what was asked for (RFC 6749 §5.1) — reading it as
+// "none" would record an empty grant for a connection that holds its scopes,
+// which is worse than recording nothing at all.
+func (c *Client) grantedScopes(scope string) []string {
+	if granted := strings.Fields(scope); len(granted) > 0 {
+		return granted
+	}
+	return c.cfg.Scopes
 }
 
 // AccessToken redeems the stored refresh token for a short-lived access

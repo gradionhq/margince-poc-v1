@@ -155,10 +155,21 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 	}
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
 	for i := 0; i < backfillPagesPerTick; i++ {
-		done, completed, err := w.registry.RunBackfillStep(wsCtx, bfID)
+		done, completed, retryAfter, err := w.registry.RunBackfillStep(wsCtx, bfID)
+		if retryAfter > 0 {
+			// The provider asked us to wait, and the run is still live with its
+			// cursor intact. The row classifies the fault and counts it toward its
+			// own give-up cap; River owns the redelivery, so a snooze — not a
+			// silent stop — is what keeps the import alive across an outage.
+			w.log.WarnContext(ctx, "capture backfill page deferred",
+				"backfill", job.Args.BackfillID, "retry_after", retryAfter, "err", err)
+			return river.JobSnooze(retryAfter)
+		}
 		if err != nil {
-			// The engine recorded the failure class on the run; the log
-			// carries the detail. The row owns retry policy, not River.
+			// A fault no delay repairs, so the job stops here: the engine has
+			// ended the run and put the class on the row — on a context detached
+			// from this job, because the job context dying mid-page is itself the
+			// commonest fault — and the log carries the detail.
 			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
 			return nil
 		}

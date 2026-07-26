@@ -89,9 +89,10 @@ connection row carries only an opaque, workspace-scoped `credential_ref`. `Regis
 before it commits and **refuses loudly** if the vault is absent, rather than persist a credential in the
 clear. A key that is set but not exactly 32 bytes is a boot error, never a silent fallback.
 
-The **one-shot IMAP pull needs no vault** — it persists nothing. Every persisting path (OAuth Connect
-seals, Sync resolves) requires it. The worker migrates any legacy `auth`-bytea rows onto the vault at
-boot (idempotent).
+**Every** connect path requires the vault, IMAP included: without `MARGINCE_KEYVAULT_ROOT_KEY` the
+connector surface answers `501` rather than fall back to storing a credential anywhere else. Disconnect
+is the mirror — it destroys the sealed secret, so withdrawing a connection removes the credential, not
+just the row. The worker migrates any legacy `auth`-bytea rows onto the vault at boot (idempotent).
 
 ## How records arrive — three ingestion modes
 
@@ -134,8 +135,10 @@ connect step is worth a picture — everything after is the sync above:
       → redirect to /#/…/connect/ok    (the SPA re-reads GET /connectors to prove it)
 ```
 
-The access token is minted fresh per sync from the refresh token and **never stored**. IMAP does **not**
-use this flow — it is a one-shot pull with no OAuth and no persisted connection (see below).
+The access token is minted fresh per sync from the refresh token and **never persisted**. IMAP does **not**
+use this flow — there is no consent redirect and no code exchange; its app-password is posted straight to
+`POST /connectors/imap/connect`, which probes it and seals it exactly as `Registry.Connect` seals a
+refresh token (see below).
 
 ## The connectors
 
@@ -145,9 +148,9 @@ differences that matter:
 | | **Gmail** | **IMAP** | **Graph** (Outlook) | **Calendar** (gcal) |
 |---|---|---|---|---|
 | Auth | OAuth `gmail.readonly` | IMAPS app-password | OAuth `Mail.Read` | OAuth `calendar.readonly` |
-| Connection | standing | **one-shot** | standing | standing |
-| Cursor | `historyId` | — | `deltaLink` | `syncToken` |
-| Push | Pub/Sub 7-day | — | — (poll) | — (poll) |
+| Connection | standing | standing | standing | standing |
+| Cursor | `historyId` | UID watermark | `deltaLink` | `syncToken` |
+| Push | Pub/Sub 7-day | — (poll) | — (poll) | — (poll) |
 | Backfill | ✔ | — | ✔ | — |
 | Connect UI | onboarding + Settings | onboarding + Settings | onboarding + Settings | Settings only |
 
@@ -162,21 +165,29 @@ key; a Pub/Sub topic is optional (without it, capture runs on the 2-minute poll)
 affordance from both the onboarding **Google** chip and the Settings **Add a connection** footer, plus the
 backfill panel; the Settings roster reconnects/disconnects.
 
-### IMAP — one-shot pull, nothing persisted
+### IMAP — standing, vault-backed, poll-only
 
-IMAPS (TLS-only, port 993) with a username + password. It is a **one-shot pull**: the credentials are
-used for a *single* call — never stored, never logged — to fetch the most-recent `max_messages` and
-capture each; to capture more, run it again. There is no cursor, no push, no backfill, and **no vault
-needed**. The dialer is **SSRF-guarded** (`netguard.RefusePrivate`, checked post-DNS on the concrete IP),
-so it refuses private/loopback hosts — you cannot point it at a localhost mailserver. **To run:** the
-host + port + email + an **app-password** (both Gmail and Outlook block basic-auth IMAP with a normal
-password; an app-password satisfies the provider requirement). **UI:** the same inline form is reachable from both
-the onboarding **IMAP** chip and the Settings **Add a connection** footer → a captured/contacts/skipped
-tally.
+IMAPS (TLS-only, port 993) with a username + an **app-password**. The connection is **standing**, exactly
+like the OAuth trio: connect probes the credentials (dial, login, close), `Registry.Connect` seals the
+whole credential bundle — the app-password included — into the vault, and the row carries only the
+opaque `credential_ref`. From then on the background sweep dials fresh each cycle with the sealed
+credential and advances a **UID watermark** (`uidvalidity` + `last_uid`, bound to the mailbox it was
+taken in), so each pull resumes where the last stopped. **Disconnect destroys the sealed credential** —
+that is what makes handing over an app-password revocable from inside the product, and it is the one
+custody guarantee worth relying on.
 
-> A *standing* IMAP connection (a UID-watermark cursor, a vault-sealed credential) exists in the backend,
-> but the exposed connect route is the one-shot; there is no reachable path to create the standing one
-> today (see [Honest limitations](#honest-limitations)).
+The app-password is a durable secret in the vault for as long as the connection stands. Nothing logs it,
+no read surface returns it, and it never touches the connection row — but "used once and thrown away" it
+is not. Revoke it at the provider, or disconnect here, and it is gone.
+
+There is no push and no backfill (IMAP implements neither `Watcher` nor `Backfiller`), so latency is the
+poll interval and the mailbox's history before connect is not imported. The dialer is **SSRF-guarded**
+(`netguard.RefusePrivate`, checked post-DNS on the concrete IP), so it refuses private/loopback hosts —
+you cannot point it at a localhost mailserver. **To run:** the vault key, plus the host + port + username
++ app-password (both Gmail and Outlook block basic-auth IMAP with a normal password). **UI:** the same
+inline form is reachable from both the onboarding **IMAP** chip and the Settings **Add a connection**
+footer; it answers with the connected row, not a capture tally — the connect returns before any mail is
+read.
 
 ### Microsoft Graph — standing OAuth, poll-only
 
@@ -208,9 +219,9 @@ the three onboarding chips); the roster manages an existing connection.
 
 Capture spans both process roles ([ADR-0054's four `cmd/<role>` binaries](architecture.md)):
 
-- **`api`** serves the *interactive* surface: `connect`, `callback`, `disconnect`, `list`, the one-shot
-  IMAP pull, backfill `preview`/`start`(enqueue)/`status`/`cancel`, the Gmail push webhook, the morning
-  `digest` read, and the exclusion-rule CRUD.
+- **`api`** serves the *interactive* surface: `connect` (OAuth and IMAP alike), `callback`,
+  `disconnect`, `list`, backfill `preview`/`start`(enqueue)/`status`/`cancel`, the Gmail push webhook,
+  the morning `digest` read, and the exclusion-rule CRUD.
 - **`worker`** runs *every background pull* as leader-elected River periodic jobs: the sync dispatcher
   (`30s`) → per-connection `SyncOnce`, the backfill engine (one page/tick), the Gmail watch-renewal scan
   (`6h`), and the nightly capture suite (classify hourly, enrich + digest daily). The Surface-B agent
@@ -229,8 +240,9 @@ which has no onboarding chip and so is Settings-only.
 - **Onboarding → connect step** (`onboarding-connect-panels.tsx`) — where a fresh install *adds* a
   connection. `OAuthConnectPanel` is parametrized by provider (`gmail` or `graph`): a full-page OAuth
   redirect, then it proves the connection and renders the `BackfillPanel` (window → estimate → start →
-  live progress) for the ones that support it. `ImapConnectPanel` is a form that runs the one-shot pull
-  and shows the tally. The connect step (`connect-act.tsx`) offers three live chips — **Google**,
+  live progress) for the ones that support it. `ImapConnectPanel` is a form that posts the
+  app-password and shows the connected row — never a capture tally, because the connect answers before
+  any mail is read. The connect step (`connect-act.tsx`) offers three live chips — **Google**,
   **Microsoft**, and **IMAP** — Microsoft included; there is still no onboarding chip for Calendar.
 - **Settings → Integrations** (`connectors.tsx`, `ConnectorsCard`) — the standing-connection roster: a
   status badge (`connected` / `reauth_required` / `error`) + last-synced per connection, a **reconnect**
@@ -251,14 +263,15 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
   one, but the onboarding connect step's three chips (Google, Microsoft, IMAP) don't include it — adding
   Calendar during first-run onboarding still means a trip to Settings afterward.
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
-  ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (The Gmail push-watch renewal runs,
-  but the poll remains the active sync path even for Gmail today.)
+  ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (Gmail has both halves — the
+  push-watch renewal sweep and the `/webhooks/gmail-push` consumer above — so a Gmail deployment with a
+  Pub/Sub topic configured is push-driven, with the poll behind it as the safety net.)
 - **Graph refresh-token rotation isn't persisted.** The stored token usually lasts up to Microsoft's
   default 90-day inactive lifetime (a confidential client) but can be revoked or expire earlier; on
   expiry the connection goes `reauth_required` and the user reconnects. Avoiding that reauth needs a
   credential-update seam the `Connector` interface lacks.
-- **Standing IMAP is latent.** The one-shot pull is the exposed IMAP path; the UID-watermark standing
-  connection exists in the backend but isn't wired to a reachable route.
+- **IMAP has no backfill and no push.** It syncs forward from connect time on the poll; mail older than
+  the connection is not imported, and there is no `Backfiller` to import it.
 - **No dedicated connector-health screen.** The digest's `connectors[]` health rows surface as a single
   summary link on the home digest card (the worst-offending connection's error class, linking to Settings)
   rather than a per-connector health screen.
@@ -273,10 +286,10 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 - **A failure degrades a connection, never kills it.** `error` is syncable (daily probe); only
   `disconnected`/`reauth_required` park a row.
 - **Connecting is human-only.** An agent never self-connects a mailbox.
-- **The credential leaves the connection row entirely** — vault-sealed under `credential_ref`; the
-  one-shot IMAP pull persists nothing at all.
-- **IMAP is one-shot; Gmail/Graph/gcal are standing.** Only the standing OAuth trio sync in the
-  background; only Gmail/Graph backfill; only Gmail pushes.
+- **The credential leaves the connection row entirely** — vault-sealed under `credential_ref`, IMAP's
+  app-password included, and destroyed on disconnect.
+- **All four connections are standing** and sync in the background; only Gmail/Graph backfill; only
+  Gmail pushes.
 
 ## Where the code lives
 
@@ -289,11 +302,11 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 | Personal-mail exclusion gate (RC-2) | `internal/modules/capture/exclusion/exclusion.go` |
 | Counterparty / RFC822 mapping (direction, ThreadKey, skip rules) | `internal/modules/capture/mailmap/mailmap.go` |
 | Gmail connector (OAuth, history sync, Pub/Sub watch, backfill) | `internal/modules/capture/gmail/` |
-| IMAP connector (transient one-shot + latent standing; netguard SSRF guard) | `internal/modules/capture/imap/` |
+| IMAP connector (standing UID-watermark sync; netguard SSRF guard) | `internal/modules/capture/imap/` |
 | Graph connector (OAuth, delta sync, backfill) | `internal/modules/capture/graph/` |
 | Google Calendar connector (OAuth, syncToken) | `internal/modules/capture/gcal/` |
 | Shared OAuth handshake (authorize URL, code/refresh exchange) | `internal/modules/capture/oauthflow/oauthflow.go`, `capture/googleconn/` |
-| Connect surface + state signing + CSRF (api) | `internal/compose/connectors.go`, `connectors_imap.go`, `imapconnect.go` |
+| Connect surface + state signing + CSRF (api) | `internal/compose/connectors.go`, `connectors_imap.go` |
 | Backfill + digest HTTP surface | `internal/compose/backfilltransport.go` |
 | Gmail push webhook (token + OIDC) | `internal/compose/gmailpush.go`, `capture/push.go` |
 | Background jobs (dispatcher, sync, backfill, watch renewal, digest) | `internal/compose/jobs.go`, `capturejobs.go`; `backend/cmd/worker/main.go` |

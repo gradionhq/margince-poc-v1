@@ -74,8 +74,10 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 			continue
 		}
 		if err != nil {
-			// A fetch fault is transient — stop the page without advancing
-			// so the engine retries this page from its committed token.
+			// Stop the page without advancing, so a retry resumes from the
+			// committed token. Whether there IS a retry is the engine's call on
+			// the class this error carries: a rate limit or an unreachable
+			// provider is waited out, anything else ends the run.
 			return connector.BackfillPageResult{}, err
 		}
 		captured, err := captureOne(ctx, msg, sink, st.Owner)

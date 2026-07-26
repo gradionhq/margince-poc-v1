@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -22,11 +23,12 @@ import (
 
 type fakeOAuth struct {
 	refresh, access string
+	granted         []string
 }
 
 func (f fakeOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
-func (f fakeOAuth) Exchange(context.Context, string, string) (string, error) {
-	return f.refresh, nil
+func (f fakeOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
+	return oauthflow.TokenGrant{RefreshToken: f.refresh, Scopes: f.granted}, nil
 }
 func (f fakeOAuth) AccessToken(context.Context, string) (string, error) { return f.access, nil }
 
@@ -378,5 +380,43 @@ func TestNormalizeSkipsAutomatedMail(t *testing.T) {
 	}
 	if len(recs) != 1 || recs[0].Source != "graph:keep@acme.com" {
 		t.Fatalf("want 1 record graph:keep@acme.com, got %+v", recs)
+	}
+}
+
+// A connection is named by the mailbox it authorized, so a human with two of
+// them can tell which is which. It is read out of the bundle the connect
+// already produced — no vault round-trip and no network — and a bundle that
+// names no mailbox is a blank line in the UI, not a lost connection.
+func TestAccountLabelNamesTheAuthorizedMailbox(t *testing.T) {
+	c := New(fakeOAuth{refresh: "refresh-1", access: "access-1"}, &fakeAPI{email: owner})
+	req, err := AuthRequestFrom("the-code", "https://app/callback")
+	if err != nil {
+		t.Fatalf("AuthRequestFrom: %v", err)
+	}
+	auth, err := c.Authenticate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	label, err := c.AccountLabel(auth)
+	if err != nil {
+		t.Fatalf("AccountLabel: %v", err)
+	}
+	if label != owner {
+		t.Errorf("AccountLabel = %q, want %q", label, owner)
+	}
+}
+
+func TestAccountLabelOfAnOwnerlessBundleIsAbsentNotAnError(t *testing.T) {
+	c := New(fakeOAuth{}, &fakeAPI{})
+	bundle, err := json.Marshal(authState{RefreshToken: "r"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	label, err := c.AccountLabel(bundle)
+	if err != nil {
+		t.Fatalf("AccountLabel of an ownerless bundle: %v, want no error", err)
+	}
+	if label != "" {
+		t.Errorf("AccountLabel = %q, want empty", label)
 	}
 }

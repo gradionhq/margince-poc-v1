@@ -560,11 +560,35 @@ func TestBackfillWire(t *testing.T) {
 		}
 	})
 
+	// A 202 carries a BackfillStatus body, and a body whose type the response
+	// never declares is sniffed by net/http into text/plain — so a typed client
+	// reading the run it just started sees a content-type it must not parse.
+	t.Run("both 202 answers declare JSON", func(t *testing.T) {
+		for _, op := range []struct {
+			name   string
+			invoke func(http.ResponseWriter, *http.Request)
+			body   string
+		}{
+			{"start", start(crmcontracts.Gmail), `{"window":"12m"}`},
+			{"cancel", cancel(crmcontracts.Gmail), ""},
+		} {
+			req := httptest.NewRequest(http.MethodPost, "/v1/backfill-op", bytes.NewReader([]byte(op.body))).WithContext(b.human)
+			rec := httptest.NewRecorder()
+			op.invoke(rec, req)
+			if rec.Code != http.StatusAccepted {
+				t.Fatalf("%s = %d, want 202", op.name, rec.Code)
+			}
+			if got := rec.Header().Get("Content-Type"); got != "application/json" {
+				t.Errorf("%s Content-Type = %q, want application/json", op.name, got)
+			}
+		}
+	})
+
 	t.Run("a step on a vanished run is terminal, not a loop", func(t *testing.T) {
 		wsCtx := principal.WithWorkspaceID(context.Background(), b.env.WS)
-		done, completed, err := b.registry.RunBackfillStep(wsCtx, ids.NewV7())
-		if !done || completed || err == nil {
-			t.Fatalf("missing run step = done=%v completed=%v err=%v, want terminal-not-completed with the not-found error", done, completed, err)
+		done, completed, retryAfter, err := b.registry.RunBackfillStep(wsCtx, ids.NewV7())
+		if !done || completed || retryAfter != 0 || err == nil {
+			t.Fatalf("missing run step = done=%v completed=%v retryAfter=%v err=%v, want terminal-not-completed with the not-found error", done, completed, retryAfter, err)
 		}
 	})
 }
