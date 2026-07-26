@@ -67,9 +67,10 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	// Put-then-commit (like blobstore): seal the credential in the vault
 	// first, then commit the row that names it. The row stores the opaque ref;
 	// the bytes never touch it. A transaction that fails after the seal strands
-	// the blob — nothing references it, so nothing will ever collect it. It is
-	// inert (unreferenced and encrypted at rest) and removed by the operational
-	// sweep, but it is a stranded secret, not a non-event.
+	// the blob: nothing references it, and there is no vault sweep to collect it
+	// — only a human ever will. The blob is inert (unreferenced and encrypted at
+	// rest) and the human simply retries the connect, but a stranded secret is
+	// not a non-event.
 	ref, err := r.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(auth))
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
