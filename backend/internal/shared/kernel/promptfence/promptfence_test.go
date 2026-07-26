@@ -89,10 +89,20 @@ func TestWrapAttrIdentifiesTheSpanWithoutWideningTheBoundary(t *testing.T) {
 // A fence that was never minted would emit "<untrusted->", which every sender
 // can spell. Building a prompt from one must stop, not ship a weaker boundary.
 func TestUnmintedFencePanicsRatherThanEmitAGuessableMarker(t *testing.T) {
-	defer func() {
-		if recover() == nil {
-			t.Fatal("an unminted fence produced a marker instead of panicking")
-		}
-	}()
-	_ = promptfence.Fence{}.Open()
+	if !panics(func() { promptfence.Fence{}.Open() }) {
+		t.Fatal("an unminted fence produced a marker instead of panicking")
+	}
+	if !panics(func() { promptfence.Fence{}.Wrap("data") }) {
+		t.Fatal("an unminted fence wrapped data instead of panicking")
+	}
+	if !panics(func() { promptfence.Fence{}.Rule("message") }) {
+		t.Fatal("an unminted fence wrote a boundary rule instead of panicking")
+	}
+}
+
+// panics reports whether f panicked.
+func panics(f func()) (panicked bool) {
+	defer func() { panicked = recover() != nil }()
+	f()
+	return false
 }

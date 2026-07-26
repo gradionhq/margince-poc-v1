@@ -270,22 +270,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		case errors.As(err, &staged):
 			// 🟡 mid-loop: the proposal is durably staged; suspend, never
 			// block (§5). The snapshot makes the run resumable.
-			acc.Outcome = OutcomeAwaitingApproval
-			acc.Steps = append(acc.Steps, Step{
-				Tool: step.Tool, Args: step.Args, Observation: "staged for approval " + staged.ApprovalID.String(),
-				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
-				Admission: "staged",
-			})
-			acc.Pending = &Pending{
-				ApprovalID:   staged.ApprovalID,
-				Tool:         step.Tool,
-				Args:         step.Args,
-				Window:       win.snapshot(),
-				Fence:        win.fence,
-				StepsUsed:    acc.StepsUsed,
-				OutputTokens: acc.OutputTokens,
-			}
-			return acc, nil
+			return suspend(acc, staged.ApprovalID, step, win, meta, resp), nil
 		case err != nil:
 			// Refusals (scope, tier, seat, unknown tool, bad args) feed
 			// back as observations — the model learns it cannot do that
@@ -307,6 +292,28 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			})
 		}
 	}
+}
+
+// suspend records the staged proposal and the state a Resume needs: the
+// transcript, the boundary that transcript's untrusted spans were written
+// with, and the budget already spent — suspension is not a refill.
+func suspend(acc Result, approvalID ids.ApprovalID, step modelStep, win *window, meta Meta, resp model.Response) Result {
+	acc.Outcome = OutcomeAwaitingApproval
+	acc.Steps = append(acc.Steps, Step{
+		Tool: step.Tool, Args: step.Args, Observation: "staged for approval " + approvalID.String(),
+		ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+		Admission: "staged",
+	})
+	acc.Pending = &Pending{
+		ApprovalID:   approvalID,
+		Tool:         step.Tool,
+		Args:         step.Args,
+		Window:       win.snapshot(),
+		Fence:        win.fence,
+		StepsUsed:    acc.StepsUsed,
+		OutputTokens: acc.OutputTokens,
+	}
+	return acc
 }
 
 // degrade produces the best partial result reached so far — the B32
