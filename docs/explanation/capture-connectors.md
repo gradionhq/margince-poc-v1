@@ -251,8 +251,9 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
   one, but the onboarding connect step's three chips (Google, Microsoft, IMAP) don't include it — adding
   Calendar during first-run onboarding still means a trip to Settings afterward.
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
-  ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (The Gmail push-watch renewal runs,
-  but the poll remains the active sync path even for Gmail today.)
+  ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (Gmail has both halves — the
+  push-watch renewal sweep and the `/webhooks/gmail-push` consumer above — so a Gmail deployment with a
+  Pub/Sub topic configured is push-driven, with the poll behind it as the safety net.)
 - **Graph refresh-token rotation isn't persisted.** The stored token usually lasts up to Microsoft's
   default 90-day inactive lifetime (a confidential client) but can be revoked or expire earlier; on
   expiry the connection goes `reauth_required` and the user reconnects. Avoiding that reauth needs a

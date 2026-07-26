@@ -172,7 +172,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 	}
 	if string(req.Window) == "none" {
 		// An honest zero: no window, no scan, no spend.
-		writeBackfillJSON(w, crmcontracts.BackfillPreview{
+		writeBackfillJSON(w, http.StatusOK, crmcontracts.BackfillPreview{
 			Window: crmcontracts.BackfillPreviewWindow(req.Window), ComputedAt: time.Now().UTC(),
 		})
 		return
@@ -218,7 +218,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 			}
 		}
 	}
-	writeBackfillJSON(w, preview)
+	writeBackfillJSON(w, http.StatusOK, preview)
 }
 
 func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -287,8 +287,7 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	writeBackfillBody(w, h.statusPayload(&run))
+	writeBackfillJSON(w, http.StatusAccepted, h.statusPayload(&run))
 }
 
 func (h backfillHandlers) GetConnectorBackfillStatus(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -304,7 +303,7 @@ func (h backfillHandlers) GetConnectorBackfillStatus(w http.ResponseWriter, r *h
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	writeBackfillJSON(w, h.statusPayload(run))
+	writeBackfillJSON(w, http.StatusOK, h.statusPayload(run))
 }
 
 func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -320,8 +319,7 @@ func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	writeBackfillBody(w, h.statusPayload(run))
+	writeBackfillJSON(w, http.StatusAccepted, h.statusPayload(run))
 }
 
 // GetMorningDigest serves the caller's stored digest (CAP-WIRE-6): one
@@ -442,12 +440,13 @@ func (h backfillHandlers) writeBackfillError(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func writeBackfillJSON(w http.ResponseWriter, v any) {
+// writeBackfillJSON is the ONE spelling of a backfill success response. The
+// header has to be set before the status is written — net/http sniffs an
+// undeclared body into text/plain, and a typed client reading a JSON run row
+// under that content type is the transport lying about what it sent.
+func writeBackfillJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	writeBackfillBody(w, v)
-}
-
-func writeBackfillBody(w http.ResponseWriter, v any) {
+	w.WriteHeader(status)
 	//craft:ignore swallowed-errors terminal response encode; the client sees a broken body, retrying changes nothing
 	_ = json.NewEncoder(w).Encode(v)
 }
