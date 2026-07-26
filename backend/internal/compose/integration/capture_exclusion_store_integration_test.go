@@ -94,10 +94,16 @@ func TestExclusionStoreDeleteIsIdempotentAndScoped(t *testing.T) {
 	}
 }
 
-// Removing an exclusion rule is a mutation of the user's own personal-mail
-// boundary: the row is archived rather than erased, so the trail of what was
-// excluded and when survives the removal, and the removal itself is audited.
-func TestExclusionStoreDeleteArchivesTheRuleAndAuditsIt(t *testing.T) {
+// Adding or removing an exclusion rule MOVES the user's personal-mail boundary,
+// and every move is attributed: the rule's creation, its removal (the row is
+// archived rather than erased, so what was excluded survives), and the re-add
+// that puts it back. A re-add of a rule that is already live moved nothing and
+// is not a mutation.
+//
+// The order matters as much as the count. A trail whose last entry says
+// "archive" for a boundary that is currently suppressing capture tells an
+// auditor the opposite of the truth.
+func TestExclusionStoreAuditsEveryBoundaryMove(t *testing.T) {
 	e := setupSearch(t)
 	store := capture.NewExclusions(e.Pool)
 	rep1 := repCtx(e, e.Rep1)
@@ -106,10 +112,21 @@ func TestExclusionStoreDeleteArchivesTheRuleAndAuditsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	assertExclusionTrail(t, e, rule.ID, "create")
+
+	// A re-add of a LIVE rule returns the same row and changes nothing.
+	again, err := store.Create(rep1, "sender_domain", "personal-family.example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.ID != rule.ID {
+		t.Fatalf("idempotent re-add minted a new row %v, want %v", again.ID, rule.ID)
+	}
+	assertExclusionTrail(t, e, rule.ID, "create")
+
 	if err := store.Delete(rep1, rule.ID); err != nil {
 		t.Fatal(err)
 	}
-
 	if rules, err := store.List(rep1); err != nil || len(rules) != 0 {
 		t.Fatalf("the archived rule is still listed: %+v %v", rules, err)
 	}
@@ -123,38 +140,49 @@ func TestExclusionStoreDeleteArchivesTheRuleAndAuditsIt(t *testing.T) {
 	if archivedAt == nil {
 		t.Fatal("the rule row survived but archived_at is NULL — the delete did not archive it")
 	}
-
-	audits := exclusionRuleAudits(t, e, rule.ID)
-	if len(audits) != 1 {
-		t.Fatalf("delete wrote %d audit rows, want exactly 1: %+v", len(audits), audits)
-	}
-	if audits[0].Action != "archive" {
-		t.Errorf("delete audited as %q, want %q", audits[0].Action, "archive")
-	}
-	if want := "human:" + e.Rep1.String(); audits[0].ActorID != want {
-		t.Errorf("delete audited actor %q, want %q", audits[0].ActorID, want)
-	}
+	assertExclusionTrail(t, e, rule.ID, "create", "archive")
 
 	// A second delete matches no live row: still a no-op, and no audit row
 	// claiming a removal that did not happen.
 	if err := store.Delete(rep1, rule.ID); err != nil {
 		t.Fatalf("second delete errored, want idempotent no-op: %v", err)
 	}
-	if audits := exclusionRuleAudits(t, e, rule.ID); len(audits) != 1 {
-		t.Fatalf("a no-op delete wrote an audit row: %+v", audits)
-	}
+	assertExclusionTrail(t, e, rule.ID, "create", "archive")
 
-	// Re-adding the same rule resurrects the archived row rather than
-	// minting a second one.
-	again, err := store.Create(rep1, "sender_domain", "personal-family.example")
+	// Re-adding the same rule resurrects the archived row rather than minting a
+	// second one, and the trail must end saying the boundary is BACK.
+	back, err := store.Create(rep1, "sender_domain", "personal-family.example")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if again.ID != rule.ID {
-		t.Fatalf("re-add minted a new row %v, want the resurrected %v", again.ID, rule.ID)
+	if back.ID != rule.ID {
+		t.Fatalf("re-add minted a new row %v, want the resurrected %v", back.ID, rule.ID)
 	}
 	if rules, err := store.List(rep1); err != nil || len(rules) != 1 {
 		t.Fatalf("the resurrected rule is not listed: %+v %v", rules, err)
+	}
+	assertExclusionTrail(t, e, rule.ID, "create", "archive", "restore")
+}
+
+// assertExclusionTrail pins one rule's audit trail to the exact sequence of
+// verbs, and every entry to the human who acted.
+func assertExclusionTrail(t *testing.T, e *searchEnv, ruleID ids.UUID, want ...string) {
+	t.Helper()
+	audits := exclusionRuleAudits(t, e, ruleID)
+	got := make([]string, 0, len(audits))
+	for _, a := range audits {
+		got = append(got, a.Action)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("audit trail = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("audit trail = %v, want %v", got, want)
+		}
+		if actor := "human:" + e.Rep1.String(); audits[i].ActorID != actor {
+			t.Errorf("%s audited actor %q, want %q", got[i], audits[i].ActorID, actor)
+		}
 	}
 }
 
