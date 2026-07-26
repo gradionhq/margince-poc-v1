@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -40,7 +41,7 @@ type scriptedVerdictBrain struct {
 
 func (s *scriptedVerdictBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
 	s.calls++
-	askedFor := promptIDs(req.Messages[0].Content)
+	askedFor := promptIDs(req.System, req.Messages[0].Content)
 	results := make([]map[string]any, 0, len(askedFor))
 	for _, id := range askedFor {
 		verdict := s.verdicts[id]
@@ -60,15 +61,23 @@ func (s *scriptedVerdictBrain) Complete(_ context.Context, req model.Request) (m
 	return model.Response{Text: string(payload)}, nil
 }
 
-// promptIDs pulls the disposition ids out of the verdict prompt. It keys off
-// the id attribute rather than the marker around it: the marker is minted per
-// call, so a test that spelled it would be asserting against a boundary the
-// engine never used.
-func promptIDs(prompt string) []string {
+// promptIDs pulls the disposition ids out of the verdict prompt, reading them
+// only from spans opened by the boundary the SYSTEM prompt declares.
+//
+// Which string counts as the boundary has to come from text this codebase
+// wrote. The sender's name, subject and body reach the user turn byte for byte,
+// so any token recognisable inside that turn — ` id="` included — is a token the
+// sender can also write, and a helper keyed on one lets a hostile subject decide
+// which ids the scripted model answers for.
+func promptIDs(system, prompt string) []string {
+	marker, ok := promptfence.MarkerIn(system)
+	if !ok {
+		return nil
+	}
 	var out []string
 	rest := prompt
 	for {
-		i := indexAfter(rest, ` id="`)
+		i := indexAfter(rest, "<"+marker+` id="`)
 		if i < 0 {
 			return out
 		}
@@ -412,26 +421,44 @@ func TestEachSendersPromptContainsOnlyThatSendersText(t *testing.T) {
 		t.Fatalf("%d prompts for two senders, want at least one each", len(brain.prompts))
 	}
 	for _, prompt := range brain.prompts {
-		// One id attribute means one fenced sender; the marker itself is minted
-		// per call and is not something a test can spell.
-		if strings.Count(prompt, ` id="`) != 1 {
-			t.Fatalf("a prompt carried more than one sender:\n%s", prompt)
+		// Count the sender inside the boundary this call declared, not an
+		// attribute anywhere in the turn. Anchoring on the declared marker is what
+		// makes the count mean "one FENCED sender": a prompt that went back to a
+		// container the sender can spell declares no marker to count, and fails
+		// here rather than passing on an attribute a fixed container also has.
+		marker, ok := promptfence.MarkerIn(prompt.system)
+		if !ok {
+			t.Fatalf("the verdict system prompt declares no data boundary: %q", prompt.system)
+		}
+		if strings.Count(prompt.content, "<"+marker+` id="`) != 1 {
+			t.Fatalf("a prompt carried more than one fenced sender:\n%s", prompt.content)
+		}
+		if strings.Count(prompt.content, "</"+marker+">") != 1 {
+			t.Fatalf("the sender's span is not closed exactly once:\n%s", prompt.content)
+		}
+		if strings.Contains(prompt.content, "<untrusted ") || strings.Contains(prompt.content, "<untrusted>") {
+			t.Fatalf("a fixed container survived the nonce migration:\n%s", prompt.content)
 		}
 		// Neither sender's id may appear in the other's prompt: there is then no
 		// id for a hostile message to name but its own.
-		if strings.Contains(prompt, victim.String()) && strings.Contains(prompt, attacker.String()) {
+		if strings.Contains(prompt.content, victim.String()) && strings.Contains(prompt.content, attacker.String()) {
 			t.Fatal("two senders' ids shared one prompt — one could vote on the other")
 		}
 	}
 }
 
 // promptRecordingBrain keeps every prompt it is handed and answers `real` above
-// the floor, so the pass completes and each sender is asked about.
-type promptRecordingBrain struct{ prompts []string }
+// the floor, so the pass completes and each sender is asked about. It keeps the
+// system turn beside the user turn because the boundary is declared there, and
+// a recorded prompt without it cannot be checked against its own fence.
+type promptRecordingBrain struct{ prompts []recordedPrompt }
+
+// recordedPrompt is one model call as the engine built it.
+type recordedPrompt struct{ system, content string }
 
 func (b *promptRecordingBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
-	b.prompts = append(b.prompts, req.Messages[0].Content)
-	ids := promptIDs(req.Messages[0].Content)
+	b.prompts = append(b.prompts, recordedPrompt{system: req.System, content: req.Messages[0].Content})
+	ids := promptIDs(req.System, req.Messages[0].Content)
 	if len(ids) != 1 {
 		return model.Response{}, fmt.Errorf("prompt carried %d senders, want 1", len(ids))
 	}

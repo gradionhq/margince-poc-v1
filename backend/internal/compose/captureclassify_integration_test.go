@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -44,7 +45,7 @@ func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (
 	if s.budgetOut {
 		return model.Response{}, ai.ErrBudgetDeferred
 	}
-	idPattern := regexpMustIDs(req.Messages[0].Content)
+	idPattern := regexpMustIDs(req.System, req.Messages[0].Content)
 	if s.budgetOnSolo && len(idPattern) == 1 {
 		return model.Response{}, ai.ErrBudgetDeferred
 	}
@@ -72,12 +73,22 @@ func (s *scriptedClassifyBrain) Complete(_ context.Context, req model.Request) (
 	return model.Response{Text: string(payload)}, nil
 }
 
-// regexpMustIDs pulls the source_id attributes out of the prompt.
-func regexpMustIDs(prompt string) []string {
+// regexpMustIDs pulls the source_id attributes out of the prompt, reading them
+// only from spans opened by the boundary the SYSTEM prompt declares.
+//
+// Captured message text reaches the user turn byte for byte, so a token
+// recognisable inside that turn is one a sender can write too. Anchoring on the
+// declared marker keeps a hostile message from adding itself to the list of ids
+// the scripted model answers for.
+func regexpMustIDs(system, prompt string) []string {
+	marker, ok := promptfence.MarkerIn(system)
+	if !ok {
+		return nil
+	}
 	var out []string
 	rest := prompt
 	for {
-		i := indexAfter(rest, `source_id="`)
+		i := indexAfter(rest, "<"+marker+` source_id="`)
 		if i < 0 {
 			return out
 		}
