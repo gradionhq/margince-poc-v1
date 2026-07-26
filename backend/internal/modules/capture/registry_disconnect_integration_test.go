@@ -340,22 +340,23 @@ func TestReconnectDeletesThePriorSecret(t *testing.T) {
 	}
 }
 
-// A Disconnect that fails to delete the vault secret must surface the error
-// and leave the row in a RECOVERABLE state: 'disconnected' (the poller
-// already stops selecting it) with credential_ref still set, so a retry can
-// find and finish the job. Nulling the ref anyway would point at nothing —
-// the destroyed-secret half of the invariant would be a lie.
-func TestDisconnectSurfacesAFailingVaultDeleteAndLeavesARecoverableRow(t *testing.T) {
+// A withdrawal that committed is reported as a withdrawal. The vault delete
+// runs after that commit, so a vault failure cannot un-disconnect the
+// connection and there is nothing for the caller to retry — the row ends fully
+// withdrawn either way and the undeleted blob is announced at ERROR for
+// operational cleanup (keyvault.DeleteDetached owns that contract). Reporting
+// an error here instead would tell a user their disconnect failed when it did
+// not, and invite a retry that finds nothing left to do.
+func TestDisconnectCompletesEvenWhenTheVaultDeleteFails(t *testing.T) {
 	ctx, reg, vault, ws := newCaptureRegistryFixture(t)
-	ref := connectFixtureConnection(ctx, t, reg)
+	connectFixtureConnection(ctx, t, reg)
 
 	failing := &deleteFailsVault{Vault: vault}
 	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, failing)
 	reg2.Register(fixtureConnector{})
-	_ = reg // the fixture's Connect already ran against the shared pool/vault
 
-	if err := reg2.Disconnect(ctx, "gmail"); err == nil {
-		t.Fatal("Disconnect must surface a failing vault delete, not swallow it")
+	if err := reg2.Disconnect(ctx, "gmail"); err != nil {
+		t.Fatalf("Disconnect: %v — a committed withdrawal must not be reported as a failure", err)
 	}
 
 	var status string
@@ -367,8 +368,8 @@ func TestDisconnectSurfacesAFailingVaultDeleteAndLeavesARecoverableRow(t *testin
 	if status != "disconnected" {
 		t.Errorf("status = %q, want %q — capture must stop even though the delete failed", status, "disconnected")
 	}
-	if credentialRef == nil || keyvault.Ref(*credentialRef) != ref {
-		t.Errorf("credential_ref = %v, want the still-live ref %q — a failed delete must stay retryable", credentialRef, ref)
+	if credentialRef != nil {
+		t.Errorf("credential_ref = %q, want NULL — the connection is withdrawn regardless of the vault outcome", *credentialRef)
 	}
 	if authBytes != nil {
 		t.Error("legacy auth column should already be cleared regardless of the vault outcome")

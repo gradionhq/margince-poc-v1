@@ -13,6 +13,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -109,10 +110,9 @@ func (r *Registry) Connections(ctx context.Context) ([]ConnectionView, error) {
 // already-fully-disconnected connection is a no-op.
 //
 // Ordering closes the leak this method exists to close, and a naive order would
-// re-open it. The credential_ref is KEPT through the status flip and cleared
-// only AFTER the vault delete succeeds; a delete that fails leaves the row
-// 'disconnected' (poller already skips it) with a live ref to retry. Retrying
-// keys on 'credential_ref IS NOT NULL', so a partial failure converges rather
+// re-open it. The credential_ref is KEPT through the status flip so a crash
+// between the phases leaves a recoverable state: the retry predicate keys on
+// 'credential_ref IS NOT NULL', so a half-finished disconnect converges rather
 // than orphaning the secret. Delete is idempotent (keyvault contract), so the
 // retry is safe.
 func (r *Registry) Disconnect(ctx context.Context, name string) error {
@@ -170,24 +170,31 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 		return nil
 	}
 
-	// Phase 2: destroy the secret, THEN drop the ref. If the delete fails the
-	// error surfaces and the ref stays, so the next call retries phase 2. A
-	// ref with no vault configured is a wiring fault, not something to skip
-	// past — silently continuing to phase 3 would null the only pointer to a
-	// secret nobody deleted.
+	// Phase 2: destroy the secret. A ref with no vault configured is a wiring
+	// fault, not something to skip past — continuing to phase 3 would null the
+	// only pointer to a secret nobody deleted.
 	if r.vault == nil {
 		return errors.New("capture: connection carries a credential ref but no keyvault is configured to delete it")
 	}
-	if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*ref)); err != nil {
-		return fmt.Errorf("capture: deleting the disconnected credential: %w", err)
-	}
+	// The delete runs after phase 1 committed, so it must outlive the request:
+	// a client that hangs up the moment it has its 204 must not be the reason a
+	// revoked credential stays decryptable. It cannot fail the caller either —
+	// the disconnect already happened, and reporting an error for a committed
+	// withdrawal would invite a retry that finds nothing left to do.
+	keyvault.DeleteDetached(ctx, r.vault, slog.Default(), ws, keyvault.Ref(*ref), "disconnect")
 	// Phase 3: clear only the ref THIS call resolved and deleted
 	// (credential_ref = $3). Without that guard, a reconnect landing between
 	// phase 1 and here — Connect writes a NEW ref onto the same row — would
 	// have its live, still-vaulted ref nulled out from under it: a
 	// 'connected' row with no credential, and the fresh secret orphaned.
-	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
+	//
+	// It is detached for the same reason phase 2 is, on the same post-commit
+	// cleanup budget: the secret is already destroyed, so a caller that hung up
+	// must not leave the row naming a blob that no longer exists.
+	refCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), keyvault.CleanupTimeout)
+	defer cancel()
+	return database.WithWorkspaceTx(refCtx, r.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(refCtx, `
 			UPDATE capture_connection SET credential_ref = NULL
 			 WHERE user_id = $1 AND provider = $2 AND credential_ref = $3`,
 			actor.UserID, name, *ref)

@@ -147,10 +147,11 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 		return ids.Nil, errors.New("capture: no keyvault configured — a connector credential cannot be sealed")
 	}
 	// Put-then-commit (like blobstore): seal the credential in the vault
-	// first, then commit the row that names it. A rolled-back row leaves an
-	// orphan secret (encrypted and unreferenced — benign), never a row
-	// promising a credential that is not there. The row stores the opaque ref;
-	// the bytes never touch it.
+	// first, then commit the row that names it. The row stores the opaque ref;
+	// the bytes never touch it. A transaction that fails after the seal strands
+	// the blob — nothing references it, so nothing will ever collect it. It is
+	// inert (unreferenced and encrypted at rest) and removed by the operational
+	// sweep, but it is a stranded secret, not a non-event.
 	ref, err := r.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(auth))
 	if err != nil {
 		return ids.Nil, fmt.Errorf("capture: sealing connector credential: %w", err)
@@ -212,13 +213,11 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	// destroyed — the same invariant Disconnect enforces, on the overwrite
 	// path rather than the withdraw path. A first-time connect has no prior
 	// ref: nothing to delete. The delete runs AFTER commit (put-then-commit's
-	// mirror: the row is already safely repointed at the new secret before
-	// the old one is destroyed) and its error surfaces rather than leaving a
-	// decryptable stale credential silently orphaned.
-	if priorRef != nil && *priorRef != "" {
-		if err := r.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(*priorRef)); err != nil {
-			return id, fmt.Errorf("capture: deleting the superseded credential: %w", err)
-		}
+	// mirror: the row is already safely repointed at the new secret before the
+	// old one is destroyed), so it must outlive the request and must not fail
+	// it — the reconnect is committed and there is nothing left to undo.
+	if priorRef != nil {
+		keyvault.DeleteDetached(ctx, r.vault, slog.Default(), ws, keyvault.Ref(*priorRef), "reconnect")
 	}
 	return id, nil
 }
