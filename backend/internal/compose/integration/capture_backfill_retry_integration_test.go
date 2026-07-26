@@ -157,17 +157,20 @@ func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
 
 	// Each step runs on a fresh job context the page then kills, exactly as a
 	// River delivery whose timeout fires mid-page does.
-	step := func() (time.Duration, error) {
+	step := func() (bool, time.Duration, error) {
 		jobCtx, killJob := context.WithCancel(principal.WithWorkspaceID(context.Background(), e.WS))
 		defer killJob()
 		fake.killJob = killJob
-		_, _, retryAfter, err := registry.RunBackfillStep(jobCtx, run.ID)
-		return retryAfter, err
+		done, _, retryAfter, err := registry.RunBackfillStep(jobCtx, run.ID)
+		return done, retryAfter, err
 	}
 
-	retryAfter, err := step()
+	done, retryAfter, err := step()
 	if err == nil {
 		t.Fatal("a page that died with its job context must surface its fault to the caller's log")
+	}
+	if done {
+		t.Fatal("done=true over a run still waiting out a transient fault: the import would never be paged again")
 	}
 	if retryAfter <= 0 {
 		t.Fatalf("retryAfter = %v, want a positive delay: the run is still live, and only a redelivery brings it back", retryAfter)
@@ -184,13 +187,16 @@ func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
 	// fault no delay repairs, and that terminal write is detached too.
 	const ladderBound = 32 // the give-up cap is the engine's; this only stops a runaway loop
 	for i := 0; i < ladderBound && retryAfter > 0; i++ {
-		retryAfter, err = step()
+		done, retryAfter, err = step()
 		if err == nil {
 			t.Fatal("a page this connector always refuses cannot report success")
 		}
 	}
 	if retryAfter > 0 {
 		t.Fatalf("the run was still asking for a retry after %d dead pages — the ladder has no end", ladderBound)
+	}
+	if !done {
+		t.Fatal("done=false on the step that spent the ladder: the run is over, and done is what says so")
 	}
 	if status, _, _, _ = readBackfillRetryState(t, e, run.ID); status != "error" {
 		t.Fatalf("status = %s, want error — a run the pager gave up on is over, not left running", status)
@@ -207,9 +213,12 @@ func TestBackfillEndsOnAFaultNoRetryCanFix(t *testing.T) {
 	registry, runID := startFlakyBackfill(t, e, []error{connector.ErrAuthRejected})
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
-	_, completed, retryAfter, err := registry.RunBackfillStep(wsCtx, runID)
+	done, completed, retryAfter, err := registry.RunBackfillStep(wsCtx, runID)
 	if err == nil || completed {
 		t.Fatalf("a rejected credential is a failure, got completed=%v err=%v", completed, err)
+	}
+	if !done {
+		t.Fatal("done=false over a run this step already ended: a caller reading done alone would page a finished run")
 	}
 	if retryAfter != 0 {
 		t.Fatalf("retryAfter = %v, want 0 — no delay makes a revoked grant work", retryAfter)

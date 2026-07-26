@@ -35,6 +35,10 @@ import (
 // committed token. The sink counts land via the page-scoped stats snapshot
 // the connector maintains.
 //
+// done answers the RUN's fate, not this call's outcome: a step that ENDS the
+// run reports done=true alongside the err that ended it, so a caller reading
+// done without err never pages a run that is already over.
+//
 // retryAfter > 0 says the page failed on something a delay repairs (a rate
 // limit, an unreachable provider) and the run is still LIVE: the caller must
 // come back after that delay rather than treat err as the end of the import.
@@ -117,10 +121,15 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 // The cap is the honest end of the ladder: a provider still refusing after
 // backfillMaxConsecutiveFailures consecutive pages is not going to relent
 // because we asked once more.
+//
+// done answers the run's fate on its own, independent of err: every arm that
+// ends the run reports done=true, and only the arm that leaves the run LIVE for
+// a later retry reports done=false with the delay to wait. A caller consulting
+// done without err must never page a run that has already ended.
 func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cause error) (done, completed bool, retryAfter time.Duration, err error) {
 	class := classifySyncError(cause)
 	if class != classRateLimited && class != classUnreachable {
-		return false, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, cause))
+		return true, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, cause))
 	}
 	failures, live, countErr := r.countBackfillFailure(ctx, backfillID, class)
 	if countErr != nil {
@@ -129,7 +138,7 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 		// after this, and a live run nobody pages sits behind
 		// uq_capture_backfill_live answering 409 to every later start, with nothing
 		// a human can clear. End it on the class the page actually failed with.
-		return false, false, 0, errors.Join(cause, countErr, r.failBackfill(ctx, backfillID, cause))
+		return true, false, 0, errors.Join(cause, countErr, r.failBackfill(ctx, backfillID, cause))
 	}
 	if !live {
 		// The run reached a terminal state under us (a cancel, most likely).
@@ -137,7 +146,7 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 		return true, false, 0, cause
 	}
 	if failures >= backfillMaxConsecutiveFailures {
-		return false, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, cause))
+		return true, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, cause))
 	}
 	return false, false, backfillRetryDelay(failures, cause), cause
 }
