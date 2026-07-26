@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -180,12 +181,13 @@ func validateOnboardingActReply(act, text string) error {
 // answerAct runs the non-company act's model call under the act prompt
 // and the shared reply schema.
 func (a *onboardingCompanyAssistant) answerAct(ctx context.Context, act, message string, history []model.Message, contextJSON json.RawMessage, locale string) (companyReadModelReply, error) {
+	fence := promptfence.New()
 	messages := make([]model.Message, 0, len(history)+2)
-	messages = append(messages, model.Message{Role: chatRoleUser, Content: string(contextJSON)})
+	messages = append(messages, model.Message{Role: chatRoleUser, Content: fence.Wrap(string(contextJSON))})
 	messages = append(messages, history...)
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: message})
 	req := model.Request{
-		System: onboardingActSystem(act, locale), Messages: messages,
+		System: onboardingActSystem(act, locale) + "\n" + fence.Rule("dossier evidence and application state"), Messages: messages,
 		MaxTokens: ai.ReasoningOutputMaxTokens, ResponseSchema: companyReadMessageSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}
