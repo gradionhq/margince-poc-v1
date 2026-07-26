@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -52,13 +52,20 @@ var voiceDraftPerms = principal.Permissions{
 	RowScope: principal.RowScopeAll,
 }
 
-// sampleIDPattern finds a sample's id in the builder prompt. The samples sit in
-// nonce-bounded spans now (promptfence.Fence.WrapAttr), so the id is the span's
-// attribute rather than a fixed <sample> container's.
-var sampleIDPattern = regexp.MustCompile(`<untrusted-[0-9a-fA-F-]{36} id="([^"]+)"`)
-
-// sampleSpanOpen is how one sample's span begins, up to its id value.
-const sampleSpanOpen = ` id="`
+// sampleSpanOpen returns how one sample's span begins in THIS call's prompt, up
+// to its id value.
+//
+// A marker-SHAPED pattern is not the boundary: writing samples are the user's
+// own prose and reach the prompt byte for byte, so a sample containing
+// `<untrusted-<36 chars> id="…"` would be read as a span the builder never
+// opened. The marker the system prompt declares is the only one that counts.
+func sampleSpanOpen(system string) (string, bool) {
+	marker, ok := promptfence.MarkerIn(system)
+	if !ok {
+		return "", false
+	}
+	return "<" + marker + ` id="`, true
+}
 
 // scriptedBuildBrain serves all three call shapes of one build: the builder
 // pass (echoes real sample ids and a verbatim quote), the evaluation drafts,
@@ -75,18 +82,18 @@ func (s *scriptedBuildBrain) Complete(_ context.Context, req model.Request) (mod
 	}
 	switch {
 	case strings.Contains(req.System, "forensic writing-style analyst"):
-		matches := sampleIDPattern.FindAllStringSubmatch(req.Messages[0].Content, -1)
-		if len(matches) == 0 {
-			return model.Response{}, errors.New("scripted brain saw no samples in the builder prompt")
+		spanOpen, ok := sampleSpanOpen(req.System)
+		if !ok {
+			return model.Response{}, errors.New("the builder system prompt declares no data boundary")
 		}
-		evidence := make([]string, 0, len(matches))
-		for _, match := range matches {
-			evidence = append(evidence, match[1])
+		evidence := fencedIDs(req.System, req.Messages[0].Content, "id")
+		if len(evidence) == 0 {
+			return model.Response{}, errors.New("scripted brain saw no samples in the builder prompt")
 		}
 		// The quote must cite the sample that actually carries it; the
 		// held-out split decides which samples reach the builder, so find it.
 		quoteSample := ""
-		for _, block := range strings.Split(req.Messages[0].Content, sampleSpanOpen)[1:] {
+		for _, block := range strings.Split(req.Messages[0].Content, spanOpen)[1:] {
 			closing := strings.Index(block, `"`)
 			if closing < 0 {
 				continue
@@ -100,7 +107,7 @@ func (s *scriptedBuildBrain) Complete(_ context.Context, req model.Request) (mod
 		if quoteSample == "" {
 			// The quote-bearing sample was held out: quote the first
 			// sample's opening words instead, verbatim.
-			first := strings.Split(req.Messages[0].Content, sampleSpanOpen)[1]
+			first := strings.Split(req.Messages[0].Content, spanOpen)[1]
 			body := first[strings.Index(first, ">")+1:]
 			words := strings.Fields(body)
 			quote = strings.Join(words[:5], " ")
