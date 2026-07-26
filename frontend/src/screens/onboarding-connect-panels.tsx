@@ -51,7 +51,8 @@ const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
 
 // The consent return carries its provider as a route segment. A route segment
 // is just text, so it is narrowed by membership in the known set — never
-// asserted into the union — and an unrecognized one is treated as absent.
+// asserted into the union. null means "no provider this build knows", which is
+// NOT the same fact as the segment being absent: the caller keeps the two apart.
 function asOAuthProvider(value: string | undefined): OAuthProvider | null {
   return OAUTH_PROVIDERS.find((p) => p === value) ?? null;
 }
@@ -172,14 +173,13 @@ export function OAuthReturnPanel({
     },
   });
   const returning = asOAuthProvider(provider);
-  // A return link minted before the provider rode the route (an in-flight
-  // consent across a deploy) names no provider; the roster's first live OAuth
-  // mailbox is the best available answer there, and the only one.
-  const live = connections.data?.data.find((c) =>
-    returning === null
-      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
-      : c.provider === returning && c.status === "connected",
-  );
+  // A segment this build cannot resolve to a provider names no mailbox, and
+  // falling back would offer the import for one the human did not just connect.
+  // That is precisely the failure the exact match exists to prevent, so it lands
+  // on the confirm-failure state instead of guessing. An ABSENT segment is a
+  // different fact — a landing URL minted before the provider rode the route —
+  // and the roster's first live OAuth mailbox is the best answer there.
+  const unresolvedProvider = provider !== undefined && returning === null;
 
   if (outcome === "denied") {
     return (
@@ -208,7 +208,7 @@ export function OAuthReturnPanel({
       />
     );
   }
-  if (outcome !== "ok") {
+  if (outcome !== "ok" || unresolvedProvider) {
     return (
       <ConnectWarn
         title={t("ob.s4.connectConfirmFailed")}
@@ -216,6 +216,13 @@ export function OAuthReturnPanel({
       />
     );
   }
+  // Past the guard above, a null `returning` can only be the absent segment, so
+  // this is the deploy-skew fallback and nothing else.
+  const live = connections.data?.data.find((c) =>
+    returning === null
+      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
+      : c.provider === returning && c.status === "connected",
+  );
   return (
     <div className="connect-result">
       <div className="cr-h">

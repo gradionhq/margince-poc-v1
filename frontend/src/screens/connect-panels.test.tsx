@@ -136,6 +136,36 @@ it("OAuthReturnPanel reports a confirm-failure when the returning provider is no
   ).toBeTruthy();
 });
 
+// A segment this build cannot resolve to a provider is NOT the same as one that
+// is absent. Absent is deploy skew and falls back to the roster; unresolved
+// names no mailbox, and falling back there would offer to import an inbox the
+// human never just connected — the very swap the exact match exists to prevent.
+it("OAuthReturnPanel refuses to offer an import for an unrecognized provider segment", async () => {
+  const statusReads: string[] = [];
+  installFetchStub({
+    "GET /connectors": () =>
+      jsonResponse({
+        data: [
+          { id: "g1", provider: "gmail", status: "connected", scopes: [] },
+        ],
+      }),
+    "GET /connectors/gmail/backfill": () => {
+      statusReads.push("gmail");
+      return jsonResponse({ state: "idle" });
+    },
+  });
+  render(
+    <OAuthReturnPanel outcome="ok" provider="bogus" onComplete={vi.fn()} />,
+  );
+  expect(
+    await screen.findByText("We couldn't confirm the connection."),
+  ).toBeTruthy();
+  expect(screen.queryByText("Live and capturing")).toBeNull();
+  // The backfill panel reads the run for the mailbox it is offered for; the
+  // connected Gmail row must never be that mailbox here.
+  expect(statusReads).toEqual([]);
+});
+
 it("OAuthReturnPanel reports a confirm-failure when no connection came back", async () => {
   installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
   render(<OAuthReturnPanel outcome="ok" onComplete={vi.fn()} />);
