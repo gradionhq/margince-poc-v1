@@ -188,11 +188,14 @@ The credentials are **nested under `imap`** (the contract's `ConnectConnectorReq
 `422 imap_credentials_required`. The response is the connected row (`{connection: CaptureConnection}`),
 not a capture tally.
 
-```sh
-read -rsp 'IMAP app-password: ' APP_PW; echo    # silent — never in argv/history
-jq -n --arg pw "$APP_PW" \
-  '{imap:{host:"imap.gmail.com", port:993, username:"you@gmail.com", secret:$pw,
-          mailbox:"INBOX", max_messages:50}}' \
+```bash
+read -rsp 'IMAP app-password: ' APP_PW; echo    # silent — never echoed, never in history
+# The secret reaches jq on stdin, never on a command line: printf is a shell
+# builtin, so no process's argv ever holds it (a jq `--arg` would, and `ps` reads
+# argv).
+printf '%s' "$APP_PW" \
+| jq -Rs '{imap:{host:"imap.gmail.com", port:993, username:"you@gmail.com", secret:.,
+                 mailbox:"INBOX", max_messages:50}}' \
 | curl -X POST http://localhost:8080/v1/connectors/imap/connect \
     --cookie 'crm_session=<session>' -H 'Content-Type: application/json' --data @- \
 | jq '.connection | {id, provider, status, account_label}'
