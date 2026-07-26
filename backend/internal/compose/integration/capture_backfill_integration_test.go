@@ -83,6 +83,10 @@ func (p *pagedConnector) BackfillPage(_ context.Context, _ connector.Auth, _ tim
 	return res, nil
 }
 
+// enqueueNothing stands in for the transport's job insert in tests that page
+// their run by hand. Run and job still commit together — there is just no job.
+func enqueueNothing(context.Context, pgx.Tx, ids.UUID) error { return nil }
+
 func readBackfillRow(t *testing.T, e *searchEnv, id ids.UUID) (status string, scanned, captured int, cursor []byte) {
 	t.Helper()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -121,13 +125,13 @@ func TestBackfillLifecycle(t *testing.T) {
 		}
 	})
 
-	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25)
+	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing)
 	if err != nil {
 		t.Fatalf("StartBackfill: %v", err)
 	}
 
 	t.Run("one live run per connection", func(t *testing.T) {
-		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25); !errors.Is(err, capture.ErrBackfillRunning) {
+		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing); !errors.Is(err, capture.ErrBackfillRunning) {
 			t.Fatalf("second start while running = %v, want ErrBackfillRunning", err)
 		}
 	})
@@ -180,10 +184,10 @@ func TestBackfillLifecycle(t *testing.T) {
 	})
 
 	t.Run("windows only widen", func(t *testing.T) {
-		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 3, 25); !errors.Is(err, capture.ErrWindowNarrowing) {
+		if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 3, 25, enqueueNothing); !errors.Is(err, capture.ErrWindowNarrowing) {
 			t.Fatalf("narrowing 6m→3m = %v, want ErrWindowNarrowing", err)
 		}
-		wider, err := registry.StartBackfill(grantCtx, "gmail", rep, 12, 25)
+		wider, err := registry.StartBackfill(grantCtx, "gmail", rep, 12, 25, enqueueNothing)
 		if err != nil {
 			t.Fatalf("widening 6m→12m: %v", err)
 		}
@@ -235,7 +239,7 @@ func TestBackfillStepFaultsAreTerminal(t *testing.T) {
 	// one-live-run guard permits it and the same 6-month window never narrows.
 	startWithCursor := func(t *testing.T, cursorJSON string) ids.UUID {
 		t.Helper()
-		run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25)
+		run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing)
 		if err != nil {
 			t.Fatalf("StartBackfill: %v", err)
 		}
@@ -290,7 +294,7 @@ func TestBackfillStatusCountsConnectorCounterpartiesSinceStart(t *testing.T) {
 	}
 	rep := ids.From[ids.UserKind](e.Rep1)
 
-	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25); err != nil {
+	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing); err != nil {
 		t.Fatalf("StartBackfill: %v", err)
 	}
 	// Two connector-created counterparties (what the auto-create path lands)
@@ -322,5 +326,42 @@ func TestBackfillStatusCountsConnectorCounterpartiesSinceStart(t *testing.T) {
 	}
 	if run.Organizations != 1 {
 		t.Fatalf("organizations = %d, want 1 — the connector org counted", run.Organizations)
+	}
+}
+
+// A run nothing will page must not exist. uq_capture_backfill_live makes an
+// orphaned queued row permanent: no worker claims it, cancel is the only way
+// out, and until the user finds that, every retry answers 409 backfill_running.
+// So the run and the job that claims it commit together or not at all.
+func TestStartBackfillRollsBackWhenTheJobCannotBeScheduled(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(&pagedConnector{messages: 25, pageSize: 10})
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+
+	queueDown := errors.New("the job queue refused the insert")
+	failToSchedule := func(context.Context, pgx.Tx, ids.UUID) error { return queueDown }
+	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, failToSchedule); !errors.Is(err, queueDown) {
+		t.Fatalf("StartBackfill over a dead queue = %v, want the scheduling fault", err)
+	}
+
+	var rows int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.Admin(), `SELECT count(*) FROM capture_backfill`).Scan(&rows)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 0 {
+		t.Fatalf("%d backfill rows survived a failed schedule, want 0", rows)
+	}
+
+	// What the rollback buys the user: the retry starts, instead of colliding
+	// with the wreckage of the attempt that failed.
+	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing); err != nil {
+		t.Fatalf("the retry after a failed schedule must start cleanly, got %v", err)
 	}
 }

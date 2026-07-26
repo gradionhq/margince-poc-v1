@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -33,7 +34,10 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	applyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	run, err := b.registry.StartBackfill(b.human, "gmail", ids.From[ids.UserKind](b.env.Rep1), 6, 25)
+	// The run's job is enqueued by hand further down, once the boot digest has
+	// been drained — so the start itself deliberately schedules nothing.
+	run, err := b.registry.StartBackfill(b.human, "gmail", ids.From[ids.UserKind](b.env.Rep1), 6, 25,
+		func(context.Context, pgx.Tx, ids.UUID) error { return nil })
 	if err != nil {
 		t.Fatalf("StartBackfill: %v", err)
 	}
