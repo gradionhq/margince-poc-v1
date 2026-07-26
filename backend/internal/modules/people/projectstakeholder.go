@@ -46,7 +46,7 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 	}
 	// The edge annotates its anchor: without the project's write grant, an
 	// edge would be an RBAC side door onto it.
-	if err := auth.Require(ctx, "project", principal.ActionUpdate); err != nil {
+	if err := auth.Require(ctx, projectObjectName, principal.ActionUpdate); err != nil {
 		return relationshipRow{}, err
 	}
 

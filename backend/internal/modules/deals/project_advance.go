@@ -32,6 +32,8 @@ type AdvanceProjectPhaseInput struct {
 	IfVersion *int64
 }
 
+// AdvanceProjectPhase moves a project along the ladder, writing the row
+// change, its history row and project.phase_changed from one transaction.
 func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in AdvanceProjectPhaseInput) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionUpdate); err != nil {
 		return crmcontracts.Project{}, err
@@ -68,46 +70,13 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 			return fmt.Errorf("project %s has no phase", id.UUID)
 		}
 		fromPhase := string(*current.Phase)
-		if fromPhase == in.ToPhase {
-			// Re-asserting the current phase is not a transition: writing a
-			// history row for it would inflate the record with movement
-			// that never happened.
-			if out, err = readProject(ctx, tx, id, storekit.LiveOnly, active); err != nil {
-				return fmt.Errorf("read project: %w", err)
+		// Re-asserting the current phase is not a transition: writing a
+		// history row for it would inflate the record with movement that
+		// never happened.
+		if fromPhase != in.ToPhase {
+			if err := recordPhaseTransition(ctx, tx, id, current, fromPhase, in, by); err != nil {
+				return err
 			}
-			return nil
-		}
-
-		p := storekit.NewPatch()
-		p.Set("phase", fromPhase, in.ToPhase)
-		// closed_reason belongs to the closed state: leaving `closed`
-		// clears it, so a re-opened project never carries the explanation
-		// of a close that no longer applies.
-		if in.ToPhase == PhaseClosed {
-			p.Set("closed_reason", current.ClosedReason, *in.Reason)
-		} else if current.ClosedReason != nil {
-			p.Set("closed_reason", current.ClosedReason, nil)
-		}
-		if err := p.ApplyGuarded(ctx, tx, projectObject, id.UUID, in.IfVersion); err != nil {
-			if constraint, ok := storekit.CheckViolation(err); ok {
-				return projectCheckError(constraint)
-			}
-			return fmt.Errorf("apply project phase patch: %w", err)
-		}
-
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO project_phase_history (workspace_id, project_id, from_phase, to_phase, reason, changed_by)
-			 VALUES ($1, $2, $3, $4, $5, $6)`,
-			storekit.MustWorkspace(ctx), id, fromPhase, in.ToPhase, in.Reason, by); err != nil {
-			return fmt.Errorf("record project phase history: %w", err)
-		}
-
-		auditID, err := storekit.Audit(ctx, tx, "advance_phase", projectObject, id.UUID, p.Before(), p.After())
-		if err != nil {
-			return fmt.Errorf("audit project advance: %w", err)
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, projectPhaseChangedPayload(fromPhase, in)); err != nil {
-			return fmt.Errorf("emit project.phase_changed: %w", err)
 		}
 		if out, err = readProject(ctx, tx, id, storekit.LiveOnly, active); err != nil {
 			return fmt.Errorf("read advanced project: %w", err)
@@ -115,6 +84,47 @@ func (s *Store) AdvanceProjectPhase(ctx context.Context, id ids.ProjectID, in Ad
 		return nil
 	})
 	return out, err
+}
+
+// recordPhaseTransition applies the row change, appends its history row and
+// emits the first-class event — the three writes that must land together or
+// not at all, which is the whole reason this verb exists apart from update.
+func recordPhaseTransition(ctx context.Context, tx pgx.Tx, id ids.ProjectID,
+	current crmcontracts.Project, fromPhase string, in AdvanceProjectPhaseInput, by string,
+) error {
+	p := storekit.NewPatch()
+	p.Set("phase", fromPhase, in.ToPhase)
+	// closed_reason belongs to the closed state: leaving `closed` clears it,
+	// so a re-opened project never carries the explanation of a close that
+	// no longer applies.
+	switch {
+	case in.ToPhase == PhaseClosed:
+		p.Set("closed_reason", current.ClosedReason, *in.Reason)
+	case current.ClosedReason != nil:
+		p.Set("closed_reason", current.ClosedReason, nil)
+	}
+	if err := p.ApplyGuarded(ctx, tx, projectObject, id.UUID, in.IfVersion); err != nil {
+		if constraint, ok := storekit.CheckViolation(err); ok {
+			return projectCheckError(constraint)
+		}
+		return fmt.Errorf("apply project phase patch: %w", err)
+	}
+
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO project_phase_history (workspace_id, project_id, from_phase, to_phase, reason, changed_by)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		storekit.MustWorkspace(ctx), id, fromPhase, in.ToPhase, in.Reason, by); err != nil {
+		return fmt.Errorf("record project phase history: %w", err)
+	}
+
+	auditID, err := storekit.Audit(ctx, tx, "advance_phase", projectObject, id.UUID, p.Before(), p.After())
+	if err != nil {
+		return fmt.Errorf("audit project advance: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, projectPhaseChangedPayload(fromPhase, in)); err != nil {
+		return fmt.Errorf("emit project.phase_changed: %w", err)
+	}
+	return nil
 }
 
 // projectPhaseChangedPayload builds the event body in one place, so a

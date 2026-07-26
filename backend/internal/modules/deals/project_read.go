@@ -9,7 +9,6 @@ package deals
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -24,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
 )
 
+// GetProject resolves one project under the caller's row scope.
 func (s *Store) GetProject(ctx context.Context, id ids.ProjectID, archived storekit.ArchivedFilter) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionRead); err != nil {
 		return crmcontracts.Project{}, err
@@ -43,6 +43,7 @@ func (s *Store) GetProject(ctx context.Context, id ids.ProjectID, archived store
 	return out, err
 }
 
+// ListProjectsInput is one filtered, sorted, cursor-paginated list read.
 type ListProjectsInput struct {
 	Cursor          *string
 	Limit           *int
@@ -68,13 +69,14 @@ const projectQuickFindExpr = `(coalesce(name,'') || ' ' || coalesce(key,''))`
 
 // projectListFields is the project list's core sortable vocabulary.
 var projectListFields = map[string]string{
-	"created_at":       storekit.KindTimestamp,
-	"updated_at":       storekit.KindTimestamp,
-	"last_activity_at": storekit.KindTimestamp,
-	"name":             fieldcatalog.TypeText,
-	"target_end_date":  fieldcatalog.TypeDate,
+	"created_at":           storekit.KindTimestamp,
+	"updated_at":           storekit.KindTimestamp,
+	"last_activity_at":     storekit.KindTimestamp,
+	offerTemplateNameField: fieldcatalog.TypeText,
+	"target_end_date":      fieldcatalog.TypeDate,
 }
 
+// ListProjects answers one page under the caller's row scope.
 func (s *Store) ListProjects(ctx context.Context, in ListProjectsInput) ([]crmcontracts.Project, storekit.Page, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
@@ -83,65 +85,15 @@ func (s *Store) ListProjects(ctx context.Context, in ListProjectsInput) ([]crmco
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(projectListFields, active))
+	pre, err := buildListPrelude(ctx, projectObject, projectListFields, active,
+		in.Sort, in.Limit, in.Cursor, in.CustomFilters)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	limit := storekit.ClampLimit(in.Limit)
+	where := appendProjectFilters(pre.where, in, pre.arg)
 
-	where := []string{"1=1"}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	scope, err := auth.ScopeClauseFor(ctx, projectObject, "", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-
-	where = appendProjectFilters(where, in, arg)
-	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	where = append(where, cfClauses...)
-	if in.Cursor != nil && *in.Cursor != "" {
-		clause, err := sorted.KeysetClause(*in.Cursor, arg)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, clause)
-	}
-
-	var projects []crmcontracts.Project
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+projectColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
-				` FROM project WHERE `+strings.Join(where, " AND ")+
-				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		var cursorKeys []*string
-		if projects, cursorKeys, err = scanProjectPage(rows, active, sorted); err != nil {
-			return err
-		}
-		if len(projects) > limit {
-			projects = projects[:limit]
-			last := projects[len(projects)-1]
-			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if projects == nil {
-		projects = []crmcontracts.Project{}
-	}
-	return projects, page, err
+	return runListPage(ctx, s, pre, projectObject, projectColumns, active, where, scanProjectPage,
+		func(p crmcontracts.Project) (time.Time, ids.UUID) { return p.CreatedAt, ids.UUID(p.Id) })
 }
 
 // scanProjectPage drains one list query's rows: each project plus, under a
@@ -205,7 +157,7 @@ const projectColumns = `id, workspace_id, name, key, organization_id, owner_id, 
 func readProject(ctx context.Context, tx pgx.Tx, id ids.ProjectID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Project, error) {
 	q := `SELECT ` + projectColumns + storekit.SelectSuffix(active) + ` FROM project WHERE id = $1`
 	if archived == storekit.LiveOnly {
-		q += ` AND archived_at IS NULL`
+		q += offerTemplateArchivedAtClause
 	}
 	p, err := scanProject(tx.QueryRow(ctx, q, id), active)
 	if errors.Is(err, pgx.ErrNoRows) {

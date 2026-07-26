@@ -19,8 +19,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// projectStakeholderKind is the edge kind this surface reads and writes.
-const projectStakeholderKind = "project_stakeholder"
+// projectStakeholderKind is the edge kind this surface reads and writes;
+// projectObjectName is the RBAC object and visibility-probe table the edge
+// annotates. Both spelled once so the kind, the anchor and the probe cannot
+// drift apart.
+const (
+	projectStakeholderKind = "project_stakeholder"
+	projectObjectName      = "project"
+)
 
 // ListProjectStakeholders serves the project-scoped stakeholder view; the
 // project itself must be visible (the endpoint-scope rule then re-applies
@@ -73,6 +79,8 @@ func (h Handlers) SetProjectStakeholder(w http.ResponseWriter, r *http.Request, 
 	httperr.WriteJSON(w, http.StatusOK, wireRelationship(rel))
 }
 
+// RemoveProjectStakeholder detaches a person from a project by archiving
+// the edge — detaching is not deleting.
 func (h Handlers) RemoveProjectStakeholder(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, personID openapi_types.UUID, _ crmcontracts.RemoveProjectStakeholderParams) {
 	err := h.store.RemoveProjectStakeholder(r.Context(),
 		pathID[ids.ProjectKind](id), ids.From[ids.PersonKind](ids.UUID(personID)))

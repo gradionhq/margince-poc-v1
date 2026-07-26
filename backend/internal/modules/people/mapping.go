@@ -176,6 +176,7 @@ func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
 		SourceID:        req.SourceId,
 		Source:          req.Source,
 		OwnerID:         idArg[ids.UserKind](req.OwnerId),
+		ProjectID:       idArg[ids.ProjectKind](req.ProjectId),
 		CustomFields:    req.AdditionalProperties,
 	}
 	if req.Email != nil {
@@ -229,6 +230,7 @@ func leadUpdateInput(req LeadUpdateRequest, ifVersion *int64) UpdateLeadInput {
 		ScoreOverrideReason: req.ScoreOverrideReason,
 		ClearScoreOverride:  req.scoreNull || req.reasonNull,
 		OwnerID:             idArg[ids.UserKind](req.OwnerId),
+		ProjectID:           idArg[ids.ProjectKind](req.ProjectId),
 		IfVersion:           ifVersion,
 		CustomFields:        req.AdditionalProperties,
 	}

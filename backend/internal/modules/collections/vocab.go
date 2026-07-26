@@ -27,6 +27,10 @@ const (
 // and are deliberately out of the segment vocabulary). Only the four
 // list entity types carry a segment engine; list.entity_type constrains
 // membership to exactly these tables.
+// projectEntity is this file's spelling of the project record type, named
+// once so the engine key, the table and the column prefix cannot drift.
+const projectEntity = "project"
+
 var segmentEngines = map[string]storekit.Query{
 	"person": {
 		Table:     "person",
@@ -68,8 +72,8 @@ var segmentEngines = map[string]storekit.Query{
 			"candidate_org_key": {Expr: "t.candidate_org_key", Type: storekit.FieldText},
 		},
 	},
-	"project": {
-		Table:     "project",
+	projectEntity: {
+		Table:     projectEntity,
 		BaseWhere: whereArchivedNull,
 		Fields: map[string]storekit.Field{
 			"owner_id":        {Expr: colOwnerID, Type: storekit.FieldID},

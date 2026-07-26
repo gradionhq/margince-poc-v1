@@ -8395,6 +8395,7 @@ type CreateLeadRequest struct {
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key for LinkedIn-captured leads.
 	LinkedinUrl          *string                  `json:"linkedin_url,omitempty"`
 	OwnerId              *openapi_types.UUID      `json:"owner_id,omitempty"`
+	ProjectId            *openapi_types.UUID      `json:"project_id,omitempty"`
 	Source               string                   `json:"source"`
 	SourceId             *string                  `json:"source_id,omitempty"`
 	SourceSystem         *string                  `json:"source_system,omitempty"`
@@ -9190,7 +9191,10 @@ type Lead struct {
 	// LinkedinUrl Normalized LinkedIn profile URL — the E12.11 exact-match dedupe key.
 	LinkedinUrl *string             `json:"linkedin_url,omitempty"`
 	OwnerId     *openapi_types.UUID `json:"owner_id,omitempty"`
-	PromotedAt  *time.Time          `json:"promoted_at,omitempty"`
+
+	// ProjectId The body of work this lead belongs to; a lead has at most one. NO same-company guard exists on this arm and none can: a lead has no organization_id, only candidate_org_key, so the deal_project_same_org trigger has no lead twin. Promotion is where a mismatch becomes visible.
+	ProjectId  *openapi_types.UUID `json:"project_id,omitempty"`
+	PromotedAt *time.Time          `json:"promoted_at,omitempty"`
 
 	// PromotedPersonId Set on promotion (convenience mirror).
 	PromotedPersonId *openapi_types.UUID     `json:"promoted_person_id,omitempty"`
@@ -11307,6 +11311,9 @@ type UpdateLeadRequest struct {
 	Email           *openapi_types.Email `json:"email,omitempty"`
 	FullName        *string              `json:"full_name,omitempty"`
 	OwnerId         *openapi_types.UUID  `json:"owner_id,omitempty"`
+
+	// ProjectId The body of work this lead belongs to; carries no same-company guard (a lead has no company).
+	ProjectId *openapi_types.UUID `json:"project_id,omitempty"`
 
 	// Score Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.
 	Score *int `json:"score,omitempty"`
@@ -14932,6 +14939,14 @@ func (a *CreateLeadRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["project_id"]; found {
+		err = json.Unmarshal(raw, &a.ProjectId)
+		if err != nil {
+			return fmt.Errorf("error reading 'project_id': %w", err)
+		}
+		delete(object, "project_id")
+	}
+
 	if raw, found := object["source"]; found {
 		err = json.Unmarshal(raw, &a.Source)
 		if err != nil {
@@ -15030,6 +15045,13 @@ func (a CreateLeadRequest) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.ProjectId != nil {
+		object["project_id"], err = json.Marshal(a.ProjectId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'project_id': %w", err)
 		}
 	}
 
@@ -16547,6 +16569,14 @@ func (a *Lead) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["project_id"]; found {
+		err = json.Unmarshal(raw, &a.ProjectId)
+		if err != nil {
+			return fmt.Errorf("error reading 'project_id': %w", err)
+		}
+		delete(object, "project_id")
+	}
+
 	if raw, found := object["promoted_at"]; found {
 		err = json.Unmarshal(raw, &a.PromotedAt)
 		if err != nil {
@@ -16739,6 +16769,13 @@ func (a Lead) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.ProjectId != nil {
+		object["project_id"], err = json.Marshal(a.ProjectId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'project_id': %w", err)
 		}
 	}
 
@@ -18999,6 +19036,14 @@ func (a *UpdateLeadRequest) UnmarshalJSON(b []byte) error {
 		delete(object, "owner_id")
 	}
 
+	if raw, found := object["project_id"]; found {
+		err = json.Unmarshal(raw, &a.ProjectId)
+		if err != nil {
+			return fmt.Errorf("error reading 'project_id': %w", err)
+		}
+		delete(object, "project_id")
+	}
+
 	if raw, found := object["score"]; found {
 		err = json.Unmarshal(raw, &a.Score)
 		if err != nil {
@@ -19082,6 +19127,13 @@ func (a UpdateLeadRequest) MarshalJSON() ([]byte, error) {
 		object["owner_id"], err = json.Marshal(a.OwnerId)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'owner_id': %w", err)
+		}
+	}
+
+	if a.ProjectId != nil {
+		object["project_id"], err = json.Marshal(a.ProjectId)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'project_id': %w", err)
 		}
 	}
 

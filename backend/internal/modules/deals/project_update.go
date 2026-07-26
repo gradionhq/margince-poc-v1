@@ -39,6 +39,8 @@ type UpdateProjectInput struct {
 	CustomFields map[string]any
 }
 
+// UpdateProject applies a partial update. It cannot move the phase: that
+// would write a history row, and only AdvanceProjectPhase does.
 func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdateProjectInput) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionUpdate); err != nil {
 		return crmcontracts.Project{}, err
@@ -59,10 +61,8 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 			return fmt.Errorf("read project before update: %w", err)
 		}
 
-		if in.Key != nil && (current.Key == nil || !strings.EqualFold(*current.Key, *in.Key)) {
-			if err := ensureProjectKeyFree(ctx, tx, in.Key); err != nil {
-				return err
-			}
+		if err := ensureRenamedKeyFree(ctx, tx, current, in); err != nil {
+			return err
 		}
 
 		p := projectUpdatePatch(current, in)
@@ -96,6 +96,20 @@ func (s *Store) UpdateProject(ctx context.Context, id ids.ProjectID, in UpdatePr
 		return nil
 	})
 	return out, err
+}
+
+// ensureRenamedKeyFree runs the collision pre-check only when the update
+// actually moves the key. Re-sending the key a project already holds is not
+// a rename, and treating it as one would have every no-op PATCH conflict
+// with the project itself.
+func ensureRenamedKeyFree(ctx context.Context, tx pgx.Tx, current crmcontracts.Project, in UpdateProjectInput) error {
+	if in.Key == nil {
+		return nil
+	}
+	if current.Key != nil && strings.EqualFold(*current.Key, *in.Key) {
+		return nil
+	}
+	return ensureProjectKeyFree(ctx, tx, in.Key)
 }
 
 // projectUpdatePatch builds the column patch. Every FK it can set points

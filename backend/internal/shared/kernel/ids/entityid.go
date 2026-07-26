@@ -133,7 +133,6 @@ type (
 	OrganizationID = ID[OrganizationKind]
 	LeadID         = ID[LeadKind]
 	DealID         = ID[DealKind]
-	ProjectID      = ID[ProjectKind]
 	PipelineID     = ID[PipelineKind]
 	StageID        = ID[StageKind]
 	OfferID        = ID[OfferKind]
@@ -147,6 +146,9 @@ type (
 	AutomationID   = ID[AutomationKind]
 	PassportID     = ID[PassportKind]
 	PurposeID      = ID[PurposeKind]
+	// ProjectID identifies a project — the body of work a client
+	// relationship is made of.
+	ProjectID = ID[ProjectKind]
 )
 
 // OfferTemplateKind is the offer_template entity tag (data-model §12.6,

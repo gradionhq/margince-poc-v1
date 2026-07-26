@@ -9682,6 +9682,7 @@ components:
         title: { type: [string, 'null'] }
         company_name: { type: [string, 'null'], description: FREE TEXT — NOT an organization FK. }
         candidate_org_key: { type: [string, 'null'], description: Loose key for ABM routing without creating an org. }
+        project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this lead belongs to; a lead has at most one. NO same-company guard exists on this arm and none can: a lead has no organization_id, only candidate_org_key, so the deal_project_same_org trigger has no lead twin. Promotion is where a mismatch becomes visible.' }
         status: { type: string, enum: [new, working, promoted, disqualified], default: new }
         score: { type: integer, default: 0, description: 'Lead-local scoring; never reads the contact graph. While an override is in force this is the human-set value (see score_override_reason).' }
         score_override_reason: { type: [string, 'null'], readOnly: true, description: 'Non-null ⇒ `score` is a human Commercial-Judgement override (formulas §3.1) and recompute is suppressed; the machine value is retained in `score_computed`.' }
@@ -9720,6 +9721,7 @@ components:
         title: { type: [string, 'null'] }
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'] }
+        project_id: { type: [string, 'null'], format: uuid }
         status: { type: string, enum: [new, working, promoted, disqualified], default: new }
         owner_id: { type: [string, 'null'], format: uuid }
         source_system: { type: [string, 'null'] }
@@ -9741,6 +9743,7 @@ components:
         title: { type: [string, 'null'] }
         company_name: { type: [string, 'null'] }
         candidate_org_key: { type: [string, 'null'], description: 'Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK.' }
+        project_id: { type: [string, 'null'], format: uuid, description: 'The body of work this lead belongs to; carries no same-company guard (a lead has no company).' }
         status: { type: string, enum: [new, working] }
         score: { type: [integer, 'null'], minimum: 0, maximum: 100, description: 'Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute.' }
         score_override_reason: { type: [string, 'null'], minLength: 1, description: 'Written reason for the Commercial Judgement override (formulas §3.1). REQUIRED when `score` is set (422 otherwise); the override is sticky — it suppresses recompute until cleared.' }

@@ -46,6 +46,8 @@ const PhaseInitiative = "initiative"
 // later.
 const PhaseClosed = "closed"
 
+// CreateProjectInput is one new body of work. Phase and captured_by are
+// absent by design: both are the server's to decide.
 type CreateProjectInput struct {
 	Name           string
 	Key            *string
@@ -61,6 +63,8 @@ type CreateProjectInput struct {
 	CustomFields map[string]any
 }
 
+// CreateProject opens a project on a company, with its birth phase-history
+// row written in the same transaction.
 func (s *Store) CreateProject(ctx context.Context, in CreateProjectInput) (crmcontracts.Project, error) {
 	if err := auth.Require(ctx, projectObject, principal.ActionCreate); err != nil {
 		return crmcontracts.Project{}, err
@@ -134,7 +138,7 @@ func createProjectTx(ctx context.Context, tx pgx.Tx, in CreateProjectInput, by s
 		return crmcontracts.Project{}, fmt.Errorf("record project phase history: %w", err)
 	}
 
-	auditID, err := storekit.Audit(ctx, tx, "create", projectObject, id.UUID, nil, map[string]any{"name": in.Name})
+	auditID, err := storekit.Audit(ctx, tx, "create", projectObject, id.UUID, nil, map[string]any{dealNameColumn: in.Name})
 	if err != nil {
 		return crmcontracts.Project{}, fmt.Errorf("audit project create: %w", err)
 	}

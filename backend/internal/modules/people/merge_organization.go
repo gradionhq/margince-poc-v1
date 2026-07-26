@@ -11,6 +11,7 @@ package people
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,6 +52,9 @@ func (s *Store) MergeOrganization(ctx context.Context, sourceID, targetID ids.Or
 		}
 		src, tgt, err := mergePair(ctx, tx, "organization", sourceID, targetID, readOrgMergeState)
 		if err != nil {
+			return err
+		}
+		if err := refuseWhenBothCarryProjects(ctx, tx, sourceID, targetID); err != nil {
 			return err
 		}
 		targetIsPartner, err := relinkOrgAssociations(ctx, tx, sourceID, targetID)
@@ -144,9 +148,15 @@ func absorbOrgReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.
 	for _, stmt := range []string{
 		`UPDATE deal SET organization_id = $2 WHERE organization_id = $1`,
 		`UPDATE deal SET partner_org_id = $2 WHERE partner_org_id = $1`,
+		// A project's anchor is NOT NULL ... ON DELETE RESTRICT, so it
+		// cannot stay behind on the dissolved org (PROJ-LIFE-4). Leaving it
+		// is not a cosmetic gap: the deals move to the survivor and the
+		// deal_project_same_org trigger then refuses their NEXT edit,
+		// turning a healthy deal un-editable over a mismatch nobody made.
+		`UPDATE project SET organization_id = $2 WHERE organization_id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, stmt, sourceID, targetID); err != nil {
-			return false, fmt.Errorf("repoint deal attributions: %w", err)
+			return false, fmt.Errorf("repoint deal and project attributions: %w", err)
 		}
 	}
 
@@ -253,4 +263,58 @@ func relinkOrgEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Organ
 		`UPDATE relationship SET counterparty_org_id = $2
 		 WHERE counterparty_org_id = $1 AND archived_at IS NULL`, sourceID, targetID)
 	return err
+}
+
+// refuseWhenBothCarryProjects enforces PROJ-LIFE-4's ask. Two companies
+// that each hold live bodies of work may, once merged, be running the same
+// one twice or two genuinely different ones — and nothing in the data says
+// which. Combining them silently would leave a human to find the duplicates
+// later, so the merge stops and names them instead. The refusal is
+// actionable and reversible: archive or re-anchor one side, then merge.
+//
+// Only live projects count. An archived project is a grouping already ended,
+// and it relinks with everything else.
+func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.OrganizationID) error {
+	rows, err := tx.Query(ctx, `
+		SELECT organization_id, name FROM project
+		WHERE organization_id IN ($1, $2) AND archived_at IS NULL
+		ORDER BY organization_id, name`, sourceID, targetID)
+	if err != nil {
+		return fmt.Errorf("read projects on both merge endpoints: %w", err)
+	}
+	defer rows.Close()
+
+	var sourceNames, targetNames []string
+	for rows.Next() {
+		var org ids.UUID
+		var name string
+		if err := rows.Scan(&org, &name); err != nil {
+			return err
+		}
+		if org == sourceID.UUID {
+			sourceNames = append(sourceNames, name)
+			continue
+		}
+		targetNames = append(targetNames, name)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if len(sourceNames) > 0 && len(targetNames) > 0 {
+		return &BothCompaniesCarryProjectsError{Source: sourceNames, Target: targetNames}
+	}
+	return nil
+}
+
+// BothCompaniesCarryProjectsError maps to 409: the merge needs a human to
+// say whether the two sets of work are the same body of work or two.
+type BothCompaniesCarryProjectsError struct {
+	Source []string
+	Target []string
+}
+
+func (e *BothCompaniesCarryProjectsError) Error() string {
+	return "both companies have live projects (" +
+		strings.Join(e.Source, ", ") + " and " + strings.Join(e.Target, ", ") +
+		"); archive or re-anchor one side before merging, so the merge does not guess whether they are the same work"
 }

@@ -14,7 +14,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 
 	"github.com/jackc/pgx/v5"
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -43,6 +42,7 @@ type CreateLeadInput struct {
 	LinkedInURL     *string
 	Status          string
 	OwnerID         *ids.UserID
+	ProjectID       *ids.ProjectID
 	SourceSystem    *string
 	SourceID        *string
 	Source          string
@@ -94,15 +94,20 @@ func (s *Store) CreateLead(ctx context.Context, in CreateLeadInput) (crmcontract
 		// The initial score is the §3 fit component — a fresh lead has no
 		// behavioral history yet; signal recompute moves it later.
 		fitScore, _ := ScoreLead(deref(in.Title), in.Source, nil, time.Now().UTC())
-		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 16)
+		cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 17)
+		if in.ProjectID != nil {
+			if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+				return err
+			}
+		}
 		args := []any{
 			id, wsID, in.FullName, in.Email, in.Title, in.CompanyName, in.CandidateOrgKey,
-			in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.SourceSystem, in.SourceID, in.Source, by,
+			in.LinkedInURL, in.Status, fitScore, in.OwnerID, in.ProjectID, in.SourceSystem, in.SourceID, in.Source, by,
 		}
 		_, err = tx.Exec(ctx,
 			`INSERT INTO lead (id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-			                   linkedin_url, status, score, owner_id, source_system, source_id, source, captured_by`+cfCols+`)
-			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15`+cfHolders+`)`,
+			                   linkedin_url, status, score, owner_id, project_id, source_system, source_id, source, captured_by`+cfCols+`)
+			 VALUES ($1, $2, $3, lower($4), $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16`+cfHolders+`)`,
 			append(args, cfArgs...)...)
 		if err != nil {
 			// Race behind the pre-checks: the constraint name tells an
@@ -431,62 +436,6 @@ func (s *Store) DisqualifyLead(ctx context.Context, id ids.LeadID) (crmcontracts
 		return err
 	})
 	return out, err
-}
-
-const leadColumns = `id, workspace_id, full_name, email, title, company_name, candidate_org_key,
-	linkedin_url, status, score, score_override_reason, score_computed, owner_id, source_system, source_id,
-	promoted_person_id, promoted_at, source, captured_by, version, created_at, updated_at, archived_at`
-
-// readLead resolves one lead row; active names the custom-field columns
-// to carry alongside the core ones — nil for internal decision reads whose
-// result never reaches the wire.
-func readLead(ctx context.Context, tx pgx.Tx, id ids.LeadID, archived storekit.ArchivedFilter, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
-	q := `SELECT ` + leadColumns + storekit.SelectSuffix(active) + ` FROM lead WHERE id = $1`
-	if archived == storekit.LiveOnly {
-		q += ` AND archived_at IS NULL`
-	}
-	l, err := scanLead(tx.QueryRow(ctx, q, id), active)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return crmcontracts.Lead{}, apperrors.ErrNotFound
-	}
-	return l, err
-}
-
-// scanLead scans core + active custom columns. Lead lists page by a
-// (created_at, id) WHERE cursor, not a SELECT cursor-key suffix, so there
-// are no trailing expressions to scan — unlike scanPerson's keyset page.
-func scanLead(row pgx.Row, active []fieldcatalog.Column) (crmcontracts.Lead, error) {
-	var l crmcontracts.Lead
-	var id, wsID ids.UUID
-	var ownerID, promotedPerson *ids.UUID
-	var email *string
-	var status string
-	var version int64
-
-	dests := []any{
-		&id, &wsID, &l.FullName, &email, &l.Title, &l.CompanyName, &l.CandidateOrgKey,
-		&l.LinkedinUrl, &status, &l.Score, &l.ScoreOverrideReason, &l.ScoreComputed, &ownerID, &l.SourceSystem, &l.SourceId,
-		&promotedPerson, &l.PromotedAt, &l.Source, &l.CapturedBy, &version, &l.CreatedAt, &l.UpdatedAt, &l.ArchivedAt,
-	}
-	cf := storekit.ScanDests(active)
-	if err := row.Scan(append(dests, cf...)...); err != nil {
-		return l, err
-	}
-	if values := storekit.ExtractValues(active, cf); len(values) > 0 {
-		l.AdditionalProperties = values
-	}
-
-	l.Id = openapi_types.UUID(id)
-	l.WorkspaceId = openapi_types.UUID(wsID)
-	l.OwnerId = uuidPtr(ownerID)
-	l.PromotedPersonId = uuidPtr(promotedPerson)
-	if email != nil {
-		e := openapi_types.Email(*email)
-		l.Email = &e
-	}
-	l.Status = crmcontracts.LeadStatus(status)
-	l.Version = &version
-	return l, nil
 }
 
 func deref(s *string) string {

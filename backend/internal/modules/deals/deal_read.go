@@ -9,7 +9,6 @@ package deals
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -89,65 +88,15 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(dealListFields, active))
+	pre, err := buildListPrelude(ctx, "deal", dealListFields, active,
+		in.Sort, in.Limit, in.Cursor, in.CustomFilters)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	limit := storekit.ClampLimit(in.Limit)
+	where := appendDealFilters(pre.where, in, pre.arg)
 
-	where := []string{"1=1"}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	scope, err := auth.ScopeClauseFor(ctx, "deal", "", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-
-	where = appendDealFilters(where, in, arg)
-	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	where = append(where, cfClauses...)
-	if in.Cursor != nil && *in.Cursor != "" {
-		clause, err := sorted.KeysetClause(*in.Cursor, arg)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, clause)
-	}
-
-	var deals []crmcontracts.Deal
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+dealColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
-				` FROM deal WHERE `+strings.Join(where, " AND ")+
-				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		var cursorKeys []*string
-		if deals, cursorKeys, err = scanDealPage(rows, active, sorted); err != nil {
-			return err
-		}
-		if len(deals) > limit {
-			deals = deals[:limit]
-			last := deals[len(deals)-1]
-			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if deals == nil {
-		deals = []crmcontracts.Deal{}
-	}
-	return deals, page, err
+	return runListPage(ctx, s, pre, "deal", dealColumns, active, where, scanDealPage,
+		func(d crmcontracts.Deal) (time.Time, ids.UUID) { return d.CreatedAt, ids.UUID(d.Id) })
 }
 
 // scanDealPage drains one list query's rows: each deal plus, under a

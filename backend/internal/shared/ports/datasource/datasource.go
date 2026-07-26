@@ -45,6 +45,8 @@ func EntityTypes() []EntityType {
 // CHECK constraints is pinned to it by TestEveryDomainEnumMatchesItsSchemaCheck.
 type RecordType string
 
+// The record vocabulary. Each value is mirrored by a schema CHECK, pinned
+// together by TestEveryDomainEnumMatchesItsSchemaCheck.
 const (
 	RecordPerson       RecordType = "person"
 	RecordOrganization RecordType = "organization"

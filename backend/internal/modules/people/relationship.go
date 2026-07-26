@@ -39,8 +39,8 @@ func relationshipAnchor(kind string) (object, column string) {
 		return "person", "person_id"
 	case "deal_stakeholder":
 		return "deal", "deal_id"
-	case "project_stakeholder":
-		return "project", "project_id"
+	case projectStakeholderKind:
+		return projectObjectName, "project_id"
 	default: // partner_of, referred_by, co_sell_with
 		return "organization", "organization_id"
 	}
@@ -100,7 +100,7 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 		{"organization_id", "organization"},
 		{"counterparty_org_id", "organization"},
 		{"deal_id", "deal"},
-		{"project_id", "project"},
+		{"project_id", projectObjectName},
 	} {
 		predicate := auth.VisiblePredicate(actor, endpoint.table, arg)
 		clauses = append(clauses, fmt.Sprintf(
@@ -187,7 +187,7 @@ func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelati
 		{"organization", untypedPtr(in.OrganizationID)},
 		{"organization", untypedPtr(in.CounterpartyOrgID)},
 		{"deal", untypedPtr(in.DealID)},
-		{"project", untypedPtr(in.ProjectID)},
+		{projectObjectName, untypedPtr(in.ProjectID)},
 	} {
 		if ref.id == nil {
 			continue
@@ -347,7 +347,7 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 		anchorID = rel.PersonID.UUID
 	case "deal":
 		anchorID = rel.DealID.UUID
-	case "project":
+	case projectObjectName:
 		anchorID = rel.ProjectID.UUID
 	default:
 		anchorID = rel.OrganizationID.UUID
@@ -377,7 +377,7 @@ func relationshipUpdatedPayload(anchorObject string, changedFields map[string]an
 	switch anchorObject {
 	case "deal":
 		return crmcontracts.PublicEventDealUpdated{ChangedFields: changedFields}
-	case "project":
+	case projectObjectName:
 		return crmcontracts.PublicEventProjectUpdated{ChangedFields: changedFields}
 	case "person":
 		return crmcontracts.PublicEventPersonUpdated{ChangedFields: changedFields}
@@ -442,10 +442,10 @@ func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
 // the edge list is empty, so "no stakeholders yet" and "no such project"
 // stay distinguishable without disclosing either.
 func (s *Store) EnsureProjectVisible(ctx context.Context, projectID ids.ProjectID) error {
-	if err := auth.Require(ctx, "project", principal.ActionRead); err != nil {
+	if err := auth.Require(ctx, projectObjectName, principal.ActionRead); err != nil {
 		return err
 	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
-		return auth.EnsureLinkTarget(ctx, tx, "project", projectID.UUID)
+		return auth.EnsureLinkTarget(ctx, tx, projectObjectName, projectID.UUID)
 	})
 }

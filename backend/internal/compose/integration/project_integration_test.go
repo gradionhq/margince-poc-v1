@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -31,7 +32,7 @@ type projectFixture struct {
 	Version int64
 }
 
-func seedProject(t *testing.T, e *Env, ctx context.Context, name string, key *string, org ids.UUID, owner *ids.UUID) projectFixture {
+func seedProject(ctx context.Context, t *testing.T, e *Env, name string, key *string, org ids.UUID, owner *ids.UUID) projectFixture {
 	t.Helper()
 	in := deals.CreateProjectInput{
 		Name:           name,
@@ -53,7 +54,7 @@ func seedProject(t *testing.T, e *Env, ctx context.Context, name string, key *st
 func TestProjectIsBornWithItsHistoryRow(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "BAER Pharma", nil)
-	p := seedProject(t, e, e.Admin(), "ERP replacement", strPtr("ERP-27"), org, nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), org, nil)
 
 	got, err := e.Deals.GetProject(e.Admin(), p.ID, storekit.LiveOnly)
 	if err != nil {
@@ -75,7 +76,7 @@ func TestProjectIsBornWithItsHistoryRow(t *testing.T) {
 func TestProjectKeyIsUniqueAmongLiveProjectsAndFreedByArchiving(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "BAER Pharma", nil)
-	first := seedProject(t, e, e.Admin(), "ERP replacement", strPtr("ERP-27"), org, nil)
+	first := seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), org, nil)
 
 	_, err := e.Deals.CreateProject(e.Admin(), deals.CreateProjectInput{
 		Name: "Second", Key: strPtr("erp-27"), OrganizationID: orgIDOf(org), Source: "manual",
@@ -105,7 +106,7 @@ func TestProjectKeyIsUniqueAmongLiveProjectsAndFreedByArchiving(t *testing.T) {
 func TestAdvanceProjectPhaseWritesHistoryAndTheFirstClassEvent(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "BAER Pharma", nil)
-	p := seedProject(t, e, e.Admin(), "ERP replacement", nil, org, nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, nil)
 
 	moved, err := e.Deals.AdvanceProjectPhase(e.Admin(), p.ID, deals.AdvanceProjectPhaseInput{ToPhase: "delivering"})
 	if err != nil {
@@ -138,7 +139,7 @@ func TestAdvanceProjectPhaseWritesHistoryAndTheFirstClassEvent(t *testing.T) {
 func TestClosingAProjectRequiresAReason(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "BAER Pharma", nil)
-	p := seedProject(t, e, e.Admin(), "ERP replacement", nil, org, nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, nil)
 
 	_, err := e.Deals.AdvanceProjectPhase(e.Admin(), p.ID, deals.AdvanceProjectPhaseInput{ToPhase: deals.PhaseClosed})
 	var needsReason *deals.ClosedReasonRequiredError
@@ -173,7 +174,7 @@ func TestADealCannotPointAtAnotherCompanysProject(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	orgA := e.SeedOrg(t, "BAER Pharma", nil)
 	orgB := e.SeedOrg(t, "Kessler GmbH", nil)
-	p := seedProject(t, e, e.Admin(), "ERP replacement", nil, orgA, nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, orgA, nil)
 
 	orgBID := orgIDOf(orgB)
 	_, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
@@ -201,7 +202,7 @@ func TestArchivingAProjectKeepsWhatItGrouped(t *testing.T) {
 	e := Setup(t)
 	pipeline, open, _ := DealFixture(t, e)
 	org := e.SeedOrg(t, "BAER Pharma", nil)
-	p := seedProject(t, e, e.Admin(), "ERP replacement", strPtr("ERP-27"), org, nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), org, nil)
 
 	orgID := orgIDOf(org)
 	d, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
@@ -245,7 +246,7 @@ func TestAnActivityLinkedOnlyToAProjectFollowsItsRowScope(t *testing.T) {
 	// synthetic uuid would be refused before the scope rule is exercised.
 	ownerA := e.Rep1
 	ownerB := e.Rep3
-	p := seedProject(t, e, e.Admin(), "ERP replacement", nil, org, &ownerA)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, &ownerA)
 
 	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
 		Kind: "email", Subject: strPtr("rollout schedule"), Source: "manual",
@@ -273,5 +274,109 @@ func TestAnActivityLinkedOnlyToAProjectFollowsItsRowScope(t *testing.T) {
 	_, err = e.Activities.GetActivity(e.As(ownerB, nil, scoped), ids.From[ids.ActivityKind](ids.UUID(act.Id)), storekit.LiveOnly)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("a stranger to the project got %v, want ErrNotFound", err)
+	}
+}
+
+// PROJ-LIFE-4: a project's anchor is NOT NULL … ON DELETE RESTRICT, so it
+// cannot stay behind on a dissolved company. Leaving it is not cosmetic —
+// the deals move to the survivor and the same-company trigger then refuses
+// their NEXT edit, which is how a healthy deal becomes un-editable over a
+// mismatch nobody made.
+func TestMergingCompaniesReAnchorsTheProjectWithItsDeals(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	source := e.SeedOrg(t, "BAER Pharma GmbH", nil)
+	target := e.SeedOrg(t, "BAER Pharma", nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, source, nil)
+
+	sourceID := orgIDOf(source)
+	d, err := e.Deals.CreateDeal(e.Admin(), deals.CreateDealInput{
+		Name: "Phase one", PipelineID: pipeline, StageID: open,
+		OrganizationID: &sourceID, ProjectID: &p.ID, Source: "manual",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := e.People.MergeOrganization(e.Admin(), sourceID, orgIDOf(target)); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM project WHERE id = $1 AND organization_id = $2`,
+		p.ID, target); n != 1 {
+		t.Error("the project stayed on the merged-away company")
+	}
+	// The proof that the re-anchor is load-bearing: editing the deal after
+	// the merge must still work. Before the fix this raised the
+	// same-company trigger.
+	name := "Phase one, renamed"
+	if _, err := e.Deals.UpdateDeal(e.Admin(), ids.From[ids.DealKind](ids.UUID(d.Id)),
+		deals.UpdateDealInput{Name: &name}); err != nil {
+		t.Errorf("the merged deal became un-editable: %v", err)
+	}
+}
+
+// PROJ-LIFE-4's ask: two companies that each hold live bodies of work may,
+// once merged, be running the same one twice or two different ones — and
+// nothing in the data says which. The merge stops and names them rather
+// than leaving a human to find the duplicates later.
+func TestMergingTwoCompaniesThatBothCarryProjectsIsRefused(t *testing.T) {
+	e := Setup(t)
+	source := e.SeedOrg(t, "BAER Pharma GmbH", nil)
+	target := e.SeedOrg(t, "BAER Pharma", nil)
+	seedProject(e.Admin(), t, e, "ERP replacement", nil, source, nil)
+	kept := seedProject(e.Admin(), t, e, "Validation", nil, target, nil)
+
+	_, err := e.People.MergeOrganization(e.Admin(), orgIDOf(source), orgIDOf(target))
+	var both *people.BothCompaniesCarryProjectsError
+	if !errors.As(err, &both) {
+		t.Fatalf("merging two project-carrying companies produced %v, want a refusal", err)
+	}
+	if len(both.Source) != 1 || len(both.Target) != 1 {
+		t.Errorf("the refusal named %v and %v, want one project from each side", both.Source, both.Target)
+	}
+
+	// Refusing must change nothing: the transaction rolls back whole.
+	if n := e.WsCount(t, `SELECT count(*) FROM organization WHERE id = $1 AND archived_at IS NULL`, source); n != 1 {
+		t.Error("the refused merge still archived the source company")
+	}
+
+	// And it is actionable: archive one side, then the merge proceeds.
+	if _, err := e.Deals.ArchiveProject(e.Admin(), kept.ID, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.People.MergeOrganization(e.Admin(), orgIDOf(source), orgIDOf(target)); err != nil {
+		t.Errorf("archiving one side did not unblock the merge: %v", err)
+	}
+}
+
+// A119 Amendment 1.A: a project is born in `initiative`, before any deal
+// exists, and the object carrying interest at that stage is the lead.
+func TestALeadCanBelongToAProject(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "BAER Pharma", nil)
+	p := seedProject(e.Admin(), t, e, "ERP replacement", nil, org, nil)
+
+	lead, _, err := e.People.CreateLead(e.Admin(), people.CreateLeadInput{
+		FullName: strPtr("Anna Weber"), Source: "manual", ProjectID: &p.ID,
+	})
+	if err != nil {
+		t.Fatalf("create lead on a project: %v", err)
+	}
+	if lead.ProjectId == nil || ids.UUID(*lead.ProjectId) != p.ID.UUID {
+		t.Errorf("lead project = %v, want %v", lead.ProjectId, p.ID.UUID)
+	}
+
+	// PROJ-LIFE-2: a closed project still accepts work. Nothing about the
+	// phase gates an attachment — only the auto-link ladder consults it.
+	if _, err := e.Deals.AdvanceProjectPhase(e.Admin(), p.ID, deals.AdvanceProjectPhaseInput{
+		ToPhase: deals.PhaseClosed, Reason: strPtr("Delivered."),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := e.People.CreateLead(e.Admin(), people.CreateLeadInput{
+		FullName: strPtr("Late enquiry"), Source: "manual", ProjectID: &p.ID,
+	}); err != nil {
+		t.Errorf("a closed project refused a new lead: %v — phase is advisory, not a gate", err)
 	}
 }

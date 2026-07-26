@@ -190,6 +190,7 @@ var crossStoreWrites = map[string]string{
 	// cross-aggregate write, because a merge that could half-commit its
 	// relinks would corrupt referential history.
 	"internal/modules/people:deal":           "merge/promote relink deal FK rows in the single transaction",
+	"internal/modules/people:project":        "org merge re-anchors the merged-away company's projects onto the survivor in the same transaction (PROJ-LIFE-4) — the anchor is NOT NULL ... ON DELETE RESTRICT, so a project cannot stay behind, and leaving it turns the survivor's deals un-editable against the deal_project_same_org trigger",
 	"internal/modules/people:activity_link":  "merge/promote relink timeline links in the single transaction",
 	"internal/modules/people:list_member":    "merge relinks list memberships (and archive purges them) in the single transaction",
 	"internal/modules/people:taggable":       "merge relinks tag rows (and archive purges them) in the single transaction",

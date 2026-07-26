@@ -16,6 +16,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// ListProjects serves the cursor-paginated project list.
 func (h Handlers) ListProjects(w http.ResponseWriter, r *http.Request, params crmcontracts.ListProjectsParams) {
 	in := ListProjectsInput{
 		Cursor:          params.Cursor,
@@ -41,6 +42,7 @@ func (h Handlers) ListProjects(w http.ResponseWriter, r *http.Request, params cr
 	httperr.WriteJSON(w, http.StatusOK, crmcontracts.ProjectListResponse{Data: projects, Page: pageInfo(page)})
 }
 
+// CreateProject opens a body of work on a company.
 func (h Handlers) CreateProject(w http.ResponseWriter, r *http.Request, _ crmcontracts.CreateProjectParams) {
 	var req crmcontracts.CreateProjectRequest
 	if !httperr.Decode(w, r, &req) {
@@ -61,6 +63,7 @@ func (h Handlers) CreateProject(w http.ResponseWriter, r *http.Request, _ crmcon
 	httperr.WriteJSON(w, http.StatusCreated, project)
 }
 
+// GetProject serves one project, archived rows included.
 func (h Handlers) GetProject(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	project, err := h.store.GetProject(r.Context(), pathID[ids.ProjectKind](id), storekit.IncludeArchived)
 	if err != nil {
@@ -70,6 +73,8 @@ func (h Handlers) GetProject(w http.ResponseWriter, r *http.Request, id crmcontr
 	httperr.WriteJSON(w, http.StatusOK, project)
 }
 
+// UpdateProject applies a partial update behind If-Match. Phase is not
+// settable here — see AdvanceProjectPhase.
 func (h Handlers) UpdateProject(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.UpdateProjectParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {
@@ -113,6 +118,7 @@ func (h Handlers) AdvanceProjectPhase(w http.ResponseWriter, r *http.Request, id
 	httperr.WriteJSON(w, http.StatusOK, project)
 }
 
+// ArchiveProject ends the grouping without ending what it grouped.
 func (h Handlers) ArchiveProject(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.ArchiveProjectParams) {
 	ifVersion, ok := httperr.IfMatchVersion(w, r)
 	if !ok {
@@ -127,7 +133,7 @@ func (h Handlers) ArchiveProject(w http.ResponseWriter, r *http.Request, id crmc
 
 func projectCreateInput(req crmcontracts.CreateProjectRequest) (CreateProjectInput, error) {
 	if req.Name == "" {
-		return CreateProjectInput{}, &RequiredFieldError{Field: "name"}
+		return CreateProjectInput{}, &RequiredFieldError{Field: dealNameColumn}
 	}
 	in := CreateProjectInput{
 		Name:           req.Name,
