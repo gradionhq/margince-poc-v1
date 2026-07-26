@@ -21,8 +21,11 @@ package backendarch
 // named.
 
 import (
+	"bytes"
+	"go/parser"
+	"go/printer"
+	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -42,19 +45,41 @@ const promptfencePackage = "internal/shared/kernel/promptfence/"
 // nonce has to back.
 var boundaryClaim = regexp.MustCompile(`never instructions|not instructions|never a command|untrusted evidence`)
 
-// mintsAFence matches USE of the package rather than mere presence of its import
-// path: importing promptfence proves nothing, since the import could serve an
-// unrelated call. Minting a fence (New/FromMarker) or naming one to the model
-// (Rule) is the evidence a boundary was actually built.
-var mintsAFence = regexp.MustCompile(`promptfence\.(New|FromMarker)\(|\.Rule\(`)
+// buildsAFence matches a call that produces a boundary, qualified by the package
+// so only this package's constructors count. An earlier spelling also accepted a
+// bare ".Rule(", which any unrelated method of that name satisfies — the matcher
+// has to prove a fence exists, not that some identifier looked familiar.
+var buildsAFence = regexp.MustCompile(`promptfence\.(New|FromMarker)\(`)
 
 // claimWithoutFence names the files allowed to promise a boundary without
 // minting one, with the reason. Keep this at zero if you can; every entry is a
 // prompt whose safety rests on something other than a nonce.
 var claimWithoutFence = map[string]string{}
 
-// goFilesUnderTree yields every non-test Go file in the tree, with its contents.
-func goFilesUnderTree(t *testing.T, visit func(path, body string)) {
+// sourceWithoutComments renders one file's CODE, comments discarded.
+//
+// Both rules below scan source, and a comment is neither a prompt nor a fence:
+// prose describing the old marker would trip the first rule, and prose
+// mentioning a constructor would satisfy the second. Dropping comments makes the
+// claim rule fire only on text that actually reaches a model, and makes the
+// fence rule provable rather than suggestive.
+func sourceWithoutComments(t *testing.T, path string) string {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, 0)
+	if err != nil {
+		// A Go file the tree cannot parse is a real defect, not a file to skip.
+		t.Fatalf("parsing %s: %v", path, err)
+	}
+	var out bytes.Buffer
+	if err := printer.Fprint(&out, fset, file); err != nil {
+		t.Fatalf("printing %s: %v", path, err)
+	}
+	return out.String()
+}
+
+// goFilesUnderTree yields every non-test Go file in the tree, with its code.
+func goFilesUnderTree(t *testing.T, visit func(path, code string)) {
 	t.Helper()
 	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -66,11 +91,7 @@ func goFilesUnderTree(t *testing.T, visit func(path, body string)) {
 		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		b, err := os.ReadFile(path) // #nosec G304 G122 -- path is a *.go file from walking the trusted source tree
-		if err != nil {
-			return err
-		}
-		visit(filepath.ToSlash(path), string(b))
+		visit(filepath.ToSlash(path), sourceWithoutComments(t, path))
 		return nil
 	})
 	if err != nil {
@@ -115,7 +136,7 @@ func TestAFileThatPromisesADataBoundaryBuildsOne(t *testing.T) {
 		if !boundaryClaim.MatchString(body) {
 			return
 		}
-		if !mintsAFence.MatchString(body) {
+		if !buildsAFence.MatchString(body) {
 			offenders = append(offenders, path)
 		}
 	})
