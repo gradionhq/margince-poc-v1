@@ -14,12 +14,12 @@ input: |
   Current deal (context, do not restate): {"id":"deal_701","stage":"proposal"}
   Known attendees: ["priya@ourco.test"]
   Transcript (untrusted; line-numbered):
-  <untrusted source_id="transcript:701b">
+  <untrusted-0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07 source_id="transcript:701b">
   1: Priya: Hey Tom, good to see you, how was the conference?
   2: Tom: Good, busy week. We're still reviewing internally, nothing new to
   3: report from our side yet.
   4: Priya: No worries, I'll check back next month.
-  </untrusted>
+  </untrusted-0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07>
   Return JSON matching the proposal schema.
 expect:
   structural:

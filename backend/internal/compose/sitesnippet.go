@@ -16,6 +16,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 const (
@@ -160,28 +162,31 @@ func (x snippetIndex) ids() []string {
 	return out
 }
 
-// renderNumbered lays the passages out for the model, grouped by page with OUR
-// header lines (outside the untrusted spans) and each passage tagged with its
-// id. Keeping the headers outside is necessary but not sufficient: the passage
-// text goes INSIDE the span, so a page that contains the closing marker would
-// end the fence early and speak in the prompt's own voice. fenceUntrusted
-// defuses that — the boundary is unforgeable because the data cannot spell it,
-// not because of where the headers sit.
-func (x snippetIndex) renderNumbered() string {
+// renderNumbered lays the passages out for the model under the caller's fence,
+// grouped by page with OUR header lines (outside the untrusted spans) and each
+// passage tagged with its id. Keeping the headers outside is necessary but not
+// sufficient: the passage text goes INSIDE the span, so with a fixed marker a
+// page carrying the closing one would end the fence early and speak in the
+// prompt's own voice. The nonce is what makes that unspellable, so the passages
+// themselves are passed through exactly as the page published them — which is
+// also what lets a caller's evidence gate quote them back verbatim.
+//
+// The fence must be the one named in the same call's system prompt.
+func (x snippetIndex) renderNumbered(fence promptfence.Fence) string {
 	var b strings.Builder
 	lastPage := ""
 	for i, ref := range x.refs {
 		if ref.pageURL != lastPage {
 			if lastPage != "" {
-				b.WriteString("</untrusted>\n")
+				b.WriteString(fence.Close() + "\n")
 			}
-			fmt.Fprintf(&b, "\n=== PAGE %s ===\n<untrusted>\n", ref.pageURL)
+			fmt.Fprintf(&b, "\n=== PAGE %s ===\n%s\n", ref.pageURL, fence.Open())
 			lastPage = ref.pageURL
 		}
-		fmt.Fprintf(&b, "[s%d] %s\n", i, fenceUntrusted(ref.passage))
+		fmt.Fprintf(&b, "[s%d] %s\n", i, ref.passage)
 	}
 	if lastPage != "" {
-		b.WriteString("</untrusted>\n")
+		b.WriteString(fence.Close() + "\n")
 	}
 	return b.String()
 }

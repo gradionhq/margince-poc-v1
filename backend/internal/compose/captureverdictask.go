@@ -26,27 +26,28 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
 // ask makes one structured verdict call for the given addresses.
 func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.PendingCounterparty) ([]verdictResult, error) {
+	fence := promptfence.New()
 	var prompt strings.Builder
 	prompt.WriteString("First-time sender (untrusted; judge it by its id):\n")
-	// Assembled first, fenced ONCE, then wrapped. Fencing the fields separately
-	// would let a subject ending in "<" and a body beginning "/untrusted>" close
-	// the span between them — each piece safe alone, the concatenation not. The
-	// address is in parentheses rather than angle brackets for the same reason:
-	// a template-supplied "<" is a bracket the sender did not have to write.
+	// One span over the whole sender, not one per field: the fields are
+	// concatenated inside the fence, so there is no seam between two separately
+	// wrapped spans for a subject and a body to close between them. The text
+	// goes in exactly as it was received — the boundary is the nonce, so
+	// nothing in the sender's own bytes can end it.
 	sender := fmt.Sprintf("From: %s (%s)\nSubject: %s\n%s",
 		row.DisplayName, row.Email, row.Subject, row.Body)
-	fmt.Fprintf(&prompt, "<untrusted id=%q>%s</untrusted>\n",
-		row.ID.String(), fenceUntrusted(sender))
+	prompt.WriteString(fence.WrapAttr("id", row.ID.String(), sender) + "\n")
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id.`)
 
 	req := model.Request{
-		System:         verdictSystem,
+		System:         verdictSystemFor(fence),
 		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: verdictSchema(),

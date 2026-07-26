@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
@@ -131,10 +132,15 @@ type Step struct {
 // the budget already consumed (the resumed run continues the SAME
 // budget — suspension is not a refill).
 type Pending struct {
-	ApprovalID   ids.ApprovalID
-	Tool         string
-	Args         json.RawMessage
-	Window       []model.Message
+	ApprovalID ids.ApprovalID
+	Tool       string
+	Args       json.RawMessage
+	Window     []model.Message
+	// Fence is the boundary the window's untrusted spans were written
+	// with. It travels WITH the window: a resumed run that minted a
+	// fresh marker would be telling the model to honour a boundary its
+	// own stored text does not carry.
+	Fence        promptfence.Fence
 	StepsUsed    int
 	OutputTokens int
 }
@@ -167,7 +173,10 @@ type Decision struct {
 // silently changed under an approved diff). Rejected: the refusal is
 // observed and the model re-plans without that action.
 func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, error) {
-	win := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window)
+	win, err := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window, dec.Pending.Fence)
+	if err != nil {
+		return Result{}, err
+	}
 	carried := Result{StepsUsed: dec.Pending.StepsUsed, OutputTokens: dec.Pending.OutputTokens}
 
 	if !dec.Approved {
@@ -272,6 +281,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 				Tool:         step.Tool,
 				Args:         step.Args,
 				Window:       win.snapshot(),
+				Fence:        win.fence,
 				StepsUsed:    acc.StepsUsed,
 				OutputTokens: acc.OutputTokens,
 			}

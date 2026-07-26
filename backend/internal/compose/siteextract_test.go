@@ -33,7 +33,7 @@ type laneFake struct {
 }
 
 func (f laneFake) Complete(_ context.Context, req model.Request) (model.Response, error) {
-	if req.System == profileSystem {
+	if strings.HasPrefix(req.System, profileSystem) {
 		if f.panicProfile {
 			panic("laneFake: profile lane panic")
 		}
@@ -266,7 +266,7 @@ type countingLaneFake struct {
 }
 
 func (f countingLaneFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
-	if req.System == profileSystem {
+	if strings.HasPrefix(req.System, profileSystem) {
 		f.profile.Add(1)
 	}
 	return f.laneFake.Complete(ctx, req)

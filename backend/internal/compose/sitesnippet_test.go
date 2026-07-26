@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 func TestSegmentPassagesIsDeterministicAndCapped(t *testing.T) {
@@ -67,7 +68,7 @@ func snippetFixtureIndex() snippetIndex {
 
 func TestSnippetIndexRendersAndResolvesTheSameIds(t *testing.T) {
 	idx := snippetFixtureIndex()
-	rendered := idx.renderNumbered()
+	rendered := idx.renderNumbered(promptfence.New())
 	for _, id := range idx.ids() {
 		ref, ok := idx.resolve(id)
 		if !ok {
