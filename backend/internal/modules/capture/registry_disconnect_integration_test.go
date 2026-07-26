@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -69,6 +70,21 @@ func setupCaptureDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 // AccountLabeler — a fixed value, since the fixture's opaque auth bytes
 // ("fixture-token") carry no real account identity to parse out.
 const fixtureOwnerEmail = "fixture-owner@example.test"
+
+// fixtureAuthority stands in for identity's resolver: the fixture's seeded
+// human is live, holds no object grants (the disconnect path asks for none),
+// and sits on a full seat. Connect refuses a grant it cannot check against
+// live authority, so a registry with no resolver cannot connect at all — and
+// what these tests are about is the vault, not identity.
+type fixtureAuthority struct{}
+
+func (fixtureAuthority) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
+	return authz.RBAC{}, nil
+}
+
+func (fixtureAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
+	return principal.SeatFull, nil
+}
 
 // fixtureConnector is the minimal connector.Connector the disconnect path
 // needs registered: Disconnect never calls Sync/Normalize/HealthCheck, and
@@ -133,7 +149,7 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 	}
 
 	vault := keyvault.NewMemory()
-	reg := capture.NewRegistry(pool, nil, nil, vault)
+	reg := capture.NewRegistry(pool, nil, fixtureAuthority{}, vault)
 	reg.Register(fixtureConnector{})
 
 	actorCtx := principal.WithWorkspaceID(ctx, wsUUID)
@@ -352,7 +368,7 @@ func TestDisconnectCompletesEvenWhenTheVaultDeleteFails(t *testing.T) {
 	connectFixtureConnection(ctx, t, reg)
 
 	failing := &deleteFailsVault{Vault: vault}
-	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, failing)
+	reg2 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, failing)
 	reg2.Register(fixtureConnector{})
 
 	if err := reg2.Disconnect(ctx, "gmail"); err != nil {
@@ -388,7 +404,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 	deleteStarted := make(chan struct{})
 	proceed := make(chan struct{})
 	blocking := &blockingDeleteVault{Vault: vault, started: deleteStarted, proceed: proceed}
-	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, blocking)
+	reg2 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, blocking)
 	reg2.Register(fixtureConnector{})
 
 	disconnectErr := make(chan error, 1)
@@ -398,7 +414,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 
 	// The concurrent reconnect: a fresh Registry sharing the same pool/vault,
 	// exactly like a second request would land on the same process.
-	reg3 := capture.NewRegistry(poolFromFixture(t), nil, nil, vault)
+	reg3 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, vault)
 	reg3.Register(fixtureConnector{})
 	if _, err := reg3.Connect(ctx, "gmail", connector.Auth("fixture-token-reconnect")); err != nil {
 		t.Fatalf("concurrent reconnect: %v", err)
