@@ -91,14 +91,35 @@ Or just open **http://localhost:8080** and log in — the SPA renders the mirror
 `last_synced_at` freshness affordance.
 
 ### Test write-back (mutates the test portal only)
+
+Write-back goes through the **agent/MCP tool seam**, NOT the REST record endpoints. In overlay
+mode a direct `PATCH /v1/deals/{id}` (or any native REST create/update/archive) is refused with
+`422 unsupported_by_sor` for **every** principal — human *and* passport — because those handlers
+write the empty native tables and bypass the write-back seam (`overlayWriteGuard`). Routing the REST
+handlers to write-back is a declared follow-up; today you exercise write-back through the
+`update_record` tool:
+
 ```sh
-DEAL=$(curl -sS 'http://localhost:8080/v1/deals?limit=1' -b cookies.txt | jq -r '.data[0].id')
-curl -sS -X PATCH "http://localhost:8080/v1/deals/$DEAL" -b cookies.txt \
-  -H 'content-type: application/json' -d '{"name":"[fixture] Acme Renewal (edited)"}'
+# 1. Mint a passport with write scope (session-authed)
+TOKEN=$(curl -sS -X POST http://localhost:18080/v1/passports -b cookies.txt \
+  -H 'content-type: application/json' \
+  -d '{"label":"write-back test","scopes":["read","write"]}' | jq -r .token)
+
+# 2. Call update_record over the MCP stdio server. It needs the app-role DSN and the SAME
+#    keyvault root key the running api uses (it unseals the sealed HubSpot token); in dev that
+#    key lives in .env.local as MARGINCE_KEYVAULT_ROOT_KEY.
+DEAL=$(curl -sS 'http://localhost:18080/v1/deals?limit=1' -b cookies.txt | jq -r '.data[0].id')
+printf '%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wb","version":"0"}}}' \
+  "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"update_record\",\"arguments\":{\"record_type\":\"deal\",\"id\":\"$DEAL\",\"fields\":{\"name\":\"[fixture] Acme Renewal (edited)\"}}}}" \
+  | ( cd backend && MARGINCE_PASSPORT_TOKEN="$TOKEN" \
+      MARGINCE_DSN='postgres://margince_app:margince_app_dev@localhost:55432/margince' \
+      MARGINCE_KEYVAULT_ROOT_KEY="$(grep -E '^MARGINCE_KEYVAULT_ROOT_KEY=' ../.env.local | cut -d= -f2-)" \
+      go run ./cmd/mcp )
 ```
-It writes to HubSpot **first**, then re-mirrors — confirm the rename in the test account's HubSpot UI.
-(`advance-deal`, `merge`, and `promote-lead` still answer `unsupported_by_sor` — they're not wired for
-overlay yet.)
+The tool result echoes the re-mirrored record; it writes to HubSpot **first**, then re-mirrors —
+confirm the rename in the test account's HubSpot UI. (`advance_deal`, `merge_records`, and
+`promote_lead` answer `unsupported_by_sor` — not wired for overlay yet.)
 
 ### Disconnect + teardown
 ```sh
