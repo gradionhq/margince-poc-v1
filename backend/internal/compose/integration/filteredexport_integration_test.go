@@ -69,7 +69,8 @@ func TestFilteredExportIsScopedAndFiltered(t *testing.T) {
 	f := e.seedFilteredDeals(t)
 
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
-		e.exportRep(e.Rep1, e.Team1), "deal", commitDeals(), "csv")
+		e.exportRep(e.Rep1, e.Team1), "deal", commitDeals(), "csv",
+	)
 	if err != nil {
 		t.Fatalf("filtered export: %v", err)
 	}
@@ -159,7 +160,8 @@ func TestFilteredExportEmptyResultIsHonest(t *testing.T) {
 
 	result, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
 		e.exportAdmin(), "deal",
-		storekit.Predicate{Field: "forecast_category", Op: "eq", Value: "best_case"}, "csv")
+		storekit.Predicate{Field: "forecast_category", Op: "eq", Value: "best_case"}, "csv",
+	)
 	if err != nil {
 		t.Fatalf("empty-result export errored: %v", err)
 	}
@@ -184,7 +186,8 @@ func TestFilteredExportRejectsOutOfVocabularyPredicate(t *testing.T) {
 
 	_, err := compose.NewFilteredExportWriter(e.Pool).WriteFiltered(
 		e.exportAdmin(), "deal",
-		storekit.Predicate{Field: "amount_minor", Op: "eq", Value: float64(1)}, "csv")
+		storekit.Predicate{Field: "amount_minor", Op: "eq", Value: float64(1)}, "csv",
+	)
 	var pred *storekit.PredicateError
 	if !errors.As(err, &pred) {
 		t.Fatalf("out-of-vocabulary field → %v, want a PredicateError", err)

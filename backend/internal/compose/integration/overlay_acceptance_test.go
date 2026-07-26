@@ -596,7 +596,8 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 	}
 
 	var eventCount int
-	if err := e.Pool.QueryRow(context.Background(),
+	if err := e.Pool.QueryRow(
+		context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'mirror.budget_degraded' AND envelope->>'workspace_id' = $1`,
 		ws.String(),
 	).Scan(&eventCount); err != nil {

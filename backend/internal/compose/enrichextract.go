@@ -362,7 +362,7 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 	// Defang any forged envelope markers before wrapping — a verbatim-markdown
 	// page can carry a literal </untrusted>, which stripped HTML never could.
 	// The gate below matches evidence against this same neutralized text.
-	sourceText = neutralizeEnvelope(sourceText)
+	sourceText = fenceUntrusted(sourceText)
 
 	req := model.Request{
 		System: companyFactsSystem,

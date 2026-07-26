@@ -15,6 +15,26 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
+// payloadCaptureForbidden names the tasks whose content must NEVER reach
+// ai_call_payload, whatever the deployment's ai.capture_payloads posture says.
+// The posture is an operator's choice about their own workspace's data; these
+// tasks carry other people's, and the task contract pins the prohibition as a
+// hard property rather than a default (ai-tasks.yaml, "No-payload capture
+// policy"). TestNoPayloadTasksMatchTheTaskContract holds this set to the
+// contract, so a newly pinned task cannot be registered and then forgotten here.
+var payloadCaptureForbidden = map[Task]bool{
+	// A verdict call carries a first-time sender's address and mail excerpt — people who never transacted with this workspace and may never
+	// become records at all (ADR-0072/A118 §4). Retaining their mail to decide
+	// whether to retain their mail is the thing the gate exists to avoid.
+	TaskCaptureCounterpartyVerdict: true,
+}
+
+// CapturesPayload reports whether this router would retain content for task.
+// Both the deployment posture and the task's own prohibition must allow it.
+func (r *Router) CapturesPayload(task Task) bool {
+	return r.capturePayloads && !payloadCaptureForbidden[task]
+}
+
 // capturedMessage is the ai_call_payload wire shape of one request
 // message: model.Message with the lowercase JSON keys every payload
 // reader expects (the trace UI and the cert-scenario export).

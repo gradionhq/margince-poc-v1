@@ -76,3 +76,25 @@ func TestEveryConfirmationRequiredToolHasADecisionGrantMapping(t *testing.T) {
 		}
 	}
 }
+
+// Every kind with a REGISTERED EFFECT must also be decidable. The tool-registry
+// sweep above misses these: a compose-registered effect kind is stageable
+// without being an agent tool, and requireDecisionGrants fails closed on an
+// unmapped kind — so the proposals would be staged, hidden from every list, and
+// undecidable, while the ledger row that pointed at them waited forever.
+//
+// This is the obligation stated as "every stageable kind", which is what the
+// system actually guarantees, rather than "every tool", which is where the
+// first version of this test happened to look.
+func TestEveryRegisteredEffectKindHasADecisionGrantMapping(t *testing.T) {
+	svc := approvalsServiceWithEffects(nil)
+	kinds := svc.EffectKinds()
+	if len(kinds) == 0 {
+		t.Fatal("no effect kinds registered — the scan found nothing to check, which means it is broken")
+	}
+	for _, kind := range kinds {
+		if !approvals.KindHasDecisionGrants(kind) {
+			t.Errorf("kind %q has a registered approved-effect but no decision-grant mapping — its proposals would be staged and then be undecidable by anyone", kind)
+		}
+	}
+}

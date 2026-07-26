@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -283,21 +282,6 @@ func allMicro(em extractedModel) (microBuckets, bool) {
 	return microBuckets{in, out, cr, cw}, true
 }
 
-// untrustedEnvelopeMarker matches an <untrusted> boundary tag in any case and
-// with stray whitespace (</UNTRUSTED>, <untrusted >, < / untrusted >), so a
-// hostile page cannot impersonate the boundary with a spelling variant the
-// model might still read as the tag.
-var untrustedEnvelopeMarker = regexp.MustCompile(`(?i)<\s*/?\s*untrusted\s*>`)
-
-// neutralizeEnvelope defangs the <untrusted> boundary markers in fetched page
-// text so a hostile page cannot forge the envelope's closing tag and break out
-// of the data section into instruction context. Every site that wraps page text
-// in the <untrusted> envelope runs its input through here first, and the
-// evidence gate matches against the same neutralized text.
-func neutralizeEnvelope(text string) string {
-	return untrustedEnvelopeMarker.ReplaceAllString(text, "< untrusted>")
-}
-
 // numberPassages prefixes each non-empty line with a passage id ([s0], [s1], …)
 // — the format the aicert corpus grounds against, so the model can cite an id.
 // It first neutralizes any literal <untrusted> markers in the fetched page so a
@@ -305,7 +289,7 @@ func neutralizeEnvelope(text string) string {
 // it in (defense-in-depth; a bad extraction still only ever STAGES a proposal a
 // human must approve, and SetModelRate re-validates).
 func numberPassages(text string) string {
-	text = neutralizeEnvelope(text)
+	text = fenceUntrusted(text)
 	var b strings.Builder
 	n := 0
 	for _, line := range strings.Split(text, "\n") {

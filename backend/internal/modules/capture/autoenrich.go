@@ -151,19 +151,23 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (bool
 // the attempt and arms next_attempt_at at the failure backoff, so a job that
 // never completes is re-driven after the backoff, up to the attempt bound. A
 // terminal outcome (MarkResolved) clears next_attempt_at.
+// The backoff is applied to the DATABASE's clock, because the due-scan compares
+// next_attempt_at against Postgres now(). Deriving the deadline from the app
+// process instead makes that a cross-clock comparison, and the two clocks are
+// only ever coincidentally equal.
 func (s *AutoEnrichStore) MarkQueued(ctx context.Context, orgID ids.OrganizationID, backoff time.Duration) error {
-	nextAttempt := time.Now().UTC().Add(backoff)
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO capture_auto_enrich_state
 			  (organization_id, workspace_id, attempts, last_attempt_at, next_attempt_at, last_outcome)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 1, now(), $2, 'queued')
+			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, 1, now(),
+			        now() + make_interval(secs => $2), 'queued')
 			ON CONFLICT (organization_id) DO UPDATE SET
 			  attempts = capture_auto_enrich_state.attempts + 1,
 			  last_attempt_at = now(),
-			  next_attempt_at = $2,
+			  next_attempt_at = now() + make_interval(secs => $2),
 			  last_outcome = 'queued',
-			  updated_at = now()`, orgID, nextAttempt)
+			  updated_at = now()`, orgID, backoff.Seconds())
 		return err
 	})
 	if err != nil {

@@ -147,7 +147,8 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 	// silent no-op that leaves the row connected and the credential intact.
 	var ref *string
 	if err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		return tx.QueryRow(
+			ctx, `
 			UPDATE capture_connection
 			   SET status = 'disconnected', auth = NULL
 			 WHERE user_id = $1 AND provider = $2

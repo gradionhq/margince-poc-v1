@@ -88,24 +88,47 @@ func (s *Store) EnsureCounterparty(ctx context.Context, in EnsureCounterpartyInp
 	}
 	var res EnsureCounterpartyResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		suppressed, err := storekit.EmailSuppressed(ctx, tx, in.Email)
-		if err != nil {
-			return err
-		}
-		if suppressed {
-			return ErrCounterpartySuppressed
-		}
-		if err := s.ensurePerson(ctx, tx, in, &res); err != nil {
-			return err
-		}
-		if !in.SuppressOrg && in.Domain != "" {
-			if err := s.ensureOrgAndEmployment(ctx, tx, in, &res); err != nil {
-				return err
-			}
-		}
-		return s.linkActivityToPerson(ctx, tx, in, res.PersonID)
+		var err error
+		res, err = s.EnsureCounterpartyTx(ctx, tx, in)
+		return err
 	})
 	if err != nil {
+		return EnsureCounterpartyResult{}, err
+	}
+	return res, nil
+}
+
+// EnsureCounterpartyTx is the same resolve-or-create on a transaction the CALLER
+// owns, for the paths that must commit records together with the decision that
+// authorized them — the ADR-0072 verdict engine resolving a deferred
+// disposition, and the review-queue accept that redeems a staged proposal.
+// Neither may leave a ledger row reading `real` while the records it promised
+// rolled back, so neither can use the pool-owning form above.
+//
+// The caller is responsible for the workspace GUC; it is already set by the
+// WithWorkspaceTx that produced tx.
+func (s *Store) EnsureCounterpartyTx(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput) (EnsureCounterpartyResult, error) {
+	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	if in.Email == "" {
+		return EnsureCounterpartyResult{}, errors.New("people: a counterparty needs an email")
+	}
+	var res EnsureCounterpartyResult
+	suppressed, err := storekit.EmailSuppressed(ctx, tx, in.Email)
+	if err != nil {
+		return EnsureCounterpartyResult{}, err
+	}
+	if suppressed {
+		return EnsureCounterpartyResult{}, ErrCounterpartySuppressed
+	}
+	if err := s.ensurePerson(ctx, tx, in, &res); err != nil {
+		return EnsureCounterpartyResult{}, err
+	}
+	if !in.SuppressOrg && in.Domain != "" {
+		if err := s.ensureOrgAndEmployment(ctx, tx, in, &res); err != nil {
+			return EnsureCounterpartyResult{}, err
+		}
+	}
+	if err := s.linkActivityToPerson(ctx, tx, in, res.PersonID); err != nil {
 		return EnsureCounterpartyResult{}, err
 	}
 	return res, nil

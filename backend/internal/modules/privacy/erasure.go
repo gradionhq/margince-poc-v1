@@ -109,12 +109,24 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails)
 		if err != nil {
 			return err
 		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
 			return err
+		}
+		// The vectors go with the text they were built from. purgeDerivedTraces
+		// reaches embeddings through activity_link, which by construction cannot
+		// see the unlinked captured mail redactSubjectTimeline now covers — and
+		// an embedding of erased text is the erased text in another shape, which
+		// a similarity probe can still reach.
+		if len(activitiesRedacted) > 0 {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`,
+				activitiesRedacted); err != nil {
+				return err
+			}
 		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
 			return err
@@ -222,6 +234,15 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
 		return nil, err
 	}
+	// The capture disposition ledger keys on the subject's own address and
+	// carries the display name a message arrived with, so an erasure that
+	// stopped at person_email would leave both readable in the ledger — and
+	// the address would keep answering the correspondence and pending gates.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM capture_pending_counterparty
+		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
+		return nil, err
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
 		return nil, err
 	}
@@ -309,6 +330,28 @@ const subjectOnlyActivities = `
 	    WHERE o.activity_id = l.activity_id
 	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
 
+// unlinkedCapturedMail selects captured mail that is ABOUT the subject by
+// address and linked to no OTHER person — the class the link-walk above cannot
+// see, under the same exclusion it uses.
+//
+// It exists because ADR-0072 stopped creating a counterparty for every captured
+// message. Under ADR-0063 every mail ensured a person, so a link always
+// existed and walking links covered everything; a deferred, noise-dispositioned
+// or still-unsure sender now produces activities with no link at all. Erasure
+// that only walks links would leave that mail — the address, the subject line
+// and the body — sitting in the timeline after the subject exercised Art. 17.
+//
+// Mail also linked to someone else belongs to that person's record too, and
+// redacting it would erase a different subject's history.
+const unlinkedCapturedMail = `
+	SELECT a.id FROM activity a
+	WHERE a.counterparty_email = ANY($3)
+	  AND a.captured_by LIKE 'connector:%'
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link o
+	    WHERE o.activity_id = a.id
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
+
 // redactSubjectTimeline erases the subject's free text from the activity
 // timeline: subject/body of every subject-only activity are wiped (the
 // GENERATED search_tsv refreshes from the now-empty text, so the erased
@@ -317,12 +360,14 @@ const subjectOnlyActivities = `
 // the timeline text and its field-level provenance. It returns the
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]ids.UUID, error) {
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]ids.UUID, error) {
 	rows, err := tx.Query(ctx, `
-		UPDATE activity SET subject = $2, body = NULL,
+		UPDATE activity SET subject = $2, body = NULL, raw = NULL,
+		  counterparty_email = NULL,
 		  archived_at = coalesce(archived_at, now())
 		WHERE id IN (`+subjectOnlyActivities+`)
-		RETURNING id`, personID, erasedName)
+		   OR id IN (`+unlinkedCapturedMail+`)
+		RETURNING id`, personID, erasedName, emails)
 	if err != nil {
 		return nil, err
 	}

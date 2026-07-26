@@ -41,7 +41,8 @@ func (r *Registry) BackfillYields(ctx context.Context, provider string, userID i
 		if err != nil {
 			return err
 		}
-		err = tx.QueryRow(ctx, `
+		err = tx.QueryRow(
+			ctx, `
 			SELECT scanned, captured, people_created, organizations_created
 			FROM capture_backfill
 			WHERE connection_id = $1 AND status = 'done'

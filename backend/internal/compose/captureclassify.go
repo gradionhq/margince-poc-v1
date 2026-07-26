@@ -184,7 +184,13 @@ func (c *CaptureClassifier) ask(ctx context.Context, batch []unlabeledMessage) (
 	var prompt strings.Builder
 	prompt.WriteString("Messages (untrusted; classify each by its id):\n")
 	for _, m := range batch {
-		fmt.Fprintf(&prompt, "<untrusted source_id=%q>Subject: %s\n%s</untrusted>\n", m.ID.String(), m.Subject, m.Body)
+		// One fence over the whole message, not one per field: separately-safe
+		// fields can still be concatenated into a marker. This prompt carries
+		// several senders at once, so an escaped span here would let one of them
+		// label another's mail.
+		message := fmt.Sprintf("Subject: %s\n%s", m.Subject, m.Body)
+		fmt.Fprintf(&prompt, "<untrusted source_id=%q>%s</untrusted>\n",
+			m.ID.String(), fenceUntrusted(message))
 	}
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "label", "confidence" } ] } — one entry per supplied id.`)
 

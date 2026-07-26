@@ -22,6 +22,8 @@ tiers: [local_small, cheap_cloud, premium, local_large]
 
 tasks:
   capture_classify: {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue}
+  capture_counterparty_verdict: {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue,
+                     doc: "ADR-0072/A118: the ambiguous first-time-sender creation gate — real|noise|unsure per address, floor 0.7 (below → unsure, never noise). No-payload capture policy (verdict batches never persist to ai_call_payload). Release-blocking false-noise eval threshold."}
   enrich:           {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue}
   summarize:        {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
   draft_reply:      {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}

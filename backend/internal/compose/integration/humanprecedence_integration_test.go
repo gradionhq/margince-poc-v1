@@ -366,7 +366,8 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 
 	// Auto-execute-only: a field no human wrote updates without any staging.
 	out, err := invoke("update_record", fmt.Sprintf(
-		`{"record_type":"person","id":%q,"fields":{"title":"CTO"}}`, personID))
+		`{"record_type":"person","id":%q,"fields":{"title":"CTO"}}`, personID,
+	))
 	if err != nil {
 		t.Fatalf("auto-execute tool patch → %v", err)
 	}
@@ -376,7 +377,8 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 
 	// Mixed: title is agent-owned now, full_name is the human's.
 	out, err = invoke("update_record", fmt.Sprintf(
-		`{"record_type":"person","id":%q,"fields":{"full_name":"Mona Machine","title":"VP Engineering"}}`, personID))
+		`{"record_type":"person","id":%q,"fields":{"full_name":"Mona Machine","title":"VP Engineering"}}`, personID,
+	))
 	if err != nil {
 		t.Fatalf("mixed tool patch must succeed for its auto-execute half: %v", err)
 	}
@@ -427,7 +429,8 @@ func TestEndToEnd_perFieldSplitOnMCPUpdate(t *testing.T) {
 	// writer is now the AGENT, so its next patch of the field is plain
 	// auto-execute — precedence protects people, not machines.
 	out, err = invoke("update_record", fmt.Sprintf(
-		`{"record_type":"person","id":%q,"fields":{"full_name":"Mona Machine II"}}`, personID))
+		`{"record_type":"person","id":%q,"fields":{"full_name":"Mona Machine II"}}`, personID,
+	))
 	if err != nil || strings.Contains(string(out), "staged_approval") {
 		t.Fatalf("agent re-patch of its own field → %v %s, want a plain auto-execute update", err, out)
 	}
