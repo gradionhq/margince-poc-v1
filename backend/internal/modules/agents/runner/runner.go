@@ -224,6 +224,10 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 // (ai-operational-spec §5.2 — never a partial fabrication).
 const consecutiveInvalidLimit = 3
 
+// maxToolNameLen bounds a proposed tool name. Generous next to the longest
+// registered name, short enough that the field cannot carry prose.
+const maxToolNameLen = 64
+
 func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Result, error) {
 	budget := job.Budget.withDefaults()
 	invalidStreak := 0
@@ -253,7 +257,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			if invalidStreak >= consecutiveInvalidLimit {
 				return r.degrade(acc, "model output failed validation "+fmt.Sprint(invalidStreak)+" times: "+parseErr.Error()), nil
 			}
-			win.observe("output_validator", "your previous output failed validation: "+parseErr.Error()+"; return ONLY the step JSON")
+			win.observe(outputValidatorSource, "your previous output failed validation: "+parseErr.Error()+"; return ONLY the step JSON")
 			continue
 		}
 		invalidStreak = 0
@@ -359,6 +363,13 @@ func parseStep(text string) (modelStep, error) {
 	hasFinal := step.Final != nil
 	if hasTool == hasFinal {
 		return modelStep{}, errors.New(`exactly one of "tool" or "final" must be set`)
+	}
+	if hasTool && len(step.Tool) > maxToolNameLen {
+		// A tool name is a registry identifier, so a long one is not a typo —
+		// it is the model writing a payload into a field the trace persists and
+		// the refusal path echoes. Bound it here, at the one place model output
+		// becomes a step, rather than at each place it is later printed.
+		return modelStep{}, fmt.Errorf("tool name is longer than %d characters", maxToolNameLen)
 	}
 	if hasTool && step.Args == nil {
 		step.Args = json.RawMessage(`{}`)

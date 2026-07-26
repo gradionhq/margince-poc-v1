@@ -5,6 +5,7 @@ package runner
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -26,8 +27,29 @@ type window struct {
 	// in the prompt at step 9, so the marker naming it in the system prompt has
 	// to be the one it was written with, and has to survive a suspension.
 	fence promptfence.Fence
-	msgs  []model.Message
+	// knownSources is the closed vocabulary [window.observe] may name in the
+	// prompt's own voice: the tools this run was offered, plus the runner's own
+	// internal reporters. Everything else is model-chosen text.
+	knownSources map[string]bool
+	msgs         []model.Message
 }
+
+// unknownSourceLabel stands in for a source outside the closed vocabulary.
+const unknownSourceLabel = "an unrecognized tool"
+
+// sourceVocabulary is the closed set of names an observation may be attributed
+// to: every offered tool, plus the runner's own reporters.
+func sourceVocabulary(specs []mcp.ToolSpec) map[string]bool {
+	known := map[string]bool{outputValidatorSource: true}
+	for _, spec := range specs {
+		known[spec.Name] = true
+	}
+	return known
+}
+
+// outputValidatorSource attributes the runner's own re-prompt after a model
+// reply that would not parse.
+const outputValidatorSource = "output_validator"
 
 // windowPromptTokenCeiling bounds the prompt (§3: the window has a hard
 // token ceiling; a long run cannot silently grow the context).
@@ -44,7 +66,7 @@ const perCallOutputCeiling = 4096
 
 func newWindow(job Job, specs []mcp.ToolSpec) *window {
 	fence := promptfence.New()
-	w := &window{system: systemPrompt(specs, fence), fence: fence}
+	w := &window{system: systemPrompt(specs, fence), fence: fence, knownSources: sourceVocabulary(specs)}
 	w.msgs = append(w.msgs, model.Message{Role: roleUser, Content: goalPrompt(job, fence)})
 	return w
 }
@@ -63,7 +85,7 @@ func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message,
 	if !fence.Minted() {
 		return nil, fmt.Errorf("%w: this run was suspended before prompt boundaries were per-run; start it again rather than resuming it", apperrors.ErrConflict)
 	}
-	w := &window{system: systemPrompt(specs, fence), fence: fence}
+	w := &window{system: systemPrompt(specs, fence), fence: fence, knownSources: sourceVocabulary(specs)}
 	w.msgs = append(w.msgs, snapshot...)
 	return w, nil
 }
@@ -76,8 +98,25 @@ func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message,
 func (w *window) observe(source, content string) {
 	w.msgs = append(w.msgs, model.Message{
 		Role:    roleUser,
-		Content: "observation from " + source + ":\n" + w.fence.Wrap(content),
+		Content: "observation from " + w.sourceLabel(source) + ":\n" + w.fence.Wrap(content),
 	})
+}
+
+// sourceLabel bounds the one part of an observation that sits OUTSIDE the fence.
+//
+// The source is the tool name the MODEL chose, and a name the registry does not
+// know is unvalidated model output. Printing it in the prompt's own voice would
+// undo the fence by another route: a page that talks the model into one crafted
+// tool name gets that string into the transcript unfenced, and the transcript is
+// cumulative — it is in every later prompt of the run, and it survives into the
+// suspended-run snapshot. So a name outside the closed vocabulary is reported as
+// a fixed label; what the model actually asked for is still recorded, inside the
+// fence, as part of the refusal it earns.
+func (w *window) sourceLabel(source string) string {
+	if w.knownSources[source] {
+		return source
+	}
+	return unknownSourceLabel
 }
 
 func (w *window) snapshot() []model.Message {
@@ -163,11 +202,32 @@ func goalPrompt(job Job, fence promptfence.Fence) string {
 		b.WriteString("Seed context (each item carries its source and trust tier):\n")
 	}
 	for _, g := range job.Grounding {
-		if g.TrustTier == "T2" {
-			fmt.Fprintf(&b, "[%s %s] %s\n", g.SourceID, g.TrustTier, fence.Wrap(g.Content))
+		if g.TrustTier == trustTierCaptured {
+			fmt.Fprintf(&b, "[%s %s] %s\n", groundingRef(g.SourceID), g.TrustTier, fence.Wrap(g.Content))
 			continue
 		}
-		fmt.Fprintf(&b, "[%s %s] %s\n", g.SourceID, g.TrustTier, g.Content)
+		fmt.Fprintf(&b, "[%s %s] %s\n", groundingRef(g.SourceID), g.TrustTier, g.Content)
 	}
 	return b.String()
 }
+
+// trustTierCaptured is the tier whose content is captured external text.
+const trustTierCaptured = "T2"
+
+// groundingRef bounds a seed item's provenance ref, which sits OUTSIDE the fence.
+//
+// retrieval.Evidence.Source is a free-form seam field. Today's only provider
+// fills it with "<type>:<uuid>", but the next one is free to put a subject line
+// or a page title there, and that would be captured text reading in the prompt's
+// own voice. A ref that is not of the expected shape is reported as unnamed
+// rather than printed.
+func groundingRef(sourceID string) string {
+	if refShape.MatchString(sourceID) {
+		return sourceID
+	}
+	return "unnamed source"
+}
+
+// refShape is the provenance form the prompt frame will print: a record type and
+// an id, nothing that could carry a sentence.
+var refShape = regexp.MustCompile(`^[a-z_]{1,32}:[0-9a-fA-F-]{1,36}$`)
