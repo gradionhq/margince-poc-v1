@@ -151,9 +151,20 @@ func (r *Registry) StartBackfill(ctx context.Context, provider string, userID id
 		if err != nil {
 			return err
 		}
+		// Widen-only protects a mailbox from re-importing a window narrower than
+		// one it already has: the narrower run would look like a fresh import and
+		// end with less history than before. That reasoning is about the ACCOUNT,
+		// so the runs it consults stop at the connection's last account rebind —
+		// a mailbox connected today has imported nothing, and holding it to the
+		// previous account's window leaves its human no way to import it at all
+		// short of a year of a mailbox they just connected. A connection that
+		// never changed account (account_bound_at IS NULL) consults every run.
 		var widest *int
 		if err := tx.QueryRow(ctx, `
-			SELECT max(window_months) FROM capture_backfill WHERE connection_id = $1`, connID).Scan(&widest); err != nil {
+			SELECT max(b.window_months)
+			FROM capture_backfill b JOIN capture_connection c ON c.id = b.connection_id
+			WHERE b.connection_id = $1
+			  AND (c.account_bound_at IS NULL OR b.created_at >= c.account_bound_at)`, connID).Scan(&widest); err != nil {
 			return err
 		}
 		if widest != nil && windowMonths < *widest {

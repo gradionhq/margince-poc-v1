@@ -178,6 +178,21 @@ func providerScopesFor(ctx context.Context, c connector.Connector, auth connecto
 	return granted
 }
 
+// rebindsAccount reports whether this grant points the row at a DIFFERENT
+// provider account than the one it held.
+//
+// Both labels must be known for the answer to be yes. A connector that cannot
+// name its account — or one whose bundle carried no owner this time — reports
+// nothing, and nothing is not evidence of a change: treating it as one would
+// throw away the watermark of every routine reauth through such a connector,
+// re-reading the whole mailbox each time.
+func rebindsAccount(prior, next *string) bool {
+	if prior == nil || *prior == "" || next == nil || *next == "" {
+		return false
+	}
+	return *prior != *next
+}
+
 // connectionUpsert is one connect transaction's write: the granting human, the
 // provider, the internal scopes frozen at grant time and the provider scopes
 // actually granted, the ref naming the freshly sealed credential, and the
@@ -220,6 +235,13 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 	// The generation bump is what fences a cycle that is still out at the
 	// provider: a sync or backfill page holding the old generation commits
 	// nothing onto a row this reconnect has re-pointed at a new credential.
+	//
+	// A rebind additionally throws the watermark away and stamps the new
+	// binding: the row is keyed on (workspace, user, provider), so a second
+	// account authorized over the first lands on the SAME row, and the previous
+	// mailbox's cursor would tell the new one to resume from a point it has
+	// never reached — silently skipping everything before it.
+	rebound := rebindsAccount(priorLabel, in.accountLabel)
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label, provider_scopes)
@@ -227,9 +249,11 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 		ON CONFLICT (workspace_id, user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
 		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
-		              generation = capture_connection.generation + 1
+		              generation = capture_connection.generation + 1,
+		              sync_cursor = CASE WHEN $7 THEN NULL ELSE capture_connection.sync_cursor END,
+		              account_bound_at = CASE WHEN $7 THEN now() ELSE capture_connection.account_bound_at END
 		RETURNING id`,
-		in.provider, in.userID, in.scopes, string(in.ref), in.accountLabel, in.providerScopes).Scan(&id); err != nil {
+		in.provider, in.userID, in.scopes, string(in.ref), in.accountLabel, in.providerScopes, rebound).Scan(&id); err != nil {
 		return ids.Nil, nil, err
 	}
 	// A grant is a human's deliberate act over their own mailbox, so it is
