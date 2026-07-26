@@ -284,14 +284,16 @@ func SiteReadDebugBrain(routingPath, modelOverride string, fake bool) (profile, 
 // extractionLane names which extraction a call served, recovered from
 // the system prompt: the profile lane and the per-page fact lane are
 // the deep read's two prompts; the company-fact prompt still serves the
-// quick scrape.
+// quick scrape. Each lane's prompt ends with that call's own fence rule,
+// which names a per-call nonce, so the lane is recognised by its stable
+// PREFIX — an equality test would match nothing.
 func extractionLane(system string) string {
 	switch {
-	case system == profileSystem:
+	case strings.HasPrefix(system, profileSystem):
 		return laneProfile
 	case strings.HasPrefix(system, "You extract company facts from ONE page"):
 		return lanePageFacts
-	case system == companyFactsSystem:
+	case strings.HasPrefix(system, companyFactsSystem):
 		return laneFields
 	default:
 		return "other"

@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 func TestSegmentPassagesIsDeterministicAndCapped(t *testing.T) {
@@ -67,7 +68,7 @@ func snippetFixtureIndex() snippetIndex {
 
 func TestSnippetIndexRendersAndResolvesTheSameIds(t *testing.T) {
 	idx := snippetFixtureIndex()
-	rendered := idx.renderNumbered()
+	rendered := idx.renderNumbered(promptfence.New())
 	for _, id := range idx.ids() {
 		ref, ok := idx.resolve(id)
 		if !ok {
@@ -86,9 +87,15 @@ func TestSnippetIndexRendersAndResolvesTheSameIds(t *testing.T) {
 	if _, ok := idx.resolve("12"); ok {
 		t.Fatal("a malformed id resolved")
 	}
-	// Page headers stay outside the untrusted spans.
-	if strings.Index(rendered, "=== PAGE "+seedURL+"/services ===") > strings.Index(rendered, "Cloud Cost Audit") {
+	// The only thing outside the spans is the page ORDINAL — the URL is the
+	// site's own text and goes inside, so a crafted path cannot be read as
+	// part of the prompt.
+	if strings.Index(rendered, "=== PAGE 1 ===") > strings.Index(rendered, "Cloud Cost Audit") {
 		t.Fatal("the page header must precede its content")
+	}
+	frame, _, _ := strings.Cut(rendered, "url: ")
+	if strings.Contains(frame, seedURL) {
+		t.Fatalf("a crawl URL reached the prompt frame: %q", frame)
 	}
 }
 

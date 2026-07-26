@@ -174,7 +174,7 @@ type scriptedEvalBrain struct {
 func (s *scriptedEvalBrain) Complete(_ context.Context, req model.Request) (model.Response, error) {
 	if strings.Contains(req.System, "compare drafts") {
 		s.judgeCalls++
-		count := strings.Count(req.Messages[0].Content, "<draft ")
+		count := strings.Count(req.Messages[0].Content, "\nDraft ")
 		scores := make([]float64, count)
 		for i := range scores {
 			scores[i] = s.judgeScore

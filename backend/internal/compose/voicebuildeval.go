@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -41,10 +42,20 @@ const voiceEvalDraftSystem = `Write a short email reply in the author's voice, a
 The profile controls expression, never facts; invent no names, numbers, or commitments.
 Return ONLY a JSON object: {"subject":"...","body":"..."}.`
 
+// voiceEvalDraftSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
+func voiceEvalDraftSystemFor(fence promptfence.Fence) string {
+	return voiceEvalDraftSystem + "\n" + fence.Rule("profile and sample")
+}
+
 const voiceEvalJudgeSystem = `You compare drafts against a writing sample by the same author.
 Score how convincingly each draft matches the author's voice: 1.0 reads like the author, 0.0 reads like generic AI writing.
 Judge voice only — rhythm, vocabulary, directness, structure — never topic or factual overlap.
 Return ONLY a JSON object: {"scores":[...]} with one number in [0,1] per draft, in order.`
+
+// voiceEvalJudgeSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
+func voiceEvalJudgeSystemFor(fence promptfence.Fence) string {
+	return voiceEvalJudgeSystem + "\n" + fence.Rule("author and draft")
+}
 
 // voiceEvaluationResult carries everything CompleteBuild persists.
 type voiceEvaluationResult struct {
@@ -112,36 +123,53 @@ func splitVoiceHeldOut(samples []ai.VoiceSample, sourceHash string) (heldOut, bu
 // voiceDraftPromptBlock renders the profile block eval drafting and (in the
 // consumption arc) production drafting share: identity docs first, exactly
 // two verbatim exemplars, stats last as negative guardrails.
-func voiceDraftPromptBlock(personality, profileMD string, exemplars []ai.VoiceExemplar, stats ai.VoiceStats) string {
-	// Everything in this block descends from corpus text (the artifact
-	// carries verbatim quotes and exemplars ARE corpus excerpts): every
-	// piece gets the same closing-tag neutralization the builder and judge
-	// payloads get, so embedded text cannot end the block and pose as
-	// instructions.
+//
+// The fence must be the one the consuming call declares in its system prompt —
+// this block is prepended to that call's user turn, not sent on its own.
+func voiceDraftPromptBlock(personality, profileMD string, exemplars []ai.VoiceExemplar, stats ai.VoiceStats, fence promptfence.Fence) string {
+	// Everything here descends from corpus text — the artifact carries verbatim
+	// quotes, and exemplars ARE corpus excerpts — so each piece sits inside the
+	// call's nonce boundary, unedited. The exemplars are shown to the model to be
+	// imitated verbatim, which is exactly why they may not be rewritten on the
+	// way in.
 	var block strings.Builder
-	block.WriteString("<voice_profile>\n")
+	block.WriteString("Voice profile:\n")
 	if strings.TrimSpace(personality) != "" {
-		block.WriteString("Human-authored identity (highest priority):\n" + ai.EscapeUntrustedTags(strings.TrimSpace(personality)) + "\n\n")
+		block.WriteString("Human-authored identity (highest priority):\n" + fence.Wrap(strings.TrimSpace(personality)) + "\n\n")
 	}
-	block.WriteString(ai.EscapeUntrustedTags(strings.TrimSpace(profileMD)))
+	block.WriteString(fence.Wrap(strings.TrimSpace(profileMD)))
 	for _, exemplar := range exemplars {
-		fmt.Fprintf(&block, "\n\nVerbatim example (%s %s):\n%s", exemplar.Register, exemplar.Kind, ai.EscapeUntrustedTags(exemplar.Text))
+		fmt.Fprintf(&block, "\n\nVerbatim example (%s %s):\n%s", exemplar.Register, exemplar.Kind, fence.Wrap(exemplar.Text))
 	}
 	fmt.Fprintf(&block, "\n\nStylometric guardrails — limits, NOT targets: mean sentence length ≈ %.0f words (do not write a wall of short sentences to hit it), em dashes per 100 words ≈ %.2f (at 0, treat them as forbidden).",
 		stats.MeanSentenceWords, stats.EmDashPer100Words)
-	block.WriteString("\n</voice_profile>")
 	return block.String()
 }
 
 // evalPromptFor derives one held-out drafting task: reply to the opening of
-// the reserved sample in its register.
+// the reserved sample in its register. This is the label the evaluation record
+// keeps — plain text, no fence markers, because it is read by a human on the
+// profile screen; evalTaskFor renders the same task for the model.
 func evalPromptFor(sample ai.VoiceSample) string {
+	return fmt.Sprintf("Reply briefly (register: %s) to this message from a colleague:\n%s",
+		sample.Register, evalSampleOpening(sample))
+}
+
+// evalTaskFor is the model's copy of the task, with the corpus excerpt inside
+// the call's boundary — the excerpt is the author's own mail, which routinely
+// quotes what a counterparty wrote to them.
+func evalTaskFor(sample ai.VoiceSample, fence promptfence.Fence) string {
+	return fmt.Sprintf("Reply briefly (register: %s) to this message from a colleague:\n%s",
+		sample.Register, fence.Wrap(evalSampleOpening(sample)))
+}
+
+// evalSampleOpening bounds the excerpt both renderings share.
+func evalSampleOpening(sample ai.VoiceSample) string {
 	words := strings.Fields(sample.Text)
 	if len(words) > 40 {
 		words = words[:40]
 	}
-	return fmt.Sprintf("Reply briefly (register: %s) to this message from a colleague:\n%s",
-		sample.Register, strings.Join(words, " "))
+	return strings.Join(words, " ")
 }
 
 type voiceEvalDraft struct {
@@ -163,7 +191,6 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 		// evaluated artifact with an unevaluated one.
 		return unevaluatedVoiceResult(artifact, predecessor), nil
 	}
-	profileBlock := voiceDraftPromptBlock(personality, artifact.Markdown, artifact.Exemplars, artifact.Stats)
 	drafts := make([]voiceEvalDraft, 0, len(heldOut)*voiceEvalRepeatsPerPrompt)
 	hardFailures := 0
 	structuredValid := true
@@ -171,9 +198,13 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 		prompt := evalPromptFor(sample)
 		var bodies []string
 		for repeat := 0; repeat < voiceEvalRepeatsPerPrompt; repeat++ {
+			// One fence per call, so the profile block and the excerpt are
+			// bounded by the marker THIS call's system prompt names.
+			fence := promptfence.New()
+			profileBlock := voiceDraftPromptBlock(personality, artifact.Markdown, artifact.Exemplars, artifact.Stats, fence)
 			resp, err := brain.Complete(ctx, model.Request{
-				System: voiceEvalDraftSystem,
-				Messages: []model.Message{{Role: chatRoleUser, Content: profileBlock + "\n\n" + prompt +
+				System: voiceEvalDraftSystemFor(fence),
+				Messages: []model.Message{{Role: chatRoleUser, Content: profileBlock + "\n\n" + evalTaskFor(sample, fence) +
 					fmt.Sprintf("\n(variation %d)", repeat+1)}},
 				MaxTokens:      1200,
 				ResponseSchema: replyDraftSchema,
@@ -228,13 +259,14 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 // valid=false, so the caller blocks auto-activation instead of letting the
 // neutral fallback blend into a passing score.
 func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
+	fence := promptfence.New()
 	var payload strings.Builder
-	payload.WriteString("<author_sample>\n" + ai.EscapeUntrustedTags(original) + "\n</author_sample>\n")
+	payload.WriteString("Author sample:\n" + fence.Wrap(original) + "\n")
 	for i, body := range bodies {
-		fmt.Fprintf(&payload, "<draft index=\"%d\">\n%s\n</draft>\n", i+1, ai.EscapeUntrustedTags(body))
+		fmt.Fprintf(&payload, "Draft %d:\n%s\n", i+1, fence.Wrap(body))
 	}
 	resp, err := brain.Complete(ctx, model.Request{
-		System:         voiceEvalJudgeSystem,
+		System:         voiceEvalJudgeSystemFor(fence),
 		Messages:       []model.Message{{Role: chatRoleUser, Content: payload.String()}},
 		MaxTokens:      300,
 		ResponseSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["scores"],"properties":{"scores":{"type":"array","items":{"type":"number","minimum":0,"maximum":1}}}}`),
