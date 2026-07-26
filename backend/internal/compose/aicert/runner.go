@@ -18,28 +18,32 @@ package aicert
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 // defaultRepeats is Repeats' fallback when a caller (the env-driven CLI
 // lane) leaves it unset. Odd, per Verdict's median requirement.
 const defaultRepeats = 3
 
-// promptVersionV1 and corpusVersionV1 are this generation's fixed
-// version stamps: neither the scenario format nor the judge prompt
-// carries its own version field yet, so every Record this runner
-// produces names the same one until a versioning scheme is introduced
-// alongside a real second version.
+// corpusVersionV1 is this generation's fixed corpus-format stamp: the
+// scenario format carries no version field of its own yet, so every
+// Record names the same one until a versioning scheme arrives alongside
+// a real second version.
 const (
-	promptVersionV1 = "v1"
 	corpusVersionV1 = "v1"
 )
 
@@ -196,7 +200,8 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 	reliability := float64(acc.passed) / float64(len(acc.allResults))
 	return buildRecord(task, taskVerdict, reliability, acc.allResults, acc.latencies,
 		acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal,
-		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun, baseCfg), nil
+		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun,
+		baseCfg, PromptVersion(scenarios)), nil
 }
 
 // taskAccumulation collects the pooled stats certifyTask folds across
@@ -402,3 +407,59 @@ func worstVerdict(a, b string) string {
 // Record type they build — that file already owns "the on-disk Record
 // shape," so folding pooled run stats into one is that same concern, not
 // this file's own "drive the routers" one.
+
+// PromptVersion is a task's certification stamp: a digest of the exact
+// SCENARIOS a run was scored against.
+//
+// It used to be the constant "v1", which meant a record could never stop being a
+// proof — edit a scenario and the committed record went on claiming "certified"
+// for text that no longer existed. Deriving it from content makes staleness
+// visible instead: a record whose stamp is not the one this corpus computes was
+// scored against something else, and says so.
+//
+// The WHOLE scenario is digested, not just its prompts. The rubric is read to
+// the grader, the history turns are replayed to the candidate, and the caps set
+// the request — each of them changes what a score means, so each of them has to
+// move the stamp. The per-call data boundary is canonicalised out first
+// (promptfence mints a fresh marker every call, and a scenario carries one
+// example marker), so the stamp moves when the SCENARIO changes and stays put
+// when only the nonce does.
+//
+// What it does NOT cover: whether the scenario still matches the prompt the
+// product sends. Only rate_extract and fx are pinned byte-for-byte to their
+// production consts (TestRateExtractPromptMatchesCorpus and its FX twin); for
+// every other task the corpus is a hand-authored approximation, and a shipped
+// prompt can drift from it without moving this stamp.
+func PromptVersion(scenarios []Scenario) string {
+	ordered := make([]string, 0, len(scenarios))
+	for _, sc := range scenarios {
+		// Hash each scenario on its own, then order the digests: joining raw
+		// fields would let text shift across a separator and collide.
+		encoded, err := json.Marshal(canonicalScenario(sc))
+		if err != nil {
+			// Scenario is a plain data struct loaded from YAML; a value that
+			// cannot be marshalled is a programming error, not input.
+			panic(fmt.Sprintf("aicert: scenario %q cannot be digested: %v", sc.Name, err))
+		}
+		sum := sha256.Sum256(encoded)
+		ordered = append(ordered, hex.EncodeToString(sum[:]))
+	}
+	sort.Strings(ordered)
+	sum := sha256.Sum256([]byte(strings.Join(ordered, "")))
+	return "p" + hex.EncodeToString(sum[:16])
+}
+
+// canonicalScenario is the scenario with its example data boundary replaced by a
+// fixed placeholder, so the stamp does not move when only the nonce does.
+func canonicalScenario(sc Scenario) Scenario {
+	declaring := sc.System
+	sc.System = promptfence.Canonicalize(declaring, declaring)
+	sc.Input = promptfence.Canonicalize(declaring, sc.Input)
+	history := make([]Turn, len(sc.History))
+	for i, turn := range sc.History {
+		turn.Text = promptfence.Canonicalize(declaring, turn.Text)
+		history[i] = turn
+	}
+	sc.History = history
+	return sc
+}
