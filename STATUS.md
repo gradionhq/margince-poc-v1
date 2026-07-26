@@ -1075,6 +1075,22 @@ Open work, roughly in priority order:
   reads captured text: the fence stops the structural escape; only the prompt's
   own reasoning stops the persuasion.
 
+  **Owed: pin each task's corpus scenario to the prompt it ships.**
+  `aicert.PromptVersion` stamps the SCENARIOS a record was scored against, so a
+  corpus edit is visible — but nothing checks that the scenario still matches
+  what production sends. Only `rate_extract` and its FX twin are pinned
+  byte-for-byte. The other lanes' scenarios are close but not identical: they use
+  YAML folded style, so production's line breaks arrive as spaces, which means
+  those records did not score the shipped text exactly.
+
+  The fix is a per-scenario pin map plus a coverage test (every contract task
+  either pinned or declared an approximation with its reason), with the pinned
+  blocks GENERATED from the shipped prompt rather than hand-maintained. It was
+  built and reverted out of #264 deliberately: repinning changes those prompts,
+  which invalidates the records that PR just certified, so it needs its own
+  certification run. Worth doing next — it is the one remaining place where
+  "certified = shipped" rests on a comment rather than a gate.
+
   **Two pre-existing defects this surfaced — neither caused by #264, both worth
   a ticket.**
 
