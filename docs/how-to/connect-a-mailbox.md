@@ -4,9 +4,9 @@ Connect a mailbox so Margince captures its mail onto the timeline — creating p
 activities through the one dedupe chokepoint. This guide is **UI-first**: you drive it from the app,
 with the equivalent `curl` shown alongside for scripting and verification. It covers the three paths you
 can drive from the **UI** — **Gmail over OAuth** (a standing connection with background sync + backfill),
-**IMAP one-shot pull** (a transient capture, which is how you reach a **Gmail** or **Outlook /
-Microsoft 365** mailbox with an app-password), and **Graph OAuth** for Outlook / Microsoft 365 (a standing
-connection, Path C) — plus **Google Calendar (`gcal`)**, a separate standing connection you add
+**IMAP with an app-password** (also a standing connection, and the way to reach a **Gmail** or
+**Outlook / Microsoft 365** mailbox without registering an OAuth app), and **Graph OAuth** for Outlook /
+Microsoft 365 (a standing connection, Path C) — plus **Google Calendar (`gcal`)**, a separate standing connection you add
 alongside Gmail from the same Settings surface (Path D). For the mental model — the connector seam, the
 one Sink, the three ingestion modes, credential custody — read
 [explanation/capture-connectors.md](../explanation/capture-connectors.md) first.
@@ -38,17 +38,17 @@ Two entry points, both hitting the same API:
 
 ## Which path do I want?
 
-| Provider | Path | Persisted? | Background sync + backfill | What you need |
+| Provider | Path | Credential custody | Background sync + backfill | What you need |
 |---|---|---|---|---|
-| **Gmail** | OAuth standing connection | Yes | Yes (+ Pub/Sub push) | a Google OAuth app + the vault key |
-| **Gmail** | IMAP one-shot pull | No | No (re-run to capture more) | a Google **app-password** |
-| **Outlook / M365** | IMAP one-shot pull | No | No | an Outlook **app-password** |
-| **Outlook / M365** | Graph OAuth standing connection | Yes | Sync + backfill (poll-only) | a Microsoft Entra app + the vault key |
-| **Google Calendar** | `gcal` OAuth standing connection (separate from Gmail) | Yes | Sync only (poll-only, no backfill) | the same Google app as Gmail, with the calendar scope + redirect URI added |
+| **Gmail** | OAuth standing connection | refresh token sealed in the vault, destroyed on disconnect | Yes (+ Pub/Sub push) | a Google OAuth app + the vault key |
+| **Gmail** | IMAP standing connection | app-password sealed in the vault, destroyed on disconnect | Sync only (poll-only, no backfill) | a Google **app-password** + the vault key |
+| **Outlook / M365** | IMAP standing connection | app-password sealed in the vault, destroyed on disconnect | Sync only (poll-only, no backfill) | an Outlook **app-password** + the vault key |
+| **Outlook / M365** | Graph OAuth standing connection | refresh token sealed in the vault, destroyed on disconnect | Sync + backfill (poll-only) | a Microsoft Entra app + the vault key |
+| **Google Calendar** | `gcal` OAuth standing connection (separate from Gmail) | refresh token sealed in the vault, destroyed on disconnect | Sync only (poll-only, no backfill) | the same Google app as Gmail, with the calendar scope + redirect URI added |
 
-Start with **IMAP one-shot** if you just want to see capture work against a real mailbox from the UI — it
-needs no OAuth app and no deployment config. Use **Gmail OAuth** to exercise the standing connection,
-background sync, and backfill.
+Start with **IMAP** if you just want to see capture work against a real mailbox from the UI — it needs no
+OAuth app registration, only the vault key every connect path requires. Use **Gmail OAuth** to exercise
+push and backfill.
 
 ---
 
@@ -141,12 +141,20 @@ curl --cookie 'crm_session=<session>' http://localhost:8080/v1/connectors/gmail/
 
 ---
 
-## Path B — IMAP one-shot pull (Gmail or Outlook, with an app-password)
+## Path B — IMAP with an app-password (Gmail or Outlook, standing connection)
 
-The IMAP path dials a mailbox over IMAPS, pulls the most-recent messages, and captures each — using the
-credentials for **this call only**. Nothing is persisted (no stored connection, no background sync); to
-capture more, run it again. It needs **no operator config and no vault** — you can do it from the UI
-immediately.
+The IMAP path dials a mailbox over IMAPS, proves the credentials, and keeps the connection standing: the
+app-password is **sealed in the vault** and reused by the background sweep, which advances a UID
+watermark so each cycle resumes where the last stopped. There is no push and no backfill, so latency is
+the poll interval and mail older than the connection is not imported.
+
+**Read this before you paste an app-password.** The secret is stored — encrypted, never logged, never
+returned by any read surface, and never on the connection row — for as long as the connection stands.
+**Disconnecting destroys it**, which is the guarantee that makes handing it over reversible from inside
+the product. Revoking it at the provider works too.
+
+It needs no OAuth app registration, but it does need `MARGINCE_KEYVAULT_ROOT_KEY`: without the vault the
+connector surface answers `501` rather than store the password anywhere else.
 
 ### B1. Get an app-password
 
@@ -159,32 +167,40 @@ Basic-auth IMAP with your normal password is blocked by both providers — you n
   → App passwords* → create one. Host `outlook.office365.com`, port `993`. (If your tenant disables IMAP
   or app-passwords, use the Graph OAuth path — Path C.)
 
-### B2. Pull from the UI
+### B2. Connect from the UI
 
 1. **Settings → Integrations** → click **IMAP mailbox** in the **Add a connection** footer or empty state
    (or the **IMAP** chip on the onboarding connect step).
-2. Fill the form: **host** (`imap.gmail.com` or `outlook.office365.com`), **email** (the mailbox
-   address / login), **password** (the app-password), **mailbox** (`INBOX`), **max messages** (default
-   `30`, capped at `200`).
-3. Submit. The result panel shows the tally: **captured** (landed as timeline activities), **contacts**
-   (distinct counterparties), and **skipped** (automated/system mail). Click **Enter CRM** to see them.
+2. Fill the form: **IMAP host** (`imap.gmail.com` or `outlook.office365.com`), **Email** (the mailbox
+   login), **App password**, **IMAP mailbox** (`INBOX`), and **Max messages** — the per-sync ceiling, and
+   the size of the bounded recent window a first sync anchors with (capped at `200`).
+3. Submit. The connect answers **before any mail is read**, so there is no capture tally here — you get
+   the connected row, and the first messages land a few minutes later when the sweep runs. **Settings →
+   Integrations** then shows the `imap` row with its last-synced time and a **disconnect** action.
 
 <details><summary>Same thing via <code>curl</code></summary>
 
 Read the app-password **silently** and build the JSON on stdin, so the secret never lands in your shell
 history or a process listing (mirroring the "never logged" guarantee):
 
+The credentials are **nested under `imap`** (the contract's `ConnectConnectorRequest`), and `username` /
+`secret` are the field names — a flat `email`/`password` body is refused with
+`422 imap_credentials_required`. The response is the connected row (`{connection: CaptureConnection}`),
+not a capture tally.
+
 ```sh
 read -rsp 'IMAP app-password: ' APP_PW; echo    # silent — never in argv/history
 jq -n --arg pw "$APP_PW" \
-  '{host:"imap.gmail.com", port:993, email:"you@gmail.com", password:$pw, mailbox:"INBOX", max_messages:50}' \
+  '{imap:{host:"imap.gmail.com", port:993, username:"you@gmail.com", secret:$pw,
+          mailbox:"INBOX", max_messages:50}}' \
 | curl -X POST http://localhost:8080/v1/connectors/imap/connect \
     --cookie 'crm_session=<session>' -H 'Content-Type: application/json' --data @- \
-| jq '{connected, mailbox, captured, skipped, contacts}'
+| jq '.connection | {id, provider, status, account_label}'
 unset APP_PW
 ```
 
-For Outlook, set `email` to your `@outlook.com` / tenant address and `host` to `outlook.office365.com`.
+For Outlook, set `username` to your `@outlook.com` / tenant address and `host` to
+`outlook.office365.com`.
 </details>
 
 Failure modes are honest and leak no internals — the form surfaces them directly:
@@ -284,15 +300,16 @@ curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
 
 ## Verify end-to-end
 
-1. **The mailbox connected.** For Gmail/Graph/gcal, **Settings → Integrations** shows a `connected` row
-   (or `GET /connectors`); for IMAP, the result panel shows `connected` with a non-zero **captured**.
+1. **The mailbox connected.** **Settings → Integrations** shows a `connected` row for every provider,
+   IMAP included (or `GET /connectors`). IMAP's first messages arrive on the next sweep, not at connect.
 2. **Mail became timeline activities.** Open a captured counterparty's timeline (or `GET /activities`)
    and confirm each message is an email activity, provenance-stamped `connector:<name>`.
 3. **People and organizations were auto-created.** A new external counterparty becomes a person (and, for
    a non-freemail sender, a domain-named organization + employment edge) through the dedupe chokepoint;
    a fuzzy near-match lands in the dedupe review queue rather than duplicating.
-4. **The credential is never echoed.** No read surface returns a secret — the roster carries only
-   `credential_ref` server-side; the IMAP password is used once and never stored.
+4. **The credential is never echoed, and disconnect destroys it.** No read surface returns a secret —
+   the roster carries only a server-side `credential_ref`, for the IMAP app-password exactly as for an
+   OAuth refresh token. Disconnect deletes the sealed secret from the vault, not just the row.
 5. **A failure degrades, never kills.** Revoke/expire a Gmail token and the row goes `reauth_required`
    with a **reconnect** action in Settings; point IMAP at an unreachable host and get a clean failure —
    no internals leaked.
@@ -306,8 +323,7 @@ curl -X POST http://localhost:8080/v1/connectors/gcal/connect \
 The connect UI is now live for all four connectors: Gmail, Google Calendar, Graph, and IMAP each have a
 first-connect affordance from **Settings → Integrations**, and Gmail, Microsoft, and IMAP have one from
 **onboarding** too (Google Calendar is Settings-only — there's no onboarding chip for it). The roster and
-backfill panel, though, only apply to Gmail and Graph: IMAP is a one-shot pull with no standing
-connection to roster and no backfill to run, and Google Calendar has no backfill (it syncs forward from
-connect time only — see the [Calendar section](#d2-connect-from-the-ui) above). See
+backfill panel, though, don't apply everywhere: IMAP and Google Calendar have no backfill, so both sync
+forward from connect time only (see the [Calendar section](#d2-connect-from-the-ui) above). See
 [explanation/capture-connectors.md → Honest limitations](../explanation/capture-connectors.md#honest-limitations)
 for what's still scoped out of the pipeline overall.
