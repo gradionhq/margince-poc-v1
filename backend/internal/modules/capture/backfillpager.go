@@ -94,11 +94,14 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
 
-	res, err := bf.BackfillPage(runCtx, auth, after, pageToken, r.sink)
+	// The Sink counts the counterparties it mints into this collector as the
+	// page runs; the commit below folds the totals into the run's own columns.
+	pageCtx, yields := withYieldCollector(runCtx)
+	res, err := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
 	if err != nil {
 		return r.recordPageFault(ctx, backfillID, err)
 	}
-	done, completed, err = r.commitBackfillPage(ctx, backfillID, res)
+	done, completed, err = r.commitBackfillPage(ctx, backfillID, res, yields)
 	return done, completed, 0, err
 }
 
@@ -181,8 +184,15 @@ func backfillRetryDelay(failures int, cause error) time.Duration {
 // to done, so a lost race is terminal, never a spurious completion (and so
 // never a spurious digest). done stops the pager either way — the run
 // finished, or someone else already ended it.
-func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, res connector.BackfillPageResult) (done, completed bool, err error) {
+//
+// The counterparty yields commit in the SAME statement as scanned/captured, so
+// a page that fails to commit has counted nothing. They are an honest
+// undercount rather than an estimate: a sender the tier gate deferred is
+// resolved by the verdict engine long after this page, and the person it may
+// eventually mint is nobody's page to claim.
+func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, res connector.BackfillPageResult, yields *yieldCollector) (done, completed bool, err error) {
 	finishing := res.NextToken == ""
+	peopleCreated, orgsCreated := yields.totals()
 	var rowsAffected int64
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var cur []byte
@@ -200,10 +210,11 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 		tag, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
+			    people_created = people_created + $6, organizations_created = organizations_created + $7,
 			    consecutive_failures = 0,
 			    status = `+statusExpr+terminal+`
 			WHERE id = $1 AND status IN ('queued','running')`,
-			backfillID, cur, res.Scanned, res.Captured, res.Skipped)
+			backfillID, cur, res.Scanned, res.Captured, res.Skipped, peopleCreated, orgsCreated)
 		if err != nil {
 			return err
 		}

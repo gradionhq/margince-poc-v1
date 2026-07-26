@@ -122,26 +122,12 @@ func countRows(t *testing.T, e *searchEnv, query string) int {
 	return n
 }
 
-// captureEnv is the production capture wiring one test drives: the real
-// registry and resolver (not a bare sink — the auto-create resolver and the
-// tier gate are what these tests prove), a connected gmail connection, and the
-// two pull shapes. Built per test so each starts from a clean mailbox.
-type captureEnv struct {
-	e        *searchEnv
-	sync     func(t *testing.T, raws ...[]byte)
-	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
-}
-
-func newCaptureEnv(t *testing.T) captureEnv {
+// seedCaptureRole gives Rep1 a live role that can create the records capture
+// derives. The production authority resolves the granting human's LIVE role, so
+// without it the ensure path is denied and every counterparty assertion reads as
+// a resolver bug.
+func seedCaptureRole(t *testing.T, e *searchEnv) {
 	t.Helper()
-	e := setupSearch(t)
-	conn := &mailBatchConnector{}
-	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
-	registry.Register(conn)
-
-	// The production authority resolves the granting human's LIVE role, so
-	// the rep needs a real one: capture writes activities and the ensure
-	// path creates people/organizations under the same derived principal.
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		var roleID string
 		if err := tx.QueryRow(context.Background(), `
@@ -159,6 +145,26 @@ func newCaptureEnv(t *testing.T) captureEnv {
 	if err != nil {
 		t.Fatalf("seeding the capture role: %v", err)
 	}
+}
+
+// captureEnv is the production capture wiring one test drives: the real
+// registry and resolver (not a bare sink — the auto-create resolver and the
+// tier gate are what these tests prove), a connected gmail connection, and the
+// two pull shapes. Built per test so each starts from a clean mailbox.
+type captureEnv struct {
+	e        *searchEnv
+	sync     func(t *testing.T, raws ...[]byte)
+	syncSent func(t *testing.T, sent map[string]bool, raws ...[]byte)
+}
+
+func newCaptureEnv(t *testing.T) captureEnv {
+	t.Helper()
+	e := setupSearch(t)
+	conn := &mailBatchConnector{}
+	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{})
+	registry.Register(conn)
+
+	seedCaptureRole(t, e)
 
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
 	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))

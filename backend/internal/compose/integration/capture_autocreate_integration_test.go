@@ -260,6 +260,6 @@ func TestCaptureRefusesToDeriveARecord(t *testing.T) {
 // case; the sink's own gates must refuse before it is ever reached.
 type recordingEnsurer struct{}
 
-func (recordingEnsurer) EnsureCounterparty(context.Context, capture.EnsureRequest) error {
-	return nil
+func (recordingEnsurer) EnsureCounterparty(context.Context, capture.EnsureRequest) (capture.EnsureOutcome, error) {
+	return capture.EnsureOutcome{}, nil
 }

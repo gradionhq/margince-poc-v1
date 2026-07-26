@@ -114,8 +114,8 @@ type peopleEnsurer struct {
 	store *people.Store
 }
 
-func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) error {
-	_, err := p.store.EnsureCounterparty(ctx, people.EnsureCounterpartyInput{
+func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) (capture.EnsureOutcome, error) {
+	res, err := p.store.EnsureCounterparty(ctx, people.EnsureCounterpartyInput{
 		Email:       in.Email,
 		DisplayName: in.DisplayName,
 		Domain:      in.Domain,
@@ -127,10 +127,13 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 	})
 	if errors.Is(err, people.ErrCounterpartySuppressed) {
 		// A13: the erased address stays dead — a deliberate no-op, not a
-		// fault for the reconcile queue.
-		return nil
+		// fault for the reconcile queue, and nothing was created to count.
+		return capture.EnsureOutcome{}, nil
 	}
-	return err
+	if err != nil {
+		return capture.EnsureOutcome{}, err
+	}
+	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app

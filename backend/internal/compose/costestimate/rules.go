@@ -65,12 +65,12 @@ var backfillUnitRules = map[ai.Task]unitRule{
 		},
 	},
 	ai.TaskEnrich: {
-		// A zero people_created is "ratio unavailable", not "zero people": the
-		// backfill loop never increments the counter (people/orgs are created
-		// asynchronously downstream, not at page-commit — see capture/backfill.go
-		// RunBackfillStep). Reporting ok=false floors to the named default, which
-		// is honest; a silent observed-0 on a consent number — quoting $0 enrich to
-		// the user — is not.
+		// A zero people_created is "ratio unavailable", not "zero people": a run
+		// counts only the counterparties its own pages minted, so a window whose
+		// senders were all already known — or all deferred to the verdict engine —
+		// reads zero while a wider window would still create plenty. Reporting
+		// ok=false floors to the named default, which is honest; a silent
+		// observed-0 on a consent number — quoting $0 enrich to the user — is not.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
 			if y.PeopleCreated == 0 {
 				return 0, false
