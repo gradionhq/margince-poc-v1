@@ -187,6 +187,10 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 // credential_ref the row still names, which the caller destroys next; nil means
 // there is no vaulted secret to destroy. pgx.ErrNoRows means nothing matched.
 //
+// The audit row and the generation bump belong to the row that was still LIVE:
+// they record the human's act of withdrawing, which happens exactly once no
+// matter how many calls it takes to finish destroying the credential.
+//
 // credential_ref is deliberately KEPT here: phase 2 needs it, and a crash
 // between the phases must leave a recoverable state.
 //
@@ -196,7 +200,7 @@ func (r *Registry) Disconnect(ctx context.Context, name string) error {
 //   - legacy row (connected, ref NULL, credential in auth): live → matches;
 //     auth is erased here, ref stays NULL — nothing to vault-delete.
 //   - half-finished retry (already disconnected, ref still set):
-//     ref IS NOT NULL → matches, retries the vault delete.
+//     ref IS NOT NULL → matches, retries the vault delete, audits nothing.
 //   - fully done (disconnected, ref NULL): matches neither arm → ErrNoRows →
 //     idempotent no-op.
 //
@@ -222,16 +226,29 @@ func (r *Registry) withdrawConnection(ctx context.Context, userID ids.UUID, name
 			userID, name).Scan(&connID, &priorStatus, &priorLabel); err != nil {
 			return err
 		}
+		// A row already 'disconnected' is a retry re-driving the cleanup the
+		// previous call left unfinished — the withdrawal itself happened then, and
+		// what follows here is only what phases 2 and 3 still owe.
+		alreadyWithdrawn := priorStatus == "disconnected"
 		// The generation bump fences every cycle already out at the provider: a
 		// sync or backfill page that reads a connected row, spends minutes
 		// fetching, and comes back to commit must find that its generation is
-		// gone rather than write a watermark onto a withdrawn grant.
+		// gone rather than write a watermark onto a withdrawn grant. The retry
+		// has no cycle left to fence — the first withdrawal fenced them — and a
+		// second bump would only invalidate generations nothing holds.
 		if err := tx.QueryRow(ctx, `
 			UPDATE capture_connection
-			   SET status = 'disconnected', auth = NULL, generation = generation + 1
+			   SET status = 'disconnected', auth = NULL,
+			       generation = generation + CASE WHEN $2 THEN 1 ELSE 0 END
 			 WHERE id = $1
-			RETURNING credential_ref`, connID).Scan(&ref); err != nil {
+			RETURNING credential_ref`, connID, !alreadyWithdrawn).Scan(&ref); err != nil {
 			return err
+		}
+		if alreadyWithdrawn {
+			// Auditing here would record a fresh deliberate withdrawal whose
+			// before- and after-images are identical, once per retry: a trail that
+			// reads as repeated human acts nobody performed is worse than no trail.
+			return nil
 		}
 		// Withdrawing a connector is a human's deliberate act over their own
 		// mailbox and is attributed like any other record mutation.

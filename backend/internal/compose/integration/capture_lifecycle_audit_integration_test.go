@@ -211,6 +211,61 @@ func TestConnectAndDisconnectLeaveAnAttributableAuditRow(t *testing.T) {
 	}
 }
 
+// connectionGeneration reads the lifecycle fence a deferred sync or backfill
+// page commits its work against.
+func connectionGeneration(t *testing.T, e *searchEnv, connID ids.UUID) int {
+	t.Helper()
+	var generation int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT generation FROM capture_connection WHERE id = $1`, connID).Scan(&generation)
+	}); err != nil {
+		t.Fatalf("reading the connection's generation: %v", err)
+	}
+	return generation
+}
+
+// A disconnect whose phase 1 committed and whose credential destruction then
+// failed leaves the row disconnected with its credential_ref intact, and every
+// later call re-enters that state to finish the cleanup. Re-driving cleanup is
+// not a second withdrawal: the human withdrew once, so the trail must say so
+// once, and there is no new cycle out at the provider left to fence.
+func TestARetriedDisconnectDoesNotReAuditTheWithdrawal(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry.Register(&authAssertingFake{})
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	connID, err := registry.Connect(grantCtx, "graph", connector.Auth("granted-token"))
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+
+	// A composition with no vault cannot destroy the sealed credential, so its
+	// disconnect fails permanently AFTER phase 1 has committed — the half-finished
+	// state every subsequent call converges from.
+	stranded := newTestCaptureRegistry(e, nil)
+	if err := stranded.Disconnect(grantCtx, "graph"); err == nil {
+		t.Fatal("a disconnect that cannot destroy the credential must not report success")
+	}
+	audits := connectionAudits(t, e)
+	if len(audits) != 2 || audits[1].Action != "archive" {
+		t.Fatalf("the withdrawal did not commit its own audit row: %+v", audits)
+	}
+	fenced := connectionGeneration(t, e, connID)
+
+	if err := stranded.Disconnect(grantCtx, "graph"); err == nil {
+		t.Fatal("the retry still cannot destroy the credential and must still say so")
+	}
+	if retried := connectionAudits(t, e); len(retried) != 2 {
+		t.Fatalf("the retry wrote %d audit rows in total, want 2 — a re-driven cleanup is not a second withdrawal: %+v",
+			len(retried), retried)
+	}
+	if got := connectionGeneration(t, e, connID); got != fenced {
+		t.Fatalf("generation = %d, want %d — the retry fenced a cycle the first withdrawal already ended", got, fenced)
+	}
+}
+
 // refuseSyncStateUpdates installs a statement-level trigger that makes every
 // UPDATE on capture_sync_state raise — the cheapest way to fail Connect AFTER
 // its audit row is written. It is statement-level on purpose: a fresh
