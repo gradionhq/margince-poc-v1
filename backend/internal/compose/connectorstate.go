@@ -28,7 +28,7 @@ import (
 )
 
 // connectState is the tuple bound into a signed OAuth state parameter. Nonce
-// is the CSRF binding: it must equal the SameSite=Lax oauth_csrf cookie the
+// is the CSRF binding: it must equal the SameSite=Lax nonce cookie the
 // callback receives, proving the initiator and the completer are the same
 // browser (the signed state alone only proves the initiator).
 type connectState struct {
@@ -36,6 +36,10 @@ type connectState struct {
 	User      ids.UUID
 	Provider  string
 	Nonce     string
+	// Version names the state's own vintage, so a callback served by a newer
+	// build can honour a round-trip an older one started. Absent (zero) on
+	// every state minted before versioning existed.
+	Version int
 	// ReturnTo names the surface that started the connect, so the callback can
 	// land the browser where the user actually is. A closed enum resolved by
 	// landingURL, never a URL — it rides the signed payload so it cannot be
@@ -51,6 +55,7 @@ type wireState struct {
 	Provider  string `json:"p"`
 	Nonce     string `json:"n"`
 	ReturnTo  string `json:"rt,omitempty"`
+	Version   int    `json:"v,omitempty"`
 	Exp       int64  `json:"exp"` // unix seconds
 }
 
@@ -68,6 +73,7 @@ func (s stateSigner) sign(st connectState, exp time.Time) string {
 		Provider:  st.Provider,
 		Nonce:     st.Nonce,
 		ReturnTo:  st.ReturnTo,
+		Version:   st.Version,
 		Exp:       exp.Unix(),
 	})
 	enc := base64.RawURLEncoding.EncodeToString(payload)
@@ -107,7 +113,10 @@ func (s stateSigner) verify(token string, now time.Time) (connectState, error) {
 	if err != nil {
 		return connectState{}, fmt.Errorf("connector state: bad user id: %w", err)
 	}
-	return connectState{Workspace: ws, User: user, Provider: w.Provider, Nonce: w.Nonce, ReturnTo: w.ReturnTo}, nil
+	return connectState{
+		Workspace: ws, User: user, Provider: w.Provider,
+		Nonce: w.Nonce, ReturnTo: w.ReturnTo, Version: w.Version,
+	}, nil
 }
 
 func (s stateSigner) mac(enc string) []byte {

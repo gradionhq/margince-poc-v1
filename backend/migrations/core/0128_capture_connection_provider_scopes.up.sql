@@ -1,0 +1,14 @@
+-- CAP-DDL-2: the scopes the PROVIDER granted, in the provider's own vocabulary.
+--
+-- capture_connection.scopes holds this system's internal permission vocabulary
+-- (the connector's declared principal scopes, e.g. 'read'), frozen at grant
+-- time. That is not what a human asking "what can this connection actually do
+-- to my mailbox?" means, and it is not what the contract's
+-- CaptureConnection.scopes documents. The provider's answer — 'Mail.Read',
+-- 'offline_access' — is a different fact and gets its own column; the two
+-- vocabularies must never share storage.
+--
+-- Nullable on purpose: a connection made before this column existed genuinely
+-- does not know what it was granted, and '{}' would state that it holds
+-- nothing. NULL is the honest absence, and it reads out as an empty list.
+ALTER TABLE capture_connection ADD COLUMN provider_scopes text[] NULL;

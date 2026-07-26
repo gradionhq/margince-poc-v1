@@ -79,7 +79,7 @@ var ErrDeltaGone = fmt.Errorf("graph: delta cursor no longer valid: %w", connect
 // a stored refresh token.
 type OAuth interface {
 	AuthCodeURL(state, redirectURI string) string
-	Exchange(ctx context.Context, code, redirectURI string) (refreshToken string, err error)
+	Exchange(ctx context.Context, code, redirectURI string) (oauthflow.TokenGrant, error)
 	AccessToken(ctx context.Context, refreshToken string) (accessToken string, err error)
 }
 

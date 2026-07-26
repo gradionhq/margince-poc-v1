@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -333,12 +334,20 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return ids.ActivityID{}, false, fmt.Errorf("capture: activity upsert: %w", err)
 	}
-	// Replay: the natural key already landed — return the incumbent.
+	// Replay: the natural key already landed — return the incumbent. Returning
+	// a record is a read, so the row scope binds on this path too; an activity
+	// scopes through its links, which can move after the first capture.
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&id)
 	if err != nil {
 		return ids.ActivityID{}, false, fmt.Errorf("capture: activity replay lookup: %w", err)
+	}
+	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return ids.ActivityID{}, false, skipInvisibleIncumbent(rec, "activity")
+		}
+		return ids.ActivityID{}, false, err
 	}
 	return id, false, nil
 }
@@ -378,6 +387,18 @@ func defaultOccurredAt(occurredAt time.Time) time.Time {
 		return time.Now().UTC()
 	}
 	return occurredAt
+}
+
+// skipInvisibleIncumbent refuses a record whose incumbent row — the lead an
+// address collides with, the activity a replayed natural key already landed
+// as — lies outside the granting human's row scope. Resolving it is not the
+// connector's to do: returning the ref would disclose a row the caller cannot
+// read, and writing a second row anyway would fork the record across scopes.
+// The natural key names the skip, never the captured address or the
+// incumbent's id — a skip must re-store neither PII nor an existence proof.
+func skipInvisibleIncumbent(rec connector.NormalizedRecord, object string) error {
+	return fmt.Errorf("capture: %s/%s resolves onto a %s outside the granting human's row scope: %w",
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, object, connector.ErrSkip)
 }
 
 // captureSource is the provenance channel column value; the natural

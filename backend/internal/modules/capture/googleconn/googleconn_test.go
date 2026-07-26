@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -20,13 +21,14 @@ import (
 // fakeOAuth is a stub Google OAuth2 handshake for the Authenticate tests.
 type fakeOAuth struct {
 	refresh, access string
+	granted         []string
 	exchangeErr     error
 	accessErr       error
 }
 
 func (fakeOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
-func (f fakeOAuth) Exchange(context.Context, string, string) (string, error) {
-	return f.refresh, f.exchangeErr
+func (f fakeOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
+	return oauthflow.TokenGrant{RefreshToken: f.refresh, Scopes: f.granted}, f.exchangeErr
 }
 
 func (f fakeOAuth) AccessToken(context.Context, string) (string, error) {

@@ -1,0 +1,13 @@
+-- CAP-DDL-4 (ADR-0063): the backfill's own transient-failure ladder.
+--
+-- A backfill pages a real mailbox for hours. A rate limit or a blinked
+-- connection in that window is the provider's weather, not a reason to abandon
+-- the import — but the run had no way to say "this failed and I am still
+-- alive", so every fault ended it and the user had to notice and restart.
+--
+-- This column is the ladder capture_sync_state already carries for incremental
+-- sync, per RUN rather than per connection: a backfill's retries are the run's
+-- own history and must die with it, not outlive it on the connection. A
+-- committed page resets it to zero, so it measures CONSECUTIVE failure — the
+-- thing worth giving up over — never lifetime failure.
+ALTER TABLE capture_backfill ADD COLUMN consecutive_failures int NOT NULL DEFAULT 0;

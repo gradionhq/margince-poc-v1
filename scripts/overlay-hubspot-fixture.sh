@@ -122,8 +122,11 @@ archive_marked() {
 
 cmd_reset() {
   echo "resetting fixture records (marker: @${EMAIL_DOMAIN} / '${NAME_PREFIX}')…"
+  # Match the domain anywhere in the email (not "*@"+domain): contact emails now
+  # carry a per-company subdomain (ada@acme.overlay-fixture.example.com), so the
+  # bare "@domain" anchor would miss them.
   archive_marked contacts "$(jq -n --arg d "$EMAIL_DOMAIN" \
-    '{filterGroups:[{filters:[{propertyName:"email",operator:"CONTAINS_TOKEN",value:("*@"+$d)}]}],properties:["email"],limit:100}')"
+    '{filterGroups:[{filters:[{propertyName:"email",operator:"CONTAINS_TOKEN",value:("*"+$d)}]}],properties:["email"],limit:100}')"
   archive_marked companies "$(jq -n --arg d "$EMAIL_DOMAIN" \
     '{filterGroups:[{filters:[{propertyName:"domain",operator:"CONTAINS_TOKEN",value:("*"+$d)}]}],properties:["domain"],limit:100}')"
   archive_marked deals "$(jq -n --arg p "$NAME_PREFIX" \
@@ -147,9 +150,13 @@ cmd_seed() {
 
   # Contacts
   local ada grace linus
-  ada="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"ada.fixture@overlay-fixture.example.com",firstname:"Ada",lastname:"Lovelace",hubspot_owner_id:$o}}')")"
-  grace="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"grace.fixture@overlay-fixture.example.com",firstname:"Grace",lastname:"Hopper",hubspot_owner_id:$o}}')")"
-  linus="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"linus.fixture@overlay-fixture.example.com",firstname:"Linus",lastname:"Torvalds",hubspot_owner_id:$o}}')")"
+  # Each contact's email domain matches ITS company's domain (acme./globex.),
+  # so HubSpot's "Create and associate companies with contacts" setting
+  # auto-associates the contact to the EXISTING Acme/Globex company instead of
+  # minting a nameless, ownerless company for a shared bare domain.
+  ada="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"ada.fixture@acme.overlay-fixture.example.com",firstname:"Ada",lastname:"Lovelace",hubspot_owner_id:$o}}')")"
+  grace="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"grace.fixture@acme.overlay-fixture.example.com",firstname:"Grace",lastname:"Hopper",hubspot_owner_id:$o}}')")"
+  linus="$(create contacts "$(jq -n --arg o "$OWNER_ID" '{properties:{email:"linus.fixture@globex.overlay-fixture.example.com",firstname:"Linus",lastname:"Torvalds",hubspot_owner_id:$o}}')")"
   associate contacts "$ada" companies "$acme"
   associate contacts "$grace" companies "$acme"
   associate contacts "$linus" companies "$globex"

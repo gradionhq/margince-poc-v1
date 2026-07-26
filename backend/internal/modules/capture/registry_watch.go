@@ -14,9 +14,11 @@ package capture
 //
 // This is only the watch subscription's renewal, not its consumption: the
 // public Pub/Sub push webhook that turns a notification back into a sync is a
-// separate, security-sensitive surface (CAP-WIRE-N-1; EP05.4a/.8) and is not
-// built here. Until it lands, the poll (DueConnections → SyncOnce) remains the
-// active sync path; a registered watch is dark.
+// separate, security-sensitive surface (CAP-WIRE-N-1; EP05.4a/.8) and is
+// composed elsewhere — it is token-gated, and OIDC-verified when the deployment
+// configures the push identity. A registered watch therefore drives real syncs;
+// the poll (DueConnections → SyncOnce) is the safety net behind it, not the
+// latency floor.
 
 import (
 	"context"
