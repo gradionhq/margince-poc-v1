@@ -11,6 +11,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -108,18 +109,36 @@ func (e *Exclusions) Create(ctx context.Context, kind, value string) (ExclusionR
 	return r, nil
 }
 
-// Delete removes one of the calling human's own rules by id. Idempotent —
-// a missing or already-removed rule is a no-op, not an error (204).
+// Delete removes one of the calling human's own rules by id. The row is
+// ARCHIVED, not erased: every reader already filters archived_at, so the rule
+// stops gating ingestion the moment this commits, while the record of what was
+// excluded — and the audit row saying who withdrew it and when — survives.
+// Erasing the row would erase that history with it.
+//
+// Idempotent — a missing or already-archived rule matches nothing and is a
+// no-op, not an error (204), and writes no audit row claiming a removal that
+// did not happen.
 func (e *Exclusions) Delete(ctx context.Context, id ids.UUID) error {
 	actor, err := requireHuman(ctx)
 	if err != nil {
 		return err
 	}
 	err = database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			DELETE FROM capture_exclusion_rule WHERE id = $1 AND user_id = $2`,
-			id, actor.UserID)
-		return err
+		var r ExclusionRule
+		err := tx.QueryRow(ctx, `
+			UPDATE capture_exclusion_rule SET archived_at = now()
+			 WHERE id = $1 AND user_id = $2 AND archived_at IS NULL
+			RETURNING id, kind, value`,
+			id, actor.UserID).Scan(&r.ID, &r.Kind, &r.Value)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return auditLifecycle(ctx, tx, "archive", captureExclusionRuleObject, r.ID,
+			map[string]any{"kind": r.Kind, "value": r.Value, "archived": false},
+			map[string]any{"kind": r.Kind, "value": r.Value, "archived": true})
 	})
 	if err != nil {
 		return fmt.Errorf("capture: deleting exclusion rule: %w", err)
