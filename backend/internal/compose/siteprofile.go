@@ -52,9 +52,7 @@ Cite the passage id that grounds each value; write v in the site's own terms. le
 OMIT any field the passages do not ground — never guess.`,
 	strings.Join(extractionFieldNames, ", "))
 
-// profileSystemFor names THIS call's data boundary. The sentence belongs to the
-// call, not to the var, because the marker is minted per call: a system prompt
-// naming a fixed marker would name the one a crawled page can spell.
+// profileSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func profileSystemFor(fence promptfence.Fence) string {
 	return profileSystem + "\n" + fence.Rule("page")
 }

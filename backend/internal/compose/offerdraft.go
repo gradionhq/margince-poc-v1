@@ -88,9 +88,7 @@ Return ONLY a JSON object: {"lines":[{"description":...,"quantity":"1","tax_rate
 - Never invent a price: a line with neither a conversation price nor a matching product is still returned, just without either field.
 - OMIT any line you cannot evidence — never guess a line into existence.`
 
-// offerDraftSystemFor names THIS call's data boundary. The sentence belongs to
-// the call, not to the const, because the marker is minted per call: a system
-// prompt naming a fixed marker would name the one a captured message can spell.
+// offerDraftSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func offerDraftSystemFor(fence promptfence.Fence) string {
 	return offerDraftSystem + "\n" + fence.Rule("workspace")
 }

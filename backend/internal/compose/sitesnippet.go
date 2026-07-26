@@ -163,24 +163,29 @@ func (x snippetIndex) ids() []string {
 }
 
 // renderNumbered lays the passages out for the model under the caller's fence,
-// grouped by page with OUR header lines (outside the untrusted spans) and each
-// passage tagged with its id. Keeping the headers outside is necessary but not
-// sufficient: the passage text goes INSIDE the span, so with a fixed marker a
-// page carrying the closing one would end the fence early and speak in the
-// prompt's own voice. The nonce is what makes that unspellable, so the passages
-// themselves are passed through exactly as the page published them — which is
-// also what lets a caller's evidence gate quote them back verbatim.
+// grouped by page and each passage tagged with its id.
+//
+// Only text this code wrote sits outside the spans, and the page ORDINAL is the
+// whole of it: the page's URL goes inside, because a crawl URL is the site's own
+// text. Its host is pinned, its path is not, and a path carrying a readable
+// sentence would otherwise be read in the prompt's own voice — the same hole a
+// forged marker used to open, reached without forging anything.
+//
+// The passages themselves are passed through exactly as the page published them,
+// which is what lets a caller's evidence gate quote them back verbatim.
 //
 // The fence must be the one named in the same call's system prompt.
 func (x snippetIndex) renderNumbered(fence promptfence.Fence) string {
 	var b strings.Builder
 	lastPage := ""
+	pageNo := 0
 	for i, ref := range x.refs {
 		if ref.pageURL != lastPage {
 			if lastPage != "" {
 				b.WriteString(fence.Close() + "\n")
 			}
-			fmt.Fprintf(&b, "\n=== PAGE %s ===\n%s\n", ref.pageURL, fence.Open())
+			pageNo++
+			fmt.Fprintf(&b, "\n=== PAGE %d ===\n%s\nurl: %s\n", pageNo, fence.Open(), ref.pageURL)
 			lastPage = ref.pageURL
 		}
 		fmt.Fprintf(&b, "[s%d] %s\n", i, ref.passage)

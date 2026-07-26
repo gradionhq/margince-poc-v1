@@ -37,10 +37,7 @@ Every price is USD per 1,000,000 tokens, written as a plain decimal STRING (e.g.
 
 Cite the passage id that grounds each model in "evidence".`
 
-// rateExtractSystemFor names THIS call's data boundary. The sentence belongs to
-// the call, not to the const, because the marker is minted per call: a system
-// prompt naming a fixed marker would name the one a hostile pricing page can
-// spell.
+// rateExtractSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func rateExtractSystemFor(fence promptfence.Fence) string {
 	return rateExtractSystem + "\n" + fence.Rule("page")
 }

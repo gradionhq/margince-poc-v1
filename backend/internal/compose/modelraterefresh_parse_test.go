@@ -4,10 +4,7 @@
 package compose
 
 import (
-	"encoding/json"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -67,13 +64,13 @@ func TestFxExtractPromptMatchesCorpus(t *testing.T) {
 // included, is what was certified and must still be what ships.
 func corpusFence(t *testing.T, system string) promptfence.Fence {
 	t.Helper()
-	marker := regexp.MustCompile(`<(untrusted-[0-9a-f-]{36})>`).FindStringSubmatch(system)
-	if marker == nil {
+	marker, declared := promptfence.MarkerIn(system)
+	if !declared {
 		t.Fatal("the corpus scenario names no fence marker: it cannot pin a prompt whose boundary is per-call")
 	}
-	var fence promptfence.Fence
-	if err := json.Unmarshal([]byte(strconv.Quote(marker[1])), &fence); err != nil {
-		t.Fatalf("corpus marker %q is not a fence marker: %v", marker[1], err)
+	fence, ok := promptfence.FromMarker(marker)
+	if !ok {
+		t.Fatalf("corpus marker %q is not one this package could have minted", marker)
 	}
 	return fence
 }

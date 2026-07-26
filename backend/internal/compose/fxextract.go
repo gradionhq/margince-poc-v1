@@ -28,10 +28,7 @@ Each pair is a rate the page states as "1 <from_currency> = <rate> <to_currency>
 
 Cite the passage id that grounds each pair in "evidence".`
 
-// fxExtractSystemFor names THIS call's data boundary. The sentence belongs to
-// the call, not to the const, because the marker is minted per call: a system
-// prompt naming a fixed marker would name the one a hostile rates page can
-// spell.
+// fxExtractSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func fxExtractSystemFor(fence promptfence.Fence) string {
 	return fxExtractSystem + "\n" + fence.Rule("page")
 }

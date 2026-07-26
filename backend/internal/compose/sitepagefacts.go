@@ -232,8 +232,10 @@ func (x evidenceExtractor) extractPageFacts(ctx context.Context, page crawlPage)
 	req := model.Request{
 		System: pageFactsSystem(menu, fence),
 		Messages: []model.Message{{
-			Role:    chatRoleUser,
-			Content: "Page " + page.URL + ":\n" + idx.renderNumbered(fence),
+			Role: chatRoleUser,
+			// renderNumbered names the page inside the fence; repeating the URL
+			// here would put the site's own text in the prompt's voice.
+			Content: idx.renderNumbered(fence),
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: pageFactsSchema(menu, idx.ids()),

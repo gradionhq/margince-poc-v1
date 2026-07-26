@@ -51,9 +51,7 @@ label: "commitment" (a promise or request to act), "meeting" (scheduling or foll
 or "noise" (neither). Labels route attention; they change no data. If a message fits both
 commitment and meeting, choose commitment.`
 
-// classifySystemFor names THIS call's data boundary. The sentence belongs to
-// the call, not to the const, because the marker is minted per call: a system
-// prompt naming a fixed marker would name the one an attacker can spell.
+// classifySystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func classifySystemFor(fence promptfence.Fence) string {
 	return classifySystem + "\n" + fence.Rule("message")
 }

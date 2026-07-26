@@ -78,10 +78,7 @@ Judge the SENDER, not the tone: a poorly written mail from a real prospect is "r
 polished newsletter from a company they never contacted is "noise".
 State your genuine confidence. A low confidence is a useful answer; a confident guess is not.`
 
-// verdictSystemFor names THIS call's data boundary. The sentence belongs to the
-// call, not to the const, because the marker is minted per call: a system
-// prompt that named a fixed marker would be naming the one an attacker can
-// spell.
+// verdictSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func verdictSystemFor(fence promptfence.Fence) string {
 	return verdictSystem + "\n" + fence.Rule("message")
 }

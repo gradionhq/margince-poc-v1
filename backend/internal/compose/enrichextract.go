@@ -120,9 +120,7 @@ Return ONLY a JSON object: {"fields":[{"field":...,"value":...,"evidence_snippet
 Allowed field names: %s.
 evidence_snippet MUST be text copied VERBATIM from the page. OMIT any field you cannot evidence — never guess.`, strings.Join(extractionFieldNames, ", "))
 
-// companyFactsSystemFor names THIS call's data boundary. The sentence belongs
-// to the call, not to the var, because the marker is minted per call: a system
-// prompt naming a fixed marker would name the one a hostile page can spell.
+// companyFactsSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func companyFactsSystemFor(fence promptfence.Fence) string {
 	return companyFactsSystem + "\n" + fence.Rule("page")
 }
@@ -258,7 +256,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 		return nil, &unreadableError{cause: fmt.Errorf("page read %d runes, below the %d-rune floor", n, minReadableRunes)}
 	}
 
-	seedFields, err := x.extractFields(ctx, "Page "+rawURL, seedText, rawURL, accept)
+	seedFields, err := x.extractFields(ctx, "Page", seedText, rawURL, accept)
 	if err != nil {
 		return nil, err
 	}
@@ -267,7 +265,7 @@ func (x evidenceExtractor) extract(ctx context.Context, rawURL string, accept fu
 	if legalURL, legalText := x.probeLegalPage(ctx, rawURL, seedDoc); legalText != "" {
 		// A probe failure is a page that does not exist, not a broken read:
 		// the seed page alone is still an honest (if thinner) answer.
-		legalFields, err = x.extractFields(ctx, "Legal notice page "+legalURL, legalText, legalURL, accept)
+		legalFields, err = x.extractFields(ctx, "Legal notice page", legalText, legalURL, accept)
 		if err != nil {
 			return nil, err
 		}
@@ -372,11 +370,19 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 	// through is what lets the evidence gate below match a quote against the
 	// page as WRITTEN — the gate and the model read the same text.
 	fence := promptfence.New()
+	// The URL names the source, so it belongs in the prompt — INSIDE the
+	// boundary, like the page it points at. An attacker publishes the link that
+	// put it here, and only its host is pinned: the path and query are theirs to
+	// write, and a path reads as prose just as well as a paragraph does.
+	header := sourceLabel
+	if sourceURL != "" {
+		header += " " + fence.Wrap(sourceURL)
+	}
 	req := model.Request{
 		System: companyFactsSystemFor(fence),
 		Messages: []model.Message{{
 			Role:    "user",
-			Content: sourceLabel + ":\n" + fence.Wrap(sourceText),
+			Content: header + ":\n" + fence.Wrap(sourceText),
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: companyFactsSchema,

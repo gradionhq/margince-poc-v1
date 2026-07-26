@@ -51,10 +51,7 @@ linkedin, org_name. Emit a field ONLY if the signature lines state it verbatim; 
 must appear character-for-character in the supplied text. Ignore quoted replies, legal
 disclaimers, and marketing taglines. Phone numbers verbatim, never normalized.`
 
-// signatureEnrichSystemFor names THIS call's data boundary. The sentence
-// belongs to the call, not to the const, because the marker is minted per call:
-// a system prompt naming a fixed marker would name the one an attacker can
-// spell.
+// signatureEnrichSystemFor names THIS call's data boundary; see promptfence.Fence.Rule.
 func signatureEnrichSystemFor(fence promptfence.Fence) string {
 	return signatureEnrichSystem + "\n" + fence.Rule("signature")
 }
