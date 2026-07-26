@@ -3,7 +3,7 @@
   "provider": "gemini",
   "served_model": "gemini-3.1-flash-lite",
   "env_class": "eu_hosted",
-  "prompt_version": "v1",
+  "prompt_version": "pc7a4cfb892b6692eb3dd5b5cfa08b314",
   "corpus_version": "v1",
   "verdict": "certified",
   "runs": 3,
