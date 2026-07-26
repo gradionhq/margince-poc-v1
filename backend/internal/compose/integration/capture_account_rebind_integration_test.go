@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -29,6 +30,9 @@ import (
 // yields a watermark, which is what the rebind has to throw away.
 type accountBoundConnector struct {
 	*pagedConnector
+	// duringPage runs where the provider would be answering, so a test can
+	// reconnect while a backfill page is out — the race a reauth actually runs.
+	duringPage func()
 }
 
 func (c *accountBoundConnector) AccountLabel(auth connector.Auth) (string, error) {
@@ -37,6 +41,72 @@ func (c *accountBoundConnector) AccountLabel(auth connector.Auth) (string, error
 
 func (c *accountBoundConnector) Sync(context.Context, connector.Auth, connector.Cursor, connector.Sink) (connector.Cursor, error) {
 	return connector.Cursor(`{"email":"owner@myco.example"}`), nil
+}
+
+func (c *accountBoundConnector) BackfillPage(ctx context.Context, auth connector.Auth, after time.Time, pageToken string, sink connector.Sink) (connector.BackfillPageResult, error) {
+	if c.duringPage != nil {
+		c.duringPage()
+	}
+	return c.pagedConnector.BackfillPage(ctx, auth, after, pageToken, sink)
+}
+
+// startImportReconnectingMidPage opens a run over account, then reconnects as
+// reconnectAs while the page is out at the provider, and returns the run's row
+// afterwards. It is the whole race in one helper: the only difference between a
+// reauth and a rebind is whether the second grant names the same mailbox.
+func startImportReconnectingMidPage(t *testing.T, e *searchEnv, account, reconnectAs string) (status string, scanned int, cursor []byte) {
+	t.Helper()
+	seedCaptureRole(t, e)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	fake := &accountBoundConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
+	registry.Register(fake)
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(account)); err != nil {
+		t.Fatalf("connecting %s: %v", account, err)
+	}
+	run, err := registry.StartBackfill(grantCtx, "gmail", ids.From[ids.UserKind](e.Rep1), 6, 25, enqueueNothing)
+	if err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+	fake.duringPage = func() {
+		if _, err := registry.Connect(grantCtx, "gmail", connector.Auth(reconnectAs)); err != nil {
+			t.Errorf("mid-page reconnect as %s: %v", reconnectAs, err)
+		}
+	}
+	if _, _, _, err := registry.RunBackfillStep(principal.WithWorkspaceID(context.Background(), e.WS), run.ID); err != nil {
+		t.Fatalf("RunBackfillStep across a reconnect: %v, want a clean return", err)
+	}
+	status, scanned, _, cursor = readBackfillRow(t, e, run.ID)
+	return status, scanned, cursor
+}
+
+// A reauth is not a rebind. The reauth_required banner asks its human to
+// reconnect the SAME mailbox, and the page already out at the provider belongs
+// to the same account and the same import it always did — fencing it off would
+// report the import the human was told to repair as "cancelled".
+func TestAReauthOfTheSameAccountLetsAnInFlightPageCommit(t *testing.T) {
+	e := setupSearch(t)
+	status, scanned, cursor := startImportReconnectingMidPage(t, e, "same@example.com", "same@example.com")
+	if status != "running" {
+		t.Fatalf("status = %s, want running — a routine reauth must not end the import it was meant to keep alive", status)
+	}
+	if scanned != 10 || len(cursor) == 0 {
+		t.Fatalf("the page was fenced off by its own human's reauth: scanned=%d cursor=%q", scanned, cursor)
+	}
+}
+
+// A rebind is the other case, and it must still fence: the page was fetched from
+// a mailbox this connection no longer points at, so its counters and its cursor
+// are not history the new account gets to inherit.
+func TestRebindingToAnotherAccountFencesAnInFlightPage(t *testing.T) {
+	e := setupSearch(t)
+	status, scanned, cursor := startImportReconnectingMidPage(t, e, "first@example.com", "second@example.com")
+	if scanned != 0 || len(cursor) != 0 {
+		t.Fatalf("the second mailbox was credited with the first one's page: scanned=%d cursor=%q", scanned, cursor)
+	}
+	if status != "cancelled" {
+		t.Fatalf("status = %s, want cancelled — every remaining page is fenced the same way, and a live run nothing can finish blocks every later start", status)
+	}
 }
 
 // readConnectionAccount reads what a connection is currently bound to and where

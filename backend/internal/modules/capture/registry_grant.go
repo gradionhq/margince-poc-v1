@@ -233,15 +233,22 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 		in.userID, in.provider).Scan(&priorRef, &priorStatus, &priorLabel); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ids.Nil, nil, err
 	}
-	// The generation bump is what fences a cycle that is still out at the
-	// provider: a sync or backfill page holding the old generation commits
-	// nothing onto a row this reconnect has re-pointed at a new credential.
+	// A rebind — this grant naming a DIFFERENT mailbox than the row held — is the
+	// write that ends the previous grant, and it does two things at once.
 	//
-	// A rebind additionally throws the watermark away and stamps the new
-	// binding: the row is keyed on (workspace, user, provider), so a second
-	// account authorized over the first lands on the SAME row, and the previous
-	// mailbox's cursor would tell the new one to resume from a point it has
-	// never reached — silently skipping everything before it.
+	// The generation bump fences every cycle still out at the provider: a sync or
+	// backfill page holding the old generation commits nothing onto a row now
+	// pointing at another mailbox. And the watermark goes: the row is keyed on
+	// (workspace, user, provider), so a second account authorized over the first
+	// lands on the SAME row, and the previous mailbox's cursor would tell the new
+	// one to resume from a point it has never reached — silently skipping
+	// everything before it.
+	//
+	// A reauth of the SAME account fences nothing. The banner asked its human for
+	// exactly this reconnect, and the page still out at the provider belongs to
+	// the mailbox it was fetched from: bumping the generation here would cancel
+	// the very import the human was told to repair. Disconnect is the other write
+	// that ends a grant, and it bumps the generation itself.
 	rebound := rebindsAccount(priorLabel, in.accountLabel)
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
@@ -250,7 +257,7 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 		ON CONFLICT (workspace_id, user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
 		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
-		              generation = capture_connection.generation + 1,
+		              generation = capture_connection.generation + CASE WHEN $7 THEN 1 ELSE 0 END,
 		              sync_cursor = CASE WHEN $7 THEN NULL ELSE capture_connection.sync_cursor END,
 		              account_bound_at = CASE WHEN $7 THEN now() ELSE capture_connection.account_bound_at END
 		RETURNING id`,
