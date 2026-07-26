@@ -153,6 +153,15 @@ func MarkerIn(system string) (string, bool) {
 // ok=false for anything this package could not have minted, and the caller must
 // then fail closed rather than fall back to a fixed container. This is also the
 // shape check on a marker read back from storage.
+//
+// The check is SHAPE, not authenticity: any canonical UUID with the prefix is
+// accepted, so a marker somebody planted in agent_run.pending would be honoured.
+// That is the right boundary rather than a gap to close with a signature. The
+// only writer of that column is the runner's own store, inside the workspace's
+// own database — an attacker who can choose values there can already rewrite the
+// transcript the marker delimits, and every prompt built from it, so a token
+// proving "this package minted the marker" would guard the lock on an open door.
+// What a caller MUST not do is take a marker from anywhere a request can reach.
 func FromMarker(marker string) (Fence, bool) {
 	nonce, hasPrefix := strings.CutPrefix(marker, markerPrefix)
 	if !hasPrefix {

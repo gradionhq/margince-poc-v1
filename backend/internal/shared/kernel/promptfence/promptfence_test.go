@@ -151,6 +151,27 @@ func TestOnlyAMarkerThisPackageCouldHaveMintedIsAccepted(t *testing.T) {
 	}
 }
 
+// FromMarker checks shape, not provenance: a canonical UUID it never minted is
+// accepted. Pinned deliberately — the only writer of a stored marker is the
+// runner's own store, and an attacker who can choose values there already owns
+// the transcript. The test exists so the decision is visible if that changes.
+func TestFromMarkerAcceptsAnyWellShapedMarkerNotOnlyItsOwn(t *testing.T) {
+	foreign := "untrusted-0198c0de-0000-7000-8000-000000000009"
+	fence, ok := promptfence.FromMarker(foreign)
+	if !ok {
+		t.Fatal("a well-shaped marker was rejected; FromMarker checks shape, not provenance")
+	}
+	if fence.Open() != "<"+foreign+">" {
+		t.Fatalf("restored marker = %q, want %q", fence.Open(), "<"+foreign+">")
+	}
+	if _, ok := promptfence.FromMarker("untrusted-not-a-uuid"); ok {
+		t.Fatal("a malformed nonce was accepted")
+	}
+	if _, ok := promptfence.FromMarker("0198c0de-0000-7000-8000-000000000009"); ok {
+		t.Fatal("a marker without the prefix was accepted")
+	}
+}
+
 // MarkerIn is what lets a cache key and a certification stamp treat two calls
 // as the same prompt: it reads the boundary the SYSTEM prompt declares.
 func TestMarkerInReadsTheDeclaredBoundaryAndNothingElse(t *testing.T) {

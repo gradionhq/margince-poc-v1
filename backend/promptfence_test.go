@@ -42,6 +42,13 @@ const promptfencePackage = "internal/shared/kernel/promptfence/"
 // nonce has to back.
 var boundaryClaim = regexp.MustCompile(`never instructions|not instructions|never a command|untrusted evidence`)
 
+// mintsAFence matches USE of the package rather than mere presence of its import
+// path: importing promptfence proves nothing, since the import could serve an
+// unrelated call while a prompt in the same file still promises a boundary it
+// never builds. Calling New/FromMarker (a fence exists) together with Rule
+// (the model is told which marker it is) is what the claim actually needs.
+var mintsAFence = regexp.MustCompile(`promptfence\.(New|FromMarker)\(|\.Rule\(`)
+
 // claimWithoutFence names the files allowed to promise a boundary without
 // minting one, with the reason. Keep this at zero if you can; every entry is a
 // prompt whose safety rests on something other than a nonce.
@@ -100,7 +107,7 @@ func TestEveryPromptThatPromisesADataBoundaryMintsOne(t *testing.T) {
 		if !boundaryClaim.MatchString(body) {
 			return
 		}
-		if !strings.Contains(body, "shared/kernel/promptfence") {
+		if !mintsAFence.MatchString(body) {
 			offenders = append(offenders, path)
 		}
 	})

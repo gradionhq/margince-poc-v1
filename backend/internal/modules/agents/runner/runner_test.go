@@ -467,6 +467,29 @@ func observationsOf(msgs []model.Message) []string {
 	return out
 }
 
+// TrustTier is a free-form string on an exported Job. An unrecognised tier must
+// be treated as captured text, not printed raw because it failed to spell "T2".
+func TestAnUnrecognisedTrustTierIsFencedAnyway(t *testing.T) {
+	win := newWindow(Job{
+		Goal: "g",
+		Grounding: []Grounding{
+			{SourceID: "deal:1", TrustTier: "T1", Content: "our own deal fields"},
+			{SourceID: "email:2", TrustTier: "t2", Content: "lowercase tier"},
+			{SourceID: "email:3", TrustTier: "T2 ", Content: "trailing space tier"},
+			{SourceID: "page:4", TrustTier: "T7-from-the-future", Content: "a tier this build never heard of"},
+		},
+	}, nil)
+	prompt := win.msgs[0].Content
+	for _, captured := range []string{"lowercase tier", "trailing space tier", "a tier this build never heard of"} {
+		if !strings.Contains(prompt, win.fence.Wrap(captured)) {
+			t.Errorf("content on an unrecognised tier was printed unfenced: %q", captured)
+		}
+	}
+	if strings.Contains(prompt, win.fence.Wrap("our own deal fields")) {
+		t.Error("a recognised first-party tier must not be fenced")
+	}
+}
+
 // windowMarker recovers the boundary a run's system prompt declares.
 func windowMarker(t *testing.T, system string) string {
 	t.Helper()

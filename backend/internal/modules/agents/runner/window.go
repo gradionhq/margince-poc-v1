@@ -202,17 +202,24 @@ func goalPrompt(job Job, fence promptfence.Fence) string {
 		b.WriteString("Seed context (each item carries its source and trust tier):\n")
 	}
 	for _, g := range job.Grounding {
-		if g.TrustTier == trustTierCaptured {
-			fmt.Fprintf(&b, "[%s %s] %s\n", groundingRef(g.SourceID), g.TrustTier, fence.Wrap(g.Content))
+		// Default-deny: only a tier this build RECOGNISES as first-party prints
+		// raw. TrustTier is a free-form string on an exported Job, so testing for
+		// the captured tier instead would fence nothing for "t2", "T2 ", or any
+		// tier a later provider invents — an unknown tier is captured text until
+		// something says otherwise.
+		if trustedTiers[g.TrustTier] {
+			fmt.Fprintf(&b, "[%s %s] %s\n", groundingRef(g.SourceID), g.TrustTier, g.Content)
 			continue
 		}
-		fmt.Fprintf(&b, "[%s %s] %s\n", groundingRef(g.SourceID), g.TrustTier, g.Content)
+		fmt.Fprintf(&b, "[%s %s] %s\n", groundingRef(g.SourceID), g.TrustTier, fence.Wrap(g.Content))
 	}
 	return b.String()
 }
 
-// trustTierCaptured is the tier whose content is captured external text.
-const trustTierCaptured = "T2"
+// trustedTiers is the closed set of tiers whose content is this system's own —
+// a record it holds, or a value a human here entered. Everything else, named or
+// not, is captured text and rides inside the fence.
+var trustedTiers = map[string]bool{"T0": true, "T1": true}
 
 // groundingRef bounds a seed item's provenance ref, which sits OUTSIDE the fence.
 //
