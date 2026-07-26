@@ -119,7 +119,7 @@ func (s *scriptedBuildBrain) Complete(_ context.Context, req model.Request) (mod
 		}
 		return model.Response{Text: string(payload), ServedModel: "scripted-1"}, nil
 	case strings.Contains(req.System, "compare drafts"):
-		count := strings.Count(req.Messages[0].Content, "<draft ")
+		count := strings.Count(req.Messages[0].Content, "\nDraft ")
 		scores := make([]float64, count)
 		for i := range scores {
 			scores[i] = s.judgeScore
