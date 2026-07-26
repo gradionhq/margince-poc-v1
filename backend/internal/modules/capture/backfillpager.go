@@ -51,13 +51,14 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		after         time.Time
 		cursor        []byte
 		status        string
+		generation    int
 	)
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT b.connection_id, b.after_date, b.cursor, b.status, c.provider, c.user_id, c.credential_ref, c.auth
+			SELECT b.connection_id, b.after_date, b.cursor, b.status, c.provider, c.user_id, c.credential_ref, c.auth, c.generation
 			FROM capture_backfill b JOIN capture_connection c ON c.id = b.connection_id
 			WHERE b.id = $1`, backfillID).
-			Scan(&connID, &after, &cursor, &status, &name, &grantedBy, &credentialRef, &authBytes)
+			Scan(&connID, &after, &cursor, &status, &name, &grantedBy, &credentialRef, &authBytes, &generation)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return true, false, 0, fmt.Errorf("capture: backfill %s: %w", backfillID, apperrors.ErrNotFound)
@@ -101,7 +102,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	if err != nil {
 		return r.recordPageFault(ctx, backfillID, err)
 	}
-	done, completed, err = r.commitBackfillPage(ctx, backfillID, res, yields)
+	done, completed, err = r.commitBackfillPage(ctx, backfillID, generation, res, yields)
 	return done, completed, 0, err
 }
 
@@ -178,19 +179,22 @@ func backfillRetryDelay(failures int, cause error) time.Duration {
 // transition, returning whether the run is now terminal (done) and whether
 // THIS call is the edge that closed a live run successfully (completed).
 //
-// The `WHERE status IN ('queued','running')` guard means a run cancelled or
-// completed concurrently between the caller's read and this UPDATE affects
-// zero rows: completed is true ONLY when this step actually moved a live run
-// to done, so a lost race is terminal, never a spurious completion (and so
-// never a spurious digest). done stops the pager either way — the run
-// finished, or someone else already ended it.
+// Two guards make the UPDATE conditional, and both mean the same thing: the run
+// this page belongs to is no longer the run being written. `status IN
+// ('queued','running')` catches a concurrent cancel or completion;
+// `generation` catches a disconnect or reconnect of the underlying connection
+// while the page was out at the provider — a page fetched under a grant its
+// human has since withdrawn is not history this connection gets to keep.
+// Either way the statement affects zero rows: completed is true ONLY when this
+// step actually moved a live run to done, so a lost race is terminal, never a
+// spurious completion (and so never a spurious digest).
 //
 // The counterparty yields commit in the SAME statement as scanned/captured, so
 // a page that fails to commit has counted nothing. They are an honest
 // undercount rather than an estimate: a sender the tier gate deferred is
 // resolved by the verdict engine long after this page, and the person it may
 // eventually mint is nobody's page to claim.
-func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, res connector.BackfillPageResult, yields *yieldCollector) (done, completed bool, err error) {
+func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, generation int, res connector.BackfillPageResult, yields *yieldCollector) (done, completed bool, err error) {
 	finishing := res.NextToken == ""
 	peopleCreated, orgsCreated := yields.totals()
 	var rowsAffected int64
@@ -213,13 +217,28 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 			    people_created = people_created + $6, organizations_created = organizations_created + $7,
 			    consecutive_failures = 0,
 			    status = `+statusExpr+terminal+`
-			WHERE id = $1 AND status IN ('queued','running')`,
-			backfillID, cur, res.Scanned, res.Captured, res.Skipped, peopleCreated, orgsCreated)
+			WHERE id = $1 AND status IN ('queued','running')
+			  AND EXISTS (SELECT 1 FROM capture_connection c
+			              WHERE c.id = capture_backfill.connection_id AND c.generation = $8)`,
+			backfillID, cur, res.Scanned, res.Captured, res.Skipped, peopleCreated, orgsCreated, generation)
 		if err != nil {
 			return err
 		}
 		rowsAffected = tag.RowsAffected()
-		return nil
+		if rowsAffected > 0 {
+			return nil
+		}
+		// Zero rows is either a run someone already ended (a no-op below) or a
+		// run whose connection changed under it. The second case has to end the
+		// run here: every remaining page would be fenced off the same way, and
+		// uq_capture_backfill_live would hold a run nothing can ever finish,
+		// answering 409 to every later start for the connection. Cancelled is
+		// what happened — the import stopped, and what it already captured is
+		// kept.
+		_, err = tx.Exec(ctx, `
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()
+			WHERE id = $1 AND status IN ('queued','running')`, backfillID)
+		return err
 	})
 	if err != nil {
 		return false, false, err

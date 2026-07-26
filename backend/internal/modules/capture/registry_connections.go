@@ -222,9 +222,13 @@ func (r *Registry) withdrawConnection(ctx context.Context, userID ids.UUID, name
 			userID, name).Scan(&connID, &priorStatus, &priorLabel); err != nil {
 			return err
 		}
+		// The generation bump fences every cycle already out at the provider: a
+		// sync or backfill page that reads a connected row, spends minutes
+		// fetching, and comes back to commit must find that its generation is
+		// gone rather than write a watermark onto a withdrawn grant.
 		if err := tx.QueryRow(ctx, `
 			UPDATE capture_connection
-			   SET status = 'disconnected', auth = NULL
+			   SET status = 'disconnected', auth = NULL, generation = generation + 1
 			 WHERE id = $1
 			RETURNING credential_ref`, connID).Scan(&ref); err != nil {
 			return err

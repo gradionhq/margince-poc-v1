@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"sync"
@@ -114,6 +115,12 @@ func (r *Registry) Connectors() []connector.Descriptor {
 // connector principal from the granting human's live authority, hands
 // the connector the sink, and advances the stored cursor only when the
 // sync succeeded end to end.
+//
+// The generation read here fences the commit. A sync spends real time at the
+// provider, and its human can disconnect or reconnect in that window; the
+// watermark and the health verdict this cycle produced belong to a connection
+// that no longer exists, so neither is written. That is not a failure — nothing
+// went wrong — and it is not a success either.
 func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 	var (
 		name          string
@@ -121,6 +128,7 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		credentialRef *string
 		authBytes     []byte
 		cursor        []byte
+		generation    int
 	)
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		// 'error' is syncable by design (ADR-0063): the daily probe of a
@@ -128,9 +136,9 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		// is what flips the row back to connected. Only 'disconnected' and
 		// 'reauth_required' park a connection.
 		return tx.QueryRow(ctx, `
-			SELECT provider, user_id, credential_ref, auth, sync_cursor FROM capture_connection
+			SELECT provider, user_id, credential_ref, auth, sync_cursor, generation FROM capture_connection
 			WHERE id = $1 AND status IN ('connected','error')`, connectionID).
-			Scan(&name, &grantedBy, &credentialRef, &authBytes, &cursor)
+			Scan(&name, &grantedBy, &credentialRef, &authBytes, &cursor, &generation)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("capture: connection %s: %w", connectionID, apperrors.ErrNotFound)
@@ -167,6 +175,30 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		}
 		return syncErr
 	}
+	superseded, err := r.commitSyncCursor(ctx, connectionID, generation, next)
+	if err != nil {
+		return err
+	}
+	if superseded {
+		// Everything this cycle learned belongs to the connection as it was, so
+		// none of it lands — including the health verdict. Recording a success
+		// here would tell a human their just-disconnected mailbox is syncing
+		// fine, which is the same lie the fence exists to stop.
+		slog.InfoContext(ctx, "capture: sync superseded by a lifecycle change — its cursor and health were not recorded",
+			"connection_id", connectionID, "provider", name)
+		return nil
+	}
+	return r.recordSyncSuccess(ctx, connectionID)
+}
+
+// commitSyncCursor advances a connection's watermark to what the sync just
+// returned, and seeds the mailbox's own domain from it, in one transaction.
+//
+// generation is the fence: it is the value SyncOnce read before the pull, and a
+// lifecycle change since then has moved it. superseded=true says the write
+// matched nothing for that reason — the caller records neither the watermark nor
+// a health verdict, because the cycle belongs to a connection that is gone.
+func (r *Registry) commitSyncCursor(ctx context.Context, connectionID ids.UUID, generation int, next connector.Cursor) (superseded bool, err error) {
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		// sync_cursor is jsonb; the connector's watermark is already JSON. A
 		// connector that yields no cursor writes NULL, never an empty jsonb.
@@ -174,17 +206,19 @@ func (r *Registry) SyncOnce(ctx context.Context, connectionID ids.UUID) error {
 		if len(next) > 0 {
 			cur = []byte(next)
 		}
-		if _, err := tx.Exec(ctx, `
+		tag, err := tx.Exec(ctx, `
 			UPDATE capture_connection SET sync_cursor = $2
-			WHERE id = $1`, connectionID, cur); err != nil {
+			WHERE id = $1 AND generation = $3`, connectionID, cur, generation)
+		if err != nil {
 			return err
+		}
+		if tag.RowsAffected() == 0 {
+			superseded = true
+			return nil
 		}
 		return r.seedInternalDomain(ctx, tx, cur)
 	})
-	if err != nil {
-		return err
-	}
-	return r.recordSyncSuccess(ctx, connectionID)
+	return superseded, err
 }
 
 // seedInternalDomain records the synced mailbox's own domain as a workspace

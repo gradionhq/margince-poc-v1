@@ -1,0 +1,19 @@
+-- CAP-DDL-2: the connection's lifecycle generation — the fence a long sync is
+-- committed against.
+--
+-- A sync or a backfill page reads a connection, spends minutes at the provider,
+-- and then writes back what it learned. In between, its human can disconnect or
+-- reconnect that connection, and the write would land on a row whose meaning
+-- has changed underneath it: a cursor advanced past mail the withdrawn grant
+-- was never entitled to read, or a fresh account's row carrying the previous
+-- account's watermark.
+--
+-- Every lifecycle change bumps this counter, and every deferred write carries
+-- the generation it read. A write whose generation no longer matches affects
+-- zero rows — the cycle was superseded, which is not a failure and is not a
+-- success either.
+--
+-- DEFAULT 0 for the rows that predate the column: they have never been fenced,
+-- and starting them all at the same generation is correct — the first lifecycle
+-- change after this migration is what moves any of them.
+ALTER TABLE capture_connection ADD COLUMN generation int NOT NULL DEFAULT 0;

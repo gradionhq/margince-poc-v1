@@ -217,13 +217,17 @@ func upsertConnection(ctx context.Context, tx pgx.Tx, in connectionUpsert) (ids.
 		in.userID, in.provider).Scan(&priorRef, &priorStatus, &priorLabel); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return ids.Nil, nil, err
 	}
+	// The generation bump is what fences a cycle that is still out at the
+	// provider: a sync or backfill page holding the old generation commits
+	// nothing onto a row this reconnect has re-pointed at a new credential.
 	var id ids.UUID
 	if err := tx.QueryRow(ctx, `
 		INSERT INTO capture_connection (workspace_id, provider, user_id, scopes, credential_ref, status, account_label, provider_scopes)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, 'connected', $5, $6)
 		ON CONFLICT (workspace_id, user_id, provider)
 		DO UPDATE SET credential_ref = EXCLUDED.credential_ref, auth = NULL, status = 'connected', archived_at = NULL,
-		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes
+		              account_label = EXCLUDED.account_label, provider_scopes = EXCLUDED.provider_scopes,
+		              generation = capture_connection.generation + 1
 		RETURNING id`,
 		in.provider, in.userID, in.scopes, string(in.ref), in.accountLabel, in.providerScopes).Scan(&id); err != nil {
 		return ids.Nil, nil, err
