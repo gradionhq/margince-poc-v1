@@ -12,6 +12,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -117,6 +118,87 @@ func TestBackfillSurvivesATransientProviderFault(t *testing.T) {
 	}
 	if _, scanned, captured, _ := readBackfillRow(t, e, runID); scanned != 10 || captured != 9 {
 		t.Fatalf("the recovered page must count once: scanned=%d captured=%d, want 10/9", scanned, captured)
+	}
+}
+
+// dyingJobConnector is the commonest page failure of all: the job context
+// expires while the page is out at the provider, and the provider client reports
+// that deadline in its OWN vocabulary — a wrapped connector.ErrUnreachable
+// (gmail and graph both count a timeout as unreachable), never a bare
+// context error.
+type dyingJobConnector struct {
+	*pagedConnector
+	// killJob stands in for River's page timeout firing mid-fetch.
+	killJob func()
+}
+
+func (c *dyingJobConnector) BackfillPage(context.Context, connector.Auth, time.Time, string, connector.Sink) (connector.BackfillPageResult, error) {
+	c.killJob()
+	return connector.BackfillPageResult{}, fmt.Errorf("gmail: could not reach the provider: %w", connector.ErrUnreachable)
+}
+
+// A page whose job context died must not leave the run both live and unowned:
+// the run row is the only thing that can bring the import back, and every write
+// that decides its fate has to outlive the context that killed the page.
+func TestABackfillPageWhoseJobContextDiedNeverWedgesTheRun(t *testing.T) {
+	e := setupSearch(t)
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	fake := &dyingJobConnector{pagedConnector: &pagedConnector{messages: 25, pageSize: 10}}
+	registry.Register(fake)
+	rep := ids.From[ids.UserKind](e.Rep1)
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing)
+	if err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+
+	// Each step runs on a fresh job context the page then kills, exactly as a
+	// River delivery whose timeout fires mid-page does.
+	step := func() (time.Duration, error) {
+		jobCtx, killJob := context.WithCancel(principal.WithWorkspaceID(context.Background(), e.WS))
+		defer killJob()
+		fake.killJob = killJob
+		_, _, retryAfter, err := registry.RunBackfillStep(jobCtx, run.ID)
+		return retryAfter, err
+	}
+
+	retryAfter, err := step()
+	if err == nil {
+		t.Fatal("a page that died with its job context must surface its fault to the caller's log")
+	}
+	if retryAfter <= 0 {
+		t.Fatalf("retryAfter = %v, want a positive delay: the run is still live, and only a redelivery brings it back", retryAfter)
+	}
+	status, failures, errClass, _ := readBackfillRetryState(t, e, run.ID)
+	if status != "running" || failures != 1 {
+		t.Fatalf("status=%s consecutive_failures=%d, want running/1 — the ladder write has to outlive the job context", status, failures)
+	}
+	if errClass == nil || *errClass != "unreachable" {
+		t.Fatalf("last_error_class = %v, want unreachable", errClass)
+	}
+
+	// The ladder still ends the run: a provider that refuses every page is a
+	// fault no delay repairs, and that terminal write is detached too.
+	const ladderBound = 32 // the give-up cap is the engine's; this only stops a runaway loop
+	for i := 0; i < ladderBound && retryAfter > 0; i++ {
+		retryAfter, err = step()
+		if err == nil {
+			t.Fatal("a page this connector always refuses cannot report success")
+		}
+	}
+	if retryAfter > 0 {
+		t.Fatalf("the run was still asking for a retry after %d dead pages — the ladder has no end", ladderBound)
+	}
+	if status, _, _, _ = readBackfillRetryState(t, e, run.ID); status != "error" {
+		t.Fatalf("status = %s, want error — a run the pager gave up on is over, not left running", status)
+	}
+	// The assertion that matters: uq_capture_backfill_live is not holding the
+	// connection hostage, so the human can import again without an operator.
+	if _, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 25, enqueueNothing); err != nil {
+		t.Fatalf("a fresh import is blocked by the run that failed: %v", err)
 	}
 }
 

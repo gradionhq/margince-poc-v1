@@ -166,8 +166,10 @@ func (w *captureBackfillWorker) Work(ctx context.Context, job *river.Job[Capture
 			return river.JobSnooze(retryAfter)
 		}
 		if err != nil {
-			// The engine ended the run and recorded the class; the log carries
-			// the detail. Nothing a redelivery can fix, so the job stops here.
+			// A fault no delay repairs, so the job stops here: the engine has
+			// ended the run and put the class on the row — on a context detached
+			// from this job, because the job context dying mid-page is itself the
+			// commonest fault — and the log carries the detail.
 			w.log.WarnContext(ctx, "capture backfill page failed", "backfill", job.Args.BackfillID, "err", err)
 			return nil
 		}

@@ -124,7 +124,12 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 	}
 	failures, live, countErr := r.countBackfillFailure(ctx, backfillID, class)
 	if countErr != nil {
-		return false, false, 0, errors.Join(cause, countErr)
+		// The ladder write is what leaves a live run resumable, so a run whose
+		// ladder cannot be written must not be left live: the caller stops paging
+		// after this, and a live run nobody pages sits behind
+		// uq_capture_backfill_live answering 409 to every later start, with nothing
+		// a human can clear. End it on the class the page actually failed with.
+		return false, false, 0, errors.Join(cause, countErr, r.failBackfill(ctx, backfillID, cause))
 	}
 	if !live {
 		// The run reached a terminal state under us (a cancel, most likely).
@@ -141,11 +146,19 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 // records the class, WITHOUT touching the cursor — the failed page never
 // happened as far as the resume point is concerned. live=false means the row
 // was no longer queued/running: the caller lost a race with a cancel.
+//
+// The write is DETACHED, for the same reason the terminal one is: the commonest
+// reason a page fails is the job context dying, and the provider client reports
+// that deadline as its own unreachable — so this write would fail on the very
+// context that produced the fault it is recording, and the run would keep a
+// ladder that never climbs and a retry nobody scheduled.
 func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID, class errorClass) (failures int, live bool, err error) {
-	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+	countCtx, cancel := detachedWrite(ctx)
+	defer cancel()
+	err = database.WithWorkspaceTx(countCtx, r.pool, func(tx pgx.Tx) error {
 		// A run whose FIRST page fails transiently is still a run that started:
 		// leaving it 'queued' would misreport a live import as one never begun.
-		scanErr := tx.QueryRow(ctx, `
+		scanErr := tx.QueryRow(countCtx, `
 			UPDATE capture_backfill
 			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
@@ -246,23 +259,27 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 	return finishing || rowsAffected == 0, finishing && rowsAffected == 1, nil
 }
 
-// terminalWriteTimeout bounds the detached write that ends a run. Detached
-// from the caller's cancellation, it needs a deadline of its own or a stalled
-// database would hang the worker that is already shutting down.
+// terminalWriteTimeout bounds a detached write. Detached from the caller's
+// cancellation, it needs a deadline of its own or a stalled database would hang
+// the worker that is already shutting down.
 const terminalWriteTimeout = 5 * time.Second
 
+// detachedWrite carries a write that decides a run's fate past the death of the
+// job that triggered it. The commonest reason a page fails is the job context
+// dying — a River timeout or a worker shutdown — and on that context every
+// write fails too, leaving the run stuck queued/running forever behind
+// uq_capture_backfill_live: no worker pages it, and every future StartBackfill
+// for the connection answers 409 with no way for the user to clear it.
+func detachedWrite(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
+}
+
 // failBackfill records a terminal failure class on the run (detail goes to
-// the job log); captured rows are retained.
-//
-// The write is DETACHED from the caller's context. The commonest reason a page
-// fails is the job context dying — a River timeout or a worker shutdown — and
-// on that context this write would fail too, leaving the run stuck 'running'
-// forever behind uq_capture_backfill_live: no worker pages it, and every future
-// StartBackfill for the connection answers 409 with no way for the user to
-// clear it. Ending the run is the one write that must outlive the job.
+// the job log); captured rows are retained. Ending the run is the one write
+// that must outlive the job, so it is detached.
 func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause error) error {
 	class := classifySyncError(cause)
-	failCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), terminalWriteTimeout)
+	failCtx, cancel := detachedWrite(ctx)
 	defer cancel()
 	return database.WithWorkspaceTx(failCtx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(failCtx, `
