@@ -24,7 +24,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -36,9 +35,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
-	"github.com/gradionhq/margince/backend/internal/modules/capture/googleconn"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
-	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -62,24 +59,6 @@ const (
 // machine code (crm.yaml's normative Unauthorized example), matching the
 // platform 401 writer.
 const codeUnauthorized = "unauthorized"
-
-// oauthCSRFCookie is the base name of the per-flow nonce cookie (SameSite=Lax
-// so it rides the top-level redirect back from Google) that must match the
-// nonce in the signed state — the account-linking-CSRF defence.
-const oauthCSRFCookie = "oauth_csrf"
-
-// csrfCookieName namespaces the CSRF nonce cookie per provider, so the two
-// connectors on the one Google OAuth app (gmail + gcal) don't clobber each
-// other's nonce in concurrent flows. The providers that shipped on the shared
-// un-suffixed "oauth_csrf" name (gmail, graph) keep it, so a consent round-trip
-// started on a prior build still verifies against a callback served by this one
-// across a deploy; only the new provider (gcal) takes the suffix.
-func csrfCookieName(provider string) string {
-	if provider == providerGmail || provider == providerGraph {
-		return oauthCSRFCookie
-	}
-	return oauthCSRFCookie + "_" + provider
-}
 
 type connectorHandlers struct {
 	registry *capture.Registry
@@ -175,96 +154,6 @@ func (h connectorHandlers) oauthApp(provider string) (oauthApp, bool) {
 	}
 }
 
-// landingURL is the OAuth-return deep link. The SPA is hash-routed, so the
-// outcome rides the route — the landing surface reads it and renders success,
-// the honest denial, or the honest failure. returnTo names WHICH surface, and
-// is resolved through a closed set: it is an enum, never a URL, so no caller
-// input ever reaches the Location header. Anything unrecognized — including an
-// absent value and a URL-shaped one — lands on onboarding.
-func (h connectorHandlers) landingURL(outcome, returnTo string) string {
-	route := "/#/onboarding/connect/"
-	if returnTo == returnToSettings {
-		route = "/#/settings/integrations/"
-	}
-	return strings.TrimRight(h.publicBaseURL, "/") + route + outcome
-}
-
-const (
-	returnToOnboarding = "onboarding"
-	returnToSettings   = "settings"
-)
-
-// The OAuth-return outcomes the landing surface renders. They are a closed set
-// the SPA maps to copy, never rendering a raw route segment for one it does not
-// know (Settings shows nothing; onboarding falls back to its generic failure).
-// They exist because "it failed, try again" is only honest for SOME failures: a
-// declined consent is not a failure at all, a refused credential needs its human
-// to reconnect, and a provider API that was never enabled for the deployment
-// needs an administrator — retrying that one forever cannot work.
-const (
-	outcomeOK            = "ok"
-	outcomeDenied        = "denied"
-	outcomeRejected      = "rejected"
-	outcomeMisconfigured = "misconfigured"
-	outcomeError         = "error"
-)
-
-// disabledProviderAPI reports whether the failure is a provider API that was
-// never enabled for this deployment. The reason vocabulary is Google's, so the
-// question is only asked of the Google connectors — a Microsoft failure that
-// happened to reuse one of those code names must not be answered with Google's
-// remedy.
-func disabledProviderAPI(provider string, err error) bool {
-	if provider != providerGmail && provider != providerGcal {
-		return false
-	}
-	return googleconn.Misconfigured(err)
-}
-
-// connectFailureOutcome picks the landing outcome for a failed consent
-// completion, so what the human reads matches what they can actually do about
-// it. Two distinct deployment faults land on misconfigured — a provider API that
-// was never enabled, and an OAuth client the provider refused to authenticate
-// (a wrong client id/secret, which is provider-independent) — because a human
-// re-consenting clears neither. Anything we cannot attribute to the provider
-// stays the generic error: an honest "we don't know yet", never a guess at whose
-// fault it is.
-func connectFailureOutcome(provider string, err error) string {
-	switch {
-	case disabledProviderAPI(provider, err), oauthflow.Misconfigured(err):
-		return outcomeMisconfigured
-	case errors.Is(err, connector.ErrAuthRejected):
-		return outcomeRejected
-	default:
-		return outcomeError
-	}
-}
-
-// logConnectFailure records a failed consent completion for the operator. The
-// two deployment faults each get a line naming their OWN remedy: a machine
-// reason code ("accessNotConfigured", "invalid_client") says what the provider
-// refused but not what to go do about it, and the two remedies are different
-// places. The generic line deliberately does not name a step — the failure can
-// come from the token exchange, the refresh, or the owner lookup, and
-// ProviderError.Op already carries which call it actually was.
-func logConnectFailure(ctx context.Context, provider string, err error) {
-	switch {
-	case disabledProviderAPI(provider, err):
-		slog.ErrorContext(ctx,
-			"connector callback: this provider's API is not enabled for the deployment — "+
-				"enable it in the Google Cloud project behind the OAuth client, then reconnect",
-			"err", err, "provider", provider)
-	case oauthflow.Misconfigured(err):
-		slog.ErrorContext(ctx,
-			"connector callback: the provider refused this deployment's OAuth client — "+
-				"check the configured client id and secret for this connector",
-			"err", err, "provider", provider)
-	default:
-		slog.ErrorContext(ctx, "connector callback: completing consent failed",
-			"err", err, "provider", provider)
-	}
-}
-
 func (h connectorHandlers) ListConnectors(w http.ResponseWriter, r *http.Request) {
 	if h.registry == nil {
 		httperr.NotImplemented(w, r, "ListConnectors")
@@ -354,7 +243,10 @@ func (h connectorHandlers) ConnectConnector(w http.ResponseWriter, r *http.Reque
 		SameSite: http.SameSiteLaxMode,
 	})
 	state := h.signer.sign(
-		connectState{Workspace: ws, User: actor.UserID, Provider: string(provider), Nonce: nonce, ReturnTo: returnTo},
+		connectState{
+			Workspace: ws, User: actor.UserID, Provider: string(provider),
+			Nonce: nonce, ReturnTo: returnTo, Version: stateVersionNamespacedCSRF,
+		},
 		time.Now().Add(connectStateTTL),
 	)
 	authURL := app.authCodeURL(state, h.callbackURL(string(provider)))
@@ -393,23 +285,29 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
-	// CSRF: the SameSite=Lax oauth_csrf cookie must match the nonce in the
-	// signed state, proving the browser completing the flow is the one that
-	// started it. Without this, an attacker could trick a victim into
-	// completing the attacker's flow and link the victim's mailbox to the
-	// attacker's account (account-linking CSRF). The signed state is already
-	// verified by this point — what this check establishes is the BROWSER's
-	// identity — so the redirect can honor the surface the flow started from.
-	csrf, cerr := r.Cookie(csrfCookieName(string(provider)))
+	// CSRF: the SameSite=Lax nonce cookie must match the nonce in the signed
+	// state, proving the browser completing the flow is the one that started
+	// it. Without this, an attacker could trick a victim into completing the
+	// attacker's flow and link the victim's mailbox to the attacker's account
+	// (account-linking CSRF). The signed state is already verified by this
+	// point — what this check establishes is the BROWSER's identity — so the
+	// redirect can honor the surface the flow started from. The state's own
+	// version names which cookie its initiator actually set.
+	cookieName := csrfCookieName(string(provider))
+	if st.Version < stateVersionNamespacedCSRF {
+		cookieName = legacyCSRFCookieName(string(provider))
+	}
+	csrf, cerr := r.Cookie(cookieName)
 	if cerr != nil || st.Nonce == "" || subtle.ConstantTimeCompare([]byte(csrf.Value), []byte(st.Nonce)) != 1 {
 		slog.WarnContext(ctx, "connector callback: CSRF nonce missing/mismatched", "err", cerr, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
-	// One-shot: clear the CSRF cookie now that it's been consumed (same secure
-	// attributes as when it was set, so the delete is honored).
+	// One-shot: clear the cookie that was just consumed — the same name it was
+	// read under, or a stale nonce poisons the next flow — with the same secure
+	// attributes as when it was set, so the delete is honored.
 	http.SetCookie(w, &http.Cookie{
-		Name: csrfCookieName(string(provider)), Path: "/v1/connectors", MaxAge: -1,
+		Name: cookieName, Path: "/v1/connectors", MaxAge: -1,
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 

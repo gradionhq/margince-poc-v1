@@ -68,8 +68,9 @@ func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, e
 	return "1", time.Time{}, nil
 }
 
-// The account-linking-CSRF defence: the callback must have the oauth_csrf
-// cookie matching the nonce in the signed state before it exchanges the code.
+// The account-linking-CSRF defence: the callback must have the provider's
+// nonce cookie matching the nonce in the signed state before it exchanges the
+// code.
 func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	signer := newStateSigner([]byte("0123456789abcdef0123456789abcdef"))
 	oauth := &recordingOAuth{}
@@ -87,6 +88,7 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 		User:      ids.MustParse("22222222-2222-2222-2222-222222222222"),
 		Provider:  "gmail",
 		Nonce:     nonce,
+		Version:   stateVersionNamespacedCSRF,
 	}, time.Now().Add(time.Hour))
 	code := "the-code"
 	params := crmcontracts.ConnectorOAuthCallbackParams{Code: &code, State: state}
