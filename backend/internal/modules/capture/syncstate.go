@@ -31,6 +31,13 @@ const (
 	backoffBase = 2 * time.Minute
 	backoffCap  = 4 * time.Hour
 
+	// backfillMaxConsecutiveFailures ends a run that cannot get a single page
+	// through. On the ladder above, ten consecutive failures span roughly half a
+	// day of retrying: a provider still refusing after that is not weather, and a
+	// run making no progress for half a day is better ended visibly — the user
+	// sees an error class and can restart — than left retrying where nobody looks.
+	backfillMaxConsecutiveFailures = 10
+
 	// degradeAfterFailures flips a connection to status 'error' — which means
 	// "degraded, probed daily", never a tombstone: the due-scan keeps
 	// selecting it at errProbeInterval and one success flips it back.

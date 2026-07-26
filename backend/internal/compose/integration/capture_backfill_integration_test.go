@@ -135,9 +135,12 @@ func TestBackfillLifecycle(t *testing.T) {
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
 	t.Run("each page commits cursor and counters — a resume never re-pages", func(t *testing.T) {
-		done, completed, err := registry.RunBackfillStep(wsCtx, run.ID)
+		done, completed, retryAfter, err := registry.RunBackfillStep(wsCtx, run.ID)
 		if err != nil {
 			t.Fatalf("step 1: %v", err)
+		}
+		if retryAfter != 0 {
+			t.Fatalf("a page that succeeded asks for no retry, got %v", retryAfter)
 		}
 		if done || completed {
 			t.Fatalf("25 messages at 10/page cannot finish in one step (done=%v completed=%v)", done, completed)
@@ -152,10 +155,10 @@ func TestBackfillLifecycle(t *testing.T) {
 
 		// The "worker died, River retried" path is just: call again from the
 		// committed row. The provider sees the NEXT token, not a replay.
-		if done, completed, err = registry.RunBackfillStep(wsCtx, run.ID); err != nil || done || completed {
+		if done, completed, _, err = registry.RunBackfillStep(wsCtx, run.ID); err != nil || done || completed {
 			t.Fatalf("step 2: done=%v completed=%v err=%v", done, completed, err)
 		}
-		done, completed, err = registry.RunBackfillStep(wsCtx, run.ID)
+		done, completed, _, err = registry.RunBackfillStep(wsCtx, run.ID)
 		if err != nil {
 			t.Fatalf("step 3: %v", err)
 		}
@@ -171,7 +174,7 @@ func TestBackfillLifecycle(t *testing.T) {
 		}
 		// A step on the already-terminal run is a done no-op — and NOT a
 		// second completion, so it never re-fires the digest.
-		if done, completed, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil || !done || completed {
+		if done, completed, _, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil || !done || completed {
 			t.Fatalf("a step on a terminal run must be a done, not-completed no-op, got done=%v completed=%v err=%v", done, completed, err)
 		}
 	})
@@ -251,9 +254,12 @@ func TestBackfillStepFaultsAreTerminal(t *testing.T) {
 	// error — both leave the row error, never queued.)
 	assertTerminalError := func(t *testing.T, id ids.UUID) {
 		t.Helper()
-		_, completed, err := registry.RunBackfillStep(wsCtx, id)
+		_, completed, retryAfter, err := registry.RunBackfillStep(wsCtx, id)
 		if completed || err == nil {
 			t.Fatalf("faulting step = completed=%v err=%v, want a not-completed failure", completed, err)
+		}
+		if retryAfter != 0 {
+			t.Fatalf("retryAfter = %v, want 0 — neither fault is the provider's weather", retryAfter)
 		}
 		if status, _, _, _ := readBackfillRow(t, e, id); status != "error" {
 			t.Fatalf("row status = %s, want error — the fault was recorded, not looped", status)
