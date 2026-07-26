@@ -111,10 +111,10 @@ func (r *Registry) Connectors() []connector.Descriptor {
 	return out
 }
 
-// Connect grants one connector under the CALLING human's authority.
-// The scope-intersection guard runs here: a connector demanding scopes
-// the granting human does not hold is refused at grant time, not
-// discovered at 3am mid-sync.
+// Connect grants one connector under the CALLING human's authority. Two
+// guards run here, both at grant time rather than discovered at 3am
+// mid-sync: the granting human must still resolve as live authority, and
+// a connector demanding scopes they do not hold is refused.
 //
 // note: the returned id (and the connectionID threaded through SyncOnce and
 // the sync-state recording) names a capture_connection row, which the kernel
@@ -139,6 +139,16 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 	}
 	if r.vault == nil {
 		return ids.Nil, errors.New("capture: no keyvault configured — a connector credential cannot be sealed")
+	}
+	// A grant lends the granting human's authority to a connector, so that
+	// authority has to be live at the moment it is lent — the principal
+	// reaching here was built by a transport from a credential minted earlier,
+	// and a human deactivated in between must not still be able to lend it.
+	// Checked in the registry, the one place every transport passes through, so
+	// the invariant does not rest on each caller's own check. It runs before
+	// the seal below, so a refusal leaves neither a row nor a stored secret.
+	if err := r.requireLiveGrantor(ctx, ws, actor.UserID); err != nil {
+		return ids.Nil, err
 	}
 	// Put-then-commit (like blobstore): seal the credential in the vault
 	// first, then commit the row that names it. The row stores the opaque ref;
@@ -178,6 +188,23 @@ func (r *Registry) Connect(ctx context.Context, name string, auth connector.Auth
 		keyvault.DeleteDetached(ctx, r.vault, slog.Default(), ws, keyvault.Ref(*priorRef), "reconnect")
 	}
 	return id, nil
+}
+
+// requireLiveGrantor resolves the granting human against identity's live
+// authority. A human who is archived, suspended, or deactivated resolves to
+// ErrNotFound, which is the refusal: the grant is denied before anything is
+// sealed or written, so nothing has to be undone.
+func (r *Registry) requireLiveGrantor(ctx context.Context, ws, userID ids.UUID) error {
+	if r.authority == nil {
+		return errors.New("capture: no authority resolver configured — a connector grant cannot be checked against live authority")
+	}
+	if _, err := r.authority.EffectiveRBAC(ctx, ws, userID); err != nil {
+		return fmt.Errorf("capture: the granting human's authority does not resolve: %w", err)
+	}
+	if _, err := r.authority.SeatType(ctx, ws, userID); err != nil {
+		return fmt.Errorf("capture: the granting human's seat does not resolve: %w", err)
+	}
+	return nil
 }
 
 // grantedScopes runs the grant-time scope intersection and returns the

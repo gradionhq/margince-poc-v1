@@ -31,7 +31,8 @@ const testStateKey = "a-32-byte-or-longer-signing-key!!"
 // The registry's DB methods are never reached on these paths.
 func wiredHandlers() connectorHandlers {
 	return connectorHandlers{
-		registry:      capture.NewRegistry(nil, nil, nil, nil),
+		registry:      capture.NewRegistry(nil, nil, liveAuthority{}, nil),
+		authority:     liveAuthority{},
 		oauth:         gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}}),
 		gmailAPI:      gmail.NewAPI(nil, ""),
 		gcalOAuth:     gcal.NewOAuth(gcal.OAuthConfig{ClientID: "cid", ClientSecret: "sec"}),

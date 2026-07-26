@@ -75,7 +75,8 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	signer := newStateSigner([]byte("0123456789abcdef0123456789abcdef"))
 	oauth := &recordingOAuth{}
 	h := connectorHandlers{
-		registry:      capture.NewRegistry(nil, nil, nil, nil),
+		registry:      capture.NewRegistry(nil, nil, liveAuthority{}, nil),
+		authority:     liveAuthority{},
 		oauth:         oauth,
 		gmailAPI:      stubGmailAPI{},
 		signer:        signer,
@@ -97,7 +98,7 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ConnectorOAuthCallback(rec, httptest.NewRequest(http.MethodGet, "/cb", nil), "gmail", params)
 	if oauth.exchanged {
-		t.Fatal("token exchange ran without a matching oauth_csrf cookie (CSRF gate bypassed)")
+		t.Fatal("token exchange ran without a matching nonce cookie (CSRF gate bypassed)")
 	}
 	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error" {
 		t.Errorf("no-cookie Location = %q, want the error landing", loc)
@@ -109,7 +110,7 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: csrfCookieName("gmail"), Value: nonce, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	h.ConnectorOAuthCallback(httptest.NewRecorder(), req, "gmail", params)
 	if !oauth.exchanged {
-		t.Fatal("a matching oauth_csrf cookie should let the flow reach the token exchange")
+		t.Fatal("a matching nonce cookie should let the flow reach the token exchange")
 	}
 }
 

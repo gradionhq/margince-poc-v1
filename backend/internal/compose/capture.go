@@ -302,6 +302,7 @@ func WithGraphCapture(c GraphConfig) Option {
 		}
 		if s.connectorHandlers.registry == nil {
 			s.connectorHandlers.registry = NewCaptureRegistry(pool, s.vault, s.captureConfig)
+			s.connectorHandlers.authority = identity.NewService(pool)
 			s.signer = newStateSigner([]byte(c.StateKey))
 			s.publicBaseURL = c.PublicBaseURL
 			s.apiBaseURL = c.APIBaseURL
@@ -326,6 +327,7 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 		}
 		s.connectorHandlers = connectorHandlers{
 			registry:      NewCaptureRegistryWithGmail(pool, s.vault, c, cfg),
+			authority:     identity.NewService(pool),
 			oauth:         newGmailOAuth(c),
 			gmailAPI:      gmail.NewAPI(nil, ""),
 			gcalOAuth:     newGcalOAuth(c),

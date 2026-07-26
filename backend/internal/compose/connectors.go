@@ -24,6 +24,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -38,6 +39,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -62,6 +64,11 @@ const codeUnauthorized = "unauthorized"
 
 type connectorHandlers struct {
 	registry *capture.Registry
+	// authority is identity's live resolver. The callback re-reads the
+	// granting human through it before it spends the authorization code: the
+	// signed state proves who STARTED the consent, and minutes of provider
+	// UI can pass before it comes back.
+	authority authz.Resolver
 	// imapAuthenticate probes+seals IMAP credentials; nil means the
 	// production standing connector. Injectable so the transport's own
 	// branches are testable without a live mail server.
@@ -311,19 +318,10 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode,
 	})
 
-	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
-	if err != nil {
-		logConnectFailure(ctx, string(provider), err)
-		http.Redirect(w, r, h.landingURL(connectFailureOutcome(string(provider), err), returnTo), http.StatusFound)
-		return
-	}
-
 	// Reconstruct the granting human's authority from the trusted (signed)
 	// state: workspace + user id. A minimal read-scoped human principal is
 	// what Registry.Connect needs — it stamps granted_by and checks the
-	// connector's read scope; the app_user FK rejects a vanished user, and
-	// every later sync re-derives live RBAC (so a since-revoked human's grant
-	// dies at sync, not here).
+	// connector's read scope.
 	runCtx := principal.WithWorkspaceID(ctx, st.Workspace)
 	runCtx = principal.WithActor(runCtx, principal.Principal{
 		Type:   principal.PrincipalHuman,
@@ -331,12 +329,46 @@ func (h connectorHandlers) ConnectorOAuthCallback(w http.ResponseWriter, r *http
 		UserID: st.User,
 		Scopes: principal.NewScopeSet(principal.ScopeRead),
 	})
+	// The grant needs LIVE authority, resolved before the code is spent: an
+	// exchanged authorization code is a real provider credential, and one
+	// minted for a human who may no longer hold it has to be revoked at the
+	// provider rather than simply discarded. Registry.Connect enforces the same
+	// invariant; this is the cheaper, earlier half of it.
+	if err := h.requireLiveGrantor(runCtx, st); err != nil {
+		slog.WarnContext(ctx, "connector callback: the granting human no longer holds live authority",
+			"err", err, "provider", string(provider))
+		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
+		return
+	}
+
+	auth, err := app.authenticate(ctx, *params.Code, h.callbackURL(string(provider)))
+	if err != nil {
+		logConnectFailure(ctx, string(provider), err)
+		http.Redirect(w, r, h.landingURL(connectFailureOutcome(string(provider), err), returnTo), http.StatusFound)
+		return
+	}
+
 	if _, err := h.registry.Connect(runCtx, string(provider), auth); err != nil {
 		slog.ErrorContext(ctx, "connector callback: persisting connection", "err", err, "provider", string(provider))
 		http.Redirect(w, r, h.landingURL(outcomeError, returnTo), http.StatusFound)
 		return
 	}
 	http.Redirect(w, r, h.landingURL(outcomeOK, returnTo), http.StatusFound)
+}
+
+// requireLiveGrantor resolves the human named by the signed state against
+// identity's live authority. A missing resolver is a wiring fault and fails
+// closed: an unchecked grant is the hole this exists to close, and silently
+// skipping the check would look exactly like passing it.
+func (h connectorHandlers) requireLiveGrantor(ctx context.Context, st connectState) error {
+	if h.authority == nil {
+		return errors.New("connector callback: no authority resolver wired — a grant cannot be checked against live authority")
+	}
+	if _, err := h.authority.EffectiveRBAC(ctx, st.Workspace, st.User); err != nil {
+		return err
+	}
+	_, err := h.authority.SeatType(ctx, st.Workspace, st.User)
+	return err
 }
 
 func (h connectorHandlers) DisconnectConnector(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
