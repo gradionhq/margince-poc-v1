@@ -146,17 +146,18 @@ func finalizeOrgMerge(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Org
 // row (the A41 classification invariant needs to know).
 func absorbOrgReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.OrganizationID) (bool, error) {
 	for _, stmt := range []string{
+		// The project moves FIRST, and the order is load-bearing: the
+		// deal_project_same_org trigger is INITIALLY IMMEDIATE, so moving a
+		// deal while its project still points at the dissolved org fires it
+		// mid-merge. A project's anchor is NOT NULL ... ON DELETE RESTRICT
+		// and so cannot stay behind either (PROJ-LIFE-4) — leaving it is
+		// what turns a healthy deal un-editable over a mismatch nobody made.
+		`UPDATE project SET organization_id = $2 WHERE organization_id = $1`,
 		`UPDATE deal SET organization_id = $2 WHERE organization_id = $1`,
 		`UPDATE deal SET partner_org_id = $2 WHERE partner_org_id = $1`,
-		// A project's anchor is NOT NULL ... ON DELETE RESTRICT, so it
-		// cannot stay behind on the dissolved org (PROJ-LIFE-4). Leaving it
-		// is not a cosmetic gap: the deals move to the survivor and the
-		// deal_project_same_org trigger then refuses their NEXT edit,
-		// turning a healthy deal un-editable over a mismatch nobody made.
-		`UPDATE project SET organization_id = $2 WHERE organization_id = $1`,
 	} {
 		if _, err := tx.Exec(ctx, stmt, sourceID, targetID); err != nil {
-			return false, fmt.Errorf("repoint deal and project attributions: %w", err)
+			return false, fmt.Errorf("repoint project and deal attributions: %w", err)
 		}
 	}
 

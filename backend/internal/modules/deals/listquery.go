@@ -24,6 +24,10 @@ import (
 )
 
 // listPrelude is one list read's validated, scope-bounded starting point.
+// It is passed by POINTER throughout: `arg` appends to args, and callers
+// keep registering arguments (their own filters) after it is built — a
+// value copy would leave those arguments on a dead struct and the query
+// short of placeholders.
 type listPrelude struct {
 	sorted *storekit.ListSort
 	limit  int
@@ -43,18 +47,18 @@ func buildListPrelude(
 	limit *int,
 	cursor *string,
 	customFilters map[string]string,
-) (listPrelude, error) {
+) (*listPrelude, error) {
 	sorted, err := storekit.ParseListSort(sort, storekit.SortVocabulary(fields, active))
 	if err != nil {
-		return listPrelude{}, err
+		return nil, err
 	}
 
-	p := listPrelude{sorted: sorted, limit: storekit.ClampLimit(limit), where: []string{offerTemplateWhereSeed}}
+	p := &listPrelude{sorted: sorted, limit: storekit.ClampLimit(limit), where: []string{offerTemplateWhereSeed}}
 	p.arg = func(v any) int { p.args = append(p.args, v); return len(p.args) }
 
 	scope, err := auth.ScopeClauseFor(ctx, object, "", p.arg)
 	if err != nil {
-		return listPrelude{}, err
+		return nil, err
 	}
 	if scope != "" {
 		p.where = append(p.where, scope)
@@ -62,14 +66,14 @@ func buildListPrelude(
 
 	cfClauses, err := storekit.CustomFilterClauses(active, customFilters, p.arg)
 	if err != nil {
-		return listPrelude{}, err
+		return nil, err
 	}
 	p.where = append(p.where, cfClauses...)
 
 	if cursor != nil && *cursor != "" {
 		clause, err := sorted.KeysetClause(*cursor, p.arg)
 		if err != nil {
-			return listPrelude{}, err
+			return nil, err
 		}
 		p.where = append(p.where, clause)
 	}
@@ -84,7 +88,7 @@ func buildListPrelude(
 func runListPage[T any](
 	ctx context.Context,
 	s *Store,
-	pre listPrelude,
+	pre *listPrelude,
 	table, columns string,
 	active []fieldcatalog.Column,
 	where []string,

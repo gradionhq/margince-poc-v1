@@ -380,3 +380,48 @@ func TestALeadCanBelongToAProject(t *testing.T) {
 		t.Errorf("a closed project refused a new lead: %v — phase is advisory, not a gate", err)
 	}
 }
+
+// Filters are registered by the caller AFTER the shared list prelude is
+// built, so every one of them must land in the same argument list the query
+// is executed with. A prelude passed by value silently drops them and the
+// query goes out short of placeholders — which fails as an opaque driver
+// error, not as a wrong result.
+func TestListProjectsAppliesFiltersRegisteredAfterThePrelude(t *testing.T) {
+	e := Setup(t)
+	wanted := e.SeedOrg(t, "BAER Pharma", nil)
+	other := e.SeedOrg(t, "Kessler GmbH", nil)
+	seedProject(e.Admin(), t, e, "ERP replacement", strPtr("ERP-27"), wanted, nil)
+	seedProject(e.Admin(), t, e, "Rollout A", nil, other, nil)
+
+	orgID := orgIDOf(wanted)
+	byOrg, _, err := e.Deals.ListProjects(e.Admin(), deals.ListProjectsInput{OrganizationID: &orgID})
+	if err != nil {
+		t.Fatalf("list by organization: %v", err)
+	}
+	if len(byOrg) != 1 || byOrg[0].Name != "ERP replacement" {
+		t.Errorf("organization filter returned %d rows, want only the anchored one", len(byOrg))
+	}
+
+	// Two filters plus a quick-find: three arguments registered after the
+	// prelude, which is where the value-copy bug showed up.
+	phase, query := deals.PhaseInitiative, "ERP"
+	found, _, err := e.Deals.ListProjects(e.Admin(), deals.ListProjectsInput{
+		OrganizationID: &orgID, Phase: &phase, Query: &query,
+	})
+	if err != nil {
+		t.Fatalf("list by organization+phase+q: %v", err)
+	}
+	if len(found) != 1 {
+		t.Errorf("combined filters returned %d rows, want 1", len(found))
+	}
+
+	// And the key lookup, matched case-insensitively like its index.
+	key := "erp-27"
+	byKey, _, err := e.Deals.ListProjects(e.Admin(), deals.ListProjectsInput{Key: &key})
+	if err != nil {
+		t.Fatalf("list by key: %v", err)
+	}
+	if len(byKey) != 1 {
+		t.Errorf("key lookup returned %d rows, want 1", len(byKey))
+	}
+}
