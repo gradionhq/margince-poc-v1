@@ -131,6 +131,14 @@ func (r *Registry) recordSyncSuccess(ctx context.Context, connectionID ids.UUID)
 // recordSyncFailure classifies, schedules the retry, and degrades — never
 // tombstones. Auth parks the connection as reauth_required until its human
 // reconnects (the OAuth callback resets both rows).
+//
+// It carries no generation predicate, and does not need one: every
+// capture_connection write here is guarded by the status it moves FROM
+// ('connected'/'error'), and that guard is the fence — a disconnected or
+// reauth-parked row matches nothing, so a cycle that started before its human
+// acted can never drag the row back to a healthier status. What it records is
+// the connection's own health, which outlives any one grant: the daily probe of
+// a degraded connection has to be able to write its verdict.
 func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID, syncErr error) error {
 	class := classifySyncError(syncErr)
 	ws, err := syncStateWorkspace(ctx)
