@@ -309,3 +309,41 @@ type skipSink struct{}
 func (skipSink) Upsert(context.Context, connector.NormalizedRecord) (datasource.EntityRef, error) {
 	return datasource.EntityRef{}, connector.ErrSkip
 }
+
+// A calendar connection is named by the account it authorized, so a human with
+// more than one can tell them apart. It comes out of the bundle the connect
+// already produced — no vault round-trip and no network — and a bundle naming
+// no account is a blank line in the UI, not a lost connection.
+func TestAccountLabelNamesTheAuthorizedCalendar(t *testing.T) {
+	c := New(fakeOAuth{refresh: "refresh-1", access: "access-1"}, &fakeAPI{owner: gcalOwner})
+	req, err := AuthRequestFrom("the-code", "https://app/callback")
+	if err != nil {
+		t.Fatalf("AuthRequestFrom: %v", err)
+	}
+	auth, err := c.Authenticate(context.Background(), req)
+	if err != nil {
+		t.Fatalf("Authenticate: %v", err)
+	}
+	label, err := c.AccountLabel(auth)
+	if err != nil {
+		t.Fatalf("AccountLabel: %v", err)
+	}
+	if label != gcalOwner {
+		t.Errorf("AccountLabel = %q, want %q", label, gcalOwner)
+	}
+}
+
+func TestAccountLabelOfAnOwnerlessBundleIsAbsentNotAnError(t *testing.T) {
+	c := New(fakeOAuth{}, &fakeAPI{})
+	bundle, err := json.Marshal(googleconn.AuthState{RefreshToken: "r"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	label, err := c.AccountLabel(bundle)
+	if err != nil {
+		t.Fatalf("AccountLabel of an ownerless bundle: %v, want no error", err)
+	}
+	if label != "" {
+		t.Errorf("AccountLabel = %q, want empty", label)
+	}
+}

@@ -45,8 +45,9 @@ type Connector struct {
 func New(oauth OAuth, api API) *Connector { return &Connector{oauth: oauth, api: api} }
 
 var (
-	_ connector.Connector     = (*Connector)(nil)
-	_ connector.GrantedScoper = (*Connector)(nil)
+	_ connector.Connector      = (*Connector)(nil)
+	_ connector.GrantedScoper  = (*Connector)(nil)
+	_ connector.AccountLabeler = (*Connector)(nil)
 )
 
 // GrantedScopes reports the Google scopes this calendar connection actually
@@ -54,6 +55,14 @@ var (
 // system's.
 func (c *Connector) GrantedScopes(auth connector.Auth) ([]string, error) {
 	return googleconn.GrantedScopes(auth)
+}
+
+// AccountLabel reports the calendar account this connection authorized — the
+// shared Google bundle reader. It is what lets a human holding two Google
+// connections tell them apart, and what binds a connection's cursor to an
+// account rather than a row.
+func (c *Connector) AccountLabel(auth connector.Auth) (string, error) {
+	return googleconn.AccountLabel(auth)
 }
 
 // cursorState is the persisted incremental watermark: Calendar's syncToken.

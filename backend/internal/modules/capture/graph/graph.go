@@ -60,9 +60,10 @@ func New(oauth OAuth, api API) *Connector {
 }
 
 var (
-	_ connector.Connector     = (*Connector)(nil)
-	_ connector.Backfiller    = (*Connector)(nil)
-	_ connector.GrantedScoper = (*Connector)(nil)
+	_ connector.Connector      = (*Connector)(nil)
+	_ connector.Backfiller     = (*Connector)(nil)
+	_ connector.GrantedScoper  = (*Connector)(nil)
+	_ connector.AccountLabeler = (*Connector)(nil)
 )
 
 // authState is the persisted credential bundle (the opaque connector.Auth).
@@ -152,6 +153,19 @@ func (c *Connector) Authenticate(ctx context.Context, req connector.AuthRequest)
 		return nil, fmt.Errorf("graph: encoding auth state: %w", err)
 	}
 	return auth, nil
+}
+
+// AccountLabel reports the authorizing mailbox, read from the sealed bundle the
+// caller already holds — no vault round-trip, no network. It is what lets a
+// human holding two Microsoft connections tell them apart, and what binds a
+// connection's cursor to an account rather than a row. A bundle that names no
+// mailbox reports none: absence is not a failure.
+func (c *Connector) AccountLabel(auth connector.Auth) (string, error) {
+	var st authState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", fmt.Errorf("graph: malformed auth bundle: %w", err)
+	}
+	return st.Owner, nil
 }
 
 // GrantedScopes reports the Microsoft scopes this connection actually holds,

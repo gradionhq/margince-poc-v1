@@ -417,6 +417,19 @@ func Authenticate(ctx context.Context, oauth OAuth, req connector.AuthRequest, s
 	return auth, nil
 }
 
+// AccountLabel reads the authorizing Google account back out of a sealed
+// bundle — the connector.AccountLabeler answer both Google connectors share.
+// No vault round-trip and no network: the connect already resolved it. A bundle
+// that names no account reports none, which the caller stores as an absent
+// label rather than an error.
+func AccountLabel(auth connector.Auth) (string, error) {
+	var st AuthState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", fmt.Errorf("googleconn: malformed auth bundle: %w", err)
+	}
+	return st.Owner, nil
+}
+
 // GrantedScopes reads the provider scopes back out of a sealed bundle — the
 // connector.GrantedScoper answer both Google connectors share. A bundle sealed
 // before the grant was recorded reports none, which the caller stores as an
