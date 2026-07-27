@@ -4,9 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 repository. It is the long form: the full operating detail lives here.
 [AGENTS.md](AGENTS.md) is a deliberately shorter digest for other agent
 harnesses that links back here — the two are **not** copies, so do not sync
-them line by line. What AGENTS.md must keep is its `## Craftsmanship` section:
-`make check-craft-doc` asserts it exists, and `cli/craft` assembles it into the
-gate prompt. When a rule below changes, decide whether the digest needs it too.
+them line by line. AGENTS.md is machine-read, though, so keep it accurate:
+`cli/craft` feeds the **whole** nearest AGENTS.md into the gate prompt
+(`gate.Assembler.nearestAgents` walks up from the touched directories; this root
+file is the only one in the tree today), and `make check-craft-doc` separately
+asserts that this file still carries a `## Craftsmanship` heading. When a rule
+below changes, decide whether the digest needs it too.
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine). This is the
 **build repo** — the running Go software. The *specification* lives in a separate
