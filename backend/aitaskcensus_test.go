@@ -24,3 +24,19 @@ func TestTaskCensusMatchesTheContract(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// A shipped site with no certification case can be measured by nothing: its
+// record could only ever be a claim about a prompt somebody typed out, not
+// about the request this build sends. Validate names the gap; this test is
+// where the composition is held to it.
+func TestTaskCensusBindsACaseToEverySite(t *testing.T) {
+	registry, err := compose.NewTaskCensus()
+	if err != nil {
+		t.Fatalf("building the task census: %v", err)
+	}
+	for _, site := range registry.All() {
+		if _, bound := registry.CaseFor(site.Task, site.Variant); !bound {
+			t.Errorf("site %s/%s ships with no certification case bound", site.Task, site.Variant)
+		}
+	}
+}

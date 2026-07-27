@@ -62,6 +62,55 @@ func TestRegistryRefusesAnIncompleteShippedTask(t *testing.T) {
 	}
 }
 
+// Every shipped site owes a certification case. A site nobody can certify is a
+// site whose record could only ever be a claim about a hand-written prompt, so
+// the missing binding is named at the same place the missing site is.
+func TestRegistryRefusesAShippedSiteWithNoCase(t *testing.T) {
+	r := aitasks.NewRegistry()
+	pricing := aitasks.Site{Task: ai.TaskRateExtract, Variant: "pricing", Kind: ai.SiteKindOneShot}
+	fx := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
+	r.Register(pricing)
+	r.Register(fx)
+	r.BindCase(stubCase{site: pricing})
+
+	err := r.Validate()
+	if err == nil {
+		t.Fatal("a shipped site with no certification case validated")
+	}
+	if !strings.Contains(err.Error(), "rate_extract/fx") {
+		t.Errorf("the error does not name the uncertifiable site: %v", err)
+	}
+	if strings.Contains(err.Error(), "rate_extract/pricing") {
+		t.Errorf("the error complains about a site that has a case: %v", err)
+	}
+}
+
+// A site the contract does not admit — a planned task's, or one it never
+// declared — is answered by the problem that names THAT defect. Demanding a
+// case for it as well would point at the wrong fix: the registration goes, the
+// case was never owed.
+func TestRegistryDoesNotDemandACaseForASiteTheContractDeniesExists(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		site aitasks.Site
+	}{
+		{"planned task", aitasks.Site{Task: ai.TaskSummarize, Variant: "summary", Kind: ai.SiteKindOneShot}},
+		{"undeclared variant", aitasks.Site{Task: ai.TaskRateExtract, Variant: "invented", Kind: ai.SiteKindOneShot}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := aitasks.NewRegistry()
+			r.Register(tc.site)
+			err := r.Validate()
+			if err == nil {
+				t.Fatal("a site the contract does not declare validated")
+			}
+			if strings.Contains(err.Error(), "no certification case is bound") {
+				t.Errorf("the error asks for a case the site was never owed: %v", err)
+			}
+		})
+	}
+}
+
 func TestLookupFindsARegisteredSite(t *testing.T) {
 	r := aitasks.NewRegistry()
 	want := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}

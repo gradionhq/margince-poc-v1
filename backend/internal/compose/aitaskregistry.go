@@ -55,7 +55,9 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 
 	// The certification case each site is served by. Binding here rather than
 	// inside the case's own file keeps one place to read what this build can
-	// certify, and Validate refuses a case bound to a site nobody registered.
+	// certify, and Validate holds the two lists to each other in both
+	// directions: no case for an unregistered site, and no shipped site
+	// without a case.
 	r.BindCase(captureClassifyCases{})
 	r.BindCase(counterpartyVerdictCases{})
 	r.BindCase(fieldExtractCases{})

@@ -92,9 +92,9 @@ func (r *Registry) Lookup(task ai.Task, variant string) (Site, bool) {
 
 // Validate holds the registered set to the contract: no duplicates, every
 // registered site declared with the kind the contract gives it, every shipped
-// task's sites all present, no site on a planned task, and no certification
-// case bound to a site nobody registered. It reports every problem at once —
-// a wiring fix wants the whole list.
+// task's sites all present, no site on a planned task, no certification case
+// bound to a site nobody registered, and a case bound to every shipped site.
+// It reports every problem at once — a wiring fix wants the whole list.
 func (r *Registry) Validate() error {
 	var problems []string
 	for _, key := range r.dupes {
@@ -129,6 +129,7 @@ func (r *Registry) Validate() error {
 	}
 
 	problems = append(problems, r.statusProblems()...)
+	problems = append(problems, r.caseProblems()...)
 
 	if len(problems) > 0 {
 		sort.Strings(problems)
@@ -158,6 +159,35 @@ func (r *Registry) statusProblems() []string {
 					problems = append(problems, fmt.Sprintf(
 						"task %s is planned but site %q is registered — mark it shipped in the contract, or drop the registration", task, s.Variant))
 				}
+			}
+		}
+	}
+	return problems
+}
+
+// caseProblems holds every shipped site to its certification obligation: a
+// site nobody can certify is a site whose record could only ever be a claim
+// about a hand-written prompt, never about the request this build sends.
+//
+// The obligation is derived from the contract's shipped sites rather than from
+// the registration, so a site the contract denies exists — a planned task's, or
+// a variant it never declared — is answered by the problem that names THAT
+// defect. Asking for its case too would point at the wrong fix: the
+// registration goes, and the case was never owed.
+func (r *Registry) caseProblems() []string {
+	var problems []string
+	for _, task := range ai.AllTasks() {
+		if ai.Status(task) != ai.StatusShipped {
+			continue
+		}
+		for _, site := range ai.SitesFor(task) {
+			key := (Site{Task: task, Variant: site.Name}).key()
+			if _, registered := r.sites[key]; !registered {
+				continue // the absent registration is already a problem of its own.
+			}
+			if _, bound := r.cases[key]; !bound {
+				problems = append(problems, fmt.Sprintf(
+					"site %s is registered but no certification case is bound (bind one in NewTaskCensus, or the site ships uncertifiable)", key))
 			}
 		}
 	}
