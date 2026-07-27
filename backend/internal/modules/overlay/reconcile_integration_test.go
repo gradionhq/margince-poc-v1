@@ -175,7 +175,11 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 	}}}
 	meter := testBudgetMeter(t, "test-swept")
 
-	watermark, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second))
+	// connectedAt predates oldBaseline's watermark by more than the floor's
+	// skew grace, so reconcileFloor lets the passed watermark win unchanged —
+	// this test is about the sweep's own convergence/conflict behavior, not
+	// the floor.
+	watermark, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second), oldBaseline)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
@@ -240,7 +244,7 @@ func TestReconcileNeverClobbersADirtyRow(t *testing.T) {
 	}}}
 	meter := testBudgetMeter(t, "test-swept")
 
-	if _, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second)); err != nil {
+	if _, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second), oldBaseline); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 

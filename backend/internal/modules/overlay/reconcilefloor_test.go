@@ -1,13 +1,11 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-package overlay_test
+package overlay
 
 import (
 	"testing"
 	"time"
-
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 )
 
 // TestReconcileFloor pins the sweep window a class actually reads from. The
@@ -21,7 +19,7 @@ func TestReconcileFloor(t *testing.T) {
 
 	// The grace is unexported, so each case states its expectation as a
 	// predicate over the answer rather than restating the constant. Comparing
-	// against ReconcileFloor's own output would be tautological — it would pass
+	// against reconcileFloor's own output would be tautological — it would pass
 	// for any grace at all, including zero.
 	cases := []struct {
 		name      string
@@ -64,8 +62,8 @@ func TestReconcileFloor(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := overlay.ReconcileFloor(tc.watermark, connectedAt); !tc.ok(got) {
-				t.Errorf("ReconcileFloor(%v, %v) = %v, want %s", tc.watermark, connectedAt, got, tc.wants)
+			if got := reconcileFloor(tc.watermark, connectedAt); !tc.ok(got) {
+				t.Errorf("reconcileFloor(%v, %v) = %v, want %s", tc.watermark, connectedAt, got, tc.wants)
 			}
 		})
 	}
@@ -84,7 +82,7 @@ func TestReconcileFloorBackdatesForClockSkew(t *testing.T) {
 	connectedAt := time.Date(2026, 7, 27, 12, 0, 0, 0, time.UTC)
 	const maxBackdate = time.Hour
 
-	floor := overlay.ReconcileFloor(time.Time{}, connectedAt)
+	floor := reconcileFloor(time.Time{}, connectedAt)
 
 	if !floor.Before(connectedAt) {
 		t.Errorf("floor = %v, want strictly before the connect instant %v — an exact-connect floor loses records stamped inside our clock skew", floor, connectedAt)

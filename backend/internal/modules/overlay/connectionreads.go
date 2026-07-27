@@ -39,7 +39,9 @@ type DueOverlayConnection struct {
 	CredentialRef keyvault.Ref
 	// ConnectedAt is when this connection was established (reset on a
 	// reconnect). It floors the incremental sweep of a class that has no
-	// watermark yet — see ReconcileFloor.
+	// watermark yet (Reconcile's internal reconcileFloor) and is the
+	// connection's own IDENTITY for the sweep's disconnect+reconnect fence
+	// (MirrorStore.WithFenceIdentity, disconnectfence.go).
 	ConnectedAt time.Time
 }
 
@@ -188,7 +190,17 @@ func WorkspaceForPortal(ctx context.Context, pool *pgxpool.Pool, incumbent, incu
 // caller — the reconcile sweep treats it as best-effort (logs and continues, so
 // the next sweep retries), but the error is returned rather than swallowed here
 // so a future caller can decide. ctx is the caller's workspace-scoped context.
-func BackfillPortalBinding(ctx context.Context, pool *pgxpool.Pool, inc Incumbent) error {
+//
+// connectedAt is the sweep's own connection identity (DueOverlayConnection.
+// ConnectedAt) — both the gating read and the UPDATE require the active row
+// to still carry it, the same assertOwnConnection predicate the sweep's
+// other writes use, so a sweep straddling a disconnect+reconnect can never
+// stamp its stale adapter's account id onto a DIFFERENT connection's row
+// (which WorkspaceForPortal's fail-closed-on-ambiguity would then bind to
+// the wrong portal, or which would silently disable the real portal's
+// webhook lane by leaving its own binding permanently null — this call only
+// ever fills a null, never overwrites).
+func BackfillPortalBinding(ctx context.Context, pool *pgxpool.Pool, inc Incumbent, connectedAt time.Time) error {
 	reader, ok := inc.(incumbentAccountReader)
 	if !ok {
 		return nil // this incumbent reports no account id — nothing to bind
@@ -197,9 +209,9 @@ func BackfillPortalBinding(ctx context.Context, pool *pgxpool.Pool, inc Incumben
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		scanErr := tx.QueryRow(ctx, `
 			SELECT incumbent_account_id IS NOT NULL FROM incumbent_connection
-			WHERE status = $1`, statusActive).Scan(&alreadyBound)
+			WHERE status = $1 AND connected_at = $2`, statusActive, connectedAt).Scan(&alreadyBound)
 		if errors.Is(scanErr, pgx.ErrNoRows) {
-			alreadyBound = true // no active connection to bind — treat as done
+			alreadyBound = true // no active connection under THIS identity to bind — treat as done
 			return nil
 		}
 		return scanErr
@@ -218,10 +230,14 @@ func BackfillPortalBinding(ctx context.Context, pool *pgxpool.Pool, inc Incumben
 	}
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		// WHERE incumbent_account_id IS NULL: only fill, never overwrite — a
-		// concurrent connect/reconnect that already set it wins.
+		// concurrent connect/reconnect that already set it wins. AND
+		// connected_at = $3: only fill THIS connection's own row — a
+		// disconnect+reconnect that landed between the gating read above and
+		// this UPDATE must not stamp a stale adapter's account id onto the
+		// new connection's row.
 		_, execErr := tx.Exec(ctx, `
 			UPDATE incumbent_connection SET incumbent_account_id = $2
-			WHERE status = $1 AND incumbent_account_id IS NULL`, statusActive, accountID)
+			WHERE status = $1 AND incumbent_account_id IS NULL AND connected_at = $3`, statusActive, accountID, connectedAt)
 		return execErr
 	})
 }

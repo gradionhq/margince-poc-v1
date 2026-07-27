@@ -3,12 +3,11 @@
 
 package compose
 
-// This file owns the webhook-as-signal targeted re-fetch (OVA-WIRE-10):
-// split out of jobs_overlay.go (which owns the periodic reconcile sweep) to
-// stay under the file-length cap — a mechanical relocation of the
-// refetch-specific job args and worker, with no change to their logic.
+// This file owns the webhook-as-signal targeted re-fetch (OVA-WIRE-10): the
+// job args, the worker, and its pre-flight/fetch-and-ingest split.
 // reconcileWorkerCtx and isConnectionLevelIncumbentError stay in
-// jobs_overlay.go: both are shared with the periodic sweep.
+// jobs_overlay.go, which owns the periodic reconcile sweep: both are shared
+// with it.
 
 import (
 	"context"
@@ -71,39 +70,57 @@ type overlayRefetchWorker struct {
 }
 
 func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayRefetchArgs]) error {
+	wsCtx, conn, ok, err := w.resolveRefetchTarget(ctx, job)
+	if err != nil || !ok {
+		return err
+	}
+	return w.refetchAndIngest(wsCtx, conn, job)
+}
+
+// resolveRefetchTarget resolves the job's workspace-scoped context and
+// active connection, and applies every pre-flight check that makes the
+// read+ingest below either safe or a clean no-op: an unparseable workspace
+// id (a permanent defect, never retried), a workspace that has since
+// disconnected, an incumbent other than HubSpot, and a mirror halted by a
+// write-ledger value-hash collision (OVA-AC-3) — re-checked here, at
+// execution, so a re-fetch enqueued before the halt (coalesced 5s ahead)
+// never still runs. ok=false means Work should return err as-is (nil for a
+// clean stop, non-nil for a retryable failure) without reaching the
+// fetch/ingest step.
+func (w *overlayRefetchWorker) resolveRefetchTarget(ctx context.Context, job *river.Job[OverlayRefetchArgs]) (wsCtx context.Context, conn overlay.DueOverlayConnection, ok bool, err error) {
 	wsID, err := ids.ParseAs[ids.WorkspaceKind](job.Args.Workspace)
 	if err != nil {
-		// A malformed workspace id is a permanent defect, not a transient
-		// failure — return nil so River does not retry an unfixable job.
 		w.log.ErrorContext(ctx, "overlay refetch: unparseable workspace id in job args",
 			"workspace", job.Args.Workspace, "err", err)
-		return nil
+		return nil, overlay.DueOverlayConnection{}, false, nil
 	}
-	wsCtx := reconcileWorkerCtx(ctx, wsID)
-	conn, err := overlay.ActiveConnection(wsCtx, w.pool)
+	wsCtx = reconcileWorkerCtx(ctx, wsID)
+	conn, err = overlay.ActiveConnection(wsCtx, w.pool)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			// The workspace disconnected since the signal arrived — nothing to
 			// refresh, and teardown owns the mirror. Not a retryable failure.
-			return nil
+			return nil, overlay.DueOverlayConnection{}, false, nil
 		}
-		return fmt.Errorf("overlay refetch: reading the active connection: %w", err)
+		return nil, overlay.DueOverlayConnection{}, false, fmt.Errorf("overlay refetch: reading the active connection: %w", err)
 	}
 	if conn.Incumbent != incumbentHubSpot {
-		return nil
+		return nil, overlay.DueOverlayConnection{}, false, nil
 	}
-	// A mirror halted by a ledger value-hash collision (OVA-AC-3) refuses all
-	// sync — do not spend an incumbent read or ingest against a mirror we no
-	// longer trust (the halt is cleared by disconnect today). This closes the
-	// gap where a re-fetch enqueued before the halt (coalesced 5s ahead) would
-	// otherwise still run: the halt is re-checked here, at execution.
 	if halted, err := overlay.NewWriteLedger(w.pool).Halted(wsCtx); err != nil {
-		return fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
+		return nil, overlay.DueOverlayConnection{}, false, fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
 	} else if halted {
 		w.log.WarnContext(wsCtx, "overlay refetch: mirror is halted (ledger collision), skipping",
 			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
-		return nil
+		return nil, overlay.DueOverlayConnection{}, false, nil
 	}
+	return wsCtx, conn, true, nil
+}
+
+// refetchAndIngest resolves conn's vaulted token, builds a live incumbent
+// adapter, reserves the incumbent budget, reads the one record, and ingests
+// it through the fenced, resolver-bound store.
+func (w *overlayRefetchWorker) refetchAndIngest(wsCtx context.Context, conn overlay.DueOverlayConnection, job *river.Job[OverlayRefetchArgs]) error {
 	token, err := w.vault.Get(wsCtx, conn.Workspace, conn.CredentialRef)
 	if err != nil {
 		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)

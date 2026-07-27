@@ -504,8 +504,8 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 // owner mapping resurrected under the wrong generation, plus a done=true
 // backfill cursor for a connection whose own backfill never actually ran —
 // permanently short-circuiting it, since a done cursor is never re-listed
-// and ReconcileFloor stops the incremental sweep from ever re-reading the
-// gap.
+// and overlay.Reconcile's internal floor stops the incremental sweep from
+// ever re-reading the gap.
 func TestReconcileConnectionStopsCleanlyWhenReconnectedMidSweep(t *testing.T) {
 	e := integration.Setup(t)
 	vault := keyvault.NewMemory()

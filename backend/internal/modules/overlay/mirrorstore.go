@@ -56,12 +56,21 @@ type MirrorStore struct {
 	emails OwnerEmailResolver
 	// fenced opts this store into the disconnect-race fence
 	// (disconnectfence.go): every mutation that could resurrect
-	// incumbent-derived data first asserts an active incumbent_connection,
-	// returning ErrConnectionGone if the workspace has been disconnected
-	// mid-sweep. Only the background reconcile sweep sets it (WithFence);
-	// the read-path and on-connect stores leave it false so a write outside
-	// a live connection (a test, the seed) is not gated on one.
+	// incumbent-derived data first asserts the connection (status alone, or
+	// status+identity — assertFence), returning ErrConnectionGone if it no
+	// longer holds. Set by WithFence (request-scoped write-back / on-demand
+	// sweep-request paths) or WithFenceIdentity (the unattended sweep
+	// paths); the read-path and on-connect stores leave it false so a write
+	// outside a live connection (a test, the seed) is not gated on one.
 	fenced bool
+	// identityFenced is set only by WithFenceIdentity: it marks that THIS
+	// store promised identity checking, so assertFence must fail closed
+	// (errIdentityFenceMisconfigured) if connectedAt somehow came back zero,
+	// rather than silently falling back to WithFence's weaker status-only
+	// check — a caller that builds WithFenceIdentity(zeroTime) by mistake
+	// gets a loud, distinct rejection instead of a silent downgrade to a
+	// guarantee it never asked for.
+	identityFenced bool
 	// connectedAt is set only by WithFenceIdentity (disconnectfence.go): the
 	// connection identity (incumbent_connection.connected_at) a fenced
 	// write additionally requires, on top of plain status (assertFence).
@@ -92,26 +101,8 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 	return &c
 }
 
-// WithFence returns a MirrorStore identical to s with the disconnect-race
-// fence engaged on connection STATUS ALONE (assertActiveConnection — see the
-// fenced field and disconnectfence.go): every sync write it issues aborts
-// with ErrConnectionGone the moment the workspace is disconnected, instead of
-// resurrecting purged incumbent-derived data. Use this for a fenced write
-// whose window is one bounded request (a human write-back, an on-demand
-// sweep request) — the disconnect+reconnect straddle (disconnectfence.go's
-// KNOWN GAP) is real here too, but its race window is this one request, not
-// an unattended background sweep, so WithFenceIdentity's stronger guarantee
-// is not needed. It is opt-in precisely so the read path and the many unit
-// tests that ingest without standing up a connection are not forced to hold
-// one.
-func (s *MirrorStore) WithFence() *MirrorStore {
-	c := *s
-	c.fenced = true
-	return &c
-}
-
-// WithFenceIdentity (the stronger, identity-checking sibling of WithFence)
-// and assertFence (the one call every fenced method makes) live in
+// WithFence and WithFenceIdentity (the fence's two constructors) and
+// assertFence (the one call every fenced method makes) live in
 // disconnectfence.go, next to assertActiveConnection/assertOwnConnection —
 // the fence's own mechanics kept together, split out of this file purely to
 // stay under the file-length cap.

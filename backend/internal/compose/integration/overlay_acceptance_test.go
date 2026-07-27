@@ -688,8 +688,11 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	fakeInc.Seed(overlay.IncumbentClassCompanies, reverseRec)
 
 	meter := acceptanceBudgetMeter(t)
-	since := oldBaseline.Add(-time.Second)
-	if _, err := overlay.Reconcile(ctx, fakeInc, mirror, meter, overlay.IncumbentClassCompanies, since); err != nil {
+	watermark := oldBaseline.Add(-time.Second)
+	// connectedAt predates the watermark by more than the floor's skew grace,
+	// so the sweep's internal floor lets the passed watermark win unchanged —
+	// this test is about the conflict/no-conflict distinction, not the floor.
+	if _, err := overlay.Reconcile(ctx, fakeInc, mirror, meter, overlay.IncumbentClassCompanies, watermark, oldBaseline); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 

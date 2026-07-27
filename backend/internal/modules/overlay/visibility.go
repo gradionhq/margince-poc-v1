@@ -444,10 +444,21 @@ SELECT DISTINCT incumbent_user_id FROM mirror_user_map WHERE match_source = 'ema
 // own reassignment-triggered revalidateEmailMapping call cannot reach: an
 // incumbent owner whose email changes while their record ownership stays
 // exactly as it was. Intended to be run once per reconcile sweep per
-// workspace connection (compose/jobs.go's reconcileConnection), with
+// workspace connection (compose/jobs_overlay.go's reconcileConnection), with
 // emails bound to that sweep's own live incumbent adapter so the email
 // this checks against is the incumbent's current value, not a stale one
 // resolved at MirrorStore construction time.
+//
+// Fenced per owner, same as UpsertUserMap/ingestTx (assertFence before
+// lockWorkspaceVisibility): revalidateEmailMapping deletes mirror_user_map
+// rows and, through recomputeForOwnerTx, both revokes AND re-grants
+// mirror_visibility — a sweep straddling a disconnect+reconnect must not
+// run this against a directory that no longer belongs to the active
+// connection, the same hazard revokeEmailMappingsForOwners is fenced
+// against (usermapseed.go). A revoked owner's ErrConnectionGone stops the
+// whole pass rather than continuing to churn owners that will all hit the
+// same fence — reconcileConnection (jobs_overlay.go) treats it as the same
+// clean stop every other fenced sweep write does.
 func (s *MirrorStore) RevalidateEmailMappings(ctx context.Context, emails OwnerEmailResolver) error {
 	var owners []string
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -471,11 +482,17 @@ func (s *MirrorStore) RevalidateEmailMappings(ctx context.Context, emails OwnerE
 
 	for _, owner := range owners {
 		if err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+			if err := s.assertFence(ctx, tx); err != nil {
+				return err
+			}
 			if err := lockWorkspaceVisibility(ctx, tx); err != nil {
 				return err
 			}
 			return s.revalidateEmailMapping(ctx, tx, emails, owner)
 		}); err != nil {
+			if errors.Is(err, ErrConnectionGone) {
+				return err
+			}
 			return fmt.Errorf("overlay: revalidating the email-sourced mapping for owner %s: %w", owner, err)
 		}
 	}

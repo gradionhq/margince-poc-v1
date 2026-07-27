@@ -155,8 +155,9 @@ func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass st
 
 // LoadReconcileWatermark reads back objectClass's persisted incremental
 // watermark. No row yet answers the zero time — an honest "not started",
-// not an error — which a sweep must read as "from the epoch", i.e. the whole
-// portal, so a caller raises it through ReconcileFloor before sweeping.
+// not an error — which Reconcile (reconcile.go) raises through its internal
+// floor before ever sweeping from it, so this store never hands a raw zero
+// time to the incumbent seam.
 func (s *MirrorStore) LoadReconcileWatermark(ctx context.Context, objectClass string) (time.Time, error) {
 	var watermark time.Time
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

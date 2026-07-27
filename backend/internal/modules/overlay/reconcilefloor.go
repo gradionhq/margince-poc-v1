@@ -18,9 +18,11 @@ import "time"
 // is silent, so the trade is one-sided.
 const watermarkFloorSkewGrace = 15 * time.Minute
 
-// ReconcileFloor answers the instant an incremental sweep of one object class
+// reconcileFloor answers the instant an incremental sweep of one object class
 // should read from, given that class's persisted watermark (the zero time when
-// it has none) and the connection's connectedAt.
+// it has none) and the connection's connectedAt. Reconcile (reconcile.go) is
+// its ONLY caller, folded in at the top of that function — the sweep window
+// every incremental sweep uses is always floored, never a raw watermark.
 //
 // A class with no watermark yet would otherwise sweep from the zero time, which
 // the HubSpot adapter renders as `lastmodifieddate GTE 0` — the entire portal,
@@ -31,9 +33,7 @@ const watermarkFloorSkewGrace = 15 * time.Minute
 //
 // The floor is DERIVED from the connection rather than persisted alongside the
 // watermark, so no write has to happen for it to exist — and a checkpoint that
-// was never recorded is exactly the failure this prevents. The obligation moves
-// rather than vanishing, though: a Reconcile call site that passes a raw
-// watermark instead of this floor reintroduces the bug verbatim.
+// was never recorded is exactly the failure this prevents.
 //
 // connectedAt is a sound floor because the backfill walk cannot have started
 // before it: everything below the floor is the BACKFILL's responsibility, not
@@ -47,7 +47,7 @@ const watermarkFloorSkewGrace = 15 * time.Minute
 // purges overlay_reconcile_watermark in the same transaction that revokes, and
 // a reconnect can only revive a revoked row — so a sub-floor watermark cannot
 // be a live checkpoint whose progress would be skipped.
-func ReconcileFloor(watermark, connectedAt time.Time) time.Time {
+func reconcileFloor(watermark, connectedAt time.Time) time.Time {
 	floor := connectedAt.Add(-watermarkFloorSkewGrace)
 	if watermark.After(floor) {
 		return watermark

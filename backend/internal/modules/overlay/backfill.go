@@ -102,13 +102,8 @@ func Backfill(ctx context.Context, inc Incumbent, ms MirrorSink, objectClass str
 		}
 		truncated = truncated || page.Truncated
 
-		for _, rec := range page.Records {
-			if err := ms.Ingest(ctx, rec); err != nil {
-				return truncated, fmt.Errorf("overlay: backfill %s: ingesting %s: %w", objectClass, rec.ExternalID, err)
-			}
-			if err := backfillAssociations(ctx, inc, ms, objectClass, rec.ExternalID); err != nil {
-				return truncated, err
-			}
+		if err := backfillIngestPage(ctx, inc, ms, objectClass, page); err != nil {
+			return truncated, err
 		}
 
 		cursor = page.NextCursor
@@ -121,6 +116,22 @@ func Backfill(ctx context.Context, inc Incumbent, ms MirrorSink, objectClass str
 			return truncated, nil
 		}
 	}
+}
+
+// backfillIngestPage lands one Backfill page: every record through Ingest,
+// each followed by its declared associations (backfillAssociations) — split
+// out of Backfill's own loop so the pagination control flow and the
+// per-page landing logic each read as one clear thing.
+func backfillIngestPage(ctx context.Context, inc Incumbent, ms MirrorSink, objectClass string, page Page) error {
+	for _, rec := range page.Records {
+		if err := ms.Ingest(ctx, rec); err != nil {
+			return fmt.Errorf("overlay: backfill %s: ingesting %s: %w", objectClass, rec.ExternalID, err)
+		}
+		if err := backfillAssociations(ctx, inc, ms, objectClass, rec.ExternalID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // backfillAssociations fetches and upserts the association edges

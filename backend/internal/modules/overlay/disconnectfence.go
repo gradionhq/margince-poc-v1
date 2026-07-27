@@ -48,27 +48,27 @@ var ErrConnectionGone = errors.New("overlay: the incumbent connection was revoke
 // cannot be tombstoned — this fence is what protects THEM (and a brand-new
 // mirror row that has no tombstone yet).
 //
-// KNOWN GAP — a RECONNECTED workspace is a different matter, and status alone
-// does not cover it: it asks whether AN active connection exists, never
-// whether it is the one the caller started under, and reconnectConnection
-// revives the same row in place (status revoked→active, connected_at reset).
-// A stray write from a caller that started under the PRIOR connection can
-// still land after that reconnect commits. assertOwnConnection (below) closes
-// this by checking the connection's IDENTITY too — MirrorStore.WithFenceIdentity
-// engages it for every write the store makes, not only a named subset, so
-// which check a given write gets is a property of how its STORE was built
-// (WithFence vs WithFenceIdentity, assertFence's own doc), not of the write
-// itself. WithFenceIdentity is what the periodic reconcile sweep and the
-// webhook re-fetch worker use — both run unattended over a window long
-// enough for a disconnect+reconnect to land mid-flight, and both already
-// resolved the connection's identity (DueOverlayConnection.ConnectedAt /
-// ActiveConnection's own read) before building their live incumbent adapter.
-// A write-back or an on-demand sweep request (writeaudit.go, RequestSweep)
-// stays on plain WithFence: its race window is one bounded HTTP request, not
-// an unattended sweep, and closing it would need the shared per-request
-// incumbent resolver (overlay.Provider.resolveIncumbent) to carry connectedAt
-// too — a wider, unrelated seam change, tracked separately rather than
-// bundled here.
+// A RECONNECTED workspace is a different matter from a disconnected one,
+// and status alone does not cover it: it asks whether AN active connection
+// exists, never whether it is the one the caller started under, and
+// reconnectConnection revives the same row in place (status
+// revoked→active, connected_at reset). A stray write from a caller that
+// started under the PRIOR connection can still land after that reconnect
+// commits. assertOwnConnection (below) closes this by checking the
+// connection's IDENTITY too — see WithFenceIdentity's own doc
+// (mirrorstore.go's fenced/identityFenced fields) for which callers engage
+// it and why, and assertFence's for how a store's construction (WithFence
+// vs WithFenceIdentity) — not the write itself — decides which check runs.
+//
+// The remaining gap is real and narrow: a write-back or an on-demand sweep
+// request (writeaudit.go, RequestSweep) stays on plain WithFence, because
+// closing it needs the shared per-request incumbent resolver
+// (overlay.Provider.resolveIncumbent) to carry connectedAt, which it does
+// not today. Concretely, a write-back straddling a disconnect+reconnect TO A
+// DIFFERENT PORTAL can ingest portal A's record into portal B's mirror
+// (intra-tenant data pollution, not a cross-tenant leak — the workspace
+// scope never changes) and land a write-ledger echo entry under the new
+// generation that could mask a genuine portal-B change as an echo.
 //
 // The GUC is read WITHOUT missing_ok, exactly as lockWorkspaceVisibility is:
 // a fenced write with app.workspace_id unset RAISEs rather than resolving to
@@ -100,18 +100,25 @@ func assertActiveConnection(ctx context.Context, tx pgx.Tx) error {
 // as it would from a disconnect alone — the write never LANDS under a
 // connection the caller did not start under.
 //
-// Reached via MirrorStore.assertFence, never called directly outside it: a
-// store built with WithFenceIdentity routes every fenced write through this
-// instead of assertActiveConnection (assertActiveConnection's own doc names
-// which callers choose which). SaveBackfillCursor/SaveReconcileWatermark
-// (mirrorcheckpoints.go) are the one exception — they call this directly and
-// UNCONDITIONALLY require connectedAt as an explicit parameter, never
-// degrading to status-only, because a checkpoint (unlike a plain mirror row)
-// is never revisited once it says done/advanced: landing one under the wrong
-// generation would floor/short-circuit the new connection's own sync
-// (ReconcileFloor) at a point it never actually reached — silently, and
-// forever, since the watermark only advances and a done cursor is never
-// re-listed.
+// capture_connection.generation (an incrementing int, CAP-DDL-2) fences the
+// same class of race for capture's connections; overlay reuses connected_at
+// instead of adding a parallel generation column because it is already the
+// exact value every caller needs anyway (reconcileFloor's own input,
+// design.md's connect-instant), reset on every lifecycle change the same way
+// a generation bump would be — a second counter would track the first one
+// in lockstep for no added guarantee.
+//
+// Reached via MirrorStore.assertFence for every fenced write EXCEPT the two
+// checkpoint saves (SaveBackfillCursor/SaveReconcileWatermark,
+// mirrorcheckpoints.go), which call this directly instead of going through
+// assertFence: those two take connectedAt as an explicit parameter — not
+// s.connectedAt — because a checkpoint (unlike a plain mirror row) is never
+// revisited once it says done/advanced, so its identity check must never be
+// implicit in how the STORE happened to be built. Landing one under the
+// wrong generation would floor/short-circuit the new connection's own sync
+// (reconcile.go's reconcileFloor) at a point it never actually reached —
+// silently, and forever, since the watermark only advances and a done
+// cursor is never re-listed.
 func assertOwnConnection(ctx context.Context, tx pgx.Tx, connectedAt time.Time) error {
 	var one int
 	err := tx.QueryRow(ctx, `
@@ -129,21 +136,51 @@ func assertOwnConnection(ctx context.Context, tx pgx.Tx, connectedAt time.Time) 
 	return nil
 }
 
-// WithFenceIdentity is WithFence (mirrorstore.go) PLUS the connection's
-// IDENTITY (assertFence then requires assertOwnConnection, not just
-// assertActiveConnection): every fenced write additionally requires the
-// active row to still carry connectedAt, so a write issued under an EARLIER
-// connection generation is rejected even if the row is active again under a
-// NEW one (a disconnect+reconnect straddling the caller's own work). The
-// periodic reconcile sweep and the webhook re-fetch worker use this — both
-// run unattended over a window long enough for a disconnect+reconnect to
-// land mid-flight, and both already resolved connectedAt
+// WithFence returns a MirrorStore identical to s with the disconnect-race
+// fence engaged on connection STATUS ALONE (assertFence routes it to
+// assertActiveConnection — see the fenced field, mirrorstore.go): every sync
+// write it issues aborts with ErrConnectionGone the moment the workspace is
+// disconnected, instead of resurrecting purged incumbent-derived data. Use
+// this for a fenced write whose window is one bounded request (a human
+// write-back, an on-demand sweep request) — the disconnect+reconnect
+// straddle this file's own doc describes is real here too, but its race
+// window is one request, not an unattended background sweep, so
+// WithFenceIdentity's stronger guarantee is not needed (see
+// assertActiveConnection's own doc for why closing it here would need a
+// wider seam change). It is opt-in precisely so the read path and the many
+// unit tests that ingest without standing up a connection are not forced to
+// hold one.
+//
+// It explicitly clears identityFenced/connectedAt rather than inheriting
+// them from s: WithFence is the WEAKER of the two constructors, so
+// s.WithFenceIdentity(x).WithFence() must actually downgrade to status-only,
+// not silently stay identity-checked because the stronger fields survived
+// the copy. No production caller chains them today, but the method's own
+// name is the promise a future caller reads.
+func (s *MirrorStore) WithFence() *MirrorStore {
+	c := *s
+	c.fenced = true
+	c.identityFenced = false
+	c.connectedAt = time.Time{}
+	return &c
+}
+
+// WithFenceIdentity is WithFence PLUS the connection's IDENTITY (assertFence
+// then requires assertOwnConnection, not just assertActiveConnection): every
+// fenced write additionally requires the active row to still carry
+// connectedAt, so a write issued under an EARLIER connection generation is
+// rejected even if the row is active again under a NEW one (a
+// disconnect+reconnect straddling the caller's own work). The periodic
+// reconcile sweep and the webhook re-fetch worker use this — both run
+// unattended over a window long enough for a disconnect+reconnect to land
+// mid-flight, and both already resolved connectedAt
 // (DueOverlayConnection.ConnectedAt / ActiveConnection's own read) before
 // building their live incumbent adapter, so passing it through here closes
 // the race at no extra cost.
 func (s *MirrorStore) WithFenceIdentity(connectedAt time.Time) *MirrorStore {
 	c := *s
 	c.fenced = true
+	c.identityFenced = true
 	c.connectedAt = connectedAt
 	return &c
 }
@@ -155,16 +192,34 @@ func (s *MirrorStore) WithFenceIdentity(connectedAt time.Time) *MirrorStore {
 // routes through assertFence rather than choosing between
 // assertActiveConnection/assertOwnConnection itself, so upgrading a store
 // from WithFence to WithFenceIdentity strengthens every one of THOSE writes
-// without touching their bodies. A store built with WithFenceIdentity
-// carries a non-zero connectedAt (incumbent_connection.connected_at is
-// NOT NULL, so zero can only mean "never set"); one built with WithFence
-// stays on the plain status check.
+// without touching their bodies.
+//
+// A store built with WithFenceIdentity MUST NOT silently downgrade to the
+// weaker status-only check: identityFenced (mirrorstore.go) records that
+// promise independently of connectedAt itself, so a WithFenceIdentity store
+// that somehow carries a zero connectedAt (a caller bug — connected_at is
+// NOT NULL, so a genuine read is never zero) fails CLOSED — but with
+// errIdentityFenceMisconfigured, deliberately NOT ErrConnectionGone: the
+// caller-bug case must surface as a real, logged, backed-off failure
+// (reconcileConnection's callers already treat ErrConnectionGone as a
+// benign clean stop with no backoff recorded, which would let a
+// misconfigured store re-sweep hot forever instead of pacing off).
 func (s *MirrorStore) assertFence(ctx context.Context, tx pgx.Tx) error {
 	if !s.fenced {
 		return nil
 	}
-	if !s.connectedAt.IsZero() {
+	if s.identityFenced {
+		if s.connectedAt.IsZero() {
+			return errIdentityFenceMisconfigured
+		}
 		return assertOwnConnection(ctx, tx, s.connectedAt)
 	}
 	return assertActiveConnection(ctx, tx)
 }
+
+// errIdentityFenceMisconfigured is assertFence's fail-closed answer to a
+// WithFenceIdentity store built with a zero connectedAt — a caller bug, not
+// a real disconnect. It is deliberately NOT ErrConnectionGone: see
+// assertFence's own doc for why conflating the two would silently drop the
+// backoff a real failure needs.
+var errIdentityFenceMisconfigured = errors.New("overlay: identity-fenced store built with a zero connectedAt; refusing the write")

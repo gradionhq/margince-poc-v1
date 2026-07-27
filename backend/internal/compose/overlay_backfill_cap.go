@@ -25,10 +25,10 @@ import (
 // the extras harmless.
 //
 // Capping Backfill alone bounds nothing the next sweep would not undo. It
-// holds only while the sweep raises the window of a class that has no
-// watermark yet (overlay.ReconcileFloor, which documents why): read from the
-// zero time and the Modified pass pulls down every record the cap just
-// declined, so the laptop gets the whole portal one tick later. Capping
+// holds only because overlay.Reconcile floors the window of a class that has
+// no watermark yet (its internal reconcileFloor, which documents why): read
+// from the zero time and the Modified pass pulls down every record the cap
+// just declined, so the laptop gets the whole portal one tick later. Capping
 // Modified is NOT the alternative — truncating a watermark-ordered page
 // stalls the watermark whenever more than limit records share a timestamp
 // (a bulk import), and the sweep then re-reads that same page forever.
@@ -43,14 +43,15 @@ import (
 // the cursor (or lets the class finish first). This is acceptable for a
 // dev/demo knob; a production cap would carry the count out-of-band.
 //
-// Now that the floor actually makes the cap hold (the paragraph above), a
-// capped class's records below the cap are permanently declined — so it
-// marks every page it cuts short as overlay.Page.Truncated, sticky into
-// overlay_backfill_cursor.truncated (backfill.go/mirrorcheckpoints.go),
-// which backfillCompleteFor (syncstatus.go) reads back so SyncStatus never
-// reports a capped class complete. done still retires it (re-listing under
-// the same cap would relearn nothing), but done and "genuinely complete"
-// are no longer the same claim.
+// The cap holding (rather than being undone one tick later, per the
+// paragraph above) means a capped class's records below the cap are
+// permanently declined — so it marks every page it cuts short as
+// overlay.Page.Truncated, sticky into overlay_backfill_cursor.truncated
+// (backfill.go/mirrorcheckpoints.go), which backfillCompleteFor
+// (syncstatus.go) reads back so SyncStatus never reports a capped class
+// complete. done still retires it (re-listing under the same cap would
+// relearn nothing), but done and "genuinely complete" are no longer the
+// same claim.
 //
 // Recovery is NOT automatic once a class converges truncated: unsetting
 // MARGINCE_OVERLAY_BACKFILL_LIMIT does not resume it — done=true still
