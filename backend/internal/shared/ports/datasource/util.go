@@ -21,14 +21,19 @@ import (
 // UnsupportedEntityError maps to 422 on every surface.
 type UnsupportedEntityError struct{ Type string }
 
+// Every raise site is the default branch of a switch over the types that
+// provider serves, so the type named here is routinely a VALID one the
+// receiving provider simply does not own — `deal` reaching the people
+// provider. The message therefore refuses on service, not on validity, and
+// names the vocabulary only as the separate hint it is: claiming
+// "deal is not person|deal|…" would list the type in the set it denies.
 func (e *UnsupportedEntityError) Error() string {
-	return "entity_type " + e.Type + " is not " + entityVocabulary()
+	return "entity_type " + e.Type + " is not served here; known types are " + entityVocabulary()
 }
 
-// entityVocabulary renders the accepted set from EntityTypes rather than
-// restating it. This message sits in the package that DEFINES the vocabulary,
-// so a restated copy here is the one most likely to be believed and the least
-// likely to be updated — it had already lost `project` and gained `activity`.
+// entityVocabulary renders the known set from EntityTypes rather than
+// restating it: this package defines that vocabulary, so a restated copy here
+// is the one most likely to be believed and the least likely to be updated.
 func entityVocabulary() string {
 	all := EntityTypes()
 	names := make([]string, 0, len(all))
