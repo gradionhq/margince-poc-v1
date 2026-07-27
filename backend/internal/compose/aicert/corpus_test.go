@@ -16,12 +16,17 @@ package aicert_test
 import (
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
 func TestLoadCorpusCoversEveryTask(t *testing.T) {
-	scenarios, err := aicert.LoadCorpus("corpus")
+	census, err := compose.NewTaskCensus()
+	if err != nil {
+		t.Fatalf("building the task census: %v", err)
+	}
+	scenarios, err := aicert.LoadCorpus("corpus", census)
 	if err != nil {
 		t.Fatalf("LoadCorpus(corpus): %v", err)
 	}

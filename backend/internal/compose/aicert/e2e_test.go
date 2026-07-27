@@ -27,6 +27,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
 )
 
@@ -57,7 +58,16 @@ func TestE2ECertify(t *testing.T) {
 		repeats = n
 	}
 
+	// The census this build ships, not a stand-in: a run drives the
+	// certification case each registered site binds, so the lane certifies the
+	// same sites the process roles wire.
+	census, err := compose.NewTaskCensus()
+	if err != nil {
+		t.Fatalf("building the task census: %v", err)
+	}
+
 	cfg := aicert.RunnerConfig{
+		Census:      census,
 		RoutingPath: routingPath,
 		TaskFilter:  os.Getenv("MARGINCE_AICERT_TASK"),
 		Override:    os.Getenv("MARGINCE_AICERT_MODEL"),
@@ -71,9 +81,9 @@ func TestE2ECertify(t *testing.T) {
 		TraceDir: os.Getenv("MARGINCE_AICERT_TRACE"),
 	}
 
-	records, err := aicert.Run(context.Background(), cfg, slog.Default())
-	if err != nil {
-		t.Fatalf("certification run failed: %v", err)
+	records, runErr := aicert.Run(context.Background(), cfg, slog.Default())
+	if runErr != nil {
+		t.Fatalf("certification run failed: %v", runErr)
 	}
 	if len(records) == 0 {
 		t.Fatal("the run produced no records — check MARGINCE_AICERT_TASK against the corpus")

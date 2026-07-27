@@ -11,8 +11,8 @@ package aicert_test
 // validation, and record I/O — against the offline fake provider's
 // UNSCRIPTED fallback, which is itself fully deterministic (a stable
 // hash of the request payload, always prefixed "fake-completion:"), so
-// a `contains: fake-completion` structural check is a reliable,
-// script-free HardPass signal. The judge side of that same unscripted
+// an expected answer of "fake-completion" is a reliable, script-free
+// HardPass signal. The judge side of that same unscripted
 // fallback is never valid JSON, so every judge score here lands at 0
 // (the "parsed twice, still failed, score 0" path) and every verdict is
 // not_supported — Run() has no seam to script the judge, unlike
@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
+	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
 const fakeRoutingYAML = `
@@ -57,13 +58,14 @@ func scenarioYAML(task string) string {
 	return `
 name: basic
 task: ` + task + `
+site: ` + stubVariant + `
 source: hand_authored
 sanitized_by: tester
-input: Describe the widget.
+fixture:
+  subject: Describe the widget.
 expect:
-  structural:
-    - kind: contains
-      arg: fake-completion
+  outcome: accepted
+  answer: fake-completion
   rubric: Score higher for a longer, on-topic answer.
   bands:
     certified_min: 70
@@ -84,6 +86,7 @@ func TestRunWritesOneRecordPerTaskAndItLoadsBackIdentically(t *testing.T) {
 	routingPath := writeRoutingFile(t, dir)
 
 	records, err := aicert.Run(context.Background(), aicert.RunnerConfig{
+		Census:      censusFor(t, ai.TaskSummarize, ai.TaskColdStart),
 		RoutingPath: routingPath,
 		CorpusDir:   corpusDir,
 		RecordDir:   recordDir,
@@ -126,6 +129,7 @@ func TestRunTaskFilterRestrictsCertificationToOneTask(t *testing.T) {
 	routingPath := writeRoutingFile(t, dir)
 
 	records, err := aicert.Run(context.Background(), aicert.RunnerConfig{
+		Census:      censusFor(t, ai.TaskSummarize, ai.TaskColdStart),
 		RoutingPath: routingPath,
 		CorpusDir:   corpusDir,
 		RecordDir:   filepath.Join(dir, "records"),
@@ -147,6 +151,7 @@ func TestRunUnknownTaskFilterFailsLoudly(t *testing.T) {
 	routingPath := writeRoutingFile(t, dir)
 
 	_, err := aicert.Run(context.Background(), aicert.RunnerConfig{
+		Census:      censusFor(t, ai.TaskSummarize, ai.TaskColdStart),
 		RoutingPath: routingPath,
 		CorpusDir:   corpusDir,
 		RecordDir:   filepath.Join(dir, "records"),
@@ -165,6 +170,7 @@ func TestRunRejectsAnEvenRepeatsBeforeTouchingAnything(t *testing.T) {
 	routingPath := writeRoutingFile(t, dir)
 
 	_, err := aicert.Run(context.Background(), aicert.RunnerConfig{
+		Census:      censusFor(t, ai.TaskSummarize, ai.TaskColdStart),
 		RoutingPath: routingPath,
 		CorpusDir:   corpusDir,
 		RecordDir:   filepath.Join(dir, "records"),
@@ -207,6 +213,7 @@ func TestRunWritesTaskARecordAndSurfacesTaskBsWriteErrorInTheSameCall(t *testing
 	}
 
 	records, err := aicert.Run(context.Background(), aicert.RunnerConfig{
+		Census:      censusFor(t, ai.TaskSummarize, ai.TaskColdStart),
 		RoutingPath: routingPath,
 		CorpusDir:   corpusDir,
 		RecordDir:   recordDir,
@@ -236,6 +243,7 @@ func TestRunMalformedOverrideJoinsAnErrorPerTaskAndAbortsNone(t *testing.T) {
 	routingPath := writeRoutingFile(t, dir)
 
 	records, err := aicert.Run(context.Background(), aicert.RunnerConfig{
+		Census:      censusFor(t, ai.TaskSummarize, ai.TaskColdStart),
 		RoutingPath: routingPath,
 		CorpusDir:   corpusDir,
 		RecordDir:   filepath.Join(dir, "records"),

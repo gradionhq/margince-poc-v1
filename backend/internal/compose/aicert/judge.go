@@ -3,13 +3,19 @@
 
 package aicert
 
-// The candidate's request shape, the judge's call-and-retry drive, and
-// the per-run caps gate — everything runner.go's certifyTask needs to
-// turn one Scenario into one scored RunResult, split out of runner.go to
-// keep that file to the orchestration loop.
+// The judge's call-and-retry drive and the per-run caps gate — what
+// runner.go's certifyTask needs beyond the prepared case itself to turn one
+// scored answer into one RunResult, split out of runner.go to keep that file
+// to the orchestration loop.
 //
-// The judge's own prompt and verdict parse are NOT here: cert_judge is a
-// registered invocation site, and a site's prompt is built in compose
+// The candidate's request is NOT built here, and no longer anywhere in this
+// package: each site's own case issues the request its production code
+// issues. A scenario's caps.max_tokens therefore grades the answer the model
+// gave (checkCaps below); the ceiling the model was handed is the shipped
+// builder's, which is the whole point of certifying it.
+//
+// The judge's own prompt and verdict parse are NOT here either: cert_judge is
+// a registered invocation site, and a site's prompt is built in compose
 // (compose.JudgeRequest / compose.ParseJudgeVerdict) so the census can
 // certify it like every other.
 
@@ -20,45 +26,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
-
-// defaultRunMaxTokens bounds a candidate completion when a scenario
-// names no caps.max_tokens. It is the shared reasoning-headroom output
-// ceiling (ai.ReasoningOutputMaxTokens): a reasoning model spends output
-// tokens on internal thinking before its answer, so a cap sized for the
-// answer alone starves it into a MAX_TOKENS stop with zero visible text.
-// See that constant's doc for the full rationale.
-const defaultRunMaxTokens = ai.ReasoningOutputMaxTokens
-
-// buildRequest turns one scenario into the candidate's completion
-// request: its prior turns replayed as history, Input as the final
-// user turn.
-func buildRequest(sc Scenario) model.Request {
-	messages := make([]model.Message, 0, len(sc.History)+1)
-	for _, turn := range sc.History {
-		messages = append(messages, model.Message{Role: turn.Role, Content: turn.Text})
-	}
-	messages = append(messages, model.Message{Role: "user", Content: sc.Input})
-	return model.Request{System: sc.System, Messages: messages, MaxTokens: runMaxOutputTokens(sc.Expect.Caps.MaxTokens)}
-}
-
-// runMaxOutputTokens is the maxOutputTokens a candidate completion is
-// handed. A scenario's caps.max_tokens is the ANSWER-output budget
-// checkCaps grades the generated answer against — never the raw ceiling
-// given to the model. A reasoning model spends output tokens on internal
-// thinking BEFORE its answer, and that thinking counts against
-// maxOutputTokens, so handing it the bare cap starves the answer into a
-// MAX_TOKENS stop with zero visible text. The no-cap default already
-// carries this reasoning headroom; the explicit-cap path must layer the
-// same headroom ON TOP of the answer budget, so the model can think AND
-// still emit its (capped) answer.
-func runMaxOutputTokens(answerCap int) int {
-	if answerCap <= 0 {
-		return defaultRunMaxTokens
-	}
-	return answerCap + defaultRunMaxTokens
-}
 
 // judgeScore drives the judge router for one candidate output: one call,
 // one retry on a parse failure, then a 0 score with the parse error
@@ -73,7 +41,10 @@ func runMaxOutputTokens(answerCap int) int {
 // candidate: a budget-forced demotion here means the score itself came
 // from a weaker grader, which must never be trusted silently.
 func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Scenario, candidateOutput string, log *slog.Logger) (score int, judgeServedModel string, judgeDegraded bool, err error) {
-	req := compose.JudgeRequest(sc.Expect.Rubric, sc.Input, candidateOutput)
+	// The fixture is what the candidate was answering ABOUT, so it is what the
+	// grader is shown alongside the answer: under the fixture format there is no
+	// scenario-authored prompt to show it instead.
+	req := compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput)
 	resp, _, callErr := judge.Complete(ctx, ai.TaskCertJudge, req)
 	if callErr != nil {
 		return 0, "", false, fmt.Errorf("judge call: %w", callErr)

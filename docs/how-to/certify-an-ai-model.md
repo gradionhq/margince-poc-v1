@@ -116,8 +116,9 @@ token/latency numbers, so you can pinpoint the failing run:
 ```
 
 That `"0.9"` (a string where the schema wants the number `0.9`) is a typical
-find: a `not_supported` verdict driven by a structural schema miss, not a
-quality problem. Read the candidate's raw output, adjust, re-run.
+find: a `not_supported` verdict driven by a reply the site's own validator
+refuses, not a quality problem. Read the candidate's raw output, adjust,
+re-run.
 
 The trace is **on by default** because the corpus is a fixed, hand-authored
 scenario set and the content is post-stripper and written local-only — there
@@ -126,9 +127,10 @@ turns it off.
 
 ## How the verdict is decided
 
-Each run either **HardPasses** (all structural checks pass — JSON schema,
-required substrings, token caps) or fails. The judge scores the answer 0–100
-against the scenario's rubric. `N` runs of one scenario fold into a verdict
+Each run either **HardPasses** — the site's own production validator accepted
+the reply, the reply is the answer the scenario expects, and the run stayed
+inside the scenario's token/latency caps — or fails. The judge scores the
+answer 0–100 against the scenario's rubric. `N` runs of one scenario fold into a verdict
 against the scenario's score bands (spec §5):
 
 | Verdict | Rule |

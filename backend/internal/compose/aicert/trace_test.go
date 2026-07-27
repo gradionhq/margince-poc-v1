@@ -70,9 +70,9 @@ func TestCertifyTaskWithTraceWritesCandidateAndJudgePayloads(t *testing.T) {
 
 	candidateFake := ai.NewFakeClient().Script("the widget is blue and durable")
 	judgeFake := ai.NewFakeClient().Script(scoreJSON(90))
-	sc := testScenario("basic", wideBands, widgetChecks())
+	sc := testScenario("basic", wideBands)
 
-	if _, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
+	if _, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 		trace:         trace,
@@ -125,7 +125,7 @@ func TestPayloadTraceSkipsCallWithoutPayload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("openPayloadTrace: %v", err)
 	}
-	if err := trace.record("candidate", ai.TaskSummarize, testScenario("s", wideBands, nil), 1, ai.Call{}); err != nil {
+	if err := trace.record("candidate", ai.TaskSummarize, testScenario("s", wideBands), 1, ai.Call{}); err != nil {
 		t.Fatalf("record with nil Payload should be a no-op, got: %v", err)
 	}
 	if err := trace.close(); err != nil {
@@ -141,7 +141,7 @@ func TestPayloadTraceSkipsCallWithoutPayload(t *testing.T) {
 // off.
 func TestPayloadTraceNilReceiverIsSafe(t *testing.T) {
 	var trace *payloadTrace
-	if err := trace.record("candidate", ai.TaskSummarize, testScenario("s", wideBands, nil), 1, payloadCall()); err != nil {
+	if err := trace.record("candidate", ai.TaskSummarize, testScenario("s", wideBands), 1, payloadCall()); err != nil {
 		t.Fatalf("nil.record = %v, want nil", err)
 	}
 	if err := trace.close(); err != nil {
@@ -149,7 +149,7 @@ func TestPayloadTraceNilReceiverIsSafe(t *testing.T) {
 	}
 	// traceCall reaches the receiver only through record, so it inherits the
 	// nil-safety — must not panic.
-	traceCall(wsContext(t), trace, "candidate", ai.TaskSummarize, testScenario("s", wideBands, nil), 1, payloadCall(), quietLogger())
+	traceCall(wsContext(t), trace, "candidate", ai.TaskSummarize, testScenario("s", wideBands), 1, payloadCall(), quietLogger())
 }
 
 // traceCall is best-effort: a write failure is logged and swallowed so a
@@ -163,14 +163,14 @@ func TestTraceCallLogsAndContinuesOnWriteFailure(t *testing.T) {
 	if err := trace.close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	if err := trace.record("candidate", ai.TaskSummarize, testScenario("s", wideBands, nil), 1, payloadCall()); err == nil {
+	if err := trace.record("candidate", ai.TaskSummarize, testScenario("s", wideBands), 1, payloadCall()); err == nil {
 		t.Fatal("record on a closed trace should error (the write-failure case under test)")
 	}
 
 	var buf bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	// Must not panic and must not surface the error to the caller.
-	traceCall(wsContext(t), trace, "candidate", ai.TaskSummarize, testScenario("s", wideBands, nil), 1, payloadCall(), log)
+	traceCall(wsContext(t), trace, "candidate", ai.TaskSummarize, testScenario("s", wideBands), 1, payloadCall(), log)
 	if !strings.Contains(buf.String(), "payload trace write failed") {
 		t.Fatalf("expected a warning about the failed trace write, got: %q", buf.String())
 	}

@@ -1,0 +1,147 @@
+name: owner_voice_candidate_from_authored_messages
+task: voice_build
+site: derive
+source: hand_authored
+sanitized_by: hand_authored/codex
+# The corpus arrives already split and already counted, because that is what the
+# builder is handed: the selector budgets the prompt on the DECLARED word count,
+# so a fixture whose declaration disagreed with its text would send a corpus this
+# build never would.
+fixture:
+  personality: |
+    Blunt. Decides in the first sentence and then says why. Short sentences, no
+    adjectives, no hedging. Pushes back in writing rather than calling a meeting.
+  samples:
+    - id: S1
+      kind: email
+      register: customer_email
+      weight: 1
+      word_count: 223
+      text: |
+        Thanks for the drawings. Two things before we commit.
+
+        First, the tolerance on the bracket is tighter than what the sheet says. We
+        can hold it, but it adds a grinding pass and about two days. I would rather
+        tell you that now than surprise you in week three.
+
+        Second, the delivery date. You asked for the 14th. We commission on the 14th
+        and hand over on the 16th. If the 14th is hard, say so and I will look at
+        running the second shift.
+
+        On price: the number we sent stands. It includes the extra pass. It does not
+        include the on-site training day you mentioned on the call, which is 600
+        euros, and I left it out because you had not decided.
+
+        I do not think we need another meeting for this. Send me a yes on the two
+        points and I will book the slot. If you want to talk it through, Tuesday
+        morning works.
+
+        One thing I will push back on. The spec asks for a coating we have never run
+        on this alloy. I can source it, but I cannot promise the finish. My
+        recommendation is the standard coating and a sample piece for you to look
+        at. If you hate it, we change it before the batch.
+
+        Numbers are in the attachment. Ask if anything reads wrong.
+    - id: S2
+      kind: chat
+      register: internal_chat
+      weight: 1
+      word_count: 227
+      text: |
+        Short answer: yes, the window holds.
+
+        Longer answer. We lost half a day on the fixture, not two days. The line is
+        back up since this morning and we are running the second shift Thursday.
+        That gets us to the same handover date. I have not told the customer because
+        there is nothing to tell them yet.
+
+        What I need from you is the QA slot moved forward one day. If you cannot
+        move it, tell me now and I will re-plan around it rather than hoping.
+
+        On the other thing: I disagree on the timing, not on the direction. We
+        should ship the smaller version this week and learn from it. Waiting three
+        weeks to ship the whole thing means we find out in three weeks whether we
+        were right. That is too long for something we can test now.
+
+        Please cut the intro from the deck and lead with the customer result. Nobody
+        reads the first slide. The result is the argument.
+
+        I am not going to relitigate the pricing decision. It was made, it is fine,
+        and we have better things to spend the meeting on.
+
+        Two more things. The invoice for the March batch is still unpaid, so chase
+        it. And do not commit us to the trade fair until I have seen what it costs.
+
+        Back at four if you need me.
+    - id: S3
+      kind: email
+      register: customer_email
+      weight: 1
+      word_count: 215
+      text: |
+        Quick one: can we move this to Thursday? I want the numbers in front of us
+        before we decide.
+
+        Here is where I am. The forecast you sent has us adding two people in Q3. I
+        do not think we need two. I think we need one and a better process, and I
+        would like to test that before we hire.
+
+        What changes my mind is throughput data. If the line is genuinely at
+        capacity, I will sign off on both. If it is at capacity for four hours a day
+        and idle for three, that is a scheduling problem and hiring will hide it.
+
+        So: bring the last eight weeks of run time by shift. Not a summary, the raw
+        hours. I would rather read a boring table than a nice chart.
+
+        On the budget question you asked. Yes, the money is there. That is not the
+        constraint. The constraint is that every person we add is a person somebody
+        has to train, and right now the only person who can train them is you.
+
+        I am not saying no. I am saying Thursday, with the data.
+
+        One last thing. Whatever we decide, we tell the team the reasoning. People
+        take a headcount decision much better when they know what it was weighed
+        against.
+    - id: S4
+      kind: chat
+      register: internal_chat
+      weight: 1
+      word_count: 144
+      text: |
+        This is heading the right way.
+
+        Cut the second paragraph. It says the same thing as the first with more
+        adjectives. Lead with the customer result and let the detail follow.
+
+        I would also drop the word transformative. We do not talk like that and
+        neither do they.
+
+        Deadline stands: Friday, end of day. If that slips, tell me Thursday
+        morning, not Friday evening.
+
+        Good work on the numbers. That table is the strongest thing in the document
+        and it is currently on page six. Move it to page one. A reader who stops
+        after the first page should still leave with the one fact that matters.
+
+        Last point. Do not send this to the customer before I have read the final
+        version. Not because I expect a problem, but because my name is on it and I
+        want to know what it says.
+expect:
+  outcome: accepted
+  answer: [S1, S2]
+  rubric: >
+    Score whether the derived profile identifies concise, direct,
+    decision-oriented writing — the verdict in the opening line, the reasoning
+    after it, the willingness to disagree in writing rather than call a meeting —
+    without inventing biography, company facts, or a tone the corpus does not
+    show. Every signature move must quote a fragment that appears verbatim in the
+    sample it names, and the moves must be usable drafting guidance rather than
+    generic praise. Penalize a profile that reads the customer's content, the
+    quoted numbers, or the sign-off as the author's voice: those are what the
+    author was writing ABOUT, not how they write. The corpus carries both a
+    customer register and an internal one, and a profile that notices only one of
+    them has read half the author.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

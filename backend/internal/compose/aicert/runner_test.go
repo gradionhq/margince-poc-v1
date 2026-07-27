@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
@@ -24,17 +25,19 @@ func quietLogger() *slog.Logger {
 // certifyTask test in this file certifies (the task under test is
 // always passed to certifyTask directly; sc.Task here is just the
 // corpus record's own descriptive field, never consulted for routing).
-func testScenario(name string, bands Bands, checks []Check) Scenario {
+func testScenario(name string, bands Bands) Scenario {
 	return Scenario{
 		Name:        name,
 		Task:        string(ai.TaskSummarize),
+		Site:        widgetVariant,
 		Source:      sourceHandAuthored,
 		SanitizedBy: "tester",
-		Input:       "Describe the widget in one sentence.",
+		Fixture:     JSONValue(`{"subject":"a widget"}`),
 		Expect: Expectations{
-			Structural: checks,
-			Rubric:     "Score higher for a longer, on-topic, concrete answer; lower for a vague or off-topic one.",
-			Bands:      bands,
+			Outcome: aitasks.OutcomeAccepted,
+			Answer:  JSONValue(`"` + containsWidget + `"`),
+			Rubric:  "Score higher for a longer, on-topic, concrete answer; lower for a vague or off-topic one.",
+			Bands:   bands,
 		},
 	}
 }
@@ -175,18 +178,12 @@ func TestPercentileNearestRank(t *testing.T) {
 
 // --- certifyTask: the real router pipeline over the offline fake ---
 
-const containsWidget = "widget"
-
-func widgetChecks() []Check {
-	return []Check{{Kind: checkKindContains, Arg: containsWidget}}
-}
-
 func TestCertifyTaskCertifiesWhenEveryRunPassesAndScoresHigh(t *testing.T) {
 	candidateFake := ai.NewFakeClient().Script("the widget is blue and durable", "the widget is blue and durable", "the widget is blue and durable")
 	judgeFake := ai.NewFakeClient().Script(scoreJSON(90), scoreJSON(90), scoreJSON(90))
 
-	sc := testScenario("basic", wideBands, widgetChecks())
-	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})
@@ -218,8 +215,8 @@ func TestCertifyTaskSupportedDegradedOnPartialReliability(t *testing.T) {
 	)
 	judgeFake := ai.NewFakeClient().Script(scoreJSON(70), scoreJSON(70), scoreJSON(70))
 
-	sc := testScenario("basic", wideBands, widgetChecks())
-	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})
@@ -238,8 +235,8 @@ func TestCertifyTaskNotSupportedOnLowScores(t *testing.T) {
 	candidateFake := ai.NewFakeClient().Script("the widget is blue", "the widget is blue", "the widget is blue")
 	judgeFake := ai.NewFakeClient().Script(scoreJSON(10), scoreJSON(10), scoreJSON(10))
 
-	sc := testScenario("basic", wideBands, widgetChecks())
-	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})
@@ -260,8 +257,8 @@ func TestCertifyTaskNotSupportedOnLowScores(t *testing.T) {
 // still bound and servable under ai.FakeRoutingConfig(), so this is a
 // genuine soft-degrade, never a hard failure.
 func TestCertifyTaskDegradedCandidateAttemptYieldsNoRecord(t *testing.T) {
-	sc := testScenario("basic", wideBands, nil)
-	_, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	_, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithMonthlyBudget(1)},
 	})
 	if err == nil {
@@ -291,9 +288,9 @@ func TestCertifyTaskDegradedCandidateAttemptYieldsNoRecord(t *testing.T) {
 // inside the soft-degrade band regardless of small estimation error.
 func TestCertifyTaskDegradedJudgeAttemptYieldsNoRecord(t *testing.T) {
 	const candidateOutput = "the widget is blue and durable"
-	sc := testScenario("basic", wideBands, widgetChecks())
+	sc := testScenario("basic", wideBands)
 
-	probeReq := compose.JudgeRequest(sc.Expect.Rubric, sc.Input, candidateOutput)
+	probeReq := compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput)
 	probeResp, err := ai.NewFakeClient().Script("not valid json at all").Complete(context.Background(), probeReq)
 	if err != nil {
 		t.Fatalf("probing the judge's first-call token cost: %v", err)
@@ -304,7 +301,7 @@ func TestCertifyTaskDegradedJudgeAttemptYieldsNoRecord(t *testing.T) {
 	candidateFake := ai.NewFakeClient().Script(candidateOutput)
 	judgeFake := ai.NewFakeClient().Script("not valid json at all", scoreJSON(90))
 
-	_, err = certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
+	_, err = certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake), ai.WithMonthlyBudget(budget)},
 	})
@@ -323,8 +320,8 @@ func TestCertifyTaskJudgeRetriesOnceOnAParseFailureThenScores(t *testing.T) {
 	candidateFake := ai.NewFakeClient().Script("the widget is blue and durable")
 	judgeFake := ai.NewFakeClient().Script("not valid json at all", scoreJSON(80))
 
-	sc := testScenario("basic", wideBands, widgetChecks())
-	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})
@@ -347,8 +344,8 @@ func TestCertifyTaskJudgeScoresZeroWhenBothAttemptsFailToParse(t *testing.T) {
 	candidateFake := ai.NewFakeClient().Script("the widget is blue and durable")
 	judgeFake := ai.NewFakeClient().Script("still not json", "nope, also not json")
 
-	sc := testScenario("basic", wideBands, widgetChecks())
-	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})
@@ -380,10 +377,10 @@ func TestCertifyTaskFoldsMultipleScenariosToTheirWorstVerdict(t *testing.T) {
 	)
 
 	scenarios := []Scenario{
-		testScenario("good", wideBands, widgetChecks()),
-		testScenario("bad", wideBands, widgetChecks()),
+		testScenario("good", wideBands),
+		testScenario("bad", wideBands),
 	}
-	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, scenarios, ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, scenarios, testCensus(t), ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})
@@ -414,8 +411,8 @@ func TestCertifyTaskVoidsARecordWhenALaterRunIsServedByADifferentModel(t *testin
 	)
 	judgeFake := ai.NewFakeClient().Script(scoreJSON(90), scoreJSON(90))
 
-	sc := testScenario("basic", wideBands, widgetChecks())
-	_, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, ai.FakeRoutingConfig(), "", 2, quietLogger(), &certifyHooks{
+	sc := testScenario("basic", wideBands)
+	_, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t), ai.FakeRoutingConfig(), "", 2, quietLogger(), &certifyHooks{
 		candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
 		judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
 	})

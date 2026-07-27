@@ -1,0 +1,45 @@
+name: judge_ranks_the_author_rhythm_above_generic_ai_prose
+task: voice_build
+site: eval_scores
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The evaluation judges one prompt's whole repeat set in ONE call, so the fixture
+# carries all three drafts. They arrive already sanitized, because sanitized is
+# what the evaluation scores and caches.
+fixture:
+  author_sample: >-
+    Short answer: yes, the window holds. We lost half a day on the fixture, not
+    two days. The line is back up since this morning and we are running the
+    second shift Thursday. That gets us to the same handover date. I have not
+    told the customer because there is nothing to tell them yet.
+  drafts:
+    - >-
+      Short answer: yes, Thursday works. We lost half a day on the fixture and
+      got it back on the second shift, so the handover date has not moved. I
+      will tell the customer once there is something to tell them.
+    - >-
+      I wanted to reach out and let you know that we are excited to share an
+      update on this initiative. Our team has been working diligently to
+      leverage every opportunity, and we remain confident that this
+      transformative collaboration will continue to deliver value going forward.
+    - >-
+      Thursday is fine. The fixture cost us half a day. We made it up on the
+      second shift. Handover is unchanged. Nothing to tell the customer yet.
+expect:
+  outcome: accepted
+  answer: [1, 2]
+  rubric: >
+    The author writes the verdict first, in short declarative sentences, and says
+    what he has not done yet. Draft 1 is that rhythm almost exactly; draft 2 is
+    generic corporate AI prose with none of it — no verdict, no facts, and every
+    tell the anti-AI floor exists to catch; draft 3 is terser than the author but
+    faithful to the substance. Score the JUDGE, not the drafts: a competent judge
+    ranks draft 1 clearly above draft 2 and gives a reason naming what makes
+    draft 1 the author's voice rather than praising it in general terms. A judge
+    that cannot separate draft 1 from draft 2, or that scores the polished draft
+    highest because it reads professionally, is wrong however confident it
+    sounds — telling drafts apart is this call's entire job.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

@@ -43,25 +43,6 @@ func TestCloudServedNamesOnlyNetworkHostedVendors(t *testing.T) {
 	}
 }
 
-func TestBuildRequestGivesReasoningHeadroomAboveAnExplicitCap(t *testing.T) {
-	t.Run("no cap uses the default reasoning ceiling", func(t *testing.T) {
-		got := buildRequest(Scenario{Input: "draft it"}).MaxTokens
-		if got != defaultRunMaxTokens {
-			t.Fatalf("no-cap MaxTokens = %d, want %d", got, defaultRunMaxTokens)
-		}
-	})
-	t.Run("an explicit answer cap adds reasoning headroom on top", func(t *testing.T) {
-		// A reasoning model spends output tokens on thinking before its
-		// answer, so the request must budget room to think ABOVE the answer
-		// cap checkCaps grades against; the bare cap starves the answer to a
-		// MAX_TOKENS stop with zero text.
-		got := buildRequest(Scenario{Input: "draft it", Expect: Expectations{Caps: Caps{MaxTokens: 300}}}).MaxTokens
-		if want := 300 + defaultRunMaxTokens; got != want {
-			t.Fatalf("capped MaxTokens = %d, want %d (answer budget + reasoning headroom)", got, want)
-		}
-	})
-}
-
 func TestCheckCapsGatesTokensAndCloudOnlyLatency(t *testing.T) {
 	t.Run("within every cap", func(t *testing.T) {
 		ok, failures := checkCaps(Caps{MaxTokens: 100, P95LatencyMS: 5000}, ai.Call{TokensIn: 30, TokensOut: 30, LatencyMS: 1000, Provider: "anthropic"})
