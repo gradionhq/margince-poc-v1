@@ -6,6 +6,7 @@ package aicert_test
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
@@ -49,7 +50,7 @@ func TestWriteRecordThenLoadRecordsRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRecords: %v", err)
 	}
-	if len(got) != 1 || got[0] != want {
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
 		t.Fatalf("got %+v, want [%+v]", got, want)
 	}
 }
@@ -131,5 +132,47 @@ func TestLoadRecordsSortsDeterministicallyAcrossTasksAndModels(t *testing.T) {
 	}
 	if len(got) != 2 || got[0].Task != "enrich" || got[1].Task != "summarize" {
 		t.Fatalf("got %+v, want enrich then summarize", got)
+	}
+}
+
+// A record covers a task, and a reader asks about a site. Folding the record's
+// scenario rows per site is what keeps a four-site task from printing one set
+// of numbers four times under four labels.
+func TestRecordForSiteFoldsOnlyThatSitesScenarios(t *testing.T) {
+	rec := aicert.Record{
+		Task: "cold_start", Runs: 4, Passed: 3,
+		Scenarios: []aicert.ScenarioRecord{
+			{Scenario: "acts_01", Site: "acts", Verdict: aicert.VerdictCertified, Runs: 1, Passed: 1, ReportedAccepted: 1},
+			{Scenario: "acts_02", Site: "acts", Verdict: aicert.VerdictSupportedDegraded, Runs: 1, Passed: 1, ReportedAbstained: 1},
+			{Scenario: "extract_01", Site: "field_extract", Verdict: aicert.VerdictNotSupported, Runs: 2, Passed: 1, ReportedAccepted: 1, ReportedInvalid: 1},
+		},
+	}
+
+	acts, ok := rec.ForSite("acts")
+	if !ok {
+		t.Fatal("the record ran two scenarios on acts and reports covering none")
+	}
+	if acts.Runs != 2 || acts.Passed != 2 || acts.ReportedAbstained != 1 {
+		t.Fatalf("acts tally = %+v, want its own two runs", acts)
+	}
+	if acts.Verdict != aicert.VerdictSupportedDegraded {
+		t.Fatalf("acts verdict = %q, want the worse of its two scenarios", acts.Verdict)
+	}
+	if acts.Reliability() != 1 {
+		t.Fatalf("acts reliability = %v, want 1 — both of ITS runs passed, while the task's did not", acts.Reliability())
+	}
+
+	extract, ok := rec.ForSite("field_extract")
+	if !ok {
+		t.Fatal("the record ran a scenario on field_extract and reports covering none")
+	}
+	if extract.Runs != 2 || extract.Passed != 1 || extract.ReportedInvalid != 1 {
+		t.Fatalf("field_extract tally = %+v, want its own two runs", extract)
+	}
+
+	// A site the record never ran is not a zeroed measurement: it is no
+	// measurement, and a row built from a zero tally would claim otherwise.
+	if _, ok := rec.ForSite("company_message"); ok {
+		t.Fatal("a site this record never measured reports a tally")
 	}
 }

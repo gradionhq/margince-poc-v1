@@ -36,17 +36,25 @@ const unmeasured = "-"
 var reportColumns = []string{
 	"SITE", "SCOPE", "STATUS", "BAND",
 	"PROVIDER", "MODEL", "ENV",
-	"RUNS", "RELIABILITY",
+	"RUNS", "PASSED", "RELIABILITY",
 	"ACCEPTED", "WRONG_ANSWER", "INVALID", "ABSTAINED",
 }
 
 // readinessRow is one shipped site as the report renders it: the site itself,
-// which is known from the census alone, and the record covering it, which may
-// not exist. certified says which of the two a row is — a Record zero value and
-// a genuinely all-zero record are indistinguishable otherwise.
+// which is known from the census alone, the record covering it, which may not
+// exist, and THAT SITE'S OWN share of it. certified says which of the two a row
+// is — a Record zero value and a genuinely all-zero record are
+// indistinguishable otherwise.
+//
+// The tally is per site rather than per record because a record is written per
+// TASK: printing the task's pooled numbers on each of its sites' rows gives
+// four identical rows wearing four different labels, and a reader cannot tell
+// which site the numbers came from — which is the whole reason the row is the
+// site.
 type readinessRow struct {
 	site      aitasks.Site
 	record    aicert.Record
+	tally     aicert.SiteTally
 	certified bool
 	stale     bool
 }
@@ -82,7 +90,7 @@ func renderReadiness(sites []aitasks.Site, stamps map[string]string, records []a
 	for _, row := range rows {
 		writeRow("%s\n", strings.Join(row.cells(), "\t"))
 	}
-	for _, line := range legend(rows, unclaimed) {
+	for _, line := range legend(rows, sites, unclaimed) {
 		writeRow("%s\n", line)
 	}
 	if writeErr == nil {
@@ -100,10 +108,10 @@ func renderReadiness(sites []aitasks.Site, stamps map[string]string, records []a
 // readinessRows pairs every shipped site with the records covering it, and
 // returns alongside them the records no shipped site claims.
 //
-// A record is written per TASK and pools every scenario of that task's sites, so
-// one record can cover several sites and a task certified on two bindings gives
-// a site two rows. The site is still the unit here: it is what the contract
-// ships and what a scenario names.
+// A record is written per TASK and covers every site that task ships, so one
+// record can produce several rows and a task certified on two bindings gives a
+// site two. The site is the unit here — it is what the contract ships and what
+// a scenario names — and each row carries only the scenarios that ran on it.
 func readinessRows(sites []aitasks.Site, stamps map[string]string, records []aicert.Record) ([]readinessRow, []aicert.Record) {
 	byTask := map[string][]aicert.Record{}
 	for _, rec := range records {
@@ -114,23 +122,30 @@ func readinessRows(sites []aitasks.Site, stamps map[string]string, records []aic
 	claimed := map[string]bool{}
 	for _, site := range sites {
 		task := string(site.Task)
-		covering := byTask[task]
-		if len(covering) == 0 {
-			rows = append(rows, readinessRow{site: site})
-			continue
-		}
-		claimed[task] = true
-		for _, rec := range covering {
+		measured := false
+		for _, rec := range byTask[task] {
+			// A record covers a site only if it ran a scenario ON that site.
+			// One that did not measured nothing here, and a row built from its
+			// pooled numbers would report another site's runs under this name.
+			tally, ok := rec.ForSite(site.Variant)
+			if !ok {
+				continue
+			}
+			claimed[recordKey(rec)] = true
+			measured = true
 			rows = append(rows, readinessRow{
-				site: site, record: rec, certified: true,
+				site: site, record: rec, tally: tally, certified: true,
 				stale: rec.PromptVersion != stamps[task],
 			})
+		}
+		if !measured {
+			rows = append(rows, readinessRow{site: site})
 		}
 	}
 
 	var unclaimed []aicert.Record
 	for _, rec := range records {
-		if !claimed[rec.Task] {
+		if !claimed[recordKey(rec)] {
 			unclaimed = append(unclaimed, rec)
 		}
 	}
@@ -160,6 +175,12 @@ func currentStamps(ctx context.Context, corpus []aicert.Scenario, census *aitask
 		stamps[task] = stamp
 	}
 	return stamps, nil
+}
+
+// recordKey identifies one record the way its own file path does — the four
+// fields that make it a distinct measurement.
+func recordKey(rec aicert.Record) string {
+	return rec.Task + "/" + rec.Provider + "/" + rec.ServedModel + "/" + rec.EnvClass
 }
 
 // status names which of the three states this row is in.
@@ -199,13 +220,14 @@ func (r readinessRow) cells() []string {
 		}
 		return cells
 	}
-	rec := r.record
+	rec, tally := r.record, r.tally
 	return []string{
-		site, r.scope(), r.status(), rec.Verdict,
+		site, r.scope(), r.status(), tally.Verdict,
 		rec.Provider, rec.ServedModel, rec.EnvClass,
-		fmt.Sprintf("%d", rec.Runs), fmt.Sprintf("%.2f", rec.Reliability),
-		fmt.Sprintf("%d", rec.Accepted), fmt.Sprintf("%d", rec.WrongAnswer),
-		fmt.Sprintf("%d", rec.Invalid), fmt.Sprintf("%d", rec.Abstained),
+		fmt.Sprintf("%d", tally.Runs), fmt.Sprintf("%d", tally.Passed),
+		fmt.Sprintf("%.2f", tally.Reliability()),
+		fmt.Sprintf("%d", tally.ReportedAccepted), fmt.Sprintf("%d", tally.ReportedWrongAnswer),
+		fmt.Sprintf("%d", tally.ReportedInvalid), fmt.Sprintf("%d", tally.ReportedAbstained),
 	}
 }
 
@@ -228,12 +250,16 @@ func summarize(rows []readinessRow) string {
 // belong in the output rather than in a reader's head: the binding is part of
 // every claim here, and a row read as a property of the product rather than of
 // one deployment is the way this report would mislead.
-func legend(rows []readinessRow, unclaimed []aicert.Record) []string {
+func legend(rows []readinessRow, sites []aitasks.Site, unclaimed []aicert.Record) []string {
 	lines := []string{
 		"",
 		"Every row is one (provider, model, env) binding: a band says what that deployment did,",
-		"and green-lights no other. A record is written per task and pools every scenario of that",
-		"task's sites, so sites sharing a task share its record.",
+		"and green-lights no other. A record is written per task and covers every site that task",
+		"ships, so sites sharing a task share its record — but each row's numbers are that SITE's",
+		"own scenarios, never the task's pooled total.",
+		"RUNS/PASSED is how often the site did what its scenarios asked. ACCEPTED, WRONG_ANSWER,",
+		"INVALID and ABSTAINED are what the site's validator REPORTED: a run can be accepted and",
+		"still fail, when the scenario asked for an abstention.",
 	}
 	var stale, absent int
 	for _, row := range rows {
@@ -258,10 +284,19 @@ func legend(rows []readinessRow, unclaimed []aicert.Record) []string {
 		lines = append(lines,
 			"Run `make e2e-ai TASK=<task> MODEL=<provider:model>` to certify (paid: real model, real network).")
 	}
+	shippedTasks := map[string]bool{}
+	for _, site := range sites {
+		shippedTasks[string(site.Task)] = true
+	}
 	for _, rec := range unclaimed {
-		lines = append(lines, fmt.Sprintf(
-			"Record %s/%s_%s_%s covers no site this build registers — a stale artifact of a task that has moved.",
-			rec.Task, rec.Provider, rec.ServedModel, rec.EnvClass))
+		name := fmt.Sprintf("Record %s/%s_%s_%s", rec.Task, rec.Provider, rec.ServedModel, rec.EnvClass)
+		if !shippedTasks[rec.Task] {
+			lines = append(lines, name+" covers no site this build registers — a stale artifact of a task that has moved.")
+			continue
+		}
+		// The record's task ships, but nothing in it says which site each run
+		// measured, so no row can carry its numbers honestly.
+		lines = append(lines, name+" names no scenario of any site its task ships, so no row above can attribute it.")
 	}
 	return lines
 }

@@ -45,12 +45,8 @@ func withFixedNow(t *testing.T, at time.Time) {
 func TestBuildRecordPricesPerBucketMeansAgainstTheSeedRateSheet(t *testing.T) {
 	withFixedNow(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
 
-	results := []RunResult{{Score: 80, HardPass: true}, {Score: 90, HardPass: true}}
-	latencies := []int64{100, 200}
-	rec := buildRecord(ai.TaskSummarize, VerdictCertified, aitasks.ScopeFullInvocation, 1, results, latencies,
-		3000, 500, 400, 200,
-		"anthropic", "claude-haiku-4-5-20251001", "response", "claude-opus-4-8", false,
-		ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
+	acc := ratedAccumulation()
+	rec := buildRecord(ai.TaskSummarize, VerdictCertified, acc, ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 
 	if rec.MeanTokensIn != 1500 || rec.MeanTokensOut != 250 || rec.MeanCachedTokens != 200 || rec.MeanCacheWriteTokens != 100 {
 		t.Fatalf("mean buckets = in=%d out=%d cached=%d cache_write=%d, want 1500/250/200/100",
@@ -71,11 +67,13 @@ func TestBuildRecordPricesPerBucketMeansAgainstTheSeedRateSheet(t *testing.T) {
 func TestBuildRecordUnpricedWhenNoSeedRateMatchesTheServedModel(t *testing.T) {
 	withFixedNow(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
 
-	results := []RunResult{{Score: 80, HardPass: true}}
-	rec := buildRecord(ai.TaskSummarize, VerdictCertified, aitasks.ScopeFullInvocation, 1, results, []int64{100},
-		1000, 200, 0, 0,
-		"anthropic", "claude-does-not-exist", "response", "claude-opus-4-8", false,
-		ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
+	acc := ratedAccumulation()
+	acc.allResults = []RunResult{{Score: 80, HardPass: true}}
+	acc.latencies = []int64{100}
+	acc.passed = 1
+	acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal = 1000, 200, 0, 0
+	acc.servedModel = "claude-does-not-exist"
+	rec := buildRecord(ai.TaskSummarize, VerdictCertified, acc, ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 
 	if rec.EstCostMicroUSD != 0 {
 		t.Fatalf("est_cost_microusd = %d, want 0 for an unrated served model", rec.EstCostMicroUSD)
@@ -95,10 +93,7 @@ func TestBuildRecordIsByteForByteDeterministicForIdenticalInputs(t *testing.T) {
 	withFixedNow(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
 
 	call := func() Record {
-		results := []RunResult{{Score: 80, HardPass: true}, {Score: 90, HardPass: true}}
-		return buildRecord(ai.TaskSummarize, VerdictCertified, aitasks.ScopeFullInvocation, 1, results, []int64{100, 200},
-			3000, 500, 400, 200,
-			"anthropic", "claude-haiku-4-5-20251001", "response", "claude-opus-4-8", false,
+		return buildRecord(ai.TaskSummarize, VerdictCertified, ratedAccumulation(),
 			ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 	}
 
@@ -124,26 +119,32 @@ func TestBuildRecordIsByteForByteDeterministicForIdenticalInputs(t *testing.T) {
 func TestBuildRecordCountsWhatEachRunActuallyProduced(t *testing.T) {
 	withFixedNow(t, time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC))
 
-	results := []RunResult{
+	acc := ratedAccumulation()
+	acc.allResults = []RunResult{
 		{Score: 90, HardPass: true, Outcome: aitasks.OutcomeAccepted},
 		{Score: 85, HardPass: true, Outcome: aitasks.OutcomeAccepted},
 		{Score: 40, Outcome: aitasks.OutcomeWrongAnswer},
 		{Score: 10, Outcome: aitasks.OutcomeInvalid},
 		{Score: 70, HardPass: true, Outcome: aitasks.OutcomeAbstained},
 	}
-	rec := buildRecord(ai.TaskSummarize, VerdictSupportedDegraded, aitasks.ScopeSingleTurn, 0.6, results,
-		[]int64{100, 100, 100, 100, 100},
-		1000, 200, 0, 0,
-		"anthropic", "claude-haiku-4-5-20251001", "response", "claude-opus-4-8", false,
-		ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
+	acc.latencies = []int64{100, 100, 100, 100, 100}
+	acc.passed = 3
+	acc.certifiedScope = aitasks.ScopeSingleTurn
+	rec := buildRecord(ai.TaskSummarize, VerdictSupportedDegraded, acc, ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 
-	if rec.Accepted != 2 || rec.WrongAnswer != 1 || rec.Invalid != 1 || rec.Abstained != 1 {
-		t.Fatalf("outcome counts = accepted=%d wrong_answer=%d invalid=%d abstained=%d, want 2/1/1/1",
-			rec.Accepted, rec.WrongAnswer, rec.Invalid, rec.Abstained)
+	if rec.ReportedAccepted != 2 || rec.ReportedWrongAnswer != 1 || rec.ReportedInvalid != 1 || rec.ReportedAbstained != 1 {
+		t.Fatalf("reported outcome counts = accepted=%d wrong_answer=%d invalid=%d abstained=%d, want 2/1/1/1",
+			rec.ReportedAccepted, rec.ReportedWrongAnswer, rec.ReportedInvalid, rec.ReportedAbstained)
 	}
-	if rec.Accepted+rec.WrongAnswer+rec.Invalid+rec.Abstained != rec.Runs {
+	if rec.ReportedAccepted+rec.ReportedWrongAnswer+rec.ReportedInvalid+rec.ReportedAbstained != rec.Runs {
 		t.Fatalf("the four counts sum to %d but the record reports %d runs — every run produced exactly one outcome",
-			rec.Accepted+rec.WrongAnswer+rec.Invalid+rec.Abstained, rec.Runs)
+			rec.ReportedAccepted+rec.ReportedWrongAnswer+rec.ReportedInvalid+rec.ReportedAbstained, rec.Runs)
+	}
+	// The counts say what came back; Passed says whether it was what was asked
+	// for. Two accepted replies and an abstention passed here, so a reader
+	// cannot infer either number from the other.
+	if rec.Passed != 3 || rec.Reliability != 0.6 {
+		t.Fatalf("passed=%d reliability=%v, want 3 and 0.6", rec.Passed, rec.Reliability)
 	}
 	if rec.CertifiedScope != aitasks.ScopeSingleTurn {
 		t.Fatalf("certified_scope = %q, want %q — the scope is the caller's claim about its sites, not a constant",
@@ -151,5 +152,26 @@ func TestBuildRecordCountsWhatEachRunActuallyProduced(t *testing.T) {
 	}
 	if rec.ContextApplied {
 		t.Fatal("context_applied is true, but the cert lane runs without a database and never applies the company context prompt")
+	}
+}
+
+// ratedAccumulation is one task's folded run set, on a served model the seed
+// rate sheet actually prices: two passing runs, 3000/500/400/200 pooled tokens.
+// A test that changes one of those numbers copies it rather than editing here,
+// so the priced arithmetic above stays pinned to the comment that derives it.
+func ratedAccumulation() *taskAccumulation {
+	return &taskAccumulation{
+		allResults:            []RunResult{{Score: 80, HardPass: true}, {Score: 90, HardPass: true}},
+		latencies:             []int64{100, 200},
+		tokensInTotal:         3000,
+		tokensOutTotal:        500,
+		cachedTokensTotal:     400,
+		cacheWriteTokensTotal: 200,
+		passed:                2,
+		provider:              "anthropic",
+		servedModel:           "claude-haiku-4-5-20251001",
+		identitySource:        "response",
+		judgeServedModel:      "claude-opus-4-8",
+		certifiedScope:        aitasks.ScopeFullInvocation,
 	}
 }

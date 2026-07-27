@@ -490,9 +490,12 @@ func TestCertifyTaskRecordsTheOutcomeEachRunProduced(t *testing.T) {
 	if err != nil {
 		t.Fatalf("certifyTask: %v", err)
 	}
-	if rec.Accepted != 1 || rec.WrongAnswer != 1 || rec.Invalid != 0 || rec.Abstained != 1 {
-		t.Fatalf("outcome counts = accepted=%d wrong_answer=%d invalid=%d abstained=%d, want 1/1/0/1 (record: %+v)",
-			rec.Accepted, rec.WrongAnswer, rec.Invalid, rec.Abstained, rec)
+	if rec.ReportedAccepted != 1 || rec.ReportedWrongAnswer != 1 || rec.ReportedInvalid != 0 || rec.ReportedAbstained != 1 {
+		t.Fatalf("reported outcome counts = accepted=%d wrong_answer=%d invalid=%d abstained=%d, want 1/1/0/1 (record: %+v)",
+			rec.ReportedAccepted, rec.ReportedWrongAnswer, rec.ReportedInvalid, rec.ReportedAbstained, rec)
+	}
+	if rec.Passed != 1 {
+		t.Fatalf("passed = %d, want 1 — only the accepted run did what the scenario asked", rec.Passed)
 	}
 	if got := rec.Reliability; got < 0.33 || got > 0.34 {
 		t.Fatalf("reliability = %v, want ~1/3 — only the accepted run matched the scenario's expected outcome", got)

@@ -51,7 +51,32 @@ func runScenario(ctx context.Context, task ai.Task, sc Scenario, census *aitasks
 		scenarioResults = append(scenarioResults, outcome.RunResult)
 	}
 	scenarioVerdict, _ := Verdict(scenarioResults, sc.Expect.Bands)
+	acc.scenarios = append(acc.scenarios, scenarioRow(sc, scenarioVerdict, scenarioResults))
 	return scenarioVerdict, nil
+}
+
+// scenarioRow is what this scenario's own runs did, for the record to carry
+// beside the task's pooled numbers. Passed and the reported outcomes are
+// counted separately because they answer different questions: whether the run
+// did what the scenario asked, and what came back when it did not.
+func scenarioRow(sc Scenario, verdict string, results []RunResult) ScenarioRecord {
+	tally := tallyOutcomes(results)
+	row := ScenarioRecord{
+		Scenario:            sc.Name,
+		Site:                sc.Site,
+		Verdict:             verdict,
+		Runs:                len(results),
+		ReportedAccepted:    tally.accepted,
+		ReportedWrongAnswer: tally.wrongAnswer,
+		ReportedInvalid:     tally.invalid,
+		ReportedAbstained:   tally.abstained,
+	}
+	for _, r := range results {
+		if r.HardPass {
+			row.Passed++
+		}
+	}
+	return row
 }
 
 // runOutcome is one scored run plus the identity fields Record needs

@@ -211,11 +211,7 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, census
 		taskVerdict = worstVerdict(taskVerdict, scenarioVerdict)
 	}
 
-	reliability := float64(acc.passed) / float64(len(acc.allResults))
-	return buildRecord(task, taskVerdict, acc.certifiedScope, reliability, acc.allResults, acc.latencies,
-		acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal,
-		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun,
-		baseCfg, promptVersion), nil
+	return buildRecord(task, taskVerdict, acc, baseCfg, promptVersion), nil
 }
 
 // taskAccumulation collects the pooled stats certifyTask folds across
@@ -245,6 +241,10 @@ type taskAccumulation struct {
 	// extraction beside three multi-turn conversations — so the record may
 	// claim only what its weakest site proved.
 	certifiedScope string
+	// scenarios is one row per scenario the task ran, in the order it ran
+	// them. The pooled numbers above cannot say WHICH scenario failed, and
+	// that is the question a failed task actually raises.
+	scenarios []ScenarioRecord
 }
 
 // addRun folds one scored run into acc, first checking outcome's candidate

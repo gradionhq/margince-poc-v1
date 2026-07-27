@@ -32,6 +32,15 @@ func rowFor(t *testing.T, out, site string) string {
 	return found
 }
 
+// scenarioRecordFor is one all-passing scenario row on a site, which is what a
+// record needs to carry for the report to attribute it to that site at all.
+func scenarioRecordFor(site, verdict string) aicert.ScenarioRecord {
+	return aicert.ScenarioRecord{
+		Scenario: site + "_01", Site: site, Verdict: verdict,
+		Runs: 3, Passed: 3, ReportedAccepted: 3,
+	}
+}
+
 // The stamps a report is handed are opaque to it: main computes them from the
 // corpus and the census (aicert.PromptVersion), and the report only ever asks
 // whether a record carries the one its task computes. So these tests name them
@@ -81,12 +90,14 @@ func TestReadinessReportRendersStaleAndAbsentDistinctly(t *testing.T) {
 		{
 			Task: "rate_extract", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
 			PromptVersion: currentStamp,
-			Verdict:       aicert.VerdictCertified, Runs: 3, Accepted: 3,
+			Verdict:       aicert.VerdictCertified, Runs: 3, Passed: 3,
+			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("fx", aicert.VerdictCertified)},
 		},
 		{
 			Task: "brief_ranking", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
 			PromptVersion: staleStamp,
-			Verdict:       aicert.VerdictCertified, Runs: 3, Accepted: 3,
+			Verdict:       aicert.VerdictCertified, Runs: 3, Passed: 3,
+			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("rank", aicert.VerdictCertified)},
 		},
 	}
 
@@ -125,12 +136,14 @@ func TestReadinessReportCarriesTheBandTheCountsAndTheBinding(t *testing.T) {
 		PromptVersion:  currentStamp,
 		Verdict:        aicert.VerdictNotSupported,
 		Runs:           9,
+		Passed:         2,
 		Reliability:    0.22,
-		Accepted:       2,
-		WrongAnswer:    3,
-		Invalid:        4,
-		Abstained:      0,
 		CertifiedScope: aitasks.ScopeFullInvocation,
+		Scenarios: []aicert.ScenarioRecord{{
+			Scenario: "fx_01", Site: "fx", Verdict: aicert.VerdictNotSupported,
+			Runs: 9, Passed: 2,
+			ReportedAccepted: 2, ReportedWrongAnswer: 3, ReportedInvalid: 4,
+		}},
 	}}
 
 	out := renderReadiness(sites, map[string]string{"rate_extract": currentStamp}, records)
@@ -144,7 +157,7 @@ func TestReadinessReportCarriesTheBandTheCountsAndTheBinding(t *testing.T) {
 			t.Errorf("the row does not carry %q: %q", want, row)
 		}
 	}
-	for _, want := range []string{"ACCEPTED", "WRONG_ANSWER", "INVALID", "ABSTAINED", "PROVIDER", "MODEL", "ENV"} {
+	for _, want := range []string{"RUNS", "PASSED", "ACCEPTED", "WRONG_ANSWER", "INVALID", "ABSTAINED", "PROVIDER", "MODEL", "ENV"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the report has no %s column:\n%s", want, out)
 		}
@@ -180,8 +193,12 @@ func TestReadinessReportShowsTheScopeEachSiteCanClaim(t *testing.T) {
 func TestEveryRowFillsEveryColumn(t *testing.T) {
 	site := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
 	rows := map[string]readinessRow{
-		"absent":    {site: site},
-		"certified": {site: site, certified: true, record: aicert.Record{Task: "rate_extract", Verdict: aicert.VerdictCertified}},
+		"absent": {site: site},
+		"certified": {
+			site: site, certified: true,
+			record: aicert.Record{Task: "rate_extract"},
+			tally:  aicert.SiteTally{Verdict: aicert.VerdictCertified, Runs: 3, Passed: 3},
+		},
 	}
 	for state, row := range rows {
 		if got := len(row.cells()); got != len(reportColumns) {
@@ -204,5 +221,60 @@ func TestReadinessReportNamesRecordsNoShippedSiteClaims(t *testing.T) {
 
 	if !strings.Contains(out, "retired_task") {
 		t.Errorf("a record for a task this build no longer registers vanished from the report:\n%s", out)
+	}
+}
+
+// One record covers a task, and cold_start ships four sites. Printing the
+// task's pooled numbers on each site's row gives four identical rows wearing
+// four labels — a reader cannot tell which site was measured how, which is the
+// whole reason the row is the site.
+func TestReadinessReportGivesEachSiteItsOwnNumbers(t *testing.T) {
+	sites := []aitasks.Site{
+		{Task: ai.TaskColdStart, Variant: "acts", Kind: ai.SiteKindOneShot},
+		{Task: ai.TaskColdStart, Variant: "field_extract", Kind: ai.SiteKindOneShot},
+	}
+	records := []aicert.Record{{
+		Task: "cold_start", Provider: "gemini", ServedModel: "gemini-2.5-flash", EnvClass: "byok",
+		PromptVersion: currentStamp,
+		Verdict:       aicert.VerdictNotSupported, Runs: 6, Passed: 3,
+		Scenarios: []aicert.ScenarioRecord{
+			{Scenario: "acts_01", Site: "acts", Verdict: aicert.VerdictCertified, Runs: 3, Passed: 3, ReportedAccepted: 3},
+			{Scenario: "extract_01", Site: "field_extract", Verdict: aicert.VerdictNotSupported, Runs: 3, Passed: 0, ReportedInvalid: 3},
+		},
+	}}
+
+	out := renderReadiness(sites, map[string]string{"cold_start": currentStamp}, records)
+
+	acts := rowFor(t, out, "cold_start/acts")
+	if !strings.Contains(acts, aicert.VerdictCertified) || !strings.Contains(acts, "1.00") {
+		t.Errorf("the site whose scenarios all passed does not read that way: %q", acts)
+	}
+	extract := rowFor(t, out, "cold_start/field_extract")
+	if !strings.Contains(extract, aicert.VerdictNotSupported) || !strings.Contains(extract, "0.00") {
+		t.Errorf("the site whose scenarios all failed does not read that way: %q", extract)
+	}
+	if acts == extract {
+		t.Errorf("both sites of one task render the identical row:\n%s", out)
+	}
+}
+
+// A record whose task ships but whose scenarios name no site of it cannot be
+// attributed to any row. It must still be named: a record nobody enumerates
+// reads as no record at all.
+func TestReadinessReportNamesARecordNoSiteRowCanCarry(t *testing.T) {
+	sites := []aitasks.Site{{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}}
+	records := []aicert.Record{{
+		Task: "rate_extract", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
+		PromptVersion: currentStamp, Verdict: aicert.VerdictCertified, Runs: 3, Passed: 3,
+		Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("a_site_that_moved", aicert.VerdictCertified)},
+	}}
+
+	out := renderReadiness(sites, map[string]string{"rate_extract": currentStamp}, records)
+
+	if row := rowFor(t, out, "rate_extract/fx"); !strings.Contains(row, "absent") {
+		t.Errorf("a site this record never measured is not reported as unmeasured: %q", row)
+	}
+	if !strings.Contains(out, "no row above can attribute it") {
+		t.Errorf("the unattributable record vanished from the report:\n%s", out)
 	}
 }

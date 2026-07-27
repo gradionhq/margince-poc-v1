@@ -83,11 +83,22 @@ the records:
 ```
 AI certification readiness: 1 of 19 shipped sites carry a current record.
 
-SITE                  SCOPE            STATUS  BAND       PROVIDER  MODEL             ENV   RUNS  RELIABILITY  ACCEPTED  WRONG_ANSWER  INVALID  ABSTAINED
-agent_loop/loop       single_turn      absent  -          -         -                 -     -     -            -         -             -        -
-cold_start/acts       single_turn      current certified  gemini    gemini-2.5-flash  byok  3     1.00         3         0             0        0
-rate_extract/pricing  full_invocation  stale   certified  gemini    gemini-2.5-flash  byok  3     1.00         3         0             0        0
+SITE                  SCOPE            STATUS  BAND       PROVIDER  MODEL             ENV   RUNS  PASSED  RELIABILITY  ACCEPTED  WRONG_ANSWER  INVALID  ABSTAINED
+agent_loop/loop       single_turn      absent  -          -         -                 -     -     -       -            -         -             -        -
+cold_start/acts       single_turn      current certified  gemini    gemini-2.5-flash  byok  3     3       1.00         3         0             0        0
+rate_extract/pricing  full_invocation  stale   certified  gemini    gemini-2.5-flash  byok  3     3       1.00         3         0             0        0
 ```
+
+**Every row's numbers are that SITE's own.** A record is written per task and a
+task can ship several sites — `cold_start` ships four — so the record carries
+each scenario's own counts and the row folds the ones that ran on its site. A
+site the record never ran a scenario on reads `absent`, not as its sibling's
+numbers.
+
+`RUNS`/`PASSED` is how often the site did what its scenarios asked. The four
+columns after `RELIABILITY` are what the site's own validator **reported**, and
+they are not a pass/fail column: a run can be `ACCEPTED` and still fail, when
+the scenario asked for an abstention.
 
 Three states, and they never collapse into each other:
 

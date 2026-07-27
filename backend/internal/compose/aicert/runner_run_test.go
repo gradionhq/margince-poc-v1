@@ -25,6 +25,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -116,7 +117,7 @@ func TestRunWritesOneRecordPerTaskAndItLoadsBackIdentically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadRecords: %v", err)
 	}
-	if len(loaded) != 1 || loaded[0] != rec {
+	if len(loaded) != 1 || !reflect.DeepEqual(loaded[0], rec) {
 		t.Fatalf("LoadRecords round-trip mismatch: wrote %+v, loaded %+v", rec, loaded)
 	}
 }
