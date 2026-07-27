@@ -167,6 +167,33 @@ func TestRegisterExtensionsRejectsADuplicateRetentionClass(t *testing.T) {
 	}
 }
 
+// TestRegisterExtensionsPreflightsTools: a governed tool reaching boot
+// (even outside the generator path) is validated through the published
+// Tool.Validate, and a verb declared twice in one unit is rejected — the
+// fail-closed boundary holds at boot, not only at gen time.
+func TestRegisterExtensionsPreflightsTools(t *testing.T) {
+	badTier := RegisterExtensions([]extension.Extension{{
+		Name:    "bad-tier-tool",
+		Version: "0.0.1",
+		Tools:   []extension.Tool{{Name: "ping", Version: "1.0.0", Tier: "dynamic", RequestedScope: extension.ScopeRead}},
+	}})
+	if badTier == nil || !strings.Contains(badTier.Error(), "not one an extension may request") {
+		t.Fatalf("err = %v, want the tier rejection", badTier)
+	}
+
+	dup := RegisterExtensions([]extension.Extension{{
+		Name:    "dup-tool",
+		Version: "0.0.1",
+		Tools: []extension.Tool{
+			{Name: "ping", Version: "1.0.0", Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead},
+			{Name: "ping", Version: "2.0.0", Tier: extension.TierConfirmationRequired, RequestedScope: extension.ScopeWrite},
+		},
+	}})
+	if dup == nil || !strings.Contains(dup.Error(), `declares tool "ping" twice`) {
+		t.Fatalf("err = %v, want the duplicate-tool rejection", dup)
+	}
+}
+
 // TestNoCapabilityAppliesWhenTheSetIsInvalid: validation and application
 // are separate phases — a clean unit's capabilities must not land when a
 // later unit fails validation, or a crash-looping process would leave

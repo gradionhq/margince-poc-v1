@@ -2,20 +2,20 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package extension is the published declaration surface of the stable
-// extension tier (ADR-0069): one named, versioned, compile-time unit
+// extension tier: one named, versioned, compile-time unit
 // under root extensions/<name>/ that lands without editing any
 // upstream-owned file. An extension exports `func New() extension.Extension`
 // returning its declaration as a plain value; the generated composition
 // (build/composition/, emitted by tools/gen-composition) collects every
 // enabled unit's value and the process roles reconcile the set into the
-// core registries at boot — the ONE registration idiom (EXT-P4).
+// core registries at boot — the ONE registration idiom.
 //
 // A declaration is inert data: it holds no handle into the core and
 // extensions share no memory through it — each New() builds its own
 // value, and only the boot reconciliation (after the whole set
 // validated) applies anything. Capabilities are fields; a new capability
 // kind is a new field, so existing declarations and extension test
-// suites keep compiling (EXT-P3: grow additively, never in place). New
+// suites keep compiling (grow additively, never in place). New
 // gains a Deps parameter through a versioned successor when the first
 // capability needs injected dependencies.
 //
@@ -42,7 +42,7 @@ var nameGrammar = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 // and two long names could collide on one `x_<name>` role. 32 leaves 28
 // bytes for a table suffix in `x_<name>_<table>`; the suffix's own
 // share is enforced where tables are DECLARED — the extension-migration
-// slice (ADR-0069 §9) validates every complete derived identifier
+// slice validates every complete derived identifier
 // against the full budget, since only the migration knows its table
 // names. The name cap alone deliberately does NOT claim that guarantee.
 const maxNameLength = 32
@@ -61,7 +61,7 @@ type Name string
 // on a violation.
 func (n Name) Validate() error {
 	if !nameGrammar.MatchString(string(n)) {
-		return fmt.Errorf("extension name %q is not a valid unit name (lower-case [a-z0-9] segments joined by single hyphens, ADR-0069 §2)", string(n))
+		return fmt.Errorf("extension name %q is not a valid unit name (lower-case [a-z0-9] segments joined by single hyphens)", string(n))
 	}
 	if len(n) > maxNameLength {
 		return fmt.Errorf("extension name %q is %d characters — the unit name keys SQL identifiers (x_<name>_<table>, 63-byte limit), so it is capped at %d", string(n), len(n), maxNameLength)
@@ -71,7 +71,7 @@ func (n Name) Validate() error {
 
 // Version is the extension's own version string, expected stable for an
 // unchanged unit: the boot inventory records it and logs a change. It
-// carries no authority (ADR-0069 §7 binds operator decisions to digests,
+// carries no authority (operator decisions bind to digests,
 // never to a version string).
 type Version string
 
@@ -103,4 +103,11 @@ type Extension struct {
 	// jurisdiction code across the composed set is a wiring defect and
 	// fails the boot.
 	Jurisdictions []jurisdiction.Pack
+
+	// Tools are the governed agent tools the unit contributes: named
+	// operations running at a requested risk tier. Their tiers
+	// and scopes are REQUESTS recorded in the manifest for operator
+	// resolution — see Tool. Unlike a jurisdiction pack (passive policy),
+	// a tool is a governed capability and appears in manifest.generated.json.
+	Tools []Tool
 }
