@@ -1245,12 +1245,21 @@ Open work, roughly in priority order:
   takes — a separate check followed by a stage leaves a window where a decision
   lands in between, the check reads "not declined", the staging finds no pending
   row to join, and the refused offer is recreated anyway. Ordered instead of
-  interleaved, whoever gets there first wins cleanly. Note what the tests do and
-  do not cover: they pin that a declined rename is never re-offered across later
-  passes, which is the user-visible obligation; the ordering itself rests on the
-  row lock and the single transaction, not on a test that stages an interleaving
-  (one written for it proved the same thing the durability test already did, and
-  claiming otherwise in its name would have been the noise T11 forbids).
+  interleaved, whoever gets there first wins cleanly.
+  **And the row lock alone was not enough (#288).** `FOR UPDATE` locks the rows
+  it finds and locks NOTHING when it finds none, so an empty result is not the
+  same as "no offer can appear": a second pass reading before the first has
+  committed sees no prior offers at all, and by the time it writes, the first
+  pass's offer may exist AND have been rejected — it then finds no PENDING row to
+  join and recreates exactly what the human refused. The per-identity advisory
+  lock (already used inside `stageOrJoinPendingInTx`, now hoisted into
+  `lockProposalIdentity` and taken FIRST) is what makes the read late enough to
+  see it. Proven rather than argued, in
+  `TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading`:
+  it holds that lock in one transaction, watches `pg_locks` until
+  the staging is provably blocked on it (busy-read, no clock), commits a rejected
+  offer, and asserts nothing was staged — it fails on exactly that assertion when
+  the hoisted lock is removed.
   The §2.9 amendment landed with it: `SignatureCandidates` no longer retires a
   person the moment ANY profile-field row exists (one accepted title used to
   silence the company name their signature also states) — the predicate is now
