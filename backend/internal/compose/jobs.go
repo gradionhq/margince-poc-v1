@@ -298,6 +298,21 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	}
 
 	{
+		// Registered unconditionally: the promotion weighs evidence rows the
+		// enrich pass already wrote, so it needs no model. Gating it on a brain
+		// would leave an AI-less deployment unable to act on signatures it had
+		// already collected.
+		river.AddWorker(workers, &orgNamePromotionWorker{promoter: NewOrgNamePromoter(pool, log)})
+		// Daily, after the enrich pass has had a night to collect signatures;
+		// run-on-start so a deployment with a backlog acts on it immediately.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return OrgNamePromotionArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	{
 		// Registered unconditionally: only the JUDGING stage needs a model, and
 		// the worker skips it when none is configured. Gating the whole worker on
 		// a brain would mean an AI-less deployment never staged a review for an

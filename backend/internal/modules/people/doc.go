@@ -8,7 +8,8 @@
 // the datasource provider, flat per ADR-0054 §3.
 //
 // Tables owned: person, person_email, person_phone, person_consent,
-// organization, organization_domain, relationship, partner, lead.
+// organization, organization_domain, relationship, partner, lead,
+// person_signature_enrich_state.
 // Merge and promotion additionally relink rows in deal, activity_link,
 // list_member, taggable and consent_event inside their single
 // transaction — the ratified cross-aggregate ownership call of the

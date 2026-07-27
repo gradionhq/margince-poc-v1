@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -90,6 +91,83 @@ func (e *CounterpartyVerdictEngine) StageReviews(ctx context.Context, maxRows in
 		}
 	}
 	return nil
+}
+
+// staleReviewBatch bounds one age-out pass. The backlog is a query, so what a
+// pass leaves behind the next tick takes.
+const staleReviewBatch = 200
+
+// AgeOutStaleReviews closes the questions nobody answered. An `unsure` row waits
+// UnsureReviewWindow for a human; past that the ledger stops asking, and the
+// offer standing in the review queue is withdrawn with it.
+//
+// Without this the queue only ever grows. A staged offer expires after a day and
+// StageReviews honestly re-offers the row, so an unanswered question cycles
+// forever — holding a slot against the deferral ceiling and against its sender's
+// address the whole time. That is the tail an outsider can lean on: mail from
+// enough fresh addresses and the workspace never defers anyone new again.
+//
+// Closing as `rejected` creates nothing and touches no mail, and the sender is
+// not shut out: the live-unique index covers only `pending` and `unsure`, so
+// their next message opens a fresh row and gets a fresh verdict.
+//
+// The withdrawal and the ledger write share one transaction, so the inbox can
+// never hold an offer whose accept would resolve nothing.
+func (e *CounterpartyVerdictEngine) AgeOutStaleReviews(ctx context.Context, window time.Duration) error {
+	return e.eachWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
+		stale, err := e.pending.StaleReviews(wsCtx, window, staleReviewBatch)
+		if err != nil {
+			return err
+		}
+		closed := 0
+		for _, row := range stale {
+			aged, err := e.ageOutOneReview(wsCtx, row)
+			if err != nil {
+				return fmt.Errorf("verdict: ageing out an unanswered review: %w", err)
+			}
+			if aged {
+				closed++
+			}
+		}
+		if closed > 0 {
+			e.log.InfoContext(ctx, "counterparty verdict: closed unanswered review questions",
+				"workspace", ws.String(), "count", closed)
+		}
+		return nil
+	})
+}
+
+// ageOutOneReview closes one question and withdraws its offer in ONE
+// transaction, in the order that makes a concurrent human decision safe: lock
+// the ledger row, then take the offer off the inbox, then close the row. A
+// decision that got there first leaves the offer no longer pending, and this
+// backs out having changed nothing.
+func (e *CounterpartyVerdictEngine) ageOutOneReview(ctx context.Context, row capture.StaleReview) (bool, error) {
+	aged := false
+	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		proposalID, ok, err := e.pending.ClaimReviewForAgeOut(ctx, tx, row.ID)
+		if err != nil || !ok {
+			return err
+		}
+		if proposalID != nil {
+			withdrawn, err := e.approvals.WithdrawInTx(ctx, tx, ids.From[ids.ApprovalKind](*proposalID),
+				"no decision within the review window")
+			if err != nil {
+				return err
+			}
+			// The offer was decided while this pass was scanning. The human's
+			// answer, and the effect it releases, owns the row.
+			if !withdrawn {
+				return nil
+			}
+		}
+		if err := e.pending.AgeOutReviewTx(ctx, tx, row.ID); err != nil {
+			return err
+		}
+		aged = true
+		return nil
+	})
+	return aged, err
 }
 
 // HideNoiseStragglers archives captured mail from judged-noise senders that is

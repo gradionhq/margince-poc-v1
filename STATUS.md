@@ -955,11 +955,25 @@ Open work, roughly in priority order:
   proposal; site people still stage as leads (NEVER-8). The flag is re-read each
   pass (toggle-off stops new reads). `make check` + `make check-fe` + full
   zero-skip integration lane green.
-  **Deferred follow-ups (noted, not blocking):** the synchronous
-  enrich-on-capture trigger (the sweep already self-heals, so it's a latency
-  optimization); per-run crawl caps pinned lower for auto reads (12 pages);
-  and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
-  person instead of always staging a lead).
+  `ApplySitePersonFields` closed this list's last item: a published person the
+  workspace already records at that company is no longer staged as a duplicate
+  lead — the site's role fills their empty fields instead. The match is
+  deliberately narrow, and it is the whole safety argument: an exact live email
+  among that ORGANIZATION's own employees, or exactly one employee whose name
+  matches at ≥0.92 (well above the 0.72 dedupe-review threshold, because this
+  path asks nobody). Zero or ambiguous matches stage the lead exactly as before,
+  so strangers stay staged (NEVER-8). The scope is the org's employees rather
+  than the workspace on purpose: filling a title from company X's site onto a
+  person the CRM records at company Y is a disagreement a human should see. The
+  published EMAIL is a matching key and never a fill — adding an address changes
+  who a record is reachable as, and a site is not authority for that. Everything
+  written is fill-only-empty with a `person_profile_field` evidence row
+  (first-verdict-wins, so a signature or a human already there is untouchable),
+  one audit row and one `person.updated`.
+  **Deferred follow-up still open:** the synchronous enrich-on-capture trigger
+  (the sweep already self-heals, so it is a latency optimization). The 12-page
+  auto-read ceiling this list also named turned out to be built already
+  (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
   **Phase 2a (build, landed):** the counterparty-identity column
   (`activity.counterparty_email`, migration 0123, partial index) stamped
   (lowercased) at capture — captured from now so the phase-2b correspondence
@@ -1194,9 +1208,61 @@ Open work, roughly in priority order:
   party creating them is an outsider, so the queue needs a ceiling; at the cap
   capture stops asking and messages land unjudged. The ADR names no such bound —
   it wants a CAP-PARAM entry once the value is confirmed.
-  **Still open:** phase 3 (corroborated signature org-name promotion), and
-  linking a deferred message's activity to the person a later `real` verdict
-  creates (the ledger row carries `activity_id` for exactly this).
+  **Phase 3 (landed): corroborated signature org-name promotion (PO-F-2a).**
+  A captured organization named from its mail domain ("Gitex" for gitex.com,
+  `name_source='domain'`) is renamed to the name its own people sign with —
+  but only when a second independent source agrees. Corroboration is either the
+  site dossier's stated name (`organization_profile_field` display_name or
+  legal_name) or a second employee's accepted signature; one signature alone
+  neither wins nor loses, it stages a 🟡 `org_name_promotion` proposal whose
+  accept renames and whose reject does nothing. The write is a CAS on
+  `name_source='domain'` under a row lock, so a human edit landing first makes
+  the promotion a silent no-op — weaker never overwrites stronger, and the
+  accepted name stamps `'signature'` rather than `'human'` so a later human
+  edit still wins over it. Signature spellings are grouped by
+  `normalizeOrgName`, so "Acme GmbH" and "ACME" corroborate each other; the
+  winner is picked deterministically (corroborated first, then most people,
+  then lexicographic) because two workers reading the same evidence must not
+  rename the organization back and forth. Runs as its own daily River job
+  (`org_name_promotion`), registered unconditionally — it weighs rows the
+  enrich pass already wrote and asks no model.
+  The §2.9 amendment landed with it: `SignatureCandidates` no longer retires a
+  person the moment ANY profile-field row exists (one accepted title used to
+  silence the company name their signature also states) — the predicate is now
+  per field, and a missing `org_name` reopens them. That alone would re-ask the
+  model about the same mail every night for anyone whose signature simply names
+  no company, so migration 0135 adds `person_signature_enrich_state`: the
+  activity whose signature block was last shown to the model. A person returns
+  as a candidate only when NEWER mail arrives, which bounds the cost by mail
+  volume instead of by time. An unparseable model reply is deliberately not
+  recorded as a read — that is a fault in the answer, not evidence that the
+  signature is silent.
+  **Correction to an earlier entry here:** linking a deferred message's activity
+  to the person a `real` verdict creates was listed as still open; it shipped
+  with 2b core as `activities.LinkCapturedMailTx`, called from the `real`
+  disposition path.
+  **The deferral-cap freeze is closed (both halves).** The follow-up both review
+  lanes deferred: an outsider parking open questions until the workspace ceiling
+  (`PendingDeferralCap` = 500) was full stopped every NEW corporate-domain sender
+  from being deferred at all, and the state was self-sustaining. Two bounds fix
+  it. `PendingDeferralDomainCap` = 50 gives each sender domain a share of the
+  ceiling, so a flood can only ever consume its own lane and an unrelated sender
+  still gets a verdict; the operator breadcrumb now names WHICH ceiling refused
+  (`detail->>'ceiling'`), because "the queue is full" and "one domain is flooding
+  it" send an operator looking for different things. And `UnsureReviewWindow` =
+  30 days ages out a question nobody answered: a staged offer expires after a
+  day and `StageReviews` honestly re-offers the row, so an unanswered `unsure`
+  used to cycle forever while holding a slot against both the ceiling and its
+  sender's address. The age-out closes it as `rejected` — creates nothing,
+  touches no mail — and withdraws the standing offer in the SAME transaction
+  (new `approvals.Service.WithdrawInTx`: forced expiry, audited, event-free,
+  the supersession mechanism), so the inbox can never hold an offer whose accept
+  would resolve nothing. The sender is not shut out: the live-unique index
+  covers only `pending` and `unsure`, so their next message opens a fresh row
+  and gets a fresh verdict.
+  **Still open in this arc:** the upstream ADR raises listed throughout this
+  entry — `PendingDeferralCap`/`PendingDeferralDomainCap`/`UnsureReviewWindow`
+  all want CAP-PARAM entries, and none of the three values is founder-confirmed.
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can

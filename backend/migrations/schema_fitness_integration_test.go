@@ -313,6 +313,11 @@ var rowScopedFKDecisions = map[string]string{
 	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
 	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
 	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
+	// The signature pass's read cursor (PO-F-2a): both ids come from the
+	// pass's own SignatureCandidates query — the person it just read for and
+	// the activity whose body it just read — never from a request body.
+	"person_signature_enrich_state.person_id":   "server-derived: stamped by the enrich pass from its own row-scoped candidate query",
+	"person_signature_enrich_state.activity_id": "server-derived: stamped by the enrich pass from the activity that candidate query returned",
 }
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation

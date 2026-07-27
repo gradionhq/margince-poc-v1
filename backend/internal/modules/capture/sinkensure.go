@@ -196,15 +196,22 @@ func (s *Sink) deferAmbiguous(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	if err != nil {
 		return err
 	}
-	if !capped {
+	if capped == "" {
 		return nil
 	}
-	// The workspace is holding its ceiling of open questions, which an outsider
-	// can drive by mailing from fresh addresses. Say so where an operator will
-	// see it: silence here would read as a sender that was judged and dismissed,
-	// when in fact nothing was ever asked.
-	return s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec,
-		"the workspace is at its open-disposition ceiling; the message stands unjudged")
+	// A ceiling is holding this question back, which an outsider can drive by
+	// mailing from fresh addresses. Say so where an operator will see it, and say
+	// WHICH ceiling: silence would read as a sender that was judged and dismissed,
+	// and "the queue is full" would misdescribe one domain flooding it while every
+	// other sender still gets through.
+	detail := "the workspace is at its open-disposition ceiling; the message stands unjudged"
+	if capped == CapReasonDomain {
+		detail = "this sender's domain is at its share of the open-disposition ceiling; the message stands unjudged"
+	}
+	// The ceiling rides its own field, not only the prose: an operator filtering
+	// for one flooding domain should not have to match on a sentence.
+	return s.logBreadcrumbTx(ctx, tx, "capture_deferral_capped", rec, detail,
+		map[string]any{"ceiling": capped})
 }
 
 // derivationStart settles whether a derivation is possible at all and builds the
@@ -439,12 +446,24 @@ func (s *Sink) decideCounterpartyGuarded(ctx context.Context, tx pgx.Tx, rec con
 // a T1 spare that overrode one — commits with the activity it is about, so a
 // rolled-back capture never leaves a breadcrumb for a message that does not
 // exist, and no gate has to borrow a second pool connection while holding one.
-func (s *Sink) logBreadcrumbTx(ctx context.Context, tx pgx.Tx, action string, rec connector.NormalizedRecord, reason string) error {
-	_, err := storekit.LogSystem(ctx, tx, action, map[string]any{
+// extra carries breadcrumb-specific fields (at most one map; the variadic is
+// there so the seven callers that need nothing beyond the reason stay unchanged).
+// A key colliding with the three fixed fields is ignored — the fixed shape is
+// what makes these rows queryable across actions.
+func (s *Sink) logBreadcrumbTx(ctx context.Context, tx pgx.Tx, action string, rec connector.NormalizedRecord, reason string, extra ...map[string]any) error {
+	detail := map[string]any{
 		fieldReason:       reason,
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
 		fieldSourceID:     rec.NaturalKey.SourceID,
-	})
+	}
+	for _, m := range extra {
+		for k, v := range m {
+			if _, fixed := detail[k]; !fixed {
+				detail[k] = v
+			}
+		}
+	}
+	_, err := storekit.LogSystem(ctx, tx, action, detail)
 	if err != nil {
 		return fmt.Errorf("capture: recording the %s breadcrumb: %w", action, err)
 	}
