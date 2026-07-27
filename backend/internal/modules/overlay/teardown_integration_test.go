@@ -82,10 +82,11 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	// state whose survival past disconnect would make a later connection
 	// skip its initial mirror load / resume the sweep mid-stream.
 	const incumbentClass = "contacts"
-	if err := store.SaveBackfillCursor(ctx, incumbentClass, "", true); err != nil {
+	fixtureConnectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.SaveBackfillCursor(ctx, incumbentClass, "", BackfillProgress{Done: true}, fixtureConnectedAt); err != nil {
 		t.Fatalf("seeding the converged backfill-cursor fixture: %v", err)
 	}
-	if err := store.SaveReconcileWatermark(ctx, incumbentClass, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := store.SaveReconcileWatermark(ctx, incumbentClass, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), fixtureConnectedAt); err != nil {
 		t.Fatalf("seeding the reconcile-watermark fixture: %v", err)
 	}
 
@@ -253,7 +254,8 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	vault := keyvault.NewMemory()
 	store := NewMirrorStore(pool, noOwnerEmails{})
 	svc := NewService(pool, vault, store)
-	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-fence-secret"}); err != nil {
+	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-fence-secret"})
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	fenced := store.WithFence()
@@ -261,7 +263,7 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// While the connection is active the fence is transparent: a fenced write
 	// behaves exactly as an unfenced one, so the sweep's normal operation is
 	// unaffected.
-	if err := fenced.SaveBackfillCursor(ctx, "contacts", "cur-live", false); err != nil {
+	if err := fenced.SaveBackfillCursor(ctx, "contacts", "cur-live", BackfillProgress{}, conn.ConnectedAt); err != nil {
 		t.Fatalf("fenced write on a live connection = %v, want success", err)
 	}
 
@@ -272,6 +274,42 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		t.Fatal("testWorkspaceCtx did not bind an actor")
+	}
+
+	// Seed one email-sourced mapping AFTER teardown purged the table —
+	// directly via raw SQL (bypassing UpsertUserMap's live email-match
+	// verification this test's noOwnerEmails resolver can never satisfy) —
+	// so RevalidateEmailMappings below has a distinct owner to iterate. Its
+	// fence check only runs inside the per-owner loop, so an empty owner set
+	// would make that fencedWrites case vacuously pass; seeding it here
+	// (rather than pre-disconnect, where Disconnect's own purgeMirror would
+	// delete it before the fenced writes ever run) is exactly the "a stray
+	// write must not act on a row a straddling process resurrected" shape
+	// this whole fence exists for, applied to the test fixture itself.
+	// A DEDICATED app_user, not actor.UserID: the "UpsertUserMap" case below
+	// targets (app_user_id=actor.UserID, incumbent='hubspot') too, and
+	// upsertUserMapSQL's ON CONFLICT (workspace_id, app_user_id, incumbent)
+	// would silently UPDATE this row in place rather than insert a second
+	// one — an unfenced UpsertUserMap would then leave the total row count
+	// unchanged, making the count-based assertion below pass even though a
+	// resurrection happened. A distinct app_user_id keeps this fixture's
+	// row and UpsertUserMap's stray write on separate conflict keys, so
+	// either one landing is independently visible.
+	fixtureUser := ids.New[ids.UserKind]()
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO app_user (id, workspace_id, email, display_name)
+			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, 'Revalidate Fixture User')`,
+			fixtureUser, "revalidate-fixture-"+fixtureUser.String()+"@overlay.test"); err != nil {
+			return err
+		}
+		_, execErr := tx.Exec(ctx, `
+			INSERT INTO mirror_user_map (workspace_id, app_user_id, incumbent, incumbent_user_id, match_source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'email')`,
+			fixtureUser, "hubspot", "owner-revalidate")
+		return execErr
+	}); err != nil {
+		t.Fatalf("seeding the post-teardown email-sourced mapping fixture: %v", err)
 	}
 	// Every fenced sync write now aborts with ErrConnectionGone — the
 	// connection row is revoked, so the FOR SHARE fence finds no active row.
@@ -285,12 +323,37 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 		"UpsertAssoc": func() error {
 			return fenced.UpsertAssoc(ctx, Assoc{FromType: "person", FromID: "new", ToType: "deal", ToID: "1", TypeID: 1, Category: "HUBSPOT_DEFINED", Direction: "forward"})
 		},
-		"SaveBackfillCursor": func() error { return fenced.SaveBackfillCursor(ctx, "contacts", "cur-stray", true) },
+		"SaveBackfillCursor": func() error {
+			return fenced.SaveBackfillCursor(ctx, "contacts", "cur-stray", BackfillProgress{Done: true}, conn.ConnectedAt)
+		},
 		"SaveReconcileWatermark": func() error {
-			return fenced.SaveReconcileWatermark(ctx, "contacts", time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC))
+			return fenced.SaveReconcileWatermark(ctx, "contacts", time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), conn.ConnectedAt)
 		},
 		"UpsertUserMap": func() error {
 			return fenced.UpsertUserMap(ctx, ids.From[ids.UserKind](actor.UserID), "hubspot", "owner-stray", "manual")
+		},
+		// SeedUserMap's ambiguity-revoke path (revokeEmailMappingsForOwners) is
+		// as resurrection-risk-adjacent as UpsertUserMap's grant path — a
+		// straddling sweep must not delete mappings/visibility grants under a
+		// connection it does not belong to either. Two owners sharing one
+		// normalized email are ambiguous (design.md §4.6), which routes SeedUserMap
+		// into revokeEmailMappingsForOwners before it ever reaches the per-email
+		// seeding loop.
+		"SeedUserMap (ambiguity revoke)": func() error {
+			return fenced.SeedUserMap(ctx, "hubspot", []OwnerRef{
+				{ExternalID: "owner-dup-1", Email: "dup@authz.test"},
+				{ExternalID: "owner-dup-2", Email: "dup@authz.test"},
+			})
+		},
+		// RevalidateEmailMappings' per-owner revalidateEmailMapping is the same
+		// delete-mapping-then-recompute-visibility shape as
+		// revokeEmailMappingsForOwners, over the SAME two tables — the missed
+		// sibling a straddling sweep could otherwise use to wipe a DIFFERENT
+		// connection's mappings via a stale directory. The fence check runs
+		// before the resolver is ever consulted, so the resolver value here is
+		// unreached.
+		"RevalidateEmailMappings": func() error {
+			return fenced.RevalidateEmailMappings(ctx, noOwnerEmails{})
 		},
 		// The sweep outcome recording (overlay_sync_state) is fenced too:
 		// teardown purges that row, so recording a backoff or success after a
@@ -312,7 +375,7 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// still empty for the workspace — the fenced writes added nothing back.
 	for _, tbl := range []string{
 		"overlay_mirror", "overlay_association", "overlay_backfill_cursor",
-		"overlay_reconcile_watermark", "mirror_user_map", "overlay_sync_state",
+		"overlay_reconcile_watermark", "overlay_sync_state",
 	} {
 		var n int
 		queryRowWS(ctx, t, pool,
@@ -321,6 +384,48 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 		if n != 0 {
 			t.Errorf("%s holds %d row(s) after fenced writes on a disconnected workspace, want 0 — the fence must resurrect nothing", tbl, n)
 		}
+	}
+	// mirror_user_map is checked separately: it deliberately holds the ONE
+	// post-teardown fixture row seeded above (never purged, since it never
+	// existed at Disconnect time) — the fenced UpsertUserMap/SeedUserMap/
+	// RevalidateEmailMappings writes above must add NOTHING to it and must
+	// not delete it either, so the count stays exactly 1.
+	var userMapRows int
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_map WHERE workspace_id = $1`, []any{ws}, &userMapRows)
+	if userMapRows != 1 {
+		t.Errorf("mirror_user_map holds %d row(s) after fenced writes on a disconnected workspace, want exactly 1 (the untouched post-teardown fixture) — the fence must neither add nor remove rows", userMapRows)
+	}
+}
+
+// TestIdentityFenceFailsClosedOnZeroConnectedAt proves assertFence's
+// fail-closed answer to a caller bug: a store built with
+// WithFenceIdentity(time.Time{}) — connected_at is NOT NULL, so this can
+// only happen if a caller forgot to thread a real value through — refuses
+// every fenced write with errIdentityFenceMisconfigured, even while the
+// connection is genuinely active. It must NOT be ErrConnectionGone: that
+// value is treated everywhere as a benign clean stop (no backoff recorded,
+// jobs_overlay.go's poller), so conflating the two would let a
+// misconfigured store re-sweep hot forever instead of pacing off on a real,
+// loud failure.
+func TestIdentityFenceFailsClosedOnZeroConnectedAt(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	svc := NewService(pool, vault, store)
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-misconfig-secret"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	misconfigured := store.WithFenceIdentity(time.Time{})
+	err := misconfigured.Ingest(ctx, Record{
+		ObjectClass: "person", ExternalID: "x",
+		Fields: map[string]any{"firstname": "A"}, ModifiedAt: time.Date(2026, 7, 27, 0, 0, 0, 0, time.UTC),
+	})
+	if !errors.Is(err, errIdentityFenceMisconfigured) {
+		t.Fatalf("Ingest on a zero-connectedAt WithFenceIdentity store = %v, want errIdentityFenceMisconfigured", err)
+	}
+	if errors.Is(err, ErrConnectionGone) {
+		t.Error("a misconfigured store's rejection must NOT be ErrConnectionGone — the poller treats that as a benign clean stop and records no backoff")
 	}
 }
 
@@ -476,10 +581,11 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 		}},
 		pageSize: 100,
 	}}
-	if err := Backfill(ctx, inc, store, "companies"); err != nil {
+	fixtureConnectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := Backfill(ctx, inc, store, "companies", fixtureConnectedAt); err != nil {
 		t.Fatalf("initial Backfill: %v", err)
 	}
-	if err := store.SaveReconcileWatermark(ctx, "companies", time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := store.SaveReconcileWatermark(ctx, "companies", time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), fixtureConnectedAt); err != nil {
 		t.Fatalf("checkpointing the reconcile watermark: %v", err)
 	}
 
@@ -488,7 +594,7 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 	// post-disconnect "it listed again" assertion below could pass even
 	// if the done cursor never short-circuited anything.
 	listsBefore := inc.lists
-	if err := Backfill(ctx, inc, store, "companies"); err != nil {
+	if _, err := Backfill(ctx, inc, store, "companies", fixtureConnectedAt); err != nil {
 		t.Fatalf("Backfill over the converged cursor: %v", err)
 	}
 	if inc.lists != listsBefore {
@@ -519,7 +625,7 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 	// The behavior itself: a fresh Backfill lists the incumbent from the
 	// start again — the checkpoint reset restores the LOAD.
 	listsBefore = inc.lists
-	if err := Backfill(ctx, inc, store, "companies"); err != nil {
+	if _, err := Backfill(ctx, inc, store, "companies", fixtureConnectedAt); err != nil {
 		t.Fatalf("Backfill after Disconnect: %v", err)
 	}
 	if inc.lists == listsBefore {

@@ -6,6 +6,7 @@ package overlay
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // MirrorSink is the ingest + cursor-checkpoint surface Backfill drives.
@@ -23,8 +24,10 @@ type MirrorSink interface {
 	// has never started, not an error.
 	LoadBackfillCursor(ctx context.Context, objectClass string) (cursor string, done bool, err error)
 	// SaveBackfillCursor checkpoints objectClass's cursor after a page
-	// lands — the restart-resume point (design.md §4.4).
-	SaveBackfillCursor(ctx context.Context, objectClass, cursor string, done bool) error
+	// lands — the restart-resume point (design.md §4.4). connectedAt is
+	// the connection this call believes it is sweeping under
+	// (disconnectfence.go's assertOwnConnection).
+	SaveBackfillCursor(ctx context.Context, objectClass, cursor string, progress BackfillProgress, connectedAt time.Time) error
 }
 
 // backfillAssocTargets names, for each incumbent object class Backfill
@@ -74,41 +77,61 @@ var backfillAssocTargets = func() map[string][]string {
 // job, see hubspot/adapter.go's mapRecord) — Backfill itself never
 // translates between the two, it only ever reads objectClass to call
 // inc.Backfill/inc.Associations and to key the cursor checkpoint.
-func Backfill(ctx context.Context, inc Incumbent, ms MirrorSink, objectClass string) error {
+// connectedAt is the sweep's own connection identity, carried straight
+// through to every SaveBackfillCursor call (assertOwnConnection).
+//
+// The returned truncated answers whether ANY page of this run was cut short
+// by a capping decorator rather than the incumbent's own list ending
+// (Page.Truncated) — sticky across pages, mirroring done, and persisted
+// alongside it so a later SyncStatus read can tell the two apart.
+func Backfill(ctx context.Context, inc Incumbent, ms MirrorSink, objectClass string, connectedAt time.Time) (truncated bool, err error) {
 	cursor, done, err := ms.LoadBackfillCursor(ctx, objectClass)
 	if err != nil {
-		return fmt.Errorf("overlay: backfill %s: loading the persisted cursor: %w", objectClass, err)
+		return false, fmt.Errorf("overlay: backfill %s: loading the persisted cursor: %w", objectClass, err)
 	}
 	if done {
 		// A prior run already converged — resuming a finished backfill
 		// re-lists nothing.
-		return nil
+		return false, nil
 	}
 
 	for {
 		page, err := inc.Backfill(ctx, objectClass, cursor)
 		if err != nil {
-			return fmt.Errorf("overlay: backfill %s: listing page at cursor %q: %w", objectClass, cursor, err)
+			return truncated, fmt.Errorf("overlay: backfill %s: listing page at cursor %q: %w", objectClass, cursor, err)
 		}
+		truncated = truncated || page.Truncated
 
-		for _, rec := range page.Records {
-			if err := ms.Ingest(ctx, rec); err != nil {
-				return fmt.Errorf("overlay: backfill %s: ingesting %s: %w", objectClass, rec.ExternalID, err)
-			}
-			if err := backfillAssociations(ctx, inc, ms, objectClass, rec.ExternalID); err != nil {
-				return err
-			}
+		if err := backfillIngestPage(ctx, inc, ms, objectClass, page); err != nil {
+			return truncated, err
 		}
 
 		cursor = page.NextCursor
 		done = cursor == ""
-		if err := ms.SaveBackfillCursor(ctx, objectClass, cursor, done); err != nil {
-			return fmt.Errorf("overlay: backfill %s: checkpointing cursor: %w", objectClass, err)
+		progress := BackfillProgress{Done: done, Truncated: truncated}
+		if err := ms.SaveBackfillCursor(ctx, objectClass, cursor, progress, connectedAt); err != nil {
+			return truncated, fmt.Errorf("overlay: backfill %s: checkpointing cursor: %w", objectClass, err)
 		}
 		if done {
-			return nil
+			return truncated, nil
 		}
 	}
+}
+
+// backfillIngestPage lands one Backfill page: every record through Ingest,
+// each followed by its declared associations (backfillAssociations) — split
+// out of Backfill's own loop so the pagination control flow and the
+// per-page landing logic each read as one clear thing.
+func backfillIngestPage(ctx context.Context, inc Incumbent, ms MirrorSink, objectClass string, page Page) error {
+	for _, rec := range page.Records {
+		if err := ms.Ingest(ctx, rec); err != nil {
+			return fmt.Errorf("overlay: backfill %s: ingesting %s: %w", objectClass, rec.ExternalID, err)
+		}
+		if err := backfillAssociations(ctx, inc, ms, objectClass, rec.ExternalID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // backfillAssociations fetches and upserts the association edges

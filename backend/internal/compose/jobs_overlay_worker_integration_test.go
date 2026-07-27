@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strconv"
 	"testing"
 	"time"
 
@@ -30,6 +31,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
+	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -252,6 +254,171 @@ func TestReconcileConnectionBackfillsAndSeedsViaFakeIncumbent(t *testing.T) {
 	}
 }
 
+// countMirrorRows answers how many overlay_mirror rows the workspace holds
+// for a CANONICAL object class — the honest measure of how much of a portal
+// a sweep actually pulled down.
+func countMirrorRows(ctx context.Context, t *testing.T, pool *pgxpool.Pool, objectClass string) int {
+	t.Helper()
+	var n int
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM overlay_mirror WHERE object_class = $1`, objectClass).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting %s mirror rows: %v", objectClass, err)
+	}
+	return n
+}
+
+// TestCappedBackfillIsNotUndoneByTheFirstModifiedSweep proves the
+// MARGINCE_OVERLAY_BACKFILL_LIMIT dev cap actually bounds what a fresh
+// connect pulls onto a laptop.
+//
+// The cap wraps Backfill only, so on its own it bounds nothing: a class with
+// no checkpoint used to sweep from the zero time, which the HubSpot adapter
+// renders as `lastmodifieddate GTE 0` — the whole portal, pulled by the very
+// next Modified pass. A cap of 5 against a 250-record portal would land all
+// 250 rows. Raising the sweep window to the connect instant is what closes
+// that door, so this asserts the record COUNT, not merely that the cursor
+// converged.
+func TestCappedBackfillIsNotUndoneByTheFirstModifiedSweep(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	// A portal far larger than the cap. Every record predates the connect, so
+	// a correctly-derived floor puts all of them below the Modified pass —
+	// only the capped backfill should land anything.
+	const portal, backfillLimit = 250, 5
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test")
+	past := time.Now().Add(-24 * time.Hour)
+	for i := range portal {
+		rec := fake.Rec("c-"+strconv.Itoa(i), map[string]any{"firstname": "Ada"})
+		rec.ObjectClass = "person"
+		rec.OwnerExternalID = "owner-1"
+		rec.ModifiedAt = past
+		fakeInc.Seed(overlay.IncumbentClassContacts, rec)
+	}
+
+	due, err := overlay.DueOverlayConnections(overlayAdminCtx(e.WS, e.Rep1), e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	capped := cappedIncumbent{Incumbent: fakeInc, limit: backfillLimit}
+	// Sweep twice: the second tick is where a converged backfill steps aside
+	// and the Modified pass runs alone — the exact tick that used to pull the
+	// remaining 245 records down.
+	for tick := 1; tick <= 2; tick++ {
+		if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
+			slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return capped }); err != nil {
+			t.Fatalf("reconcileConnection tick %d: %v", tick, err)
+		}
+		if got := countMirrorRows(sweepCtx, t, e.Pool, "person"); got != backfillLimit {
+			t.Fatalf("tick %d mirrored %d person rows, want exactly %d — the cap must bound the whole sweep, not just Backfill", tick, got, backfillLimit)
+		}
+	}
+
+	// The cap's honesty half: a class it declined records for must never
+	// report backfill-complete, even though its cursor is done=true (correct
+	// — re-listing under the same cap would relearn nothing). Reporting
+	// complete here would be the same silent-truncation-as-success lie this
+	// whole fix exists to close, just for the cap instead of the watermark.
+	svc := overlay.NewService(e.Pool, vault, ms).WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor)
+	status, err := svc.SyncStatus(overlayAdminCtx(e.WS, e.Rep1))
+	if err != nil {
+		t.Fatalf("SyncStatus: %v", err)
+	}
+	found := false
+	for _, o := range status {
+		if o.Object != "person" {
+			continue
+		}
+		found = true
+		if o.BackfillComplete {
+			t.Error("SyncStatus reports person backfillComplete=true after a capped backfill — the cap declined records the incumbent still has, this must be false")
+		}
+	}
+	if !found {
+		t.Fatal("SyncStatus reported no person object — expected the mirrored rows to produce one")
+	}
+}
+
+// TestSweepStillIngestsRecordsEditedAfterTheConnect is the other half of the
+// cap proof above: the floor must bound the first pass WITHOUT turning the
+// poller into a no-op.
+//
+// It guards against over-correcting. Flooring too high, or capping the
+// Modified pass itself, would also make the cap test pass — and would silently
+// stop continuous sync, which is worse than the bug being fixed. A record the
+// incumbent edits after the connect sits above the floor and must arrive.
+func TestSweepStillIngestsRecordsEditedAfterTheConnect(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test")
+	old := fake.Rec("c-old", map[string]any{"firstname": "Ada"})
+	old.ObjectClass, old.OwnerExternalID, old.ModifiedAt = "person", "owner-1", time.Now().Add(-24*time.Hour)
+	fakeInc.Seed(overlay.IncumbentClassContacts, old)
+
+	due, err := overlay.DueOverlayConnections(overlayAdminCtx(e.WS, e.Rep1), e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	sweep := func() {
+		t.Helper()
+		if err := reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
+			slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc }); err != nil {
+			t.Fatalf("reconcileConnection: %v", err)
+		}
+	}
+	sweep()
+
+	// The pre-existing record is 24h old, so it sits BELOW the floor and the
+	// Modified pass skips it — the backfill already mirrored it. This one is
+	// edited after the connect, so it is above the floor and must arrive.
+	fresh := fake.Rec("c-new", map[string]any{"firstname": "Grace"})
+	fresh.ObjectClass, fresh.OwnerExternalID, fresh.ModifiedAt = "person", "owner-1", time.Now().Add(time.Minute)
+	fakeInc.Seed(overlay.IncumbentClassContacts, fresh)
+	sweep()
+
+	if _, err := ms.Get(overlayReaderCtx(e.WS, e.Rep1), "person", "c-new"); err != nil {
+		t.Fatalf("a record modified after the connect must still be swept in, got: %v — the floor bounds the first pass, it must not stop continuous sync", err)
+	}
+}
+
 // TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep proves the
 // disconnect-race fence end to end through the sweep orchestration: if the
 // connection is revoked after the sweep resolved its token but before its
@@ -322,6 +489,102 @@ func TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep(t *testing.T) {
 	}
 	if mirrorRows != 0 || userMaps != 0 {
 		t.Errorf("after a fenced sweep over a revoked connection: overlay_mirror=%d mirror_user_map=%d, want 0/0 — the fence must resurrect nothing", mirrorRows, userMaps)
+	}
+}
+
+// TestReconcileConnectionStopsCleanlyWhenReconnectedMidSweep proves the
+// identity fence (overlay's assertOwnConnection/assertFence, disconnectfence.go
+// and mirrorstore.go's WithFenceIdentity): a sweep that resolved its
+// due-connection identity BEFORE a disconnect+reconnect straddles that race
+// exactly like a mid-sweep disconnect alone — every fenced write it issues
+// (SeedUserMap's UpsertUserMap, Ingest, the backfill checkpoint) aborts with
+// ErrConnectionGone rather than landing under the NEW connection's identity.
+// Before WithFenceIdentity existed, the status-only fence would have let all
+// of these SUCCEED (an active row exists either way): a stray mirror row and
+// owner mapping resurrected under the wrong generation, plus a done=true
+// backfill cursor for a connection whose own backfill never actually ran —
+// permanently short-circuiting it, since a done cursor is never re-listed
+// and overlay.Reconcile's internal floor stops the incremental sweep from
+// ever re-reading the gap.
+func TestReconcileConnectionStopsCleanlyWhenReconnectedMidSweep(t *testing.T) {
+	e := integration.Setup(t)
+	vault := keyvault.NewMemory()
+	ms := overlay.NewMirrorStore(e.Pool, unresolvedOwnerEmails{})
+
+	if _, err := overlay.NewService(e.Pool, vault, ms).
+		Connect(overlayAdminCtx(e.WS, e.Rep1), overlay.ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "tok"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	fakeInc := fake.New()
+	fakeInc.SeedOwner("owner-1", "a@authz.test")
+	rec := fake.Rec("c-1", map[string]any{"firstname": "Ada"})
+	rec.ObjectClass = "person"
+	rec.OwnerExternalID = "owner-1"
+	fakeInc.Seed(overlay.IncumbentClassContacts, rec)
+
+	adminCtx := overlayAdminCtx(e.WS, e.Rep1)
+	due, err := overlay.DueOverlayConnections(adminCtx, e.Pool)
+	if err != nil {
+		t.Fatalf("DueOverlayConnections: %v", err)
+	}
+	var d overlay.DueOverlayConnection
+	for _, c := range due {
+		if c.Workspace.UUID == e.WS {
+			d = c
+		}
+	}
+	if d.Incumbent == "" {
+		t.Fatal("no due overlay connection for the workspace after connect")
+	}
+
+	// Simulate a disconnect+reconnect landing AFTER the sweep resolved its
+	// due-connection identity (d, above) but BEFORE its first checkpoint
+	// write: revive the SAME row with a fresh connected_at — exactly what
+	// reconnectConnection does to the row's identity — via raw SQL rather
+	// than the real Disconnect+Connect flow, so the sweep's already-resolved
+	// vaulted token stays valid (the same reason the sibling mid-sweep
+	// disconnect test above revokes via raw SQL instead of svc.Disconnect).
+	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(adminCtx, `
+			UPDATE incumbent_connection SET connected_at = now()
+			WHERE workspace_id = current_setting('app.workspace_id')::uuid`)
+		return execErr
+	}); err != nil {
+		t.Fatalf("reconnecting mid-sweep: %v", err)
+	}
+
+	sweepCtx := reconcileWorkerCtx(context.Background(), ids.From[ids.WorkspaceKind](e.WS))
+	err = reconcileConnection(sweepCtx, e.Pool, vault, ms, workerBudgetMeter(t),
+		slog.New(slog.DiscardHandler), d, func(_, _ string) overlay.Incumbent { return fakeInc })
+	if !errors.Is(err, overlay.ErrConnectionGone) {
+		t.Fatalf("reconcileConnection straddling a reconnect = %v, want overlay.ErrConnectionGone (the identity fence)", err)
+	}
+
+	// The new connection's own backfill cursor must NOT have been left
+	// done=true by the straddling sweep's checkpoint write — that would
+	// permanently short-circuit its real backfill (Backfill's own
+	// top-of-function short-circuit, backfill.go).
+	if _, done, loadErr := ms.LoadBackfillCursor(sweepCtx, overlay.IncumbentClassContacts); loadErr != nil {
+		t.Fatalf("LoadBackfillCursor: %v", loadErr)
+	} else if done {
+		t.Error("the straddling sweep's checkpoint write must not land done=true for the new connection")
+	}
+
+	// The fenced sweep resurrected nothing else either: no mirror row, no
+	// owner mapping — the same proof TestReconcileConnectionStopsCleanlyWhenDisconnectedMidSweep
+	// makes for a plain disconnect, now for a straddling reconnect.
+	var mirrorRows, userMaps int
+	if qErr := database.WithWorkspaceTx(sweepCtx, e.Pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(sweepCtx, `SELECT count(*) FROM overlay_mirror`).Scan(&mirrorRows); err != nil {
+			return err
+		}
+		return tx.QueryRow(sweepCtx, `SELECT count(*) FROM mirror_user_map`).Scan(&userMaps)
+	}); qErr != nil {
+		t.Fatalf("counting resurrected rows: %v", qErr)
+	}
+	if mirrorRows != 0 || userMaps != 0 {
+		t.Errorf("after a sweep straddling a reconnect: overlay_mirror=%d mirror_user_map=%d, want 0/0 — the identity fence must resurrect nothing under the new connection", mirrorRows, userMaps)
 	}
 }
 

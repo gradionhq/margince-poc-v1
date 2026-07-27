@@ -31,128 +31,6 @@ type OverlayReconcileArgs struct{}
 // Kind is the stable job identifier River persists in river_job.
 func (OverlayReconcileArgs) Kind() string { return "overlay_reconcile" }
 
-// OverlayRefetchArgs is the webhook-as-signal targeted re-fetch (OVA-WIRE-10):
-// a validly-signed, portal-bound webhook enqueues one of these to refresh the
-// named record through the same idempotent ingest the poller uses. The args
-// ARE the coalescing key — River's unique-by-args (OVA-PARAM-10, scheduled a
-// short window ahead) collapses a record edited rapidly in the incumbent to
-// ONE re-fetch rather than N. IncumbentClass is the HubSpot object class
-// (contacts/companies/deals/leads); ExternalID is the mirror external id.
-type OverlayRefetchArgs struct {
-	Workspace      string `json:"workspace"`
-	IncumbentClass string `json:"incumbent_class"`
-	ExternalID     string `json:"external_id"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (OverlayRefetchArgs) Kind() string { return "overlay_refetch" }
-
-// overlayRefetchWorker executes one webhook-driven single-record re-fetch: it
-// resolves the workspace's active connection, builds a live incumbent adapter
-// over its vaulted token, reads the one record, and ingests it through the
-// fenced, resolver-bound store — the SAME idempotent, owner-revalidating path
-// the reconcile sweep uses, so a webhook refresh and a poller sweep converge
-// on one mirror state. The poller still heals any gap a signal misses.
-type overlayRefetchWorker struct {
-	river.WorkerDefaults[OverlayRefetchArgs]
-	pool  *pgxpool.Pool
-	vault keyvault.Vault
-	ms    *overlay.MirrorStore
-	// meter is the OVB budget. A webhook re-fetch is a live single-record REST
-	// read-through — the same traffic category force-fresh meters, so it
-	// reserves against SourceForceFresh before the incumbent read and SHEDS to
-	// the poller when the budget is spent. A single-record GET is GATE-able
-	// against the REST window (reserve/shed); the poller's Modified sweep, by
-	// contrast, is a Search-API call PACED by the per-second search window with
-	// its REST spend consumed unconditionally on SourcePoller — so reserve/shed
-	// is the right shape here, force-fresh's shape, not the poller's. Without
-	// this, a burst of signals would spend incumbent REST quota the OVB budget
-	// never sees. A dedicated webhook source (admin-breakdown granularity) would
-	// be an OVB-AC-5 spec change — a tracked follow-up, not needed for the
-	// "account for every live call" invariant this closes.
-	meter        *overlaybudget.Meter
-	log          *slog.Logger
-	newIncumbent func(region, token string) overlay.Incumbent
-}
-
-func (w *overlayRefetchWorker) Work(ctx context.Context, job *river.Job[OverlayRefetchArgs]) error {
-	wsID, err := ids.ParseAs[ids.WorkspaceKind](job.Args.Workspace)
-	if err != nil {
-		// A malformed workspace id is a permanent defect, not a transient
-		// failure — return nil so River does not retry an unfixable job.
-		w.log.ErrorContext(ctx, "overlay refetch: unparseable workspace id in job args",
-			"workspace", job.Args.Workspace, "err", err)
-		return nil
-	}
-	wsCtx := reconcileWorkerCtx(ctx, wsID)
-	conn, err := overlay.ActiveConnection(wsCtx, w.pool)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			// The workspace disconnected since the signal arrived — nothing to
-			// refresh, and teardown owns the mirror. Not a retryable failure.
-			return nil
-		}
-		return fmt.Errorf("overlay refetch: reading the active connection: %w", err)
-	}
-	if conn.Incumbent != incumbentHubSpot {
-		return nil
-	}
-	// A mirror halted by a ledger value-hash collision (OVA-AC-3) refuses all
-	// sync — do not spend an incumbent read or ingest against a mirror we no
-	// longer trust (the halt is cleared by disconnect today). This closes the
-	// gap where a re-fetch enqueued before the halt (coalesced 5s ahead) would
-	// otherwise still run: the halt is re-checked here, at execution.
-	if halted, err := overlay.NewWriteLedger(w.pool).Halted(wsCtx); err != nil {
-		return fmt.Errorf("overlay refetch: reading the mirror-halt flag: %w", err)
-	} else if halted {
-		w.log.WarnContext(wsCtx, "overlay refetch: mirror is halted (ledger collision), skipping",
-			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
-		return nil
-	}
-	token, err := w.vault.Get(wsCtx, conn.Workspace, conn.CredentialRef)
-	if err != nil {
-		return fmt.Errorf("overlay refetch: resolving the vaulted token: %w", err)
-	}
-	inc := w.newIncumbent(conn.Region, string(token))
-	// Reserve one REST unit BEFORE the live read (OVB-AC-2/AC-5), so the
-	// webhook lane's incumbent calls are accounted for like every other. On
-	// shed skip the re-fetch — the signal is an optimization, and the poller
-	// heals within its interval; never spend live quota we cannot account for.
-	// A role wired without a configured meter gets the fail-closed placeholder
-	// (nil Redis client) here, which sheds every reservation — so an
-	// unaccountable read is skipped, never made. A meter error is transient —
-	// retry.
-	if allowed, err := w.meter.ReserveREST(wsCtx, conn.Incumbent, overlaybudget.SourceForceFresh, 1); err != nil {
-		return fmt.Errorf("overlay refetch: reserving the incumbent budget: %w", err)
-	} else if !allowed {
-		w.log.InfoContext(wsCtx, "overlay refetch: incumbent budget shed, deferring to the poller",
-			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID)
-		return nil
-	}
-	rec, err := inc.Get(wsCtx, job.Args.IncumbentClass, job.Args.ExternalID)
-	if err != nil {
-		// A connection-level failure (rate-limit/auth/unreachable) is retryable
-		// — return it so River backs off and retries. A record that is simply
-		// gone or unmappable is not retryable: the deletion feed / poller
-		// reconciles it, so log and drop rather than retry forever.
-		if isConnectionLevelIncumbentError(err) {
-			return fmt.Errorf("overlay refetch: reading %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
-		}
-		w.log.WarnContext(wsCtx, "overlay refetch: record read failed (not retryable), leaving it to the poller",
-			"workspace", job.Args.Workspace, "class", job.Args.IncumbentClass, "id", job.Args.ExternalID, "err", err)
-		return nil
-	}
-	if err := w.ms.WithResolver(inc).WithFence().Ingest(wsCtx, rec); err != nil {
-		if errors.Is(err, overlay.ErrConnectionGone) {
-			// Disconnected mid-refetch — the fence aborted the write, nothing
-			// resurrected into a now-native workspace. Clean stop.
-			return nil
-		}
-		return fmt.Errorf("overlay refetch: ingesting %s/%s: %w", job.Args.IncumbentClass, job.Args.ExternalID, err)
-	}
-	return nil
-}
-
 // overlayReconcileWorker walks every overlay-mode workspace's active
 // incumbent connection (overlay.DueOverlayConnections — the same
 // fleet-walk shape gmailSyncWorker drives via capture.Registry.
@@ -204,16 +82,17 @@ func reconcileWorkerCtx(ctx context.Context, workspaceID ids.WorkspaceID) contex
 
 func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayReconcileArgs]) error {
 	due, enumErr := overlay.DueOverlayConnections(ctx, w.pool)
-	// The outcome-recording store is fenced too (WithFence): overlay_sync_state
-	// is one of the tables teardown purges, so recording a backoff or success
-	// against a workspace that disconnected before/after the sweep would
-	// resurrect a purged row — the fence makes the recording abort with
-	// ErrConnectionGone instead. A rate-limit/auth failure leaves the
-	// connection row 'active' (only Disconnect revokes it), so the legitimate
-	// backoff paths still record.
-	recMS := w.ms.WithFence()
 	for _, d := range due {
 		wsCtx := reconcileWorkerCtx(ctx, d.Workspace)
+		// The outcome-recording store is fenced on d's OWN connection identity
+		// (WithFenceIdentity): overlay_sync_state is one of the tables teardown
+		// purges, so recording a backoff or success against a workspace that
+		// disconnected — or disconnected AND reconnected — before/after the
+		// sweep would resurrect/misattribute a purged row; the fence makes the
+		// recording abort with ErrConnectionGone instead. A rate-limit/auth
+		// failure leaves the connection row 'active' (only Disconnect revokes
+		// it), so the legitimate backoff paths still record.
+		recMS := w.ms.WithFenceIdentity(d.ConnectedAt)
 		err := reconcileConnection(wsCtx, w.pool, w.vault, w.ms, w.meter, w.log, d, w.newIncumbent)
 		// Record the sweep outcome so a connection-level failure backs the
 		// next sweep off (overlay_sync_state), instead of re-sweeping a
@@ -222,13 +101,14 @@ func (w *overlayReconcileWorker) Work(ctx context.Context, _ *river.Job[OverlayR
 		// backoff — the on-demand /overlay/reconcile handler returns its
 		// error to the admin without touching the schedule.
 		if errors.Is(err, overlay.ErrConnectionGone) {
-			// The workspace was disconnected mid-sweep: every fenced write
-			// aborted, so nothing was resurrected into the now-native
-			// workspace. This is neither a failure to back off (the revoked
-			// connection is already gone from the next due-scan) nor a success
-			// to checkpoint — the overlay_sync_state row was purged by
-			// teardown. Move on.
-			w.log.DebugContext(wsCtx, "overlay reconcile: connection disconnected mid-sweep, stopping cleanly",
+			// The connection was disconnected, or disconnected AND reconnected,
+			// mid-sweep: every fenced write aborted, so nothing was resurrected
+			// into the now-native workspace or misattributed to a connection
+			// this sweep never actually swept for. This is neither a failure to
+			// back off (the fresh due-scan already reflects the current state —
+			// gone, or due again under the new connection) nor a success to
+			// checkpoint against d's now-stale identity. Move on.
+			w.log.DebugContext(wsCtx, "overlay reconcile: connection generation changed mid-sweep, stopping cleanly",
 				"workspace", d.Workspace.String())
 			continue
 		}
@@ -291,6 +171,13 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		// named gap, never a guessed adapter.
 		return fmt.Errorf("overlay reconcile: no adapter for incumbent %q", d.Incumbent)
 	}
+	if d.ConnectedAt.IsZero() {
+		// connected_at is NOT NULL, so a zero means this struct was built without
+		// it — and sweeping would then floor at the zero time, i.e. the whole
+		// portal every tick (overlay.Reconcile's internal reconcileFloor).
+		// Refuse rather than burn the quota.
+		return fmt.Errorf("overlay reconcile: connection for workspace %s carries no connected_at; refusing to sweep from the epoch", d.Workspace)
+	}
 	token, err := vault.Get(ctx, d.Workspace, d.CredentialRef)
 	if err != nil {
 		return fmt.Errorf("overlay reconcile: resolving the vaulted token: %w", err)
@@ -306,7 +193,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	// connect-time blip no longer permanently disables push refresh. Gated on
 	// the binding being unset, so a bound connection pays no per-sweep call.
 	// Best-effort: a failure here never aborts the record sweep below.
-	if err := overlay.BackfillPortalBinding(ctx, pool, inc); err != nil {
+	if err := overlay.BackfillPortalBinding(ctx, pool, inc, d.ConnectedAt); err != nil {
 		log.WarnContext(ctx, "overlay reconcile: backfilling the webhook portal binding failed",
 			"workspace", d.Workspace.String(), "err", err)
 	}
@@ -324,13 +211,15 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	// emails — the worker-level store carries only the read-path
 	// placeholder resolver (compose/overlay.go), which cannot name an
 	// owner.
-	// WithFence engages the disconnect-race fence for the sweep's writes: if
-	// this workspace is disconnected mid-sweep, every fenced write aborts
+	// WithFenceIdentity engages the disconnect-race fence for the sweep's
+	// writes on d's OWN connection identity: if this workspace is
+	// disconnected mid-sweep — or disconnected AND reconnected, so an active
+	// row exists again but under a NEW generation — every fenced write aborts
 	// with overlay.ErrConnectionGone rather than resurrecting purged
-	// incumbent-derived data into a now-native workspace (overlay's
-	// disconnectfence.go). reconcileConnection and its callees treat that
-	// signal as a clean stop.
-	ms = ms.WithResolver(inc).WithFence()
+	// incumbent-derived data, or landing it under a connection this sweep
+	// never actually swept for (overlay's disconnectfence.go). reconcileConnection
+	// and its callees treat that signal as a clean stop.
+	ms = ms.WithResolver(inc).WithFenceIdentity(d.ConnectedAt)
 
 	// Seed mirror_user_map from the incumbent's owners directory each
 	// sweep: match every incumbent owner's email to an existing workspace
@@ -372,9 +261,9 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	// mapping is a fail-closed-eventually gap (the NEXT sweep tries
 	// again), not a reason to stop syncing records this tick.
 	if err := ms.RevalidateEmailMappings(ctx, inc); err != nil {
-		// RevalidateEmailMappings is intentionally unfenced (it only
-		// revalidates/clears, never resurrects — visibility.go), so it never
-		// surfaces ErrConnectionGone; no clean-stop branch belongs here.
+		if errors.Is(err, overlay.ErrConnectionGone) {
+			return err
+		}
 		if isConnectionLevelIncumbentError(err) {
 			return fmt.Errorf("overlay reconcile: email-mapping revalidation failed: %w", err)
 		}
@@ -382,6 +271,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 			"workspace", d.Workspace.String(), "err", err)
 	}
 
+	deps := sweepDeps{inc: inc, ms: ms, meter: meter, log: log}
 	for _, objectClass := range overlayObjectClasses {
 		// A connection-level failure sweeping a SCOPE-BACKED class
 		// (contacts/companies/deals) aborts the whole sweep (the caller backs
@@ -390,7 +280,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		// classes are swept best-effort with no requested scope, so a portal
 		// that gates one of them (a 403/404 for that object alone) skips just
 		// that class here — overlaySweepAborts encodes the distinction.
-		if err := sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass); err != nil {
+		if err := sweepObjectClass(ctx, deps, d.Workspace.String(), objectClass, d.ConnectedAt); err != nil {
 			if overlaySweepAborts(objectClass, err) {
 				return err
 			}
@@ -406,83 +296,149 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 	return nil
 }
 
+// sweepDeps bundles sweepObjectClass's per-connection collaborators — the
+// live incumbent adapter, the identity-fenced store, the OVB meter, and the
+// logger — so the phase functions below (and reconcileConnection's call
+// site) pass one value instead of four positional ones.
+type sweepDeps struct {
+	inc   overlay.Incumbent
+	ms    *overlay.MirrorStore
+	meter *overlaybudget.Meter
+	log   *slog.Logger
+}
+
+// sweepMustStop reports whether err is either the disconnect-race fence's
+// clean-stop signal (overlay.ErrConnectionGone) or a connection-level
+// incumbent failure (isConnectionLevelIncumbentError) — the two conditions
+// every phase of sweepObjectClass propagates to abort the whole sweep,
+// rather than logging and skipping just this object class. One predicate so
+// every phase checks the identical condition, rather than each phase
+// spelling out its own copy that could silently drift from its siblings.
+func sweepMustStop(err error) bool {
+	return errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err)
+}
+
 // sweepObjectClass runs one object class's full convergence for a
 // connection: the initial backfill (a cheap no-op once its cursor has
 // converged), the incremental modified-record sweep, then the
-// opposite-direction deletion sweep — each on its own persisted watermark.
-// Any step's failure is logged and skips the REST of this class's sweep
-// this tick (the next tick resumes from the checkpoint), never aborting the
-// other classes — which is why it returns nothing. workspace is the
-// stringified id, for logging only. Extracted from reconcileConnection so
-// the per-class sequence reads as one unit and the connection-level loop
-// stays short.
-// It returns a non-nil error only for a connection-level incumbent failure
-// (isConnectionLevelIncumbentError) — the signal reconcileConnection
-// propagates to abort the sweep and back the connection off — or
-// overlay.ErrConnectionGone, the disconnect-race fence's clean-stop signal
-// reconcileConnection turns into a no-backoff stop. A per-object failure (a
-// mapping/data defect, a DB read/write blip) is logged and skips the rest of
-// THIS class with a nil return, so the connection-level loop moves on to the
-// next class.
-func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, workspace, objectClass string) error {
-	// Initial full load before the incremental sweep: Backfill lists the
-	// object class id-cursor style AND fetches its associations (design.md
-	// §4.4), checkpointing overlay_backfill_cursor so SyncStatus's
-	// backfillComplete answers truthfully. It is a cheap no-op once its
-	// cursor has converged, so every later sweep skips straight to the
-	// Modified pass — the first sweep after a connect (via the poller, or
-	// on-demand through POST /overlay/reconcile) does the load, the rest
-	// ride the watermark.
-	if err := overlay.Backfill(ctx, inc, ms, objectClass); err != nil {
-		if errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err) {
-			return err
-		}
-		log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
-			"workspace", workspace, "object_class", objectClass, "err", err)
-		return nil
+// opposite-direction deletion sweep — each on its own persisted watermark,
+// each its own phase function below. Any phase's failure is logged and
+// skips the REST of this class's sweep this tick (the next tick resumes from
+// the checkpoint), never aborting the other classes on its own — that
+// distinction is sweepMustStop's, below. workspace is the stringified id,
+// for logging only; connectedAt floors the incremental sweep of a class
+// that has no watermark yet.
+//
+// It returns a non-nil error only when sweepMustStop says so — a
+// connection-level incumbent failure or overlay.ErrConnectionGone — the
+// signal reconcileConnection propagates to abort the sweep and back the
+// connection off (or, for ErrConnectionGone, turns into a no-backoff clean
+// stop). A per-object failure (a mapping/data defect, a DB read/write blip)
+// is logged and skips the rest of THIS class with a nil return, so the
+// connection-level loop moves on to the next class.
+func sweepObjectClass(ctx context.Context, deps sweepDeps, workspace, objectClass string, connectedAt time.Time) error {
+	proceed, err := sweepBackfillPhase(ctx, deps, workspace, objectClass, connectedAt)
+	if err != nil {
+		return err
 	}
-	since, err := ms.LoadReconcileWatermark(ctx, objectClass)
+	if !proceed {
+		return nil // the phase already logged and skipped (backfill pass failed)
+	}
+	proceed, err = sweepModifiedPhase(ctx, deps, workspace, objectClass, connectedAt)
+	if err != nil {
+		return err
+	}
+	if !proceed {
+		return nil // the phase already logged and skipped (watermark read failed)
+	}
+	return sweepDeletionPhase(ctx, deps, workspace, objectClass)
+}
+
+// sweepBackfillPhase runs the initial full load before the incremental
+// sweep: Backfill lists the object class id-cursor style AND fetches its
+// associations (design.md §4.4), checkpointing overlay_backfill_cursor so
+// SyncStatus's backfillComplete answers truthfully. It is a cheap no-op
+// once its cursor has converged, so every later sweep skips straight to
+// the Modified pass — the first sweep after a connect (via the poller, or
+// on-demand through POST /overlay/reconcile) does the load, the rest ride
+// the watermark. proceed is false when the backfill pass itself failed
+// (already logged): the Modified and deletion phases must not spend
+// incumbent quota sweeping a class whose initial load never converged this
+// tick — the same "stop the rest of this class, not the others" contract
+// every phase here honors.
+func sweepBackfillPhase(ctx context.Context, deps sweepDeps, workspace, objectClass string, connectedAt time.Time) (proceed bool, err error) {
+	truncated, err := overlay.Backfill(ctx, deps.inc, deps.ms, objectClass, connectedAt)
+	if err != nil {
+		if sweepMustStop(err) {
+			return false, err
+		}
+		deps.log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
+			"workspace", workspace, "object_class", objectClass, "err", err)
+		return false, nil
+	}
+	if truncated {
+		deps.log.WarnContext(ctx, "overlay reconcile: backfill capped by MARGINCE_OVERLAY_BACKFILL_LIMIT; this object class will report backfill-complete=false until its overlay_backfill_cursor row is cleared (unsetting the cap alone does not resume it)",
+			"workspace", workspace, "object_class", objectClass)
+	}
+	return true, nil
+}
+
+// sweepModifiedPhase runs the incremental modified-record sweep: load the
+// persisted watermark, then let Reconcile itself raise it through the floor
+// (an unfloored class sweeps from the zero time — the incumbent's entire
+// portal — which would undo the backfill cap) before sweeping, and
+// checkpoint the advanced watermark. proceed is true only when the sweep
+// genuinely converged and the deletion phase after it may safely run — false
+// covers both "already logged and skipped, nothing more to do this class
+// this tick" outcomes (an unreadable watermark, a failed Reconcile pass),
+// matching the original single-function behavior where either failure
+// returned before ever reaching ReconcileDeletions.
+func sweepModifiedPhase(ctx context.Context, deps sweepDeps, workspace, objectClass string, connectedAt time.Time) (proceed bool, err error) {
+	watermark, err := deps.ms.LoadReconcileWatermark(ctx, objectClass)
 	if err != nil {
 		// A watermark read is a local DB call, not an incumbent one — a blip
 		// here is not a connection-level failure, so skip this class rather
 		// than back the whole connection off.
-		log.WarnContext(ctx, "overlay reconcile: loading the persisted watermark failed, skipping this object class",
+		deps.log.WarnContext(ctx, "overlay reconcile: loading the persisted watermark failed, skipping this object class",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return nil
+		return false, nil
 	}
-	newWatermark, err := overlay.Reconcile(ctx, inc, ms, meter, objectClass, since)
+	newWatermark, err := overlay.Reconcile(ctx, deps.inc, deps.ms, deps.meter, objectClass, watermark, connectedAt)
 	if err != nil {
-		if errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err) {
-			return err
+		if sweepMustStop(err) {
+			return false, err
 		}
-		log.WarnContext(ctx, "overlay reconcile sweep failed",
+		deps.log.WarnContext(ctx, "overlay reconcile sweep failed",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return nil
+		return false, nil
 	}
-	if newWatermark.After(since) {
-		if err := ms.SaveReconcileWatermark(ctx, objectClass, newWatermark); err != nil {
+	if newWatermark.After(watermark) {
+		if err := deps.ms.SaveReconcileWatermark(ctx, objectClass, newWatermark, connectedAt); err != nil {
 			if errors.Is(err, overlay.ErrConnectionGone) {
-				return err
+				return false, err
 			}
-			log.WarnContext(ctx, "overlay reconcile: persisting the new watermark failed",
+			deps.log.WarnContext(ctx, "overlay reconcile: persisting the new watermark failed",
 				"workspace", workspace, "object_class", objectClass, "err", err)
 		}
 	}
+	return true, nil
+}
 
-	// Converge the OTHER direction: purge records the incumbent has deleted
-	// so they stop being readable from the mirror (branch-1b deletion feed).
-	// Run AFTER the Modified sweep within the same tick so a live-record
-	// page already fetched this pass can never resurrect a record this sweep
-	// just purged — HubSpot excludes archived records from the
-	// Modified/Search feed, so the two do not fight over the same row. The
-	// sweep full-scans the archived feed each pass and purges idempotently
-	// (ReconcileDeletions' own doc explains why a watermark would be unsound
-	// over HubSpot's unordered archived feed).
-	if err := overlay.ReconcileDeletions(ctx, inc, ms, meter, objectClass); err != nil {
-		if isConnectionLevelIncumbentError(err) {
+// sweepDeletionPhase converges the OTHER direction: purge records the
+// incumbent has deleted so they stop being readable from the mirror
+// (branch-1b deletion feed). Run AFTER the Modified sweep within the same
+// tick so a live-record page already fetched this pass can never
+// resurrect a record this sweep just purged — HubSpot excludes archived
+// records from the Modified/Search feed, so the two do not fight over the
+// same row. The sweep full-scans the archived feed each pass and purges
+// idempotently (ReconcileDeletions' own doc explains why a watermark would
+// be unsound over HubSpot's unordered archived feed).
+func sweepDeletionPhase(ctx context.Context, deps sweepDeps, workspace, objectClass string) error {
+	if err := overlay.ReconcileDeletions(ctx, deps.inc, deps.ms, deps.meter, objectClass); err != nil {
+		if sweepMustStop(err) {
 			return err
 		}
-		log.WarnContext(ctx, "overlay reconcile: deletion sweep failed",
+		deps.log.WarnContext(ctx, "overlay reconcile: deletion sweep failed",
 			"workspace", workspace, "object_class", objectClass, "err", err)
 		return nil
 	}

@@ -41,7 +41,7 @@ func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incum
 	}
 }
 
-// Reconcile sweeps objectClass's records modified at or after since via
+// Reconcile sweeps objectClass's records modified since watermark via
 // inc.Modified, ingesting every page into ms and metering each page fetch
 // against the poller source of the shared OVB budget. objectClass is the INCUMBENT class name (the
 // same seam rule Backfill/Modified obey, overlay/backfill.go's own doc
@@ -49,6 +49,15 @@ func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incum
 // records it returns already carry the CANONICAL object class Reconcile
 // reads back through ms.getRaw/ms.Ingest (the adapter's mapRecord
 // translation, hubspot/adapter.go).
+//
+// watermark is the class's persisted checkpoint (the zero time when it has
+// none) and connectedAt is the connection's own identity; Reconcile raises
+// the pair through reconcileFloor (reconcilefloor.go) BEFORE ever calling
+// inc.Modified, so the sweep window is always floored, never a raw
+// watermark. An unfloored class would sweep from the zero time, which the
+// HubSpot adapter renders as `lastmodifieddate GTE 0` — the entire portal,
+// immediately after Backfill already read it, undoing
+// MARGINCE_OVERLAY_BACKFILL_LIMIT.
 //
 // For a record whose mirror row already existed and was NOT
 // pending_sync (design.md §4.4: "Incumbent-wins applies to fresh/stale
@@ -64,11 +73,18 @@ func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incum
 // emits nothing for it — the dirty write stays the authority until
 // branch 2's write-back drains it.
 //
-// The returned watermark is the latest ModifiedAt Reconcile observed
-// across every record in every page swept, or since unchanged if the
-// sweep saw nothing new — the caller (jobs.go's poller) persists it via
-// MirrorStore.SaveReconcileWatermark so the next pass resumes forward,
-// never rewinding.
+// The returned watermark is the latest ModifiedAt Reconcile observed across
+// every record in every page swept, or the floored since unchanged if the
+// sweep saw nothing new — the caller (jobs_overlay.go's poller) persists it
+// via MirrorStore.SaveReconcileWatermark, guarded by
+// newWatermark.After(watermark) — the RAW, pre-floor value the caller
+// itself persisted last, not since. Comparing against the raw value (rather
+// than since) lets a genuinely empty first sweep persist the floor itself:
+// the caller's watermark starts at zero (never swept), the floor is well
+// above it, and floor.After(zero) is true even though nothing NEW was
+// found — which is correct: the sweep DID read from the floor and found
+// nothing, so recording that as the new checkpoint is honest, not a
+// rewind (SaveReconcileWatermark's only-advance SQL backs it either way).
 //
 // Two-mode keyset (design.md §4.4/§7): HubSpot Search honors only one
 // sort, so a >10k-tied-timestamp block needs a second numeric-id-keyset
@@ -81,9 +97,10 @@ func mirrorConflictPayload(objectClass, externalID string, priorUpdatedAt, incum
 // one watermark window) — the >10k-per-timestamp fallback stays a named,
 // upstream-tracked gap rather than an invented behavior against an
 // unconfirmed wire contract.
-func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overlaybudget.Meter, objectClass string, since time.Time) (time.Time, error) {
+func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overlaybudget.Meter, objectClass string, watermark, connectedAt time.Time) (time.Time, error) {
+	since := reconcileFloor(watermark, connectedAt)
 	incumbent := inc.Name()
-	watermark := since
+	newWatermark := since
 	cursor := ""
 	for {
 		// Meter the Search-API request we are about to make BEFORE the
@@ -94,21 +111,21 @@ func Reconcile(ctx context.Context, inc Incumbent, ms *MirrorStore, meter *overl
 		// mirrors and cannot skip a page mid-pagination without stranding
 		// later pages, so it records its spend and runs to completion.
 		if err := meterPollerSearch(ctx, meter, incumbent); err != nil {
-			return watermark, fmt.Errorf("overlay: reconcile %s: metering the poller sweep: %w", objectClass, err)
+			return newWatermark, fmt.Errorf("overlay: reconcile %s: metering the poller sweep: %w", objectClass, err)
 		}
 
 		page, err := inc.Modified(ctx, objectClass, since, cursor)
 		if err != nil {
-			return watermark, fmt.Errorf("overlay: reconcile %s: sweeping modified records at cursor %q: %w", objectClass, cursor, err)
+			return newWatermark, fmt.Errorf("overlay: reconcile %s: sweeping modified records at cursor %q: %w", objectClass, cursor, err)
 		}
 
-		watermark, err = reconcilePage(ctx, ms, page, watermark)
+		newWatermark, err = reconcilePage(ctx, ms, page, newWatermark)
 		if err != nil {
-			return watermark, err
+			return newWatermark, err
 		}
 
 		if page.NextCursor == "" {
-			return watermark, nil
+			return newWatermark, nil
 		}
 		cursor = page.NextCursor
 	}
@@ -278,6 +295,16 @@ func emitMirrorConflict(ctx context.Context, ms *MirrorStore, rec Record, prior 
 		"incumbent_updated_at": rec.ModifiedAt,
 	}
 	err = database.WithWorkspaceTx(ctx, ms.pool, func(tx pgx.Tx) error {
+		// Fenced the same way every other sweep write is: a disconnect (or
+		// disconnect+reconnect) landing between reconcileOne's ingest commit
+		// and this call must not let a stray system_log/event_outbox row
+		// commit into a workspace that has left overlay mode, or attribute a
+		// prior connection's record ids to a DIFFERENT one now active —
+		// neither table is purged by teardown, so a stray row here would
+		// outlive the disconnect it should have been fenced against.
+		if err := ms.assertFence(ctx, tx); err != nil {
+			return err
+		}
 		logID, err := storekit.LogSystem(ctx, tx, "mirror.conflict", detail)
 		if err != nil {
 			return fmt.Errorf("overlay: reconcile: logging the mirror.conflict system event: %w", err)

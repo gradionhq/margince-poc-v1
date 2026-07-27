@@ -688,8 +688,12 @@ func TestAcceptance_AC_OV_8_IncumbentWinsConflict(t *testing.T) {
 	fakeInc.Seed(overlay.IncumbentClassCompanies, reverseRec)
 
 	meter := acceptanceBudgetMeter(t)
-	since := oldBaseline.Add(-time.Second)
-	if _, err := overlay.Reconcile(ctx, fakeInc, mirror, meter, overlay.IncumbentClassCompanies, since); err != nil {
+	watermark := oldBaseline.Add(-time.Second)
+	// watermark sits above the connection-derived floor (connectedAt minus
+	// the 15-minute skew grace), so the sweep's internal floor leaves it
+	// unchanged — this test is about the conflict/no-conflict distinction,
+	// not the floor.
+	if _, err := overlay.Reconcile(ctx, fakeInc, mirror, meter, overlay.IncumbentClassCompanies, watermark, oldBaseline); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 
@@ -887,7 +891,7 @@ func TestAcceptance_OVA_AC_1_TeardownPurges(t *testing.T) {
 		FromType: "deal", FromID: "700001", ToType: "organization", ToID: "800001",
 		TypeID: 5, Category: "HUBSPOT_DEFINED", Direction: "forward",
 	})
-	if err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassDeals); err != nil {
+	if _, err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassDeals, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("backfilling the fake incumbent's deals (with its company association): %v", err)
 	}
 

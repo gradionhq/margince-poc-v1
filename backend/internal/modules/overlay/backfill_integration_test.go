@@ -152,8 +152,9 @@ func TestBackfillCursorPersistsAcrossRestartInPostgres(t *testing.T) {
 	// worst case backfill_test.go's unit test proves against the fake
 	// sink, but here Ingest/SaveBackfillCursor/LoadBackfillCursor are all
 	// the real *MirrorStore hitting real Postgres.
+	connectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	crashing := &crashingMirrorSink{MirrorStore: store, failAfter: 150}
-	if err := Backfill(ctx, inc, crashing, "companies"); err == nil {
+	if _, err := Backfill(ctx, inc, crashing, "companies", connectedAt); err == nil {
 		t.Fatal("want an error from the forced mid-backfill failure, got nil")
 	}
 
@@ -175,7 +176,7 @@ func TestBackfillCursorPersistsAcrossRestartInPostgres(t *testing.T) {
 
 	// Restart: a brand-new MirrorSink wrapping the same real store.
 	restarted := &crashingMirrorSink{MirrorStore: store}
-	if err := Backfill(ctx, inc, restarted, "companies"); err != nil {
+	if _, err := Backfill(ctx, inc, restarted, "companies", connectedAt); err != nil {
 		t.Fatalf("the resumed Backfill returned an error: %v", err)
 	}
 
