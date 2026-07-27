@@ -62,6 +62,7 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	r.BindCase(signatureEnrichCases{})
 	r.BindCase(siteProfileCases{})
 	r.BindCase(sitePageFactsCases{})
+	r.BindCase(onboardingActCases{})
 
 	return r, r.Validate()
 }
