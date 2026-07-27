@@ -37,9 +37,14 @@ type SetProjectStakeholderInput struct {
 
 // SetProjectStakeholder attaches a person to a project, or re-roles the
 // edge that already exists. The uniqueness index (uq_rel_project_stakeholder)
-// is what makes "already attached" detectable rather than duplicated; the
-// lookup runs inside the same transaction as the write, so a concurrent
-// attach loses on the index rather than on a stale read.
+// is what makes "already attached" detectable rather than duplicated.
+//
+// The lookup and the write are separate gated store calls, so two concurrent
+// attaches can both read "no edge" and both try to create one. The index
+// settles that, and the loser treats its own conflict as the answer it was
+// looking for: re-read the edge that won and correct its role. Returning the
+// raw uniqueness error instead would make an idempotent PUT fail purely on
+// timing.
 func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakeholderInput) (relationshipRow, error) {
 	if err := auth.Require(ctx, "relationship", principal.ActionCreate); err != nil {
 		return relationshipRow{}, err
@@ -73,7 +78,7 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 	if existingID != nil {
 		return s.UpdateRelationship(ctx, *existingID, UpdateRelationshipInput{Role: &in.Role})
 	}
-	return s.CreateRelationship(ctx, CreateRelationshipInput{
+	row, err := s.CreateRelationship(ctx, CreateRelationshipInput{
 		Kind:      projectStakeholderKind,
 		PersonID:  &in.PersonID,
 		ProjectID: &in.ProjectID,
@@ -82,6 +87,34 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 		// captured_by is stamped from the principal by the write shape.
 		Source: projectStakeholderSource,
 	})
+	if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "uq_rel_project_stakeholder" {
+		// Someone attached the same person between our read and our write.
+		// That is the state this call wanted, so adopt their edge and apply
+		// the role rather than failing a request that asked for exactly this.
+		winnerID, lookupErr := s.projectStakeholderEdge(ctx, in.ProjectID, in.PersonID)
+		if lookupErr != nil {
+			return relationshipRow{}, lookupErr
+		}
+		return s.UpdateRelationship(ctx, winnerID, UpdateRelationshipInput{Role: &in.Role})
+	}
+	return row, err
+}
+
+// projectStakeholderEdge resolves the live edge between a project and a
+// person. It exists so the attach path can re-read the winner of a
+// uniqueness race with the same query that looked for it in the first place.
+func (s *Store) projectStakeholderEdge(ctx context.Context, projectID ids.ProjectID, personID ids.PersonID) (ids.UUID, error) {
+	var found ids.UUID
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT id FROM relationship
+			WHERE kind = $1 AND project_id = $2 AND person_id = $3 AND archived_at IS NULL`,
+			projectStakeholderKind, projectID, personID).Scan(&found)
+	})
+	if err != nil {
+		return ids.UUID{}, fmt.Errorf("resolve project stakeholder edge: %w", err)
+	}
+	return found, nil
 }
 
 // RemoveProjectStakeholder archives the edge between a project and a
@@ -89,6 +122,12 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 // the record of their involvement survives the change.
 func (s *Store) RemoveProjectStakeholder(ctx context.Context, projectID ids.ProjectID, personID ids.PersonID) error {
 	if err := auth.Require(ctx, "relationship", principal.ActionDelete); err != nil {
+		return err
+	}
+	// The same anchor grant attach demands: detaching a stakeholder changes
+	// who the project says is involved, so a principal that cannot write the
+	// project cannot rewrite its roster from the edge side either.
+	if err := auth.Require(ctx, projectObjectName, principal.ActionUpdate); err != nil {
 		return err
 	}
 	var edgeID ids.UUID

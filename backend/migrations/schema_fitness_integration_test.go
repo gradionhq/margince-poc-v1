@@ -259,6 +259,9 @@ var rowScopedFKDecisions = map[string]string{
 	"activity_link.organization_id": "gated: auth.EnsureLinkTarget in LogActivity",
 	"activity_link.deal_id":         "gated: auth.EnsureLinkTarget in LogActivity",
 	"activity_link.lead_id":         "gated: auth.EnsureLinkTarget in LogActivity",
+	"activity_link.project_id":      "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
+	"deal.project_id":               "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
+	"lead.project_id":               "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
 	"activity_link.activity_id":           "child row: written only inside LogActivity for the new activity",
@@ -273,12 +276,13 @@ var rowScopedFKDecisions = map[string]string{
 	"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
 	// Server-derived pointers: stamped from an operation's outcome,
 	// never accepted from the request body.
-	"lead.promoted_person_id":       "server-derived: stamped by PromoteLead",
-	"person.merged_into_id":         "server-derived: stamped by MergePerson",
-	"organization.merged_into_id":   "server-derived: stamped by MergeOrganization",
-	"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
-	"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
-	"brief_item.deal_id":            "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
+	"lead.promoted_person_id":          "server-derived: stamped by PromoteLead",
+	"person.merged_into_id":            "server-derived: stamped by MergePerson",
+	"organization.merged_into_id":      "server-derived: stamped by MergeOrganization",
+	"person.converted_from_lead_id":    "server-derived: stamped by PromoteLead",
+	"deal_stage_history.deal_id":       "server-derived: appended by CreateDeal/AdvanceDeal",
+	"project_phase_history.project_id": "server-derived: appended by CreateProject/AdvanceProjectPhase from the project row they just wrote or advanced, never from a request body",
+	"brief_item.deal_id":               "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
 	// The capture disposition ledger (CAP-DDL-8): capture writes the row in
 	// the same transaction as the activity it just created, from that
 	// activity's own id — a connector principal supplies message bytes, never
@@ -289,6 +293,7 @@ var rowScopedFKDecisions = map[string]string{
 	"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"relationship.organization_id":               "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"relationship.deal_id":                       "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
+	"relationship.project_id":                    "gated: auth.EnsureLinkTarget on the project anchor in CreateRelationship (H1)",
 	"partner.organization_id":                    "gated: auth.EnsureLinkTarget in UpsertPartner (H1)",
 	"organization_profile_field.organization_id": "server-derived: the coldstart accept executor resolves the org from the staged source URL, never from a request body",
 	"organization_fact.organization_id":          "child rows written only through the deepread accept effect, whose approval was staged from a visibility-checked read",
@@ -333,7 +338,7 @@ func TestFK_rowScopedTargetsHaveVisibilityDecision(t *testing.T) {
 		JOIN unnest(c.conkey) WITH ORDINALITY AS k(attnum, ord) ON true
 		JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.attnum
 		WHERE c.contype = 'f'
-		  AND c.confrelid::regclass::text IN ('person','organization','deal','lead','activity')
+		  AND c.confrelid::regclass::text IN ('person','organization','deal','lead','activity','project')
 		  AND a.attname <> 'workspace_id'
 		ORDER BY 1, 2`)
 	if err != nil {

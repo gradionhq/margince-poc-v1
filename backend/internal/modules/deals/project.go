@@ -239,10 +239,27 @@ func ensureProjectKeyFree(ctx context.Context, tx pgx.Tx, key *string) error {
 	if key == nil || *key == "" {
 		return nil
 	}
+	// Naming the colliding id is a READ of that project, so the probe carries
+	// the row-scope clause like any other read. Without it the conflict path
+	// hands a caller the exact id of a row it may not see — the key is
+	// workspace-unique, so an invisible owner's project would still answer.
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	keyPos := arg(*key)
+	scope, err := auth.ScopeClauseFor(ctx, projectObject, "", arg)
+	if err != nil {
+		return err
+	}
+	where := fmt.Sprintf("lower(key) = lower($%d) AND archived_at IS NULL", keyPos)
+	if scope != "" {
+		where += " AND " + scope
+	}
 	var existing ids.UUID
-	err := tx.QueryRow(ctx,
-		`SELECT id FROM project WHERE lower(key) = lower($1) AND archived_at IS NULL`, *key).Scan(&existing)
+	err = tx.QueryRow(ctx, `SELECT id FROM project WHERE `+where, args...).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
+		// Either the key is free, or it is held by a project this caller
+		// cannot see. Both answer the same way here: the unique index is the
+		// authority, and projectKeyConflict reports the refusal without an id.
 		return nil
 	}
 	if err != nil {
