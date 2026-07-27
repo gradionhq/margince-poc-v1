@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -56,15 +57,15 @@ type readinessRow struct {
 //
 // The sites come from the census rather than from the records, because absence
 // is the finding this report exists to surface and a missing record cannot name
-// itself. Staleness is computed here too: a record stamped against scenarios
-// this corpus no longer contains is a claim about prompts the build no longer
+// itself. stamps is the stamp this build computes per task (currentStamps): a
+// record carrying another one was scored against something this build no longer
 // sends.
 //
 // Nothing here fails or exits non-zero. The certification lane is paid, manual
 // and BYOK-gated, so this is a view a human reads before a release decision —
 // not a gate, which would make every prompt edit wait on a paid run.
-func renderReadiness(sites []aitasks.Site, corpus []aicert.Scenario, records []aicert.Record) string {
-	rows, unclaimed := readinessRows(sites, corpus, records)
+func renderReadiness(sites []aitasks.Site, stamps map[string]string, records []aicert.Record) string {
+	rows, unclaimed := readinessRows(sites, stamps, records)
 
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
@@ -103,8 +104,7 @@ func renderReadiness(sites []aitasks.Site, corpus []aicert.Scenario, records []a
 // one record can cover several sites and a task certified on two bindings gives
 // a site two rows. The site is still the unit here: it is what the contract
 // ships and what a scenario names.
-func readinessRows(sites []aitasks.Site, corpus []aicert.Scenario, records []aicert.Record) ([]readinessRow, []aicert.Record) {
-	stamps := currentStamps(corpus)
+func readinessRows(sites []aitasks.Site, stamps map[string]string, records []aicert.Record) ([]readinessRow, []aicert.Record) {
 	byTask := map[string][]aicert.Record{}
 	for _, rec := range records {
 		byTask[rec.Task] = append(byTask[rec.Task], rec)
@@ -137,20 +137,29 @@ func readinessRows(sites []aitasks.Site, corpus []aicert.Scenario, records []aic
 	return rows, unclaimed
 }
 
-// currentStamps is the certification stamp this corpus computes per task — the
+// currentStamps is the certification stamp this build computes per task — the
 // value a record's own stamp must equal to still describe what ships. A task
 // with no scenarios gets no entry, so every record for it reads as stale: a
 // record whose scenarios are gone cannot be current against anything.
-func currentStamps(corpus []aicert.Scenario) map[string]string {
+//
+// It fails rather than skipping a task it cannot stamp. The stamp covers the
+// request each site's own code builds, so a task that cannot be stamped is a
+// corpus this build cannot run — and every record for it would otherwise read
+// as stale for a reason the report never states.
+func currentStamps(ctx context.Context, corpus []aicert.Scenario, census *aitasks.Registry) (map[string]string, error) {
 	byTask := map[string][]aicert.Scenario{}
 	for _, sc := range corpus {
 		byTask[sc.Task] = append(byTask[sc.Task], sc)
 	}
 	stamps := make(map[string]string, len(byTask))
 	for task, scenarios := range byTask {
-		stamps[task] = aicert.PromptVersion(scenarios)
+		stamp, err := aicert.PromptVersion(ctx, scenarios, census)
+		if err != nil {
+			return nil, fmt.Errorf("task %s: %w", task, err)
+		}
+		stamps[task] = stamp
 	}
-	return stamps
+	return stamps, nil
 }
 
 // status names which of the three states this row is in.
@@ -237,8 +246,8 @@ func legend(rows []readinessRow, unclaimed []aicert.Record) []string {
 	}
 	if stale > 0 {
 		lines = append(lines,
-			fmt.Sprintf("%d stale: the record was scored against scenarios this corpus no longer contains,", stale),
-			"so its band describes prompts this build does not send. Re-certify to make it a claim again.")
+			fmt.Sprintf("%d stale: the record was scored against a scenario, or a prompt built from one,", stale),
+			"that this build no longer sends. Re-certify to make its band a claim again.")
 	}
 	if absent > 0 {
 		lines = append(lines,

@@ -32,17 +32,15 @@ func rowFor(t *testing.T, out, site string) string {
 	return found
 }
 
-func scenarioFor(task, site string) aicert.Scenario {
-	return aicert.Scenario{
-		Name: site + "_01", Task: task, Site: site,
-		Source: "hand_authored", SanitizedBy: "tests",
-		Fixture: aicert.JSONValue(`{"page":"a page"}`),
-		Expect: aicert.Expectations{
-			Outcome: aitasks.OutcomeAccepted,
-			Bands:   aicert.Bands{CertifiedMin: 70, DegradedMin: 50, Floor: 40},
-		},
-	}
-}
+// The stamps a report is handed are opaque to it: main computes them from the
+// corpus and the census (aicert.PromptVersion), and the report only ever asks
+// whether a record carries the one its task computes. So these tests name them
+// rather than compute them — the digest's own tests own what moves it.
+const currentStamp = "p00000000000000000000000000000000"
+
+// staleStamp is any other value: a record carrying it was scored against
+// something this build no longer sends.
+const staleStamp = "p11111111111111111111111111111111"
 
 // The state a reader sees before the first paid run: every shipped site owes a
 // record and none exists. It must read as "nothing has been measured", never as
@@ -78,23 +76,21 @@ func TestReadinessReportRendersStaleAndAbsentDistinctly(t *testing.T) {
 		{Task: ai.TaskBriefRanking, Variant: "rank", Kind: ai.SiteKindOneShot},
 		{Task: ai.TaskAgentLoop, Variant: "loop", Kind: ai.SiteKindAgentLoop},
 	}
-	fx := scenarioFor("rate_extract", "fx")
-	rank := scenarioFor("brief_ranking", "rank")
-	corpus := []aicert.Scenario{fx, rank}
+	stamps := map[string]string{"rate_extract": currentStamp, "brief_ranking": currentStamp}
 	records := []aicert.Record{
 		{
 			Task: "rate_extract", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
-			PromptVersion: aicert.PromptVersion([]aicert.Scenario{fx}),
+			PromptVersion: currentStamp,
 			Verdict:       aicert.VerdictCertified, Runs: 3, Accepted: 3,
 		},
 		{
 			Task: "brief_ranking", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
-			PromptVersion: "p0000000000000000000000000000000",
+			PromptVersion: staleStamp,
 			Verdict:       aicert.VerdictCertified, Runs: 3, Accepted: 3,
 		},
 	}
 
-	out := renderReadiness(sites, corpus, records)
+	out := renderReadiness(sites, stamps, records)
 
 	fresh := rowFor(t, out, "rate_extract/fx")
 	if !strings.Contains(fresh, "current") {
@@ -124,10 +120,9 @@ func TestReadinessReportRendersStaleAndAbsentDistinctly(t *testing.T) {
 // band into a diagnosis, so the report must show all four.
 func TestReadinessReportCarriesTheBandTheCountsAndTheBinding(t *testing.T) {
 	sites := []aitasks.Site{{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}}
-	fx := scenarioFor("rate_extract", "fx")
 	records := []aicert.Record{{
 		Task: "rate_extract", Provider: "ollama", ServedModel: "llama3.1:8b", EnvClass: "local",
-		PromptVersion:  aicert.PromptVersion([]aicert.Scenario{fx}),
+		PromptVersion:  currentStamp,
 		Verdict:        aicert.VerdictNotSupported,
 		Runs:           9,
 		Reliability:    0.22,
@@ -138,7 +133,7 @@ func TestReadinessReportCarriesTheBandTheCountsAndTheBinding(t *testing.T) {
 		CertifiedScope: aitasks.ScopeFullInvocation,
 	}}
 
-	out := renderReadiness(sites, []aicert.Scenario{fx}, records)
+	out := renderReadiness(sites, map[string]string{"rate_extract": currentStamp}, records)
 
 	row := rowFor(t, out, "rate_extract/fx")
 	for _, want := range []string{

@@ -91,10 +91,13 @@ rate_extract/pricing  full_invocation  stale   certified  gemini    gemini-2.5-f
 
 Three states, and they never collapse into each other:
 
-- **`current`** — the record's stamp is the one this corpus computes, so its band
-  describes the request this build actually sends.
-- **`stale`** — a scenario changed after the run. The band is a claim about
-  prompts that no longer exist; re-certify that task.
+- **`current`** — the record's stamp is the one this build computes, so its band
+  describes the request this build actually sends. The stamp covers both halves
+  of that claim: the scenarios, and the requests the sites' own code builds from
+  them.
+- **`stale`** — a scenario changed after the run, or the code that turns it into
+  a prompt did. The band is a claim about requests that are no longer sent;
+  re-certify that task.
 - **`absent`** — nothing has ever been measured. The columns are dashes rather
   than zeroes, because a zero is a result and this is not one.
 

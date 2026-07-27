@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -50,6 +51,15 @@ func main() {
 		fmt.Fprintf(os.Stderr, "reportcmd: %v\n", err)
 		os.Exit(1)
 	}
+	// The stamps are computed here, beside the trees they are computed from: a
+	// stamp drives each site's own request builder, which can fail exactly like
+	// reading a malformed corpus does — and a report that could not tell a
+	// current record from a stale one is not a report worth printing.
+	stamps, err := currentStamps(context.Background(), corpus, census)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "reportcmd: %v\n", err)
+		os.Exit(1)
+	}
 
-	fmt.Print(renderReadiness(census.All(), corpus, records)) //nolint:forbidigo // this IS the report — reportcmd's whole job is printing it to stdout, not application logging
+	fmt.Print(renderReadiness(census.All(), stamps, records)) //nolint:forbidigo // this IS the report — reportcmd's whole job is printing it to stdout, not application logging
 }

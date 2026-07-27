@@ -165,6 +165,14 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, census
 	if err != nil {
 		return Record{}, err
 	}
+	// The stamp is computed before the first paid call: it drives every case's
+	// own request builder, so a corpus this build cannot build a request from is
+	// a run that could never have produced a record — found for free rather than
+	// after N repeats of real spend.
+	promptVersion, err := PromptVersion(ctx, scenarios, census)
+	if err != nil {
+		return Record{}, err
+	}
 	var candidateExtra, judgeExtra []ai.LocalOption
 	var trace *payloadTrace
 	if hooks != nil {
@@ -209,7 +217,7 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, census
 	return buildRecord(task, taskVerdict, acc.certifiedScope, reliability, acc.allResults, acc.latencies,
 		acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal,
 		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun,
-		baseCfg, PromptVersion(scenarios)), nil
+		baseCfg, promptVersion), nil
 }
 
 // taskAccumulation collects the pooled stats certifyTask folds across
