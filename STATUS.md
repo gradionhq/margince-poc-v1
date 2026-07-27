@@ -514,11 +514,15 @@ one `ai_call` row per ATTEMPT (retries/degrades/escalations visible,
 terminal-only metrics), served-model identity reported from the wire
 (`response|echo|configured`, never overclaimed), embeddings traced,
 config snapshots hash-keyed in `ai_call_config`, embedding rows aging
-out at 90 d. On top sits `compose/aicert`: a scenario corpus
-(hand-authored, provenance-attested, ≥1 per task — completeness
-fitness-tested), structural checks + a pinned rubric judge
-(`cert_judge`, own router, never the candidate's binding), N-odd
-cache-off repeats, spec §5 verdict math, and committed JSON records —
+out at 90 d. On top sits `compose/aicert`: a FIXTURE corpus
+(hand-authored, provenance-attested, ≥1 per shipped SITE — completeness
+fitness-tested). A scenario carries the input its site is given and the
+product builds the prompt, so each of the 19 census sites is certified
+through its own production request builder and production validator
+rather than a hand-written copy of either. The grader is a pinned rubric
+judge (`cert_judge`, own router, never the candidate's binding, its two
+untrusted inputs behind a freshly minted fence), with N-odd cache-off
+repeats, spec §5 verdict math, and committed JSON records —
 `make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
 `make e2e-ai-report` prints the readiness report — every shipped site's
 band, outcome counts, certified scope and binding, with a record that no
@@ -527,12 +531,15 @@ marked absent. Boot warns loudly on unbound
 ladders; `/readyz` names the AI state. A payload trace (`TRACE=1`, on by
 default) dumps every candidate+judge request/response — the post-stripper
 `ai_call_payload` shape — to a gitignored `.tmp/aicert/*.jsonl` for prompt
-tuning. First full-corpus Gemini sweep committed (2026-07-19): of 13 tasks,
-6 certified, 2 supported_degraded, 5 not_supported (mostly Gemini emitting
-`confidence` as a JSON string where the schema wants a number), and
-`offer_draft` blocked — Gemini 2.5's thinking exhausts its 300-token cap
-scenario before it answers. The verdicts are an honest snapshot, not a
-target to game.
+tuning. Full-corpus Gemini sweep committed (2026-07-28, ADR-0074): of 13
+tasks, 10 certified, 2 supported_degraded (`site_extract` 0.83,
+`cold_start`), 1 not_supported (`offer_draft` 0.67) — the drags are real
+refusals by the production validators, not structural mismatches. On one
+`cold_start` scenario the model answers "I have set" where it only staged
+a change for confirmation: the reply is well formed and proposes the right
+field, so no validator can see it, and the claim to have saved is exactly
+what the human is being asked to confirm. Kept as a finding about this
+binding. The verdicts are an honest snapshot, not a target to game.
 
 **Email ingestion — from fragment to nightly, every-user pipeline
 (ADR-0063, 2026-07-19)** — capture was operationally fragile (one 429
@@ -1087,21 +1094,18 @@ Open work, roughly in priority order:
   the fence in the same function; the test says so where it is defined rather
   than implying more than it checks.
 
-  **Owed: pin each task's corpus scenario to the prompt it ships.**
-  `aicert.PromptVersion` stamps the SCENARIOS a record was scored against, so a
-  corpus edit is visible — but nothing checks that the scenario still matches
-  what production sends. Only `rate_extract` and its FX twin are pinned
-  byte-for-byte. The other lanes' scenarios are close but not identical: they use
-  YAML folded style, so production's line breaks arrive as spaces, which means
-  those records did not score the shipped text exactly.
-
-  The fix is a per-scenario pin map plus a coverage test (every contract task
-  either pinned or declared an approximation with its reason), with the pinned
-  blocks GENERATED from the shipped prompt rather than hand-maintained. It was
-  built and reverted out of #264 deliberately: repinning changes those prompts,
-  which invalidates the records that PR just certified, so it needs its own
-  certification run. Worth doing next — it is the one remaining place where
-  "certified = shipped" rests on a comment rather than a gate.
+  **CLOSED by ADR-0074: each task's scenario IS the prompt it ships.** This was
+  owed as a per-scenario pin map — every task either pinned byte-for-byte to its
+  shipped prompt or declaring an approximation with its reason. The fixture
+  corpus removes the thing that needed pinning: a scenario now carries the INPUT
+  a site is given and the product builds the prompt from it, so there is no
+  second copy to drift. `PromptVersion` digests the scenario, the request the
+  site's own case builds, and the request the grader is sent, so editing a
+  prompt, a schema, a validator or the grader marks every affected record stale.
+  Converting the corpus found drift on seven of thirteen tasks that the old
+  hand-written scenarios had been certifying — including `rate_extract`, one of
+  the two that WAS byte-pinned, whose input carried a page header the rate
+  producer never emits.
 
   **Two pre-existing defects this surfaced — neither caused by #264, both worth
   a ticket.**
