@@ -218,6 +218,35 @@ func (e *Env) AgentCtx() context.Context {
 	})
 }
 
+// SeedPassport inserts a live passport for Rep1 and returns its id. Rows
+// that reference a passport carry a real foreign key, so a synthetic id
+// would be rejected by the database rather than by the code under test.
+func (e *Env) SeedPassport(t *testing.T, owner *pgx.Conn, label string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO passport (id, workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+		VALUES ($1, $2, $3, $3, $4, ARRAY['read','write'], $5, now() + interval '1 day')`,
+		id, e.WS, e.Rep1, label, "hash-"+id.String()); err != nil {
+		t.Fatalf("seeding passport %s: %v", label, err)
+	}
+	return id
+}
+
+// AgentCtxWithPassport is AgentCtx carrying a passport id, which is what a
+// real agent principal always holds. The distinction matters wherever
+// provenance decides authority — a staging with a passport was minted by an
+// agent asserting one, not by a server-side proposal flow. Pass an id from
+// SeedPassport: rows that record it are foreign-keyed to the real table.
+func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:test", SeatType: principal.SeatFull,
+		PassportID: passportID,
+	})
+}
+
 // personIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
 // the entity a people-store call targets — the suites' spelling of the
 // contracts-edge ids.From widening (the harness keeps its fixture ids

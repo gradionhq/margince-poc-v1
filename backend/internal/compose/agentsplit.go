@@ -57,7 +57,7 @@ var actionShapedUpdateOps = map[string]bool{
 // so transport never changes what a human decision protects. An
 // X-Approval-Token redeems a prior staging: the approved retry carries
 // exactly the staged sub-patch, whose hash the staging was bound to.
-func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, reader recordVersionReader, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
+func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	if redeemIfPresented(w, r, next, staging, pol, body) {
 		return
@@ -77,7 +77,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}
-	split, err := agents.SplitHumanOwned(ctx, ownership, pol.RecordType, targetID, body)
+	split, err := agents.SplitHumanOwned(ctx, ownership, string(pol.RecordType), targetID, body)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -95,7 +95,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		// Every touched field is human-owned: nothing applies, the whole
 		// request is the staged change — the approved retry is this exact
 		// request again.
-		stageRefusal(w, r, staging, reader, pol, body)
+		stageRefusal(w, r, staging, pol, body)
 		return
 	}
 	applyAutoExecuteAndStageResidue(w, r, next, staging, pol, targetID, split)
@@ -140,11 +140,15 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     pol.RecordType,
+		TargetType:     string(pol.RecordType),
 		TargetID:       targetID,
 		TargetVersion:  recordVersion(record),
-		Summary: fmt.Sprintf("Agent REST %s %s: overwrite human-edited %s",
-			r.Method, r.URL.Path, strings.Join(split.Conflicts, ", ")),
+		// The staged sub-patch is what the approval binds to, so the summary
+		// names the values it would write, not only the field names it would
+		// write them to: "overwrite human-edited amount_minor" told an
+		// approver which field was at stake and never with what.
+		Summary: "overwrite human-edited " + strings.Join(split.Conflicts, ", ") + " — " +
+			restSummary(pol.Op, r.Method, r.URL.Path, split.Staged),
 	})
 	if sErr != nil {
 		httperr.Write(w, r, fmt.Errorf("the other fields were updated, but staging the human-edited fields (%s) failed: %w",

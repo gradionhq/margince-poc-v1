@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -81,20 +82,56 @@ func (h *correlationHandler) WithGroup(name string) slog.Handler {
 
 // AccessLog logs one line per request (method, path, status, duration);
 // the correlation_id rides in via the ctx-aware handler, so it must be
-// mounted inside Correlate. The path is the raw request path, not the
-// route pattern — the access log answers "what did clients ask", the
-// metrics answer "how did routes behave".
-func AccessLog(log *slog.Logger, next http.Handler) http.Handler {
+// mounted inside Correlate. The path is the request path, not the route
+// pattern — the access log answers "what did clients ask", the metrics
+// answer "how did routes behave".
+//
+// capabilityPrefixes name the route prefixes whose NEXT path segment is a
+// bearer credential rather than an identifier: the no-login preference
+// centre carries its capability token in the URL, and that token resolves
+// straight to a (workspace, person) consent state. Everyone who can read
+// the log — an ops dashboard, a shipped aggregator, a third-party log SaaS,
+// a support engineer — would otherwise be holding a working credential, so
+// the segment is replaced before the line is written. The composition layer
+// names them for the same reason it names every other thing this chassis
+// observes: the chassis owns the mechanism, never the route vocabulary.
+func AccessLog(log *slog.Logger, next http.Handler, capabilityPrefixes ...string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(rec, r)
 		log.InfoContext(r.Context(), "http request",
 			"method", r.Method,
-			"path", r.URL.Path,
+			"path", RedactCapabilitySegment(r.URL.Path, capabilityPrefixes...),
 			"status", rec.status,
 			"duration_ms", time.Since(start).Milliseconds())
 	})
+}
+
+// redactedSegment stands in for a capability the log must not carry.
+const redactedSegment = "[redacted]"
+
+// RedactCapabilitySegment replaces the ONE path segment that follows a
+// capability prefix and keeps everything around it, so the line still says
+// which route was asked for and what trailed the credential ("…/unsubscribe")
+// without saying which credential was presented. A path that reaches no
+// prefix, or that stops at the prefix with no segment after it, is returned
+// unchanged — there is nothing there to leak.
+func RedactCapabilitySegment(path string, capabilityPrefixes ...string) string {
+	for _, prefix := range capabilityPrefixes {
+		if prefix == "" || !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		rest := strings.TrimPrefix(path, prefix)
+		if rest == "" {
+			continue
+		}
+		if _, trailing, found := strings.Cut(rest, "/"); found {
+			return prefix + redactedSegment + "/" + trailing
+		}
+		return prefix + redactedSegment
+	}
+	return path
 }
 
 // statusRecorder captures the response status for the access log.

@@ -47,7 +47,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	api := crmcontracts.HandlerWithOptions(srv, crmcontracts.ChiServerOptions{
 		BaseURL: "/v1",
 		Middlewares: []crmcontracts.MiddlewareFunc{
-			agentGate(registry, staging, provider, provider, fieldOwnership{pool: pool}, gate),
+			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
 			idempotency(pool),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent
@@ -86,7 +86,18 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
 		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api),
 	)
-	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(publicEdge))))
+	// publicPreferencesPrefix is named here twice on purpose: it is where
+	// the edge reads the capability token OUT of the path, and where the
+	// access log must not write it back.
+	//
+	// publicBookingPrefix is deliberately NOT redacted. Its slug is an
+	// unguessable but PUBLIC identifier — the host hands the URL out, it
+	// resolves to free/busy slots and nothing else, and 0036_booking_page
+	// states the posture outright ("a public identifier, not a credential:
+	// stored plaintext"). Redacting it would cost the access log the one
+	// thing that identifies which booking page was hit, and buy nothing.
+	mux.Handle("/v1/", httpserver.Correlate(
+		httpserver.AccessLog(log, authH.Middleware(publicEdge), publicPreferencesPrefix)))
 	// The A2 authorization server (ADR-0013): AS endpoints live outside
 	// the generated resource surface but behind the same workspace and
 	// session middleware; the discovery documents are static.

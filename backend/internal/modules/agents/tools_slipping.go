@@ -104,6 +104,15 @@ func (t whatsSlippingThisWeek) Handle(ctx context.Context, in json.RawMessage) (
 
 // --- draft_follow_ups_for (🟢 draft — proposes, never sends) ---
 
+// maxFollowUpDrafts bounds how many deals ONE call may write to. This tool
+// is the surface's only auto-execute bulk writer: the caller asks for one
+// thing and N records change, each draft a persisted activity that bumps
+// its deal's last_activity_at and so clears the stalled flag the segment
+// is computed from. The ceiling is enforced server-side, not merely
+// declared, so a lister that later returns a wider candidate set cannot
+// widen the blast radius on its own.
+const maxFollowUpDrafts = 25
+
 type draftFollowUpsFor struct {
 	list  SlippingLister
 	draft FollowUpDrafter
@@ -115,7 +124,8 @@ func (t draftFollowUpsFor) Spec() mcp.ToolSpec {
 		RequiredScope: principal.ScopeDraft, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listDeals + draftEmail + logActivity",
 		InputSchema: schema(`{"type":"object","required":["segment"],"properties":{
-			"segment":{"type":"string","enum":["slipping"],"description":"The deal set to draft follow-ups for; drafts land on each deal's timeline and are NEVER sent"}},
+			"segment":{"type":"string","enum":["slipping"],"description":"The deal set to draft follow-ups for; drafts land on each deal's timeline and are NEVER sent"},
+			"limit":{"type":"integer","minimum":1,"maximum":25,"description":"How many of the top-ranked deals to draft for; omitted or over the maximum means 25, the server-side ceiling on records one call may write"}},
 			"additionalProperties":false}`),
 		OutputSchema: schema(`{"type":"object"}`),
 	}
@@ -124,12 +134,16 @@ func (t draftFollowUpsFor) Spec() mcp.ToolSpec {
 func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json.RawMessage, error) {
 	var args struct {
 		Segment string `json:"segment"`
+		Limit   int    `json:"limit"`
 	}
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
 	if args.Segment != "slipping" {
 		return nil, &BadArgsError{Cause: fmt.Errorf("segment %q is not a known deal segment (want \"slipping\")", args.Segment)}
+	}
+	if args.Limit < 0 {
+		return nil, &BadArgsError{Cause: fmt.Errorf("limit %d is negative; omit it or ask for 1..%d", args.Limit, maxFollowUpDrafts)}
 	}
 	candidates, err := t.list(ctx)
 	if err != nil {
@@ -138,6 +152,9 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 	// Draft only over the evidenced set: a deal that would not appear in
 	// whats_slipping_this_week gets no follow-up either.
 	ranked := rankSlipping(candidates)
+	if ceiling := followUpCap(args.Limit); len(ranked) > ceiling {
+		ranked = ranked[:ceiling]
+	}
 	drafts := make([]map[string]any, 0, len(ranked))
 	for _, it := range ranked {
 		activityID, summary, err := t.draft(ctx, it.deal)
@@ -152,6 +169,16 @@ func (t draftFollowUpsFor) Handle(ctx context.Context, in json.RawMessage) (json
 		})
 	}
 	return json.Marshal(map[string]any{"segment": args.Segment, "drafts": drafts})
+}
+
+// followUpCap resolves the write ceiling for one call: the caller may ask
+// for fewer than maxFollowUpDrafts, never for more, and omitting the
+// argument does not mean unbounded.
+func followUpCap(limit int) int {
+	if limit <= 0 || limit > maxFollowUpDrafts {
+		return maxFollowUpDrafts
+	}
+	return limit
 }
 
 // --- the shared ranking + evidence gate ---

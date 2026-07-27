@@ -88,10 +88,10 @@ func TestModifyThenApproveRebindsTheAuthority(t *testing.T) {
 	// No-bypass: the agent's original call no longer matches the
 	// authority; only the edited call redeems — the gate re-admits and
 	// re-tiers that call like any other.
-	if err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", originalHash); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
+	if _, _, err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", originalHash); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
 		t.Fatalf("redeeming the pre-edit call → %v, want ErrApprovalTokenInvalid", err)
 	}
-	if err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", editedHash); err != nil {
+	if _, _, err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", editedHash); err != nil {
 		t.Fatalf("redeeming the edited call → %v, want ok", err)
 	}
 }

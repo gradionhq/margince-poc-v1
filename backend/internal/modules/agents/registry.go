@@ -108,7 +108,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			if r.approvals == nil {
 				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
 			}
-			if err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
+			if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
 				return nil, err
 			}
 			ctx = withApprovalRedeemed(ctx)
@@ -117,7 +117,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
-		if err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
+		if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
 			return nil, err
 		}
 		return t.Handle(ctx, args)

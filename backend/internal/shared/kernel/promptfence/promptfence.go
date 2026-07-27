@@ -113,14 +113,82 @@ func (f Fence) WrapAttr(attr, value, data string) string {
 // boundary its author can close at will.
 //
 // Editing the data is the thing this package otherwise refuses to do, and the
-// difference is EXACTNESS. Recognising a forgery is a losing game because a
-// sender picks from the whole of Unicode and need only find what a matcher
-// misses. Here there is exactly ONE byte sequence that closes this span, this
-// package knows it, and anything else — a near-miss, an invisible rune mid-word,
-// another script — is inert data. Removing that one string is therefore complete
-// rather than best-effort, which is what makes it sound where a blocklist is not.
+// difference is that the alphabet here is CLOSED. Recognising a forgery is a
+// losing game because a sender picks from the whole of Unicode and need only
+// find what a matcher misses. This marker's own alphabet is fixed and known —
+// a lowercase ASCII prefix and a canonical UUID — so the renderings of it are
+// enumerable rather than open-ended, and removal can cover all of them.
+//
+// The consumer, though, is a model, which is the one component that does not do
+// byte equality. Exact removal is therefore not enough: the nonce is hex, so
+// </UNTRUSTED-0198ABCD-…> survives an exact-match pass while reading, to a model
+// that was shown the marker one turn earlier, as the boundary it was told about
+// — and markerPattern already treats [0-9a-fA-F-] as marker-shaped. So removal
+// folds ASCII case. That is complete over the case renderings of a marker whose
+// characters are all ASCII, which is the claim; it is NOT a promise about every
+// string a model might read as equivalent, and no blocklist could be.
 func (f Fence) WrapAuthored(text string) string {
-	return f.Wrap(strings.ReplaceAll(text, f.name(), canonicalMarker))
+	return f.Wrap(replaceASCIIFold(text, f.name(), canonicalMarker))
+}
+
+// replaceASCIIFold replaces every ASCII-case rendering of old with new.
+//
+// Byte-wise comparison is exact here rather than approximate BECAUSE old is
+// pure ASCII: every byte of a multi-byte UTF-8 rune is ≥ 0x80 and so can never
+// equal an ASCII byte, which means a match can neither begin nor end inside one.
+// Folding through strings.ToLower would not have that property — a rune like
+// U+0130 lowercases to two runes and would slide every later index.
+func replaceASCIIFold(text, old, replacement string) string {
+	if old == "" {
+		return text
+	}
+	start := indexASCIIFold(text, old)
+	if start < 0 {
+		// The overwhelmingly common case — text with no marker in it is
+		// returned as it was written, which is this package's whole posture.
+		return text
+	}
+	var out strings.Builder
+	out.Grow(len(text))
+	out.WriteString(text[:start])
+	for i := start; i < len(text); {
+		if hasPrefixASCIIFold(text[i:], old) {
+			out.WriteString(replacement)
+			i += len(old)
+			continue
+		}
+		out.WriteByte(text[i])
+		i++
+	}
+	return out.String()
+}
+
+func indexASCIIFold(s, sub string) int {
+	for i := 0; i+len(sub) <= len(s); i++ {
+		if hasPrefixASCIIFold(s[i:], sub) {
+			return i
+		}
+	}
+	return -1
+}
+
+func hasPrefixASCIIFold(s, prefix string) bool {
+	if len(s) < len(prefix) {
+		return false
+	}
+	for i := range len(prefix) {
+		if lowerASCII(s[i]) != lowerASCII(prefix[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(b byte) byte {
+	if 'A' <= b && b <= 'Z' {
+		return b + ('a' - 'A')
+	}
+	return b
 }
 
 // Rule is the sentence that tells the model what this call's boundary is. It

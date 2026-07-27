@@ -2,15 +2,23 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Command gen-agentpolicy derives the ADR-0055 REST admission table from
-// the contract: for every MUTATING crm.yaml operation it emits one entry
-// mapping the chi route (method + path pattern) to the operation's agent
-// policy — the backing MCP tool verb + declared tier (`x-mcp-tool`) or the
+// the contract: for every crm.yaml operation that declares an agent policy
+// it emits one entry mapping the chi route (method + path pattern) to the
+// backing MCP tool verb + declared tier (`x-mcp-tool`) or the
 // `x-agent-access` class (`human-only` | `auth-bootstrap`).
 //
 // It is also the contract drift-lint (interfaces.md §2 fail-closed rule):
-// a mutating operation carrying NEITHER annotation fails generation, so an
+// a MUTATING operation carrying NEITHER annotation fails generation, so an
 // un-tiered endpoint cannot ship — the gate would default-deny it at
 // runtime anyway, but the lint keeps the contract honest at build time.
+//
+// Reads are emitted too, and the asymmetry is deliberate on both sides. A
+// read carrying no annotation is ordinary agent-readable data, so it is not
+// a defect and gets no row: the contract annotates the EXCEPTIONS to agent
+// readability, not the rule. But an annotated read is exactly as binding as
+// an annotated write, and emitting only mutating rows is what previously
+// made `x-agent-access: human-only` on a `get:` a comment — dropped at
+// build time, with the runtime gate structurally unable to see it.
 package main
 
 import (
@@ -25,7 +33,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var mutating = map[string]string{"post": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE"}
+// httpMethods maps every operation key the contract may carry onto the
+// method the chi router registers. mutating names the subset the
+// fail-closed drift-lint applies to.
+var httpMethods = map[string]string{
+	"get": "GET", "head": "HEAD", "options": "OPTIONS",
+	"post": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE",
+}
+
+var mutating = map[string]bool{"POST": true, "PUT": true, "PATCH": true, "DELETE": true}
 
 type policy struct {
 	Route      string // "METHOD /v1/path/{id}" — the chi route pattern the gate sees
@@ -51,13 +67,22 @@ func main() {
 	// Path items mix operations with non-operation keys (parameters,
 	// summary), so each method node is decoded individually.
 	var doc struct {
-		Paths map[string]map[string]yaml.Node `yaml:"paths"`
+		Paths      map[string]map[string]yaml.Node `yaml:"paths"`
+		Components struct {
+			Schemas map[string]schemaNode `yaml:"schemas"`
+		} `yaml:"components"`
 	}
 	if err := yaml.Unmarshal(src, &doc); err != nil {
 		log.Fatalf("gen-agentpolicy: parsing %s: %v", *in, err)
 	}
 
+	vocab, vErr := readVocabulary(doc.Components.Schemas)
+	if vErr != nil {
+		log.Fatalf("gen-agentpolicy: %v", vErr)
+	}
+
 	policies, defects := derivePolicies(doc.Paths)
+	defects = append(defects, vocab.violations(policies)...)
 	if len(defects) > 0 {
 		sort.Strings(defects)
 		log.Fatalf("gen-agentpolicy: the contract violates the ADR-0055 fail-closed invariant:\n  %s", strings.Join(defects, "\n  "))
@@ -66,7 +91,7 @@ func main() {
 
 	// The emitted table must be gofmt-clean like any committed Go file
 	// (map-literal alignment shifts as route keys change length).
-	formatted, err := format.Source([]byte(renderTable(policies)))
+	formatted, err := format.Source([]byte(renderTable(policies, vocab)))
 	if err != nil {
 		log.Fatalf("gen-agentpolicy: formatting the generated table: %v", err)
 	}
@@ -83,9 +108,9 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 	var defects []string
 	for path, item := range paths {
 		for method, node := range item {
-			httpMethod, isMutating := mutating[method]
-			if !isMutating {
-				continue
+			httpMethod, isOperation := httpMethods[method]
+			if !isOperation {
+				continue // parameters, summary, and the other path-item keys
 			}
 			var op struct {
 				OperationID string `yaml:"operationId"`
@@ -115,8 +140,14 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 					defects = append(defects, fmt.Sprintf("%s %s (%s): x-mcp-tool needs a verb and an auto_execute|confirmation_required|dynamic tier", httpMethod, path, op.OperationID))
 					continue
 				}
-			default:
+			case mutating[httpMethod]:
 				defects = append(defects, fmt.Sprintf("%s %s (%s): mutating operation carries neither x-mcp-tool nor x-agent-access", httpMethod, path, op.OperationID))
+				continue
+			default:
+				// An unannotated read: ordinary agent-readable data. No row,
+				// and no defect — the gate admits a read it has no policy for,
+				// which is the opposite of its mutating default and is why an
+				// unannotated GET does not need to say so.
 				continue
 			}
 			policies = append(policies, p)
@@ -125,23 +156,31 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 	return policies, defects
 }
 
-// renderTable emits the generated Go source for the admission table.
-func renderTable(policies []policy) string {
+// renderTable emits the generated Go source for the admission table: the
+// vocabularies as Go types first, then the table typed against them.
+func renderTable(policies []policy, vocab vocabulary) string {
 	var b strings.Builder
 	b.WriteString(`// Code generated by tools/gen-agentpolicy from api/crm.yaml. DO NOT EDIT.
 
 package compose
-
-// agentPolicy is one mutating contract operation's admission class for
-// AGENT (Passport) principals (ADR-0055): either the MCP tool verb whose
-// tier governs it on every transport, or an x-agent-access marker. The
-// gate default-denies any mutating route absent from this table.
+`)
+	b.WriteString(renderVocabulary(vocab))
+	b.WriteString(`
+// agentPolicy is one contract operation's admission class for AGENT
+// (Passport) principals (ADR-0055): either the MCP tool verb whose tier
+// governs it on every transport, or an x-agent-access marker. The gate
+// default-denies any MUTATING route absent from this table, and admits a
+// read absent from it — the contract annotates the exceptions to agent
+// readability, not the rule.
+//
+// The three vocabulary fields are typed, so a comparison against a value the
+// contract does not declare fails to compile rather than never matching.
 type agentPolicy struct {
-	Op         string // crm.yaml operationId
-	Access     string // "tool" | "human-only" | "auth-bootstrap"
-	Tool       string // backing MCP tool verb (Access == "tool")
-	RecordType string // the record type the operation targets
-	Tier       string // contract-declared tier: auto_execute | confirmation_required | dynamic
+	Op         string          // crm.yaml operationId
+	Access     agentAccess     // how an agent principal is admitted at all
+	Tool       string          // backing MCP tool verb (Access == accessTool)
+	RecordType agentRecordType // the record the operation targets; zero when it declares none
+	Tier       agentTier       // contract-declared autonomy tier; zero when it declares none
 }
 
 // agentPolicies is keyed by "METHOD <chi route pattern>" as the generated

@@ -25,10 +25,22 @@ const redemptionTTL = 15 * time.Minute
 // for: same tool, same diff_hash, same passport, and the target row still
 // at the version the human saw. Single-use is enforced by the conditional
 // UPDATE — two racing redemptions cannot both pass.
-func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash string) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return s.RedeemInTx(ctx, tx, id, tool, diffHash)
+//
+// It answers the version the approval was pinned to (nil when it carried no
+// pin). This matters for the callers that redeem in one transaction and
+// apply the effect in ANOTHER: the skew check here proves the row was at
+// version N when the redemption committed, not that it still is when the
+// effect writes. A caller that forwards the authorized call onward binds
+// its own write to the returned pin, so the store re-checks it inside the
+// transaction that actually mutates. Callers that can hold one transaction
+// should use RedeemAndApply instead and have no window at all.
+func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash string) (version int64, pinned bool, err error) {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var rerr error
+		version, pinned, rerr = s.RedeemInTx(ctx, tx, id, tool, diffHash)
+		return rerr
 	})
+	return version, pinned, err
 }
 
 // RedeemAndApply consumes the authority object and applies its effect in the
@@ -36,7 +48,7 @@ func (s *Service) Redeem(ctx context.Context, id ids.ApprovalID, tool, diffHash 
 // path: a failed domain write leaves the approval unconsumed and retryable.
 func (s *Service) RedeemAndApply(ctx context.Context, id ids.ApprovalID, tool, diffHash string, apply func(pgx.Tx) error) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if err := s.RedeemInTx(ctx, tx, id, tool, diffHash); err != nil {
+		if _, _, err := s.RedeemInTx(ctx, tx, id, tool, diffHash); err != nil {
 			return err
 		}
 		return apply(tx)
@@ -44,36 +56,43 @@ func (s *Service) RedeemAndApply(ctx context.Context, id ids.ApprovalID, tool, d
 }
 
 // RedeemInTx validates and consumes one approval through a caller-owned
-// transaction.
-func (s *Service) RedeemInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, tool, diffHash string) error {
+// transaction, answering the version it was pinned to. pinned is false
+// for an approval that carried none — a create, or a target type with no
+// version column.
+func (s *Service) RedeemInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, tool, diffHash string) (version int64, pinned bool, err error) {
 	p, ok := principal.Actor(ctx)
 	if !ok {
-		return errors.New("crmapprovals: no actor bound to context")
+		return 0, false, errors.New("crmapprovals: no actor bound to context")
 	}
 	a, err := get(ctx, tx, id)
 	if err != nil {
 		// An unknown approval id reads as an invalid token, not a 404:
 		// the caller is asserting authority, not browsing.
-		return fmt.Errorf("no such approval: %w", apperrors.ErrApprovalTokenInvalid)
+		return 0, false, fmt.Errorf("no such approval: %w", apperrors.ErrApprovalTokenInvalid)
 	}
 	if err := validateRedemption(a, p, tool, diffHash, s.now()); err != nil {
-		return err
+		return 0, false, err
 	}
 
 	if err := validateRedemptionTarget(ctx, tx, a); err != nil {
-		return err
+		return 0, false, err
 	}
 
 	tag, err := tx.Exec(ctx,
 		`UPDATE approval SET consumed_at = now() WHERE id = $1 AND consumed_at IS NULL`, id)
 	if err != nil {
-		return err
+		return 0, false, err
 	}
 	if tag.RowsAffected() != 1 {
-		return fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
+		return 0, false, fmt.Errorf("approval already redeemed: %w", apperrors.ErrApprovalTokenInvalid)
 	}
-	_, err = s.audit(ctx, tx, p, "update", id.UUID, map[string]any{approvalKeyKind: a.Kind, "redeemed": true})
-	return err
+	if _, err := s.audit(ctx, tx, p, "update", id.UUID, map[string]any{approvalKeyKind: a.Kind, "redeemed": true}); err != nil {
+		return 0, false, err
+	}
+	if a.TargetVersion == nil {
+		return 0, false, nil
+	}
+	return *a.TargetVersion, true, nil
 }
 
 func validateRedemption(a row, p principal.Principal, tool, diffHash string, now time.Time) error {

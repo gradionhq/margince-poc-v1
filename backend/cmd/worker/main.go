@@ -148,7 +148,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if modelPath.Embedder != nil {
 		gen := search.NewEmbedGen(search.NewStore(pool), modelPath.Embedder)
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
-		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger) })
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger, 0) })
 	}
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
@@ -174,7 +174,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
-	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger) })
+	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 
 	// Outbound-webhook delivery (E10/S-E10.6) runs only when a signing key
 	// is configured: it consumes cg:webhooks to fan matching events to
@@ -187,7 +187,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 			return fmt.Errorf("worker: %w", err)
 		}
 		_, _ = fmt.Fprintf(stdout, "worker delivering outbound webhooks (cg:webhooks), retry sweep every %s\n", cfg.webhookRetryInterval)
-		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger) })
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:webhooks", deliverer.HandleEvent, logger, 0) })
 		background.Go(func() { deliverer.RunRetrySweep(ctx, cfg.webhookRetryInterval) })
 	}
 
@@ -415,20 +415,30 @@ func runScheduler(ctx context.Context, svc *compose.RunnerService, interval time
 
 // runResumeSubscriber consumes cg:overnight-agent: approval decisions
 // wake parked runs.
+//
+// Its reclaim window has to clear the whole run, not the default: this
+// handler resumes a multi-step agent loop that may take the full
+// RunWallClock, and reclaiming a merely-slow consumer would hand the same
+// decision to a peer replica while the first is still running it. The run
+// row's own claim already refuses the second resume; keeping the window
+// above the handler's honest runtime means the bus stops producing the
+// duplicate in the first place.
 func runResumeSubscriber(ctx context.Context, rdb *redis.Client, svc *compose.RunnerService, log *slog.Logger) {
-	runSubscriber(ctx, rdb, "cg:overnight-agent", svc.HandleEvent, log)
+	runSubscriber(ctx, rdb, "cg:overnight-agent", svc.HandleEvent, log, compose.RunWallClock+time.Minute)
 }
 
 // runSubscriber consumes one events.md consumer group, Dedupe-wrapped
-// because the bus is at-least-once (events.md §3).
-func runSubscriber(ctx context.Context, rdb *redis.Client, groupName string, handler events.Handler, log *slog.Logger) {
+// because the bus is at-least-once (events.md §3). minIdle overrides the
+// reclaim window for a group whose handler runs longer than the default;
+// zero keeps it.
+func runSubscriber(ctx context.Context, rdb *redis.Client, groupName string, handler events.Handler, log *slog.Logger, minIdle time.Duration) {
 	var group kevents.Group
 	for _, g := range kevents.Groups() {
 		if g.Name == groupName {
 			group = g
 		}
 	}
-	sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, handler), log)
+	sub := events.NewSubscriber(rdb, group, events.Dedupe(rdb, group.Name, handler), log).WithMinIdle(minIdle)
 	if err := sub.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 		log.Error("subscriber "+groupName, "err", err)
 	}

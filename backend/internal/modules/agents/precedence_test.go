@@ -108,12 +108,12 @@ func (r *recordingApprovals) Stage(_ context.Context, in StageRequest) (ids.Appr
 	return ids.New[ids.ApprovalKind](), nil
 }
 
-func (r *recordingApprovals) Redeem(_ context.Context, id ids.ApprovalID, tool, hash string) error {
+func (r *recordingApprovals) Redeem(_ context.Context, id ids.ApprovalID, tool, hash string) (int64, bool, error) {
 	if r.redeemErr != nil {
-		return r.redeemErr
+		return 0, false, r.redeemErr
 	}
 	r.redeemed = append(r.redeemed, fmt.Sprintf("%s %s %s", id, tool, hash))
-	return nil
+	return 0, false, nil
 }
 
 // fixedProvider serves one record and captures updates; only the calls

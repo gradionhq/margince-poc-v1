@@ -26,9 +26,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-// runWallClock is the §4 wall-clock guarantee (RATIFY default 15 min):
+// RunWallClock is the §4 wall-clock guarantee (RATIFY default 15 min):
 // the third bound alongside steps and output tokens.
-const runWallClock = 15 * time.Minute
+const RunWallClock = 15 * time.Minute
 
 // claimBatch bounds how many due jobs one tick executes per workspace.
 const claimBatch = 4
@@ -133,7 +133,7 @@ func (s *RunnerService) executeJob(wsCtx context.Context, job runner.QueuedJob) 
 	// served.
 	runCtx = principal.WithAgentRunID(runCtx, runID)
 
-	bounded, cancel := context.WithTimeout(runCtx, runWallClock)
+	bounded, cancel := context.WithTimeout(runCtx, RunWallClock)
 	defer cancel()
 	res, err := s.runner.Run(bounded, runner.Job{
 		Goal:       spec.Goal,
@@ -156,14 +156,10 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	approvalID := ids.From[ids.ApprovalKind](env.Entity.ID)
 	wsCtx := principal.WithWorkspaceID(ctx, env.WorkspaceID)
 
-	suspended, found, err := s.store.FindSuspendedByApproval(wsCtx, approvalID)
-	if err != nil {
-		return err
-	}
-	if !found {
-		return nil // a human-surface approval, not a parked run
-	}
-
+	// The payload is read BEFORE the run is claimed: claiming is one-way, so
+	// every step after it must end in a terminal status rather than in a
+	// retriable error — a redelivery would find nothing to resume and leave
+	// the run parked in 'running' forever.
 	var payload struct {
 		Verdict      string          `json:"verdict"`
 		Edited       bool            `json:"edited"`
@@ -171,6 +167,16 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 	}
 	if err := json.Unmarshal(env.Payload, &payload); err != nil {
 		return fmt.Errorf("runner: approval.decided payload: %w", err)
+	}
+
+	// Claim, don't just look: the bus is at-least-once and a resumed run is
+	// a fresh loop with a fresh budget, not an idempotent effect.
+	suspended, found, err := s.store.ClaimSuspendedByApproval(wsCtx, approvalID)
+	if err != nil {
+		return err
+	}
+	if !found {
+		return nil // a human-surface approval, or a decision already resumed
 	}
 	// Modify-then-approve (ADR-0036 §4): the authority now binds to the
 	// HUMAN's version of the call, so the resumed run must re-present
@@ -198,7 +204,7 @@ func (s *RunnerService) HandleEvent(ctx context.Context, env kevents.Envelope) e
 		return s.store.MarkFailed(wsCtx, suspended.RunID, fmt.Sprintf("agent spec %q left the catalog while suspended", suspended.SpecName))
 	}
 
-	bounded, cancel := context.WithTimeout(runCtx, runWallClock)
+	bounded, cancel := context.WithTimeout(runCtx, RunWallClock)
 	defer cancel()
 	res, err := s.runner.Resume(bounded, runner.Job{
 		Goal:       suspended.Goal,
