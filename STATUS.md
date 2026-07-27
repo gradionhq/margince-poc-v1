@@ -862,6 +862,44 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Idempotent replay serves records without re-running the row-scope gate
+  (CLAUDE.md rule 3, which names replay paths by name).** `compose/idempotency.go`
+  short-circuits the handler on a replay and writes the recorded 2xx body back,
+  so a record-returning route answers from a 24h snapshot that never re-enters
+  `auth.Require` / `auth.EnsureVisible`. Not a cross-tenant or cross-principal
+  leak — the claim is scoped by `(workspace_id, principal_id, key, endpoint)`
+  and RLS-fenced, so only the principal who already received those exact bytes
+  can trigger it. The consequence is a 24h window in which "revocation binds
+  mid-session" is weakened: a rep whose record grant or ownership is pulled can
+  still re-obtain the frozen snapshot by resending their own key.
+  **Systemic, not new** — ~50 record-returning routes are in
+  `idempotentOperations`, `PATCH /v1/people/{id}` and `POST /v1/projects` among
+  them since long before `PATCH /v1/projects/{id}` joined them.
+  A correct fix needs the `(table, id)` of the record each replayed response
+  carries — a per-route registry beside `idempotentOperations`, or the id read
+  back out of the recorded body — plus an integration test that revokes access
+  between the original and the replay. Hashing the principal's permissions
+  instead is the tempting half-fix and is wrong: it catches an RBAC change but
+  not a row-scope one (an ownership transfer leaves permissions identical),
+  which is the shape that looks complete and is not.
+  Second, smaller defect in the same file: `settleClaim` runs on `r.Context()`,
+  already cancelled when a client disconnects mid-request, so the claim strands
+  with `response_status IS NULL` and every retry of that key answers
+  `409 idempotency_key_conflict` for 24h — the write did not land *and* the
+  retry is refused, which is the opposite of the retry-safety API-CC-6 promises.
+  The repo already has the idiom: `context.WithoutCancel` in
+  `capture/backfillpager.go` and `ai/tracing.go`.
+
+- **403 is declared on a minority of the operations that can answer it.**
+  margince-foundation#1194 made the narrow invariant unanimous — every
+  operation declaring `ApprovalToken` now declares 403 — but the broader one is
+  open: ~113 operations declare 404 without 403 while their handlers reach
+  `auth.Require`, including the `getProject` / `getDeal` / `updateDeal` triads
+  whose `/people/{id}` peers all declare it. Fix upstream first (the spec's
+  `crm.yaml` is the source of truth), then re-derive here; and pin it with a
+  fitness test on the `idempotencymap_test.go` model — derive the expected set
+  from the handlers, carry a reasoned exemption map — so it cannot drift again.
+
 - **Capture quality gates + captured-company auto-enrichment — spec ratified,
   implementation in flight (margince-foundation ADR-0072/A118).**
   **Phase 0 (spec):** ADR-0072/A118 authored in `margince-foundation`
