@@ -5,10 +5,20 @@
 
 package compose
 
-// UAT probe (temporary, not for commit): the capture verdict path end to end
-// when the bound model reports its confidence as a JSON STRING. Before the
-// schema.Confidence decoder the reply failed to unmarshal, judgeOne returned an
-// error, and the ledger row was deferred rather than decided.
+// The verdict path end to end when the bound model reports its confidence as a
+// JSON STRING rather than a number.
+//
+// The decoder's own tests prove a quoted score parses. These prove what that is
+// FOR: the ledger row is decided, the sender becomes the record capture
+// withheld, and the model is asked once. A quoted confidence used to fail the
+// unmarshal, so the row was deferred with backoff — fail-closed and correct, and
+// the reason the feature was substantially non-functional against a model that
+// quotes. Nothing at the decoder level can show that, because the disposition is
+// where the cost was paid.
+//
+// The control matters as much: a confidence that genuinely cannot be read must
+// still take the deferring branch. Tolerating the wrapper must not tolerate the
+// value.
 
 import (
 	"context"
@@ -41,7 +51,7 @@ func (b *literalConfidenceBrain) Complete(_ context.Context, req model.Request) 
 		askedFor[0], b.verdict, b.confidence)}, nil
 }
 
-func TestUATVerdictReadsAQuotedConfidenceEndToEnd(t *testing.T) {
+func TestVerdictDecidesOnAQuotedConfidence(t *testing.T) {
 	e := integration.Setup(t)
 	activityID := seedCapturedMail(t, e, "ada@quoted.example", "quote request")
 	dispositionID := seedPendingDisposition(t, e, "ada@quoted.example", "quoted.example", activityID)
@@ -52,7 +62,6 @@ func TestUATVerdictReadsAQuotedConfidenceEndToEnd(t *testing.T) {
 		t.Fatalf("verdict pass: %v", err)
 	}
 
-	t.Logf("model replied confidence=%s; brain calls=%d", brain.confidence, brain.calls)
 	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusReal {
 		t.Fatalf("disposition status = %q, want %q — a quoted 0.9 must be READ and clear the 0.7 floor, not defer the row",
 			got, capture.PendingStatusReal)
@@ -69,7 +78,7 @@ func TestUATVerdictReadsAQuotedConfidenceEndToEnd(t *testing.T) {
 
 // The control: a confidence the decoder genuinely cannot read takes the branch
 // a quoted number used to take — the row is left undecided for a later pass.
-func TestUATVerdictDefersAnUnreadableConfidence(t *testing.T) {
+func TestVerdictDefersAnUnreadableConfidence(t *testing.T) {
 	e := integration.Setup(t)
 	activityID := seedCapturedMail(t, e, "ada@unreadable.example", "quote request")
 	dispositionID := seedPendingDisposition(t, e, "ada@unreadable.example", "unreadable.example", activityID)
@@ -91,7 +100,6 @@ func TestUATVerdictDefersAnUnreadableConfidence(t *testing.T) {
 	}
 	attempts := countIn(t, e,
 		`SELECT attempts FROM capture_pending_counterparty WHERE id = $1`, dispositionID)
-	t.Logf("deferred row: status=pending attempts=%d", attempts)
 	if attempts == 0 {
 		t.Error("the deferral did not charge the row an attempt")
 	}

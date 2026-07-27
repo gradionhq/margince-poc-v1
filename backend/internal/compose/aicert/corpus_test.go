@@ -68,4 +68,25 @@ func TestLoadCorpusCoversEveryShippedSite(t *testing.T) {
 	if len(unexpected) > 0 {
 		t.Errorf("planned tasks carry corpus scenarios: %v — a task nobody built cannot be certified, and its scenario reads as coverage", unexpected)
 	}
+
+	// The scenario gate above cannot see a record. A run only writes one for a
+	// task the corpus covers, so a planned task's record cannot be produced —
+	// but it can be WRITTEN, by hand or by a stale tree, and the readiness
+	// report enumerates the census rather than the record directory, so it
+	// would ignore the file rather than contradict it. A record asserting a
+	// band for a prompt nobody built is exactly the claim status was added to
+	// refuse, so it is refused where the planned set is already known.
+	records, err := aicert.LoadRecords("records")
+	if err != nil {
+		t.Fatalf("LoadRecords(records): %v", err)
+	}
+	var certifiedButPlanned []string
+	for _, rec := range records {
+		if ai.Status(ai.Task(rec.Task)) == ai.StatusPlanned {
+			certifiedButPlanned = append(certifiedButPlanned, rec.Task)
+		}
+	}
+	if len(certifiedButPlanned) > 0 {
+		t.Errorf("planned tasks carry certification records: %v — the record claims a band for a prompt that does not ship", certifiedButPlanned)
+	}
 }
