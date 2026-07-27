@@ -435,7 +435,12 @@ function ownerGroups(
 function ByOwnerList({
   entries,
   directory,
-}: Readonly<{ entries: Entry[]; directory: DirectoryState }>) {
+  partial,
+}: Readonly<{
+  entries: Entry[];
+  directory: DirectoryState;
+  partial: boolean;
+}>) {
   const t = useT();
   const { principal } = directory;
   const groups = ownerGroups(
@@ -447,6 +452,11 @@ function ByOwnerList({
     return (
       <EmptyState>
         <p>{t("overlay.userMap.ownerEmpty", { principal })}</p>
+        {/* "Nobody is mapped" over a partially-loaded list is the same false
+            census as an under-count, and a worse one to act on. */}
+        {partial && (
+          <p className="t-caption">{t("overlay.userMap.partialView")}</p>
+        )}
       </EmptyState>
     );
   }
@@ -500,6 +510,15 @@ function ByOwnerList({
           )}
         </p>
       )}
+      {/* Both the grouping and that count are computed over the pages loaded
+          so far, so with a page still unread they under-report — a shared seat
+          split across pages looks like a solo one. Saying the scope out loud is
+          the honest fix; silently counting part of the workspace is not. */}
+      {partial && (
+        <p className="t-caption" style={{ marginTop: "var(--space-2)" }}>
+          {t("overlay.userMap.partialView")}
+        </p>
+      )}
     </>
   );
 }
@@ -511,6 +530,7 @@ function UserMapBody({
   view,
   onView,
   actions,
+  partial,
 }: Readonly<{
   entries: Entry[];
   directory: DirectoryState;
@@ -518,6 +538,7 @@ function UserMapBody({
   view: View;
   onView: (next: View) => void;
   actions: MappingActions;
+  partial: boolean;
 }>) {
   const t = useT();
   const { principal } = directory;
@@ -556,7 +577,11 @@ function UserMapBody({
           ))}
         </ul>
       ) : (
-        <ByOwnerList entries={entries} directory={directory} />
+        <ByOwnerList
+          entries={entries}
+          directory={directory}
+          partial={partial}
+        />
       )}
     </>
   );
@@ -664,13 +689,26 @@ export function MirrorUserMapCard() {
       : null,
   };
 
+  // Every dialog open and close clears the previous attempt's failure. A
+  // mutation error outlives the dialog it happened in, so without this the
+  // next row's picker — or the confirm for a different person — opens already
+  // showing a refusal that was never about them.
   const actions: MappingActions = {
     picking,
-    onStartPick: setPicking,
-    onCancelPick: () => setPicking(null),
+    onStartPick: (userId) => {
+      setMapping.reset();
+      setPicking(userId);
+    },
+    onCancelPick: () => {
+      setMapping.reset();
+      setPicking(null);
+    },
     onPick: (userId, incumbentUserId) =>
       setMapping.mutate({ userId, incumbentUserId }),
-    onUnmapRequest: setUnmapping,
+    onUnmapRequest: (entry) => {
+      unmap.reset();
+      setUnmapping(entry);
+    },
     saving: setMapping.isPending,
     saveError: setMapping.isError ? setMapping.error.message : null,
   };
@@ -697,6 +735,7 @@ export function MirrorUserMapCard() {
             view={view}
             onView={setView}
             actions={actions}
+            partial={page.hasNextPage}
           />
           <LoadMoreButton query={page} />
         </>
@@ -706,7 +745,10 @@ export function MirrorUserMapCard() {
         self={unmapping?.user_id === meId}
         pending={unmap.isPending}
         error={unmap.isError ? unmap.error.message : null}
-        onClose={() => setUnmapping(null)}
+        onClose={() => {
+          unmap.reset();
+          setUnmapping(null);
+        }}
         onConfirm={(userId) => unmap.mutate(userId)}
       />
     </Card>

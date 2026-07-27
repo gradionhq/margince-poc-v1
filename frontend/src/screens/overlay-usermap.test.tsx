@@ -63,6 +63,16 @@ function jsonResponse(body: unknown, status = 200) {
 
 type RouteHandler = (request: Request) => Response | Promise<Response>;
 
+// A refusal the server genuinely produces for a mapping write: a disconnect
+// that committed while the tab was open answers mode_not_overlay carrying the
+// sentinel's own detail. Pinning a code no backend path emits would prove
+// nothing about the running system.
+const refusedMapping: RouteHandler = () =>
+  jsonResponse(
+    { code: "mode_not_overlay", detail: "workspace is not in overlay mode" },
+    404,
+  );
+
 // A minimal method+path router over the real fetch surface, mirroring
 // overlay.test.tsx's local stubApi (it also records every call, for the
 // "which request actually fired" assertions). The per-user mapping ops carry
@@ -386,6 +396,9 @@ describe("the mirror user-map card", () => {
     ).toBeInTheDocument();
   });
 
+  // The refusal is one the server genuinely produces: a disconnect that
+  // committed while this tab was open answers mode_not_overlay with the
+  // sentinel's own detail.
   it("keeps the picker open, with the reason, when the mapping write is refused", async () => {
     renderCard({
       entries: [
@@ -395,16 +408,7 @@ describe("the mirror user-map card", () => {
           unmapped_reason: "no_email_match",
         },
       ],
-      extra: {
-        "PUT /overlay/user-map/*": () =>
-          jsonResponse(
-            {
-              code: "owner_not_found",
-              detail: "that owner is not in the portal",
-            },
-            422,
-          ),
-      },
+      extra: { "PUT /overlay/user-map/*": refusedMapping },
     });
     await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
     await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
@@ -412,9 +416,73 @@ describe("the mirror user-map card", () => {
       await screen.findByRole("button", { name: /Grace Hopper/ }),
     );
     expect(
-      await screen.findByText(/that owner is not in the portal/),
+      await screen.findByText(/workspace is not in overlay mode/),
     ).toBeInTheDocument();
     expect(screen.getByLabelText(/search .* users/i)).toBeInTheDocument();
+  });
+
+  // An error outlives the dialog it happened in. Carried into the next row's
+  // picker it blames a write that was never attempted for that user.
+  it("does not carry a failed mapping's error into another row's picker", async () => {
+    renderCard({
+      entries: [
+        {
+          user_id: "u2",
+          email: "amb@acme.test",
+          unmapped_reason: "no_email_match",
+        },
+        {
+          user_id: "u3",
+          email: "other@acme.test",
+          unmapped_reason: "no_email_match",
+        },
+      ],
+      extra: { "PUT /overlay/user-map/*": refusedMapping },
+    });
+    const openPickers = await screen.findAllByRole("button", { name: /^Map/ });
+    await userEvent.click(openPickers[0]);
+    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Grace Hopper/ }),
+    );
+    await screen.findByText(/workspace is not in overlay mode/);
+
+    await userEvent.click(screen.getAllByRole("button", { name: /^Map/ })[1]);
+    expect(
+      screen.queryByText(/workspace is not in overlay mode/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("does not carry a failed unmap's error into the next confirmation", async () => {
+    renderCard({
+      entries: [
+        { ...mappedEntry, user_id: "u1", name: "Mapped One" },
+        { ...mappedEntry, user_id: "u2", name: "Mapped Two" },
+      ],
+      extra: {
+        "DELETE /overlay/user-map/*": () =>
+          jsonResponse(
+            { code: "mode_not_overlay", detail: "the workspace went native" },
+            404,
+          ),
+      },
+    });
+    const unmapButtons = await screen.findAllByRole("button", {
+      name: /unmap/i,
+    });
+    await userEvent.click(unmapButtons[0]);
+    const confirms = screen.getAllByRole("button", { name: /unmap/i });
+    await userEvent.click(confirms[confirms.length - 1]);
+    await screen.findByText(/the workspace went native/);
+
+    await userEvent.click(screen.getByRole("button", { name: /cancel/i }));
+    await userEvent.click(screen.getAllByRole("button", { name: /unmap/i })[1]);
+    expect(
+      screen.getByText(/Mapped Two will stop seeing every mirrored record/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(/the workspace went native/),
+    ).not.toBeInTheDocument();
   });
 
   it("drops every cached read when you remap yourself, not just this card's", async () => {
@@ -558,6 +626,72 @@ describe("the mirror user-map card", () => {
     expect(
       await screen.findByText(/1 user is not mapped/i),
     ).toBeInTheDocument();
+  });
+
+  // The grouping and the count only ever see the pages that are loaded, so
+  // with a page still unread a shared seat can be split across the boundary
+  // and the count is of part of the workspace. Reading as a full census would
+  // send an admin away believing everyone else is fine.
+  it("says the by-owner view covers only the loaded pages", async () => {
+    renderCard({
+      entries: [
+        mappedEntry,
+        {
+          user_id: "u9",
+          email: "x@acme.test",
+          unmapped_reason: "not_yet_synced",
+        },
+      ],
+      nextCursor: "cur-2",
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^By HubSpot user$/ }),
+    );
+    expect(
+      await screen.findByText(/cover the users loaded so far/i),
+    ).toBeInTheDocument();
+  });
+
+  // "Nobody is mapped yet" over a partially-loaded list is the same false
+  // census as an under-count, and a worse one to act on.
+  it("qualifies an empty by-owner view while pages are still unloaded", async () => {
+    renderCard({
+      entries: [
+        {
+          user_id: "u9",
+          email: "x@acme.test",
+          unmapped_reason: "not_yet_synced",
+        },
+      ],
+      nextCursor: "cur-2",
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^By HubSpot user$/ }),
+    );
+    expect(await screen.findByText(/Nobody is mapped/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/cover the users loaded so far/i),
+    ).toBeInTheDocument();
+  });
+
+  it("claims no scope caveat once every page is loaded", async () => {
+    renderCard({
+      entries: [
+        mappedEntry,
+        {
+          user_id: "u9",
+          email: "x@acme.test",
+          unmapped_reason: "not_yet_synced",
+        },
+      ],
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^By HubSpot user$/ }),
+    );
+    await screen.findByText(/1 user is not mapped/i);
+    expect(
+      screen.queryByText(/cover the users loaded so far/i),
+    ).not.toBeInTheDocument();
   });
 
   it("names the incumbent from the server, never a hardcoded brand", async () => {

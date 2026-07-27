@@ -404,6 +404,8 @@ export const en = {
     "1 user is not mapped and isn't shown here — switch to By user to fix that.",
   "overlay.userMap.unmappedCount":
     "{count} users are not mapped and aren't shown here — switch to By user to fix that.",
+  "overlay.userMap.partialView":
+    "This grouping and count cover the users loaded so far. Load more to see the rest.",
 
   "people.name": "Name",
   "people.email": "Email",

@@ -414,6 +414,8 @@ export const de = {
     "1 Person ist nicht zugeordnet und fehlt hier — wechsle zu Nach Nutzer, um das zu beheben.",
   "overlay.userMap.unmappedCount":
     "{count} Personen sind nicht zugeordnet und fehlen hier — wechsle zu Nach Nutzer, um das zu beheben.",
+  "overlay.userMap.partialView":
+    "Diese Gruppierung und die Zählung umfassen nur die bisher geladenen Nutzer. Lade mehr, um den Rest zu sehen.",
 
   "people.name": "Name",
   "people.email": "E-Mail",
