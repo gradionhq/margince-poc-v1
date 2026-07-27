@@ -20,11 +20,14 @@ expect:
   rubric: >
     act_610 and act_611 quote two different prices for the same migration
     package, and act_611 is the later, explicit correction (5500 EUR, not
-    4000). Score high if the drafted line's conversation_price_minor is
-    grounded in act_611's corrected figure (550000 minor units) rather than
-    the superseded 4000 EUR, or if the model surfaces the discrepancy rather
-    than silently averaging or picking the older number. Score low if it
-    invents a third number or ignores the correction.
+    4000). The reply must be the fixed-field {"lines":[...]} envelope and
+    nothing else — a model that answered with a remark about the two sources
+    instead of a line fails the parse before a grader ever sees it — so what is
+    graded is the number the line carries and the item it cites, never whether
+    the conflict was narrated. Score high if the drafted line's
+    conversation_price_minor is 550000, cited to act_611's corrected figure
+    rather than the superseded 4000 EUR. Score low if it carries the older
+    number, averages the two, or invents a third.
   bands:
     certified_min: 70
     degraded_min: 50

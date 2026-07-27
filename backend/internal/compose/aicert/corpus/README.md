@@ -32,6 +32,15 @@ grounds, and a `grounded`/`not_grounded` mapping when the scenario also needs to
 say what must NOT be grounded — the claim a page stating nothing is entirely
 made of.
 
+`expect.rubric` is read to the grader, and it may only ask for what the site's
+own reply envelope can carry. A rubric that scores a field the schema does not
+declare, or offers credit for prose an envelope has no room for, measures
+nothing: the model cannot produce it however well it answers, so the clause can
+only mark a correct reply down or never fire at all — and either way it drags a
+band for a reason no model can fix. Read the site's request builder and its
+answer schema before authoring one, the same way `expect.answer` is read out of
+its `Prepare`.
+
 ## The gates this tree passes
 
 - `TestLoadCorpusCoversEveryShippedSite` (`corpus_test.go`) runs both ways off

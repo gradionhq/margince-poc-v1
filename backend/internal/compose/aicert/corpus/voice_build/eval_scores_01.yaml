@@ -29,16 +29,24 @@ expect:
   outcome: accepted
   answer: [1, 2]
   rubric: >
+    This call answers with {"scores":[...]} and nothing else — one number in
+    [0,1] per draft, in the order the drafts are listed. The schema admits no
+    other key and the prompt asks for none, so there is no reason to read and
+    nothing to grade but the numbers. Grade the ORDER they put the drafts in,
+    which is the only thing the evaluation ever reads them for.
     The author writes the verdict first, in short declarative sentences, and says
     what he has not done yet. Draft 1 is that rhythm almost exactly; draft 2 is
     generic corporate AI prose with none of it — no verdict, no facts, and every
     tell the anti-AI floor exists to catch; draft 3 is terser than the author but
-    faithful to the substance. Score the JUDGE, not the drafts: a competent judge
-    ranks draft 1 clearly above draft 2 and gives a reason naming what makes
-    draft 1 the author's voice rather than praising it in general terms. A judge
-    that cannot separate draft 1 from draft 2, or that scores the polished draft
-    highest because it reads professionally, is wrong however confident it
-    sounds — telling drafts apart is this call's entire job.
+    faithful to the substance. Score the JUDGE, not the drafts: score highest
+    when draft 1 is placed above draft 2 by a margin wide enough to be a
+    judgement rather than a rounding difference, lower as that margin narrows
+    toward a tie, and lowest when draft 2 is scored at or above draft 1. A judge
+    that reads the polished draft as the author's voice, or that cannot separate
+    the two at all, is wrong however plausible its numbers look — telling drafts
+    apart is this call's entire job. Draft 3's placement is not graded: it is
+    faithful prose in a register of its own, and no order between it and draft 1
+    is defended here.
   bands:
     certified_min: 70
     degraded_min: 50

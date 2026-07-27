@@ -22,10 +22,15 @@ expect:
     four distinct items: the "Demand Forecasting" service, the "Overstock
     Advisor" product, and two technologies the platform runs on/integrates
     with — AWS and Snowflake. Score how many of the four were extracted with
-    the right field (service/product/technology) and a value whose name
-    appears in the passage, and penalize any item this page does not state or any
-    field outside the menu (certification, partner, named_customer are not
-    stated here and are not this page's offer to make).
+    the right field and a value whose name appears in the passage. The field is
+    a schema enum holding this kind's whole menu — service, product,
+    capability, served_industry, company_size, geography, language, technology
+    — so a field outside it cannot be generated and the mis-filings worth
+    grading are the ones inside it: AWS or Snowflake returned as a capability
+    or a service rather than a technology, or the forecasting service as a
+    product, is the wrong field on a right value. Penalize that, and penalize
+    any item this page does not state — a served_industry or a geography read
+    into a passage that names neither is invented, not extracted.
   bands:
     certified_min: 70
     degraded_min: 50
