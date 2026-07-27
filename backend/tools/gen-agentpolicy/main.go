@@ -2,15 +2,23 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Command gen-agentpolicy derives the ADR-0055 REST admission table from
-// the contract: for every MUTATING crm.yaml operation it emits one entry
-// mapping the chi route (method + path pattern) to the operation's agent
-// policy — the backing MCP tool verb + declared tier (`x-mcp-tool`) or the
+// the contract: for every crm.yaml operation that declares an agent policy
+// it emits one entry mapping the chi route (method + path pattern) to the
+// backing MCP tool verb + declared tier (`x-mcp-tool`) or the
 // `x-agent-access` class (`human-only` | `auth-bootstrap`).
 //
 // It is also the contract drift-lint (interfaces.md §2 fail-closed rule):
-// a mutating operation carrying NEITHER annotation fails generation, so an
+// a MUTATING operation carrying NEITHER annotation fails generation, so an
 // un-tiered endpoint cannot ship — the gate would default-deny it at
 // runtime anyway, but the lint keeps the contract honest at build time.
+//
+// Reads are emitted too, and the asymmetry is deliberate on both sides. A
+// read carrying no annotation is ordinary agent-readable data, so it is not
+// a defect and gets no row: the contract annotates the EXCEPTIONS to agent
+// readability, not the rule. But an annotated read is exactly as binding as
+// an annotated write, and emitting only mutating rows is what previously
+// made `x-agent-access: human-only` on a `get:` a comment — dropped at
+// build time, with the runtime gate structurally unable to see it.
 package main
 
 import (
@@ -25,7 +33,15 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var mutating = map[string]string{"post": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE"}
+// httpMethods maps every operation key the contract may carry onto the
+// method the chi router registers. mutating names the subset the
+// fail-closed drift-lint applies to.
+var httpMethods = map[string]string{
+	"get": "GET", "head": "HEAD", "options": "OPTIONS",
+	"post": "POST", "put": "PUT", "patch": "PATCH", "delete": "DELETE",
+}
+
+var mutating = map[string]bool{"POST": true, "PUT": true, "PATCH": true, "DELETE": true}
 
 type policy struct {
 	Route      string // "METHOD /v1/path/{id}" — the chi route pattern the gate sees
@@ -83,9 +99,9 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 	var defects []string
 	for path, item := range paths {
 		for method, node := range item {
-			httpMethod, isMutating := mutating[method]
-			if !isMutating {
-				continue
+			httpMethod, isOperation := httpMethods[method]
+			if !isOperation {
+				continue // parameters, summary, and the other path-item keys
 			}
 			var op struct {
 				OperationID string `yaml:"operationId"`
@@ -115,8 +131,14 @@ func derivePolicies(paths map[string]map[string]yaml.Node) ([]policy, []string) 
 					defects = append(defects, fmt.Sprintf("%s %s (%s): x-mcp-tool needs a verb and an auto_execute|confirmation_required|dynamic tier", httpMethod, path, op.OperationID))
 					continue
 				}
-			default:
+			case mutating[httpMethod]:
 				defects = append(defects, fmt.Sprintf("%s %s (%s): mutating operation carries neither x-mcp-tool nor x-agent-access", httpMethod, path, op.OperationID))
+				continue
+			default:
+				// An unannotated read: ordinary agent-readable data. No row,
+				// and no defect — the gate admits a read it has no policy for,
+				// which is the opposite of its mutating default and is why an
+				// unannotated GET does not need to say so.
 				continue
 			}
 			policies = append(policies, p)

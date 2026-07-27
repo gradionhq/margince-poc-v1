@@ -87,8 +87,12 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			p, ok := principal.Actor(ctx)
-			if !ok || p.Type != principal.PrincipalAgent || !mutatingMethod(r.Method) {
+			if !ok || p.Type != principal.PrincipalAgent {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if !mutatingMethod(r.Method) {
+				refuseHumanOnlyRead(w, r, next)
 				return
 			}
 			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
@@ -102,6 +106,32 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			})
 		})
 	}
+}
+
+// refuseHumanOnlyRead applies x-agent-access to a NON-mutating agent call.
+//
+// A read has no tier to admit and no change to stage, but it does have a
+// governance class, and `x-agent-access: human-only` binds a `get:` exactly
+// as it binds a `post:`. auth.RequireHuman is the in-handler twin of this
+// check and about a dozen human-only reads call it; the rest — attachment
+// bytes and their extractions, AI call logs, voice profiles, automation run
+// history, webhook subscriptions — did not, and the gate could not cover
+// them because it returned early on every non-mutating method. It no longer
+// does.
+//
+// The default is the OPPOSITE of the mutating side's, deliberately: a
+// mutating route absent from the table is refused, a read absent from it is
+// admitted. The table now carries every ANNOTATED read, and an unannotated
+// read is ordinary agent-readable data whose authority is the granting
+// human's RBAC and row scope at the store, unchanged.
+func refuseHumanOnlyRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	pattern := chi.RouteContext(r.Context()).RoutePattern()
+	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != "tool" {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
+		return
+	}
+	next.ServeHTTP(w, r)
 }
 
 // prepareAgentGate resolves the admission inputs for a mutating agent call:

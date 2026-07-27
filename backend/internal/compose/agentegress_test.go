@@ -137,3 +137,47 @@ func TestColdStartPreviewMatchesItsSiblingsTier(t *testing.T) {
 		t.Errorf("coldStartPreview is %q: an agent-chosen URL is fetched with no human in the loop", preview.Tier)
 	}
 }
+
+// `x-agent-access: human-only` binds a read exactly as it binds a write,
+// and the generated table is the only place the gate can learn it. Emitting
+// mutating rows alone is what previously turned the contract's most
+// explicit agent prohibition into a comment: 37 human-only GET operations
+// existed and ZERO GET keys did, so the refusal was structurally
+// unreachable for every one of them.
+//
+// Derived from the contract in both directions — every annotated read has a
+// row, and every row says what the contract says — so a new human-only read
+// is covered the day it is annotated.
+func TestEveryHumanOnlyReadReachesTheGate(t *testing.T) {
+	doc, err := openapi3.NewLoader().LoadFromFile("../../api/crm.yaml")
+	if err != nil {
+		t.Fatalf("loading the contract: %v", err)
+	}
+
+	reads := 0
+	for path, item := range doc.Paths.Map() {
+		for method, op := range item.Operations() {
+			if mutatingMethod(method) {
+				continue
+			}
+			access, annotated := op.Extensions["x-agent-access"].(string)
+			if !annotated {
+				continue // ordinary agent-readable data; the gate admits it
+			}
+			reads++
+			route := method + " /v1" + path
+			pol, known := agentPolicies[route]
+			if !known {
+				t.Errorf("%s (%s) is annotated x-agent-access: %s but has no policy row — "+
+					"the gate cannot refuse what the generator dropped", route, op.OperationID, access)
+				continue
+			}
+			if pol.Access != access {
+				t.Errorf("%s (%s): contract says %q, generated table says %q", route, op.OperationID, access, pol.Access)
+			}
+		}
+	}
+	if reads == 0 {
+		t.Fatal("no human-only reads found in the contract — the gate would pass vacuously")
+	}
+}
