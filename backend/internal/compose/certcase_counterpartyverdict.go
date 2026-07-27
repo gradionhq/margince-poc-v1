@@ -50,6 +50,15 @@ func (counterpartyVerdictCases) Site() aitasks.Site {
 	}
 }
 
+// CertifiedScope narrows the record to the one call this case makes. Judging one
+// sender is up to two: a verdict under the engine's confidence floor is re-asked
+// once, unbound, so the second attempt is a stronger model on the same message —
+// and the verdict that gets applied is that one's, or the row is retired to a
+// human. A run measures the first answer and does not weigh its confidence,
+// which is the engine's decision about whether to ask again rather than a
+// judgement on whether the answer is usable.
+func (counterpartyVerdictCases) CertifiedScope() string { return aitasks.ScopeSingleCall }
+
 // Prepare turns one sender and the verdict the scenario expects into a runnable
 // case, MINTING the ledger row id rather than reading it from either.
 //

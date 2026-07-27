@@ -29,6 +29,95 @@ func (s stubCase) Evaluate(aitasks.Trace) aitasks.Outcome {
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted}
 }
 
+// scopedStubCase is a case that measures less of its site than the site's kind
+// implies, and says so.
+type scopedStubCase struct {
+	stubCase
+	scope string
+}
+
+func (s scopedStubCase) CertifiedScope() string { return s.scope }
+
+// A site's KIND says the most a run of it could cover, never what a particular
+// case does cover. A case that issues one of the calls its site can make, or
+// leaves the site's own gate on the reply unspent, has to be able to say so — or
+// its record claims the whole invocation on the strength of the site's shape.
+func TestACaseIsReadAtTheScopeItDeclares(t *testing.T) {
+	site := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
+
+	silent := stubCase{site: site}
+	if got := aitasks.ScopeOf(silent); got != aitasks.ScopeFullInvocation {
+		t.Errorf("ScopeOf(a case declaring nothing) = %q, want its kind's %q", got, aitasks.ScopeFullInvocation)
+	}
+
+	narrowed := scopedStubCase{stubCase: silent, scope: aitasks.ScopeSingleCall}
+	if got := aitasks.ScopeOf(narrowed); got != aitasks.ScopeSingleCall {
+		t.Errorf("ScopeOf(a case declaring %q) = %q, want the declaration", aitasks.ScopeSingleCall, got)
+	}
+
+	r := aitasks.NewRegistry()
+	r.Register(site)
+	r.BindCase(site, narrowed)
+	if got := r.Scopes()["rate_extract/fx"]; got != aitasks.ScopeSingleCall {
+		t.Errorf("the census reports scope %q for a narrowed site, want %q", got, aitasks.ScopeSingleCall)
+	}
+}
+
+// A declaration exists to narrow. One that claims MORE than its site's kind
+// allows — a whole invocation from a case that grades one turn of a loop — would
+// make the record's most cautious number come from its least cautious source,
+// and no reader could tell which claim to believe.
+func TestValidateRefusesAScopeThatIsNotANarrowing(t *testing.T) {
+	loop := aitasks.Site{Task: ai.TaskAgentLoop, Variant: "loop", Kind: ai.SiteKindAgentLoop}
+	cases := []struct {
+		name  string
+		scope string
+		want  string
+	}{
+		{"a word no record can report", "mostly", "not one a record can report"},
+		{"a claim wider than the site's kind", aitasks.ScopeFullInvocation, "claims more than its kind"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := aitasks.NewRegistry()
+			r.Register(loop)
+			r.BindCase(loop, scopedStubCase{stubCase: stubCase{site: loop}, scope: tc.scope})
+
+			err := r.Validate()
+			if err == nil {
+				t.Fatalf("a case declaring the scope %q validated", tc.scope)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the error does not name the defect %q: %v", tc.want, err)
+			}
+		})
+	}
+}
+
+// A record is pooled across every site its task ships, so it can only claim what
+// the least-covered of them proved.
+func TestNarrowerScopeFoldsToTheLessCompleteClaim(t *testing.T) {
+	cases := []struct {
+		name, a, b, want string
+	}{
+		{"nothing folded yet", "", aitasks.ScopeSingleTurn, aitasks.ScopeSingleTurn},
+		{"nothing to fold in", aitasks.ScopeSingleCall, "", aitasks.ScopeSingleCall},
+		{"a turn against a whole invocation", aitasks.ScopeFullInvocation, aitasks.ScopeSingleTurn, aitasks.ScopeSingleTurn},
+		{"a call against a turn", aitasks.ScopeSingleTurn, aitasks.ScopeSingleCall, aitasks.ScopeSingleCall},
+		{"a call against a whole invocation", aitasks.ScopeSingleCall, aitasks.ScopeFullInvocation, aitasks.ScopeSingleCall},
+		{"two of the same", aitasks.ScopeSingleTurn, aitasks.ScopeSingleTurn, aitasks.ScopeSingleTurn},
+		// An unreadable claim must never be the one that widens a record.
+		{"a word from no vocabulary", aitasks.ScopeFullInvocation, "mostly", "mostly"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := aitasks.NarrowerScope(tc.a, tc.b); got != tc.want {
+				t.Errorf("NarrowerScope(%q, %q) = %q, want %q", tc.a, tc.b, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestCaseForFindsABoundCase(t *testing.T) {
 	r := aitasks.NewRegistry()
 	site := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}

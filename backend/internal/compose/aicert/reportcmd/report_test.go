@@ -60,7 +60,7 @@ func TestReadinessReportCallsEverySiteAbsentWhenNothingIsCertified(t *testing.T)
 		{Task: ai.TaskAgentLoop, Variant: "loop", Kind: ai.SiteKindAgentLoop},
 	}
 
-	out := renderReadiness(sites, nil, nil)
+	out := renderReadiness(shippedCensus{sites: sites}, nil, nil)
 
 	for _, site := range []string{"rate_extract/fx", "agent_loop/loop"} {
 		row := rowFor(t, out, site)
@@ -101,7 +101,7 @@ func TestReadinessReportRendersStaleAndAbsentDistinctly(t *testing.T) {
 		},
 	}
 
-	out := renderReadiness(sites, stamps, records)
+	out := renderReadiness(shippedCensus{sites: sites}, stamps, records)
 
 	fresh := rowFor(t, out, "rate_extract/fx")
 	if !strings.Contains(fresh, "current") {
@@ -146,7 +146,7 @@ func TestReadinessReportCarriesTheBandTheCountsAndTheBinding(t *testing.T) {
 		}},
 	}}
 
-	out := renderReadiness(sites, map[string]string{"rate_extract": currentStamp}, records)
+	out := renderReadiness(shippedCensus{sites: sites}, map[string]string{"rate_extract": currentStamp}, records)
 
 	row := rowFor(t, out, "rate_extract/fx")
 	for _, want := range []string{
@@ -178,13 +178,34 @@ func TestReadinessReportShowsTheScopeEachSiteCanClaim(t *testing.T) {
 		{Task: ai.TaskAgentLoop, Variant: "loop", Kind: ai.SiteKindAgentLoop},
 	}
 
-	out := renderReadiness(sites, nil, nil)
+	out := renderReadiness(shippedCensus{sites: sites}, nil, nil)
 
 	if got := rowFor(t, out, "rate_extract/fx"); !strings.Contains(got, aitasks.ScopeFullInvocation) {
 		t.Errorf("a one-shot site does not report full_invocation scope: %q", got)
 	}
 	if got := rowFor(t, out, "agent_loop/loop"); !strings.Contains(got, aitasks.ScopeSingleTurn) {
 		t.Errorf("the agent-loop site does not report that only one turn is certified: %q", got)
+	}
+}
+
+// A one-shot site whose case reaches one of the calls the site makes claims less
+// than its kind. The report reads the CASE's answer, or the shape of the site
+// would keep saying full_invocation for a run that could never be one.
+func TestReadinessReportShowsTheScopeACaseNarrowedItselfTo(t *testing.T) {
+	site := aitasks.Site{Task: ai.TaskCaptureClassify, Variant: "classify", Kind: ai.SiteKindOneShot}
+	census := shippedCensus{
+		sites:  []aitasks.Site{site},
+		scopes: map[string]string{"capture_classify/classify": aitasks.ScopeSingleCall},
+	}
+
+	out := renderReadiness(census, nil, nil)
+
+	got := rowFor(t, out, "capture_classify/classify")
+	if !strings.Contains(got, aitasks.ScopeSingleCall) {
+		t.Errorf("the row reports %q, want the scope the case narrowed itself to (%q)", got, aitasks.ScopeSingleCall)
+	}
+	if strings.Contains(got, aitasks.ScopeFullInvocation) {
+		t.Errorf("the row still claims the whole invocation on the strength of the site's kind: %q", got)
 	}
 }
 
@@ -217,7 +238,7 @@ func TestReadinessReportNamesRecordsNoShippedSiteClaims(t *testing.T) {
 		Verdict: aicert.VerdictCertified, Runs: 3,
 	}}
 
-	out := renderReadiness(sites, nil, records)
+	out := renderReadiness(shippedCensus{sites: sites}, nil, records)
 
 	if !strings.Contains(out, "retired_task") {
 		t.Errorf("a record for a task this build no longer registers vanished from the report:\n%s", out)
@@ -243,7 +264,7 @@ func TestReadinessReportGivesEachSiteItsOwnNumbers(t *testing.T) {
 		},
 	}}
 
-	out := renderReadiness(sites, map[string]string{"cold_start": currentStamp}, records)
+	out := renderReadiness(shippedCensus{sites: sites}, map[string]string{"cold_start": currentStamp}, records)
 
 	acts := rowFor(t, out, "cold_start/acts")
 	if !strings.Contains(acts, aicert.VerdictCertified) || !strings.Contains(acts, "1.00") {
@@ -269,7 +290,7 @@ func TestReadinessReportNamesARecordNoSiteRowCanCarry(t *testing.T) {
 		Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("a_site_that_moved", aicert.VerdictCertified)},
 	}}
 
-	out := renderReadiness(sites, map[string]string{"rate_extract": currentStamp}, records)
+	out := renderReadiness(shippedCensus{sites: sites}, map[string]string{"rate_extract": currentStamp}, records)
 
 	if row := rowFor(t, out, "rate_extract/fx"); !strings.Contains(row, "absent") {
 		t.Errorf("a site this record never measured is not reported as unmeasured: %q", row)

@@ -178,10 +178,9 @@ type rateFxCase struct {
 	expected map[string]rateFxExpectation
 }
 
-// Run issues the one request this site sends. It sends it bare: production wraps
-// the same request in the shape-retry when the brain supports one, and a case that
-// retried would certify the answer a model gives after being told to try again
-// rather than the answer it gives.
+// Run issues the one request this site sends, bare — and so does the refresh:
+// the extraction goes over the plain completer seam, never asking for the
+// shape-retry, so one refresh is one call there and here alike.
 func (c *rateFxCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
 	req := fxExtractRequest(c.pageText)
 	trace := aitasks.Trace{Requests: []model.Request{req}}

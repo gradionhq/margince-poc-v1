@@ -20,6 +20,7 @@ package aitasks
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -145,6 +146,7 @@ func (r *Registry) Validate() error {
 	problems = append(problems, r.statusProblems()...)
 	problems = append(problems, r.caseProblems()...)
 	problems = append(problems, r.bindingProblems()...)
+	problems = append(problems, r.scopeProblems()...)
 
 	if len(problems) > 0 {
 		sort.Strings(problems)
@@ -229,17 +231,135 @@ func (r *Registry) bindingProblems() []string {
 	return problems
 }
 
-// The two things a certification run can actually cover.
+// scopeProblems holds every declared scope to the vocabulary and to the site it
+// is declared on. A word no record can report leaves a run's coverage
+// unreadable, and a declaration BROADER than the site's kind is a case claiming
+// to have driven a conversation nobody drove — a declaration exists to narrow,
+// and narrowing is the only direction it may travel.
+func (r *Registry) scopeProblems() []string {
+	var problems []string
+	for _, b := range r.cases {
+		scoped, declares := b.factory.(ScopedCase)
+		if !declares {
+			continue
+		}
+		declared := scoped.CertifiedScope()
+		if !KnownScope(declared) {
+			problems = append(problems, fmt.Sprintf(
+				"site %s declares the certified scope %q, which is not one a record can report", b.site.key(), declared))
+			continue
+		}
+		if kind := b.site.CertifiedScope(); scopeRank(declared) < scopeRank(kind) {
+			problems = append(problems, fmt.Sprintf(
+				"site %s declares the certified scope %q, which claims more than its kind's %q — a case may only narrow what its site allows",
+				b.site.key(), declared, kind))
+		}
+	}
+	return problems
+}
+
+// The things a certification run can actually cover.
 const (
-	// ScopeFullInvocation: the whole production invocation is one request, so
-	// certifying the request certifies the site.
+	// ScopeFullInvocation: the run drives the whole production invocation, so
+	// certifying it certifies the site.
 	ScopeFullInvocation = "full_invocation"
 	// ScopeSingleTurn: the scenario seeds the window and grades ONE reply. The
 	// surrounding conversation or tool loop is supplied, not exercised.
 	ScopeSingleTurn = "single_turn"
+	// ScopeSingleCall: the run makes ONE of the calls the site's own code makes
+	// for one invocation and grades that reply — where the site re-asks a
+	// below-floor item solo on the next routing rung, asks again after an
+	// unreadable answer, or fans out over pages and folds the replies together.
+	// The answer the product serves is assembled from calls the run never made,
+	// and the fold that assembles it is unmeasured too.
+	//
+	// It does NOT mark the model runtime's shape-retry, which is a different
+	// thing: every case declines that one for every site, deliberately and
+	// identically, because a retried call certifies the answer a model gives
+	// after being told to try again rather than the answer it gives. A word true
+	// of all nineteen sites would tell a reader nothing about any of them.
+	ScopeSingleCall = "single_call"
 )
 
-// CertifiedScope reports how much of this site a certification run covers.
+// scopeOrder lists the vocabulary from the most of a production invocation to
+// the least, so a word added to it is ordered on the day it is added rather than
+// in whichever comparison someone remembers to update.
+//
+// ScopeSingleTurn sits above ScopeSingleCall because what it leaves out is
+// SUPPLIED to the run: the graded turn is the real turn, in the window the
+// conversation would have built, and the turns it does not cover are their own
+// answers. ScopeSingleCall leaves out calls that are folded INTO the graded
+// answer, so what the product serves can be something the record never saw.
+var scopeOrder = []string{ScopeFullInvocation, ScopeSingleTurn, ScopeSingleCall}
+
+// KnownScope reports whether scope is one a record can report.
+func KnownScope(scope string) bool { return slices.Contains(scopeOrder, scope) }
+
+// scopeRank is a scope's place in the fold: its position in scopeOrder, and past
+// the end of it for a word in no vocabulary — an unreadable claim must never be
+// the one that widens a record.
+func scopeRank(scope string) int {
+	if i := slices.Index(scopeOrder, scope); i >= 0 {
+		return i
+	}
+	return len(scopeOrder)
+}
+
+// NarrowerScope folds two certified scopes to the less complete of the two, so a
+// record pooling several runs claims only what every one of them proved. The
+// empty string is the accumulator before its first fold: it carries no claim and
+// yields to the other.
+func NarrowerScope(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	case scopeRank(b) > scopeRank(a):
+		return b
+	default:
+		return a
+	}
+}
+
+// ScopedCase is the narrowing a certification case may declare when it covers
+// LESS of its site than the site's kind implies — a case that sends one request
+// where the site can send two, or leaves the site's own gate on the reply
+// unspent. A case that declares nothing is read at its kind's scope.
+//
+// The declaration is the CASE's rather than a field on Site because a site is
+// what the contract ships and a scope is what this build's case measures. Those
+// are two claims, and folding the second into the first would leave the
+// composition's registration and the case's own coverage unable to disagree —
+// which is the disagreement Validate exists to report.
+type ScopedCase interface {
+	CaseFactory
+	CertifiedScope() string
+}
+
+// ScopeOf reports how much of a site the case bound to it covers: what the case
+// declares, or its site's kind-derived scope when it declares nothing.
+func ScopeOf(f CaseFactory) string {
+	if scoped, ok := f.(ScopedCase); ok {
+		return scoped.CertifiedScope()
+	}
+	return f.Site().CertifiedScope()
+}
+
+// Scopes reports the certified scope of every bound case, keyed by site. A
+// reader that has only the census — the readiness report, before any record
+// exists — needs it to say what the MOST a run could cover is, and the site
+// alone no longer answers that.
+func (r *Registry) Scopes() map[string]string {
+	out := make(map[string]string, len(r.cases))
+	for key, b := range r.cases {
+		out[key] = ScopeOf(b.factory)
+	}
+	return out
+}
+
+// CertifiedScope reports how much of this site a run covers when its case
+// declares nothing.
 //
 // A one-shot site's whole invocation IS one request, so a scored request is a
 // scored site. A multi-turn or agent-loop site is different in kind: its
@@ -248,6 +368,10 @@ const (
 // measurement — it is what the shipped prompt does with that window — but it is
 // not the loop, and a record that does not distinguish them claims more than it
 // tested.
+//
+// The kind is a floor, not the answer: it says what a site of this shape could
+// be covered to, and a case that measures less than its whole path says so
+// itself through ScopedCase.
 func (s Site) CertifiedScope() string {
 	if s.Kind == ai.SiteKindOneShot {
 		return ScopeFullInvocation

@@ -52,11 +52,35 @@ var reportColumns = []string{
 // which site the numbers came from — which is the whole reason the row is the
 // site.
 type readinessRow struct {
-	site      aitasks.Site
+	site aitasks.Site
+	// scope is the most this site could ever claim: what its bound case covers,
+	// which is the site's kind only for a case that measures its whole path.
+	scope     string
 	record    aicert.Record
 	tally     aicert.SiteTally
 	certified bool
 	stale     bool
+}
+
+// shippedCensus is the census as the report reads it: every shipped site, and
+// how much of each one the case bound to it can cover. The two travel together
+// because a site alone no longer answers the second question — a case that
+// measures less than its production path says so itself — and a reader looking
+// at a site with no record needs the answer that case would give.
+type shippedCensus struct {
+	sites []aitasks.Site
+	// scopes is keyed by "task/variant" (aitasks.Registry.Scopes). A site absent
+	// from it declared nothing, and is read at its kind.
+	scopes map[string]string
+}
+
+// scopeFor names the most one site could claim, falling back to its kind when
+// its case declares nothing.
+func (c shippedCensus) scopeFor(site aitasks.Site) string {
+	if scope, declared := c.scopes[string(site.Task)+"/"+site.Variant]; declared {
+		return scope
+	}
+	return site.CertifiedScope()
 }
 
 // renderReadiness reports every shipped site's certification state: the band a
@@ -72,8 +96,8 @@ type readinessRow struct {
 // Nothing here fails or exits non-zero. The certification lane is paid, manual
 // and BYOK-gated, so this is a view a human reads before a release decision —
 // not a gate, which would make every prompt edit wait on a paid run.
-func renderReadiness(sites []aitasks.Site, stamps map[string]string, records []aicert.Record) string {
-	rows, unclaimed := readinessRows(sites, stamps, records)
+func renderReadiness(census shippedCensus, stamps map[string]string, records []aicert.Record) string {
+	rows, unclaimed := readinessRows(census, stamps, records)
 
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
@@ -90,7 +114,7 @@ func renderReadiness(sites []aitasks.Site, stamps map[string]string, records []a
 	for _, row := range rows {
 		writeRow("%s\n", strings.Join(row.cells(), "\t"))
 	}
-	for _, line := range legend(rows, sites, unclaimed) {
+	for _, line := range legend(rows, census.sites, unclaimed) {
 		writeRow("%s\n", line)
 	}
 	if writeErr == nil {
@@ -112,16 +136,17 @@ func renderReadiness(sites []aitasks.Site, stamps map[string]string, records []a
 // record can produce several rows and a task certified on two bindings gives a
 // site two. The site is the unit here — it is what the contract ships and what
 // a scenario names — and each row carries only the scenarios that ran on it.
-func readinessRows(sites []aitasks.Site, stamps map[string]string, records []aicert.Record) ([]readinessRow, []aicert.Record) {
+func readinessRows(census shippedCensus, stamps map[string]string, records []aicert.Record) ([]readinessRow, []aicert.Record) {
 	byTask := map[string][]aicert.Record{}
 	for _, rec := range records {
 		byTask[rec.Task] = append(byTask[rec.Task], rec)
 	}
 
-	rows := make([]readinessRow, 0, len(sites))
+	rows := make([]readinessRow, 0, len(census.sites))
 	claimed := map[string]bool{}
-	for _, site := range sites {
+	for _, site := range census.sites {
 		task := string(site.Task)
+		scope := census.scopeFor(site)
 		measured := false
 		for _, rec := range byTask[task] {
 			// A record covers a site only if it ran a scenario ON that site.
@@ -134,12 +159,12 @@ func readinessRows(sites []aitasks.Site, stamps map[string]string, records []aic
 			claimed[recordKey(rec)] = true
 			measured = true
 			rows = append(rows, readinessRow{
-				site: site, record: rec, tally: tally, certified: true,
+				site: site, scope: scope, record: rec, tally: tally, certified: true,
 				stale: rec.PromptVersion != stamps[task],
 			})
 		}
 		if !measured {
-			rows = append(rows, readinessRow{site: site})
+			rows = append(rows, readinessRow{site: site, scope: scope})
 		}
 	}
 
@@ -195,12 +220,13 @@ func (r readinessRow) status() string {
 	}
 }
 
-// scope is how much of the site the row can claim. With a record it is what that
-// run folded to; with none it is the most a run could ever cover, which is how
-// the agent loop's one-turn limit stays visible while nothing is certified.
-func (r readinessRow) scope() string {
+// claimedScope is how much of the site the row can claim. With a record it is
+// what that run folded to; with none it is the most a run could ever cover,
+// which is how the agent loop's one-turn limit — and every case that measures
+// less than its site's whole path — stays visible while nothing is certified.
+func (r readinessRow) claimedScope() string {
 	if !r.certified {
-		return r.site.CertifiedScope()
+		return r.scope
 	}
 	if r.record.CertifiedScope == "" {
 		return unmeasured
@@ -214,7 +240,7 @@ func (r readinessRow) scope() string {
 func (r readinessRow) cells() []string {
 	site := string(r.site.Task) + "/" + r.site.Variant
 	if !r.certified {
-		cells := []string{site, r.scope(), r.status()}
+		cells := []string{site, r.claimedScope(), r.status()}
 		for len(cells) < len(reportColumns) {
 			cells = append(cells, unmeasured)
 		}
@@ -222,7 +248,7 @@ func (r readinessRow) cells() []string {
 	}
 	rec, tally := r.record, r.tally
 	return []string{
-		site, r.scope(), r.status(), tally.Verdict,
+		site, r.claimedScope(), r.status(), tally.Verdict,
 		rec.Provider, rec.ServedModel, rec.EnvClass,
 		fmt.Sprintf("%d", tally.Runs), fmt.Sprintf("%d", tally.Passed),
 		fmt.Sprintf("%.2f", tally.Reliability()),

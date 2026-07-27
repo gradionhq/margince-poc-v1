@@ -58,6 +58,13 @@ func (captureClassifyCases) Site() aitasks.Site {
 	}
 }
 
+// CertifiedScope narrows the record to the one call this case makes, because
+// labeling one backlog batch is not always one call. The engine re-asks every
+// below-floor message SOLO on the next rung of the routing ladder, and the label
+// a row ends up wearing — or the decision to leave it unlabeled — can come from
+// that second answer. A run measures the first.
+func (captureClassifyCases) CertifiedScope() string { return aitasks.ScopeSingleCall }
+
 // Prepare turns one batch and the labels the scenario expects into a runnable
 // case, MINTING an activity id per message rather than reading it from either.
 //

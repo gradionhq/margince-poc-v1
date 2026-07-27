@@ -266,7 +266,7 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 	acc.provider, acc.servedModel, acc.identitySource = outcome.Provider, outcome.ServedModel, outcome.ServedIdentitySource
 	acc.identitySet = true
 	acc.judgeServedModel = outcome.JudgeServedModel
-	acc.certifiedScope = narrowerScope(acc.certifiedScope, outcome.CertifiedScope)
+	acc.certifiedScope = aitasks.NarrowerScope(acc.certifiedScope, outcome.CertifiedScope)
 	if !selfJudged(outcome.ServedModel, outcome.JudgeServedModel) {
 		acc.selfJudgedEveryRun = false
 	}
@@ -274,20 +274,6 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 		acc.passed++
 	}
 	return nil
-}
-
-// narrowerScope folds two certified scopes to the less complete of the two, so
-// a pooled record claims only what every run it pooled actually proved. The
-// zero value carries no claim at all and yields to whatever the first run
-// covered.
-func narrowerScope(a, b string) string {
-	if a == "" {
-		return b // the accumulator's zero value carries no claim to fold yet.
-	}
-	if a == aitasks.ScopeSingleTurn || b == aitasks.ScopeSingleTurn {
-		return aitasks.ScopeSingleTurn
-	}
-	return a
 }
 
 // repeatsOrDefault applies RunnerConfig.Repeats' default and validates

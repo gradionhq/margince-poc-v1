@@ -184,10 +184,9 @@ type voiceEvalDraftCase struct {
 	floor       float64
 }
 
-// Run issues the one request this site sends. It sends it bare: production wraps
-// the same request in the shape-retry when the brain supports one, and a case
-// that retried would certify the answer a model gives after being told to try
-// again rather than the answer it gives.
+// Run issues the one request this site sends, bare — and so does the
+// evaluation: it drafts over the plain completer seam, never asking for the
+// shape-retry, so one draft is one call there and here alike.
 func (c *voiceEvalDraftCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
 	req := voiceEvalDraftRequest(c.personality, c.artifact, c.sample, c.repeat)
 	trace := aitasks.Trace{Requests: []model.Request{req}}

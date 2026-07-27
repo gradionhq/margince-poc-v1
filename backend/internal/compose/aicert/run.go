@@ -84,9 +84,9 @@ func scenarioRow(sc Scenario, verdict string, results []RunResult) ScenarioRecor
 // runner-agnostic shape). JudgeDegraded mirrors RunResult.Degraded's
 // candidate-side signal for the judge's own trace — certifyTask checks
 // both before ever trusting an outcome.
-// CertifiedScope is read off the case's OWN site rather than the scenario's
-// name for it, because the site is what says how much of the invocation the
-// case actually drives.
+// CertifiedScope is read off the CASE rather than the scenario's name for the
+// site, because the case is what drives the invocation and so what knows how
+// much of it a run reaches.
 type runOutcome struct {
 	RunResult
 	Provider, ServedModel, ServedIdentitySource, JudgeServedModel string
@@ -183,7 +183,7 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 		Provider:             pooled.Provider,
 		ServedModel:          pooled.ServedModel,
 		ServedIdentitySource: pooled.ServedIdentitySource,
-		CertifiedScope:       factory.Site().CertifiedScope(),
+		CertifiedScope:       aitasks.ScopeOf(factory),
 		JudgeServedModel:     judgeServedModel,
 		JudgeDegraded:        judgeDegraded,
 	}, nil

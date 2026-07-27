@@ -52,12 +52,13 @@ type Record struct {
 	ReportedWrongAnswer int `json:"reported_wrong_answer"`
 	ReportedInvalid     int `json:"reported_invalid"`
 	ReportedAbstained   int `json:"reported_abstained"`
-	// CertifiedScope is how much of the task this record actually covers
-	// (aitasks.ScopeFullInvocation or ScopeSingleTurn), folded to the
-	// NARROWEST scope any site the run touched could claim. A multi-turn or
-	// agent-loop scenario seeds the window and grades the one reply that
-	// follows; the surrounding conversation or tool loop is supplied, not
-	// exercised, and a record silent about that claims more than it tested.
+	// CertifiedScope is how much of the task this record actually covers (one of
+	// the aitasks.Scope* words), folded to the NARROWEST scope any site the run
+	// touched could claim. A multi-turn or agent-loop scenario seeds the window
+	// and grades the one reply that follows; a case bound to a site that calls
+	// the model more than once for one invocation grades one of those calls. In
+	// both, something the product does is supplied or skipped rather than
+	// exercised, and a record silent about it claims more than it tested.
 	CertifiedScope string `json:"certified_scope"`
 	// ContextApplied says whether the runs were served the company context
 	// production prepends. It is recorded rather than implied because the

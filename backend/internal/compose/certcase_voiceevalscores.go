@@ -172,11 +172,10 @@ func (c *voiceEvalScoresCase) Run(ctx context.Context, completer aitasks.Complet
 }
 
 // voiceJudgeRecorder is the brain the evaluation judges through: it records the
-// request the judging call issued and the answer it read. It deliberately does
-// NOT implement validatedBrain, so the call is sent bare — production wraps the
-// same request in the shape-retry when the brain supports one, and a case that
-// retried would certify the answer a model gives after being told to try again
-// rather than the answer it gives.
+// request the judging call issued and the answer it read. The call is sent bare,
+// as the evaluation sends it: judging goes over the plain completer seam, never
+// asking for the shape-retry, so one judging call is one call there and here
+// alike.
 type voiceJudgeRecorder struct {
 	completer aitasks.Completer
 	requests  []model.Request

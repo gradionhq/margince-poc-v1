@@ -79,6 +79,13 @@ func (sitePageFactsCases) Site() aitasks.Site {
 	}
 }
 
+// CertifiedScope narrows the record to the one page this case reads. A deep read
+// issues this call once per crawled page and the read's answer is the merge of
+// all of them: page kind decides which of two conflicting facts wins, duplicates
+// collapse, and the band quota cuts the tail. None of that exists for one page,
+// so a run measures one page's facts and not the fact set a human is shown.
+func (sitePageFactsCases) CertifiedScope() string { return aitasks.ScopeSingleCall }
+
 // Prepare turns one crawled page and the facts the scenario expects from it into
 // a runnable case, routing the kind to its menu and numbering the passages
 // exactly as the fact lane does, so the prompt this case sends and the schema it

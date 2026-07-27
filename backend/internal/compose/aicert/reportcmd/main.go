@@ -61,5 +61,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Print(renderReadiness(census.All(), stamps, records)) //nolint:forbidigo // this IS the report — reportcmd's whole job is printing it to stdout, not application logging
+	fmt.Print(renderReadiness(shippedCensus{sites: census.All(), scopes: census.Scopes()}, stamps, records)) //nolint:forbidigo // this IS the report — reportcmd's whole job is printing it to stdout, not application logging
 }

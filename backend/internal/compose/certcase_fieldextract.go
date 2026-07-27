@@ -54,6 +54,13 @@ func (fieldExtractCases) Site() aitasks.Site {
 	}
 }
 
+// CertifiedScope narrows the record to the one source this case extracts from.
+// A cold start seeded with a URL extracts twice whenever the legal-notice probe
+// finds a distinct page, and the fields the human is offered are the merge: the
+// legal page wins the legal identity, the seed page everything else. A run
+// measures one source's fields and not that merge.
+func (fieldExtractCases) CertifiedScope() string { return aitasks.ScopeSingleCall }
+
 // Prepare turns one source text and the facts the scenario expects from it into
 // a runnable case, bounding the text exactly as extractFields does so the gate
 // this case runs reads what the model this case calls was shown.

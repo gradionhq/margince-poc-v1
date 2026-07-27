@@ -83,6 +83,12 @@ func (certJudgeCases) Site() aitasks.Site {
 	}
 }
 
+// CertifiedScope narrows the record to the one call this case makes. Grading one
+// answer is up to two: a verdict the harness cannot read is asked again, freshly
+// built, and the score that counts is then the retry's — or, when that fails
+// too, a zero no model said. A run measures the first answer.
+func (certJudgeCases) CertifiedScope() string { return aitasks.ScopeSingleCall }
+
 // Prepare turns one grading call and the band the scenario expects its score in
 // into a runnable case.
 //

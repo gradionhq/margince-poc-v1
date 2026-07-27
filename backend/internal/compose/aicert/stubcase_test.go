@@ -167,3 +167,10 @@ func retryCensus(t *testing.T) *aitasks.Registry {
 	r.BindCase(retrySite(), retryingCases{site: retrySite()})
 	return r
 }
+
+// narrowedCases is widgetCases for a site whose case reaches ONE of the calls
+// the site makes — the shape capture_classify ships, where a below-floor message
+// is re-asked solo and the label finally applied can come from that answer.
+type narrowedCases struct{ widgetCases }
+
+func (narrowedCases) CertifiedScope() string { return aitasks.ScopeSingleCall }
