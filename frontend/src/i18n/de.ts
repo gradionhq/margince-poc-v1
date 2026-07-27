@@ -376,7 +376,7 @@ export const de = {
   "overlay.userMap.change": "Ändern…",
   "overlay.userMap.unmap": "Zuordnung aufheben",
   "overlay.userMap.cancel": "Abbrechen",
-  "overlay.userMap.pickerLabel": "Im {principal}-Verzeichnis suchen",
+  "overlay.userMap.pickerLabel": "{principal}-Nutzer suchen",
   "overlay.userMap.truncated":
     "Das {principal}-Verzeichnis ist länger als diese Liste — wen du hier nicht findest, liegt vielleicht hinter der Grenze.",
   "overlay.userMap.directoryFailed":

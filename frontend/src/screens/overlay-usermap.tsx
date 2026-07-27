@@ -73,10 +73,18 @@ const ROW_STYLE = {
   alignItems: "center",
   flexWrap: "wrap",
 } as const;
+const SPLIT_ROW_STYLE = {
+  display: "flex",
+  gap: "var(--space-3)",
+  alignItems: "flex-start",
+} as const;
+// minWidth 0 lets the identity column shrink instead of shoving the actions
+// off the card when a name and an incumbent identity are both long.
+const CONTENT_COLUMN_STYLE = { flex: 1, minWidth: 0 } as const;
 const ACTIONS_STYLE = {
-  marginLeft: "auto",
   display: "flex",
   gap: "var(--space-2)",
+  flex: "none",
 } as const;
 const DANGER_STYLE = { color: "var(--danger)" } as const;
 
@@ -303,61 +311,66 @@ function UserRow({
   const { principal } = directory;
   const mapped = isMapped(entry);
   return (
-    <li>
-      <div style={ROW_STYLE}>
-        <span>{entry.name ?? entry.email}</span>
-        {entry.name && <span className="t-small">{entry.email}</span>}
-        {self && <Badge tone="accent">{t("overlay.userMap.you")}</Badge>}
-        {mapped ? (
-          <span className="t-small">
-            {identityLabel(
-              entry.incumbent_user_name,
-              entry.incumbent_user_email,
-              entry.incumbent_user_id ?? "",
-            )}
-          </span>
-        ) : (
-          <Badge tone="warn">
-            {reasonChip(t, entry.unmapped_reason, principal)}
-          </Badge>
-        )}
-        {mapped && entry.match_source && (
-          <Badge>
-            {t(
-              entry.match_source === "manual"
-                ? "overlay.userMap.matchManual"
-                : "overlay.userMap.matchEmail",
-            )}
-          </Badge>
-        )}
-        {entry.stale_owner_ref && (
-          <Badge tone="danger">
-            {t("overlay.userMap.staleChip", { principal })}
-          </Badge>
-        )}
-        <span style={ACTIONS_STYLE}>
-          <Button small onClick={() => actions.onStartPick(entry.user_id)}>
-            {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
-          </Button>
-          {mapped && (
-            <Button
-              small
-              variant="danger"
-              onClick={() => actions.onUnmapRequest(entry)}
-            >
-              {t("overlay.userMap.unmap")}
-            </Button>
+    // Two columns, not one wrapping line: a long identity + chip run would
+    // otherwise push the actions onto their own right-aligned row, stranded
+    // above the explanation they belong to.
+    <li style={SPLIT_ROW_STYLE}>
+      <div style={CONTENT_COLUMN_STYLE}>
+        <div style={ROW_STYLE}>
+          <span>{entry.name ?? entry.email}</span>
+          {entry.name && <span className="t-small">{entry.email}</span>}
+          {self && <Badge tone="accent">{t("overlay.userMap.you")}</Badge>}
+          {mapped ? (
+            <span className="t-small">
+              {identityLabel(
+                entry.incumbent_user_name,
+                entry.incumbent_user_email,
+                entry.incumbent_user_id ?? "",
+              )}
+            </span>
+          ) : (
+            <Badge tone="warn">
+              {reasonChip(t, entry.unmapped_reason, principal)}
+            </Badge>
           )}
-        </span>
+          {mapped && entry.match_source && (
+            <Badge>
+              {t(
+                entry.match_source === "manual"
+                  ? "overlay.userMap.matchManual"
+                  : "overlay.userMap.matchEmail",
+              )}
+            </Badge>
+          )}
+          {entry.stale_owner_ref && (
+            <Badge tone="danger">
+              {t("overlay.userMap.staleChip", { principal })}
+            </Badge>
+          )}
+        </div>
+        <RowNotes entry={entry} principal={principal} />
+        {actions.picking === entry.user_id && (
+          <OwnerPicker
+            directory={directory}
+            actions={actions}
+            userId={entry.user_id}
+          />
+        )}
       </div>
-      <RowNotes entry={entry} principal={principal} />
-      {actions.picking === entry.user_id && (
-        <OwnerPicker
-          directory={directory}
-          actions={actions}
-          userId={entry.user_id}
-        />
-      )}
+      <div style={ACTIONS_STYLE}>
+        <Button small onClick={() => actions.onStartPick(entry.user_id)}>
+          {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
+        </Button>
+        {mapped && (
+          <Button
+            small
+            variant="danger"
+            onClick={() => actions.onUnmapRequest(entry)}
+          >
+            {t("overlay.userMap.unmap")}
+          </Button>
+        )}
+      </div>
     </li>
   );
 }

@@ -374,10 +374,7 @@ describe("the mirror user-map card", () => {
       },
     });
     await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
-    await userEvent.type(
-      screen.getByLabelText(/search the .* directory/i),
-      "grace",
-    );
+    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
     await userEvent.click(
       await screen.findByRole("button", { name: /Grace Hopper/ }),
     );
@@ -418,9 +415,7 @@ describe("the mirror user-map card", () => {
     expect(
       screen.getByText(/the incumbent directory could not be read/i),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByLabelText(/search the .* directory/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/search .* users/i)).not.toBeInTheDocument();
   });
 
   it("shows a shared seat only the by-owner view can reveal", async () => {
