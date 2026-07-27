@@ -169,8 +169,12 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 
 // selectUserMapTargetSQL reads what a user-map operation needs to know about
 // its target: that it exists at all, and whether it is a seat an admin may
-// GRANT a mapping to. The predicate is listUserMapSQL's own exclusion, spelled
-// once, so what the admin surface offers and what it accepts cannot drift.
+// GRANT a mapping to.
+//
+// The eligibility half is ONE invariant with two siblings that must move with
+// it: listUserMapSQL (what the admin surface offers) and usersMatchingEmail
+// (usermapseed.go — what the automated sweep will seed). All three exclude an
+// agent seat and an archived seat; a change here belongs in all three.
 const selectUserMapTargetSQL = `
 SELECT NOT u.is_agent AND u.archived_at IS NULL
 FROM app_user u

@@ -207,12 +207,23 @@ func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumben
 // under a workspace-scoped tx so RLS confines the match to the connected
 // workspace's own users; a directory owner whose email belongs to a user
 // in some OTHER tenant can never leak a cross-workspace mapping.
+//
+// Agent and archived seats are excluded for the same reason the admin
+// surface refuses them: an agent seat is a passport identity with no
+// incumbent counterpart to match, and an archived seat no longer logs in, so
+// a mapping either way grants mirror visibility to something that should not
+// carry it. This is ONE invariant with the eligibility predicate
+// selectUserMapTargetSQL (usermapadmin.go) applies to ListUserMap and
+// SetManualUserMap — spelled twice because a scalar check and a set query
+// read better apart, so a change to either belongs in both.
 func (s *MirrorStore) usersMatchingEmail(ctx context.Context, email, incumbent string) ([]ids.UserID, error) {
 	var users []ids.UserID
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
 			SELECT u.id FROM app_user u
 			WHERE lower(trim(u.email)) = lower(trim($1))
+			  AND NOT u.is_agent
+			  AND u.archived_at IS NULL
 			  AND NOT EXISTS (
 			      SELECT 1 FROM mirror_user_map m
 			      WHERE m.app_user_id = u.id AND m.incumbent = $2 AND m.match_source = 'manual'
