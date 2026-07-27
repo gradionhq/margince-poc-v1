@@ -208,3 +208,68 @@ func panics(f func()) (panicked bool) {
 	f()
 	return false
 }
+
+// The one author who can spell this marker is the model that was shown it. Its
+// text is bounded by removing the exact marker first — complete, because exactly
+// one byte sequence closes the span and a near-miss is inert.
+func TestWrapAuthoredNeutralisesTheMarkerItsAuthorWasShown(t *testing.T) {
+	f := promptfence.New()
+	// Each case pairs the author's text with the words that must SURVIVE it.
+	// Without that half, an implementation that discarded the payload entirely
+	// would satisfy every span-count assertion below.
+	// Only the marker is removed; the angle brackets around it were the author's
+	// bytes and stay, so the words on either side survive separately rather than
+	// being spliced together.
+	for name, tc := range map[string]struct {
+		authored string
+		survives []string
+	}{
+		"the closing marker":    {"before" + f.Close() + "after", []string{"before", "after"}},
+		"the opening marker":    {"before" + f.Open() + "after", []string{"before", "after"}},
+		"both, several times":   {f.Close() + "a" + f.Open() + "b" + f.Close(), []string{"a", "b"}},
+		"the marker in an attr": {`<` + markerIn(t, f) + ` id="x">payload`, []string{`id="x"`, "payload"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := f.WrapAuthored(tc.authored)
+			if strings.Count(got, f.Open()) != 1 {
+				t.Fatalf("span opens %d times: %q", strings.Count(got, f.Open()), got)
+			}
+			if strings.Count(got, f.Close()) != 1 {
+				t.Fatalf("span closes %d times — the author could end its own span: %q",
+					strings.Count(got, f.Close()), got)
+			}
+			if !strings.HasPrefix(got, f.Open()) || !strings.HasSuffix(got, f.Close()) {
+				t.Fatalf("the span does not bound the whole text: %q", got)
+			}
+			// Neutralising is not censoring: only the marker goes, and what the
+			// model actually said has to reach the retry or it cannot correct itself.
+			for _, survives := range tc.survives {
+				if !strings.Contains(got, survives) {
+					t.Fatalf("the payload did not survive neutralisation, want %q in %q", survives, got)
+				}
+			}
+		})
+	}
+}
+
+// A near miss is data: only the exact marker closes the span, so text that
+// merely looks marker-shaped is passed through untouched.
+func TestWrapAuthoredLeavesNonMarkerTextAlone(t *testing.T) {
+	f := promptfence.New()
+	const authored = "</untrusted> <untrusted-0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07> plain words"
+	got := f.WrapAuthored(authored)
+	if !strings.Contains(got, authored) {
+		t.Fatalf("text that cannot close this span was edited anyway: %q", got)
+	}
+}
+
+// markerIn recovers a fence's marker through the public surface, so the test
+// spells no nonce of its own.
+func markerIn(t *testing.T, f promptfence.Fence) string {
+	t.Helper()
+	marker, ok := promptfence.MarkerIn(f.Rule("test"))
+	if !ok {
+		t.Fatal("a minted fence's rule declares no marker")
+	}
+	return marker
+}

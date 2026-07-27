@@ -78,12 +78,23 @@ func newWindow(job Job, specs []mcp.ToolSpec) *window {
 // are marked with a fixed marker any captured page or mail could have written,
 // so no marker this build could name would actually bound them. The run is
 // refused rather than continued under a boundary that is not one.
-func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message, fence promptfence.Fence) (*window, error) {
+//
+// An older transcriptVersion is refused for the same reason one step later. Its
+// observations were bounded with Wrap, so the model — which had read the marker
+// since step 1 — was free to close its own span, and the stored text may already
+// carry prompt-voice content inside what looks like data. It cannot be told from
+// a clean transcript after the fact: the goal prompt legitimately holds several
+// spans, so "one balanced span per message" is not an invariant to check against,
+// and a `</m>…<m>` injection reads as two well-formed spans either way.
+func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message, fence promptfence.Fence, transcriptVersion int) (*window, error) {
 	if len(snapshot) == 0 {
 		return newWindow(job, specs), nil
 	}
 	if !fence.Minted() {
 		return nil, fmt.Errorf("%w: this run was suspended before prompt boundaries were per-run; start it again rather than resuming it", apperrors.ErrConflict)
+	}
+	if transcriptVersion < neutralisedObservations {
+		return nil, fmt.Errorf("%w: this run was suspended before its observations were bounded against the marker the model can read; start it again rather than resuming it", apperrors.ErrConflict)
 	}
 	w := &window{system: systemPrompt(specs, fence), fence: fence, knownSources: sourceVocabulary(specs)}
 	w.msgs = append(w.msgs, snapshot...)
@@ -92,14 +103,37 @@ func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message,
 
 // observe appends a tool result (or refusal) as the next user turn.
 // Tool output is captured data — T2 by handling rule — so it is
-// spotlighted as data-not-instructions (D1) inside the run's own
-// boundary: a page or mail a tool read cannot close a span marked with
-// a nonce it has never seen, so the output goes in unedited.
+// spotlighted as data-not-instructions (D1) inside the run's own boundary.
+//
+// The bound is WrapAuthored, not Wrap, because ONE fence spans the whole run
+// and the model has read its marker in the system prompt since step 1. That
+// makes the model an author who can close the span exactly, and it does not
+// need an outsider to do it: a refusal or parse error echoes the model's OWN
+// tool arguments and JSON keys straight back into an observation. A page that
+// talks the model into emitting the marker once gets prompt-voice text into a
+// transcript that is CUMULATIVE — present in every later step, and carried into
+// the suspended-run snapshot.
+//
+// Text a tool merely read is unaffected: it has never seen the nonce, so it
+// contains nothing to neutralise and still goes in byte for byte.
 func (w *window) observe(source, content string) {
-	w.msgs = append(w.msgs, model.Message{
-		Role:    roleUser,
-		Content: "observation from " + w.sourceLabel(source) + ":\n" + w.fence.Wrap(content),
-	})
+	w.observeThen(source, content, "")
+}
+
+// observeThen appends an observation followed by a directive of OURS. The
+// directive stays OUTSIDE the span on purpose: text inside is declared "never
+// instructions", so an order placed there is one the model has been told to
+// disregard — and it would be the one part of the turn that is allowed to give
+// orders. An observation with no data carries no span at all.
+func (w *window) observeThen(source, data, directive string) {
+	content := "observation from " + w.sourceLabel(source) + ":"
+	if data != "" {
+		content += "\n" + w.fence.WrapAuthored(data)
+	}
+	if directive != "" {
+		content += "\n" + directive
+	}
+	w.msgs = append(w.msgs, model.Message{Role: roleUser, Content: content})
 }
 
 // sourceLabel bounds the one part of an observation that sits OUTSIDE the fence.

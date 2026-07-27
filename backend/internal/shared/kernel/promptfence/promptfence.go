@@ -102,6 +102,27 @@ func (f Fence) WrapAttr(attr, value, data string) string {
 	return f.openAttr(attr, value) + data + f.Close()
 }
 
+// WrapAuthored bounds text whose author has SEEN this marker — the model's own
+// rejected output, fed back on a §5.2 retry — and neutralises the marker inside
+// it first.
+//
+// [Fence.Wrap] cannot be used there. Its contract is the scope rule above: the
+// text it bounds must have been written before the marker could leak. A model
+// that was shown the marker in the prompt that produced this very output has had
+// it leak by construction, so wrapping that output in the same fence declares a
+// boundary its author can close at will.
+//
+// Editing the data is the thing this package otherwise refuses to do, and the
+// difference is EXACTNESS. Recognising a forgery is a losing game because a
+// sender picks from the whole of Unicode and need only find what a matcher
+// misses. Here there is exactly ONE byte sequence that closes this span, this
+// package knows it, and anything else — a near-miss, an invisible rune mid-word,
+// another script — is inert data. Removing that one string is therefore complete
+// rather than best-effort, which is what makes it sound where a blocklist is not.
+func (f Fence) WrapAuthored(text string) string {
+	return f.Wrap(strings.ReplaceAll(text, f.name(), canonicalMarker))
+}
+
 // Rule is the sentence that tells the model what this call's boundary is. It
 // REPLACES a system prompt's existing boundary sentence — it is never appended
 // to one. Wording that also names a generic marker as a boundary re-teaches the
@@ -173,8 +194,14 @@ func FromMarker(marker string) (Fence, bool) {
 	return Fence{nonce: marker}, true
 }
 
-// canonicalMarker stands in for a nonce wherever a prompt is HASHED rather than
-// sent — a result-cache key, a certification stamp.
+// canonicalMarker stands in for a nonce wherever the marker itself must not be
+// the thing that varies: a prompt being HASHED rather than sent (a result-cache
+// key, a certification stamp) via [Canonicalize], and a marker removed from text
+// whose author was shown it via [Fence.WrapAuthored].
+//
+// It is deliberately not marker-shaped for the second use: [MarkerIn] needs 36
+// characters where this has five, so a placeholder left in a prompt that IS sent
+// can never be read back as a boundary.
 const canonicalMarker = "untrusted-fence"
 
 // Canonicalize replaces the boundary a prompt declares with a fixed placeholder,

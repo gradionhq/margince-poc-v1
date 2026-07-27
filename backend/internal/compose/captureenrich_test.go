@@ -46,3 +46,19 @@ func TestSignatureBlockWindow(t *testing.T) {
 		}
 	})
 }
+
+// The field name the shape validator rejects is MODEL output, so a sender who
+// steered the model chose it. It is logged and, on a §5.2 retry, appended back
+// into the prompt — bounded at both exits or it is a writing surface.
+func TestSignatureShapeValidationDoesNotEchoUnboundedModelText(t *testing.T) {
+	flood := strings.Repeat("A", 100_000)
+	payload := fmt.Sprintf(`{"fields":[{"field":%q,"value":"x","evidence_snippet":"y"}]}`, flood)
+
+	err := signatureShapeValid(payload)
+	if err == nil {
+		t.Fatal("a field outside the allowed set was accepted")
+	}
+	if len(err.Error()) > 500 {
+		t.Fatalf("the validation error is %d bytes — model-chosen text must be clamped before it reaches a log or the next prompt", len(err.Error()))
+	}
+}
