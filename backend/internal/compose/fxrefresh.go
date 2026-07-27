@@ -111,11 +111,7 @@ func (f fxRefresh) run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("fx refresh: %w", err)
 	}
-	want := make(map[string]bool, len(symbols))
-	for _, s := range symbols {
-		want[strings.ToUpper(strings.TrimSpace(s))] = true
-	}
-	fetched := f.collect(base, pairs, want)
+	fetched := f.collect(base, pairs, trackedCurrencySet(symbols))
 
 	ws := storekit.MustWorkspace(ctx)
 	staged := 0
@@ -144,9 +140,7 @@ func (f fxRefresh) run(ctx context.Context) error {
 }
 
 // extract fetches the configured page and returns the model's extracted pairs
-// (raw — gating and anchoring happen in collect). The page text is wrapped in a
-// per-call nonce boundary, so a hostile page cannot break out of it: the marker
-// it would have to spell is one its author has never seen.
+// (raw — gating and anchoring happen in collect).
 func (f fxRefresh) extract(ctx context.Context) ([]extractedFxPair, error) {
 	doc, err := f.fetcher.Fetch(ctx, f.url)
 	if err != nil {
@@ -155,22 +149,45 @@ func (f fxRefresh) extract(ctx context.Context) ([]extractedFxPair, error) {
 	if doc.IsMarkdown() {
 		f.log.Debug("fx source served markdown", "url", f.url)
 	}
+	resp, err := f.brain.Complete(ctx, fxExtractRequest(doc.Text))
+	if err != nil {
+		return nil, fmt.Errorf("extract: %w", err)
+	}
+	return parseFxExtraction(resp.Text)
+}
+
+// fxExtractRequest builds the one request this site sends, from the fetched
+// page's text alone. It is a pure function of that text so the request the
+// certification lane issues is the request the refresh issues, rather than a copy
+// beside it that stays green through the change breaking the original.
+//
+// The page's own bytes reach the model unedited, only numbered; the one thing
+// that stops them ending their span is a marker minted for THIS call and named in
+// THIS call's system prompt, which a hostile page's author has never seen.
+func fxExtractRequest(pageText string) model.Request {
 	fence := promptfence.New()
-	req := model.Request{
+	return model.Request{
 		System: fxExtractSystemFor(fence),
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
-			Content: fence.Wrap("\n" + numberPassages(doc.Text) + "\n"),
+			Content: fence.Wrap("\n" + numberPassages(pageText) + "\n"),
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: fxExtractSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}
-	resp, err := f.brain.Complete(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("extract: %w", err)
+}
+
+// trackedCurrencySet is the set of currencies a refresh asked the page to price,
+// each normalized the way fxAnchor normalizes a pair's own codes so a sheet row
+// and a page's spelling of one currency meet. collect prices nothing outside it:
+// a rate nobody asked for is never staged.
+func trackedCurrencySet(symbols []string) map[string]bool {
+	want := make(map[string]bool, len(symbols))
+	for _, s := range symbols {
+		want[strings.ToUpper(strings.TrimSpace(s))] = true
 	}
-	return parseFxExtraction(resp.Text)
+	return want
 }
 
 // collect gates, anchors, and normalizes the extracted pairs into a
@@ -182,7 +199,13 @@ func (f fxRefresh) collect(base string, pairs []extractedFxPair, want map[string
 	fetched := make(map[string]string, len(want))
 	for _, p := range pairs {
 		if !fxPairAccepted(p) {
-			continue // no-guess: ungrounded or low-confidence
+			// No-guess: the pair cites no passage, or carries a confidence this
+			// build does not believe. Name it — a rate dropped for the reason
+			// that matters most is the last one that should go unsaid.
+			f.log.Warn("fx rate refresh: dropped an ungrounded or low-confidence pair",
+				"from", p.FromCurrency, "to", p.ToCurrency,
+				"evidence", p.Evidence, "confidence", p.Confidence)
+			continue
 		}
 		cur, invert, ok := fxAnchor(base, p)
 		if !ok {

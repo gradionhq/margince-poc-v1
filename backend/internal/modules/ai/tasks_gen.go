@@ -7,29 +7,36 @@ package ai
 type Task string
 
 const (
+	// TaskAgentLoop is The Surface-B reason-act loop: a cumulative, tool-fed message window, not a request factory. ADR-0074 names it the open risk for fixture-driven certification — if it cannot be certified honestly the census needs a `not_certifiable` kind.
 	TaskAgentLoop Task = "agent_loop"
 	// TaskBriefRanking is the one Premium-frontier default (§1.2 RATIFY): genuinely multi-hop reasoning
 	TaskBriefRanking    Task = "brief_ranking"
 	TaskCaptureClassify Task = "capture_classify"
-	// TaskCaptureCounterpartyVerdict is ADR-0072/A118: the ambiguous first-time-sender creation gate — real|noise|unsure per address, floor 0.7 (below → unsure, never noise). No-payload capture policy (verdict batches never persist to ai_call_payload). Release-blocking false-noise eval threshold.
+	// TaskCaptureCounterpartyVerdict is ADR-0072/A118: the ambiguous first-time-sender creation gate — real|noise|unsure per address, floor 0.7 (below → unsure, never noise). Release-blocking false-noise eval threshold. The no-payload posture is the `no_payload` field above (ADR-0074); it was formerly asserted in this prose and matched by substring.
 	TaskCaptureCounterpartyVerdict Task = "capture_counterparty_verdict"
 	// TaskCertJudge is the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding
-	TaskCertJudge  Task = "cert_judge"
-	TaskColdStart  Task = "cold_start"
+	TaskCertJudge Task = "cert_judge"
+	// TaskColdStart is Four sites, not one: three conversational onboarding lanes plus the evidence-extraction pass the read-back rides. The extraction site is the consequential one and had no name before ADR-0074.
+	TaskColdStart Task = "cold_start"
+	// TaskDealHealth is Declared, not built (ADR-0074).
 	TaskDealHealth Task = "deal_health"
+	// TaskDraftReply is One site with two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a second site.
 	TaskDraftReply Task = "draft_reply"
 	TaskEnrich     Task = "enrich"
+	// TaskNlSearch is Declared, not built (ADR-0074).
 	TaskNlSearch   Task = "nl_search"
 	TaskOfferDraft Task = "offer_draft"
-	// TaskRateExtract is extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer
+	// TaskRateExtract is extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer. Two sites — the pricing-page pass and the FX pass — a distinction the build has carried unnamed (two prompt builders, two byte-pin tests, three corpus scenarios) since it was written.
 	TaskRateExtract Task = "rate_extract"
-	// TaskSiteExtract is premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung
+	// TaskSiteExtract is premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung. Its response schema is built PER CALL (the citation enum is that call's passage ids), which is why ADR-0074 leaves answer schemas in code.
 	TaskSiteExtract Task = "site_extract"
-	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads
+	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads. Its response schema varies in SHAPE per call with the page menu (ADR-0074).
 	TaskSiteFactExtract Task = "site_fact_extract"
-	TaskSummarize       Task = "summarize"
-	TaskTranscript      Task = "transcript"
-	// TaskVoiceBuild is owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066)
+	// TaskSummarize is Declared, not built (ADR-0074). The company-context policy is carried forward so the task keeps its ADR-0065 posture when a site lands.
+	TaskSummarize Task = "summarize"
+	// TaskTranscript is Declared, not built (ADR-0074). Pasted transcript text is T2/untrusted per ai-operational-spec §1 when a site lands.
+	TaskTranscript Task = "transcript"
+	// TaskVoiceBuild is owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066). Three sites: the derive pass plus the two evaluation passes.
 	TaskVoiceBuild Task = "voice_build"
 )
 
@@ -57,7 +64,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "2563ee2d8a5f97d3c98d9608f7fede5ce2f2aa05a470b8405a2274aa5245d01a"
+const TaskContractHash = "c7adf05af2478ecf65478242c404454526258b20f68f718cb1716eda132494c3"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -146,3 +153,167 @@ var knownTiers = map[Tier]bool{
 	TierPremium:    true,
 	TierLocalLarge: true,
 }
+
+// Status reports whether a task ships or is declared-but-unbuilt. A
+// planned task has no site, no corpus scenario, and no certification
+// record — which is what stops it presenting as certified.
+const (
+	StatusShipped = "shipped"
+	StatusPlanned = "planned"
+)
+
+var taskStatus = map[Task]string{
+	TaskAgentLoop:                  "shipped",
+	TaskBriefRanking:               "shipped",
+	TaskCaptureClassify:            "shipped",
+	TaskCaptureCounterpartyVerdict: "shipped",
+	TaskCertJudge:                  "shipped",
+	TaskColdStart:                  "shipped",
+	TaskDealHealth:                 "planned",
+	TaskDraftReply:                 "shipped",
+	TaskEnrich:                     "shipped",
+	TaskNlSearch:                   "planned",
+	TaskOfferDraft:                 "shipped",
+	TaskRateExtract:                "shipped",
+	TaskSiteExtract:                "shipped",
+	TaskSiteFactExtract:            "shipped",
+	TaskSummarize:                  "planned",
+	TaskTranscript:                 "planned",
+	TaskVoiceBuild:                 "shipped",
+}
+
+// Status returns the declared status, or "" for a task this table does
+// not carry.
+func Status(t Task) string { return taskStatus[t] }
+
+// Site is one named model-invocation site of a task. A task is NOT one
+// prompt: rate_extract has two, cold_start four. Kind says how the site
+// invokes the model, because an agent loop is a cumulative tool-fed
+// window and must not be described as a request factory.
+type Site struct {
+	Name string
+	Kind string
+}
+
+const (
+	SiteKindOneShot   = "one_shot"
+	SiteKindMultiTurn = "multi_turn"
+	SiteKindAgentLoop = "agent_loop"
+)
+
+var taskSites = map[Task][]Site{
+	TaskAgentLoop: {
+		{Name: "loop", Kind: "agent_loop"},
+	},
+	TaskBriefRanking: {
+		{Name: "rank", Kind: "one_shot"},
+	},
+	TaskCaptureClassify: {
+		{Name: "classify", Kind: "one_shot"},
+	},
+	TaskCaptureCounterpartyVerdict: {
+		{Name: "verdict", Kind: "one_shot"},
+	},
+	TaskCertJudge: {
+		{Name: "judge", Kind: "one_shot"},
+	},
+	TaskColdStart: {
+		{Name: "company_message", Kind: "multi_turn"},
+		{Name: "sitereadmessage", Kind: "multi_turn"},
+		{Name: "acts", Kind: "multi_turn"},
+		{Name: "field_extract", Kind: "one_shot"},
+	},
+	TaskDraftReply: {
+		{Name: "reply", Kind: "one_shot"},
+	},
+	TaskEnrich: {
+		{Name: "signature", Kind: "one_shot"},
+	},
+	TaskOfferDraft: {
+		{Name: "draft", Kind: "one_shot"},
+	},
+	TaskRateExtract: {
+		{Name: "pricing", Kind: "one_shot"},
+		{Name: "fx", Kind: "one_shot"},
+	},
+	TaskSiteExtract: {
+		{Name: "profile", Kind: "one_shot"},
+	},
+	TaskSiteFactExtract: {
+		{Name: "page_facts", Kind: "one_shot"},
+	},
+	TaskVoiceBuild: {
+		{Name: "derive", Kind: "one_shot"},
+		{Name: "eval_draft", Kind: "one_shot"},
+		{Name: "eval_scores", Kind: "one_shot"},
+	},
+}
+
+// SitesFor returns the task's declared sites in contract order. A
+// planned task returns none.
+func SitesFor(t Task) []Site { return taskSites[t] }
+
+// noPayloadTasks are the tasks whose content must NEVER reach
+// ai_call_payload, whatever the deployment's capture posture says. The
+// contract pins the prohibition as a hard property, not a default.
+var noPayloadTasks = map[Task]bool{
+	TaskCaptureCounterpartyVerdict: true,
+}
+
+// NoPayload reports the contract's payload prohibition for a task.
+func NoPayload(t Task) bool { return noPayloadTasks[t] }
+
+// CompanyContextPolicy is the ADR-0065 anchor-company policy: which
+// scopes ride the prompt, under what character budget, and whether the
+// caller must ask for them. Scopes are contract NAMES; the composition
+// layer maps them to its own scope type, because this package must not
+// import a sibling module.
+type CompanyContextPolicy struct {
+	Scopes      []string
+	TokenBudget int
+	Conditional bool
+}
+
+var taskCompanyContext = map[Task]CompanyContextPolicy{
+	TaskAgentLoop:                  {Scopes: []string{"identity", "positioning", "sales", "offer"}, TokenBudget: 1200, Conditional: false},
+	TaskBriefRanking:               {TokenBudget: 0, Conditional: false},
+	TaskCaptureClassify:            {TokenBudget: 0, Conditional: false},
+	TaskCaptureCounterpartyVerdict: {TokenBudget: 0, Conditional: false},
+	TaskCertJudge:                  {TokenBudget: 0, Conditional: false},
+	TaskColdStart:                  {TokenBudget: 0, Conditional: false},
+	TaskDealHealth:                 {TokenBudget: 0, Conditional: false},
+	TaskDraftReply:                 {Scopes: []string{"positioning", "sales", "proof", "market"}, TokenBudget: 1400, Conditional: false},
+	TaskEnrich:                     {TokenBudget: 0, Conditional: false},
+	TaskNlSearch:                   {Scopes: []string{"offer", "market"}, TokenBudget: 600, Conditional: false},
+	TaskOfferDraft:                 {Scopes: []string{"offer", "positioning", "proof"}, TokenBudget: 1600, Conditional: false},
+	TaskRateExtract:                {TokenBudget: 0, Conditional: false},
+	TaskSiteExtract:                {TokenBudget: 0, Conditional: false},
+	TaskSiteFactExtract:            {TokenBudget: 0, Conditional: false},
+	TaskSummarize:                  {Scopes: []string{"identity"}, TokenBudget: 300, Conditional: true},
+	TaskTranscript:                 {TokenBudget: 0, Conditional: false},
+	TaskVoiceBuild:                 {TokenBudget: 0, Conditional: false},
+}
+
+// CompanyContextFor returns the task's declared policy. The bool reports
+// whether the contract DECLARES one at all — an undeclared policy is a
+// contract defect, distinct from a declared empty one.
+func CompanyContextFor(t Task) (CompanyContextPolicy, bool) {
+	p, ok := taskCompanyContext[t]
+	return p, ok
+}
+
+// taskCostUnit names each priced task's unit rule. The arithmetic is
+// behaviour and lives in the estimator; naming the rule here is what
+// lets the build prove the mapping is total.
+var taskCostUnit = map[Task]string{
+	TaskCaptureClassify: "per_message",
+	TaskEnrich:          "per_person",
+}
+
+// CostUnitFor returns the task's unit-rule name, or "" when unpriced.
+func CostUnitFor(t Task) string { return taskCostUnit[t] }
+
+// EmbedCostUnit is the embeddings workload's unit rule. embed is not a
+// task — no prompt, no text answer, no completion path — so it carries
+// its own contract section and its own accessor.
+func EmbedCostUnit() string { return "per_entity" }

@@ -85,15 +85,14 @@ func TestFxRateString(t *testing.T) {
 }
 
 func TestFxPairAccepted(t *testing.T) {
-	good := extractedFxPair{FromCurrency: "USD", ToCurrency: "EUR", Rate: "0.92", Evidence: "s0", Confidence: "0.8"}
+	good := extractedFxPair{FromCurrency: "USD", ToCurrency: "EUR", Rate: "0.92", Evidence: "s0", Confidence: 0.8}
 	if !fxPairAccepted(good) {
 		t.Fatal("a grounded, confident pair must be accepted")
 	}
 	for _, bad := range []extractedFxPair{
-		{Evidence: "", Confidence: "0.9"},         // ungrounded
-		{Evidence: "s0", Confidence: "0.4"},       // below floor
-		{Evidence: "s0", Confidence: "1.5"},       // out of range
-		{Evidence: "s0", Confidence: "not-a-num"}, // unparseable
+		{Evidence: "", Confidence: 0.9},   // ungrounded
+		{Evidence: "s0", Confidence: 0.4}, // below floor
+		{Evidence: "s0", Confidence: 1.5}, // out of range
 	} {
 		if fxPairAccepted(bad) {
 			t.Errorf("pair %+v must be rejected", bad)
@@ -109,5 +108,45 @@ func TestParseFxExtractionUnfences(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].FromCurrency != "EUR" || got[0].Rate != "1.08" {
 		t.Fatalf("parsed %+v, want one EUR->USD 1.08 pair", got)
+	}
+}
+
+// The prompt asks for a quoted score and the response schema declares one, but
+// neither reaches a provider that has no schema-constrained mode, and the model
+// runtime drops the schema on the retry that follows a provider rejecting it.
+// A rate the page states plainly must not be lost to which side of the quotes
+// the number came back on.
+func TestParseFxExtractionReadsAQuotedOrBareConfidence(t *testing.T) {
+	for _, spelling := range []string{`"0.9"`, `0.9`} {
+		t.Run(spelling, func(t *testing.T) {
+			raw := `{"pairs":[{"from_currency":"EUR","to_currency":"USD","rate":"1.08","evidence":"s0","confidence":` + spelling + `}]}`
+			got, err := parseFxExtraction(raw)
+			if err != nil {
+				t.Fatalf("parseFxExtraction(confidence %s): %v", spelling, err)
+			}
+			if len(got) != 1 {
+				t.Fatalf("parsed %d pairs, want one", len(got))
+			}
+			if got[0].Confidence != 0.9 {
+				t.Errorf("confidence %v, want 0.9", got[0].Confidence)
+			}
+			if !fxPairAccepted(got[0]) {
+				t.Error("the pair was refused by the no-guess gate; the score is above the floor either way it was spelled")
+			}
+		})
+	}
+}
+
+// Tolerance covers the WRAPPER, never the value. A score nothing can compare
+// leaves the floor unable to refuse anything, so the reply is refused instead
+// of read — the pair would otherwise reach the gate as a zero nobody sent.
+func TestParseFxExtractionRefusesAConfidenceThatIsNoNumber(t *testing.T) {
+	for _, spelling := range []string{`"high"`, `"NaN"`, `null`, `true`} {
+		t.Run(spelling, func(t *testing.T) {
+			raw := `{"pairs":[{"from_currency":"EUR","to_currency":"USD","rate":"1.08","evidence":"s0","confidence":` + spelling + `}]}`
+			if _, err := parseFxExtraction(raw); err == nil {
+				t.Fatalf("confidence %s parsed; a score no threshold can compare must not reach the gate as a silent zero", spelling)
+			}
+		})
 	}
 }

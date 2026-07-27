@@ -19,10 +19,17 @@ const (
 // caller (the runner drives the model and the judge; this package never
 // calls either). Degraded mirrors the router's own degrade signal (a
 // budget-forced tier drop mid-run); HardPass is the run's pass/fail verdict
-// against its scenario's structural checks, caps, and judge score — the
-// input Verdict folds across a whole run set.
+// against its scenario's expected outcome and caps — the input Verdict folds
+// across a whole run set.
+//
+// Outcome is what the site's own validator reported (aitasks.OutcomeAccepted
+// and its siblings), carried alongside HardPass rather than derived from it: a
+// run can produce exactly the answer the scenario asked for and still fail its
+// latency cap, and one that reports "accepted" for that run would be counting
+// something that never happened.
 type RunResult struct {
 	Output    string
+	Outcome   string
 	LatencyMS int64
 	// TokensIn/TokensOut/CachedTokens/CacheWriteTokens are the terminal
 	// attempt's own four token buckets, carried through unsummed (ai.Call's

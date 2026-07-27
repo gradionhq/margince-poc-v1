@@ -5,6 +5,7 @@ package aicert
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
@@ -58,8 +59,50 @@ func (r *traceRecorder) lastTerminal() (ai.Call, bool) {
 	if len(r.batches) == 0 {
 		return ai.Call{}, false
 	}
-	last := r.batches[len(r.batches)-1]
-	for _, c := range last {
+	return terminalOf(r.batches[len(r.batches)-1])
+}
+
+// mark names where this recorder's history stands right now, for a caller
+// about to drive something and then read back everything IT recorded.
+//
+// A run is not one logical call: a site may retry, fall back, or drive a whole
+// tool loop, and each of those is its own batch here. Reading only the last one
+// would account a three-call run by its third call — the degrade the first one
+// hit, the tokens it spent, and the prompt it sent all silently dropped.
+func (r *traceRecorder) mark() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.batches)
+}
+
+// terminalsSince returns the terminal attempt of every logical call recorded
+// after mark, in the order the calls were made.
+//
+// A batch with no terminal row, or a mark from another recorder, is a
+// programmer bug in this package rather than a certification input — but it is
+// reported rather than skipped, because a silently dropped call is exactly the
+// accounting error this method exists to remove.
+func (r *traceRecorder) terminalsSince(mark int) ([]ai.Call, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if mark < 0 || mark > len(r.batches) {
+		return nil, fmt.Errorf("aicert: trace recorder: mark %d is outside the %d calls recorded", mark, len(r.batches))
+	}
+	since := r.batches[mark:]
+	terminals := make([]ai.Call, 0, len(since))
+	for i, batch := range since {
+		term, ok := terminalOf(batch)
+		if !ok {
+			return nil, fmt.Errorf("aicert: trace recorder: call %d of the %d just recorded carries no terminal attempt", i+1, len(since))
+		}
+		terminals = append(terminals, term)
+	}
+	return terminals, nil
+}
+
+// terminalOf picks the one attempt of a logical call that actually served it.
+func terminalOf(batch []ai.Call) (ai.Call, bool) {
+	for _, c := range batch {
 		if c.IsTerminal {
 			return c, true
 		}

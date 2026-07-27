@@ -17,69 +17,31 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// companyContextPolicy is the closed task declaration required by ADR-0065.
-// An empty scope list means none. Character bounding uses the runtime's
-// existing four-characters-per-token estimate and only admits complete items.
-type companyContextPolicy struct {
-	scopes      []people.CompanyContextScope
-	tokenBudget int
-	conditional bool
+// resolveScopeNames crosses the contract's scope NAMES onto this module's
+// scope type. The crossing happens once, here, because modules/ai carries the
+// generated policy and must not import modules/people. The vocabulary is the
+// owning module's own parser rather than a list kept beside it, so a scope
+// added or renamed there cannot leave a stale table behind; a name that parser
+// refuses is a contract defect and is named as one.
+func resolveScopeNames(names []string) ([]people.CompanyContextScope, error) {
+	scopes := make([]people.CompanyContextScope, 0, len(names))
+	for _, name := range names {
+		scope, known := people.ParseCompanyContextScope(name)
+		if !known {
+			return nil, fmt.Errorf("company-context scope %q is not a scope this build knows", name)
+		}
+		scopes = append(scopes, scope)
+	}
+	return scopes, nil
 }
 
-var companyContextPolicies = map[ai.Task]companyContextPolicy{
-	ai.TaskAgentLoop: {
-		scopes: []people.CompanyContextScope{
-			people.CompanyContextIdentity,
-			people.CompanyContextPositioning,
-			people.CompanyContextSales,
-			people.CompanyContextOffer,
-		},
-		tokenBudget: 1200,
-	},
-	ai.TaskBriefRanking:    {},
-	ai.TaskCaptureClassify: {},
-	// The verdict judges what a SENDER is, which its own headers and message
-	// carry; company context would add tokens to the cheapest rung of a
-	// high-volume background task without changing the question being asked.
-	ai.TaskCaptureCounterpartyVerdict: {},
-	ai.TaskCertJudge:                  {},
-	ai.TaskColdStart:                  {},
-	ai.TaskDealHealth:                 {},
-	ai.TaskDraftReply: {
-		scopes: []people.CompanyContextScope{
-			people.CompanyContextPositioning,
-			people.CompanyContextSales,
-			people.CompanyContextProof,
-			people.CompanyContextMarket,
-		},
-		tokenBudget: 1400,
-	},
-	ai.TaskEnrich: {},
-	ai.TaskNlSearch: {
-		scopes: []people.CompanyContextScope{
-			people.CompanyContextOffer,
-			people.CompanyContextMarket,
-		},
-		tokenBudget: 600,
-	},
-	ai.TaskOfferDraft: {
-		scopes: []people.CompanyContextScope{
-			people.CompanyContextOffer,
-			people.CompanyContextPositioning,
-			people.CompanyContextProof,
-		},
-		tokenBudget: 1600,
-	},
-	ai.TaskSiteExtract:     {},
-	ai.TaskSiteFactExtract: {},
-	ai.TaskRateExtract:     {},
-	ai.TaskSummarize: {
-		scopes:      []people.CompanyContextScope{people.CompanyContextIdentity},
-		tokenBudget: 300,
-		conditional: true,
-	},
-	ai.TaskTranscript: {},
-	ai.TaskVoiceBuild: {},
+// companyContextScopesFor resolves one task's declared scopes.
+func companyContextScopesFor(task ai.Task) ([]people.CompanyContextScope, error) {
+	policy, declared := ai.CompanyContextFor(task)
+	if !declared {
+		return nil, fmt.Errorf("AI task %q has no company-context policy in the task contract", task)
+	}
+	return resolveScopeNames(policy.Scopes)
 }
 
 // This layer adds NO boundary sentence of its own. A prompt that already names
@@ -104,7 +66,7 @@ func newCompanyContextProvider(reader companyContextReader) *companyContextProvi
 // cannot supply their own scope/fingerprint metadata: the selected policy and
 // typed assembler are authoritative.
 func (p *companyContextProvider) Prepare(ctx context.Context, task ai.Task, req model.Request) (model.Request, error) {
-	policy, declared := companyContextPolicies[task]
+	policy, declared := ai.CompanyContextFor(task)
 	if !declared {
 		return model.Request{}, fmt.Errorf("compose: AI task %q has no company-context policy", task)
 	}
@@ -117,15 +79,19 @@ func (p *companyContextProvider) Prepare(ctx context.Context, task ai.Task, req 
 	if p != nil && !p.enabled {
 		return req, nil
 	}
-	if len(policy.scopes) == 0 || (policy.conditional && !requested) {
+	if len(policy.Scopes) == 0 || (policy.Conditional && !requested) {
 		return req, nil
 	}
+	scopes, err := companyContextScopesFor(task)
+	if err != nil {
+		return model.Request{}, fmt.Errorf("compose: %w", err)
+	}
 
-	req.ContextScopes = contextScopeNames(policy.scopes)
+	req.ContextScopes = contextScopeNames(scopes)
 	if p == nil || p.reader == nil {
 		return req, nil
 	}
-	companyContext, err := p.reader.GetCompanyContext(ctx, policy.scopes)
+	companyContext, err := p.reader.GetCompanyContext(ctx, scopes)
 	if err != nil {
 		if errors.Is(err, apperrors.ErrNotFound) {
 			return req, nil
@@ -136,7 +102,7 @@ func (p *companyContextProvider) Prepare(ctx context.Context, task ai.Task, req 
 		return model.Request{}, fmt.Errorf("compose: company context for %s has no fingerprint", task)
 	}
 
-	block, err := renderCompanyContext(companyContext, policy.tokenBudget)
+	block, err := renderCompanyContext(companyContext, policy.TokenBudget)
 	if err != nil {
 		return model.Request{}, fmt.Errorf("compose: render company context for %s: %w", task, err)
 	}

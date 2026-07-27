@@ -6,22 +6,33 @@ package aicert_test
 // The shipped corpus's own self-test: no e2e_llm build tag, no network, no
 // model call — LoadCorpus is a pure parse over the committed corpus/ tree
 // (aicert.LoadCorpus's own doc: "no time.Now, no network, no database").
-// This is what keeps "every AI task has at least one certifiable scenario"
-// an enforced invariant rather than a one-time authoring claim: a task
-// added to ai-tasks.yaml (and so to ai.AllTasks()) without a matching
-// corpus/<task>/ scenario fails this test, the same way arch_test.go's
-// fitness tests derive their obligations from the tree rather than a
-// maintained list.
+// The obligation follows the contract's status, in both directions: a
+// shipped SITE without a scenario has nothing to certify, and a planned task
+// WITH one scores a prompt that does not ship — which reads as coverage it has
+// not earned. Both are derived from ai-tasks.yaml rather than a maintained
+// list, the same way arch_test.go's fitness tests derive their obligations
+// from the tree.
+//
+// The unit is the site, not the task, because a task is not one prompt: rate
+// extraction has two sites, cold start four, and voice building three. A
+// per-task obligation let one scenario stand for all of a task's sites, so a
+// site could ship with its prompt never once scored while the corpus reported
+// the task covered.
 
 import (
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
-func TestLoadCorpusCoversEveryTask(t *testing.T) {
-	scenarios, err := aicert.LoadCorpus("corpus")
+func TestLoadCorpusCoversEveryShippedSite(t *testing.T) {
+	census, err := compose.NewTaskCensus()
+	if err != nil {
+		t.Fatalf("building the task census: %v", err)
+	}
+	scenarios, err := aicert.LoadCorpus("corpus", census)
 	if err != nil {
 		t.Fatalf("LoadCorpus(corpus): %v", err)
 	}
@@ -29,18 +40,53 @@ func TestLoadCorpusCoversEveryTask(t *testing.T) {
 		t.Fatal("the shipped corpus loaded zero scenarios")
 	}
 
-	seen := map[ai.Task]int{}
+	sitesSeen := map[string]int{}
+	tasksSeen := map[string]int{}
 	for _, sc := range scenarios {
-		seen[ai.Task(sc.Task)]++
+		sitesSeen[sc.Task+"/"+sc.Site]++
+		tasksSeen[sc.Task]++
 	}
 
-	var missing []ai.Task
+	var missing, unexpected []string
 	for _, task := range ai.AllTasks() {
-		if seen[task] == 0 {
-			missing = append(missing, task)
+		switch ai.Status(task) {
+		case ai.StatusShipped:
+			for _, site := range ai.SitesFor(task) {
+				if sitesSeen[string(task)+"/"+site.Name] == 0 {
+					missing = append(missing, string(task)+"/"+site.Name)
+				}
+			}
+		case ai.StatusPlanned:
+			if tasksSeen[string(task)] > 0 {
+				unexpected = append(unexpected, string(task))
+			}
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("tasks with no corpus scenario: %v (every ai.AllTasks() entry must have >= 1 scenario under corpus/<task>/)", missing)
+		t.Errorf("shipped sites with no corpus scenario: %v — each is a prompt that ships uncertified", missing)
+	}
+	if len(unexpected) > 0 {
+		t.Errorf("planned tasks carry corpus scenarios: %v — a task nobody built cannot be certified, and its scenario reads as coverage", unexpected)
+	}
+
+	// The scenario gate above cannot see a record. A run only writes one for a
+	// task the corpus covers, so a planned task's record cannot be produced —
+	// but it can be WRITTEN, by hand or by a stale tree, and the readiness
+	// report enumerates the census rather than the record directory, so it
+	// would ignore the file rather than contradict it. A record asserting a
+	// band for a prompt nobody built is exactly the claim status was added to
+	// refuse, so it is refused where the planned set is already known.
+	records, err := aicert.LoadRecords("records")
+	if err != nil {
+		t.Fatalf("LoadRecords(records): %v", err)
+	}
+	var certifiedButPlanned []string
+	for _, rec := range records {
+		if ai.Status(ai.Task(rec.Task)) == ai.StatusPlanned {
+			certifiedButPlanned = append(certifiedButPlanned, rec.Task)
+		}
+	}
+	if len(certifiedButPlanned) > 0 {
+		t.Errorf("planned tasks carry certification records: %v — the record claims a band for a prompt that does not ship", certifiedButPlanned)
 	}
 }

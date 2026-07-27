@@ -9,9 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
+	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
 // rateExtractSystem is the verbatim production prompt — kept identical to the
@@ -93,7 +92,14 @@ type extractedModel struct {
 	CacheReadUsd  string `json:"cache_read_per_mtok"`
 	CacheWriteUsd string `json:"cache_write_per_mtok"`
 	Evidence      string `json:"evidence"`
-	Confidence    string `json:"confidence"`
+	// Confidence is read through schema.Confidence, which takes the score
+	// quoted or bare. The prompt and response schema above ask for a string
+	// and a conforming provider sends one, but neither binds: the model
+	// runtime retries with the schema cleared when a provider rejects it, and
+	// a provider with no schema-constrained mode never had it. A reader that
+	// insisted on the quotes would refuse a perfectly good price row over its
+	// wrapper.
+	Confidence schema.Confidence `json:"confidence"`
 }
 
 type rateExtraction struct {
@@ -199,27 +205,70 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 	if doc.IsMarkdown() {
 		m.log.Debug("model pricing page served markdown", "provider", src.Provider, "url", src.URL)
 	}
+	resp, err := m.brain.Complete(ctx, rateExtractRequest(doc.Text))
+	if err != nil {
+		return nil, fmt.Errorf("extract: %w", err)
+	}
+	models, err := parseRateExtraction(resp.Text)
+	if err != nil {
+		return nil, err
+	}
+	return acceptRateRows(models, src.Provider), nil
+}
+
+// parseRateExtraction decodes the model's (possibly fenced) JSON reply. It is
+// one spelling for the crawl and for the certification case that grades it, so
+// a reply the case reads is a reply the crawl would have read.
+func parseRateExtraction(text string) ([]extractedModel, error) {
+	var out rateExtraction
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &out); err != nil {
+		return nil, fmt.Errorf("parse extraction: %w", err)
+	}
+	return out.Models, nil
+}
+
+// rateExtractRequest builds the one request this site sends, from the fetched
+// page's text alone. It is a pure function of that text so the request the
+// certification lane issues is the request the crawl issues, rather than a copy
+// beside it that stays green through the change breaking the original.
+//
+// The page's own bytes reach the model unedited, only numbered; the one thing
+// that stops them ending their span is a marker minted for THIS call and named
+// in THIS call's system prompt.
+func rateExtractRequest(pageText string) model.Request {
 	fence := promptfence.New()
-	req := model.Request{
+	return model.Request{
 		System: rateExtractSystemFor(fence),
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
-			Content: fence.Wrap("\n" + numberPassages(doc.Text) + "\n"),
+			Content: fence.Wrap("\n" + numberPassages(pageText) + "\n"),
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: rateExtractSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}
-	resp, err := m.brain.Complete(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("extract: %w", err)
-	}
-	var out rateExtraction
-	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &out); err != nil {
-		return nil, fmt.Errorf("parse extraction: %w", err)
-	}
-	kept := out.Models[:0]
-	for _, em := range out.Models {
+}
+
+// acceptRateRows is the no-guess gate every extracted row passes before it can
+// reach the sheet's diff: it must name a model, cite a passage, and carry a
+// confidence this build believes. A confidence that is no number at all never
+// reaches here — decoding refuses it, because a score nothing can compare would
+// make the range test below answer false for a reason it cannot report. An
+// extraction only ever STAGES a proposal a
+// human approves, but a row nobody can trace back to a passage is not something
+// to put in front of that human.
+//
+// The provider is force-overwritten from the CONFIGURED source, never the value
+// the model returned — a page must not stage a rate under a provider it does not
+// own.
+//
+// It returns a new slice rather than filtering in place so a caller can read
+// what the model claimed beside what survived; the certification case reports
+// the difference.
+func acceptRateRows(models []extractedModel, provider string) []extractedModel {
+	kept := make([]extractedModel, 0, len(models))
+	for i := range models {
+		em := models[i]
 		// Normalize the id the same way the write path (SetModelRate) does, so
 		// a padded id isn't diffed as a distinct model or staged only to fail
 		// validation at approval time.
@@ -227,17 +276,13 @@ func (m modelCostRefresh) extract(ctx context.Context, src pricingSource) ([]ext
 		if em.ModelID == "" || strings.TrimSpace(em.Evidence) == "" {
 			continue // no-guess: an ungrounded row is dropped, never applied
 		}
-		conf, cerr := strconv.ParseFloat(strings.TrimSpace(em.Confidence), 64)
-		if cerr != nil || math.IsNaN(conf) || conf < minRateExtractConfidence || conf > 1 {
-			continue // reject non-finite / out-of-range confidence, not just parse errors
+		if conf := float64(em.Confidence); conf < minRateExtractConfidence || conf > 1 {
+			continue // out-of-range confidence: a score this build does not believe
 		}
-		// The sheet identity's provider is the CONFIGURED source, never the
-		// value the model returned — a page must not stage a rate under a
-		// provider it does not own.
-		em.Provider = src.Provider
+		em.Provider = provider
 		kept = append(kept, em)
 	}
-	return kept, nil
+	return kept
 }
 
 // modelIdentity keys the effective-sheet map by the composite identity as a

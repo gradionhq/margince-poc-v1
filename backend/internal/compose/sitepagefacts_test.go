@@ -15,6 +15,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 func pageFixture(kind crmcontracts.SiteReadPageKind, url, text string) (crawlPage, pageMenu, snippetIndex) {
@@ -77,6 +78,102 @@ func TestMenuForKindRoutesFactBearingKindsOnly(t *testing.T) {
 	home, ok := menuForKind(crmcontracts.SiteReadPageKindHome)
 	if !ok || !slices.Contains(home.factFields, people.FactProduct) || !slices.Contains(home.factFields, people.FactCompanySize) {
 		t.Fatalf("home pages must capture headline offers and markets: %+v", home)
+	}
+}
+
+// Every passage in this prompt is the page's own words, and so is the URL
+// beside it — a crawl path can carry a readable sentence. The only thing
+// keeping any of it out of the instruction region is a marker minted for
+// THIS call and named in THIS call's system prompt.
+func TestPageFactsRequestFencesThePageUnderTheMarkerItDeclares(t *testing.T) {
+	page, menu, idx := pageFixture(crmcontracts.SiteReadPageKindServices, seedURL+"/services",
+		"Cloud Cost Audit\nA line-by-line review of cloud spend identifying waste across compute and storage budgets.")
+
+	req := pageFactsRequest(menu, idx)
+
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		t.Fatalf("the page-facts system prompt declares no data boundary: %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Fatalf("got %d messages, want the single user turn", len(req.Messages))
+	}
+	// Containment is not a question of membership: a prompt that keeps the
+	// fence and ALSO repeats the text beside it puts that copy in the
+	// instruction region while "is it inside?" stays true. So the assertion
+	// is on what the prompt says in its OWN voice.
+	instructions := outsideEverySpan(req.Messages[0].Content, marker)
+	for _, ref := range idx.refs {
+		if strings.Contains(instructions, ref.passage) {
+			t.Errorf("passage %q reaches the instruction region:\n%s", ref.passage, instructions)
+		}
+	}
+	if strings.Contains(instructions, page.URL) {
+		t.Errorf("the page URL %q reaches the instruction region:\n%s", page.URL, instructions)
+	}
+}
+
+// BOTH halves of this call are the page kind's: the prompt asks for the lanes
+// that kind carries, and the schema's field enum offers exactly the fields it
+// may answer with. A pinned prompt or a pinned schema would ask a catalog page
+// for a legal entity, and would offer a legal notice none of the fields it is
+// actually there to state.
+func TestPageFactsRequestAsksOnlyWhatThisPageKindsMenuOffers(t *testing.T) {
+	_, legalMenu, legalIdx := pageFixture(crmcontracts.SiteReadPageKindImpressum, seedURL+"/impressum",
+		"Impressum. Acme Robotics GmbH, Werkstrasse 1, 70435 Stuttgart. Telefon 0711 123456. HRB 123456.")
+	_, catalogMenu, catalogIdx := pageFixture(crmcontracts.SiteReadPageKindServices, seedURL+"/services",
+		"Cloud Cost Audit\nA line-by-line review of cloud spend identifying waste across compute and storage budgets.")
+
+	legal := pageFactsRequest(legalMenu, legalIdx)
+	catalog := pageFactsRequest(catalogMenu, catalogIdx)
+
+	if !strings.Contains(legal.System, `"entities"`) {
+		t.Errorf("a legal notice must be asked for its entities: %q", legal.System)
+	}
+	if strings.Contains(catalog.System, `"entities"`) {
+		t.Errorf("a catalog page must not be asked for entities: %q", catalog.System)
+	}
+	for _, tc := range []struct {
+		name    string
+		schema  string
+		offered string
+		absent  string
+	}{
+		{name: "legal notice", schema: string(legal.ResponseSchema), offered: people.FactPhone, absent: people.FactService},
+		{name: "catalog page", schema: string(catalog.ResponseSchema), offered: people.FactService, absent: people.FactPhone},
+	} {
+		if !strings.Contains(tc.schema, `"`+tc.offered+`"`) {
+			t.Errorf("the %s schema does not offer %q, which its menu carries: %s", tc.name, tc.offered, tc.schema)
+		}
+		if strings.Contains(tc.schema, `"`+tc.absent+`"`) {
+			t.Errorf("the %s schema offers %q, which its menu never carries: %s", tc.name, tc.absent, tc.schema)
+		}
+	}
+	if !strings.Contains(string(legal.ResponseSchema), `"entities"`) {
+		t.Errorf("the legal notice schema carries no entities lane: %s", legal.ResponseSchema)
+	}
+	if strings.Contains(string(catalog.ResponseSchema), `"entities"`) {
+		t.Errorf("the catalog schema carries an entities lane its menu never asks for: %s", catalog.ResponseSchema)
+	}
+}
+
+// A fence's scope is one call. A marker a previous page was shown is a marker
+// whoever publishes that page can spell, so reusing one would give away the
+// only thing they cannot forge.
+func TestPageFactsRequestMintsAFreshMarkerPerCall(t *testing.T) {
+	_, menu, idx := pageFixture(crmcontracts.SiteReadPageKindServices, seedURL+"/services",
+		"Cloud Cost Audit\nA line-by-line review of cloud spend identifying waste across compute and storage budgets.")
+
+	first, declared := promptfence.MarkerIn(pageFactsRequest(menu, idx).System)
+	if !declared {
+		t.Fatal("the first page-facts system prompt declares no data boundary")
+	}
+	second, declared := promptfence.MarkerIn(pageFactsRequest(menu, idx).System)
+	if !declared {
+		t.Fatal("the second page-facts system prompt declares no data boundary")
+	}
+	if first == second {
+		t.Errorf("two page-facts requests share the boundary %q", first)
 	}
 }
 

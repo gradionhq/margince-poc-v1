@@ -10,9 +10,11 @@ package compose
 // answers to the census gate.
 
 import (
+	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 // profileFixtureIndex numbers the pages IN GIVEN ORDER (home s0,
@@ -29,6 +31,74 @@ func profileFixtureIndex() snippetIndex {
 			Text: "Impressum. Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart. USt-ID DE123456789 nach Paragraf 27a UStG.",
 		},
 	})
+}
+
+// Every passage in this prompt is a crawled page's own words, and so is the URL
+// beside it — a path can carry a readable sentence. The only thing keeping any
+// of it out of the instruction region is a marker minted for THIS call and named
+// in THIS call's system prompt.
+func TestProfileRequestFencesEveryCrawledPassageUnderTheMarkerItDeclares(t *testing.T) {
+	idx := profileFixtureIndex()
+
+	req := profileRequest(idx)
+
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		t.Fatalf("the profile system prompt declares no data boundary: %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Fatalf("got %d messages, want the single user turn", len(req.Messages))
+	}
+	// Containment is not a question of membership: a prompt that keeps the fence
+	// and ALSO repeats the text beside it puts that copy in the instruction region
+	// while "is it inside?" stays true. So the assertion is on what the prompt
+	// says in its OWN voice.
+	instructions := outsideEverySpan(req.Messages[0].Content, marker)
+	for _, ref := range idx.refs {
+		if strings.Contains(instructions, ref.passage) {
+			t.Errorf("passage %q reaches the instruction region:\n%s", ref.passage, instructions)
+		}
+		if strings.Contains(instructions, ref.pageURL) {
+			t.Errorf("page URL %q reaches the instruction region:\n%s", ref.pageURL, instructions)
+		}
+	}
+}
+
+// The citable ids are THIS call's, so the schema enum is built per call from the
+// index the model is shown. A fixed enum would let a provider return an id that
+// resolves to some other call's passage, or refuse the ids this one has.
+func TestProfileRequestEnumeratesThisCallsOwnPassageIDs(t *testing.T) {
+	idx := profileFixtureIndex()
+
+	schemaJSON := string(profileRequest(idx).ResponseSchema)
+
+	for _, id := range idx.ids() {
+		if !strings.Contains(schemaJSON, `"`+id+`"`) {
+			t.Errorf("the schema does not offer %q, which this call's index carries: %s", id, schemaJSON)
+		}
+	}
+	if beyond := "s" + string(rune('0'+len(idx.refs))); strings.Contains(schemaJSON, `"`+beyond+`"`) {
+		t.Errorf("the schema offers %q, which this call's index does not carry: %s", beyond, schemaJSON)
+	}
+}
+
+// A fence's scope is one call. A marker a previous page was shown is a marker
+// whoever publishes that page can spell, so reusing one would give away the only
+// thing they cannot forge.
+func TestProfileRequestMintsAFreshBoundaryPerCall(t *testing.T) {
+	idx := profileFixtureIndex()
+
+	first, declared := promptfence.MarkerIn(profileRequest(idx).System)
+	if !declared {
+		t.Fatal("the profile system prompt declares no data boundary")
+	}
+	second, declared := promptfence.MarkerIn(profileRequest(idx).System)
+	if !declared {
+		t.Fatal("the second profile system prompt declares no data boundary")
+	}
+	if first == second {
+		t.Errorf("two profile requests share the boundary %q", first)
+	}
 }
 
 func TestGateProfileResolverAssignsTheSourcePage(t *testing.T) {
