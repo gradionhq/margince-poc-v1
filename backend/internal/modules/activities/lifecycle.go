@@ -157,9 +157,32 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			return err
 		}
 		if in.ReplaceExistingOfType {
-			if _, err := tx.Exec(ctx,
-				`DELETE FROM activity_link WHERE activity_id = $1 AND entity_type = $2`,
-				id, in.EntityType); err != nil {
+			// Replace only the links this caller can SEE. An activity's own
+			// visibility derives from its links, so an unscoped delete lets
+			// someone who reached this activity through one link cut another —
+			// dropping a team's sight of a record by rewriting an association
+			// they were never shown.
+			//
+			// Scoping beats refusing: a refusal would confirm that an
+			// invisible link exists, which is the fact the scope withholds. A
+			// link outside the caller's scope simply survives, and for a type
+			// that permits only one the insert then refuses on its own index.
+			var args []any
+			arg := func(v any) int { args = append(args, v); return len(args) }
+			idPos, typePos := arg(id), arg(in.EntityType)
+			scope, err := auth.ScopeClauseFor(ctx, in.EntityType, "t", arg)
+			if err != nil {
+				return err
+			}
+			visible := "true"
+			if scope != "" {
+				visible = scope
+			}
+			if _, err := tx.Exec(ctx, storekit.SQLf(`
+				DELETE FROM activity_link
+				WHERE activity_id = $%d AND entity_type = $%d
+				  AND EXISTS (SELECT 1 FROM %s t WHERE t.id = activity_link.%s AND %s)`,
+				idPos, typePos, in.EntityType, column, visible), args...); err != nil {
 				return err
 			}
 		}

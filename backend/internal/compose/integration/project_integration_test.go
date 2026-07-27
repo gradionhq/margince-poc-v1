@@ -502,3 +502,62 @@ func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
 		t.Errorf("target projects = %v, want the one this caller owns", both.Target)
 	}
 }
+
+// An activity's visibility DERIVES from its links, so replacing one is not a
+// harmless association edit: cut the link a team sees the activity through
+// and the activity leaves their world. Relink therefore replaces only what
+// the caller can see.
+//
+// Scoping rather than refusing is deliberate — a refusal would confirm that
+// an invisible link exists, which is precisely what the scope withholds.
+func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Contoso Werke", nil)
+	theirs := seedProject(e.Admin(), t, e, "Their delivery", nil, org, &e.Rep1)
+	mine := seedProject(e.Admin(), t, e, "My pursuit", nil, org, &e.Rep3)
+
+	// One activity, linked to the other team's project and to a person the
+	// attacker can see. The person link is how they reach the activity at all.
+	person, err := e.People.CreatePerson(e.Admin(), people.CreatePersonInput{
+		FullName: "Shared Contact", Source: "manual", OwnerID: userIDPtr(&e.Rep3),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+		Kind: "note", Source: "manual",
+		Links: []activities.ActivityLinkInput{
+			{EntityType: "project", EntityID: theirs.ID.UUID},
+			{EntityType: "person", EntityID: ids.UUID(person.Id)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attacker := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"activity": {Read: true, Update: true},
+			"project":  {Read: true},
+			"person":   {Read: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	// Point it at their own project, asking to replace the existing one.
+	_, err = e.Activities.RelinkActivity(attacker, ids.From[ids.ActivityKind](ids.UUID(act.Id)),
+		activities.RelinkActivityInput{
+			EntityType: "project", EntityID: mine.ID.UUID, ReplaceExistingOfType: true,
+		})
+	// Whether the insert succeeds is not the point — at most one project
+	// link is allowed, so it may well refuse. What must hold either way is
+	// that the link they could not see is still there.
+	_ = err
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM activity_link
+		WHERE activity_id = $1 AND entity_type = 'project' AND project_id = $2`,
+		ids.UUID(act.Id), theirs.ID.UUID); n != 1 {
+		t.Fatalf("the other team's project link was removed by a caller who could not see it (%d remain)", n)
+	}
+}
