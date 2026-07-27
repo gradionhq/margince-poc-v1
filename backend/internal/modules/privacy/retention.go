@@ -56,7 +56,7 @@ const retentionBatch = 200
 // this is a fixed operational cap, not an admin-editable per-workspace
 // setting: ai_call carries no subject content (it is telemetry — routing,
 // spend, and identity facts, never a customer's data), so its age-out is
-// engine-owned hygiene, the same footing as commercialCorrespondenceFloor
+// engine-owned hygiene, the same footing as correspondenceFloorPredicate
 // below rather than a §3.4 storage-limitation policy. Only the embedding
 // kind is aged because its volume is different in kind, not in risk:
 // every indexed record emits embed rows on every re-index, and past the
@@ -80,31 +80,6 @@ func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Log
 	return &RetentionService{pool: pool, eraser: NewEraser(pool).WithBlobstore(blob), log: log}
 }
 
-// commercialCorrespondenceFloor is the WHERE fragment that shields commercial
-// correspondence younger than the jurisdiction floor ($3) from a destructive
-// action — spelled once, applied by every activity selector. Correspondence
-// under GoBD §147 AO is a Handelsbrief: EXTERNAL business communication (email,
-// call, meeting, whatsapp, telegram). An internal note and a task are not
-// correspondence and carry no statutory floor, so their bodies fall to the
-// workspace policy like any other record. That boundary is not just prose:
-// TestStatutoryFloorShieldsCorrespondenceFromDestruction pins it (a 400-day
-// email survives, a same-age note is erased), so flipping the classification
-// fails the build. Archive passes the zero period ("P0D") because archiving
-// RETAINS. $3 is an ISO 8601 date interval (jurisdiction.Period.String) and
-// $4 the calendar-year-end anchor flag (jurisdiction.Anchor). Postgres does
-// the calendar arithmetic, so a six-YEAR statutory floor is never shortened
-// to 2190 days across leap years — and under §147(4) AO the clock starts at
-// the END of the record's calendar year, so a January Handelsbrief keeps
-// almost seven calendar years, never one day less. The two branches
-// deliberately differ in form: clamped interval ADDITION loses days at month
-// ends (Jan-31 + 1 month = Feb-28), so the occurrence branch keeps the
-// conservative `occurred_at > now() - interval` shape (which
-// jurisdiction.Period.Cutoff mirrors); the year-end branch adds from Jan 1,
-// where nothing clamps, and matches RetentionClass.ProtectedSince.
-const commercialCorrespondenceFloor = `AND NOT (a.kind NOT IN ('task','note')
-		  AND CASE WHEN $4 THEN date_trunc('year', a.occurred_at) + interval '1 year' + $3::interval > now()
-		           ELSE a.occurred_at > now() - $3::interval END)`
-
 // selectors name the records a (object_type, category) policy governs.
 // The closed map is deliberate: a policy row with a scope the engine
 // does not understand is skipped LOUDLY (logged every pass), never
@@ -118,7 +93,7 @@ var retentionSelectors = map[string]string{
 	"activity/": `SELECT a.id FROM activity a
 		WHERE a.archived_at IS NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
-		  ` + commercialCorrespondenceFloor + `
+		  ` + correspondenceFloorPredicate(3, 4) + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
@@ -129,7 +104,7 @@ var retentionSelectors = map[string]string{
 	"activity/transcript": `SELECT a.id FROM activity a
 		WHERE a.source_system = 'transcript' AND a.body IS NOT NULL
 		  AND a.occurred_at < now() - make_interval(days => $1)
-		  ` + commercialCorrespondenceFloor + `
+		  ` + correspondenceFloorPredicate(3, 4) + `
 		  AND NOT EXISTS (SELECT 1 FROM activity_link l
 		        LEFT JOIN person p ON p.id = l.person_id
 		        LEFT JOIN organization o ON o.id = l.organization_id
@@ -452,32 +427,6 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		policyID := pol.ID
 		return storekit.EmitEventForEntity(ctx, tx, auditID, pol.ObjectType, id, retentionAppliedPayload(pol.Action, &policyID, nil))
 	})
-}
-
-// statutoryCorrespondenceFloor is the strictest compiled-in pack's
-// commercial-correspondence class — the boundary below which a
-// destructive retention action must not touch an email activity. The
-// floors are calendar periods with a declared ANCHOR, never day counts:
-// a Years*365 conversion would shorten a statutory floor across leap
-// years, and ignoring a calendar-year-end anchor (§147(4) AO) would
-// erase a January document almost a year early. Strictness is compared
-// as ProtectedSince at ref (the pass's evaluation time): mixed-unit
-// periods and mixed anchors only order against an instant. The zero
-// class means no pack declares one.
-func statutoryCorrespondenceFloor(ref time.Time) jurisdiction.RetentionClass {
-	floor := jurisdiction.RetentionClass{}
-	for _, pack := range jurisdiction.Applicable() {
-		retention := pack.Retention()
-		if retention == nil {
-			continue
-		}
-		for _, class := range retention.Classes() {
-			if class.Name == jurisdiction.CommercialCorrespondence && class.ProtectedSince(ref).Before(floor.ProtectedSince(ref)) {
-				floor = class
-			}
-		}
-	}
-	return floor
 }
 
 // RunRetention ticks the evaluator on the worker's schedule.

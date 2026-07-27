@@ -148,10 +148,11 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	}
 
 	// Failures two through five stay 401; the fifth consecutive failure
-	// locks the account (formulas §27), so every later attempt — even
-	// the CORRECT password — answers 403 before any Argon2 work runs.
-	// The in-process 429 flood throttle sits in front for distinct-email
-	// sprays; on a single account the persistent lock wins first.
+	// locks the account (formulas §27). A locked account then answers 401 —
+	// INDISTINGUISHABLE from bad credentials (F-005), even for the CORRECT
+	// password — with a decoy Argon2 pass for timing parity, so it is not an
+	// account-existence oracle. The in-process 429 flood throttle sits in
+	// front for distinct-email sprays; on a single account the lock wins.
 	for i := 2; i <= 5; i++ {
 		if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 			"email": "ada@example.com", "password": "wrong-password-entirely",
@@ -161,13 +162,13 @@ func TestFailedLoginIsAuditedAndThrottled(t *testing.T) {
 	}
 	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 		"email": "ada@example.com", "password": "wrong-password-entirely",
-	}, nil, nil); status != http.StatusForbidden {
-		t.Fatalf("attempt past the lock threshold = %d, want 403", status)
+	}, nil, nil); status != http.StatusUnauthorized {
+		t.Fatalf("attempt past the lock threshold = %d, want 401 (a locked account reads as bad credentials)", status)
 	}
 	if status := e.call(t, "POST", "/v1/auth/login", anyMap{
 		"email": "ada@example.com", "password": "correct-horse-battery",
-	}, nil, nil); status != http.StatusForbidden {
-		t.Fatalf("correct password on a locked account = %d, want 403", status)
+	}, nil, nil); status != http.StatusUnauthorized {
+		t.Fatalf("correct password on a locked account = %d, want 401 (indistinguishable from an unknown email)", status)
 	}
 	var lockouts int
 	if err := owner.QueryRow(t.Context(),

@@ -370,9 +370,12 @@ func TestLoginLockoutEndToEnd(t *testing.T) {
 			t.Fatalf("failure %d: err = %v, want bad credentials", attempt, err)
 		}
 	}
-	// Locked: even the correct password refuses with the 403 sentinel.
-	if _, _, err := e.svc.Login(ctx, e.member.Email, memberPassword); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Fatalf("locked account: err = %v, want permission denied", err)
+	// Locked: even the correct password is refused — and refused
+	// INDISTINGUISHABLY from bad credentials (F-005). A distinct 403
+	// "account locked" before verification was an account-existence oracle;
+	// a locked real account must read exactly like an unknown email.
+	if _, _, err := e.svc.Login(ctx, e.member.Email, memberPassword); !errors.Is(err, ErrBadCredentials) {
+		t.Fatalf("locked account: err = %v, want bad credentials (indistinguishable from an unknown email)", err)
 	}
 	var outcome string
 	if err := e.owner.QueryRow(context.Background(),
