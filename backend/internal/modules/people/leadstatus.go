@@ -26,8 +26,10 @@ func ParseLeadStatus(raw string) (LeadStatus, error) {
 	case LeadStatusNew, LeadStatusWorking, LeadStatusPromoted, LeadStatusDisqualified:
 		return s, nil
 	}
-	return "", &values.ParseError{Field: "status", Code: "invalid_lead_status",
-		Message: "status is one of new, working, promoted, disqualified"}
+	return "", &values.ParseError{
+		Field: "status", Code: "invalid_lead_status",
+		Message: "status is one of new, working, promoted, disqualified",
+	}
 }
 
 // Open reports whether the lead is still workable — the one spelling of
@@ -52,8 +54,10 @@ func parseWritableLeadStatus(raw string) (LeadStatus, error) {
 		return "", err
 	}
 	if !s.Open() {
-		return "", &values.ParseError{Field: "status", Code: "terminal_lead_status",
-			Message: "promoted and disqualified are reached through the promote and disqualify actions, not by editing status"}
+		return "", &values.ParseError{
+			Field: "status", Code: "terminal_lead_status",
+			Message: "promoted and disqualified are reached through the promote and disqualify actions, not by editing status",
+		}
 	}
 	return s, nil
 }

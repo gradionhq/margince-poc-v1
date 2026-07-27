@@ -24,6 +24,7 @@ func (c *capturingApprovals) Stage(_ context.Context, in agents.StageRequest) (i
 	c.last = in
 	return ids.ApprovalID{}, nil
 }
+
 func (c *capturingApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) error {
 	return nil
 }

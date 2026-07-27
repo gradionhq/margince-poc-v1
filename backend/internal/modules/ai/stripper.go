@@ -60,22 +60,28 @@ var stripRules = []stripRule{
 	// — and that name (aws_secret_access_key) is one underscore-joined
 	// token, so the generic credential_assignment rule's \b never fires
 	// inside it. Matched here with the id-safe base64 alphabet.
-	{kind: "aws_secret_key", keepPrefix: true,
-		re: regexp.MustCompile(`(?i)\b((?:aws[_-]?)?secret[_-]?access[_-]?key["']?\s*[:=]\s*["']?)([A-Za-z0-9/+]{40})`)},
+	{
+		kind: "aws_secret_key", keepPrefix: true,
+		re: regexp.MustCompile(`(?i)\b((?:aws[_-]?)?secret[_-]?access[_-]?key["']?\s*[:=]\s*["']?)([A-Za-z0-9/+]{40})`),
+	},
 	// URL-embedded credentials (scheme://user:PASSWORD@host). The password
 	// is redacted in place; the trailing @ is consumed (RE2 cannot look
 	// ahead) and restored, so host:port after it is never mistaken for
 	// user:password.
-	{kind: "url_credential", keepPrefix: true, keepSuffix: true,
-		re: regexp.MustCompile(`(://[^/\s:@"'\\]+:)([^/\s@"'\\]{2,})(@)`)},
+	{
+		kind: "url_credential", keepPrefix: true, keepSuffix: true,
+		re: regexp.MustCompile(`(://[^/\s:@"'\\]+:)([^/\s@"'\\]{2,})(@)`),
+	},
 	// Signed JWTs (three base64url segments) before the generic bearer
 	// rule, so the kind names what was actually caught.
 	{kind: "jwt", re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
 	{kind: "bearer_token", re: regexp.MustCompile(`(?i)\bbearer[ \t]+[A-Za-z0-9._~+/=-]{16,}`)},
 	// key=value / key: value credential assignments; the value stops at
 	// whitespace, quotes and separators so only the secret itself goes.
-	{kind: "credential_assignment", keepPrefix: true,
-		re: regexp.MustCompile(`(?i)\b((?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)["']?\s*[:=]\s*["']?)([^\s"'\\,;&]{4,})`)},
+	{
+		kind: "credential_assignment", keepPrefix: true,
+		re: regexp.MustCompile(`(?i)\b((?:password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?token|auth[_-]?token|client[_-]?secret|private[_-]?key)["']?\s*[:=]\s*["']?)([^\s"'\\,;&]{4,})`),
+	},
 }
 
 type secretStripper struct {

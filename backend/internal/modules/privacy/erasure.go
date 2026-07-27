@@ -338,7 +338,7 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 	// so it covers both id sets in one pass. $1 person, $2 addresses, $3/$4
 	// the floor interval + anchor, $5 the tombstone name.
 	rows, err := tx.Query(ctx, `
-		UPDATE activity AS a SET subject = $5, body = NULL, raw = NULL,
+		UPDATE activity a SET subject = $5, body = NULL, raw = NULL,
 		  counterparty_email = NULL,
 		  archived_at = coalesce(a.archived_at, now())
 		WHERE (a.id IN (`+subjectOnlyActivities+`) OR a.id IN (`+unlinkedCapturedMail+`))
