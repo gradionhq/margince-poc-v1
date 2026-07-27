@@ -43,11 +43,21 @@ var composedTools struct {
 // resolution lands.
 func buildExtensionTools(exts []extension.Extension) ([]mcp.Tool, error) {
 	var tools []mcp.Tool
+	// preflightTools rejects a name declared twice WITHIN a unit; the tool
+	// registry's namespace is global, so a name two units both serve would
+	// otherwise pass validation and only surface as a Register panic after
+	// jurisdictions are already applied. Reject it here, in the pre-apply
+	// phase, so the boot stays validate-then-apply.
+	served := make(map[string]extension.Name)
 	for _, e := range exts {
 		for _, tool := range e.Tools {
 			if tool.Handle == nil {
 				continue
 			}
+			if owner, dup := served[tool.Name]; dup {
+				return nil, fmt.Errorf("compose: extensions %q and %q both serve a tool named %q", owner, e.Name, tool.Name)
+			}
+			served[tool.Name] = e.Name
 			tier, err := mcpTier(tool.Tier)
 			if err != nil {
 				return nil, fmt.Errorf("compose: extension %q, tool %q: %w", e.Name, tool.Name, err)
@@ -100,9 +110,11 @@ func setComposedTools(tools []mcp.Tool) {
 
 // registerComposedTools registers every composed extension tool into a
 // freshly built registry, so the MCP transport, the tool listing, and the
-// Surface-B runner all serve the same governed set. A tool whose name
-// collides with a core tool panics in Register — a genuine boot-time
-// wiring conflict, surfaced the same way a duplicate core tool is.
+// Surface-B runner all serve the same governed set. Extension-vs-extension
+// name collisions are already rejected in buildExtensionTools; an extension
+// tool whose name collides with a CORE tool still panics in Register — a
+// genuine boot-time wiring conflict, surfaced the same way a duplicate core
+// tool is.
 func registerComposedTools(registry *agents.Registry) {
 	composedTools.mu.RLock()
 	defer composedTools.mu.RUnlock()

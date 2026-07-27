@@ -163,11 +163,12 @@ func validateSchemaObject(field string, raw json.RawMessage) error {
 	if raw == nil {
 		return nil
 	}
-	var doc map[string]any
+	var doc map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return fmt.Errorf("%s must be a JSON object", field)
 	}
-	if doc["type"] != "object" {
+	var schemaType string
+	if err := json.Unmarshal(doc["type"], &schemaType); err != nil || schemaType != "object" {
 		return fmt.Errorf(`%s must be a JSON Schema object rooted at "type":"object"`, field)
 	}
 	return nil

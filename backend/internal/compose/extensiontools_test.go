@@ -6,11 +6,13 @@ package compose
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
@@ -86,6 +88,25 @@ func TestBuildExtensionToolsRejectsServedConfirmationRequired(t *testing.T) {
 	}
 }
 
+// TestBuildExtensionToolsRejectsCrossUnitServedNameCollision: the tool
+// registry's namespace is global, so two units serving the same name is a
+// wiring conflict. It must fail while building the set — before any
+// jurisdiction is applied — not surface later as a Register panic.
+func TestBuildExtensionToolsRejectsCrossUnitServedNameCollision(t *testing.T) {
+	served := extension.Tool{
+		Name: "quote", Version: "1.0.0",
+		Tier: extension.TierAutoExecute, RequestedScope: extension.ScopeRead,
+		Handle: func(context.Context, json.RawMessage) (json.RawMessage, error) { return nil, nil },
+	}
+	_, err := buildExtensionTools([]extension.Extension{
+		{Name: "unit-a", Version: "1.0.0", Tools: []extension.Tool{served}},
+		{Name: "unit-b", Version: "1.0.0", Tools: []extension.Tool{served}},
+	})
+	if err == nil || !strings.Contains(err.Error(), "both serve a tool named") {
+		t.Fatalf("err = %v, want the cross-unit served-name collision", err)
+	}
+}
+
 // TestBuildExtensionToolsDerivesEgressAndDefaultsSchema: a send-scoped tool
 // is marked egress, and a tool that omits an input schema still advertises
 // an object one (MCP requires it).
@@ -141,8 +162,8 @@ func TestComposedToolServesThroughAdmission(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a 🟢 read tool held by a read-scoped principal must admit: %v", err)
 	}
-	if !strings.Contains(string(out), "quote") {
-		t.Fatalf("handler result not returned: %s", out)
+	if got := string(out); got != `{"quote":"it ain't over"}` {
+		t.Fatalf("handler result not returned verbatim: %s", got)
 	}
 }
 
@@ -171,7 +192,7 @@ func TestComposedReadToolRequiresTheScope(t *testing.T) {
 		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
 		Scopes: principal.NewScopeSet(), // no read scope
 	})
-	if _, err := r.Invoke(ctx, "give_quote", json.RawMessage(`{}`)); err == nil {
-		t.Fatal("a scopeless principal must not reach the handler")
+	if _, err := r.Invoke(ctx, "give_quote", json.RawMessage(`{}`)); !errors.Is(err, apperrors.ErrScopeExceeded) {
+		t.Fatalf("a scopeless principal must be denied with ErrScopeExceeded, got %v", err)
 	}
 }
