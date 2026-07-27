@@ -1239,13 +1239,18 @@ Open work, roughly in priority order:
   logs when it is hit rather than trimming silently. Second: `JoinPending` joins
   only a PENDING offer, so once a human declined a rename the next pass found
   nothing to join and staged a fresh copy of what was just refused — nightly,
-  because the signature behind it never goes away. `approvals.Service.
-  StageUnlessDeclined` checks and stages in ONE transaction, under the same
-  `SELECT ... FOR UPDATE` on the approval row that `decideInTx` takes — a
-  separate check followed by a stage leaves a window where a decision lands in
-  between, the check reads "not declined", the staging finds no pending row to
-  join, and the refused offer is recreated anyway. Ordered instead of
-  interleaved, whoever gets there first wins cleanly.
+  because the signature behind it never goes away.
+  `approvals.Service.StageUnlessDeclined` checks and stages in ONE transaction,
+  under the same `SELECT ... FOR UPDATE` on the approval row that `decideInTx`
+  takes — a separate check followed by a stage leaves a window where a decision
+  lands in between, the check reads "not declined", the staging finds no pending
+  row to join, and the refused offer is recreated anyway. Ordered instead of
+  interleaved, whoever gets there first wins cleanly. Note what the tests do and
+  do not cover: they pin that a declined rename is never re-offered across later
+  passes, which is the user-visible obligation; the ordering itself rests on the
+  row lock and the single transaction, not on a test that stages an interleaving
+  (one written for it proved the same thing the durability test already did, and
+  claiming otherwise in its name would have been the noise T11 forbids).
   The §2.9 amendment landed with it: `SignatureCandidates` no longer retires a
   person the moment ANY profile-field row exists (one accepted title used to
   silence the company name their signature also states) — the predicate is now
