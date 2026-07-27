@@ -17,8 +17,9 @@ import (
 // it runs, and it says whether the reply was usable.
 type stubCase struct{ site aitasks.Site }
 
-func (s stubCase) Site() aitasks.Site                                    { return s.site }
-func (s stubCase) Prepare(json.RawMessage) (aitasks.PreparedCase, error) { return s, nil }
+func (s stubCase) Site() aitasks.Site { return s.site }
+
+func (s stubCase) Prepare(_, _ json.RawMessage) (aitasks.PreparedCase, error) { return s, nil }
 
 func (s stubCase) Run(context.Context, aitasks.Completer) (aitasks.Trace, error) {
 	return aitasks.Trace{Output: "{}"}, nil

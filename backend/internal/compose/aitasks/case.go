@@ -23,12 +23,22 @@ type Completer interface {
 type CaseFactory interface {
 	// Site names which registered site this factory serves.
 	Site() Site
-	// Prepare turns one corpus fixture into a runnable case. This is where the
-	// production validator closes over the fixture — the requested row id, the
-	// snippet index, the page menu — so the cert lane runs the SAME validator
-	// production runs, built the same way. A validator that cannot see the
-	// fixture is strictly weaker than the one it claims to stand for.
-	Prepare(fixture json.RawMessage) (PreparedCase, error)
+	// Prepare turns one corpus fixture and the answer the scenario expects into
+	// a runnable case.
+	//
+	// The two arrive separately because they are different kinds of thing: the
+	// fixture is what PRODUCTION is given, the expectation is what the CORPUS
+	// asserts about the reply. Folding one into the other makes every gate that
+	// rewrites a fixture — the canary sweep seeds every free-text field it has —
+	// able to rewrite an assertion by accident.
+	//
+	// Both arrive at prepare time for the same reason: a case can refuse an
+	// unreachable expectation before a paid run spends anything on it, and the
+	// production validator closes over the fixture here — the requested row id,
+	// the snippet index, the page menu — so the cert lane runs the SAME
+	// validator production runs, built the same way. A validator that cannot see
+	// the fixture is strictly weaker than the one it claims to stand for.
+	Prepare(fixture, expected json.RawMessage) (PreparedCase, error)
 }
 
 // PreparedCase is one fixture ready to be certified.

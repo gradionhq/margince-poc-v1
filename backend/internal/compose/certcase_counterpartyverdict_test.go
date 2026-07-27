@@ -71,14 +71,13 @@ func verdictReply(id, verdict string) string {
 	return fmt.Sprintf(`{"results":[{"id":%q,"verdict":%q,"confidence":0.9}]}`, id, verdict)
 }
 
-func verdictFixture(t *testing.T, expected string) json.RawMessage {
+func verdictFixture(t *testing.T) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(counterpartyVerdictFixture{
-		DisplayName:     "A Stranger",
-		Email:           "stranger@prospect.example",
-		Subject:         "quote please",
-		Body:            "We need forty seats by March.",
-		ExpectedVerdict: expected,
+		DisplayName: "A Stranger",
+		Email:       "stranger@prospect.example",
+		Subject:     "quote please",
+		Body:        "We need forty seats by March.",
 	})
 	if err != nil {
 		t.Fatalf("encoding the fixture: %v", err)
@@ -86,11 +85,22 @@ func verdictFixture(t *testing.T, expected string) json.RawMessage {
 	return raw
 }
 
+// verdictExpectation is what the corpus asserts, encoded as the corpus will
+// carry it — beside the fixture, never inside it.
+func verdictExpectation(t *testing.T, verdict string) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(verdict)
+	if err != nil {
+		t.Fatalf("encoding the expectation: %v", err)
+	}
+	return raw
+}
+
 func runVerdictCase(t *testing.T, expected string, answer func(id string) string) (aitasks.Outcome, aitasks.Trace) {
 	t.Helper()
-	prepared, err := counterpartyVerdictCases{}.Prepare(verdictFixture(t, expected))
+	prepared, err := counterpartyVerdictCases{}.Prepare(verdictFixture(t), verdictExpectation(t, expected))
 	if err != nil {
-		t.Fatalf("preparing the fixture: %v", err)
+		t.Fatalf("preparing the case: %v", err)
 	}
 	trace, err := prepared.Run(context.Background(), &verdictCompleterStub{answer: answer})
 	if err != nil {
@@ -142,7 +152,7 @@ func TestVerdictCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 		{
 			// Well formed and wrong is a measurement of the model, not a defect in
 			// the reply — the opposite fix from every case above it.
-			name:       "a well-formed answer the fixture disagrees with",
+			name:       "a well-formed answer the scenario disagrees with",
 			expected:   capture.PendingStatusReal,
 			answer:     func(id string) string { return verdictReply(id, capture.PendingStatusNoise) },
 			wantResult: aitasks.OutcomeWrongAnswer,
@@ -162,25 +172,40 @@ func TestVerdictCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 	}
 }
 
+// A fixture is what PRODUCTION is given; an expectation is what the CORPUS
+// asserts. Keeping them apart is what lets a gate rewrite every free-text field
+// of a fixture — the canary sweep does exactly that — without rewriting an
+// assertion, and it is what keeps the row id out of the corpus entirely.
+func TestVerdictFixtureCarriesOnlyWhatProductionIsGiven(t *testing.T) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(verdictFixture(t), &fields); err != nil {
+		t.Fatalf("decoding the fixture: %v", err)
+	}
+	given := map[string]bool{"display_name": true, "email": true, "subject": true, "body": true}
+	for name := range fields {
+		if !given[name] {
+			t.Errorf("the fixture carries %q, which the ledger row does not hand the engine", name)
+		}
+	}
+	for name := range given {
+		if _, present := fields[name]; !present {
+			t.Errorf("the fixture drops %q, which production always supplies", name)
+		}
+	}
+}
+
 // The fixture supplies no id, and Prepare mints a fresh one per preparation.
 // Were the id to come from the corpus, its author could write it into the
 // expected reply, and a model that merely echoed back the id it was handed
 // would be indistinguishable from one that answered about the right sender.
 func TestVerdictCaseMintsTheRowIDRatherThanReadingIt(t *testing.T) {
-	fixture := verdictFixture(t, capture.PendingStatusReal)
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(fixture, &fields); err != nil {
-		t.Fatalf("decoding the fixture: %v", err)
-	}
-	if _, carries := fields["id"]; carries {
-		t.Fatalf("the verdict fixture offers an id for the case to adopt: %s", fixture)
-	}
+	fixture := verdictFixture(t)
 
 	ask := func() string {
 		t.Helper()
-		prepared, err := counterpartyVerdictCases{}.Prepare(fixture)
+		prepared, err := counterpartyVerdictCases{}.Prepare(fixture, verdictExpectation(t, capture.PendingStatusReal))
 		if err != nil {
-			t.Fatalf("preparing the fixture: %v", err)
+			t.Fatalf("preparing the case: %v", err)
 		}
 		stub := &verdictCompleterStub{answer: func(id string) string {
 			return verdictReply(id, capture.PendingStatusReal)
@@ -229,16 +254,31 @@ func TestVerdictCaseTraceCarriesTheRequestItIssued(t *testing.T) {
 }
 
 // An expected answer outside the closed vocabulary can never be reached, so the
-// scenario would measure nothing forever. Prepare is where a fixture defect gets
-// named, while it is still a wiring error rather than a run of zeros.
+// scenario would measure nothing forever. Prepare is where that gets named,
+// while it is still a wiring error rather than a paid run of zeros.
 func TestVerdictCaseRefusesAnUnreachableExpectedVerdict(t *testing.T) {
 	for _, expected := range []string{"", capture.PendingStatusUnsure} {
-		_, err := counterpartyVerdictCases{}.Prepare(verdictFixture(t, expected))
+		_, err := counterpartyVerdictCases{}.Prepare(verdictFixture(t), verdictExpectation(t, expected))
 		if err == nil {
-			t.Fatalf("a fixture expecting %q prepared", expected)
+			t.Fatalf("a scenario expecting %q prepared", expected)
 		}
 		if !strings.Contains(err.Error(), "real|noise") {
 			t.Errorf("the refusal does not name the closed vocabulary: %v", err)
+		}
+	}
+}
+
+// A scenario with no expectation, or one shaped like something else, asserts
+// nothing about the reply — and a case that ran it anyway would report a number
+// nobody wrote a claim for.
+func TestVerdictCaseRefusesAnExpectationItCannotRead(t *testing.T) {
+	for _, expected := range []json.RawMessage{nil, json.RawMessage(`{"verdict":"real"}`), json.RawMessage(`7`)} {
+		_, err := counterpartyVerdictCases{}.Prepare(verdictFixture(t), expected)
+		if err == nil {
+			t.Fatalf("a scenario expecting %s prepared", expected)
+		}
+		if !strings.Contains(err.Error(), "verdict token") {
+			t.Errorf("the refusal does not say what an expectation must be: %v", err)
 		}
 	}
 }

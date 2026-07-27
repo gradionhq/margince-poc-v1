@@ -29,23 +29,14 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
-// counterpartyVerdictFixture is one first-time sender as the corpus states it,
-// plus the verdict a correct answer gives.
-//
-// The expected answer travels IN the fixture because Prepare takes the fixture
-// and nothing else: a case with no way to name the right answer can report that
-// a reply was well formed, never that it was right, and well-formedness is a
-// claim about the schema rather than about the model.
-//
-// There is deliberately no id field. See Prepare.
+// counterpartyVerdictFixture is one first-time sender, in exactly the fields
+// the ledger row hands the engine. It carries nothing the corpus asserts and no
+// id — see Prepare for both.
 type counterpartyVerdictFixture struct {
 	DisplayName string `json:"display_name"`
 	Email       string `json:"email"`
 	Subject     string `json:"subject"`
 	Body        string `json:"body"`
-	// ExpectedVerdict is what a correct answer says, in the closed verdict
-	// vocabulary the model may answer with.
-	ExpectedVerdict string `json:"expected_verdict"`
 }
 
 // counterpartyVerdictCases serves the one site that judges a first-time sender.
@@ -59,8 +50,8 @@ func (counterpartyVerdictCases) Site() aitasks.Site {
 	}
 }
 
-// Prepare turns one fixture into a runnable case, MINTING the ledger row id
-// rather than reading it from the fixture.
+// Prepare turns one sender and the verdict the scenario expects into a runnable
+// case, MINTING the ledger row id rather than reading it from either.
 //
 // Production takes that id from the ledger row, which no model has ever seen, so
 // the only way an answer can carry it is to have read it out of this call's
@@ -70,17 +61,25 @@ func (counterpartyVerdictCases) Site() aitasks.Site {
 // — which is exactly the confusion validateVerdictPayload exists to prevent.
 //
 //nolint:ireturn // PreparedCase IS the seam: one implementation per site behind the one interface the cert lane runs.
-func (counterpartyVerdictCases) Prepare(fixture json.RawMessage) (aitasks.PreparedCase, error) {
+func (counterpartyVerdictCases) Prepare(fixture, expected json.RawMessage) (aitasks.PreparedCase, error) {
 	var f counterpartyVerdictFixture
 	if err := json.Unmarshal(fixture, &f); err != nil {
 		return nil, fmt.Errorf("capture_counterparty_verdict/verdict: the fixture is not the shape this site takes: %w", err)
 	}
-	// An expected answer outside the closed vocabulary is unreachable: the
-	// validator refuses every reply that could satisfy it, so the scenario would
-	// measure nothing for as long as it stayed in the corpus.
-	if !verdictLabels[f.ExpectedVerdict] {
+	// A correct reply differs from an incorrect one in the verdict token alone,
+	// so the expectation IS that token rather than a wrapper carrying it.
+	var want string
+	if err := json.Unmarshal(expected, &want); err != nil {
 		return nil, fmt.Errorf(
-			"capture_counterparty_verdict/verdict: the fixture expects %q, which is not real|noise", f.ExpectedVerdict)
+			"capture_counterparty_verdict/verdict: the expected answer is not a verdict token: %w", err)
+	}
+	// An expectation outside the closed vocabulary is unreachable: the validator
+	// refuses every reply that could satisfy it, so the scenario would measure
+	// nothing for as long as it stayed in the corpus. Naming it here costs a
+	// parse; finding it later costs a paid run.
+	if !verdictLabels[want] {
+		return nil, fmt.Errorf(
+			"capture_counterparty_verdict/verdict: the scenario expects %q, which is not real|noise", want)
 	}
 	return &counterpartyVerdictCase{
 		row: capture.PendingCounterparty{
@@ -90,11 +89,12 @@ func (counterpartyVerdictCases) Prepare(fixture json.RawMessage) (aitasks.Prepar
 			Subject:     f.Subject,
 			Body:        f.Body,
 		},
-		expected: f.ExpectedVerdict,
+		expected: want,
 	}, nil
 }
 
-// counterpartyVerdictCase is one fixture sender ready to be judged.
+// counterpartyVerdictCase is one fixture sender ready to be judged, closed over
+// the minted row id and the verdict the scenario expects.
 type counterpartyVerdictCase struct {
 	row      capture.PendingCounterparty
 	expected string
@@ -114,7 +114,7 @@ func (c *counterpartyVerdictCase) Run(ctx context.Context, completer aitasks.Com
 
 // Evaluate applies the engine's own checks in the engine's own order — parse,
 // then validateVerdictPayload against the row that was asked about — and only
-// then asks whether the answer is the one the fixture expects. The order is the
+// then asks whether the answer is the one the scenario expects. The order is the
 // meaning: a reply that fails the validator has no verdict to disagree with.
 func (c *counterpartyVerdictCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	var payload verdictPayload
@@ -133,7 +133,7 @@ func (c *counterpartyVerdictCase) Evaluate(trace aitasks.Trace) aitasks.Outcome 
 	if answered != c.expected {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
-			Detail: fmt.Sprintf("the model answered %q where the fixture expects %q", answered, c.expected),
+			Detail: fmt.Sprintf("the model answered %q where the scenario expects %q", answered, c.expected),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted}
