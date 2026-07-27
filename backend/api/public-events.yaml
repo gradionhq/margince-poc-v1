@@ -34,6 +34,10 @@ components:
         - deal.archived
         - deal.updated
         - deal.restored
+        - project.created
+        - project.updated
+        - project.phase_changed
+        - project.archived
         - offer.created
         - offer.sent
         - offer.accepted
@@ -181,6 +185,86 @@ components:
         name:
           type: string
           description: The deal's name at creation.
+      additionalProperties: false
+
+    PublicEventProjectCreated:
+      type: object
+      x-event-type: project.created
+      x-entity-type: project
+      x-version: 1
+      description: Payload for project.created — a body of work was opened on a company.
+      required:
+        - name
+        - organization_id
+        - phase
+      properties:
+        name:
+          type: string
+          description: The project's name at creation.
+        key:
+          type: string
+          description: The short handle inbound mail is matched against, when one was given.
+        organization_id:
+          type: string
+          format: uuid
+          description: The anchor company. A project has exactly one.
+        owner_id:
+          type: string
+          format: uuid
+        phase:
+          type: string
+          description: Always `initiative` — a project is born at the head of the ladder.
+      additionalProperties: false
+
+    PublicEventProjectUpdated:
+      type: object
+      x-event-type: project.updated
+      x-entity-type: project
+      x-version: 1
+      description: >-
+        Payload for project.updated — a column patch on the project row.
+        Deliberately NOT emitted for a phase move: that carries its own
+        first-class project.phase_changed, so a consumer never has to
+        reconstruct a transition from a diff.
+      required:
+        - changed_fields
+      properties:
+        changed_fields:
+          type: object
+          additionalProperties: true
+          description: What this update touched, incl. runtime cf_* custom fields.
+      additionalProperties: false
+
+    PublicEventProjectPhaseChanged:
+      type: object
+      x-event-type: project.phase_changed
+      x-entity-type: project
+      x-version: 1
+      description: >-
+        Payload for project.phase_changed — a project moved along the
+        phase ladder. Emitted INSTEAD of project.updated, and written from
+        the same transaction as its phase-history row, so "where does this
+        stand" and "how did it get there" can never disagree.
+      required:
+        - to_phase
+      properties:
+        from_phase:
+          type: string
+          description: Phase the project left (absent on the creation row).
+        to_phase:
+          type: string
+          description: Phase the project entered (initiative | pursuing | delivering | closed).
+        reason:
+          type: string
+          description: Why it moved; required by the API when to_phase is `closed`.
+      additionalProperties: false
+
+    PublicEventProjectArchived:
+      type: object
+      x-event-type: project.archived
+      x-entity-type: project
+      x-version: 1
+      description: Payload for project.archived — a project was archived. Carries no data.
       additionalProperties: false
 
     PublicEventDealOwnerChanged:

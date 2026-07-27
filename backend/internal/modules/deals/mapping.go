@@ -49,6 +49,7 @@ func dealCreateInput(req crmcontracts.CreateDealRequest) (CreateDealInput, error
 		StageID:        pathID[ids.StageKind](req.StageId),
 		Source:         req.Source,
 		OrganizationID: idArg[ids.OrganizationKind](req.OrganizationId),
+		ProjectID:      idArg[ids.ProjectKind](req.ProjectId),
 		OwnerID:        idArg[ids.UserKind](req.OwnerId),
 		CustomFields:   req.AdditionalProperties,
 	}
@@ -64,6 +65,7 @@ func dealUpdateInput(req crmcontracts.UpdateDealRequest, ifVersion *int64) Updat
 		AmountMinor:           req.AmountMinor,
 		Currency:              req.Currency,
 		OrganizationID:        idArg[ids.OrganizationKind](req.OrganizationId),
+		ProjectID:             idArg[ids.ProjectKind](req.ProjectId),
 		OwnerID:               idArg[ids.UserKind](req.OwnerId),
 		PartnerOrganizationID: idArg[ids.OrganizationKind](req.PartnerOrgId),
 		IfVersion:             ifVersion,

@@ -190,6 +190,8 @@ var (
 			// the harness admin fixture can exercise the rate editors.
 			"fx_rate":       {Create: true, Read: true, Update: true, Delete: true},
 			"ai_model_rate": {Create: true, Read: true, Update: true, Delete: true},
+			"project":       {Create: true, Read: true, Update: true, Delete: true},
+			"relationship":  {Create: true, Read: true, Update: true, Delete: true},
 		},
 		RowScope: principal.RowScopeAll,
 	}
@@ -254,6 +256,7 @@ func (e *Env) AgentCtxWithPassport(passportID ids.UUID) context.Context {
 func personIDOf(u ids.UUID) ids.PersonID    { return ids.From[ids.PersonKind](u) }
 func orgIDOf(u ids.UUID) ids.OrganizationID { return ids.From[ids.OrganizationKind](u) }
 func leadIDOf(u ids.UUID) ids.LeadID        { return ids.From[ids.LeadKind](u) }
+func projectIDOf(u ids.UUID) ids.ProjectID  { return ids.From[ids.ProjectKind](u) }
 
 // userIDPtr types an optional harness user id (Env keeps its fixture ids
 // untyped so every module's suite can use them) for people's typed inputs.

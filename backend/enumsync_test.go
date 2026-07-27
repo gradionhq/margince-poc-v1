@@ -29,12 +29,31 @@ import (
 )
 
 // enumBindings maps "table.column" to the Go type that mirrors it.
+//
+// The entity vocabulary is restated by a dozen polymorphic columns, so it
+// is bound here rather than grepped: adding a record type means widening
+// one Go const set and every CHECK that mirrors it, and this gate is what
+// makes widening eleven of twelve a failure instead of a silent half-job.
+// Two sets, because they are genuinely two vocabularies — a reference TO a
+// record (datasource.RecordType) never names an activity, while a thing
+// hung OFF an object (datasource.EntityType) can.
 var enumBindings = map[string]struct{ pkgDir, typeName string }{
 	"lead.status":                    {"internal/modules/people", "LeadStatus"},
 	"deal.status":                    {"internal/modules/deals", "DealStatus"},
 	"stage.semantic":                 {"internal/modules/deals", "StageSemantic"},
 	"person_consent.state":           {"internal/modules/consent", "ConsentState"},
 	"offer_line_item.proposal_state": {"internal/modules/deals", "ProposalState"},
+
+	"activity_link.entity_type": {"internal/shared/ports/datasource", "RecordType"},
+	"list.entity_type":          {"internal/shared/ports/datasource", "RecordType"},
+	"list_member.entity_type":   {"internal/shared/ports/datasource", "RecordType"},
+	"taggable.entity_type":      {"internal/shared/ports/datasource", "RecordType"},
+	"record_grant.record_type":  {"internal/shared/ports/datasource", "RecordType"},
+
+	"attachment.entity_type":       {"internal/shared/ports/datasource", "EntityType"},
+	"embedding.entity_type":        {"internal/shared/ports/datasource", "EntityType"},
+	"field_provenance.object_type": {"internal/shared/ports/datasource", "EntityType"},
+	"custom_field.object":          {"internal/shared/ports/datasource", "EntityType"},
 }
 
 // checkInList captures CHECK (col IN ('a','b',…)) allowing an optional

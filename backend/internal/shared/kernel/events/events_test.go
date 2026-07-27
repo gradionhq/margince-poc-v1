@@ -46,7 +46,7 @@ func TestCatalogTypesObeyNamingConvention(t *testing.T) {
 	// catalog's own additions.
 	pastTenseVerbs := map[string]bool{
 		"created": true, "updated": true, "archived": true, "merged": true,
-		"restored": true, "stage_changed": true, "owner_changed": true,
+		"restored": true, "stage_changed": true, "phase_changed": true, "owner_changed": true,
 		"promoted": true, "captured": true, "requested": true,
 		"decided": true, "failed": true, "appended": true,
 		"changed": true, "applied": true, "sent": true, "accepted": true,

@@ -20,6 +20,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // The closed type/object sets (CUSTOM-FIELDS-PARAM-1/PARAM-2). No cap,
@@ -40,14 +42,27 @@ const (
 // the way the custom_field.type CHECK constraint spells them.
 var FieldTypes = []string{TypeText, TypeNumber, TypeDate, TypeCurrency, TypePicklist, TypeBoolean}
 
-// FieldObjects is the closed, ordered set of core objects a custom field can
-// attach to, spelled the way the custom_field.object CHECK constraint
-// spells them.
-var FieldObjects = []string{"person", "organization", "deal", "lead", "activity"}
+// FieldObjects is the closed, ordered set of core objects a custom field
+// can attach to. It is derived from the canonical entity vocabulary rather
+// than restated, so the catalog CHECK, this package and the vocabulary
+// cannot drift apart (the drift is what TestEveryDomainEnumMatchesItsSchemaCheck
+// pins).
+var FieldObjects = func() []string {
+	all := datasource.EntityTypes()
+	out := make([]string, 0, len(all))
+	for _, e := range all {
+		out = append(out, string(e))
+	}
+	return out
+}()
 
-var allowedObjects = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true, "activity": true,
-}
+var allowedObjects = func() map[string]bool {
+	m := make(map[string]bool, len(FieldObjects))
+	for _, o := range FieldObjects {
+		m[o] = true
+	}
+	return m
+}()
 
 var allowedTypes = map[string]bool{
 	TypeText: true, TypeNumber: true, TypeDate: true, TypeCurrency: true, TypePicklist: true, TypeBoolean: true,

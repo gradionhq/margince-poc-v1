@@ -30,6 +30,7 @@ type CreateDealInput struct {
 	PipelineID     ids.PipelineID
 	StageID        ids.StageID
 	OrganizationID *ids.OrganizationID
+	ProjectID      *ids.ProjectID
 	OwnerID        *ids.UserID
 	ExpectedClose  *time.Time
 	Source         string
@@ -103,21 +104,29 @@ func createDealTx(ctx context.Context, tx pgx.Tx, in CreateDealInput, by string,
 			return crmcontracts.Deal{}, err
 		}
 	}
+	if in.ProjectID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+			return crmcontracts.Deal{}, err
+		}
+	}
 
 	id := ids.New[ids.DealKind]()
-	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 13)
+	cfCols, cfHolders, cfArgs := storekit.InsertFragments(active, in.CustomFields, 14)
 	args := []any{
 		id, wsID, in.Name, in.AmountMinor, in.Currency, in.PipelineID, in.StageID,
-		in.OrganizationID, in.OwnerID, in.ExpectedClose, in.Source, by,
+		in.OrganizationID, in.ProjectID, in.OwnerID, in.ExpectedClose, in.Source, by,
 	}
 	_, err := tx.Exec(ctx,
 		`INSERT INTO deal (id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
-		                   organization_id, owner_id, expected_close_date, source, captured_by`+cfCols+`)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12`+cfHolders+`)`,
+		                   organization_id, project_id, owner_id, expected_close_date, source, captured_by`+cfCols+`)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13`+cfHolders+`)`,
 		append(args, cfArgs...)...)
 	if err != nil {
 		// Covers the remaining FKs (pipeline, owner); the stage/pipeline
 		// pairing and the organization target were pre-checked above.
+		if constraint, ok := storekit.CheckViolation(err); ok && constraint == dealProjectSameOrgConstraint {
+			return crmcontracts.Deal{}, &DealProjectOrgMismatchError{}
+		}
 		if storekit.IsForeignKeyViolation(err) {
 			return crmcontracts.Deal{}, apperrors.ErrNotFound
 		}
@@ -226,6 +235,12 @@ func dealUpdatePatch(ctx context.Context, tx pgx.Tx, current crmcontracts.Deal, 
 	}
 	if in.OwnerID != nil {
 		p.Set("owner_id", current.OwnerId, *in.OwnerID)
+	}
+	if in.ProjectID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+			return nil, err
+		}
+		p.Set("project_id", current.ProjectId, *in.ProjectID)
 	}
 	if in.PartnerOrganizationID != nil {
 		if err := auth.EnsureLinkTarget(ctx, tx, "organization", in.PartnerOrganizationID.UUID); err != nil {

@@ -30,6 +30,46 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// RelationshipConflictError names the uniqueness rule that refused an edge.
+//
+// It carries the constraint so a caller racing ITSELF — an idempotent attach
+// whose insert lost to a concurrent one — can tell which rule fired and
+// recover by adopting the winner. Wrapping the driver error would say the same
+// thing and cost too much: a *pgconn.PgError anywhere in the chain makes
+// httperr treat the refusal as an infrastructure fault (blanking the client's
+// detail and logging at ERROR), and the agent runner echoes err.Error() into
+// its transcript, which would put SQLSTATE text in a model prompt.
+type RelationshipConflictError struct{ Constraint string }
+
+// relationshipConflictDetails says what each rule actually refused, in the
+// caller's terms. One shared sentence cannot serve all three: the primary-
+// employer index is keyed on the PERSON alone, so its conflict is with a
+// different company entirely — telling that caller "this already exists
+// between these records" would name the wrong pair and send them looking for
+// a row that is not there.
+var relationshipConflictDetails = map[string]string{
+	"uq_rel_current_primary_employer": "this person already has a current primary employer — end that employment, or add this one without the primary flag",
+	"uq_rel_deal_person_role":         "this person already holds that role on the deal",
+	projectStakeholderUnique:          "this person is already a stakeholder on the project",
+}
+
+// Error says what the caller can act on. The constraint name stays OFF the
+// wire: httperr sends a sentinel's own text as the 409 detail, and an index
+// name is a database internal — it tells a client nothing it can use and
+// describes our schema to anyone probing it.
+func (e *RelationshipConflictError) Error() string {
+	if detail, ok := relationshipConflictDetails[e.Constraint]; ok {
+		return detail
+	}
+	// A rule added to the switch above but not described here: still a
+	// truthful refusal, just a less specific one.
+	return "a live relationship already conflicts with this one"
+}
+
+// Is reports this as the conflict sentinel, so every transport that maps
+// ErrConflict to 409 keeps doing so without knowing this type exists.
+func (e *RelationshipConflictError) Is(target error) bool { return target == apperrors.ErrConflict }
+
 // relationshipAnchor names the endpoint whose lifecycle a kind
 // annotates — the entity whose .updated event a mutation emits and
 // whose RBAC object gates it.
@@ -39,17 +79,19 @@ func relationshipAnchor(kind string) (object, column string) {
 		return "person", "person_id"
 	case "deal_stakeholder":
 		return "deal", "deal_id"
+	case projectStakeholderKind:
+		return projectObjectName, "project_id"
 	default: // partner_of, referred_by, co_sell_with
 		return "organization", "organization_id"
 	}
 }
 
 var relationshipKinds = map[string]bool{
-	"employment": true, "deal_stakeholder": true,
+	"employment": true, "deal_stakeholder": true, "project_stakeholder": true,
 	"partner_of": true, "referred_by": true, "co_sell_with": true,
 }
 
-const relationshipColumns = `id, workspace_id, kind, person_id, organization_id, counterparty_org_id, deal_id,
+const relationshipColumns = `id, workspace_id, kind, person_id, organization_id, counterparty_org_id, deal_id, project_id,
 	role, is_current_primary, started_at, ended_at, source, captured_by, version, created_at, updated_at, archived_at`
 
 type relationshipRow struct {
@@ -60,6 +102,7 @@ type relationshipRow struct {
 	OrganizationID    *ids.OrganizationID
 	CounterpartyOrgID *ids.OrganizationID
 	DealID            *ids.DealID
+	ProjectID         *ids.ProjectID
 	Role              *string
 	IsCurrentPrimary  bool
 	StartedAt         *time.Time
@@ -75,7 +118,7 @@ type relationshipRow struct {
 func scanRelationship(r pgx.Row) (relationshipRow, error) {
 	var out relationshipRow
 	err := r.Scan(&out.ID, &out.WorkspaceID, &out.Kind, &out.PersonID, &out.OrganizationID, &out.CounterpartyOrgID,
-		&out.DealID, &out.Role, &out.IsCurrentPrimary, &out.StartedAt, &out.EndedAt,
+		&out.DealID, &out.ProjectID, &out.Role, &out.IsCurrentPrimary, &out.StartedAt, &out.EndedAt,
 		&out.Source, &out.CapturedBy, &out.Version, &out.CreatedAt, &out.UpdatedAt, &out.ArchivedAt)
 	return out, err
 }
@@ -97,6 +140,7 @@ func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) 
 		{"organization_id", "organization"},
 		{"counterparty_org_id", "organization"},
 		{"deal_id", "deal"},
+		{"project_id", projectObjectName},
 	} {
 		predicate := auth.VisiblePredicate(actor, endpoint.table, arg)
 		clauses = append(clauses, fmt.Sprintf(
@@ -114,6 +158,7 @@ type CreateRelationshipInput struct {
 	OrganizationID    *ids.OrganizationID
 	CounterpartyOrgID *ids.OrganizationID
 	DealID            *ids.DealID
+	ProjectID         *ids.ProjectID
 	Role              *string
 	IsCurrentPrimary  bool
 	StartedAt         *time.Time
@@ -156,11 +201,11 @@ func (s *Store) CreateRelationship(ctx context.Context, in CreateRelationshipInp
 		}
 		row := tx.QueryRow(ctx, `
 			INSERT INTO relationship (workspace_id, kind, person_id, organization_id, counterparty_org_id,
-			                          deal_id, role, is_current_primary, started_at, ended_at, source, captured_by)
+			                          deal_id, project_id, role, is_current_primary, started_at, ended_at, source, captured_by)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+			        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 			RETURNING `+relationshipColumns,
-			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID,
+			in.Kind, in.PersonID, in.OrganizationID, in.CounterpartyOrgID, in.DealID, in.ProjectID,
 			in.Role, in.IsCurrentPrimary, in.StartedAt, in.EndedAt, in.Source, capturedBy)
 		if out, err = scanRelationship(row); err != nil {
 			return mapRelationshipConstraint(err, in.Kind)
@@ -182,6 +227,7 @@ func ensureRelationshipEndpoints(ctx context.Context, tx pgx.Tx, in CreateRelati
 		{"organization", untypedPtr(in.OrganizationID)},
 		{"organization", untypedPtr(in.CounterpartyOrgID)},
 		{"deal", untypedPtr(in.DealID)},
+		{projectObjectName, untypedPtr(in.ProjectID)},
 	} {
 		if ref.id == nil {
 			continue
@@ -210,7 +256,7 @@ func untypedPtr[K ids.EntityKind](id *ids.ID[K]) *ids.UUID {
 func mapRelationshipConstraint(err error, kind string) error {
 	if constraint, ok := storekit.CheckViolation(err); ok {
 		switch constraint {
-		case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape":
+		case "rel_employment_shape", "rel_stakeholder_shape", "rel_partner_shape", "rel_project_stakeholder_shape":
 			return &RequiredFieldError{Field: "kind: " + kind + " endpoint shape"}
 		case "rel_dates":
 			return &RequiredFieldError{Field: "ended_at: must not precede started_at"}
@@ -218,8 +264,8 @@ func mapRelationshipConstraint(err error, kind string) error {
 	}
 	if constraint, ok := storekit.UniqueViolation(err); ok {
 		switch constraint {
-		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role":
-			return fmt.Errorf("relationship %s: %w", constraint, apperrors.ErrConflict)
+		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", projectStakeholderUnique:
+			return &RelationshipConflictError{Constraint: constraint}
 		}
 	}
 	return err
@@ -341,6 +387,8 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 		anchorID = rel.PersonID.UUID
 	case "deal":
 		anchorID = rel.DealID.UUID
+	case projectObjectName:
+		anchorID = rel.ProjectID.UUID
 	default:
 		anchorID = rel.OrganizationID.UUID
 	}
@@ -364,11 +412,13 @@ func emitRelationshipChange(ctx context.Context, tx pgx.Tx, action string, rel r
 // changed_fields shape, so the only real work here is picking the right
 // generated struct for the anchor.
 //
-//nolint:ireturn // dispatches to one of PublicEventDealUpdated/PersonUpdated/OrganizationUpdated by anchorObject; tested directly via the interface in person_organization_payload_test.go
+//nolint:ireturn // dispatches to one of PublicEventDeal/Project/Person/OrganizationUpdated by anchorObject; tested directly via the interface in person_organization_payload_test.go
 func relationshipUpdatedPayload(anchorObject string, changedFields map[string]any) events.Payload {
 	switch anchorObject {
 	case "deal":
 		return crmcontracts.PublicEventDealUpdated{ChangedFields: changedFields}
+	case projectObjectName:
+		return crmcontracts.PublicEventProjectUpdated{ChangedFields: changedFields}
 	case "person":
 		return crmcontracts.PublicEventPersonUpdated{ChangedFields: changedFields}
 	default: // organization
@@ -425,4 +475,17 @@ func wireRelationship(rel relationshipRow) crmcontracts.Relationship {
 		out.EndedAt = &openapi_types.Date{Time: *rel.EndedAt}
 	}
 	return out
+}
+
+// EnsureProjectVisible probes a project id under the caller's row scope —
+// the project-scoped stakeholder view needs the anchor's own answer when
+// the edge list is empty, so "no stakeholders yet" and "no such project"
+// stay distinguishable without disclosing either.
+func (s *Store) EnsureProjectVisible(ctx context.Context, projectID ids.ProjectID) error {
+	if err := auth.Require(ctx, projectObjectName, principal.ActionRead); err != nil {
+		return err
+	}
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		return auth.EnsureLinkTarget(ctx, tx, projectObjectName, projectID.UUID)
+	})
 }

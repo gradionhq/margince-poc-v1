@@ -20,6 +20,7 @@ type ListRelationshipsInput struct {
 	PersonID        *ids.PersonID
 	OrganizationID  *ids.OrganizationID
 	DealID          *ids.DealID
+	ProjectID       *ids.ProjectID
 	IncludeArchived bool
 	Limit           *int
 	Cursor          string
@@ -75,6 +76,9 @@ func relationshipListWhere(ctx context.Context, in ListRelationshipsInput, arg f
 	}
 	if in.DealID != nil {
 		where = append(where, storekit.SQLf("r.deal_id = $%d", arg(*in.DealID)))
+	}
+	if in.ProjectID != nil {
+		where = append(where, storekit.SQLf("r.project_id = $%d", arg(*in.ProjectID)))
 	}
 	if !in.IncludeArchived {
 		where = append(where, "r.archived_at IS NULL")

@@ -256,6 +256,7 @@ export const en = {
   "rel.addConfirm": "Add a {kind} link to {target}.",
   "rel.kind.employment": "Employment",
   "rel.kind.dealStakeholder": "Deal stakeholder",
+  "rel.kind.projectStakeholder": "Project stakeholder",
   "rel.kind.partnerOf": "Partner of",
   "rel.kind.referredBy": "Referred by",
   "rel.kind.coSellWith": "Co-sell with",
