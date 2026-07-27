@@ -574,3 +574,64 @@ func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 		t.Fatalf("the other team's deal link was removed by a caller who could not see it (%d remain)", n)
 	}
 }
+
+// The residual the scoped delete leaves behind, pinned so it cannot widen.
+//
+// At most one project link may exist per activity, so replacing an invisible
+// one refuses where replacing nothing succeeds — and that difference tells a
+// caller a project link they cannot see is there. One bit escapes and cannot
+// be closed from the relink path: hiding the link and enforcing
+// one-per-activity are the same question asked twice.
+//
+// What must NOT widen is everything else. The refusal names no id and no
+// project, and the link itself survives — so the caller learns that something
+// is there, never what, and cannot remove it.
+func TestReplacingAnInvisibleProjectLinkLeaksNothingBeyondItsExistence(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Oracle GmbH", nil)
+	hidden := seedProject(e.Admin(), t, e, "Hidden delivery", nil, org, &e.Rep1)
+	ours := seedProject(e.Admin(), t, e, "Our pursuit", nil, org, &e.Rep3)
+	person := e.SeedPerson(t, "Reachable Contact", &e.Rep3)
+
+	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+		Kind: "note", Source: "manual",
+		Links: []activities.ActivityLinkInput{
+			{EntityType: "project", EntityID: hidden.ID.UUID},
+			{EntityType: "person", EntityID: person},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"activity": {Read: true, Update: true},
+			"project":  {Read: true},
+			"person":   {Read: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	_, err = e.Activities.RelinkActivity(outsider, ids.From[ids.ActivityKind](ids.UUID(act.Id)),
+		activities.RelinkActivityInput{
+			EntityType: "project", EntityID: ours.ID.UUID, ReplaceExistingOfType: true,
+		})
+	if err == nil {
+		t.Fatal("replacing an invisible project link succeeded — it was removed by someone who could not see it")
+	}
+	// The bit is all that escapes: nothing in the refusal identifies it.
+	for _, secret := range []string{"Hidden delivery", hidden.ID.String()} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("the refusal disclosed %q about a project the caller cannot read: %v", secret, err)
+		}
+	}
+	// And the link is still there — an oracle, not a lever.
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM activity_link
+		WHERE activity_id = $1 AND entity_type = 'project' AND project_id = $2`,
+		ids.UUID(act.Id), hidden.ID.UUID); n != 1 {
+		t.Fatalf("the invisible project link was removed (%d remain)", n)
+	}
+}
