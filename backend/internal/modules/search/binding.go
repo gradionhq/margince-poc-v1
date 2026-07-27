@@ -42,6 +42,7 @@ var pendingSources = map[string]pendingSource{
 	entityDeal:         {table: entityDeal, text: "t.name"},
 	entityLead:         {table: entityLead, text: "concat_ws(' ', t.full_name, t.company_name, t.title)"},
 	entityActivity:     {table: entityActivity, text: "concat_ws(' ', t.subject, t.body)"},
+	entityProject:      {table: entityProject, text: "concat_ws(' ', t.name, t.key, t.description)"},
 }
 
 // SeedBinding plants the marker row on first boot. An empty store is

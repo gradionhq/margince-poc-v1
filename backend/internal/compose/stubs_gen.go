@@ -756,6 +756,42 @@ func (stubs) UpdateProduct(w nethttp.ResponseWriter, r *nethttp.Request, id crmc
 	httperr.NotImplemented(w, r, "UpdateProduct")
 }
 
+func (stubs) ListProjects(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListProjectsParams) {
+	httperr.NotImplemented(w, r, "ListProjects")
+}
+
+func (stubs) CreateProject(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.CreateProjectParams) {
+	httperr.NotImplemented(w, r, "CreateProject")
+}
+
+func (stubs) ArchiveProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.ArchiveProjectParams) {
+	httperr.NotImplemented(w, r, "ArchiveProject")
+}
+
+func (stubs) GetProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetProject")
+}
+
+func (stubs) UpdateProject(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.UpdateProjectParams) {
+	httperr.NotImplemented(w, r, "UpdateProject")
+}
+
+func (stubs) AdvanceProjectPhase(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.AdvanceProjectPhaseParams) {
+	httperr.NotImplemented(w, r, "AdvanceProjectPhase")
+}
+
+func (stubs) ListProjectStakeholders(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ListProjectStakeholders")
+}
+
+func (stubs) SetProjectStakeholder(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SetProjectStakeholderParams) {
+	httperr.NotImplemented(w, r, "SetProjectStakeholder")
+}
+
+func (stubs) RemoveProjectStakeholder(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, personId openapi_types.UUID, params crmcontracts.RemoveProjectStakeholderParams) {
+	httperr.NotImplemented(w, r, "RemoveProjectStakeholder")
+}
+
 func (stubs) BookPublicMeeting(w nethttp.ResponseWriter, r *nethttp.Request, hostSlug string, params crmcontracts.BookPublicMeetingParams) {
 	httperr.NotImplemented(w, r, "BookPublicMeeting")
 }

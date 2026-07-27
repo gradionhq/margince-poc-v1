@@ -47,6 +47,7 @@ const (
 	recordTypePartner             agentRecordType = "partner"
 	recordTypePerson              agentRecordType = "person"
 	recordTypeProduct             agentRecordType = "product"
+	recordTypeProject             agentRecordType = "project"
 	recordTypeQuota               agentRecordType = "quota"
 	recordTypeRecordGrant         agentRecordType = "record_grant"
 	recordTypeRelationship        agentRecordType = "relationship"
@@ -92,6 +93,8 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/passports/{id}":                                          {Op: "revokePassport", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/people/{id}":                                             {Op: "archivePerson", Access: "tool", Tool: "archive_record", RecordType: "person", Tier: "confirmation_required"},
 	"DELETE /v1/products/{id}":                                           {Op: "archiveProduct", Access: "tool", Tool: "archive_record", RecordType: "product", Tier: "confirmation_required"},
+	"DELETE /v1/projects/{id}":                                           {Op: "archiveProject", Access: "tool", Tool: "archive_record", RecordType: "project", Tier: "confirmation_required"},
+	"DELETE /v1/projects/{id}/stakeholders/{person_id}":                  {Op: "removeProjectStakeholder", Access: "tool", Tool: "update_record", RecordType: "project", Tier: "confirmation_required"},
 	"DELETE /v1/quotas/{id}":                                             {Op: "archiveQuota", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/record-grants/{id}":                                      {Op: "revokeRecordGrant", Access: "tool", Tool: "share_record", RecordType: "record_grant", Tier: "confirmation_required"},
 	"DELETE /v1/relationships/{id}":                                      {Op: "archiveRelationship", Access: "tool", Tool: "archive_record", RecordType: "relationship", Tier: "confirmation_required"},
@@ -147,6 +150,8 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/people/{id}":                                                {Op: "getPerson", Access: "tool", Tool: "read_record", RecordType: "person", Tier: "auto_execute"},
 	"GET /v1/products":                                                   {Op: "listProducts", Access: "tool", Tool: "search_records", RecordType: "product", Tier: "auto_execute"},
 	"GET /v1/products/{id}":                                              {Op: "getProduct", Access: "tool", Tool: "read_record", RecordType: "product", Tier: "auto_execute"},
+	"GET /v1/projects":                                                   {Op: "listProjects", Access: "tool", Tool: "search_records", RecordType: "project", Tier: "auto_execute"},
+	"GET /v1/projects/{id}":                                              {Op: "getProject", Access: "tool", Tool: "read_record", RecordType: "project", Tier: "auto_execute"},
 	"GET /v1/quotas":                                                     {Op: "listQuotas", Access: "tool", Tool: "search_records", RecordType: "quota", Tier: "auto_execute"},
 	"GET /v1/quotas/{id}":                                                {Op: "getQuota", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute"},
 	"GET /v1/quotas/{id}/attainment":                                     {Op: "getQuotaAttainment", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute"},
@@ -180,6 +185,7 @@ var agentPolicies = map[string]agentPolicy{
 	"PATCH /v1/people/{id}":                                              {Op: "updatePerson", Access: "tool", Tool: "update_record", RecordType: "person", Tier: "auto_execute"},
 	"PATCH /v1/pipelines/{id}":                                           {Op: "updatePipeline", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/products/{id}":                                            {Op: "updateProduct", Access: "tool", Tool: "update_record", RecordType: "product", Tier: "auto_execute"},
+	"PATCH /v1/projects/{id}":                                            {Op: "updateProject", Access: "tool", Tool: "update_record", RecordType: "project", Tier: "confirmation_required"},
 	"PATCH /v1/quotas/{id}":                                              {Op: "updateQuota", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/relationships/{id}":                                       {Op: "updateRelationship", Access: "tool", Tool: "update_record", RecordType: "relationship", Tier: "auto_execute"},
 	"PATCH /v1/signals/{id}":                                             {Op: "updateSignal", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
@@ -261,6 +267,8 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/people/{id}/merge":                                         {Op: "mergePerson", Access: "tool", Tool: "merge_records", RecordType: "person", Tier: "confirmation_required"},
 	"POST /v1/pipelines":                                                 {Op: "createPipeline", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/products":                                                  {Op: "createProduct", Access: "tool", Tool: "create_record", RecordType: "product", Tier: "auto_execute"},
+	"POST /v1/projects":                                                  {Op: "createProject", Access: "tool", Tool: "create_record", RecordType: "project", Tier: "confirmation_required"},
+	"POST /v1/projects/{id}/advance":                                     {Op: "advanceProjectPhase", Access: "tool", Tool: "advance_project_phase", RecordType: "project", Tier: "confirmation_required"},
 	"POST /v1/public/booking/{host_slug}":                                {Op: "bookPublicMeeting", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/public/preferences/{token}/unsubscribe":                    {Op: "oneClickUnsubscribe", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/quotas":                                                    {Op: "createQuota", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
@@ -292,5 +300,6 @@ var agentPolicies = map[string]agentPolicy{
 	"PUT /v1/offer-templates/{id}":                                       {Op: "updateOfferTemplate", Access: "tool", Tool: "update_record", RecordType: "offer_template", Tier: "auto_execute"},
 	"PUT /v1/onboarding/state":                                           {Op: "putOnboardingState", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/organizations/{id}/partner":                                 {Op: "upsertPartner", Access: "tool", Tool: "update_record", RecordType: "partner", Tier: "auto_execute"},
+	"PUT /v1/projects/{id}/stakeholders":                                 {Op: "setProjectStakeholder", Access: "tool", Tool: "update_record", RecordType: "project", Tier: "confirmation_required"},
 	"PUT /v1/public/preferences/{token}":                                 {Op: "updatePreferences", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 }

@@ -57,6 +57,10 @@ const (
 	PipelineArchived          SubscribableEventType = "pipeline.archived"
 	PipelineCreated           SubscribableEventType = "pipeline.created"
 	PipelineUpdated           SubscribableEventType = "pipeline.updated"
+	ProjectArchived           SubscribableEventType = "project.archived"
+	ProjectCreated            SubscribableEventType = "project.created"
+	ProjectPhaseChanged       SubscribableEventType = "project.phase_changed"
+	ProjectUpdated            SubscribableEventType = "project.updated"
 	RetentionApplied          SubscribableEventType = "retention.applied"
 	RoleChanged               SubscribableEventType = "role.changed"
 	SignalDetected            SubscribableEventType = "signal.detected"
@@ -170,6 +174,14 @@ func (e SubscribableEventType) Valid() bool {
 	case PipelineCreated:
 		return true
 	case PipelineUpdated:
+		return true
+	case ProjectArchived:
+		return true
+	case ProjectCreated:
+		return true
+	case ProjectPhaseChanged:
+		return true
+	case ProjectUpdated:
 		return true
 	case RetentionApplied:
 		return true
@@ -795,6 +807,43 @@ type PublicEventPipelineUpdated struct {
 	ChangedFields map[string]interface{} `json:"changed_fields"`
 }
 
+// PublicEventProjectArchived Payload for project.archived — a project was archived. Carries no data.
+type PublicEventProjectArchived struct{}
+
+// PublicEventProjectCreated Payload for project.created — a body of work was opened on a company.
+type PublicEventProjectCreated struct {
+	// Key The short handle inbound mail is matched against, when one was given.
+	Key *string `json:"key,omitempty"`
+
+	// Name The project's name at creation.
+	Name string `json:"name"`
+
+	// OrganizationId The anchor company. A project has exactly one.
+	OrganizationId openapi_types.UUID  `json:"organization_id"`
+	OwnerId        *openapi_types.UUID `json:"owner_id,omitempty"`
+
+	// Phase Always `initiative` — a project is born at the head of the ladder.
+	Phase string `json:"phase"`
+}
+
+// PublicEventProjectPhaseChanged Payload for project.phase_changed — a project moved along the phase ladder. Emitted INSTEAD of project.updated, and written from the same transaction as its phase-history row, so "where does this stand" and "how did it get there" can never disagree.
+type PublicEventProjectPhaseChanged struct {
+	// FromPhase Phase the project left (absent on the creation row).
+	FromPhase *string `json:"from_phase,omitempty"`
+
+	// Reason Why it moved; required by the API when to_phase is `closed`.
+	Reason *string `json:"reason,omitempty"`
+
+	// ToPhase Phase the project entered (initiative | pursuing | delivering | closed).
+	ToPhase string `json:"to_phase"`
+}
+
+// PublicEventProjectUpdated Payload for project.updated — a column patch on the project row. Deliberately NOT emitted for a phase move: that carries its own first-class project.phase_changed, so a consumer never has to reconstruct a transition from a diff.
+type PublicEventProjectUpdated struct {
+	// ChangedFields What this update touched, incl. runtime cf_* custom fields.
+	ChangedFields map[string]interface{} `json:"changed_fields"`
+}
+
 // PublicEventRetentionApplied Payload for retention.applied — a retention/erasure action ran against one record. Four emit sites, four different runtime subjects: the embed-call sweep (ai_call), the voice-learning-signal content sweep (voice_learning_signal), a workspace's configured retention policy's object type (activity | deal | lead | person | ai_call_payload), and Art. 17 erasure (person) — none fixed enough for this schema to name, so this is dynamic-entity (contract `x-entity-type: dynamic`): the generated EntityType() is unused, and each emit site supplies its own runtime entity type through storekit.EmitEventForEntity. policy/reason are a union across the sites — both telemetry sweeps set neither, the policy-driven sweep sets policy only, Art. 17 erasure sets reason only.
 type PublicEventRetentionApplied struct {
 	// Action The action that ran (archive | anonymize | erase).
@@ -1270,6 +1319,22 @@ func (PublicEventPipelineUpdated) EventType() string { return "pipeline.updated"
 
 func (PublicEventPipelineUpdated) EntityType() string { return "pipeline" }
 
+func (PublicEventProjectArchived) EventType() string { return "project.archived" }
+
+func (PublicEventProjectArchived) EntityType() string { return "project" }
+
+func (PublicEventProjectCreated) EventType() string { return "project.created" }
+
+func (PublicEventProjectCreated) EntityType() string { return "project" }
+
+func (PublicEventProjectPhaseChanged) EventType() string { return "project.phase_changed" }
+
+func (PublicEventProjectPhaseChanged) EntityType() string { return "project" }
+
+func (PublicEventProjectUpdated) EventType() string { return "project.updated" }
+
+func (PublicEventProjectUpdated) EntityType() string { return "project" }
+
 func (PublicEventRetentionApplied) EventType() string { return "retention.applied" }
 
 func (PublicEventRetentionApplied) EntityType() string { return "dynamic" }
@@ -1390,6 +1455,10 @@ var PublicEventVersions = map[string]int{
 	"pipeline.archived":            1,
 	"pipeline.created":             1,
 	"pipeline.updated":             1,
+	"project.archived":             1,
+	"project.created":              1,
+	"project.phase_changed":        1,
+	"project.updated":              1,
 	"retention.applied":            1,
 	"role.changed":                 1,
 	"signal.detected":              1,

@@ -84,6 +84,21 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(dedupeInput.Field, "invalid", dedupeInput.Error()))
 		return
 	}
+	var bothProjects *BothCompaniesCarryProjectsError
+	if errors.As(err, &bothProjects) {
+		// The names ride the body: "resolve your projects first" is only
+		// actionable if the caller is told which ones.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "both_companies_have_projects",
+			Detail: bothProjects.Error(),
+			Details: map[string]any{
+				"source_projects": bothProjects.Source,
+				"target_projects": bothProjects.Target,
+			},
+		})
+		return
+	}
 	var dupEmail *DuplicateEmailError
 	if errors.As(err, &dupEmail) {
 		httperr.Write(w, r, httperr.Duplicate("duplicate_email", duplicateID(dupEmail.ExistingID.UUID)))

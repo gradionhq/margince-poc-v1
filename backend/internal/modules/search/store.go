@@ -86,6 +86,7 @@ var searchBranches = []searchBranch{
 	{entity: "organization", table: "organization", title: "display_name", snippet: "NULL"},
 	{entity: "deal", table: "deal", title: "name", snippet: "NULL"},
 	{entity: "lead", table: "lead", title: "coalesce(full_name, company_name, email)", snippet: "NULL"},
+	{entity: "project", table: "project", title: "name", snippet: "NULL"},
 	{entity: "activity", table: "activity", title: "coalesce(subject, kind)", snippet: "left(coalesce(body, ''), 200)", activityWalk: true},
 }
 

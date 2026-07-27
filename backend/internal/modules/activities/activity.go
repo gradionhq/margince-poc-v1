@@ -185,9 +185,7 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 // target passes the row-scope link check first.
 func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, activityID ids.ActivityID, links []ActivityLinkInput, occurredAt time.Time) error {
 	for _, link := range links {
-		column := map[string]string{
-			"person": "person_id", "organization": "organization_id", "deal": "deal_id", "lead": "lead_id",
-		}[link.EntityType]
+		column := linkColumn(link.EntityType)
 		if column == "" {
 			return &InvalidLinkTypeError{EntityType: link.EntityType}
 		}
@@ -214,7 +212,7 @@ func insertActivityLinks(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, a
 type InvalidLinkTypeError struct{ EntityType string }
 
 func (e *InvalidLinkTypeError) Error() string {
-	return "activity link entity_type " + e.EntityType + " is not person|organization|deal"
+	return "activity link entity_type " + e.EntityType + " is not " + linkVocabulary()
 }
 
 func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
@@ -272,13 +270,15 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 	if in.EntityType != nil && in.EntityID != nil {
 		join = ` JOIN activity_link al ON al.activity_id = a.id`
 		where = append(where, sprintf("al.entity_type = $%d", arg(*in.EntityType)))
-		column := map[string]string{
-			"person": "al.person_id", "organization": "al.organization_id", "deal": "al.deal_id",
-		}[*in.EntityType]
+		// The SAME vocabulary the write uses. A second list here drifted from
+		// linkTargets and silently dropped two kinds: an activity could be
+		// linked to a lead or a project and then be unfindable by filtering on
+		// the very link that was just written.
+		column := linkColumn(*in.EntityType)
 		if column == "" {
 			return nil, storekit.Page{}, &InvalidLinkTypeError{EntityType: *in.EntityType}
 		}
-		where = append(where, sprintf("%s = $%d", column, arg(*in.EntityID)))
+		where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)

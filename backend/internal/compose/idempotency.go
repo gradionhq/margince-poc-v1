@@ -64,6 +64,8 @@ var idempotentOperations = map[string]bool{
 	"POST /v1/deals":                               true,
 	"PATCH /v1/deals/{id}":                         true,
 	"POST /v1/deals/{id}/advance":                  true,
+	"POST /v1/projects":                            true,
+	"POST /v1/projects/{id}/advance":               true,
 	"POST /v1/deals/{id}/offers":                   true,
 	"POST /v1/offers/{id}/regenerate":              true,
 	"POST /v1/offers/{id}/send":                    true,

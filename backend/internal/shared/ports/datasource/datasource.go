@@ -26,7 +26,42 @@ const (
 	EntityDeal         EntityType = "deal"
 	EntityLead         EntityType = "lead"
 	EntityActivity     EntityType = "activity"
+	EntityProject      EntityType = "project"
 )
+
+// EntityTypes returns the vocabulary in a stable order, for the callers
+// that enumerate it — the custom-field target set, the embedding lanes,
+// the provenance surfaces — rather than branch on a single value. It hands
+// back a fresh slice so no caller can widen the vocabulary for the others.
+func EntityTypes() []EntityType {
+	return []EntityType{EntityPerson, EntityOrganization, EntityDeal, EntityLead, EntityActivity, EntityProject}
+}
+
+// RecordType names the entity types that are records — EntityType minus
+// activity, which is a timeline event and so is never itself a grouping
+// target. It is the one vocabulary behind every polymorphic reference TO a
+// record: activity links, list membership, tags, saved views and record
+// grants all spell their target with this set, and each of those columns'
+// CHECK constraints is pinned to it by TestEveryDomainEnumMatchesItsSchemaCheck.
+type RecordType string
+
+// The record vocabulary. Each value is mirrored by a schema CHECK, pinned
+// together by TestEveryDomainEnumMatchesItsSchemaCheck.
+const (
+	RecordPerson       RecordType = "person"
+	RecordOrganization RecordType = "organization"
+	RecordDeal         RecordType = "deal"
+	RecordLead         RecordType = "lead"
+	RecordProject      RecordType = "project"
+)
+
+// RecordTypes returns the vocabulary in a stable order, for the callers
+// that must enumerate it — admission allowlists, catalog surfaces, the
+// polymorphic column maps — rather than branch on a single value. It hands
+// back a fresh slice so no caller can widen the vocabulary for the others.
+func RecordTypes() []RecordType {
+	return []RecordType{RecordPerson, RecordOrganization, RecordDeal, RecordLead, RecordProject}
+}
 
 // EntityRef points at one record.
 type EntityRef struct {

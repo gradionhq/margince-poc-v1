@@ -50,13 +50,13 @@ var _ datasource.SystemOfRecordProvider = (*Provider)(nil)
 // searchable is the entity set Search sweeps when the query names none.
 // Activities are deliberately absent: the timeline is reached through
 // read_record/list on a named entity, not blind full-text sweep.
-var searchable = []datasource.EntityType{datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal, datasource.EntityLead}
+var searchable = []datasource.EntityType{datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal, datasource.EntityLead, datasource.EntityProject}
 
 func (p *Provider) Read(ctx context.Context, ref datasource.EntityRef) (datasource.Record, error) {
 	switch ref.Type {
 	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
 		return p.people.Read(ctx, ref)
-	case datasource.EntityDeal:
+	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Read(ctx, ref)
 	case datasource.EntityActivity:
 		return p.activities.Read(ctx, ref)
@@ -100,7 +100,7 @@ func (p *Provider) Search(ctx context.Context, q datasource.SearchQuery) (dataso
 		switch t {
 		case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
 			records, next, more, err = p.people.SearchEntity(ctx, t, text, limit, cursor)
-		case datasource.EntityDeal:
+		case datasource.EntityDeal, datasource.EntityProject:
 			records, next, more, err = p.deals.SearchEntity(ctx, t, text, limit, cursor)
 		default:
 			return datasource.SearchResult{}, &datasource.UnsupportedEntityError{Type: string(t)}
@@ -120,7 +120,7 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 	switch in.EntityType {
 	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
 		return p.people.Create(ctx, in)
-	case datasource.EntityDeal:
+	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Create(ctx, in)
 	case datasource.EntityActivity:
 		return p.activities.Create(ctx, in)
@@ -133,7 +133,7 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 	switch in.Ref.Type {
 	case datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityLead:
 		return p.people.Update(ctx, in)
-	case datasource.EntityDeal:
+	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Update(ctx, in)
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}
@@ -144,7 +144,7 @@ func (p *Provider) Archive(ctx context.Context, r datasource.EntityRef) (datasou
 	switch r.Type {
 	case datasource.EntityPerson, datasource.EntityOrganization:
 		return p.people.Archive(ctx, r)
-	case datasource.EntityDeal:
+	case datasource.EntityDeal, datasource.EntityProject:
 		return p.deals.Archive(ctx, r)
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(r.Type)}

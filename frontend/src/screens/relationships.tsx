@@ -45,6 +45,7 @@ export type RelationshipScope =
 const KIND_LABELS: Record<RelationshipKind, MessageKey> = {
   employment: "rel.kind.employment",
   deal_stakeholder: "rel.kind.dealStakeholder",
+  project_stakeholder: "rel.kind.projectStakeholder",
   partner_of: "rel.kind.partnerOf",
   referred_by: "rel.kind.referredBy",
   co_sell_with: "rel.kind.coSellWith",

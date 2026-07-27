@@ -140,6 +140,7 @@ func validateRedemptionTarget(ctx context.Context, tx pgx.Tx, a row) error {
 var versionTables = map[string]bool{
 	"person": true, "organization": true, "deal": true, "lead": true, "activity": true,
 	"offer": true, "product": true, "list": true, "tag": true, "relationship": true,
+	"project": true,
 }
 
 // TargetVersionCheckable reports whether a staged approval against this
