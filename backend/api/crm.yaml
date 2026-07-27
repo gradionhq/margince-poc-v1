@@ -896,7 +896,7 @@ paths:
         + `confidence`, or it is ABSENT (the no-guess gate). NOTHING is written to the org until a human
         accepts via /approvals — on accept it fills only the org's EMPTY fields, never overwriting a
         human-set value. A blocked or thin page degrades to 422, zero fabricated fields.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required }
+      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required }
       requestBody:
         required: false
         content:
@@ -945,7 +945,7 @@ paths:
         SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
         while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
         crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required }
+      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required }
       requestBody:
         required: false
         content:

@@ -4,6 +4,7 @@
 package compose
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -147,5 +148,31 @@ func TestCanonicalRESTCallHashesContent(t *testing.T) {
 	_, hEmpty, err := canonicalRESTCall("archivePerson", "/v1/people/x", nil)
 	if err != nil || hEmpty == "" {
 		t.Fatalf("bodyless mutations (DELETE) must canonicalize: %v", err)
+	}
+}
+
+// A confirm-first route that resolves a concrete {id} must declare what
+// KIND of record that id names. The approvals surface scopes an inbox row
+// by probing its target's own/team visibility, and it can only probe a
+// type it was told: a staged row carrying an id with no type is decidable
+// by everyone holding the object grant, whatever their row scope, and its
+// summary and proposed change sit in all their inboxes.
+//
+// Derived from the generated table and the route patterns themselves, so a
+// NEW confirm-first {id} route that forgets record_type fails here rather
+// than in production.
+func TestConfirmFirstIdRoutesDeclareARecordType(t *testing.T) {
+	seen := 0
+	for route, pol := range agentPolicies {
+		if pol.Access != "tool" || pol.Tier == "auto_execute" || !strings.Contains(route, "{id}") {
+			continue
+		}
+		seen++
+		if pol.RecordType == "" {
+			t.Errorf("%s (%s) stages against a concrete record but declares no record_type — the approval it mints cannot be row-scoped", route, pol.Op)
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no confirm-first {id} routes in the generated policy — the pin no longer covers anything")
 	}
 }
