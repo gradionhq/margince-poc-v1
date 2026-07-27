@@ -117,3 +117,82 @@ func TestEveryModuleProbeIsWiredAtTheCompositionRoot(t *testing.T) {
 		}
 	}
 }
+
+// The gate's fail-closed edge, in the shapes a recorded body can actually
+// arrive in. Every one of these must refuse: a body the gate cannot read is a
+// body whose record it cannot name, and serving it on the strength of a parse
+// failure is what this whole path exists to prevent.
+func TestReplayRecordIDFailsClosedOnAnUnusableBody(t *testing.T) {
+	for _, tc := range []struct{ name, body, path string }{
+		{"not JSON at all", `<html>gateway error</html>`, "id"},
+		{"an array where an object was expected", `[{"id":"x"}]`, "id"},
+		{"the field is absent", `{"other":"x"}`, "id"},
+		{"the field is null", `{"id":null}`, "id"},
+		{"the field is a number, not an id", `{"id":42}`, "id"},
+		{"the id is not a UUID", `{"id":"not-a-uuid"}`, "id"},
+		{"a dotted path through a missing parent", `{"lead_id":"x"}`, "person.id"},
+		{"a dotted path through a non-object", `{"person":"x"}`, "person.id"},
+		{"an empty body", ``, "id"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := recordIDAt(tc.body, tc.path); !errors.Is(err, apperrors.ErrNotFound) {
+				t.Fatalf("err = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
+
+func TestReplayRecordIDReadsBothShapes(t *testing.T) {
+	id := ids.NewV7()
+	t.Run("a body that names its own record", func(t *testing.T) {
+		got, err := recordIDAt(`{"id":"`+id.String()+`","full_name":"x"}`, "id")
+		if err != nil || got != id {
+			t.Fatalf("got (%v, %v), want (%s, nil)", got, err, id)
+		}
+	})
+	t.Run("a body that nests it", func(t *testing.T) {
+		got, err := recordIDAt(`{"merged":true,"person":{"id":"`+id.String()+`"}}`, "person.id")
+		if err != nil || got != id {
+			t.Fatalf("got (%v, %v), want (%s, nil)", got, err, id)
+		}
+	})
+}
+
+// A route whose body carries no row-scoped record is allowed through without
+// a probe — the reason is recorded in its entry, and the fitness test holds
+// that reason to the contract.
+func TestReplayAllowsARouteWithNothingToProbe(t *testing.T) {
+	if err := ensureReplayVisible(context.Background(), nil, nil, "POST /v1/products", `{"id":"x"}`); err != nil {
+		t.Fatalf("err = %v, want nil — this body carries no row-scoped record", err)
+	}
+}
+
+// The polymorphic arm resolves its table from the body, so a body that does
+// not name one cannot be probed and must refuse before reaching SQL.
+func TestReplayPolymorphicProbeRefusesWithoutItsTable(t *testing.T) {
+	const grants = "POST /v1/record-grants"
+	for _, body := range []string{`{"record_id":"x"}`, `{"record_type":null,"record_id":"x"}`, `{}`} {
+		if err := ensureReplayVisible(context.Background(), nil, nil, grants, body); !errors.Is(err, apperrors.ErrNotFound) {
+			t.Fatalf("body %s: err = %v, want ErrNotFound", body, err)
+		}
+	}
+}
+
+// A row-scoped route whose recorded body no longer yields its record id
+// refuses before it ever opens a transaction: there is nothing to probe, and
+// "cannot tell" is not "allowed".
+func TestReplayRefusesBeforeQueryingWhenTheIDIsUnreadable(t *testing.T) {
+	for _, tc := range []struct{ name, route, body string }{
+		{"the record's own id is unusable", "PATCH /v1/people/{id}", `{"id":"garbage"}`},
+		{"the referenced parent id is unusable", "POST /v1/offers/{id}/send", `{"id":"x","deal_id":"garbage"}`},
+		{"the nested id is unusable", "POST /v1/leads/{id}/promote", `{"person":{"id":"garbage"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// A nil pool would panic if the gate reached the database, so
+			// surviving this call is itself the assertion that it did not.
+			if err := ensureReplayVisible(context.Background(), nil, nil, tc.route, tc.body); !errors.Is(err, apperrors.ErrNotFound) {
+				t.Fatalf("err = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
