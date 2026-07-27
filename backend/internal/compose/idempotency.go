@@ -87,38 +87,8 @@ func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Ha
 			endpoint := r.Method + " " + r.URL.Path
 
 			outcome, stored := claimKey(r, pool, actor.ID, key, endpoint, digest)
-			switch outcome {
-			case claimReplay:
-				// A replay is a read (API-CC-8): the recorded body only goes
-				// back if the caller can still see the record it carries.
-				if err := ensureReplayVisible(r.Context(), pool, probes, route, stored.body); err != nil {
-					httperr.Write(w, r, err)
-					return
-				}
-				// The replay repeats the ORIGINAL response verbatim —
-				// status, body, and the media type recorded with it (0069),
-				// never a restamped Content-Type.
-				if stored.contentType != "" {
-					w.Header().Set("Content-Type", stored.contentType)
-				}
-				w.WriteHeader(stored.status)
-				if stored.body != "" {
-					_, _ = io.WriteString(w, stored.body)
-				}
-				return
-			case claimInProgress:
-				httperr.Write(w, r, &httperr.DetailedError{
-					Status: http.StatusConflict,
-					Code:   "idempotency_key_conflict",
-					Detail: "a request with this idempotency key is still in progress",
-				})
-				return
-			case claimMismatch:
-				httperr.Write(w, r, &httperr.DetailedError{
-					Status: http.StatusConflict,
-					Code:   "idempotency_key_conflict",
-					Detail: "this idempotency key was already used with a different request body",
-				})
+			if outcome != claimFresh {
+				writeClaimOutcome(w, r, pool, probes, route, outcome, stored)
 				return
 			}
 
@@ -126,6 +96,45 @@ func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Ha
 			next.ServeHTTP(rec, r)
 			settleClaim(r, pool, actor.ID, key, endpoint, rec)
 		})
+	}
+}
+
+// writeClaimOutcome answers a claim that did not win the race: a replay
+// (gated), a first attempt still in flight, or the same key reused for a
+// different body.
+func writeClaimOutcome(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, probes map[string]replayProbe, route string, outcome claimOutcome, stored storedResponse) {
+	switch outcome {
+	case claimReplay:
+		// A replay is a read (API-CC-8): the recorded body only goes back if
+		// the caller can still see the record it carries.
+		if err := ensureReplayVisible(r.Context(), pool, probes, route, stored.body); err != nil {
+			httperr.Write(w, r, err)
+			return
+		}
+		// The replay repeats the ORIGINAL response verbatim — status, body,
+		// and the media type recorded with it (0069), never a restamped
+		// Content-Type.
+		if stored.contentType != "" {
+			w.Header().Set("Content-Type", stored.contentType)
+		}
+		w.WriteHeader(stored.status)
+		if stored.body != "" {
+			_, _ = io.WriteString(w, stored.body)
+		}
+	case claimInProgress:
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "idempotency_key_conflict",
+			Detail: "a request with this idempotency key is still in progress",
+		})
+	case claimMismatch:
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "idempotency_key_conflict",
+			Detail: "this idempotency key was already used with a different request body",
+		})
+	case claimFresh:
+		// Unreachable: the caller returns early only for a non-fresh claim.
 	}
 }
 
