@@ -67,6 +67,8 @@ func (r *Registry) Register(s Site) {
 func (r *Registry) BindCase(c CaseFactory) { r.cases[c.Site().key()] = c }
 
 // CaseFor finds the case bound to one site.
+//
+//nolint:ireturn // CaseFactory IS the seam: one implementation per site behind the one interface the cert lane takes.
 func (r *Registry) CaseFor(task ai.Task, variant string) (CaseFactory, bool) {
 	c, ok := r.cases[string(task)+"/"+variant]
 	return c, ok
@@ -126,6 +128,21 @@ func (r *Registry) Validate() error {
 		}
 	}
 
+	problems = append(problems, r.statusProblems()...)
+
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return fmt.Errorf("aitasks: census does not match the task contract:\n  %s", strings.Join(problems, "\n  "))
+	}
+	return nil
+}
+
+// statusProblems holds the registered set to what the contract says each task's
+// lifecycle is: a shipped task owes every site it declares, and a planned task
+// owes none — a site registered against one is code the contract has not yet
+// admitted exists.
+func (r *Registry) statusProblems() []string {
+	var problems []string
 	for _, task := range ai.AllTasks() {
 		switch ai.Status(task) {
 		case ai.StatusShipped:
@@ -144,12 +161,7 @@ func (r *Registry) Validate() error {
 			}
 		}
 	}
-
-	if len(problems) > 0 {
-		sort.Strings(problems)
-		return fmt.Errorf("aitasks: census does not match the task contract:\n  %s", strings.Join(problems, "\n  "))
-	}
-	return nil
+	return problems
 }
 
 // The two things a certification run can actually cover.

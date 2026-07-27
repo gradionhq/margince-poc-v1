@@ -19,9 +19,11 @@ type stubCase struct{ site aitasks.Site }
 
 func (s stubCase) Site() aitasks.Site                                    { return s.site }
 func (s stubCase) Prepare(json.RawMessage) (aitasks.PreparedCase, error) { return s, nil }
+
 func (s stubCase) Run(context.Context, aitasks.Completer) (aitasks.Trace, error) {
 	return aitasks.Trace{Output: "{}"}, nil
 }
+
 func (s stubCase) Evaluate(aitasks.Trace) aitasks.Outcome {
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted}
 }
