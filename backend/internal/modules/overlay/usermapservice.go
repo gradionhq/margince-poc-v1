@@ -259,6 +259,16 @@ func (s *Service) ownerDirectory(ctx context.Context, incumbent string) (OwnerDi
 // for the missing field before reaching here (handlers_usermap.go); this is
 // the backstop for every other caller, spelled as the same existence-hiding
 // ErrNotFound the store answers for an unaddressable target.
+//
+// A NON-empty incumbentUserID is taken as given: the incumbent's directory is
+// deliberately not consulted. An id no owner carries grants nothing — no
+// mirrored record is owned by it, so recomputeForOwnerTx produces no
+// visibility, and the surface renders the row as a stale mapping — whereas a
+// directory read here would make every pin depend on the incumbent being
+// reachable, which is precisely the moment this remedy is needed: automatic
+// email matching has already failed. It is the stance the surface already
+// takes for a mapping whose owner has since left the directory
+// (stale_owner_ref): report it, never withhold the human's override.
 func (s *Service) SetUserMap(ctx context.Context, appUser ids.UserID, incumbentUserID string) error {
 	if err := requireUserMapAdmin(ctx); err != nil {
 		return err
