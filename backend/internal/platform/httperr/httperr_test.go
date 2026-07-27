@@ -105,10 +105,10 @@ func TestWrite_datasourceSeamRefusalsAreClientFaults(t *testing.T) {
 		body  string
 	}{
 		{
-			name:  "an entity_type no provider serves",
-			err:   &datasource.UnsupportedEntityError{Type: "compnay"},
+			name:  "an entity_type no provider on this installation serves",
+			err:   &datasource.UnsupportedEntityError{Type: "pipeline"},
 			field: "entity_type",
-			body:  "compnay",
+			body:  "pipeline",
 		},
 		{
 			name:  "a write payload the seam could not decode",
