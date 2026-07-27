@@ -237,3 +237,30 @@ func (h Handlers) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 func (h Handlers) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	httperr.NotImplemented(w, r, "executeOverlayFlip")
 }
+
+// ListOverlayUserMap lists the workspace users' incumbent-user mapping.
+// Contract-only placeholder (RC-15/ADR-0057): the admin user-map store and
+// RBAC-gated read land separately.
+func (h Handlers) ListOverlayUserMap(w http.ResponseWriter, r *http.Request, _ crmcontracts.ListOverlayUserMapParams) {
+	httperr.NotImplemented(w, r, "listOverlayUserMap")
+}
+
+// SetOverlayUserMap pins one user to an incumbent user as a manual admin
+// override. Contract-only placeholder; the mapping write lands separately.
+func (h Handlers) SetOverlayUserMap(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "setOverlayUserMap")
+}
+
+// DeleteOverlayUserMap unmaps one user and blocks automatic re-mapping.
+// Contract-only placeholder; the unmap + automap-block write lands
+// separately.
+func (h Handlers) DeleteOverlayUserMap(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "deleteOverlayUserMap")
+}
+
+// ListOverlayOwners lists the connected incumbent's user directory for the
+// mapping picker. Contract-only placeholder; the Incumbent Owners() read
+// lands separately.
+func (h Handlers) ListOverlayOwners(w http.ResponseWriter, r *http.Request) {
+	httperr.NotImplemented(w, r, "listOverlayOwners")
+}

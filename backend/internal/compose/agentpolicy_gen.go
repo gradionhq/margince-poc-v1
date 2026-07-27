@@ -30,6 +30,7 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/offers/{id}/line-items/{lineItemId}":                     {Op: "removeOfferLineItem", Access: "tool", Tool: "update_record", RecordType: "offer", Tier: "auto_execute"},
 	"DELETE /v1/organizations/{id}":                                      {Op: "archiveOrganization", Access: "tool", Tool: "archive_record", RecordType: "organization", Tier: "confirmation_required"},
 	"DELETE /v1/overlay/connection":                                      {Op: "disconnectOverlay", Access: "tool", Tool: "disconnect_incumbent", RecordType: "overlay_connection", Tier: "confirmation_required"},
+	"DELETE /v1/overlay/user-map/{id}":                                   {Op: "deleteOverlayUserMap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/passports/{id}":                                          {Op: "revokePassport", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/people/{id}":                                             {Op: "archivePerson", Access: "tool", Tool: "archive_record", RecordType: "person", Tier: "confirmation_required"},
 	"DELETE /v1/products/{id}":                                           {Op: "archiveProduct", Access: "tool", Tool: "archive_record", RecordType: "product", Tier: "confirmation_required"},
@@ -168,5 +169,6 @@ var agentPolicies = map[string]agentPolicy{
 	"PUT /v1/offer-templates/{id}":                                       {Op: "updateOfferTemplate", Access: "tool", Tool: "update_record", RecordType: "offer_template", Tier: "auto_execute"},
 	"PUT /v1/onboarding/state":                                           {Op: "putOnboardingState", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/organizations/{id}/partner":                                 {Op: "upsertPartner", Access: "tool", Tool: "update_record", RecordType: "partner", Tier: "auto_execute"},
+	"PUT /v1/overlay/user-map/{id}":                                      {Op: "setOverlayUserMap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PUT /v1/public/preferences/{token}":                                 {Op: "updatePreferences", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 }

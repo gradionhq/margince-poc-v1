@@ -3801,6 +3801,54 @@ func (e OverlaySyncStatusObjectsState) Valid() bool {
 	}
 }
 
+// Defines values for OverlayUserMapEntryMatchSource.
+const (
+	OverlayUserMapEntryMatchSourceEmail  OverlayUserMapEntryMatchSource = "email"
+	OverlayUserMapEntryMatchSourceManual OverlayUserMapEntryMatchSource = "manual"
+)
+
+// Valid indicates whether the value is a known member of the OverlayUserMapEntryMatchSource enum.
+func (e OverlayUserMapEntryMatchSource) Valid() bool {
+	switch e {
+	case OverlayUserMapEntryMatchSourceEmail:
+		return true
+	case OverlayUserMapEntryMatchSourceManual:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayUserMapEntryUnmappedReason.
+const (
+	OverlayUserMapEntryUnmappedReasonAmbiguousEmail       OverlayUserMapEntryUnmappedReason = "ambiguous_email"
+	OverlayUserMapEntryUnmappedReasonBlockedByAdmin       OverlayUserMapEntryUnmappedReason = "blocked_by_admin"
+	OverlayUserMapEntryUnmappedReasonDirectoryUnavailable OverlayUserMapEntryUnmappedReason = "directory_unavailable"
+	OverlayUserMapEntryUnmappedReasonNoEmailMatch         OverlayUserMapEntryUnmappedReason = "no_email_match"
+	OverlayUserMapEntryUnmappedReasonNone                 OverlayUserMapEntryUnmappedReason = "none"
+	OverlayUserMapEntryUnmappedReasonNotYetSynced         OverlayUserMapEntryUnmappedReason = "not_yet_synced"
+)
+
+// Valid indicates whether the value is a known member of the OverlayUserMapEntryUnmappedReason enum.
+func (e OverlayUserMapEntryUnmappedReason) Valid() bool {
+	switch e {
+	case OverlayUserMapEntryUnmappedReasonAmbiguousEmail:
+		return true
+	case OverlayUserMapEntryUnmappedReasonBlockedByAdmin:
+		return true
+	case OverlayUserMapEntryUnmappedReasonDirectoryUnavailable:
+		return true
+	case OverlayUserMapEntryUnmappedReasonNoEmailMatch:
+		return true
+	case OverlayUserMapEntryUnmappedReasonNone:
+		return true
+	case OverlayUserMapEntryUnmappedReasonNotYetSynced:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PartnerCertStatus.
 const (
 	PartnerCertStatusApplied   PartnerCertStatus = "applied"
@@ -5333,31 +5381,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -5705,22 +5753,22 @@ func (e VoiceProfileEvaluationRepeatsPerPrompt) Valid() bool {
 
 // Defines values for VoiceProfileVersionReason.
 const (
-	VoiceProfileVersionReasonAutomatic  VoiceProfileVersionReason = "automatic"
-	VoiceProfileVersionReasonManual     VoiceProfileVersionReason = "manual"
-	VoiceProfileVersionReasonOnboarding VoiceProfileVersionReason = "onboarding"
-	VoiceProfileVersionReasonRollback   VoiceProfileVersionReason = "rollback"
+	Automatic  VoiceProfileVersionReason = "automatic"
+	Manual     VoiceProfileVersionReason = "manual"
+	Onboarding VoiceProfileVersionReason = "onboarding"
+	Rollback   VoiceProfileVersionReason = "rollback"
 )
 
 // Valid indicates whether the value is a known member of the VoiceProfileVersionReason enum.
 func (e VoiceProfileVersionReason) Valid() bool {
 	switch e {
-	case VoiceProfileVersionReasonAutomatic:
+	case Automatic:
 		return true
-	case VoiceProfileVersionReasonManual:
+	case Manual:
 		return true
-	case VoiceProfileVersionReasonOnboarding:
+	case Onboarding:
 		return true
-	case VoiceProfileVersionReasonRollback:
+	case Rollback:
 		return true
 	default:
 		return false
@@ -9840,6 +9888,20 @@ type OverlayConnectionIncumbent string
 // OverlayConnectionStatus defines model for OverlayConnection.Status.
 type OverlayConnectionStatus string
 
+// OverlayOwner defines model for OverlayOwner.
+type OverlayOwner struct {
+	Email           string  `json:"email"`
+	IncumbentUserId string  `json:"incumbent_user_id"`
+	Name            *string `json:"name,omitempty"`
+}
+
+// OverlayOwnerDirectory defines model for OverlayOwnerDirectory.
+type OverlayOwnerDirectory struct {
+	Incumbent string         `json:"incumbent"`
+	Owners    []OverlayOwner `json:"owners"`
+	Truncated bool           `json:"truncated"`
+}
+
 // OverlaySyncStatus Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7).
 type OverlaySyncStatus struct {
 	Objects *[]struct {
@@ -9852,6 +9914,40 @@ type OverlaySyncStatus struct {
 
 // OverlaySyncStatusObjectsState defines model for OverlaySyncStatus.Objects.State.
 type OverlaySyncStatusObjectsState string
+
+// OverlayUserMapEntry defines model for OverlayUserMapEntry.
+type OverlayUserMapEntry struct {
+	Email              string  `json:"email"`
+	IncumbentUserEmail *string `json:"incumbent_user_email,omitempty"`
+
+	// IncumbentUserId Empty when the user is not mapped.
+	IncumbentUserId   *string `json:"incumbent_user_id,omitempty"`
+	IncumbentUserName *string `json:"incumbent_user_name,omitempty"`
+
+	// MatchSource Absent when the user is not mapped.
+	MatchSource *OverlayUserMapEntryMatchSource `json:"match_source,omitempty"`
+	Name        *string                         `json:"name,omitempty"`
+
+	// StaleOwnerRef A manual mapping pointing at an incumbent user absent from the current directory. Reported, never auto-revoked: the override stays sticky.
+	StaleOwnerRef *bool `json:"stale_owner_ref,omitempty"`
+
+	// UnmappedReason Why this user has no mapping. `none` means they are mapped. `directory_unavailable` means the incumbent directory could not be read, so no reason could be derived — never a guessed diagnosis.
+	UnmappedReason OverlayUserMapEntryUnmappedReason `json:"unmapped_reason"`
+	UserId         openapi_types.UUID                `json:"user_id"`
+}
+
+// OverlayUserMapEntryMatchSource Absent when the user is not mapped.
+type OverlayUserMapEntryMatchSource string
+
+// OverlayUserMapEntryUnmappedReason Why this user has no mapping. `none` means they are mapped. `directory_unavailable` means the incumbent directory could not be read, so no reason could be derived — never a guessed diagnosis.
+type OverlayUserMapEntryUnmappedReason string
+
+// OverlayUserMapPage defines model for OverlayUserMapPage.
+type OverlayUserMapPage struct {
+	Entries    []OverlayUserMapEntry `json:"entries"`
+	Incumbent  string                `json:"incumbent"`
+	NextCursor *string               `json:"next_cursor,omitempty"`
+}
 
 // PageInfo defines model for PageInfo.
 type PageInfo struct {
@@ -10649,6 +10745,11 @@ type SetFxRateRequest struct {
 
 	// Rate Positive decimal (from -> base). Plain decimal, up to 10 integer and 10 fractional digits.
 	Rate string `json:"rate"`
+}
+
+// SetOverlayUserMapRequest defines model for SetOverlayUserMapRequest.
+type SetOverlayUserMapRequest struct {
+	IncumbentUserId string `json:"incumbent_user_id"`
 }
 
 // Signal A surfaced "something changed / worth attention" item. Mirrors the `signal` table:
@@ -12860,6 +12961,22 @@ type UpsertPartnerParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// ListOverlayUserMapParams defines parameters for ListOverlayUserMap.
+type ListOverlayUserMapParams struct {
+	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+	// effective `sort` of the originating request (field + direction) plus the last row's keyset
+	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+	// together with a `sort` that differs from the one the cursor was minted under returns
+	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+	// remaining pages see, so re-issue the query without the cursor when changing filters.
+	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+
+	// Limit Max items in the page.
+	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
 // ListPartnersParams defines parameters for ListPartners.
 type ListPartnersParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -13978,6 +14095,9 @@ type UpsertPartnerJSONRequestBody = UpsertPartnerRequest
 
 // ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
 type ConnectOverlayJSONRequestBody = OverlayConnectRequest
+
+// SetOverlayUserMapJSONRequestBody defines body for SetOverlayUserMap for application/json ContentType.
+type SetOverlayUserMapJSONRequestBody = SetOverlayUserMapRequest
 
 // IssuePassportJSONRequestBody defines body for IssuePassport for application/json ContentType.
 type IssuePassportJSONRequestBody = IssuePassportRequest
@@ -19423,12 +19543,24 @@ type ServerInterface interface {
 	// Dry-run the read-mode→overlay flip's readiness checks without executing it.
 	// (POST /overlay/flip:preflight)
 	PreflightOverlayFlip(w http.ResponseWriter, r *http.Request)
+	// The connected incumbent's user directory, for the mapping picker.
+	// (GET /overlay/owners)
+	ListOverlayOwners(w http.ResponseWriter, r *http.Request)
 	// Queue an out-of-band mirror reconciliation sweep.
 	// (POST /overlay/reconcile)
 	ReconcileOverlay(w http.ResponseWriter, r *http.Request)
 	// Per-object mirror sync freshness (fresh/pending_sync/stale, backfill completeness).
 	// (GET /overlay/sync-status)
 	GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request)
+	// The workspace users' incumbent-user mapping, with unmapped users flagged.
+	// (GET /overlay/user-map)
+	ListOverlayUserMap(w http.ResponseWriter, r *http.Request, params ListOverlayUserMapParams)
+	// Unmap one user and stop automatic email matching from re-mapping them.
+	// (DELETE /overlay/user-map/{id})
+	DeleteOverlayUserMap(w http.ResponseWriter, r *http.Request, id Id)
+	// Pin one user to an incumbent user as a manual admin override.
+	// (PUT /overlay/user-map/{id})
+	SetOverlayUserMap(w http.ResponseWriter, r *http.Request, id Id)
 	// List partner organizations (orgs with a partner row), filterable by role/cert status.
 	// (GET /partners)
 	ListPartners(w http.ResponseWriter, r *http.Request, params ListPartnersParams)
@@ -20692,6 +20824,12 @@ func (_ Unimplemented) PreflightOverlayFlip(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The connected incumbent's user directory, for the mapping picker.
+// (GET /overlay/owners)
+func (_ Unimplemented) ListOverlayOwners(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Queue an out-of-band mirror reconciliation sweep.
 // (POST /overlay/reconcile)
 func (_ Unimplemented) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
@@ -20701,6 +20839,24 @@ func (_ Unimplemented) ReconcileOverlay(w http.ResponseWriter, r *http.Request) 
 // Per-object mirror sync freshness (fresh/pending_sync/stale, backfill completeness).
 // (GET /overlay/sync-status)
 func (_ Unimplemented) GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The workspace users' incumbent-user mapping, with unmapped users flagged.
+// (GET /overlay/user-map)
+func (_ Unimplemented) ListOverlayUserMap(w http.ResponseWriter, r *http.Request, params ListOverlayUserMapParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Unmap one user and stop automatic email matching from re-mapping them.
+// (DELETE /overlay/user-map/{id})
+func (_ Unimplemented) DeleteOverlayUserMap(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Pin one user to an incumbent user as a manual admin override.
+// (PUT /overlay/user-map/{id})
+func (_ Unimplemented) SetOverlayUserMap(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -28415,6 +28571,26 @@ func (siw *ServerInterfaceWrapper) PreflightOverlayFlip(w http.ResponseWriter, r
 	handler.ServeHTTP(w, r)
 }
 
+// ListOverlayOwners operation middleware
+func (siw *ServerInterfaceWrapper) ListOverlayOwners(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOverlayOwners(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ReconcileOverlay operation middleware
 func (siw *ServerInterfaceWrapper) ReconcileOverlay(w http.ResponseWriter, r *http.Request) {
 
@@ -28450,6 +28626,122 @@ func (siw *ServerInterfaceWrapper) GetOverlaySyncStatus(w http.ResponseWriter, r
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOverlaySyncStatus(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListOverlayUserMap operation middleware
+func (siw *ServerInterfaceWrapper) ListOverlayUserMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListOverlayUserMapParams
+
+	// ------------- Optional query parameter "cursor" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "cursor", r.URL.Query(), &params.Cursor, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "cursor"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "cursor", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListOverlayUserMap(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteOverlayUserMap operation middleware
+func (siw *ServerInterfaceWrapper) DeleteOverlayUserMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteOverlayUserMap(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetOverlayUserMap operation middleware
+func (siw *ServerInterfaceWrapper) SetOverlayUserMap(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetOverlayUserMap(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -34224,10 +34516,22 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/overlay/flip:preflight", wrapper.PreflightOverlayFlip)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/owners", wrapper.ListOverlayOwners)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/reconcile", wrapper.ReconcileOverlay)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/overlay/sync-status", wrapper.GetOverlaySyncStatus)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/user-map", wrapper.ListOverlayUserMap)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/overlay/user-map/{id}", wrapper.DeleteOverlayUserMap)
+	})
+	r.Group(func(r chi.Router) {
+		r.Put(options.BaseURL+"/overlay/user-map/{id}", wrapper.SetOverlayUserMap)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/partners", wrapper.ListPartners)
