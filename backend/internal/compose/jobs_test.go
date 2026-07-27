@@ -75,7 +75,7 @@ func TestOverlaySweepAbortsToleratesBestEffortClassInaccessibility(t *testing.T)
 }
 
 // TestReconcileConnectionRejectsANonHubSpotIncumbent proves
-// reconcileConnection's first, no-DB-touched guard: branch 1 wires only
+// reconcileConnection's incumbent-adapter guard, which touches no DB: branch 1 wires only
 // HubSpot (design.md §2 D2/D3), so a due connection naming any other
 // incumbent is an honest, named gap — returned before the vaulted token
 // is even resolved, which is why this is safe to call with a nil vault/

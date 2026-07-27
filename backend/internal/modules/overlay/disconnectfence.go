@@ -62,9 +62,10 @@ var ErrConnectionGone = errors.New("overlay: the incumbent connection was revoke
 // status: incumbent_connection.connected_at is reset on revive and written
 // nowhere else, so carrying (id, connected_at) onto the fenced store and
 // asserting both here rejects a caller that outlived its own connection.
-// Until that lands the straddle is SILENT, because ReconcileFloor removed the
-// accidental epoch-wide re-read that used to refill the mirror on the next
-// tick — an emptied class now reports backfill-complete and stays empty.
+// Until that lands the straddle is SILENT: the incremental sweep is floored at
+// the connection's own connected_at (ReconcileFloor), so nothing re-reads the
+// pre-connection window and an emptied class reports backfill-complete while
+// staying empty.
 //
 // The GUC is read WITHOUT missing_ok, exactly as lockWorkspaceVisibility is:
 // a fenced write with app.workspace_id unset RAISEs rather than resolving to
