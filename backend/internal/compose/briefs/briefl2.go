@@ -9,7 +9,7 @@ package briefs
 // no frontier reinvention): the model may re-order but can never inject a
 // deal below the §10 cutoff, drop the set below it, or ship a claim with
 // no evidence. That guarantee is enforced HERE, deterministically, in
-// boundToCandidates — not trusted to the model. When the model is
+// BoundToCandidates — not trusted to the model. When the model is
 // unavailable or answers malformed, the ranker returns the deterministic
 // composite order unchanged (the AI-off fallback rank, §10.1).
 
@@ -68,15 +68,44 @@ func (rk briefL2Ranker) reorder(ctx context.Context, candidates []BriefQueueItem
 		rk.log.WarnContext(ctx, "brief: L2 re-order unavailable — using the deterministic composite order", "err", err)
 		return candidates
 	}
-	return boundToCandidates(order, candidates)
+	return BoundToCandidates(order, candidates)
 }
 
-// askModel builds the re-order prompt from the candidates' feature
-// vectors, calls the model, and parses the ordered id list. The feature
-// vector — not raw graph rows — is what the deterministic layer hands the
-// L2 ranker (§10.1 output); it is the same no-mystery-number basis the
-// rep sees, so the model reasons over exactly the evidenced factors.
+// askModel asks the model for a re-order and reads the id list back. Both
+// halves are pure functions of plain data, exported below so the
+// certification lane runs THEM rather than a re-creation: a copy of a
+// prompt stays green through the change that breaks the original.
 func (rk briefL2Ranker) askModel(ctx context.Context, candidates []BriefQueueItem) ([]ids.UUID, error) {
+	resp, err := rk.brain.Complete(ctx, RankRequest(candidates))
+	if err != nil {
+		return nil, err
+	}
+	return ParseRankOrder(resp.Text)
+}
+
+// RankRequest builds the re-order prompt from the candidates' feature
+// vectors. The feature vector — not raw graph rows — is what the
+// deterministic layer hands the L2 ranker (§10.1 output); it is the same
+// no-mystery-number basis the rep sees, so the model reasons over exactly
+// the evidenced factors.
+//
+// NOTHING UNTRUSTED REACHES THIS PROMPT. Every byte it renders is
+// machine-made: deal ids this installation minted and factors the
+// deterministic §10.1 fold computed. That is why the request declares no
+// data boundary and wraps nothing in a promptfence — there is no
+// attacker-authored span to bound, and a fence around numbers would be a
+// boundary sentence with nothing behind it.
+//
+// A field carrying anything a human or a counterparty wrote — a deal name,
+// a note, a subject line — changes that on the spot: it would need
+// promptfence.Wrap around the span and fence.Rule in the system prompt,
+// neither of which this site has today. Adding one without the other is
+// how an ordinary product improvement becomes an injection surface.
+//
+// The reply is likewise a closed shape (ids, nothing else), so the request
+// carries no ResponseSchema: BoundToCandidates enforces the shape that
+// matters regardless of what the model returns.
+func RankRequest(candidates []BriefQueueItem) model.Request {
 	var b strings.Builder
 	b.WriteString("Candidates:\n")
 	for _, item := range candidates {
@@ -84,33 +113,39 @@ func (rk briefL2Ranker) askModel(ctx context.Context, candidates []BriefQueueIte
 		fmt.Fprintf(&b, "- %s: winnability=%.2f revenue=%.2f timing=%.2f momentum=%.2f warmth=%.2f (composite=%.3f)\n",
 			item.DealID, f.Winnability, f.Revenue, f.Timing, f.Momentum, f.Warmth, item.Composite)
 	}
-
-	resp, err := rk.brain.Complete(ctx, model.Request{
+	return model.Request{
 		System:         briefL2System,
 		Messages:       []model.Message{{Role: "user", Content: b.String()}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
-	})
-	if err != nil {
-		return nil, err
 	}
+}
 
+// ParseRankOrder reads the ordered id list out of a reply. It is this
+// site's ONLY refusal: a reply that cannot be read degrades the whole L2
+// pass to the deterministic composite order, while a reply that can be
+// read is bounded rather than rejected — see BoundToCandidates.
+func ParseRankOrder(text string) ([]ids.UUID, error) {
 	var parsed struct {
 		Order []ids.UUID `json:"order"`
 	}
-	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &parsed); err != nil {
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &parsed); err != nil {
 		return nil, fmt.Errorf("brief: L2 response is not {\"order\":[...]}: %w", err)
 	}
 	return parsed.Order, nil
 }
 
-// boundToCandidates is the deterministic guardrail that makes the L2
+// BoundToCandidates is the deterministic guardrail that makes the L2
 // layer safe (B-E05.2): whatever ids the model returned, the result is
 // exactly a permutation of the candidate set. A hallucinated or duplicate
 // id can never enter the queue, and a candidate the model omitted keeps
 // its deterministic slot at the tail — so the model re-orders the set but
 // can never shrink it below the §10 cutoff or drop an evidenced deal.
-func boundToCandidates(order []ids.UUID, candidates []BriefQueueItem) []BriefQueueItem {
+//
+// It repairs rather than refuses, which is what keeps a bad reply from
+// failing a rep's morning — and it is why a reply that needed repairing is
+// only visible by comparing what the model said against what this returns.
+func BoundToCandidates(order []ids.UUID, candidates []BriefQueueItem) []BriefQueueItem {
 	byID := make(map[ids.UUID]BriefQueueItem, len(candidates))
 	for _, c := range candidates {
 		byID[c.DealID] = c

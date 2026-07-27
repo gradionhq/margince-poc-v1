@@ -19,11 +19,23 @@ import (
 	"strconv"
 	"strings"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
+
+// rateCardLookup is the ONE catalogue read the price ladder makes: the
+// re-read of the product a candidate cited, which is what lets a price
+// come from the workspace's own rate card instead of from the model's
+// word for it. It carries that one method and no more — the ladder needs
+// no other read, and a wider seam would be a second thing to keep true.
+// *deals.Store serves it in production; the rules below are gated
+// against a fixture that serves it from a map.
+type rateCardLookup interface {
+	GetProduct(ctx context.Context, id ids.ProductID, archived storekit.ArchivedFilter) (crmcontracts.Product, error)
+}
 
 // resolvePrice is the price-grounding ladder (features/07 §8b, poc-1's
 // price_grounded convention, OFFER-AC-14): a price the evidence itself
@@ -47,7 +59,7 @@ func (d offerDrafter) resolvePrice(ctx context.Context, c offerLineCandidate, sn
 	}
 	if productID := strings.TrimSpace(c.ProductID); productID != "" {
 		if id, err := ids.ParseAs[ids.ProductKind](productID); err == nil {
-			product, err := d.deals.GetProduct(ctx, id, storekit.LiveOnly)
+			product, err := d.rateCard.GetProduct(ctx, id, storekit.LiveOnly)
 			switch {
 			case err == nil && product.Currency == currency:
 				line.UnitPriceMinor = product.UnitPriceMinor

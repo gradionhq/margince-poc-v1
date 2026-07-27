@@ -28,14 +28,20 @@ import (
 // ai_call_payload: the identifying metadata plus the two jsonb payload
 // columns under their table names (request_payload / response_payload), so a
 // trace line is the same shape a `SELECT` over those two tables would give.
-// role and scenario/run are the trace-only context that tells two otherwise
-// identical lines apart (which router, which repeat) — the DB carries the
-// same distinction across ai_call.task and the correlation/agent ids.
+// role, scenario, run and call are the trace-only context that tells two
+// otherwise identical lines apart (which router, which repeat, which call
+// within it) — the DB carries the same distinction across ai_call.task and the
+// correlation/agent ids.
 type tracedCall struct {
-	Task            string          `json:"task"`
-	Role            string          `json:"role"` // candidate | judge
-	Scenario        string          `json:"scenario"`
-	Run             int             `json:"run"`
+	Task     string `json:"task"`
+	Role     string `json:"role"` // candidate | judge
+	Scenario string `json:"scenario"`
+	Run      int    `json:"run"`
+	// Call is this call's 1-based position within the run. A run is not one
+	// call — a site retries, falls back, or turns a loop, and the judge is
+	// asked twice on a parse failure — so without it a reader cannot tell the
+	// draft that was served from the attempt it replaced.
+	Call            int             `json:"call"`
 	Tier            string          `json:"tier"`
 	Provider        string          `json:"provider"`
 	ModelID         string          `json:"model_id"`
@@ -93,7 +99,7 @@ func openPayloadTrace(dir string, stamp string) (*payloadTrace, error) {
 // attempt carries no Payload (capture off, or an error/cache-hit path that
 // captures nothing) is skipped rather than written as a hollow line — the
 // trace shows only calls it can actually explain.
-func (t *payloadTrace) record(role string, task ai.Task, sc Scenario, run int, c ai.Call) error {
+func (t *payloadTrace) record(role string, task ai.Task, sc Scenario, run, call int, c ai.Call) error {
 	if t == nil || c.Payload == nil {
 		return nil
 	}
@@ -102,6 +108,7 @@ func (t *payloadTrace) record(role string, task ai.Task, sc Scenario, run int, c
 		Role:            role,
 		Scenario:        sc.Name,
 		Run:             run,
+		Call:            call,
 		Tier:            string(c.Tier),
 		Provider:        c.Provider,
 		ModelID:         c.ModelID,
@@ -121,17 +128,23 @@ func (t *payloadTrace) record(role string, task ai.Task, sc Scenario, run int, c
 	return nil
 }
 
-// traceCall writes one call to the trace best-effort: a write failure is
-// logged and swallowed here, never returned to the caller. The trace is an
-// opt-in diagnostic side-channel; it must not become a new way for a
+// traceCalls writes every call one run made to the trace, best-effort: a write
+// failure is logged and swallowed here, never returned to the caller. The trace
+// is an opt-in diagnostic side-channel; it must not become a new way for a
 // completed, paid model call to fail — the same posture the production
 // router already holds for this exact post-stripper content (ai/tracing.go:
 // "payload capture must not become a new way for a working model call to
 // fail"). The error is heard (logged with what and where), not ignored.
-func traceCall(ctx context.Context, t *payloadTrace, role string, task ai.Task, sc Scenario, run int, c ai.Call, log *slog.Logger) {
-	if err := t.record(role, task, sc, run, c); err != nil {
-		log.WarnContext(ctx, "aicert: payload trace write failed — run continues",
-			"task", string(task), "scenario", sc.Name, "role", role, "run", run, "err", err)
+//
+// Every call, not the last one: the trace exists so an author can read exactly
+// what each model saw and said, and the reply a site served often comes from
+// the second or third request it sent.
+func traceCalls(ctx context.Context, t *payloadTrace, role string, task ai.Task, sc Scenario, run int, calls []ai.Call, log *slog.Logger) {
+	for i, c := range calls {
+		if err := t.record(role, task, sc, run, i+1, c); err != nil {
+			log.WarnContext(ctx, "aicert: payload trace write failed — run continues",
+				"task", string(task), "scenario", sc.Name, "role", role, "run", run, "call", i+1, "err", err)
+		}
 	}
 }
 

@@ -253,7 +253,7 @@ crawls and stages).
 |---|---|---|
 | `fx_source` | `https://api.frankfurter.dev/v1/latest` | Base-relative FX JSON API (`{base,rates}`, queried `?base=&symbols=`). The default is the free, no-key ECB feed. |
 | `fx_currencies` | `[USD, GBP, CHF]` | Candidate foreign currencies the FX refresh proposes to **bootstrap an empty rate sheet** — a fresh install tracks none, so without a candidate set the refresh would have nothing to fetch. Once the sheet has rows, the refresh re-prices exactly those tracked currencies and this set is unused. Each entry must be **ISO 4217-shaped** (three uppercase letters) and unique, or boot fails — the same shape check as `base_currency`; existence is not verified, so a well-formed but unsupported code (`USX`) parses and is then skipped by the source with a logged warning rather than a staged proposal. |
-| `model_pricing` | *(none)* | Maps a provider name to its pricing-page URL the model-cost refresh crawls and AI-extracts (the `rate_extract` task, certified for Gemini). A plain `GET` must yield the price text — Google's docs page does; many JS-rendered marketing pages yield none. |
+| `model_pricing` | *(none)* | Maps a provider name to its pricing-page URL the model-cost refresh crawls and AI-extracts (the `rate_extract` task — `make e2e-ai-report` says what any binding has been certified to). A plain `GET` must yield the price text — Google's docs page does; many JS-rendered marketing pages yield none. |
 
 The **model-cost refresh** needs both a `model_pricing` entry **and** a bound
 `rate_extract` model (in `ai-routing.yaml`); absent either, it no-ops. The **FX

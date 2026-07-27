@@ -169,7 +169,11 @@ deps:
   root:
     # publicevents_test.go reads crmcontracts.PublicEventVersions — the
     # authoritative catalog gate walks the generated contract directly.
-    mayDependOn: [contracts]
+    # aitaskcensus_test.go builds compose.NewTaskCensus: the AI
+    # invocation-site census is assembled in the composition layer, so the
+    # fitness function that holds it to the task contract has to construct
+    # it. Root carries test files only, so this grants no production edge.
+    mayDependOn: [contracts, compose]
     canUse: [yaml]
   cmd:
     mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, webhooks, contracts, platform, migrations]

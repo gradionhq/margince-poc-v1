@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -179,6 +180,61 @@ type voiceEvalDraft struct {
 	score   float64
 }
 
+// voiceEvalDraftRequest is ONE held-out drafting call. The repeat index is part
+// of the prompt: the same held-out sample is drafted voiceEvalRepeatsPerPrompt
+// times, and a model asked the byte-identical question three times has every
+// reason to answer it identically three times.
+func voiceEvalDraftRequest(personality string, artifact ai.VoiceArtifact, sample ai.VoiceSample, repeat int) model.Request {
+	// One fence per call, so the profile block and the excerpt are bounded by
+	// the marker THIS call's system prompt names.
+	fence := promptfence.New()
+	profileBlock := voiceDraftPromptBlock(personality, artifact.Markdown, artifact.Exemplars, artifact.Stats, fence)
+	return model.Request{
+		System: voiceEvalDraftSystemFor(fence),
+		Messages: []model.Message{{Role: chatRoleUser, Content: profileBlock + "\n\n" + evalTaskFor(sample, fence) +
+			fmt.Sprintf("\n(variation %d)", repeat+1)}},
+		MaxTokens:      1200,
+		ResponseSchema: replyDraftSchema,
+		SecretStripper: ai.NewSecretStripper(),
+	}
+}
+
+// voiceEvalDraftReply is one held-out draft as the evaluation keeps it:
+// sanitized, because sanitized is what is cached for the profile screen, and
+// carrying the deterministic tells the anti-AI floor still finds in it.
+type voiceEvalDraftReply struct {
+	subject string
+	body    string
+	tells   []ai.VoiceViolation
+}
+
+// readVoiceEvalDraft is the evaluation's own reading of one draft reply. A
+// draft it cannot read scores zero AND leaves the whole candidate structurally
+// invalid, so the refusal is an error rather than a flag: there is no usable
+// half of an unreadable draft.
+//
+// The tell floor covers the whole draft — a tell in the subject is as
+// disqualifying as one in the body — and each half is checked SEPARATELY,
+// because the canned-opener rule anchors at text start and a concatenation
+// would hide a canned opener in the body.
+func readVoiceEvalDraft(text string) (voiceEvalDraftReply, error) {
+	var draft replyDraft
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &draft); err != nil {
+		return voiceEvalDraftReply{}, fmt.Errorf(
+			`compose: voice evaluation draft is not {"subject":"...","body":"..."}: %w`, err)
+	}
+	if strings.TrimSpace(draft.Subject) == "" || strings.TrimSpace(draft.Body) == "" {
+		return voiceEvalDraftReply{}, errors.New("compose: voice evaluation draft has an empty subject or body")
+	}
+	subject := ai.SanitizeAIPatterns(draft.Subject)
+	body := ai.SanitizeAIPatterns(draft.Body)
+	return voiceEvalDraftReply{
+		subject: subject,
+		body:    body,
+		tells:   append(ai.DetectAIPatterns(subject), ai.DetectAIPatterns(body)...),
+	}, nil
+}
+
 // evaluateVoiceCandidate drafts against the held-out prompts and scores the
 // candidate. Every model error bubbles unwrapped so the worker can map
 // budget deferral onto the build row.
@@ -198,39 +254,20 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 		prompt := evalPromptFor(sample)
 		var bodies []string
 		for repeat := 0; repeat < voiceEvalRepeatsPerPrompt; repeat++ {
-			// One fence per call, so the profile block and the excerpt are
-			// bounded by the marker THIS call's system prompt names.
-			fence := promptfence.New()
-			profileBlock := voiceDraftPromptBlock(personality, artifact.Markdown, artifact.Exemplars, artifact.Stats, fence)
-			resp, err := brain.Complete(ctx, model.Request{
-				System: voiceEvalDraftSystemFor(fence),
-				Messages: []model.Message{{Role: chatRoleUser, Content: profileBlock + "\n\n" + evalTaskFor(sample, fence) +
-					fmt.Sprintf("\n(variation %d)", repeat+1)}},
-				MaxTokens:      1200,
-				ResponseSchema: replyDraftSchema,
-				SecretStripper: ai.NewSecretStripper(),
-			})
+			resp, err := brain.Complete(ctx, voiceEvalDraftRequest(personality, artifact, sample, repeat))
 			if err != nil {
 				return voiceEvaluationResult{}, fmt.Errorf("voice evaluation draft: %w", err)
 			}
-			var draft replyDraft
-			if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &draft); err != nil ||
-				strings.TrimSpace(draft.Subject) == "" || strings.TrimSpace(draft.Body) == "" {
+			reply, err := readVoiceEvalDraft(resp.Text)
+			if err != nil {
 				structuredValid = false
 				drafts = append(drafts, voiceEvalDraft{prompt: prompt, score: 0})
 				bodies = append(bodies, "")
 				continue
 			}
-			// The floor covers the whole draft: a tell in the subject is as
-			// disqualifying as one in the body, and both are sanitized before
-			// anything is cached for the profile screen. Each is checked
-			// SEPARATELY — the canned-opener rule anchors at text start, and
-			// a concatenation would hide a canned opener in the body.
-			subject := ai.SanitizeAIPatterns(draft.Subject)
-			sanitized := ai.SanitizeAIPatterns(draft.Body)
-			hardFailures += len(ai.DetectAIPatterns(subject)) + len(ai.DetectAIPatterns(sanitized))
-			drafts = append(drafts, voiceEvalDraft{prompt: prompt, subject: subject, body: sanitized})
-			bodies = append(bodies, sanitized)
+			hardFailures += len(reply.tells)
+			drafts = append(drafts, voiceEvalDraft{prompt: prompt, subject: reply.subject, body: reply.body})
+			bodies = append(bodies, reply.body)
 		}
 		judgeScores, judgeValid, err := judgeVoiceDrafts(ctx, brain, sample.Text, bodies)
 		if err != nil {
@@ -254,41 +291,75 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 	return scoreVoiceCandidate(artifact, drafts, hardFailures, structuredValid, predecessor), nil
 }
 
-// judgeVoiceDrafts scores one prompt's repeats against its held-out original
-// in ONE call. A malformed judge answer scores neutrally at 0.5 AND reports
-// valid=false, so the caller blocks auto-activation instead of letting the
-// neutral fallback blend into a passing score.
-func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
+// voiceEvalJudgeSchema bounds the judge to one number per draft in [0,1]. The
+// count is not expressible here — a schema cannot see how many drafts this call
+// carries — which is why readVoiceJudgeScores checks it.
+var voiceEvalJudgeSchema = json.RawMessage(
+	`{"type":"object","additionalProperties":false,"required":["scores"],` +
+		`"properties":{"scores":{"type":"array","items":{"type":"number","minimum":0,"maximum":1}}}}`)
+
+// voiceEvalJudgeRequest is ONE judging call: the held-out original and every
+// repeat drafted against it, each inside the marker this call's system prompt
+// names. Both sides are model-adjacent text — the original is the author's own
+// mail and the drafts are model output — so neither is presented as
+// instruction.
+func voiceEvalJudgeRequest(original string, bodies []string) model.Request {
 	fence := promptfence.New()
 	var payload strings.Builder
 	payload.WriteString("Author sample:\n" + fence.Wrap(original) + "\n")
 	for i, body := range bodies {
 		fmt.Fprintf(&payload, "Draft %d:\n%s\n", i+1, fence.Wrap(body))
 	}
-	resp, err := brain.Complete(ctx, model.Request{
+	return model.Request{
 		System:         voiceEvalJudgeSystemFor(fence),
 		Messages:       []model.Message{{Role: chatRoleUser, Content: payload.String()}},
 		MaxTokens:      300,
-		ResponseSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["scores"],"properties":{"scores":{"type":"array","items":{"type":"number","minimum":0,"maximum":1}}}}`),
+		ResponseSchema: voiceEvalJudgeSchema,
 		SecretStripper: ai.NewSecretStripper(),
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("voice evaluation judge: %w", err)
 	}
+}
+
+// readVoiceJudgeScores is the evaluation's own reading of a judge answer: one
+// score per draft, clamped to the range the prompt asked for.
+//
+// An answer it cannot read — or one that scores a different number of drafts
+// than were judged, which leaves every score ambiguous about which draft it
+// belongs to — is refused, and the neutral 0.5 per draft is returned beside the
+// refusal. The caller keeps the neutral scores so a whole prompt is not lost,
+// and blocks auto-activation on the refusal so the fallback never blends into a
+// passing score.
+func readVoiceJudgeScores(text string, want int) ([]float64, error) {
 	var judged struct {
 		Scores []float64 `json:"scores"`
 	}
-	scores := make([]float64, len(bodies))
-	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &judged); err != nil || len(judged.Scores) != len(bodies) {
-		for i := range scores {
-			scores[i] = 0.5
-		}
-		return scores, false, nil
+	neutral := make([]float64, want)
+	for i := range neutral {
+		neutral[i] = 0.5
 	}
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &judged); err != nil {
+		return neutral, fmt.Errorf(`compose: voice evaluation judge answer is not {"scores":[...]}: %w`, err)
+	}
+	if len(judged.Scores) != want {
+		return neutral, fmt.Errorf("compose: voice evaluation judge scored %d drafts, and %d were judged",
+			len(judged.Scores), want)
+	}
+	scores := make([]float64, want)
 	for i := range scores {
 		scores[i] = clamp01(judged.Scores[i])
 	}
-	return scores, true, nil
+	return scores, nil
+}
+
+// judgeVoiceDrafts scores one prompt's repeats against its held-out original
+// in ONE call. A refused answer is not a failed call: the neutral scores stand
+// and the caller is told they are not a verdict.
+func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
+	resp, err := brain.Complete(ctx, voiceEvalJudgeRequest(original, bodies))
+	if err != nil {
+		return nil, false, fmt.Errorf("voice evaluation judge: %w", err)
+	}
+	scores, refused := readVoiceJudgeScores(resp.Text, len(bodies))
+	return scores, refused == nil, nil
 }
 
 // stylometricProximity measures how close a draft's deterministic

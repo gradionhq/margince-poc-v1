@@ -114,25 +114,7 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 		// signature to learn from yet.
 		return nil
 	}
-	fence := promptfence.New()
-	var prompt strings.Builder
-	// The person's own name and address are theirs to write, so they go INSIDE
-	// the boundary like the signature does. Interpolated into a header line they
-	// would be reading in the prompt's own voice, which is the whole attack.
-	prompt.WriteString("Person (untrusted):\n")
-	prompt.WriteString(fence.Wrap(fmt.Sprintf("Name: %s\nEmail: %s", cand.FullName, cand.Email)) + "\n")
-	prompt.WriteString("Fields currently empty: [\"title\",\"phone\"]\n")
-	prompt.WriteString("Signature block (untrusted; the trailing lines of their last email):\n")
-	prompt.WriteString(fence.WrapAttr("source_id", cand.ActivityID.String(), lines) + "\n")
-	prompt.WriteString(`Return JSON: { "fields": [ { "field", "value", "evidence_snippet", "confidence" } ] }`)
-
-	req := model.Request{
-		System:         signatureEnrichSystemFor(fence),
-		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
-		MaxTokens:      ai.ReasoningOutputMaxTokens,
-		ResponseSchema: signatureEnrichSchema(),
-		SecretStripper: ai.NewSecretStripper(),
-	}
+	req := signatureEnrichRequest(cand, lines)
 	var resp model.Response
 	var err error
 	if structured, ok := e.brain.(validatedBrain); ok {
@@ -166,6 +148,41 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 	}
 	_, err = e.store.ApplySignatureFields(ctx, cand.PersonID, cand.ActivityID, fields)
 	return err
+}
+
+// signatureEnrichRequest builds the ONE model call that reads one candidate's
+// signature. It is a pure function of the candidate and the window their mail
+// yielded so the same request can be issued outside the pass — by the
+// certification lane — without re-creating it, because a re-creation certifies a
+// copy rather than the prompt that ships.
+//
+// The lines arrive already derived by signatureBlock rather than being derived
+// here: the evidence gate matches every quote against the SAME window the model
+// was shown, so one derivation feeds both readers and neither can drift.
+//
+// The fence is minted here, per request: a boundary reused across calls is one a
+// previous sender has already been shown, and every field of this prompt is
+// their own writing.
+func signatureEnrichRequest(cand people.SignatureCandidate, lines string) model.Request {
+	fence := promptfence.New()
+	var prompt strings.Builder
+	// The person's own name and address are theirs to write, so they go INSIDE
+	// the boundary like the signature does. Interpolated into a header line they
+	// would be reading in the prompt's own voice, which is the whole attack.
+	prompt.WriteString("Person (untrusted):\n")
+	prompt.WriteString(fence.Wrap(fmt.Sprintf("Name: %s\nEmail: %s", cand.FullName, cand.Email)) + "\n")
+	prompt.WriteString("Fields currently empty: [\"title\",\"phone\"]\n")
+	prompt.WriteString("Signature block (untrusted; the trailing lines of their last email):\n")
+	prompt.WriteString(fence.WrapAttr("source_id", cand.ActivityID.String(), lines) + "\n")
+	prompt.WriteString(`Return JSON: { "fields": [ { "field", "value", "evidence_snippet", "confidence" } ] }`)
+
+	return model.Request{
+		System:         signatureEnrichSystemFor(fence),
+		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
+		ResponseSchema: signatureEnrichSchema(),
+		SecretStripper: ai.NewSecretStripper(),
+	}
 }
 
 // signatureBlock returns the trailing signatureLineCount non-quoted,

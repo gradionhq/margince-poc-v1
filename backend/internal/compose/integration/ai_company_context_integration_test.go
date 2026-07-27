@@ -51,10 +51,10 @@ func TestCompanyContextBindsPromptCacheAndAICallTrace(t *testing.T) {
 		System:   "You are a governed CRM agent.",
 		Messages: []model.Message{{Role: "user", Content: "Prepare the account."}},
 	}
-	if _, _, err := modelPath.Agent.Complete(ctx, req); err != nil {
+	if _, _, err := modelPath.AgentLoop.Complete(ctx, req); err != nil {
 		t.Fatalf("first agent completion: %v", err)
 	}
-	if _, _, err := modelPath.Agent.Complete(ctx, req); err != nil {
+	if _, _, err := modelPath.AgentLoop.Complete(ctx, req); err != nil {
 		t.Fatalf("cached agent completion: %v", err)
 	}
 
@@ -68,7 +68,7 @@ func TestCompanyContextBindsPromptCacheAndAICallTrace(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("edit company context: %v", err)
 	}
-	if _, _, err := modelPath.Agent.Complete(ctx, req); err != nil {
+	if _, _, err := modelPath.AgentLoop.Complete(ctx, req); err != nil {
 		t.Fatalf("post-edit agent completion: %v", err)
 	}
 

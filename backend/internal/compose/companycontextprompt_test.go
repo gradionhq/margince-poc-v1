@@ -28,39 +28,33 @@ func (s *contextReaderStub) GetCompanyContext(_ context.Context, scopes []people
 	return s.result, s.err
 }
 
-func TestEveryAITaskDeclaresOneValidCompanyContextPolicy(t *testing.T) {
-	tasks := ai.AllTasks()
-	if len(companyContextPolicies) != len(tasks) {
-		t.Fatalf("company-context policies = %d, registered AI tasks = %d", len(companyContextPolicies), len(tasks))
-	}
-	for _, task := range tasks {
-		policy, ok := companyContextPolicies[task]
-		if !ok {
-			t.Fatalf("registered AI task %q has no company-context policy", task)
-		}
-		if len(policy.scopes) == 0 {
-			if policy.tokenBudget != 0 || policy.conditional {
-				t.Fatalf("task %q policy none carries a budget or condition: %+v", task, policy)
-			}
+// Every contract scope name must map to a real people.CompanyContextScope.
+// This is the one crossing between the generated contract vocabulary and the
+// module's own type, so an upstream rename fails here rather than silently
+// dropping a scope from a prompt.
+func TestEveryContractScopeNameResolves(t *testing.T) {
+	for _, task := range ai.AllTasks() {
+		policy, declared := ai.CompanyContextFor(task)
+		if !declared {
+			t.Errorf("task %q declares no company_context in the contract", task)
 			continue
 		}
-		if policy.tokenBudget <= 0 {
-			t.Fatalf("task %q has scopes but no positive token budget", task)
+		scopes, err := companyContextScopesFor(task)
+		if err != nil {
+			t.Errorf("task %q: %v", task, err)
+			continue
 		}
-		seen := map[people.CompanyContextScope]bool{}
-		for _, scope := range policy.scopes {
-			if _, valid := people.ParseCompanyContextScope(string(scope)); !valid {
-				t.Fatalf("task %q names unknown company-context scope %q", task, scope)
-			}
-			if seen[scope] {
-				t.Fatalf("task %q repeats company-context scope %q", task, scope)
-			}
-			seen[scope] = true
+		if len(scopes) != len(policy.Scopes) {
+			t.Errorf("task %q: %d scopes resolved from %d declared", task, len(scopes), len(policy.Scopes))
 		}
 	}
-	summarize := companyContextPolicies[ai.TaskSummarize]
-	if !summarize.conditional {
-		t.Fatal("summarize company context must remain explicit opt-in")
+}
+
+// An unknown scope name is a contract defect and must be named as one, not
+// silently dropped from the prompt it was supposed to widen.
+func TestAnUnknownScopeNameIsRefused(t *testing.T) {
+	if _, err := resolveScopeNames([]string{"identity", "not_a_scope"}); err == nil {
+		t.Fatal("an unknown scope name resolved successfully")
 	}
 }
 
@@ -158,7 +152,7 @@ func TestModelPathCompanyContextSwitchIsNilSafeAndReachesTheAgentProvider(t *tes
 	path.SetCompanyContextEnabled(false)
 
 	provider := newCompanyContextProvider(nil)
-	path = &ModelPath{Agent: agentBrain{companyContext: provider}}
+	path = &ModelPath{AgentLoop: agentBrain{companyContext: provider}}
 	path.SetCompanyContextEnabled(false)
 	if provider.enabled {
 		t.Fatal("company-context provider remained enabled")

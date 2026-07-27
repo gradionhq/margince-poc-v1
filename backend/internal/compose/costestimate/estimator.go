@@ -244,7 +244,7 @@ func (e *Estimator) priceObserved(ctx context.Context, task ai.Task, slices []ai
 		// over the full denominator and the unpriced share falls to $0 (already
 		// flagged heuristic).
 		pricedDenom := denom
-		if backfillUnitRules[task].denomIsCalls {
+		if rule, ok := unitRuleFor(task); ok && rule.denomIsCalls {
 			pricedDenom = max(pricedCompletedCalls, 1)
 		}
 		costMicro = pricedCost * units / pricedDenom
@@ -289,10 +289,10 @@ func (e *Estimator) priceFloor(ctx context.Context, task ai.Task, units int64, t
 // unit count via the connection's backfill yields, or the floor when no
 // completed run exists (no yield, an unruled task, or a rule reporting its ratio
 // unavailable — enrich's C1 guard). Multiply-before-divide. observed=false ⇒ the
-// floor was used (a heuristic). The per-task observed ratio lives in
-// backfillUnitRules; the shared floor fallback is spelled once here.
+// floor was used (a heuristic). The per-task observed ratio lives in the rule
+// the contract names; the shared floor fallback is spelled once here.
 func expectedUnits(task ai.Task, scanned int64, y capture.BackfillYields) (units int64, observed bool) {
-	if rule, ok := backfillUnitRules[task]; ok && y.Scanned > 0 {
+	if rule, ok := unitRuleFor(task); ok && y.Scanned > 0 {
 		if u, ratioOK := rule.observedUnits(scanned, y); ratioOK {
 			return u, true
 		}
@@ -301,11 +301,12 @@ func expectedUnits(task ai.Task, scanned int64, y capture.BackfillYields) (units
 }
 
 // observedUnitsDenom is the observed unit count the window's served slices are
-// divided by — the per-task denominator held in backfillUnitRules. An unruled
-// task (never reached: the loop iterates backfillTasks, fitness-locked to the
-// rule keys) falls back to the summed completed served calls.
+// divided by — the denominator held in the rule the contract names for the
+// task. An unruled task (never reached: the loop iterates backfillTasks,
+// fitness-locked to the priced set) falls back to the summed completed served
+// calls.
 func observedUnitsDenom(task ai.Task, slices []ai.ServedTaskTotal, labeledCount int64) int64 {
-	if rule, ok := backfillUnitRules[task]; ok {
+	if rule, ok := unitRuleFor(task); ok {
 		return rule.observedDenom(slices, labeledCount)
 	}
 	return sumCompletedCalls(slices)

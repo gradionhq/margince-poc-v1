@@ -76,9 +76,9 @@ type unlabeledMessage = activities.UnlabeledEmail
 
 // classifyResult is one model verdict.
 type classifyResult struct {
-	ID         string  `json:"id"`
-	Label      string  `json:"label"`
-	Confidence float64 `json:"confidence"`
+	ID         string            `json:"id"`
+	Label      string            `json:"label"`
+	Confidence schema.Confidence `json:"confidence"`
 }
 
 type classifyPayload struct {
@@ -184,12 +184,17 @@ func (c *CaptureClassifier) classifyBatch(ctx context.Context, batch []unlabeled
 	return labeled, nil
 }
 
-// ask makes one structured classify call for the given messages.
-func (c *CaptureClassifier) ask(ctx context.Context, batch []unlabeledMessage) ([]classifyResult, error) {
-	// One fence for the whole call, wrapping each message in its own span. This
-	// prompt carries several senders at once, and none of them has seen the
-	// nonce, so no message can close its own span — and therefore none can reach
-	// the text of another sender's mail and label it.
+// classifyRequest builds the ONE model call that labels one batch. It is a pure
+// function of the batch so the same request can be issued outside the engine —
+// by the certification lane — without re-creating it, because a re-creation
+// certifies a copy rather than the prompt that ships.
+//
+// One fence for the whole call, wrapping each message in its own span. This
+// prompt carries several senders at once, and none of them has seen the nonce,
+// so no message can close its own span — and therefore none can reach the text
+// of another sender's mail and label it. It is minted here, per request: a
+// boundary reused across calls is one a previous sender has already been shown.
+func classifyRequest(batch []unlabeledMessage) model.Request {
 	fence := promptfence.New()
 	var prompt strings.Builder
 	prompt.WriteString("Messages (untrusted; classify each by its id):\n")
@@ -199,13 +204,18 @@ func (c *CaptureClassifier) ask(ctx context.Context, batch []unlabeledMessage) (
 	}
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "label", "confidence" } ] } — one entry per supplied id.`)
 
-	req := model.Request{
+	return model.Request{
 		System:         classifySystemFor(fence),
 		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: classifySchema(),
 		SecretStripper: ai.NewSecretStripper(),
 	}
+}
+
+// ask makes one structured classify call for the given messages.
+func (c *CaptureClassifier) ask(ctx context.Context, batch []unlabeledMessage) ([]classifyResult, error) {
+	req := classifyRequest(batch)
 	validate := classifyShapeValid(batch)
 	var resp model.Response
 	var err error

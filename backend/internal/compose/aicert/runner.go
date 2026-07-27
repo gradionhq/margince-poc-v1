@@ -4,7 +4,7 @@
 package aicert
 
 // The runner: the one part of this package that actually drives model
-// calls. Everything else (scenario.go, checks.go, score.go, record.go)
+// calls. Everything else (scenario.go, promptversion.go, score.go, record.go)
 // is a pure library callable without a network or a database; this file
 // wires that library to TWO DB-less ai.Router instances, assembled via
 // compose.NewLocalRouterForCert (ai.NewLocalRouter over a CallRecorder
@@ -18,21 +18,16 @@ package aicert
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 // defaultRepeats is Repeats' fallback when a caller (the env-driven CLI
@@ -56,6 +51,11 @@ var nowFunc = time.Now
 
 // RunnerConfig configures one certification run.
 type RunnerConfig struct {
+	// Census is this build's invocation-site registry, and the only thing that
+	// turns a scenario into something runnable: every site's certification case
+	// is bound there, and a run drives those cases rather than prompts of its
+	// own. Required — see Run.
+	Census      *aitasks.Registry
 	RoutingPath string // MARGINCE_AI_ROUTING
 	TaskFilter  string // MARGINCE_AICERT_TASK ("" = all tasks with a corpus)
 	Override    string // MARGINCE_AICERT_MODEL "provider:model" — candidate only
@@ -81,6 +81,12 @@ type RunnerConfig struct {
 // — heard, never swallowed — while every other task still gets its own
 // record.
 func Run(ctx context.Context, cfg RunnerConfig, log *slog.Logger) ([]Record, error) {
+	// A missing census is refused here rather than tolerated per scenario: the
+	// cases it binds ARE what a run certifies, so a run without one could only
+	// report that it measured nothing, after paying for it.
+	if cfg.Census == nil {
+		return nil, errors.New("aicert: runner: no census supplied — a run drives the certification case each site binds, so RunnerConfig.Census is required")
+	}
 	repeats, err := repeatsOrDefault(cfg.Repeats)
 	if err != nil {
 		return nil, err
@@ -91,7 +97,7 @@ func Run(ctx context.Context, cfg RunnerConfig, log *slog.Logger) ([]Record, err
 		return nil, fmt.Errorf("aicert: runner: %w", err)
 	}
 
-	scenarios, err := LoadCorpus(cfg.CorpusDir)
+	scenarios, err := LoadCorpus(cfg.CorpusDir, cfg.Census)
 	if err != nil {
 		return nil, fmt.Errorf("aicert: runner: %w", err)
 	}
@@ -120,7 +126,7 @@ func Run(ctx context.Context, cfg RunnerConfig, log *slog.Logger) ([]Record, err
 	var records []Record
 	var runErrs []error
 	for _, task := range sortedTasks(byTask) {
-		rec, err := certifyTask(ctx, task, byTask[task], baseCfg, cfg.Override, repeats, log, &certifyHooks{trace: trace})
+		rec, err := certifyTask(ctx, task, byTask[task], cfg.Census, baseCfg, cfg.Override, repeats, log, &certifyHooks{trace: trace})
 		if err != nil {
 			log.ErrorContext(ctx, "aicert: task certification failed — no record written", "task", string(task), "err", err)
 			runErrs = append(runErrs, fmt.Errorf("task %s: %w", task, err))
@@ -152,8 +158,16 @@ type certifyHooks struct {
 
 // certifyTask runs every scenario for one task over a fresh
 // candidate/judge router pair and folds the outcome into one Record.
-func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCfg ai.RoutingConfig, override string, repeats int, log *slog.Logger, hooks *certifyHooks) (Record, error) {
+func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, census *aitasks.Registry, baseCfg ai.RoutingConfig, override string, repeats int, log *slog.Logger, hooks *certifyHooks) (Record, error) {
 	candidateCfg, err := overrideForTask(baseCfg, task, override)
+	if err != nil {
+		return Record{}, err
+	}
+	// The stamp is computed before the first paid call: it drives every case's
+	// own request builder, so a corpus this build cannot build a request from is
+	// a run that could never have produced a record — found for free rather than
+	// after N repeats of real spend.
+	promptVersion, err := PromptVersion(ctx, scenarios, census)
 	if err != nil {
 		return Record{}, err
 	}
@@ -190,18 +204,14 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, baseCf
 	taskVerdict := VerdictCertified // folded down to the worst scenario verdict below
 
 	for _, sc := range scenarios {
-		scenarioVerdict, err := runScenario(ctx, task, sc, repeats, candidateRouter, candidateRec, judgeRouter, judgeRec, log, acc, trace)
+		scenarioVerdict, err := runScenario(ctx, task, sc, census, repeats, candidateRouter, candidateRec, judgeRouter, judgeRec, log, acc, trace)
 		if err != nil {
 			return Record{}, err
 		}
 		taskVerdict = worstVerdict(taskVerdict, scenarioVerdict)
 	}
 
-	reliability := float64(acc.passed) / float64(len(acc.allResults))
-	return buildRecord(task, taskVerdict, reliability, acc.allResults, acc.latencies,
-		acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal,
-		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun,
-		baseCfg, PromptVersion(scenarios)), nil
+	return buildRecord(task, taskVerdict, acc, baseCfg, promptVersion), nil
 }
 
 // taskAccumulation collects the pooled stats certifyTask folds across
@@ -226,6 +236,15 @@ type taskAccumulation struct {
 	provider, servedModel, identitySource, judgeServedModel string
 	selfJudgedEveryRun                                      bool
 	identitySet                                             bool
+	// certifiedScope is the narrowest scope any run's site covered. A task is
+	// one record but not always one site — cold_start ships a one-shot
+	// extraction beside three multi-turn conversations — so the record may
+	// claim only what its weakest site proved.
+	certifiedScope string
+	// scenarios is one row per scenario the task ran, in the order it ran
+	// them. The pooled numbers above cannot say WHICH scenario failed, and
+	// that is the question a failed task actually raises.
+	scenarios []ScenarioRecord
 }
 
 // addRun folds one scored run into acc, first checking outcome's candidate
@@ -247,6 +266,7 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 	acc.provider, acc.servedModel, acc.identitySource = outcome.Provider, outcome.ServedModel, outcome.ServedIdentitySource
 	acc.identitySet = true
 	acc.judgeServedModel = outcome.JudgeServedModel
+	acc.certifiedScope = aitasks.NarrowerScope(acc.certifiedScope, outcome.CertifiedScope)
 	if !selfJudged(outcome.ServedModel, outcome.JudgeServedModel) {
 		acc.selfJudgedEveryRun = false
 	}
@@ -254,112 +274,6 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 		acc.passed++
 	}
 	return nil
-}
-
-// runScenario drives repeats runs of one scenario, folding each into acc,
-// and returns the scenario's own verdict for certifyTask to fold into the
-// task's worst-case verdict. Split out of certifyTask so the per-run
-// degrade/uniformity gates and the per-scenario verdict fold live on
-// their own function, not certifyTask's.
-func runScenario(ctx context.Context, task ai.Task, sc Scenario, repeats int,
-	candidateRouter *ai.Router, candidateRec *traceRecorder, judgeRouter *ai.Router, judgeRec *traceRecorder,
-	log *slog.Logger, acc *taskAccumulation, trace *payloadTrace,
-) (string, error) {
-	scenarioResults := make([]RunResult, 0, repeats)
-	for i := 0; i < repeats; i++ {
-		outcome, runErr := runOnce(ctx, candidateRouter, candidateRec, judgeRouter, judgeRec, sc, task, log, trace, i+1)
-		if runErr != nil {
-			return "", fmt.Errorf("aicert: task %s scenario %s run %d: %w", task, sc.Name, i+1, runErr)
-		}
-		if outcome.Degraded {
-			return "", fmt.Errorf(
-				"aicert: task %s scenario %s run %d: candidate attempt served on a budget-degraded route — refusing to certify a demoted answer",
-				task, sc.Name, i+1)
-		}
-		if outcome.JudgeDegraded {
-			return "", fmt.Errorf(
-				"aicert: task %s scenario %s run %d: judge attempt served on a budget-degraded route — refusing to trust a demoted grader",
-				task, sc.Name, i+1)
-		}
-		if err := acc.addRun(task, sc, i, outcome); err != nil {
-			return "", err
-		}
-		scenarioResults = append(scenarioResults, outcome.RunResult)
-	}
-	scenarioVerdict, _ := Verdict(scenarioResults, sc.Expect.Bands)
-	return scenarioVerdict, nil
-}
-
-// runOutcome is one scored run plus the identity fields Record needs
-// that RunResult itself has no room for (RunResult is score.go's public,
-// runner-agnostic shape). JudgeDegraded mirrors RunResult.Degraded's
-// candidate-side signal for the judge's own trace — certifyTask checks
-// both before ever trusting an outcome.
-type runOutcome struct {
-	RunResult
-	Provider, ServedModel, ServedIdentitySource, JudgeServedModel string
-	JudgeDegraded                                                 bool
-}
-
-// runOnce drives exactly one candidate completion and its judge score —
-// one fresh logical call on each router, cache off, so no repeat ever
-// collapses onto a prior one's answer. A degraded CANDIDATE attempt
-// short-circuits before the judge is ever called: certifyTask voids the
-// whole task's record on outcome.Degraded regardless of what the judge
-// says, so scoring a demoted answer would be a real, paid judge call
-// spent on a result guaranteed to be thrown away.
-func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecorder, judge *ai.Router, judgeRec *traceRecorder, sc Scenario, task ai.Task, log *slog.Logger, trace *payloadTrace, run int) (runOutcome, error) {
-	resp, _, err := candidate.Complete(ctx, task, buildRequest(sc))
-	if err != nil {
-		return runOutcome{}, fmt.Errorf("candidate call: %w", err)
-	}
-	term, ok := candidateRec.lastTerminal()
-	if !ok {
-		return runOutcome{}, fmt.Errorf("candidate call: no terminal trace recorded")
-	}
-	traceCall(ctx, trace, "candidate", task, sc, run, term, log)
-	if term.Degraded {
-		return runOutcome{RunResult: RunResult{Degraded: true}}, nil
-	}
-
-	// Judge and checks consume what production's parsers consume: the
-	// unfenced text (every serving path strips markdown fences before
-	// json.Unmarshal, so a fence is presentation, not a defect).
-	output := ai.Unfence(resp.Text)
-
-	score, judgeServedModel, judgeDegraded, err := judgeScore(ctx, judge, judgeRec, sc, output, log)
-	if err != nil {
-		return runOutcome{}, fmt.Errorf("judge: %w", err)
-	}
-	if judgeTerm, ok := judgeRec.lastTerminal(); ok {
-		traceCall(ctx, trace, "judge", task, sc, run, judgeTerm, log)
-	}
-
-	structuralOK, structuralFailures := RunChecks(sc.Expect.Structural, output)
-	capsOK, capFailures := checkCaps(sc.Expect.Caps, term)
-	if !structuralOK || !capsOK {
-		log.WarnContext(ctx, "aicert: run failed its structural/caps gate",
-			"task", string(task), "scenario", sc.Name,
-			"structural_failures", structuralFailures, "cap_failures", capFailures)
-	}
-
-	return runOutcome{
-		RunResult: RunResult{
-			Output:           output,
-			LatencyMS:        term.LatencyMS,
-			TokensIn:         term.TokensIn,
-			TokensOut:        term.TokensOut,
-			CachedTokens:     term.CachedTokens,
-			CacheWriteTokens: term.CacheWriteTokens,
-			HardPass:         structuralOK && capsOK,
-			Score:            score,
-		},
-		Provider:             term.Provider,
-		ServedModel:          term.ServedModel,
-		ServedIdentitySource: term.ServedIdentitySource,
-		JudgeServedModel:     judgeServedModel,
-		JudgeDegraded:        judgeDegraded,
-	}, nil
 }
 
 // repeatsOrDefault applies RunnerConfig.Repeats' default and validates
@@ -407,59 +321,3 @@ func worstVerdict(a, b string) string {
 // Record type they build — that file already owns "the on-disk Record
 // shape," so folding pooled run stats into one is that same concern, not
 // this file's own "drive the routers" one.
-
-// PromptVersion is a task's certification stamp: a digest of the exact
-// SCENARIOS a run was scored against.
-//
-// It used to be the constant "v1", which meant a record could never stop being a
-// proof — edit a scenario and the committed record went on claiming "certified"
-// for text that no longer existed. Deriving it from content makes staleness
-// visible instead: a record whose stamp is not the one this corpus computes was
-// scored against something else, and says so.
-//
-// The WHOLE scenario is digested, not just its prompts. The rubric is read to
-// the grader, the history turns are replayed to the candidate, and the caps set
-// the request — each of them changes what a score means, so each of them has to
-// move the stamp. The per-call data boundary is canonicalised out first
-// (promptfence mints a fresh marker every call, and a scenario carries one
-// example marker), so the stamp moves when the SCENARIO changes and stays put
-// when only the nonce does.
-//
-// What it does NOT cover: whether the scenario still matches the prompt the
-// product sends. Only rate_extract and fx are pinned byte-for-byte to their
-// production consts (TestRateExtractPromptMatchesCorpus and its FX twin); for
-// every other task the corpus is a hand-authored approximation, and a shipped
-// prompt can drift from it without moving this stamp.
-func PromptVersion(scenarios []Scenario) string {
-	ordered := make([]string, 0, len(scenarios))
-	for _, sc := range scenarios {
-		// Hash each scenario on its own, then order the digests: joining raw
-		// fields would let text shift across a separator and collide.
-		encoded, err := json.Marshal(canonicalScenario(sc))
-		if err != nil {
-			// Scenario is a plain data struct loaded from YAML; a value that
-			// cannot be marshalled is a programming error, not input.
-			panic(fmt.Sprintf("aicert: scenario %q cannot be digested: %v", sc.Name, err))
-		}
-		sum := sha256.Sum256(encoded)
-		ordered = append(ordered, hex.EncodeToString(sum[:]))
-	}
-	sort.Strings(ordered)
-	sum := sha256.Sum256([]byte(strings.Join(ordered, "")))
-	return "p" + hex.EncodeToString(sum[:16])
-}
-
-// canonicalScenario is the scenario with its example data boundary replaced by a
-// fixed placeholder, so the stamp does not move when only the nonce does.
-func canonicalScenario(sc Scenario) Scenario {
-	declaring := sc.System
-	sc.System = promptfence.Canonicalize(declaring, declaring)
-	sc.Input = promptfence.Canonicalize(declaring, sc.Input)
-	history := make([]Turn, len(sc.History))
-	for i, turn := range sc.History {
-		turn.Text = promptfence.Canonicalize(declaring, turn.Text)
-		history[i] = turn
-	}
-	sc.History = history
-	return sc
-}

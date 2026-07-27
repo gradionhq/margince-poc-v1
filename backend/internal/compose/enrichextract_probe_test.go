@@ -103,6 +103,30 @@ func TestExtractFieldsQuotesAPageBracketVerbatim(t *testing.T) {
 	}
 }
 
+// The cap on what one call hands the model is a cap on what the gate will
+// ground: a quote from the part of a long page nobody was shown is not evidence
+// the model can have read, whatever it claims. The model and the gate see ONE
+// text, which is why the cap is applied before the request is built.
+func TestExtractFieldsGatesAgainstTheTextItActuallyShowed(t *testing.T) {
+	pastTheCap := "Acme Robotics GmbH, Stuttgart."
+	page := strings.Repeat("Acme builds robots. ", maxExtractionText/20) + pastTheCap
+	brain := &replyBrainStub{response: model.Response{Text: `{"fields":[{"field":"legal_name",` +
+		`"value":"Acme Robotics GmbH","evidence_snippet":"` + pastTheCap + `","confidence":0.9}]}`}}
+	x := evidenceExtractor{brain: brain}
+
+	fields, err := x.extractFields(context.Background(), "Page", page, "https://acme.example", coldStartFieldValid)
+	if err != nil {
+		t.Fatalf("extractFields: %v", err)
+	}
+
+	if strings.Contains(brain.request.Messages[0].Content, pastTheCap) {
+		t.Error("text beyond the extraction cap reached the model")
+	}
+	if len(fields) != 0 {
+		t.Errorf("the gate grounded %q on text the model was never shown", fields[0].EvidenceSnippet)
+	}
+}
+
 // promptMarker recovers the boundary a system prompt declares.
 func promptMarker(t *testing.T, system string) string {
 	t.Helper()
