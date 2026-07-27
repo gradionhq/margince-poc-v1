@@ -131,6 +131,40 @@ func (p *companyContextDef) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
+// validate refuses a policy that cannot do what it says. Scope names are the
+// composition layer's to resolve — this generator does not know the module's
+// scope vocabulary — but coherence between the three fields is decidable here,
+// and here is where every task is in view at once. An undeclared policy stays
+// nil and is caught by CompanyContextFor's bool at the call, not by this rule.
+func (p *companyContextDef) validate(task string) error {
+	if p == nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(p.Scopes))
+	for _, scope := range p.Scopes {
+		if seen[scope] {
+			return fmt.Errorf("task %q: company_context scope %q is declared twice", task, scope)
+		}
+		seen[scope] = true
+	}
+	if len(p.Scopes) == 0 {
+		// `none` means none: a budget or a condition attached to a policy that
+		// selects nothing reads as a scope list someone deleted, not a decision.
+		if p.TokenBudget != 0 || p.Conditional {
+			return fmt.Errorf("task %q: company_context selects no scopes but carries token_budget %d and conditional %t",
+				task, p.TokenBudget, p.Conditional)
+		}
+		return nil
+	}
+	if p.TokenBudget <= 0 {
+		// The budget is what the renderer bounds the block by; at zero it admits
+		// no item, so the scopes would ride no prompt.
+		return fmt.Errorf("task %q: company_context declares %d scope(s) and needs a positive token_budget, got %d",
+			task, len(p.Scopes), p.TokenBudget)
+	}
+	return nil
+}
+
 // embedDef is the embeddings workload. It is NOT a task: its tier is not a
 // chat tier, and it has no prompt, no text answer and no completion path, so
 // it carries no sites and no certification obligation.
@@ -217,7 +251,8 @@ func parseContract(raw []byte) (contract, error) {
 // two policies the runtime understands. Execution mode and exhaustion policy
 // are a closed pair: interactive tasks degrade, background tasks queue.
 // Status and sites are a closed pair too: a shipped task owes at least one
-// uniquely named site of a known kind, a planned task owes none.
+// uniquely named site of a known kind, a planned task owes none. A declared
+// company-context policy must be internally coherent.
 func (c contract) validate() error {
 	if len(c.Tiers) == 0 {
 		return fmt.Errorf("contract declares no tiers")
@@ -282,6 +317,9 @@ func (c contract) validate() error {
 			if !siteKinds[s.Kind] {
 				return fmt.Errorf("task %q: site %q has unknown kind %q", name, s.Name, s.Kind)
 			}
+		}
+		if err := def.CompanyContext.validate(name); err != nil {
+			return err
 		}
 	}
 	for from, to := range c.DegradeTo {

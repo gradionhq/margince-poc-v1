@@ -226,3 +226,77 @@ tasks:
 		}
 	}
 }
+
+// A company-context policy that cannot do what it says is an editing mistake,
+// and generation is where every task is in view at once. A repeated scope, a
+// scope list with no budget to render it under, and a budget or a condition on
+// a policy that selects nothing are all refused rather than compiled into a
+// table whose entry silently does nothing.
+func TestValidateRefusesAnIncoherentCompanyContextPolicy(t *testing.T) {
+	base := `tiers: [cheap_cloud]
+degrade_to: {cheap_cloud: cheap_cloud}
+tasks:
+  t:
+    ladder: [cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: planned
+`
+	for name, tc := range map[string]struct {
+		tail       string
+		wantDetail string
+	}{
+		"repeated scope": {
+			tail:       "    company_context: {scopes: [identity, identity], token_budget: 300}\n",
+			wantDetail: `scope "identity" is declared twice`,
+		},
+		"scopes without a budget": {
+			tail:       "    company_context: {scopes: [identity]}\n",
+			wantDetail: "positive token_budget",
+		},
+		"budget without scopes": {
+			tail:       "    company_context: {token_budget: 300}\n",
+			wantDetail: "selects no scopes",
+		},
+		"conditional without scopes": {
+			tail:       "    company_context: {conditional: true}\n",
+			wantDetail: "selects no scopes",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := parseContract([]byte(base + tc.tail))
+			if err == nil {
+				t.Fatal("parsed successfully, want a refusal")
+			}
+			if !strings.Contains(err.Error(), tc.wantDetail) {
+				t.Fatalf("error %q does not explain the defect (want %q)", err, tc.wantDetail)
+			}
+		})
+	}
+}
+
+// The coherent spellings must keep parsing: a scoped policy with a budget, the
+// conditional variant, and the `none` scalar every task without context uses.
+func TestValidateAcceptsEveryCoherentCompanyContextPolicy(t *testing.T) {
+	base := `tiers: [cheap_cloud]
+degrade_to: {cheap_cloud: cheap_cloud}
+tasks:
+  t:
+    ladder: [cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: planned
+`
+	for name, tail := range map[string]string{
+		"scoped":      "    company_context: {scopes: [identity, offer], token_budget: 300}\n",
+		"conditional": "    company_context: {scopes: [identity], token_budget: 300, conditional: true}\n",
+		"none":        "    company_context: none\n",
+		"undeclared":  "",
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseContract([]byte(base + tail)); err != nil {
+				t.Fatalf("a coherent policy was refused: %v", err)
+			}
+		})
+	}
+}
