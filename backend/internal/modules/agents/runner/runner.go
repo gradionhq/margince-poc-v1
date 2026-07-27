@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -232,6 +233,38 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	return r.loop(ctx, job, win, carried)
 }
 
+// observeRefusal feeds a refusal back as an observation and returns the
+// trace step for it. A DECLARED capability gap is called out as terminal,
+// because it is not a fault the model can route around by trying again — and
+// this is the loop with a step budget, so a re-plan that re-calls the same
+// tool spends the run on a permanent no.
+func observeRefusal(win *window, step modelStep, err error, meta Meta, resp model.Response) Step {
+	observation := "tool call refused: " + err.Error()
+	// Telling the model not to retry is an ORDER, so it rides the directive
+	// argument: inside the fence it would be text the prompt has already
+	// declared to be data the model must disregard (observeThen's own doc). The
+	// trace keeps both halves joined — a trace is a record of what happened,
+	// not a prompt.
+	directive := ""
+	if errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		directive = "this workspace's system of record cannot serve this tool at all; do not call it again in this run"
+	}
+	win.observeThen(step.Tool, observation, directive)
+	// Truncate the observation BEFORE joining, so a long refusal cannot crowd
+	// the directive out of the trace. err.Error() carries provider text whose
+	// LENGTH is influenceable by mirrored content, and "this was terminal" is
+	// the half a later reader needs most — bound the payload, keep the finding.
+	recorded := truncate(observation)
+	if directive != "" {
+		recorded += " — " + directive
+	}
+	return Step{
+		Tool: step.Tool, Args: step.Args, Observation: recorded,
+		ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+		Admission: "refused",
+	}
+}
+
 // consecutiveInvalidLimit ends a run whose model cannot produce a valid
 // step: retry-with-error-feedback twice, then degrade honestly
 // (ai-operational-spec §5.2 — never a partial fabrication).
@@ -293,13 +326,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			// back as observations — the model learns it cannot do that
 			// and re-plans; agent ≤ human holds without the loop knowing
 			// the policy.
-			observation := "tool call refused: " + err.Error()
-			win.observe(step.Tool, observation)
-			acc.Steps = append(acc.Steps, Step{
-				Tool: step.Tool, Args: step.Args, Observation: truncate(observation),
-				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
-				Admission: "refused",
-			})
+			acc.Steps = append(acc.Steps, observeRefusal(win, step, err, meta, resp))
 		default:
 			win.observe(step.Tool, string(out))
 			acc.Steps = append(acc.Steps, Step{

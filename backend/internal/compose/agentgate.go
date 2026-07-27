@@ -231,7 +231,12 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	if pinned {
 		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
 	}
-	next.ServeHTTP(w, r)
+	// Mark the released call, exactly as the MCP registry does after its own
+	// Redeem. Without this the seam's external-egress backstop would refuse
+	// the approved write it just let a human authorize — the approval would be
+	// granted for a call that can never run. WithContext shares the header map
+	// set just above, so the pin travels with the marked request.
+	next.ServeHTTP(w, r.WithContext(agents.WithApprovalRedeemed(r.Context())))
 	return true
 }
 

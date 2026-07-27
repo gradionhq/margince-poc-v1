@@ -111,7 +111,7 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
 				return nil, err
 			}
-			ctx = withApprovalRedeemed(ctx)
+			ctx = WithApprovalRedeemed(ctx)
 		}
 		return t.Handle(ctx, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
@@ -120,7 +120,11 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 		if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
 			return nil, err
 		}
-		return t.Handle(ctx, args)
+		// Mark it, exactly as the auto-execute branch above does: everything
+		// downstream — including the seam's external-egress backstop — reads
+		// this marker to know a human released the call. Redeeming without it
+		// refuses the write the approval was granted for.
+		return t.Handle(WithApprovalRedeemed(ctx), args)
 	default:
 		stageable, ok := t.(stageableTool)
 		if !ok {

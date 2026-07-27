@@ -308,6 +308,7 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 			t.Errorf("overlay-mode %s = %d, want 422 — a provenance filter the mirror cannot answer must be refused, never ignored", path, code)
 		}
 	}
+	assertReportOpsRefusedInOverlay(t, e)
 
 	// --- bullet 3: an UNMAPPED user sees ZERO rows (fail-closed
 	// visibility — MirrorStore.List answers apperrors.ErrNotFound for a
@@ -361,6 +362,30 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 			if key != "incumbent" && key != "region" && key != "status" {
 				t.Errorf("connection audit snapshot carries an unexpected field %q — PII/credential leak: %v", key, snapshot)
 			}
+		}
+	}
+}
+
+// assertReportOpsRefusedInOverlay pins both report operations to the declared
+// sentinel over HTTP. It asserts the CODE, not just the status: /derivation
+// answers 422 for a malformed query too, so a status-only check stays green
+// with the guard removed and would prove nothing. Only an HTTP call can catch
+// a shadow being unwired — the unit specs cover the guard itself — and the SPA
+// hiding these screens is exactly why the callers left (an agent, a direct API
+// client) have nothing else protecting them.
+func assertReportOpsRefusedInOverlay(t *testing.T, e *env) {
+	t.Helper()
+	for _, op := range []struct{ method, path string }{
+		{"POST", "/v1/reports/deals-by-stage"},
+		{"GET", "/v1/reports/deals-by-stage/derivation?by=stage"},
+	} {
+		var problem struct {
+			Code string `json:"code"`
+		}
+		code := e.call(t, op.method, op.path, nil, nil, &problem)
+		if code != http.StatusUnprocessableEntity || problem.Code != "unsupported_by_sor" {
+			t.Fatalf("overlay-mode %s %s = %d %q, want 422 unsupported_by_sor",
+				op.method, op.path, code, problem.Code)
 		}
 	}
 }

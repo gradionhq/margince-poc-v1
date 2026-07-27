@@ -315,6 +315,9 @@ func (d *Dispatcher) Update(ctx context.Context, in datasource.UpdateInput) (dat
 // isOverlayForWrite's own contract is that a mutation boundary pays ONE.
 func (d *Dispatcher) updateInMode(ctx context.Context, ov bool, in datasource.UpdateInput) (datasource.EntityRef, error) {
 	if ov {
+		if err := refuseUngovernedAgentEgress(ctx, overlay.WriteUpdate, in.Ref.Type); err != nil {
+			return datasource.EntityRef{}, err
+		}
 		return d.overlay.Update(ctx, in)
 	}
 	return d.native.Update(ctx, in)
@@ -349,6 +352,9 @@ func (d *Dispatcher) Archive(ctx context.Context, ref datasource.EntityRef) (dat
 // request — see updateInMode.
 func (d *Dispatcher) archiveInMode(ctx context.Context, ov bool, ref datasource.EntityRef) (datasource.EntityRef, error) {
 	if ov {
+		if err := refuseUngovernedAgentEgress(ctx, overlay.WriteArchive, ref.Type); err != nil {
+			return datasource.EntityRef{}, err
+		}
 		return d.overlay.Archive(ctx, ref)
 	}
 	return d.native.Archive(ctx, ref)

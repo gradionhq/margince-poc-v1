@@ -61,19 +61,43 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// like the REST surface's, sharing the same per-workspace windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
+	// The three native-only dependencies below are READS, so they take the
+	// cached mode answer. Both directions of staleness are bounded and
+	// accepted, the same trade overlayread.go's read shadows make: a stale
+	// 'overlay' costs one retry, and a stale 'native' can serve one empty
+	// native answer — the very defect this file guards — for at most
+	// sorModeCacheTTL on a replica that saw no Invalidate. Naming that
+	// honestly rather than only the benign half: it is a five-second window
+	// after a connect, not a standing hole.
+	//
+	// The write side does not take this trade at all; it is governed at the seam
+	// (egressbackstop.go's refuseUngovernedAgentEgress, called from
+	// dispatcher.go's updateInMode/archiveInMode), which resolves the mode fresh
+	// like every other mutation boundary.
+	sorMode := sorModeProbe(provider.isOverlay)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
-	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
+	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
-	agents.RegisterIntentTools(registry, search.NewRetriever(search.NewStore(pool), nil))
+	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
+		mode:  sorMode,
+		inner: search.NewRetriever(search.NewStore(pool), nil),
+	})
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
-	agents.RegisterSlippingTools(registry, slippingLister(pool), followUpDrafter(provider))
+	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
 	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that
 	// collides with a core verb fails loudly (RegisterExtensions stashed
 	// them at boot, before this ran).
+	//
+	// They need no native-only guard: extension.ToolHandler is handed a context
+	// and raw JSON and nothing else — no provider, no pool, no store — and the
+	// boot adapter injects none, so an extension tool cannot read a domain table
+	// to answer wrongly for an overlay workspace. If that surface ever grants
+	// record access, it has to arrive mode-routed through the datasource seam,
+	// or gain the guard the three dependencies above take.
 	registerComposedTools(registry)
 	return registry
 }
