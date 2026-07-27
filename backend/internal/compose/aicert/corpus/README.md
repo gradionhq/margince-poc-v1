@@ -34,8 +34,11 @@ made of.
 
 ## The gates this tree passes
 
-- `TestLoadCorpusCoversEveryTask` (`corpus_test.go`) fails if a contract task
-  (`ai.AllTasks()`) has no scenario.
+- `TestLoadCorpusCoversEveryShippedSite` (`corpus_test.go`) runs both ways off
+  the task contract: a shipped SITE with no scenario is a prompt that ships
+  uncertified, and a `planned` task carrying one scores a prompt that does not
+  ship. The unit is the site, not the task — `cold_start` has four — so one
+  scenario can never stand for a task's other prompts.
 - `TestEveryCorpusScenarioPreparesAgainstItsSite` (`corpusprepare_test.go`)
   fails if a scenario's fixture is not the shape its site takes, or its
   expectation is one that site's validator could never satisfy.

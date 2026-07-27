@@ -42,15 +42,26 @@ cold_start: certified (reliability=1.00 score_p50=100 self_judged=false)
 ```
 
 A passing run writes/refreshes a record under
-`backend/internal/compose/aicert/records/<task>/<provider>_<model>_<profile>.json`.
+`backend/internal/compose/aicert/records/<task>/<provider>_<model>_<env>.json`.
 
-The **task** names come from the contract (`backend/api/ai-tasks.yaml`):
-`cold_start`, `site_extract`, `site_fact_extract`, `brief_ranking`,
-`offer_draft`, `capture_classify`, `enrich`, `deal_health`, `draft_reply`,
-`nl_search`, `summarize`, `transcript`, `agent_loop`, `voice_build`, and
-`cert_judge` (the rubric judge is itself certified like any task). Omit `TASK=` to run the
-whole corpus. Seven tasks have no production call site yet — their scenarios are
-documented starters, not full corpora (see [STATUS.md](../../STATUS.md)).
+The **task** names come from the contract (`backend/api/ai-tasks.yaml`), and only
+a task the contract marks `status: shipped` can be certified: `agent_loop`,
+`brief_ranking`, `capture_classify`, `capture_counterparty_verdict`,
+`cert_judge` (the rubric judge is itself certified like any task), `cold_start`,
+`draft_reply`, `enrich`, `offer_draft`, `rate_extract`, `site_extract`,
+`site_fact_extract`, `voice_build`. Omit `TASK=` to run the whole corpus.
+
+A `planned` task — one the contract declares but nothing implements
+(`summarize`, `nl_search`, `transcript`, `deal_health`) — owns no scenarios, and
+naming it fails the run with `task "…" has no scenarios under corpus`. That is
+the point: a scenario for a prompt nobody ships would score a hand-written copy
+and report the task covered, so the corpus refuses to carry one and a fitness
+test (`aicert/corpus_test.go`) holds it to that in both directions.
+
+A task is not one prompt. `cold_start` ships four invocation **sites** and
+`voice_build` three, each with its own scenarios; `TASK=` selects the task, so
+certifying one runs every site the task ships. The report in §3 is what breaks
+a task's result back down per site.
 
 ## 2. Benchmark a candidate swap
 
@@ -58,7 +69,7 @@ Certify a *different* model against the same corpus, without editing your
 routing config:
 
 ```
-make e2e-ai TASK=cold_start MODEL=gemini:gemini-2.5-flash-lite
+make e2e-ai TASK=cold_start MODEL=gemini:gemini-3.1-flash-lite
 ```
 
 `MODEL=provider:model` overrides only the candidate; the **judge stays on its
@@ -85,8 +96,8 @@ AI certification readiness: 1 of 19 shipped sites carry a current record.
 
 SITE                  SCOPE            STATUS  BAND       PROVIDER  MODEL             ENV   RUNS  PASSED  RELIABILITY  ACCEPTED  WRONG_ANSWER  INVALID  ABSTAINED
 agent_loop/loop       single_turn      absent  -          -         -                 -     -     -       -            -         -             -        -
-cold_start/acts       single_turn      current certified  gemini    gemini-2.5-flash  byok  3     3       1.00         3         0             0        0
-rate_extract/pricing  full_invocation  stale   certified  gemini    gemini-2.5-flash  byok  3     3       1.00         3         0             0        0
+cold_start/acts       single_turn      current certified  gemini    gemini-3.5-flash  byok  3     3       1.00         3         0             0        0
+rate_extract/pricing  full_invocation  stale   certified  gemini    gemini-3.5-flash  byok  3     3       1.00         3         0             0        0
 ```
 
 **Every row's numbers are that SITE's own.** A record is written per task and a
@@ -112,9 +123,18 @@ Three states, and they never collapse into each other:
 - **`absent`** — nothing has ever been measured. The columns are dashes rather
   than zeroes, because a zero is a result and this is not one.
 
-`SCOPE` is how much of the site a run covers: `single_turn` means the scenario
-seeds the window and grades the one reply that follows — the surrounding
-conversation or tool loop is supplied, not exercised.
+`SCOPE` is how much of the site a run covers, from the most to the least:
+
+- **`full_invocation`** — the run drives the whole production invocation, so
+  certifying it certifies the site.
+- **`single_turn`** — the scenario seeds the window and grades the one reply
+  that follows; the surrounding conversation or tool loop is supplied, not
+  exercised. The turns it leaves out are their own answers.
+- **`single_call`** — the run makes ONE of the calls the site makes for one
+  invocation. Where the site re-asks a below-floor item, asks again after an
+  unreadable answer, or fans out over pages, the answer the product serves is
+  assembled from calls the run never made — and the fold that assembles them is
+  unmeasured too.
 
 **Every row is one (provider, model, env) binding.** A `certified` band
 green-lights that deployment and says nothing about another one, which is why
@@ -129,7 +149,7 @@ doesn't tell you *why*. Turn on the payload trace to read exactly what each
 model saw and said:
 
 ```
-make e2e-ai TASK=deal_health          # trace is ON by default
+make e2e-ai TASK=enrich          # trace is ON by default
 ```
 
 Every candidate **and** judge call is dumped to a JSONL file under the
@@ -149,13 +169,15 @@ call inside it, since a site may answer in several (the reply drafter sends up
 to three, and the judge retries once on an unparseable score):
 
 ```json
-{"task":"deal_health","role":"candidate","scenario":"…","run":1,"call":1,
- "served_model":"gemini-2.5-flash",
+{"task":"enrich","role":"candidate","scenario":"…","run":1,"call":1,
+ "served_model":"gemini-3.5-flash",
  "request_payload":{"system":"…","messages":[…]},
- "response_payload":"{\"signals\":[{\"confidence\":\"0.9\"…"}
+ "response_payload":"{\"fields\":[{\"field\":\"title\",\"value\":\"Head of Quality\",\"evidence_snippet\":\"heads up quality assurance\"…"}
 ```
 
-That `"0.9"` (a string where the schema wants the number `0.9`) is a typical
+That `evidence_snippet` is a paraphrase, not a span the signature states
+character-for-character — so the site's own evidence gate drops the field and
+the run fails on a reply that is perfectly well-formed. That is the typical
 find: a `not_supported` verdict driven by a reply the site's own validator
 refuses, not a quality problem. Read the candidate's raw output, adjust,
 re-run.
