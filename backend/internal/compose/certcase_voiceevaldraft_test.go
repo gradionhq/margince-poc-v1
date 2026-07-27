@@ -135,8 +135,11 @@ func TestVoiceEvalDraftCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			wantDetail: "the scenario expects at least 0.9000",
 		},
 		{
+			// The evaluation keeps a draft that trips the floor and scores it, so
+			// the measurement still stands; what the tell costs is the candidate's
+			// activation, and this record's job is to say it was earned.
 			name: "a draft carrying a tell the sanitizer cannot remove", floor: voiceEvalClearedFloor,
-			reply: voiceEvalTellReply, wantResult: aitasks.OutcomeInvalid,
+			reply: voiceEvalTellReply, wantResult: aitasks.OutcomeAccepted,
 			wantDetail: "ai_ese",
 		},
 		{
@@ -374,8 +377,16 @@ func (r *voiceEvalBrainRecorder) draftRequests() []model.Request {
 // The claim this case makes is that it certifies the shipped path. The proof is
 // running the shipped path beside it: a whole evaluation over the same candidate
 // and the same held-out sample must issue the case's request for every repeat,
-// and must reach the same verdict about the same reply — in the evaluation's own
-// words, which are the review reasons a human reads off the build.
+// and must take the same reading of the same reply.
+//
+// That reading has two halves, and they decide different things. Whether the
+// evaluation could READ the draft decides whether there is a measurement at all,
+// and it is the case's invalid/not verdict. Whether the draft trips the anti-AI
+// floor decides nothing here: the evaluation counts the tell, KEEPS the draft
+// and scores it, and the count is spent once the whole candidate is folded
+// together. So the tell belongs in what the case reports, never in whether it
+// reports a measurement — a run refused here would be a draft the evaluation
+// went on to grade.
 func TestVoiceEvalDraftCaseRunsWhatProductionRuns(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -383,6 +394,9 @@ func TestVoiceEvalDraftCaseRunsWhatProductionRuns(t *testing.T) {
 		// wantReason is the evaluation's own account of this reply, empty when
 		// the evaluation has nothing to say against it.
 		wantReason string
+		// wantTell is the anti-AI code this reply trips, empty when it trips
+		// none.
+		wantTell   string
 		wantResult string
 	}{
 		{name: "a draft in the corpus's own rhythm", reply: voiceEvalCorpusShapedReply, wantResult: aitasks.OutcomeAccepted},
@@ -392,7 +406,8 @@ func TestVoiceEvalDraftCaseRunsWhatProductionRuns(t *testing.T) {
 		},
 		{
 			name: "a draft carrying a tell", reply: voiceEvalTellReply,
-			wantReason: "anti-AI hard failures survived sanitizing", wantResult: aitasks.OutcomeInvalid,
+			wantReason: "anti-AI hard failures survived sanitizing", wantTell: "ai_ese",
+			wantResult: aitasks.OutcomeAccepted,
 		},
 	}
 	for _, tc := range cases {
@@ -404,6 +419,8 @@ func TestVoiceEvalDraftCaseRunsWhatProductionRuns(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the evaluation did not complete: %v", err)
 			}
+			readable := voiceEvalRecordFlag(t, result, "structured_output_valid")
+			tellsCounted := voiceEvalRecordCount(t, result, "anti_ai_hard_failures")
 
 			production := brain.draftRequests()
 			if len(production) != voiceEvalRepeatsPerPrompt {
@@ -421,13 +438,79 @@ func TestVoiceEvalDraftCaseRunsWhatProductionRuns(t *testing.T) {
 					t.Fatalf("running repeat %d: %v", repeat, err)
 				}
 				assertSameCompanyReadRequest(t, sent, trace.Requests[0])
-				if outcome := prepared.Evaluate(trace); outcome.Result != tc.wantResult {
+				outcome := prepared.Evaluate(trace)
+				if outcome.Result != tc.wantResult {
 					t.Fatalf("repeat %d Result = %q (%s), want %q", repeat, outcome.Result, outcome.Detail, tc.wantResult)
 				}
+				// The parity claim itself, derived from the evaluation's own
+				// record rather than restated: the case refuses exactly the
+				// drafts the evaluation could not read.
+				if refused := outcome.Result == aitasks.OutcomeInvalid; refused == readable {
+					t.Errorf("repeat %d reports %q while the evaluation reads this draft = %t",
+						repeat, outcome.Result, readable)
+				}
+				assertVoiceEvalTellReported(t, outcome.Detail, tc.wantTell)
+			}
+
+			if (tellsCounted > 0) != (tc.wantTell != "") {
+				t.Errorf("the evaluation counted %d tells, want a tell = %t", tellsCounted, tc.wantTell != "")
+			}
+			// A draft the evaluation kept is one it can show a reviewer; a draft
+			// it could not read leaves the sample list empty.
+			if kept := len(result.SampleDrafts) > 0; kept != readable {
+				t.Errorf("the evaluation kept %d sample drafts while reading this draft = %t",
+					len(result.SampleDrafts), readable)
 			}
 			assertEvaluationReason(t, result, tc.wantReason)
 		})
 	}
+}
+
+// assertVoiceEvalTellReported holds the case to naming what the evaluation
+// counted. The tell does not change the verdict, and that is exactly why it has
+// to reach the Detail: a corpus author reading an accepted run is otherwise
+// never told that this draft is one the build will refuse to activate on.
+func assertVoiceEvalTellReported(t *testing.T, detail, want string) {
+	t.Helper()
+	if want == "" {
+		if strings.Contains(detail, "anti-AI") {
+			t.Errorf("Detail = %q, want no tell named for a clean draft", detail)
+		}
+		return
+	}
+	if !strings.Contains(detail, want) {
+		t.Errorf("Detail = %q, want it to name the %q the evaluation counted", detail, want)
+	}
+}
+
+// voiceEvalRecordFlag and voiceEvalRecordCount read the evaluation record the
+// build persists. A missing or differently typed entry is a failure rather than
+// a zero value, because a zero read as a claim is a parity assertion that
+// asserts nothing.
+func voiceEvalRecordFlag(t *testing.T, result voiceEvaluationResult, key string) bool {
+	t.Helper()
+	value, present := result.Evaluation[key]
+	if !present {
+		t.Fatalf("the evaluation record carries no %q", key)
+	}
+	flag, ok := value.(bool)
+	if !ok {
+		t.Fatalf("the evaluation record's %q is %T, want a flag", key, value)
+	}
+	return flag
+}
+
+func voiceEvalRecordCount(t *testing.T, result voiceEvaluationResult, key string) int {
+	t.Helper()
+	value, present := result.Evaluation[key]
+	if !present {
+		t.Fatalf("the evaluation record carries no %q", key)
+	}
+	count, ok := value.(int)
+	if !ok {
+		t.Fatalf("the evaluation record's %q is %T, want a count", key, value)
+	}
+	return count
 }
 
 // assertEvaluationReason holds the whole build to the same reading of the reply

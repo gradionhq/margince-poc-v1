@@ -301,6 +301,17 @@ func TestVoiceEvalScoresCaseRunsWhatProductionRuns(t *testing.T) {
 			name: "nothing the evaluation can read", reply: "The first one.",
 			wantScores: []float64{0.5, 0.5, 0.5}, wantUsable: false, wantResult: aitasks.OutcomeInvalid,
 		},
+		{
+			// The same three numbers, and the opposite event. Here the judge
+			// answered and the evaluation read it: the scores are its own, they
+			// go into the candidate's median as written, and only the scenario's
+			// ranking disagrees with them. Reporting that as a refusal would put
+			// a judge that cannot tell drafts apart in the same count as one
+			// that answered nothing readable at all — and the neutral fallback
+			// is exactly why those two must never share a bucket.
+			name: "a verdict that tells no draft from another", reply: voiceJudgeReply("0.5", "0.5", "0.5"),
+			wantScores: []float64{0.5, 0.5, 0.5}, wantUsable: true, wantResult: aitasks.OutcomeWrongAnswer,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -30,11 +30,13 @@ package compose
 // number would fail a model for writing closer to the author than the scenario
 // dared to claim.
 //
-// A tell is not a wrong answer, it is an unusable draft. The deterministic
-// anti-AI floor is the standard beneath every prompt in this product, and one
-// tell anywhere in an evaluation blocks the whole candidate from activating
-// whatever it scores — the same reading the reply-draft case takes of the same
-// floor.
+// A tell is neither a wrong answer nor an unusable draft: it is a cost the
+// record carries. The evaluation counts every tell the sanitizer could not
+// remove, KEEPS the draft, and scores it — the count is spent later, on whether
+// the whole candidate may activate, once every held-out prompt is folded
+// together. So this case reports the tells beside its measurement rather than
+// refusing the draft over them, because a draft the evaluation went on to grade
+// is not one this record may call unmeasurable.
 
 import (
 	"context"
@@ -207,32 +209,39 @@ func (c *voiceEvalDraftCase) Run(ctx context.Context, completer aitasks.Complete
 // The proximity is measured on the SANITIZED body, because sanitized is the text
 // the evaluation scores and caches; a case that measured the raw reply would
 // measure a draft nobody keeps.
+//
+// The anti-AI floor is not one of those steps. The evaluation does not spend it
+// here: it counts the tells, keeps the draft and scores it, and charges the
+// count against the whole candidate's activation once every held-out prompt is
+// in. A case that refused the draft over a tell would call a run unmeasurable
+// that the build measured, and would lose the one measurement this site takes —
+// so the tells go into the Detail, where a corpus author reading an accepted run
+// still learns the draft earned the build a review.
 func (c *voiceEvalDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	reply, err := readVoiceEvalDraft(trace.Output)
 	if err != nil {
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: err.Error()}
 	}
-	if len(reply.tells) > 0 {
-		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: voiceEvalTellRefusal(reply.tells)}
-	}
 	proximity := stylometricProximity(c.artifact.Stats, reply.body)
-	measured := fmt.Sprintf("the draft sits at %.4f of the corpus fingerprint", proximity)
+	result := aitasks.OutcomeAccepted
+	detail := fmt.Sprintf("the draft sits at %.4f of the corpus fingerprint", proximity)
 	if proximity < c.floor {
-		return aitasks.Outcome{
-			Result: aitasks.OutcomeWrongAnswer,
-			Detail: fmt.Sprintf("%s, and the scenario expects at least %.4f", measured, c.floor),
-		}
+		result = aitasks.OutcomeWrongAnswer
+		detail += fmt.Sprintf(", and the scenario expects at least %.4f", c.floor)
 	}
-	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: measured}
+	if len(reply.tells) > 0 {
+		detail += "; " + voiceEvalTellNote(reply.tells)
+	}
+	return aitasks.Outcome{Result: result, Detail: detail}
 }
 
-// voiceEvalTellRefusal renders the floor's finds in the floor's own words, all
-// of them: a draft that broke three rules is not the near miss one line would
-// read as.
-func voiceEvalTellRefusal(tells []ai.VoiceViolation) string {
+// voiceEvalTellNote renders the floor's finds in the floor's own words, all of
+// them: a draft that broke three rules is not the near miss one line would read
+// as.
+func voiceEvalTellNote(tells []ai.VoiceViolation) string {
 	found := make([]string, 0, len(tells))
 	for _, tell := range tells {
 		found = append(found, tell.Code+" ("+tell.Detail+")")
 	}
-	return "compose: the held-out draft still trips the anti-AI floor: " + strings.Join(found, "; ")
+	return "the evaluation counts these anti-AI hard failures against the candidate: " + strings.Join(found, "; ")
 }
