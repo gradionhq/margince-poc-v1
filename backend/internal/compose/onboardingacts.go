@@ -164,7 +164,7 @@ func validateOnboardingActReply(act, text string) error {
 		return fmt.Errorf("output must be a conversation reply object: %w", err)
 	}
 	if !companyConversationKindValid(reply.Kind) {
-		return fmt.Errorf("compose: onboarding %s answer has unsupported response kind %q", act, reply.Kind)
+		return fmt.Errorf("compose: onboarding %s answer has unsupported response kind %q", act, clampToken(reply.Kind))
 	}
 	if strings.TrimSpace(reply.Message) == "" {
 		return fmt.Errorf("compose: onboarding %s answer is empty", act)

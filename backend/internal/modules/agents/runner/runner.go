@@ -180,7 +180,7 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	carried := Result{StepsUsed: dec.Pending.StepsUsed, OutputTokens: dec.Pending.OutputTokens}
 
 	if !dec.Approved {
-		win.observe(dec.Pending.Tool, "the human REJECTED this proposed action; re-plan without it")
+		win.observeThen(dec.Pending.Tool, "", "the human REJECTED this proposed action; re-plan without it")
 		// A rejection is a human action, not a model call: ModelID/Tier stay
 		// empty and tokens zero — the trace records honestly that no model
 		// served this step.
@@ -257,7 +257,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			if invalidStreak >= consecutiveInvalidLimit {
 				return r.degrade(acc, "model output failed validation "+fmt.Sprint(invalidStreak)+" times: "+parseErr.Error()), nil
 			}
-			win.observe(outputValidatorSource, "your previous output failed validation: "+parseErr.Error()+"; return ONLY the step JSON")
+			win.observeThen(outputValidatorSource, "your previous output failed validation: "+parseErr.Error(), "Return ONLY the step JSON.")
 			continue
 		}
 		invalidStreak = 0

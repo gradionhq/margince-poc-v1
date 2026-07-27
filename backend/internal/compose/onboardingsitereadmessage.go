@@ -185,7 +185,7 @@ func validateCompanyReadReplyValue(reply companyReadModelReply, known map[string
 
 func validateCompanyReadReplyShape(reply companyReadModelReply) error {
 	if !companyConversationKindValid(reply.Kind) {
-		return fmt.Errorf("compose: company read answer has unsupported response kind %q", reply.Kind)
+		return fmt.Errorf("compose: company read answer has unsupported response kind %q", clampToken(reply.Kind))
 	}
 	if strings.TrimSpace(reply.Message) == "" {
 		return fmt.Errorf("compose: company read answer is empty")
@@ -194,7 +194,7 @@ func validateCompanyReadReplyShape(reply companyReadModelReply) error {
 		return fmt.Errorf("compose: company read answer proposes more than %d changes", companyReadChangeLimit)
 	}
 	if len(reply.ProposedChanges) > 0 && reply.Kind != companyConversationRecommendation && reply.Kind != "correction" {
-		return fmt.Errorf("compose: company read %s answer may not propose changes", reply.Kind)
+		return fmt.Errorf("compose: company read %s answer may not propose changes", clampToken(reply.Kind))
 	}
 	return nil
 }
@@ -202,13 +202,13 @@ func validateCompanyReadReplyShape(reply companyReadModelReply) error {
 func validateCompanyReadChanges(replyKind string, changes []companyReadProposedChange, globalSources map[string]struct{}, known map[string]companyReadEvidence, administratorStatements string, authorization companyChangeAuthorization) error {
 	for _, change := range changes {
 		if !crmcontracts.CompanySiteReadSuggestedChangeField(change.Field).Valid() {
-			return fmt.Errorf("compose: company read answer proposes unsupported field %q", change.Field)
+			return fmt.Errorf("compose: company read answer proposes unsupported field %q", clampToken(change.Field))
 		}
 		if strings.TrimSpace(change.Value) == "" || strings.TrimSpace(change.Reason) == "" {
 			return fmt.Errorf("compose: company read answer proposes an incomplete change")
 		}
 		if !authorization.allows(change) {
-			return fmt.Errorf("compose: company read answer proposes %q without an administrator change request", change.Field)
+			return fmt.Errorf("compose: company read answer proposes %q without an administrator change request", clampToken(change.Field))
 		}
 		changeSources, err := validateCompanyReadSourceIDs(change.SourceIDs, known)
 		if err != nil {
@@ -223,7 +223,7 @@ func validateCompanyReadChanges(replyKind string, changes []companyReadProposedC
 		supported := false
 		for sourceID := range changeSources {
 			if _, cited := globalSources[sourceID]; !cited {
-				return fmt.Errorf("compose: company read change source %q is absent from reply citations", sourceID)
+				return fmt.Errorf("compose: company read change source %q is absent from reply citations", clampToken(sourceID))
 			}
 			source := known[sourceID]
 			supported = supported || textContainsValue(source.Value+" "+source.Quote, change.Value)
@@ -400,10 +400,10 @@ func validateCompanyReadSourceIDs(sourceIDs []string, known map[string]companyRe
 	seen := make(map[string]struct{}, len(sourceIDs))
 	for _, sourceID := range sourceIDs {
 		if _, ok := known[sourceID]; !ok {
-			return nil, fmt.Errorf("compose: company read answer cites unknown source %q", sourceID)
+			return nil, fmt.Errorf("compose: company read answer cites unknown source %q", clampToken(sourceID))
 		}
 		if _, duplicate := seen[sourceID]; duplicate {
-			return nil, fmt.Errorf("compose: company read answer repeats source %q", sourceID)
+			return nil, fmt.Errorf("compose: company read answer repeats source %q", clampToken(sourceID))
 		}
 		seen[sourceID] = struct{}{}
 	}

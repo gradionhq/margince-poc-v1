@@ -128,9 +128,10 @@ func validateVerdictPayload(payload verdictPayload, row capture.PendingCounterpa
 // repeat back. Long enough to identify a malformed id at a glance, short enough
 // that the log cannot be used as a writing surface.
 //
-// Every validated capture lane echoes through clampToken — verdict, classify
-// and signature enrich — because each one's message is both logged and, on a
-// §5.2 retry, appended back into the prompt.
+// The obligation, not a list of the lanes that have it: NO model-chosen token
+// reaches a validator message unbounded. Every such message is both written to
+// the operator's log and, on a §5.2 retry, appended back into the prompt, so an
+// unbounded echo is a writing surface at both ends.
 const maxEchoedToken = 64
 
 // clampToken bounds one echoed token on a rune boundary.

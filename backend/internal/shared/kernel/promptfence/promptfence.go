@@ -194,8 +194,14 @@ func FromMarker(marker string) (Fence, bool) {
 	return Fence{nonce: marker}, true
 }
 
-// canonicalMarker stands in for a nonce wherever a prompt is HASHED rather than
-// sent — a result-cache key, a certification stamp.
+// canonicalMarker stands in for a nonce wherever the marker itself must not be
+// the thing that varies: a prompt being HASHED rather than sent (a result-cache
+// key, a certification stamp) via [Canonicalize], and a marker removed from text
+// whose author was shown it via [Fence.WrapAuthored].
+//
+// It is deliberately not marker-shaped for the second use: [MarkerIn] needs 36
+// characters where this has five, so a placeholder left in a prompt that IS sent
+// can never be read back as a boundary.
 const canonicalMarker = "untrusted-fence"
 
 // Canonicalize replaces the boundary a prompt declares with a fixed placeholder,
