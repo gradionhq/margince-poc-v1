@@ -61,6 +61,31 @@ func TestRelationshipUniquenessRefusalKeepsBothTheSentinelAndTheConstraint(t *te
 	}
 }
 
+// Each rule refuses something different, so each has to SAY something
+// different. The primary-employer index is keyed on the person alone: its
+// conflict is with another company, not with the pair the caller just named,
+// and a message describing the wrong pair sends them hunting a row that does
+// not exist.
+func TestEachUniquenessRuleDescribesWhatItActuallyRefused(t *testing.T) {
+	for constraint, want := range map[string]string{
+		"uq_rel_current_primary_employer": "current primary employer",
+		"uq_rel_deal_person_role":         "role on the deal",
+		"uq_rel_project_stakeholder":      "stakeholder on the project",
+	} {
+		t.Run(constraint, func(t *testing.T) {
+			got := (&RelationshipConflictError{Constraint: constraint}).Error()
+			if !strings.Contains(got, want) {
+				t.Fatalf("detail for %s = %q, want it to describe %q", constraint, got, want)
+			}
+			// The pair-shaped wording is the one that is false for the
+			// person-keyed rule, so no rule may fall back to it.
+			if strings.Contains(got, "between these records") {
+				t.Fatalf("%s reports a conflict between the named records, which its key does not establish: %q", constraint, got)
+			}
+		})
+	}
+}
+
 // A refusal that is not a uniqueness violation must pass through untouched, so
 // the recovery probe above cannot misfire on an unrelated failure.
 func TestANonUniquenessErrorIsNotDressedAsAConflict(t *testing.T) {

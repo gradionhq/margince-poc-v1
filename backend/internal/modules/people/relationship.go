@@ -41,12 +41,29 @@ import (
 // its transcript, which would put SQLSTATE text in a model prompt.
 type RelationshipConflictError struct{ Constraint string }
 
+// relationshipConflictDetails says what each rule actually refused, in the
+// caller's terms. One shared sentence cannot serve all three: the primary-
+// employer index is keyed on the PERSON alone, so its conflict is with a
+// different company entirely — telling that caller "this already exists
+// between these records" would name the wrong pair and send them looking for
+// a row that is not there.
+var relationshipConflictDetails = map[string]string{
+	"uq_rel_current_primary_employer": "this person already has a current primary employer — end that employment, or add this one without the primary flag",
+	"uq_rel_deal_person_role":         "this person already holds that role on the deal",
+	"uq_rel_project_stakeholder":      "this person is already a stakeholder on the project",
+}
+
 // Error says what the caller can act on. The constraint name stays OFF the
 // wire: httperr sends a sentinel's own text as the 409 detail, and an index
 // name is a database internal — it tells a client nothing it can use and
 // describes our schema to anyone probing it.
 func (e *RelationshipConflictError) Error() string {
-	return "a live relationship of this kind already exists between these records"
+	if detail, ok := relationshipConflictDetails[e.Constraint]; ok {
+		return detail
+	}
+	// A rule added to the switch above but not described here: still a
+	// truthful refusal, just a less specific one.
+	return "a live relationship already conflicts with this one"
 }
 
 // Is reports this as the conflict sentinel, so every transport that maps
