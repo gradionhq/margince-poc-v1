@@ -50,8 +50,11 @@ type relationshipListDTO struct {
 
 // projectProblem is the RFC 7807 body this surface answers on a refusal.
 type projectProblem struct {
-	Code   string `json:"code"`
-	Detail string `json:"detail"`
+	Code    string `json:"code"`
+	Detail  string `json:"detail"`
+	Details struct {
+		ExistingID string `json:"existing_id"`
+	} `json:"details"`
 }
 
 // anchorOrg creates the company a project hangs from. A project has exactly
@@ -184,8 +187,13 @@ func TestProjectKeyCollisionIsRefusedOverHTTP(t *testing.T) {
 	if status != http.StatusConflict {
 		t.Fatalf("a taken key → %d, want 409", status)
 	}
-	if problem.Detail == "" {
-		t.Fatal("the conflict says nothing about what to fix")
+	if problem.Code != "project_key_taken" {
+		t.Fatalf("conflict code = %q, want project_key_taken", problem.Code)
+	}
+	// The holder is visible to this caller, so the refusal names it — that is
+	// the whole point of probing before the write rather than after.
+	if problem.Details.ExistingID == "" {
+		t.Fatal("the conflict named no existing project, so a caller who collided cannot open it")
 	}
 }
 
@@ -227,20 +235,36 @@ func TestCreateProjectRefusesAnIncompleteBodyOverHTTP(t *testing.T) {
 	e.bootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Umbrella")
 
-	for name, body := range map[string]anyMap{
-		"no name":         {"organization_id": org, "source": "manual"},
-		"blank name":      {"name": "   ", "organization_id": org, "source": "manual"},
-		"no organization": {"name": "Orphan", "source": "manual"},
+	// The shape of the refusal differs by cause and each is asserted exactly:
+	// a missing or blank field is the 422 that names it, while an unknown
+	// anchor company is a 404 because existence is hidden, not reported.
+	for name, tc := range map[string]struct {
+		body anyMap
+		want int
+	}{
+		"no name":         {anyMap{"organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
+		"blank name":      {anyMap{"name": "   ", "organization_id": org, "source": "manual"}, http.StatusUnprocessableEntity},
+		"no organization": {anyMap{"name": "Orphan", "source": "manual"}, http.StatusNotFound},
 	} {
 		t.Run(name, func(t *testing.T) {
-			// The shape of the refusal differs by cause — a missing field is a 422,
-			// an unknown anchor is a 404 that hides whether it exists — but no
-			// incomplete body may produce a project.
-			status := e.call(t, "POST", "/v1/projects", body, nil, nil)
-			if status < 400 || status > 499 {
-				t.Fatalf("%s → %d, want a 4xx refusal", name, status)
+			if status := e.call(t, "POST", "/v1/projects", tc.body, nil, nil); status != tc.want {
+				t.Fatalf("%s → %d, want %d", name, status, tc.want)
 			}
 		})
+	}
+
+	// A blank name is refused on the way IN and on the way through: a rule
+	// that only one verb carries is a rule the other verb erases.
+	var project projectDTO
+	if status := e.call(t, "POST", "/v1/projects", anyMap{
+		"name": "Named", "organization_id": org, "source": "manual",
+	}, nil, &project); status != http.StatusCreated {
+		t.Fatalf("POST /projects → %d, want 201", status)
+	}
+	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+		"name": "   ",
+	}, nil, nil); status != http.StatusUnprocessableEntity {
+		t.Fatalf("PATCH to a blank name → %d, want 422", status)
 	}
 }
 
@@ -314,6 +338,7 @@ func TestAReadSeatCannotWriteAProjectOverHTTP(t *testing.T) {
 	e := setup(t)
 	e.bootstrapWorkspace(t)
 	org := anchorOrg(t, e, "Cyberdyne")
+	person := anchorPerson(t, e, "Miles Dyson")
 
 	var project projectDTO
 	if status := e.call(t, "POST", "/v1/projects", anyMap{
@@ -336,5 +361,17 @@ func TestAReadSeatCannotWriteAProjectOverHTTP(t *testing.T) {
 		"to_phase": "pursuing",
 	}, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a read seat advancing a phase → %d, want 403", status)
+	}
+	// The roster is part of the project's writable state, so both stakeholder
+	// verbs sit behind the same ceiling. Detach is asserted because it is the
+	// one that used to check only the relationship grant.
+	if status := e.call(t, "PUT", "/v1/projects/"+project.ID+"/stakeholders", anyMap{
+		"person_id": person, "role": "sponsor",
+	}, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a read seat attaching a stakeholder → %d, want 403", status)
+	}
+	if status := e.call(t, "DELETE",
+		fmt.Sprintf("/v1/projects/%s/stakeholders/%s", project.ID, person), nil, nil, nil); status != http.StatusForbidden {
+		t.Fatalf("a read seat detaching a stakeholder → %d, want 403", status)
 	}
 }

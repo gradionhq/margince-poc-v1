@@ -86,7 +86,13 @@ func (h Handlers) UpdateProject(w http.ResponseWriter, r *http.Request, id crmco
 		return
 	}
 
-	project, err := h.store.UpdateProject(r.Context(), pathID[ids.ProjectKind](id), projectUpdateInput(req, ifVersion))
+	in, err := projectUpdateInput(req, ifVersion)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+
+	project, err := h.store.UpdateProject(r.Context(), pathID[ids.ProjectKind](id), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -133,13 +139,9 @@ func (h Handlers) ArchiveProject(w http.ResponseWriter, r *http.Request, id crmc
 }
 
 func projectCreateInput(req crmcontracts.CreateProjectRequest) (CreateProjectInput, error) {
-	// Trimmed, because a name of spaces is not a name: it satisfies "required"
-	// on the wire and then reads as blank on every screen that shows it. The
-	// company surface refuses whitespace-only required fields for the same
-	// reason, and the stored name is the trimmed one so the two agree.
-	name := strings.TrimSpace(req.Name)
-	if name == "" {
-		return CreateProjectInput{}, &RequiredFieldError{Field: dealNameColumn}
+	name, err := projectName(req.Name)
+	if err != nil {
+		return CreateProjectInput{}, err
 	}
 	in := CreateProjectInput{
 		Name:           name,
@@ -159,7 +161,29 @@ func projectCreateInput(req crmcontracts.CreateProjectRequest) (CreateProjectInp
 	return in, nil
 }
 
-func projectUpdateInput(req crmcontracts.UpdateProjectRequest, ifVersion *int64) UpdateProjectInput {
+// projectName is the rule both write paths carry: a name of spaces is not a
+// name. It satisfies "required" on the wire and then reads as blank on every
+// screen that shows it, and the column is a bare NOT NULL, so nothing below
+// this catches it. Stored trimmed, so what was accepted is what is shown.
+func projectName(raw string) (string, error) {
+	name := strings.TrimSpace(raw)
+	if name == "" {
+		return "", &RequiredFieldError{Field: dealNameColumn}
+	}
+	return name, nil
+}
+
+func projectUpdateInput(req crmcontracts.UpdateProjectRequest, ifVersion *int64) (UpdateProjectInput, error) {
+	// A PATCH that omits the name leaves it alone; one that sends a name is
+	// held to the same rule create is, or the refusal would depend on which
+	// verb happened to write the blank.
+	if req.Name != nil {
+		name, err := projectName(*req.Name)
+		if err != nil {
+			return UpdateProjectInput{}, err
+		}
+		req.Name = &name
+	}
 	in := UpdateProjectInput{
 		Name:         req.Name,
 		Key:          req.Key,
@@ -177,7 +201,7 @@ func projectUpdateInput(req crmcontracts.UpdateProjectRequest, ifVersion *int64)
 	if req.EndedAt != nil {
 		in.EndedAt = &req.EndedAt.Time
 	}
-	return in
+	return in, nil
 }
 
 // writeProjectErr maps the project store's typed errors onto the codes
@@ -187,8 +211,10 @@ func writeProjectErr(w http.ResponseWriter, r *http.Request, err error) bool {
 	var keyTaken *ProjectKeyTakenError
 	if errors.As(err, &keyTaken) {
 		// The existing id rides the 409 so a caller that collided can open
-		// the project it collided with instead of hunting for it. It is
-		// absent only when the row was archived in the same instant.
+		// the project it collided with instead of hunting for it — but only
+		// when that caller can see the row. A key held by a project outside
+		// their scope still refuses the write and names nothing, because the
+		// id would be the one thing the scope exists to withhold.
 		existing := ""
 		if keyTaken.ExistingID != nil {
 			existing = keyTaken.ExistingID.String()

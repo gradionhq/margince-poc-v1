@@ -225,7 +225,12 @@ func mapRelationshipConstraint(err error, kind string) error {
 	if constraint, ok := storekit.UniqueViolation(err); ok {
 		switch constraint {
 		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", "uq_rel_project_stakeholder":
-			return fmt.Errorf("relationship %s: %w", constraint, apperrors.ErrConflict)
+			// The cause rides along beside the sentinel. Wrapping only
+			// ErrConflict drops the pg error out of the chain, and a caller
+			// that wants to recover from ITS OWN uniqueness race — an
+			// idempotent attach re-reading the edge that won — can then no
+			// longer tell which constraint refused it.
+			return fmt.Errorf("relationship %s: %w: %w", constraint, apperrors.ErrConflict, err)
 		}
 	}
 	return err

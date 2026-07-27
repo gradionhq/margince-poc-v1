@@ -230,11 +230,13 @@ func (s *Store) ArchiveProject(ctx context.Context, id ids.ProjectID, ifVersion 
 	return out, err
 }
 
-// ensureProjectKeyFree resolves a key collision BEFORE the write, so the
-// 409 can carry the id of the project already holding the key — a caller
-// that collided wants to open that project, not to be told "taken" and
-// left hunting for it. It has to run first: once a unique violation has
-// aborted the transaction, no further query in it can answer anything.
+// ensureProjectKeyFree resolves a VISIBLE key collision BEFORE the write, so
+// the 409 can carry the id of the project already holding the key — a caller
+// that collided wants to open that project, not to be told "taken" and left
+// hunting for it. When the holder is outside the caller's scope the probe
+// finds nothing and the unique index refuses the write instead, naming no id.
+// It has to run first: once a unique violation has aborted the transaction,
+// no further query in it can answer anything.
 func ensureProjectKeyFree(ctx context.Context, tx pgx.Tx, key *string) error {
 	if key == nil || *key == "" {
 		return nil
@@ -250,12 +252,12 @@ func ensureProjectKeyFree(ctx context.Context, tx pgx.Tx, key *string) error {
 	if err != nil {
 		return err
 	}
-	where := fmt.Sprintf("lower(key) = lower($%d) AND archived_at IS NULL", keyPos)
+	where := storekit.SQLf("lower(key) = lower($%d) AND archived_at IS NULL", keyPos)
 	if scope != "" {
 		where += " AND " + scope
 	}
 	var existing ids.UUID
-	err = tx.QueryRow(ctx, `SELECT id FROM project WHERE `+where, args...).Scan(&existing)
+	err = tx.QueryRow(ctx, storekit.SQLf(`SELECT id FROM project WHERE %s`, where), args...).Scan(&existing)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Either the key is free, or it is held by a project this caller
 		// cannot see. Both answer the same way here: the unique index is the

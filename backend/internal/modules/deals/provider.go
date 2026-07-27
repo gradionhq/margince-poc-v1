@@ -151,7 +151,11 @@ func (p *Provider) Update(ctx context.Context, in datasource.UpdateInput) (datas
 		if err := datasource.StrictDecode(raw, &req); err != nil {
 			return datasource.EntityRef{}, err
 		}
-		v, err := p.store.UpdateProject(ctx, ids.From[ids.ProjectKind](in.Ref.ID), projectUpdateInput(req, in.IfVersion))
+		update, err := projectUpdateInput(req, in.IfVersion)
+		if err != nil {
+			return datasource.EntityRef{}, err
+		}
+		v, err := p.store.UpdateProject(ctx, ids.From[ids.ProjectKind](in.Ref.ID), update)
 		return ref(datasource.EntityProject, v.Id), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.Ref.Type)}

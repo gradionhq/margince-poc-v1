@@ -55,28 +55,12 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 		return relationshipRow{}, err
 	}
 
-	var existingID *ids.UUID
-	err := s.tx(ctx, func(tx pgx.Tx) error {
-		var found ids.UUID
-		err := tx.QueryRow(ctx, `
-			SELECT id FROM relationship
-			WHERE kind = $1 AND project_id = $2 AND person_id = $3 AND archived_at IS NULL`,
-			projectStakeholderKind, in.ProjectID, in.PersonID).Scan(&found)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("look up existing project stakeholder: %w", err)
-		}
-		existingID = &found
-		return nil
-	})
+	existingID, found, err := s.projectStakeholderEdge(ctx, in.ProjectID, in.PersonID)
 	if err != nil {
 		return relationshipRow{}, err
 	}
-
-	if existingID != nil {
-		return s.UpdateRelationship(ctx, *existingID, UpdateRelationshipInput{Role: &in.Role})
+	if found {
+		return s.UpdateRelationship(ctx, existingID, UpdateRelationshipInput{Role: &in.Role})
 	}
 	row, err := s.CreateRelationship(ctx, CreateRelationshipInput{
 		Kind:      projectStakeholderKind,
@@ -91,9 +75,18 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 		// Someone attached the same person between our read and our write.
 		// That is the state this call wanted, so adopt their edge and apply
 		// the role rather than failing a request that asked for exactly this.
-		winnerID, lookupErr := s.projectStakeholderEdge(ctx, in.ProjectID, in.PersonID)
+		winnerID, stillThere, lookupErr := s.projectStakeholderEdge(ctx, in.ProjectID, in.PersonID)
 		if lookupErr != nil {
 			return relationshipRow{}, lookupErr
+		}
+		if !stillThere {
+			// The winner was archived in the instant between its insert and
+			// this read. The roster is empty again, so the original request
+			// is simply true once more: create it.
+			return s.CreateRelationship(ctx, CreateRelationshipInput{
+				Kind: projectStakeholderKind, PersonID: &in.PersonID,
+				ProjectID: &in.ProjectID, Role: &in.Role, Source: projectStakeholderSource,
+			})
 		}
 		return s.UpdateRelationship(ctx, winnerID, UpdateRelationshipInput{Role: &in.Role})
 	}
@@ -101,20 +94,30 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 }
 
 // projectStakeholderEdge resolves the live edge between a project and a
-// person. It exists so the attach path can re-read the winner of a
-// uniqueness race with the same query that looked for it in the first place.
-func (s *Store) projectStakeholderEdge(ctx context.Context, projectID ids.ProjectID, personID ids.PersonID) (ids.UUID, error) {
-	var found ids.UUID
+// person, reporting separately whether there is one. Both the first lookup
+// and the uniqueness-race re-read go through here, so the two cannot drift
+// apart on what "the edge" means.
+//
+// Absent is not an error: on the way in it means "attach", and on the race
+// path it means the winner was archived under us. Only a broken read is.
+func (s *Store) projectStakeholderEdge(ctx context.Context, projectID ids.ProjectID, personID ids.PersonID) (ids.UUID, bool, error) {
+	var edge ids.UUID
+	found := false
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		err := tx.QueryRow(ctx, `
 			SELECT id FROM relationship
 			WHERE kind = $1 AND project_id = $2 AND person_id = $3 AND archived_at IS NULL`,
-			projectStakeholderKind, projectID, personID).Scan(&found)
+			projectStakeholderKind, projectID, personID).Scan(&edge)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("look up project stakeholder edge: %w", err)
+		}
+		found = true
+		return nil
 	})
-	if err != nil {
-		return ids.UUID{}, fmt.Errorf("resolve project stakeholder edge: %w", err)
-	}
-	return found, nil
+	return edge, found, err
 }
 
 // RemoveProjectStakeholder archives the edge between a project and a
