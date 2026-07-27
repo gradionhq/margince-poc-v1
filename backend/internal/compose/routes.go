@@ -86,7 +86,11 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	publicEdge := publicPreferences(consent.NewStore(pool), newPublicPreferenceLimiters())(
 		publicBooking(activities.NewStore(pool), newPublicBookingLimiters())(api),
 	)
-	mux.Handle("/v1/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(publicEdge))))
+	// publicPreferencesPrefix is named here twice on purpose: it is where
+	// the edge reads the capability token OUT of the path, and where the
+	// access log must not write it back.
+	mux.Handle("/v1/", httpserver.Correlate(
+		httpserver.AccessLog(log, authH.Middleware(publicEdge), publicPreferencesPrefix)))
 	// The A2 authorization server (ADR-0013): AS endpoints live outside
 	// the generated resource surface but behind the same workspace and
 	// session middleware; the discovery documents are static.
