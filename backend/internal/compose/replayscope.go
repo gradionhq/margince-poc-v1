@@ -171,8 +171,20 @@ var replayableOperations = map[string]replayTarget{
 	"PATCH /v1/custom-fields/{id}":         {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	"PATCH /v1/custom-fields/{id}/options": {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	"POST /v1/custom-fields/{id}/retire":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	"POST /v1/data-subject-requests":       {objectNote: "DSR intake is gated by the privacy module's own case rules", rowNote: "a DSR case row, not a domain record"},
-	"PUT /v1/onboarding/state":             {objectNote: "per-workspace onboarding progress, gated by session membership in identity", rowNote: "workspace progress, not a record"},
+	// KNOWN GAP, deliberately left open rather than closed the wrong way. An
+	// approval IS row-scoped — through its TARGET (approvals.decidable =
+	// decision grants AND targetVisible) — so replaying returns
+	// proposed_change, evidence and the ADR-0036 token for a target the caller
+	// may since have lost. The probe lives inside approvals, where this
+	// package cannot reach it, and withdrawing the promise instead is WORSE:
+	// the first attempt decides the approval and mints a single-use token, so
+	// a retry re-executes, fails as already-decided, and the token is lost for
+	// good — a 🟡 action nobody can redeem, on any dropped response. Closing it
+	// needs an approvals-owned visibility probe injected here, the way compose
+	// already injects the approvals adapter. STATUS.md carries it.
+	"POST /v1/approvals/{id}/approve": {objectNote: "the approval row IS the authority object (ADR-0036); the approvals engine gates it", rowNote: "row-scoped through its target, but the probe is not reachable from this package — see the note above"},
+	"POST /v1/data-subject-requests":  {objectNote: "DSR intake is gated by the privacy module's own case rules", rowNote: "a DSR case row, not a domain record"},
+	"PUT /v1/onboarding/state":        {objectNote: "per-workspace onboarding progress, gated by session membership in identity", rowNote: "workspace progress, not a record"},
 }
 
 // ensureReplayVisible re-runs, against the caller as they are NOW, whichever

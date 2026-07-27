@@ -35,11 +35,6 @@ const idempotencyMapSource = "internal/compose/replayscope.go"
 // contract stops declaring, or one that shows up in the runtime map
 // anyway, fails the gate.
 var idempotencyExemptions = map[string]string{
-	"POST /v1/approvals/{id}/approve": "an approval is row-scoped through its TARGET (approvals.decidable = decision" +
-		" grants AND targetVisible), and that probe lives inside the approvals module, not in a table compose can" +
-		" consult; replaying the recorded body would return proposed_change, evidence and the ADR-0036 approval_token" +
-		" for a target the caller may no longer see — reopening exactly the oracle decide.go closes. The promise stays" +
-		" withdrawn until the replay gate can call an approvals-owned visibility probe",
 	"POST /v1/public/booking/{host_slug}": "anonymous edge: every visitor shares the" +
 		" system:public_booking principal, so the middleware's per-principal claim scope" +
 		" cannot tell callers apart — one visitor's key + body would replay another's" +

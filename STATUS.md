@@ -862,6 +862,19 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **`approveApproval` replays ungated, and both ways of closing it are wrong today.**
+  An approval is row-scoped through its TARGET (`approvals.decidable` = decision
+  grants AND `targetVisible`), so a replay returns `proposed_change`, `evidence`
+  and the ADR-0036 `approval_token` for a target the caller may since have lost
+  — the oracle `decide.go` deliberately closes. The probe lives inside the
+  approvals module and is not reachable from `compose`. Withdrawing the route
+  from the replayable set was tried and is WORSE: the first attempt decides the
+  approval and mints a single-use token, so the retry re-executes, fails as
+  already-decided, and the token is lost for good — an unredeemable 🟡 action on
+  any dropped response. Fix: inject an approvals-owned visibility probe into the
+  replay gate, the way compose already injects the approvals adapter, then add
+  `Approval` to `rowScopedResponses`.
+
 - **Recorded idempotency bodies survive Art. 17 erasure.**
   `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
   `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that
