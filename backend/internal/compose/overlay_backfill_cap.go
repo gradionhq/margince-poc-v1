@@ -42,6 +42,23 @@ import (
 // the cap mid-backfill is therefore an operator action that also clears
 // the cursor (or lets the class finish first). This is acceptable for a
 // dev/demo knob; a production cap would carry the count out-of-band.
+//
+// Now that the floor actually makes the cap hold (the paragraph above), a
+// capped class's records below the cap are permanently declined — so it
+// marks every page it cuts short as overlay.Page.Truncated, sticky into
+// overlay_backfill_cursor.truncated (backfill.go/mirrorcheckpoints.go),
+// which backfillCompleteFor (syncstatus.go) reads back so SyncStatus never
+// reports a capped class complete. done still retires it (re-listing under
+// the same cap would relearn nothing), but done and "genuinely complete"
+// are no longer the same claim.
+//
+// Recovery is NOT automatic once a class converges truncated: unsetting
+// MARGINCE_OVERLAY_BACKFILL_LIMIT does not resume it — done=true still
+// short-circuits Backfill (backfill.go) before the raw adapter is ever
+// reached again, so truncated never clears on its own. The operator action
+// is the same one the mid-flight caveat above names: reset that object
+// class's overlay_backfill_cursor row (or reconnect, which purges it) so
+// the next sweep backfills it for real, this time uncapped.
 type cappedIncumbent struct {
 	overlay.Incumbent
 	limit int
@@ -56,20 +73,39 @@ func (c cappedIncumbent) Backfill(ctx context.Context, objectClass, cursor strin
 	consumed, inner := splitCappedCursor(cursor)
 	if consumed >= c.limit {
 		// The cap was already reached on a prior page — converge with no
-		// further listing (an empty terminal page, NextCursor "").
-		return overlay.Page{}, nil
+		// further listing (an empty terminal page, NextCursor ""). Truncated
+		// stays true: the incumbent's own list was never exhausted, only
+		// declined.
+		return overlay.Page{Truncated: true}, nil
 	}
 	page, err := c.Incumbent.Backfill(ctx, objectClass, inner)
 	if err != nil {
 		return page, err
 	}
-	if remaining := c.limit - consumed; len(page.Records) > remaining {
+	remaining := c.limit - consumed
+	if len(page.Records) > remaining {
+		// The cap lands mid-page: keep only what fits and stop here,
+		// regardless of whether the incumbent's own list had more.
 		page.Records = page.Records[:remaining]
-		page.NextCursor = "" // the truncated page carries the last records this object gets
+		page.NextCursor = ""
+		page.Truncated = true
+		return page, nil
 	}
 	consumed += len(page.Records)
-	if consumed >= c.limit || page.NextCursor == "" {
+	if page.NextCursor == "" {
+		// The incumbent's own list is exhausted exactly here — a genuine
+		// convergence, not a decline, even if it lands exactly at the cap.
+		return page, nil
+	}
+	if consumed >= c.limit {
+		// A non-empty NextCursor is the incumbent's own signal that its list
+		// has more (true for HubSpot v3 paging and the fake; an incumbent
+		// that handed out a cursor to an empty terminal page would read as
+		// truncated forever, but the failure direction stays conservative —
+		// reports incomplete, never falsely complete). The cap says stop
+		// regardless — this IS a decline, not the incumbent's own end of list.
 		page.NextCursor = ""
+		page.Truncated = true
 		return page, nil
 	}
 	page.NextCursor = strconv.Itoa(consumed) + cappedCursorSep + page.NextCursor

@@ -82,10 +82,11 @@ func TestDisconnectPurgesTheMirrorTombstonesAndRetainsTheConnectionAudit(t *test
 	// state whose survival past disconnect would make a later connection
 	// skip its initial mirror load / resume the sweep mid-stream.
 	const incumbentClass = "contacts"
-	if err := store.SaveBackfillCursor(ctx, incumbentClass, "", true); err != nil {
+	fixtureConnectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if err := store.SaveBackfillCursor(ctx, incumbentClass, "", BackfillProgress{Done: true}, fixtureConnectedAt); err != nil {
 		t.Fatalf("seeding the converged backfill-cursor fixture: %v", err)
 	}
-	if err := store.SaveReconcileWatermark(ctx, incumbentClass, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := store.SaveReconcileWatermark(ctx, incumbentClass, time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), fixtureConnectedAt); err != nil {
 		t.Fatalf("seeding the reconcile-watermark fixture: %v", err)
 	}
 
@@ -253,7 +254,8 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	vault := keyvault.NewMemory()
 	store := NewMirrorStore(pool, noOwnerEmails{})
 	svc := NewService(pool, vault, store)
-	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-fence-secret"}); err != nil {
+	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-fence-secret"})
+	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
 	fenced := store.WithFence()
@@ -261,7 +263,7 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// While the connection is active the fence is transparent: a fenced write
 	// behaves exactly as an unfenced one, so the sweep's normal operation is
 	// unaffected.
-	if err := fenced.SaveBackfillCursor(ctx, "contacts", "cur-live", false); err != nil {
+	if err := fenced.SaveBackfillCursor(ctx, "contacts", "cur-live", BackfillProgress{}, conn.ConnectedAt); err != nil {
 		t.Fatalf("fenced write on a live connection = %v, want success", err)
 	}
 
@@ -285,9 +287,11 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 		"UpsertAssoc": func() error {
 			return fenced.UpsertAssoc(ctx, Assoc{FromType: "person", FromID: "new", ToType: "deal", ToID: "1", TypeID: 1, Category: "HUBSPOT_DEFINED", Direction: "forward"})
 		},
-		"SaveBackfillCursor": func() error { return fenced.SaveBackfillCursor(ctx, "contacts", "cur-stray", true) },
+		"SaveBackfillCursor": func() error {
+			return fenced.SaveBackfillCursor(ctx, "contacts", "cur-stray", BackfillProgress{Done: true}, conn.ConnectedAt)
+		},
 		"SaveReconcileWatermark": func() error {
-			return fenced.SaveReconcileWatermark(ctx, "contacts", time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC))
+			return fenced.SaveReconcileWatermark(ctx, "contacts", time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), conn.ConnectedAt)
 		},
 		"UpsertUserMap": func() error {
 			return fenced.UpsertUserMap(ctx, ids.From[ids.UserKind](actor.UserID), "hubspot", "owner-stray", "manual")
@@ -476,10 +480,11 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 		}},
 		pageSize: 100,
 	}}
-	if err := Backfill(ctx, inc, store, "companies"); err != nil {
+	fixtureConnectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	if _, err := Backfill(ctx, inc, store, "companies", fixtureConnectedAt); err != nil {
 		t.Fatalf("initial Backfill: %v", err)
 	}
-	if err := store.SaveReconcileWatermark(ctx, "companies", time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC)); err != nil {
+	if err := store.SaveReconcileWatermark(ctx, "companies", time.Date(2026, 7, 2, 0, 0, 0, 0, time.UTC), fixtureConnectedAt); err != nil {
 		t.Fatalf("checkpointing the reconcile watermark: %v", err)
 	}
 
@@ -488,7 +493,7 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 	// post-disconnect "it listed again" assertion below could pass even
 	// if the done cursor never short-circuited anything.
 	listsBefore := inc.lists
-	if err := Backfill(ctx, inc, store, "companies"); err != nil {
+	if _, err := Backfill(ctx, inc, store, "companies", fixtureConnectedAt); err != nil {
 		t.Fatalf("Backfill over the converged cursor: %v", err)
 	}
 	if inc.lists != listsBefore {
@@ -519,7 +524,7 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 	// The behavior itself: a fresh Backfill lists the incumbent from the
 	// start again — the checkpoint reset restores the LOAD.
 	listsBefore = inc.lists
-	if err := Backfill(ctx, inc, store, "companies"); err != nil {
+	if _, err := Backfill(ctx, inc, store, "companies", fixtureConnectedAt); err != nil {
 		t.Fatalf("Backfill after Disconnect: %v", err)
 	}
 	if inc.lists == listsBefore {

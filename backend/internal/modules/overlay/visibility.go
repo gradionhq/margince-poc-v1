@@ -301,13 +301,13 @@ func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, inc
 		}
 
 		// The disconnect-race fence, taken only for the sweep's store
-		// (WithFence) — after the email resolution above so a slow incumbent
-		// lookup is never held under a lock, before the write below so a
-		// mapping is never resurrected into a disconnected workspace.
-		if s.fenced {
-			if err := assertActiveConnection(ctx, tx); err != nil {
-				return err
-			}
+		// (WithFence/WithFenceIdentity) — after the email resolution above so
+		// a slow incumbent lookup is never held under a lock, before the
+		// write below so a mapping is never resurrected into a disconnected
+		// workspace (or, under the sweep's WithFenceIdentity, into a
+		// DIFFERENT connection than the one this call started under).
+		if err := s.assertFence(ctx, tx); err != nil {
+			return err
 		}
 
 		// Serialize the read-decide-upsert-recompute sequence against every

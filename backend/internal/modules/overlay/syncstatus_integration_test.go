@@ -15,6 +15,7 @@ package overlay
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -52,13 +53,15 @@ func TestBackfillCompleteForRequiresEveryEngagementClass(t *testing.T) {
 		return complete
 	}
 
+	connectedAt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+
 	// Four of five engagement cursors converged; tasks still running.
 	for _, class := range []string{"calls", "meetings", "emails", "notes"} {
-		if err := store.SaveBackfillCursor(ctx, class, "", true); err != nil {
+		if err := store.SaveBackfillCursor(ctx, class, "", BackfillProgress{Done: true}, connectedAt); err != nil {
 			t.Fatalf("seeding the %s cursor: %v", class, err)
 		}
 	}
-	if err := store.SaveBackfillCursor(ctx, "tasks", "cur", false); err != nil {
+	if err := store.SaveBackfillCursor(ctx, "tasks", "cur", BackfillProgress{}, connectedAt); err != nil {
 		t.Fatalf("seeding the tasks cursor: %v", err)
 	}
 	if completeInTx() {
@@ -66,7 +69,7 @@ func TestBackfillCompleteForRequiresEveryEngagementClass(t *testing.T) {
 	}
 
 	// The last class converges → activity is now complete.
-	if err := store.SaveBackfillCursor(ctx, "tasks", "", true); err != nil {
+	if err := store.SaveBackfillCursor(ctx, "tasks", "", BackfillProgress{Done: true}, connectedAt); err != nil {
 		t.Fatalf("converging the tasks cursor: %v", err)
 	}
 	if !completeInTx() {

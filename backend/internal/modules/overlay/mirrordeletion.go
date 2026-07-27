@@ -84,10 +84,8 @@ func (s *MirrorStore) purgeRecordTx(ctx context.Context, tx pgx.Tx, del Deletion
 	// workspace that has already gone back to native is the same
 	// post-disconnect write the fence exists to stop. Every other mutation on
 	// this store asserts the connection; so does this one, when fenced.
-	if s.fenced {
-		if err := assertActiveConnection(ctx, tx); err != nil {
-			return false, err
-		}
+	if err := s.assertFence(ctx, tx); err != nil {
+		return false, err
 	}
 	id, err := externalIDToUUID(del.ExternalID)
 	if err != nil {

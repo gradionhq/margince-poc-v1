@@ -62,6 +62,11 @@ type MirrorStore struct {
 	// the read-path and on-connect stores leave it false so a write outside
 	// a live connection (a test, the seed) is not gated on one.
 	fenced bool
+	// connectedAt is set only by WithFenceIdentity (disconnectfence.go): the
+	// connection identity (incumbent_connection.connected_at) a fenced
+	// write additionally requires, on top of plain status (assertFence).
+	// Zero for a store built with the weaker WithFence.
+	connectedAt time.Time
 }
 
 // NewMirrorStore constructs a MirrorStore over pool. emails resolves an
@@ -88,17 +93,28 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 }
 
 // WithFence returns a MirrorStore identical to s with the disconnect-race
-// fence engaged (see the fenced field and disconnectfence.go). The reconcile
-// sweep binds it — ms.WithResolver(inc).WithFence() — so every sync write it
-// issues aborts with ErrConnectionGone the moment the workspace is
-// disconnected, instead of resurrecting purged incumbent-derived data. It is
-// opt-in precisely so the read path and the many unit tests that ingest
-// without standing up a connection are not forced to hold one.
+// fence engaged on connection STATUS ALONE (assertActiveConnection — see the
+// fenced field and disconnectfence.go): every sync write it issues aborts
+// with ErrConnectionGone the moment the workspace is disconnected, instead of
+// resurrecting purged incumbent-derived data. Use this for a fenced write
+// whose window is one bounded request (a human write-back, an on-demand
+// sweep request) — the disconnect+reconnect straddle (disconnectfence.go's
+// KNOWN GAP) is real here too, but its race window is this one request, not
+// an unattended background sweep, so WithFenceIdentity's stronger guarantee
+// is not needed. It is opt-in precisely so the read path and the many unit
+// tests that ingest without standing up a connection are not forced to hold
+// one.
 func (s *MirrorStore) WithFence() *MirrorStore {
 	c := *s
 	c.fenced = true
 	return &c
 }
+
+// WithFenceIdentity (the stronger, identity-checking sibling of WithFence)
+// and assertFence (the one call every fenced method makes) live in
+// disconnectfence.go, next to assertActiveConnection/assertOwnConnection —
+// the fence's own mechanics kept together, split out of this file purely to
+// stay under the file-length cap.
 
 // ingestSQL is the in-SQL cache-refresh upsert design.md §4.4/§4.9
 // specifies verbatim. Three guards, all IN the statement so concurrent
@@ -217,10 +233,8 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	if rec.OwnerExternalID != "" {
 		ownerArg = rec.OwnerExternalID
 	}
-	if s.fenced {
-		if err := assertActiveConnection(ctx, tx); err != nil {
-			return false, err
-		}
+	if err := s.assertFence(ctx, tx); err != nil {
+		return false, err
 	}
 	// Ingest's owner projection (ProjectOwnerVisibility, and the
 	// owner-change revalidation) mutates mirror_visibility, so it takes
@@ -286,10 +300,8 @@ func (s *MirrorStore) UpsertAssoc(ctx context.Context, a Assoc) error {
 		label = a.Label
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if s.fenced {
-			if err := assertActiveConnection(ctx, tx); err != nil {
-				return err
-			}
+		if err := s.assertFence(ctx, tx); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(
 			ctx, upsertAssocSQL,

@@ -1276,6 +1276,32 @@ Open work, roughly in priority order:
     the tables the mirror tombstone cannot (associations, checkpoints,
     user-map, sync-state) + a tombstone-less new row. `mirrorcheckpoints.go`
     split out.
+  - **A5b backfill-cap-floor + connection-identity fence** — IN FLIGHT
+    (`fix/overlay-backfill-cap-floor`). `MARGINCE_OVERLAY_BACKFILL_LIMIT`
+    (the dev cap on the initial mirror load) was silently undone one tick
+    later: a class with no watermark yet swept from the zero time (HubSpot
+    renders that as the whole portal), so the incremental pass immediately
+    re-pulled everything the cap had just declined. `ReconcileFloor` raises
+    that window to the connection's own `connected_at` (backdated by a
+    15m clock-skew grace), so the cap actually holds. That surfaced two
+    follow-on gaps, both closed in the same branch: (1) once the cap
+    genuinely holds, a class it truncates now needs to say so — done=true
+    still retires the cursor, but a new `overlay_backfill_cursor.truncated`
+    column (sticky, same as `done`) makes `backfillCompleteFor` report
+    `false` for it, so `MARGINCE_OVERLAY_BACKFILL_LIMIT` stops being a
+    silent-completion lie; (2) A5's disconnect-race fence checked
+    connection STATUS only, so a sweep straddling a disconnect+reconnect
+    (not just a disconnect) could still land data under the wrong
+    connection generation — `MirrorStore.WithFenceIdentity` +
+    `assertOwnConnection` (disconnectfence.go) extend the fence to the
+    connection's IDENTITY for the two unattended sweep paths (the periodic
+    reconcile worker, the webhook re-fetch worker); write-back and
+    on-demand-sweep paths stay on the plain status fence (bounded to one
+    HTTP request, not an unattended sweep — see disconnectfence.go's own
+    doc for why that's an intentional, narrower scope). Three new
+    integration tests pin the straddle race, the cap-truncation honesty,
+    and the checkpoint's own identity check independent of the store's
+    fence mode.
   - **A6.1 mapping-fidelity (value-level rules)** — MERGED #173 (`ad905af`).
     OVA-MAP-2 (`hs_call_duration`
     ms→seconds), OVA-MAP-3 (`full_name` assembled firstname+lastname → email
