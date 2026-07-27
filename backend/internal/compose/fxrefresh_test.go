@@ -20,8 +20,8 @@ func TestCollectKeepsFirstOnDuplicateCurrency(t *testing.T) {
 	// USD→EUR 0.9259…) comes first; "1 USD = 0.90 EUR" (direct) comes second
 	// and conflicts. The first must survive.
 	pairs := []extractedFxPair{
-		{FromCurrency: "EUR", ToCurrency: "USD", Rate: "1.08", Evidence: "s0", Confidence: "0.9"},
-		{FromCurrency: "USD", ToCurrency: "EUR", Rate: "0.90", Evidence: "s1", Confidence: "0.9"},
+		{FromCurrency: "EUR", ToCurrency: "USD", Rate: "1.08", Evidence: "s0", Confidence: 0.9},
+		{FromCurrency: "USD", ToCurrency: "EUR", Rate: "0.90", Evidence: "s1", Confidence: 0.9},
 	}
 	got := f.collect("EUR", pairs, map[string]bool{"USD": true})
 	if len(got) != 1 || got["USD"] != "0.9259259259" {

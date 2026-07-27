@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
+	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
 // The request is the whole security perimeter of this site: a pricing page is
@@ -77,7 +78,7 @@ func TestRateExtractRequestMintsAFreshBoundaryPerCall(t *testing.T) {
 // The provider is the case the sheet's identity depends on: a page must never
 // stage a rate under a provider it does not own.
 func TestAcceptRateRowsDropsEveryUngroundedRow(t *testing.T) {
-	row := func(id, evidence, confidence string) extractedModel {
+	row := func(id, evidence string, confidence schema.Confidence) extractedModel {
 		return extractedModel{
 			Provider: "aurora", ModelID: id, InputUsd: "5", OutputUsd: "25",
 			CacheReadUsd: "0", CacheWriteUsd: "0", Evidence: evidence, Confidence: confidence,
@@ -88,15 +89,14 @@ func TestAcceptRateRowsDropsEveryUngroundedRow(t *testing.T) {
 		in   extractedModel
 		want bool
 	}{
-		{name: "a grounded row is kept", in: row("large", "s0", "0.95"), want: true},
-		{name: "the floor itself is kept", in: row("large", "s0", "0.5"), want: true},
-		{name: "a padded id is trimmed and kept", in: row("  large  ", "s0", "0.95"), want: true},
-		{name: "no model named", in: row("   ", "s0", "0.95")},
-		{name: "no passage cited", in: row("large", "  ", "0.95")},
-		{name: "confidence below the floor", in: row("large", "s0", "0.49")},
-		{name: "confidence above one", in: row("large", "s0", "1.5")},
-		{name: "confidence that is not a number", in: row("large", "s0", "high")},
-		{name: "confidence that is not finite", in: row("large", "s0", "NaN")},
+		{name: "a grounded row is kept", in: row("large", "s0", 0.95), want: true},
+		{name: "the floor itself is kept", in: row("large", "s0", 0.5), want: true},
+		{name: "a padded id is trimmed and kept", in: row("  large  ", "s0", 0.95), want: true},
+		{name: "no model named", in: row("   ", "s0", 0.95)},
+		{name: "no passage cited", in: row("large", "  ", 0.95)},
+		{name: "confidence below the floor", in: row("large", "s0", 0.49)},
+		{name: "confidence above one", in: row("large", "s0", 1.5)},
+		{name: "no confidence at all reads as zero, below the floor", in: row("large", "s0", 0)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -121,8 +121,8 @@ func TestAcceptRateRowsDropsEveryUngroundedRow(t *testing.T) {
 // WHICH rows were refused still has the reply the model sent.
 func TestAcceptRateRowsLeavesTheClaimedRowsReadable(t *testing.T) {
 	claimed := []extractedModel{
-		{ModelID: "ungrounded", Evidence: "", Confidence: "0.9"},
-		{ModelID: "large", Evidence: "s0", Confidence: "0.9"},
+		{ModelID: "ungrounded", Evidence: "", Confidence: 0.9},
+		{ModelID: "large", Evidence: "s0", Confidence: 0.9},
 	}
 
 	kept := acceptRateRows(claimed, "acme")
@@ -132,6 +132,52 @@ func TestAcceptRateRowsLeavesTheClaimedRowsReadable(t *testing.T) {
 	}
 	if claimed[0].ModelID != "ungrounded" || claimed[1].ModelID != "large" {
 		t.Errorf("the gate rewrote the rows it was given: %+v", claimed)
+	}
+}
+
+// rateReply spells one model row with the confidence written as given, so a
+// test says only which side of the quotes the score arrived on.
+func rateReply(confidence string) string {
+	return `{"models":[{"provider":"aurora","model_id":"large","input_per_mtok":"5",` +
+		`"output_per_mtok":"25","cache_read_per_mtok":"0","cache_write_per_mtok":"0",` +
+		`"evidence":"s0","confidence":` + confidence + `}]}`
+}
+
+// The prompt asks for a quoted score and the response schema declares one, but
+// neither reaches a provider that has no schema-constrained mode, and the model
+// runtime drops the schema on the retry that follows a provider rejecting it. A
+// price the page states plainly must not be lost to which side of the quotes the
+// number came back on.
+func TestParseRateExtractionReadsAQuotedOrBareConfidence(t *testing.T) {
+	for _, spelling := range []string{`"0.9"`, `0.9`} {
+		t.Run(spelling, func(t *testing.T) {
+			models, err := parseRateExtraction(rateReply(spelling))
+			if err != nil {
+				t.Fatalf("parseRateExtraction(confidence %s): %v", spelling, err)
+			}
+			if len(models) != 1 {
+				t.Fatalf("parsed %d rows, want one", len(models))
+			}
+			if models[0].Confidence != 0.9 {
+				t.Errorf("confidence %v, want 0.9", models[0].Confidence)
+			}
+			if len(acceptRateRows(models, "aurora")) != 1 {
+				t.Error("the row was refused by the no-guess gate; the score is above the floor either way it was spelled")
+			}
+		})
+	}
+}
+
+// Tolerance covers the WRAPPER, never the value. A score nothing can compare
+// leaves the floor unable to refuse anything, so the reply is refused instead of
+// read — the row would otherwise reach the gate as a zero nobody sent.
+func TestParseRateExtractionRefusesAConfidenceThatIsNoNumber(t *testing.T) {
+	for _, spelling := range []string{`"high"`, `"NaN"`, `null`, `true`} {
+		t.Run(spelling, func(t *testing.T) {
+			if _, err := parseRateExtraction(rateReply(spelling)); err == nil {
+				t.Fatalf("confidence %s parsed; a score no threshold can compare must not reach the gate as a silent zero", spelling)
+			}
+		})
 	}
 }
 

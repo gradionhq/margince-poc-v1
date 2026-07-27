@@ -222,18 +222,18 @@ func (c *ratePricingCase) Run(ctx context.Context, completer aitasks.Completer) 
 // A reply that grounded something is usable whatever else it claimed, so a
 // missing or misread price is a wrong answer, named as such.
 func (c *ratePricingCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
-	var out rateExtraction
-	if err := json.Unmarshal([]byte(ai.Unfence(trace.Output)), &out); err != nil {
+	claimed, err := parseRateExtraction(trace.Output)
+	if err != nil {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeInvalid,
 			Detail: fmt.Sprintf("unparseable model output: %v", err),
 		}
 	}
-	kept := acceptRateRows(out.Models, c.provider)
+	kept := acceptRateRows(claimed, c.provider)
 	// Every refusal reaches the Detail whatever the result: a reply that priced
 	// the expected models while inventing three ungrounded ones is not the clean
 	// run it would otherwise look like.
-	detail := rateRowRefusals(out.Models, c.provider)
+	detail := rateRowRefusals(claimed, c.provider)
 	if len(kept) == 0 {
 		if len(detail) == 0 {
 			detail = []string{"the model priced nothing at all"}
