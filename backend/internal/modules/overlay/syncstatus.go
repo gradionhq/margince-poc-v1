@@ -191,11 +191,17 @@ func aggregateState(f mirrorStateFlags) string {
 }
 
 // backfillCompleteFor answers whether canonicalObjectClass's backfill has
-// converged (overlay_backfill_cursor.done), translating through
-// s.toIncumbentClasses first (overlay_backfill_cursor is keyed by the
-// INCUMBENT class name — see the Service doc). No translator wired or no
-// declared mapping for this class both answer (false, nil) — an honest
-// "not confirmed complete", never a guessed true.
+// GENUINELY converged — overlay_backfill_cursor.done AND NOT truncated —
+// translating through s.toIncumbentClasses first (overlay_backfill_cursor
+// is keyed by the INCUMBENT class name — see the Service doc). done alone
+// is not sufficient: a class the MARGINCE_OVERLAY_BACKFILL_LIMIT dev cap cut
+// short also persists done=true (re-listing under the same cap would
+// accomplish nothing, so Backfill correctly retires it), but truncated=true
+// records that the incumbent's own list was never exhausted, only declined
+// — reporting THAT as backfillComplete would be a lie a laptop demo could
+// easily reach. No translator wired or no declared mapping for this class
+// both answer (false, nil) — an honest "not confirmed complete", never a
+// guessed true.
 //
 // The translation is plural: a canonical type can be backed by several
 // incumbent classes ("activity" ← the five v3 engagement classes), and its
@@ -217,17 +223,17 @@ func (s *Service) backfillCompleteFor(ctx context.Context, tx pgx.Tx, canonicalO
 		return false, nil
 	}
 	for _, incumbentClass := range incumbentClasses {
-		var done bool
+		var done, truncated bool
 		err := tx.QueryRow(ctx,
-			`SELECT done FROM overlay_backfill_cursor WHERE object_class = $1`, incumbentClass,
-		).Scan(&done)
+			`SELECT done, truncated FROM overlay_backfill_cursor WHERE object_class = $1`, incumbentClass,
+		).Scan(&done, &truncated)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
 		if err != nil {
 			return false, fmt.Errorf("overlay: checking backfill completeness for %s (%s): %w", canonicalObjectClass, incumbentClass, err)
 		}
-		if !done {
+		if !done || truncated {
 			return false, nil
 		}
 	}

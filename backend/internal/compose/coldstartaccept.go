@@ -59,7 +59,7 @@ func coldstartAcceptEffect(svc *approvals.Service, store *people.Store) approval
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
 		// The single-use redemption IS the idempotency claim: whoever
 		// consumes the approval executes; anyone else finds it consumed.
-		if err := svc.Redeem(ctx, approvalID, "coldstart", diffHash); err != nil {
+		if _, _, err := svc.Redeem(ctx, approvalID, "coldstart", diffHash); err != nil {
 			return err
 		}
 		sourceURL, fields, err := people.UnmarshalColdStartFields(proposedChange)

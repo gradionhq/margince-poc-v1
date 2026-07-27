@@ -193,3 +193,68 @@ func TestRegisterSlippingToolsWithoutAListerRegistersNothing(t *testing.T) {
 		t.Fatalf("a surface without a lister must stay empty, got %d tools", got)
 	}
 }
+
+// wideSlippingSet builds n evidenced candidates, each idle since a
+// distinct day so the ranking is total and the truncation deterministic.
+func wideSlippingSet(n int) []SlippingDeal {
+	deals := make([]SlippingDeal, 0, n)
+	for i := range n {
+		idle := fixedDate(1).Add(time.Duration(i) * 24 * time.Hour)
+		deals = append(deals, SlippingDeal{
+			DealID: ids.NewV7(), Name: "Deal", Stalled: true,
+			LastActivityAt: &idle, CreatedAt: fixedDate(1),
+		})
+	}
+	return deals
+}
+
+// The batch drafter is the surface's only auto-execute bulk writer, so
+// the number of records one call may write is bounded server-side: a
+// caller that omits limit does not get the whole candidate set, and one
+// that asks for more than the ceiling does not get it either.
+func TestDraftFollowUpsForCapsTheWriteSetServerSide(t *testing.T) {
+	for _, tc := range []struct {
+		name, args string
+		want       int
+	}{
+		{"limit omitted falls back to the ceiling", `{"segment":"slipping"}`, maxFollowUpDrafts},
+		{"limit over the ceiling is clamped to it", `{"segment":"slipping","limit":500}`, maxFollowUpDrafts},
+		{"a smaller limit is honoured", `{"segment":"slipping","limit":3}`, 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var drafted int
+			tool := draftFollowUpsFor{
+				list: func(context.Context) ([]SlippingDeal, error) {
+					return wideSlippingSet(maxFollowUpDrafts * 4), nil
+				},
+				draft: func(_ context.Context, deal SlippingDeal) (ids.UUID, string, error) {
+					drafted++
+					return ids.NewV7(), "Re: " + deal.Name, nil
+				},
+			}
+			if _, err := tool.Handle(context.Background(), json.RawMessage(tc.args)); err != nil {
+				t.Fatal(err)
+			}
+			if drafted != tc.want {
+				t.Errorf("wrote %d activities, want %d — the write set is capped, not the caller's honour system", drafted, tc.want)
+			}
+		})
+	}
+}
+
+func TestDraftFollowUpsForRefusesANegativeLimit(t *testing.T) {
+	tool := draftFollowUpsFor{
+		list: func(context.Context) ([]SlippingDeal, error) {
+			t.Fatal("the lister must not run for a limit the tool refuses")
+			return nil, nil
+		},
+		draft: func(context.Context, SlippingDeal) (ids.UUID, string, error) {
+			t.Fatal("nothing may be drafted for a refused limit")
+			return ids.Nil, "", nil
+		},
+	}
+	var bad *BadArgsError
+	if _, err := tool.Handle(context.Background(), json.RawMessage(`{"segment":"slipping","limit":-1}`)); !errors.As(err, &bad) {
+		t.Fatalf("negative limit → %v, want BadArgsError", err)
+	}
+}

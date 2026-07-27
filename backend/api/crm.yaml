@@ -896,7 +896,7 @@ paths:
         + `confidence`, or it is ABSENT (the no-guess gate). NOTHING is written to the org until a human
         accepts via /approvals — on accept it fills only the org's EMPTY fields, never overwriting a
         human-set value. A blocked or thin page degrades to 422, zero fabricated fields.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required }
+      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required }
       requestBody:
         required: false
         content:
@@ -945,7 +945,7 @@ paths:
         SKIPPED and why — robots, off-domain, page cap, model budget) are on the read report. Re-running
         while a read is in flight answers the SAME read (idempotent per org+url). Budget-guarded: the
         crawl stops early and reports `partial` when the model lane demotes to queue-or-local.
-      x-mcp-tool: { verb: enrich, tier: confirmation_required }
+      x-mcp-tool: { verb: enrich, record_type: organization, tier: confirmation_required }
       requestBody:
         required: false
         content:
@@ -3244,15 +3244,19 @@ paths:
       summary: Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
       description: |
         The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
-        for a human to check and correct in the company form, and NOTHING is written or queued. Confirm-first
-        (🟡) is honoured by the form itself — the unsaved form IS the staged state, and PUT /company is the
-        human's confirmation. This is the read-back onboarding uses; POST /coldstart's approval-inbox
+        for a human to check and correct in the company form, and NOTHING is written or queued. For a
+        HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
+        and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
+        presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
+        the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
+        caller's path and query, from the server's own address. So the agent tier matches its sibling's:
+        🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
         staging remains for callers that propose asynchronously, with no human at the screen.
 
         Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
         non-empty `evidence_snippet` + `confidence`, or it is ABSENT — a field the source does not ground
         is returned as an omission for the human to fill in by hand, never as a guess.
-      x-mcp-tool: { verb: read, tier: auto_execute }
+      x-mcp-tool: { verb: enrich, tier: confirmation_required }
       requestBody:
         required: true
         content:
@@ -10307,6 +10311,78 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/AgentTool' } }
+
+    AgentAdmissionPolicy:
+      type: object
+      description: |
+        One operation's agent-admission policy: the shape `tools/gen-agentpolicy`
+        derives from this file's `x-agent-access` / `x-mcp-tool` annotations and the
+        ADR-0055 gate enforces at runtime.
+
+        It is declared as a schema so these closed vocabularies live in the contract
+        rather than in prose, and so the generator can emit Go TYPES for them instead
+        of bare strings. That moves two classes of mistake from runtime to build time:
+        an annotation carrying a value outside these enums fails GENERATION instead of
+        landing in the table as an unrecognized string the gate silently reads as "not
+        a tool" or "no tier", and Go comparing against a misspelled constant fails to
+        COMPILE instead of never matching. As extensions add operations, those two
+        gates are what keep their annotations honest.
+
+        This schema describes no response body, and is deliberately not referenced by
+        any operation — the code generator prunes it from the wire types, which is
+        correct. Its consumer is `tools/gen-agentpolicy`, which reads these enums out
+        of this file directly. Do not "fix" the pruning by wiring it into an endpoint.
+
+        Absent is distinct from invalid: `tier` and `record_type` are empty for
+        operations that declare none (a human-only op has no tier; an untyped
+        operation targets no record), and only NON-empty values are checked.
+      required: [operation, access]
+      properties:
+        operation:
+          type: string
+          description: The operationId this policy governs.
+        access:
+          type: string
+          enum: [tool, human-only, auth-bootstrap]
+          description: >-
+            tool — governed by the tier below. human-only — an agent principal is
+            refused outright, on reads as well as writes. auth-bootstrap — the
+            session machinery itself, not tier-gated and not an agent tool.
+        tool:
+          type: string
+          description: The MCP tool verb backing this operation (access = tool).
+        record_type:
+          type: string
+          description: >-
+            The record the operation targets. A confirm-first operation that resolves
+            a concrete {id} must name one, or the approval it stages cannot be
+            row-scoped.
+          enum:
+            - activity
+            - app_user
+            - custom_field
+            - data_subject_request
+            - deal
+            - lead
+            - list
+            - offer
+            - offer_template
+            - organization
+            - overlay_connection
+            - partner
+            - person
+            - product
+            - quota
+            - record_grant
+            - relationship
+            - saved_view
+            - tag
+            - team
+            - webhook_subscription
+        tier:
+          type: string
+          enum: [auto_execute, confirmation_required, dynamic]
+          description: The autonomy tier, identical on REST and MCP (ADR-0055).
 
     # ---- AI: cold-start ----
     ColdStartRequest:

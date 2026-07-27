@@ -7,10 +7,17 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 )
+
+// testConnectedAt is an arbitrary fixed connection identity for tests that
+// drive overlay.Backfill directly over an unfenced fakeMirrorSink — the
+// value is never asserted against (fakeMirrorSink is not fence-aware), it
+// only satisfies Backfill's signature.
+var testConnectedAt = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
 // fakeMirrorSink is an in-memory overlay.MirrorSink: it tracks every
 // ingested record by external id (last write wins, the same
@@ -26,6 +33,7 @@ type fakeMirrorSink struct {
 	assocs           []overlay.Assoc
 	cursors          map[string]string
 	done             map[string]bool
+	truncated        map[string]bool
 
 	// failAfter, when non-zero, makes the failAfter'th ATTEMPTED call to
 	// Ingest return an error instead of succeeding — the seam this test
@@ -40,6 +48,7 @@ func newFakeMirrorSink() *fakeMirrorSink {
 		ingestCountByKey: make(map[string]int),
 		cursors:          make(map[string]string),
 		done:             make(map[string]bool),
+		truncated:        make(map[string]bool),
 	}
 }
 
@@ -63,9 +72,10 @@ func (s *fakeMirrorSink) LoadBackfillCursor(_ context.Context, objectClass strin
 	return s.cursors[objectClass], s.done[objectClass], nil
 }
 
-func (s *fakeMirrorSink) SaveBackfillCursor(_ context.Context, objectClass, cursor string, done bool) error {
+func (s *fakeMirrorSink) SaveBackfillCursor(_ context.Context, objectClass, cursor string, progress overlay.BackfillProgress, _ time.Time) error {
 	s.cursors[objectClass] = cursor
-	s.done[objectClass] = done
+	s.done[objectClass] = progress.Done
+	s.truncated[objectClass] = progress.Truncated
 	return nil
 }
 
@@ -91,7 +101,7 @@ func TestBackfillHydratesAllRecords(t *testing.T) {
 	seedOrganizations(f, 250)
 	sink := newFakeMirrorSink()
 
-	if err := overlay.Backfill(context.Background(), f, sink, "companies"); err != nil {
+	if _, err := overlay.Backfill(context.Background(), f, sink, "companies", testConnectedAt); err != nil {
 		t.Fatalf("Backfill returned an error: %v", err)
 	}
 
@@ -139,7 +149,7 @@ func TestBackfillResumesFromMidPageCrashConvergesWithoutDuplicates(t *testing.T)
 	sink := newFakeMirrorSink()
 	sink.failAfter = 150
 
-	err := overlay.Backfill(context.Background(), f, sink, "companies")
+	_, err := overlay.Backfill(context.Background(), f, sink, "companies", testConnectedAt)
 	if err == nil {
 		t.Fatal("want an error from the forced mid-backfill failure, got nil")
 	}
@@ -153,7 +163,7 @@ func TestBackfillResumesFromMidPageCrashConvergesWithoutDuplicates(t *testing.T)
 
 	// Restart: same sink (the persisted cursor), failure disarmed.
 	sink.failAfter = 0
-	if err := overlay.Backfill(context.Background(), f, sink, "companies"); err != nil {
+	if _, err := overlay.Backfill(context.Background(), f, sink, "companies", testConnectedAt); err != nil {
 		t.Fatalf("the resumed Backfill returned an error: %v", err)
 	}
 
@@ -208,17 +218,56 @@ func TestBackfillIsANoOpOnceConverged(t *testing.T) {
 	seedOrganizations(f, 250)
 	sink := newFakeMirrorSink()
 
-	if err := overlay.Backfill(context.Background(), f, sink, "companies"); err != nil {
+	if _, err := overlay.Backfill(context.Background(), f, sink, "companies", testConnectedAt); err != nil {
 		t.Fatalf("first Backfill returned an error: %v", err)
 	}
 	callsAfterFirstRun := sink.ingestCalls
 
-	if err := overlay.Backfill(context.Background(), f, sink, "companies"); err != nil {
+	if _, err := overlay.Backfill(context.Background(), f, sink, "companies", testConnectedAt); err != nil {
 		t.Fatalf("second Backfill returned an error: %v", err)
 	}
 
 	if sink.ingestCalls != callsAfterFirstRun {
 		t.Errorf("Ingest was called again on a converged backfill: %d calls before, %d after", callsAfterFirstRun, sink.ingestCalls)
+	}
+}
+
+// truncatingIncumbent wraps a fake.Adapter and flags every Backfill page
+// Truncated — standing in for compose's cappedIncumbent (which this package
+// cannot import: compose imports overlay, so the reverse would cycle)
+// without re-deriving its cap-boundary logic, which overlay_backfill_cap_test.go
+// already proves. This test only needs "the incumbent declined some
+// records" to exist as a signal Backfill must propagate.
+type truncatingIncumbent struct{ *fake.Adapter }
+
+func (t truncatingIncumbent) Backfill(ctx context.Context, objectClass, cursor string) (overlay.Page, error) {
+	page, err := t.Adapter.Backfill(ctx, objectClass, cursor)
+	page.Truncated = true
+	return page, err
+}
+
+// TestBackfillPropagatesTruncationFromTheIncumbentPage proves Backfill
+// carries Page.Truncated through to its own return value AND into the
+// persisted checkpoint (via BackfillProgress) — the signal
+// backfillCompleteFor (syncstatus.go) needs to tell a capped run apart from
+// a genuine convergence.
+func TestBackfillPropagatesTruncationFromTheIncumbentPage(t *testing.T) {
+	f := fake.New()
+	seedOrganizations(f, 10)
+	sink := newFakeMirrorSink()
+
+	truncated, err := overlay.Backfill(context.Background(), truncatingIncumbent{f}, sink, "companies", testConnectedAt)
+	if err != nil {
+		t.Fatalf("Backfill returned an error: %v", err)
+	}
+	if !truncated {
+		t.Error("Backfill's own return value: want truncated=true when the incumbent's page reports Page.Truncated")
+	}
+	if !sink.truncated["companies"] {
+		t.Error("the persisted checkpoint: want truncated=true, SaveBackfillCursor must receive it via BackfillProgress")
+	}
+	if !sink.done["companies"] {
+		t.Error("a capped run still converges (done=true) — re-listing under the same cap would relearn nothing")
 	}
 }
 
@@ -243,7 +292,7 @@ func TestBackfillFetchesDealCompanyAssociations(t *testing.T) {
 	})
 
 	sink := newFakeMirrorSink()
-	if err := overlay.Backfill(context.Background(), f, sink, "deals"); err != nil {
+	if _, err := overlay.Backfill(context.Background(), f, sink, "deals", testConnectedAt); err != nil {
 		t.Fatalf("Backfill returned an error: %v", err)
 	}
 

@@ -75,6 +75,11 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 		gate:  consent.NewGate(consent.NewStore(pool)),
 		draft: drafter,
 	})
+	// The composed extension set's governed tools ride the same registry
+	// and admission gate as the core tools, registered last so a name that
+	// collides with a core verb fails loudly (RegisterExtensions stashed
+	// them at boot, before this ran).
+	registerComposedTools(registry)
 	return registry
 }
 
@@ -107,27 +112,24 @@ func reportToolRunner(engine *reportEngine) agents.ReportRunner {
 // onto the approvals module.
 type approvalsAdapter struct{ svc *approvals.Service }
 
+// Stage forwards a refused 🟡 tool call to the approvals engine. It passes
+// NO target_version: the engine resolves the pin itself inside the staging
+// transaction, for every target type that has a version column to read. This
+// adapter used to nil a caller-supplied pin for the types redemption could
+// not re-verify — correct as far as it went, but it also meant the pin was
+// whatever the caller happened to offer for the types it COULD, which on the
+// REST path was an optional request header.
 func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (ids.ApprovalID, error) {
-	targetVersion := in.TargetVersion
-	if !approvals.TargetVersionCheckable(in.TargetType) {
-		// A pin redemption could never re-verify (the partner extension
-		// audits on its organization row and has no table of its own)
-		// would dead-end every approval; the staging carries no pin and
-		// freshness falls back to the diff_hash identical-call binding.
-		targetVersion = nil
-	}
-	id, err := a.svc.Stage(ctx, approvals.StageInput{
+	return a.svc.Stage(ctx, approvals.StageInput{
 		Kind:           in.Tool,
 		ProposedChange: in.ProposedChange,
 		DiffHash:       in.DiffHash,
 		TargetType:     in.TargetType,
 		TargetID:       in.TargetID,
-		TargetVersion:  targetVersion,
 		Summary:        in.Summary,
 	})
-	return id, err
 }
 
-func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) error {
+func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) (int64, bool, error) {
 	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
 }

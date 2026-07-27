@@ -201,6 +201,18 @@ func (s *Service) Login(ctx context.Context, email, plaintext string) (Identity,
 		id.Roles, id.Teams, id.Permissions, loadErr = loadGrants(ctx, tx, account.UserID)
 		return loadErr
 	})
+	if errors.Is(err, errAccountLocked) {
+		// A §27-locked account is refused, but INDISTINGUISHABLY from bad
+		// credentials: same 401, same body, same Argon2 timing (the decoy
+		// verify already ran in checkCredentials). It is deliberately NOT
+		// run through recordFailedLogin — a probe against a locked account
+		// must neither extend its own lock nor append another failure row
+		// (an attacker-drivable DoS, and a distinct audit cadence would
+		// itself be an oracle). The in-memory per-IP+email limiter still
+		// counts it (the handler Records every 401), so a locked account is
+		// no longer a rate-limit blind spot either.
+		return Identity{}, "", ErrBadCredentials
+	}
 	if errors.Is(err, ErrBadCredentials) {
 		// The attempt's transaction rolled back with the error, so the
 		// failure audit needs its own transaction — an invisible

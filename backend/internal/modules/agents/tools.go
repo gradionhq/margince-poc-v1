@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -76,11 +77,37 @@ func decodeArgs[T any](in json.RawMessage, into *T) error {
 	return nil
 }
 
+// maxBadArgsDetail bounds what a rejected tool call may say back. The
+// decoder quotes the caller's own JSON key verbatim (DisallowUnknownFields),
+// the refusal becomes an observation, and an agent run's transcript is
+// cumulative — so an unbounded message is an unbounded write into every
+// later prompt of that run, by the one author that has already been shown
+// the fence marker. The tool NAME is bounded for exactly this reason
+// (runner.maxToolNameLen); this is the other field a model chooses freely.
+// Long enough to name the offending key and what was wanted, short enough
+// that the field cannot carry prose.
+const maxBadArgsDetail = 200
+
 // BadArgsError maps to a tool-call validation failure.
 type BadArgsError struct{ Cause error }
 
-func (e *BadArgsError) Error() string { return "arguments: " + e.Cause.Error() }
+func (e *BadArgsError) Error() string {
+	return "arguments: " + boundDetail(e.Cause.Error(), maxBadArgsDetail)
+}
 func (e *BadArgsError) Unwrap() error { return e.Cause }
+
+// boundDetail caps a message at n bytes, cutting on a rune boundary so the
+// result stays valid UTF-8 rather than ending mid-sequence.
+func boundDetail(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	cut := n
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + "…"
+}
 
 func schema(s string) json.RawMessage { return json.RawMessage(s) }
 

@@ -339,3 +339,76 @@ func decidedEnvelope(wsID ids.UUID, approvalID, verdict string) kevents.Envelope
 		Payload:     payload,
 	}
 }
+
+// One approval, one resume. The bus is at-least-once, so the same
+// approval.decided arrives more than once — redelivered on a handler
+// error, reclaimed by a peer replica while the first is still looping, or
+// replayed after a worker restart. A resumed run is a fresh multi-step
+// loop with a fresh budget, not an idempotent upsert, so the SECOND
+// delivery must find nothing: the run is claimed as it is read, and the
+// first loop's outcome and trace stand untouched.
+func TestRunnerResumeIsClaimedSoARedeliveryIsANoOp(t *testing.T) {
+	re := setupRunner(t)
+
+	var person struct {
+		ID string `json:"id"`
+	}
+	if status := re.call(t, "POST", "/v1/people", anyMap{"full_name": "Resume Once"}, nil, &person); status != http.StatusCreated {
+		t.Fatalf("create person → %d", status)
+	}
+
+	trigger := "overnight_at_risk_sweep:e2e-resume-once"
+	// Exactly enough script for ONE loop and one resume: a second loop
+	// would run past the end of it, so the assertions below catch a
+	// duplicate resume by its outcome as well as by its trace.
+	re.brain.Script(
+		fmt.Sprintf(`{"tool":"archive_record","args":{"record_type":"person","id":"%s"}}`, person.ID),
+		`{"final":{"summary":"archive executed after approval"}}`,
+	)
+	re.enqueue(t, "overnight_at_risk_sweep", trigger, &re.passportID)
+	if err := re.svc.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, _, approvalID := re.runRow(t, trigger)
+	if approvalID == nil {
+		t.Fatal("no staged approval")
+	}
+	if got := re.call(t, "POST", "/v1/approvals/"+*approvalID+"/approve", anyMap{}, nil, nil); got != http.StatusOK {
+		t.Fatalf("approve → %d", got)
+	}
+
+	decided := decidedEnvelope(re.wsID, *approvalID, "approved")
+	if err := re.svc.HandleEvent(context.Background(), decided); err != nil {
+		t.Fatal(err)
+	}
+	firstStatus, firstTrace, _ := re.runRow(t, trigger)
+	if firstStatus != "completed" {
+		t.Fatalf("first resume status = %s, want completed", firstStatus)
+	}
+
+	// The redelivery. It is not an error — the group must keep flowing —
+	// it simply has no parked run to act on.
+	if err := re.svc.HandleEvent(context.Background(), decided); err != nil {
+		t.Fatalf("a redelivered decision must be a no-op, not an error: %v", err)
+	}
+	secondStatus, secondTrace, _ := re.runRow(t, trigger)
+	if secondStatus != firstStatus {
+		t.Errorf("redelivery moved the run from %s to %s — the first outcome was overwritten", firstStatus, secondStatus)
+	}
+	if len(secondTrace) != len(firstTrace) {
+		t.Errorf("redelivery appended %d trace steps — a second loop ran on one approval",
+			len(secondTrace)-len(firstTrace))
+	}
+	// The approved mutation happened exactly once.
+	var archives int
+	if err := database.WithWorkspaceTx(re.wsCtx, re.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM audit_log WHERE entity_type = 'person' AND entity_id = $1 AND action = 'archive'`,
+			ids.MustParse(person.ID)).Scan(&archives)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if archives != 1 {
+		t.Errorf("the approved archive was applied %d times, want 1", archives)
+	}
+}

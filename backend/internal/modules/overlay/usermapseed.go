@@ -86,6 +86,14 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 	if len(ambiguousOwners) > 0 {
 		if err := s.revokeEmailMappingsForOwners(ctx, incumbent, ambiguousOwners); err != nil {
 			errs = append(errs, fmt.Errorf("overlay: revoking mappings for now-ambiguous owner emails: %w", err))
+			if errors.Is(err, ErrConnectionGone) {
+				// Same clean-stop shape as the per-email loop below: the fence
+				// aborted this write, and every remaining write on this store
+				// would abort identically. Stop now rather than spend the
+				// per-email matching loop's DB round-trips on writes already
+				// known to fail.
+				return errors.Join(errs...)
+			}
 		}
 	}
 
@@ -122,9 +130,25 @@ func (s *MirrorStore) SeedUserMap(ctx context.Context, incumbent string, owners 
 // the fail-closed half of the ambiguity rule (a manual override is never
 // touched; it is the admin escape hatch). Owner ids are de-duplicated so a
 // pair sharing an email is processed once each.
+//
+// Fenced the same way UpsertUserMap is (visibility.go): SeedUserMap calls
+// this from inside the sweep's WithFenceIdentity-bound store, and a revoke
+// is exactly as resurrection-risk-adjacent as a grant — a sweep straddling
+// a disconnect+reconnect must not delete the NEW connection's mappings
+// (and their visibility grants) on behalf of a directory read from the OLD
+// one.
 func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumbent string, ownerIDs []string) error {
 	seen := make(map[string]bool, len(ownerIDs))
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// Fence BEFORE the visibility lock — the same order every other
+		// fenced visibility mutator takes (UpsertUserMap, ingestTx), so a
+		// doomed transaction (the connection is already gone) never holds
+		// the workspace-wide advisory lock while failing, and no fenced
+		// writer can deadlock against another by acquiring the two locks in
+		// different orders.
+		if err := s.assertFence(ctx, tx); err != nil {
+			return err
+		}
 		// Same per-workspace visibility lock every mutator takes, so this
 		// revoke cannot interleave with a concurrent re-seed (UpsertUserMap)
 		// that would restore the mapping right after we drop it, and two

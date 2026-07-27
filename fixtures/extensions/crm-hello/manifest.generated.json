@@ -1,0 +1,16 @@
+{
+  "schema": 1,
+  "name": "crm-hello",
+  "version": "0.1.0",
+  "risk_tiers": [
+    {
+      "id": "tool/hello_ping",
+      "operation": "agent.tool.invoke",
+      "scopes": [
+        "read"
+      ],
+      "tier": "yellow",
+      "digest": "sha256:a08883c717cbd6900cdea044d4fc9ea3d2faf914ce45574a5db0b6cc63f3b3cc"
+    }
+  ]
+}
