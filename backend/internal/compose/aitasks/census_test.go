@@ -74,3 +74,24 @@ func TestLookupFindsARegisteredSite(t *testing.T) {
 		t.Error("Lookup found a site that was never registered")
 	}
 }
+
+// An agent loop's committed scenarios seed a window and grade ONE turn; the
+// loop itself is never exercised. A record that does not say so overstates
+// what was certified, so the scope is derived from the kind rather than left
+// to a reader to infer.
+func TestAgentLoopCertifiesOneTurnNotTheLoop(t *testing.T) {
+	loop := aitasks.Site{Task: ai.TaskAgentLoop, Variant: "loop", Kind: ai.SiteKindAgentLoop}
+	if got := loop.CertifiedScope(); got != aitasks.ScopeSingleTurn {
+		t.Errorf("CertifiedScope() = %q, want %q — a seeded-window turn is not a loop run", got, aitasks.ScopeSingleTurn)
+	}
+
+	oneShot := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
+	if got := oneShot.CertifiedScope(); got != aitasks.ScopeFullInvocation {
+		t.Errorf("CertifiedScope() = %q, want %q — a one-shot site's whole invocation is one request", got, aitasks.ScopeFullInvocation)
+	}
+
+	multi := aitasks.Site{Task: ai.TaskColdStart, Variant: "acts", Kind: ai.SiteKindMultiTurn}
+	if got := multi.CertifiedScope(); got != aitasks.ScopeSingleTurn {
+		t.Errorf("CertifiedScope() = %q, want %q — replayed history still grades one reply", got, aitasks.ScopeSingleTurn)
+	}
+}

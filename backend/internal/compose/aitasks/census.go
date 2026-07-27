@@ -128,3 +128,29 @@ func (r *Registry) Validate() error {
 	}
 	return nil
 }
+
+// The two things a certification run can actually cover.
+const (
+	// ScopeFullInvocation: the whole production invocation is one request, so
+	// certifying the request certifies the site.
+	ScopeFullInvocation = "full_invocation"
+	// ScopeSingleTurn: the scenario seeds the window and grades ONE reply. The
+	// surrounding conversation or tool loop is supplied, not exercised.
+	ScopeSingleTurn = "single_turn"
+)
+
+// CertifiedScope reports how much of this site a certification run covers.
+//
+// A one-shot site's whole invocation IS one request, so a scored request is a
+// scored site. A multi-turn or agent-loop site is different in kind: its
+// committed scenarios seed the prior turns (an agent scenario supplies the tool
+// result as context) and grade the single reply that follows. That is a real
+// measurement — it is what the shipped prompt does with that window — but it is
+// not the loop, and a record that does not distinguish them claims more than it
+// tested.
+func (s Site) CertifiedScope() string {
+	if s.Kind == ai.SiteKindOneShot {
+		return ScopeFullInvocation
+	}
+	return ScopeSingleTurn
+}
