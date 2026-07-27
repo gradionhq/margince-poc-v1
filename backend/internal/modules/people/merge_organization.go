@@ -346,16 +346,20 @@ func (e *BothCompaniesCarryProjectsError) Error() string {
 		"); archive or re-anchor one side before merging, so the merge does not guess whether they are the same work"
 }
 
-// mergeSideSummary names what the caller may see and counts what it may not,
-// so the sentence stays true either way rather than falling silent about
-// work that is genuinely blocking the merge.
+// mergeSideSummary names what the caller may see and acknowledges the rest
+// WITHOUT counting it. "Other work is live here" is as actionable as a number
+// — either way the answer is to archive or re-anchor a side — but a number is
+// a census: repeat the merge against every company you can reach and the
+// refusals tell you how much hidden work each one carries, and how that
+// changes week to week. The caller's own side is theirs to count; the other
+// side's total is not something this refusal needs to settle.
 func mergeSideSummary(names []string, total int) string {
 	switch {
 	case len(names) == 0:
-		return fmt.Sprintf("%d not visible to you", total)
+		return "work you cannot see"
 	case len(names) == total:
 		return strings.Join(names, ", ")
 	default:
-		return fmt.Sprintf("%s and %d more not visible to you", strings.Join(names, ", "), total-len(names))
+		return strings.Join(names, ", ") + ", and other work you cannot see"
 	}
 }

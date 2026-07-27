@@ -163,10 +163,15 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			// dropping a team's sight of a record by rewriting an association
 			// they were never shown.
 			//
-			// Scoping beats refusing: a refusal would confirm that an
-			// invisible link exists, which is the fact the scope withholds. A
-			// link outside the caller's scope simply survives, and for a type
-			// that permits only one the insert then refuses on its own index.
+			// A link outside the caller's scope survives instead. For `project`
+			// that leaves a residual worth naming rather than glossing: at most
+			// one project link may exist, so the insert then hits the partial
+			// index and refuses, and the difference between that refusal and a
+			// success tells the caller a project link they cannot see is there.
+			// One bit escapes, and it cannot be closed from here — hiding the
+			// link's existence and enforcing one-per-activity are the same
+			// question asked twice. Its CONTENT stays hidden, which is what the
+			// scope is for, and losing the link outright would be worse.
 			var args []any
 			arg := func(v any) int { args = append(args, v); return len(args) }
 			idPos, typePos := arg(id), arg(in.EntityType)

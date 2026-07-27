@@ -468,6 +468,12 @@ func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
 			t.Errorf("the refusal message leaked %q to a caller who cannot read it: %v", secret, err)
 		}
 	}
+	// Nor the SIZE of what is hidden. A number here is a census: repeat the
+	// merge against every company you can reach and the refusals report how
+	// much hidden work each carries, and how that moves week to week.
+	if strings.ContainsAny(err.Error(), "0123456789") {
+		t.Errorf("the refusal counted work the caller cannot see: %v", err)
+	}
 }
 
 // The same refusal, seen by someone who owns both projects: it names them,
