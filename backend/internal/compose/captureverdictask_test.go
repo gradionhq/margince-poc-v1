@@ -16,7 +16,70 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
+
+// The request is the whole security perimeter of this site: the sender's own
+// bytes reach the model unedited, and the only thing that stops them ending
+// their span is a marker minted for THIS call and named in THIS call's system
+// prompt. A request that fences under some other marker, or repeats the sender
+// outside the span, hands the instruction region to whoever wrote the mail.
+func TestVerdictRequestFencesTheSenderUnderTheMarkerItDeclares(t *testing.T) {
+	row := capture.PendingCounterparty{
+		ID:          ids.NewV7(),
+		Email:       "stranger@prospect.example",
+		DisplayName: "A Stranger",
+		Subject:     "quote please",
+		Body:        "We need forty seats by March.",
+	}
+
+	req := verdictRequest(row)
+
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		t.Fatalf("the verdict system prompt declares no data boundary: %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Fatalf("got %d messages, want the single user turn", len(req.Messages))
+	}
+	content := req.Messages[0].Content
+	openTag, closeTag := "<"+marker+` id="`+row.ID.String()+`">`, "</"+marker+">"
+	openAt, closeAt := strings.Index(content, openTag), strings.Index(content, closeTag)
+	if openAt < 0 || closeAt < openAt {
+		t.Fatalf("the sender is not wrapped in the declared marker keyed by the row id:\n%s", content)
+	}
+	span := content[openAt+len(openTag) : closeAt]
+	for _, sender := range []string{row.DisplayName, row.Email, row.Subject, row.Body} {
+		if !strings.Contains(span, sender) {
+			t.Errorf("sender text %q never reached the fenced span:\n%s", sender, content)
+		}
+		// Containment is a question of counts, not membership: a prompt that keeps
+		// the fence and ALSO repeats the sender beside it puts that copy in the
+		// instruction region while "is it inside?" stays true.
+		if n := strings.Count(content, sender); n != 1 {
+			t.Errorf("sender text %q appears %d times, want only the fenced one:\n%s", sender, n, content)
+		}
+	}
+}
+
+// A fence's scope is one call. A marker a previous sender was shown is a marker
+// they can spell, so reusing one would give away the only thing they cannot
+// forge.
+func TestVerdictRequestMintsAFreshBoundaryPerCall(t *testing.T) {
+	row := capture.PendingCounterparty{ID: ids.NewV7(), Email: "stranger@prospect.example"}
+
+	first, declared := promptfence.MarkerIn(verdictRequest(row).System)
+	if !declared {
+		t.Fatal("the verdict system prompt declares no data boundary")
+	}
+	second, declared := promptfence.MarkerIn(verdictRequest(row).System)
+	if !declared {
+		t.Fatal("the second verdict system prompt declares no data boundary")
+	}
+	if first == second {
+		t.Errorf("two verdict requests share the boundary %q", first)
+	}
+}
 
 func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 	asked := capture.PendingCounterparty{ID: ids.NewV7()}

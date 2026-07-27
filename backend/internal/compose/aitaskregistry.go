@@ -53,5 +53,10 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	multiTurn(ai.TaskColdStart, "acts")                   // onboardingacts.go
 	agentLoop(ai.TaskAgentLoop, "loop")                   // modules/agents/runner
 
+	// The certification case each site is served by. Binding here rather than
+	// inside the case's own file keeps one place to read what this build can
+	// certify, and Validate refuses a case bound to a site nobody registered.
+	r.BindCase(counterpartyVerdictCases{})
+
 	return r, r.Validate()
 }
