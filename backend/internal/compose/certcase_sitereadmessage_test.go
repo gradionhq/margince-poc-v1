@@ -96,7 +96,7 @@ func companyReadFixtureJSON(t *testing.T, f companyReadMessageFixture) json.RawM
 // will carry it — beside the fixture, never inside it.
 func companyReadExpectationJSON(t *testing.T, kind string, changes map[string]string) json.RawMessage {
 	t.Helper()
-	raw, err := json.Marshal(companyReadMessageExpectation{Kind: kind, Changes: changes})
+	raw, err := json.Marshal(companyConversationExpectation{Kind: kind, Changes: changes})
 	if err != nil {
 		t.Fatalf("encoding the expectation: %v", err)
 	}
