@@ -63,9 +63,6 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 	return api
 }
 
-// operationalMux mounts the contract surface next to the operational
-// edges: health probes, metrics, the anonymous public paths, and the A2
-// authorization server.
 // replayProbes wires the module-owned visibility rules the replay gate borrows
 // (API-CC-8). Named rather than inline so a test can assert it covers every
 // moduleProbe replayableOperations names: an unwired key fails closed, which
@@ -81,6 +78,9 @@ func replayProbes(approvalsSvc *approvals.Service) map[string]replayProbe {
 	}
 }
 
+// operationalMux mounts the contract surface next to the operational
+// edges: health probes, metrics, the anonymous public paths, and the A2
+// authorization server.
 func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
 	// The session middleware (authH.Middleware) fronts BOTH /v1 and the /oauth/
 	// authorization server (/oauth/authorize requires a live session); the
