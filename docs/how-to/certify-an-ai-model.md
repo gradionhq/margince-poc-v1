@@ -132,11 +132,13 @@ One JSON object per call, in the **same shape as the `ai_call_payload`
 table** — `request_payload` (system + messages) and `response_payload`, both
 run through the *same* SecretStripper that guards egress, so a credential in
 a prompt is scrubbed before it reaches disk. Each line also carries `role`
-(`candidate`/`judge`), `task`, `scenario`, `run`, `served_model`, and the
-token/latency numbers, so you can pinpoint the failing run:
+(`candidate`/`judge`), `task`, `scenario`, `run`, `call`, `served_model`, and the
+token/latency numbers, so you can pinpoint the failing run — and the failing
+call inside it, since a site may answer in several (the reply drafter sends up
+to three, and the judge retries once on an unparseable score):
 
 ```json
-{"task":"deal_health","role":"candidate","scenario":"…","run":1,
+{"task":"deal_health","role":"candidate","scenario":"…","run":1,"call":1,
  "served_model":"gemini-2.5-flash",
  "request_payload":{"system":"…","messages":[…]},
  "response_payload":"{\"signals\":[{\"confidence\":\"0.9\"…"}
@@ -168,8 +170,13 @@ against the scenario's score bands (spec §5):
 
 **reliability** is the fraction of runs that HardPassed (0–1), reported for
 every verdict — the number to trend over time. A run whose served-model
-identity is not uniform across the set (a mid-set fallback to another model)
-**voids** the record: you cannot certify a moving target.
+identity is not uniform (a fallback to another model, between runs or between
+the calls of one run) **voids** the record: you cannot certify a moving target.
+
+A run is not always one model call — a site may retry, fall back, or turn a
+tool loop — and everything the run is judged and charged for is pooled across
+all of them: any degraded call degrades the run, and the caps, tokens, latency
+and cost are the run's totals.
 
 ## Notes
 

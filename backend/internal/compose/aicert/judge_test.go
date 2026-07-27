@@ -45,14 +45,14 @@ func TestCloudServedNamesOnlyNetworkHostedVendors(t *testing.T) {
 
 func TestCheckCapsGatesTokensAndCloudOnlyLatency(t *testing.T) {
 	t.Run("within every cap", func(t *testing.T) {
-		ok, failures := checkCaps(Caps{MaxTokens: 100, P95LatencyMS: 5000}, ai.Call{TokensIn: 30, TokensOut: 30, LatencyMS: 1000, Provider: "anthropic"})
+		ok, failures := checkCaps(Caps{MaxTokens: 100, P95LatencyMS: 5000}, runCalls{TokensIn: 30, TokensOut: 30, LatencyMS: 1000, Provider: "anthropic"})
 		if !ok || len(failures) != 0 {
 			t.Fatalf("want ok with no failures, got ok=%v failures=%v", ok, failures)
 		}
 	})
 	t.Run("max_tokens exceeded by the answer", func(t *testing.T) {
 		// The answer (output minus reasoning) over budget fails the cap.
-		ok, failures := checkCaps(Caps{MaxTokens: 50}, ai.Call{TokensOut: 60, Provider: "anthropic"})
+		ok, failures := checkCaps(Caps{MaxTokens: 50}, runCalls{TokensOut: 60, Provider: "anthropic"})
 		if ok || len(failures) != 1 {
 			t.Fatalf("want one max_tokens failure, got ok=%v failures=%v", ok, failures)
 		}
@@ -62,19 +62,19 @@ func TestCheckCapsGatesTokensAndCloudOnlyLatency(t *testing.T) {
 		// input and heavy internal thinking, but a small answer. The cap
 		// budgets the ANSWER, so a good concise draft passes regardless of
 		// how big the scenario's input is or how hard the model thought.
-		ok, failures := checkCaps(Caps{MaxTokens: 300}, ai.Call{TokensIn: 468, TokensOut: 700, ReasoningTokens: 450, Provider: "gemini"})
+		ok, failures := checkCaps(Caps{MaxTokens: 300}, runCalls{TokensIn: 468, TokensOut: 700, ReasoningTokens: 450, Provider: "gemini"})
 		if !ok || len(failures) != 0 {
 			t.Fatalf("a small answer under a large input+reasoning must pass, got ok=%v failures=%v", ok, failures)
 		}
 	})
 	t.Run("p95 latency exceeded on a cloud provider", func(t *testing.T) {
-		ok, failures := checkCaps(Caps{P95LatencyMS: 500}, ai.Call{LatencyMS: 900, Provider: "anthropic"})
+		ok, failures := checkCaps(Caps{P95LatencyMS: 500}, runCalls{LatencyMS: 900, Provider: "anthropic"})
 		if ok || len(failures) != 1 {
 			t.Fatalf("want one p95 latency failure, got ok=%v failures=%v", ok, failures)
 		}
 	})
 	t.Run("p95 latency ignored on a local provider", func(t *testing.T) {
-		ok, failures := checkCaps(Caps{P95LatencyMS: 500}, ai.Call{LatencyMS: 900, Provider: ai.ProviderFake})
+		ok, failures := checkCaps(Caps{P95LatencyMS: 500}, runCalls{LatencyMS: 900, Provider: ai.ProviderFake})
 		if !ok || len(failures) != 0 {
 			t.Fatalf("a local provider's latency must never fail the cap, got ok=%v failures=%v", ok, failures)
 		}
