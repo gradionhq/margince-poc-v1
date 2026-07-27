@@ -41,8 +41,12 @@ import (
 // its transcript, which would put SQLSTATE text in a model prompt.
 type RelationshipConflictError struct{ Constraint string }
 
+// Error says what the caller can act on. The constraint name stays OFF the
+// wire: httperr sends a sentinel's own text as the 409 detail, and an index
+// name is a database internal — it tells a client nothing it can use and
+// describes our schema to anyone probing it.
 func (e *RelationshipConflictError) Error() string {
-	return "relationship " + e.Constraint + ": conflict"
+	return "a live relationship of this kind already exists between these records"
 }
 
 // Is reports this as the conflict sentinel, so every transport that maps

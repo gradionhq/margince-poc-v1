@@ -50,8 +50,12 @@ func TestRelationshipUniquenessRefusalKeepsBothTheSentinelAndTheConstraint(t *te
 			if errors.As(mapped, &pgErr) {
 				t.Fatalf("the driver error rode along: %v", mapped)
 			}
-			if strings.Contains(mapped.Error(), "SQLSTATE") || strings.Contains(mapped.Error(), "23505") {
-				t.Fatalf("the message carries Postgres internals: %q", mapped.Error())
+			// httperr sends a sentinel's own text as the 409 detail, so the
+			// message is client-facing: no SQLSTATE, and no index name either.
+			for _, internal := range []string{"SQLSTATE", "23505", constraint, "uq_"} {
+				if strings.Contains(mapped.Error(), internal) {
+					t.Fatalf("the client-facing message carries the database internal %q: %q", internal, mapped.Error())
+				}
 			}
 		})
 	}
