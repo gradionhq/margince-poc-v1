@@ -72,7 +72,7 @@ func NewCloseDateCorrector(pool *pgxpool.Pool, log *slog.Logger) *deals.CloseDat
 // their update also clears the provisional flag.
 func closeDateConfirmEffect(svc *approvals.Service, store *deals.Store) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
-		if err := svc.Redeem(ctx, approvalID, deals.CloseDateCorrectionKind, diffHash); err != nil {
+		if _, _, err := svc.Redeem(ctx, approvalID, deals.CloseDateCorrectionKind, diffHash); err != nil {
 			return err
 		}
 		correction, err := deals.UnmarshalCloseDateCorrection(proposedChange)

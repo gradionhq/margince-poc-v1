@@ -125,6 +125,6 @@ func (a approvalsAdapter) Stage(ctx context.Context, in agents.StageRequest) (id
 	})
 }
 
-func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) error {
+func (a approvalsAdapter) Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) (int64, bool, error) {
 	return a.svc.Redeem(ctx, approvalID, tool, diffHash)
 }

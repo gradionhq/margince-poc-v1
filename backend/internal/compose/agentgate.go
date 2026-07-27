@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
@@ -222,9 +223,22 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
 		return true
 	}
-	if rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash); rErr != nil {
+	pin, pinned, rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash)
+	if rErr != nil {
 		httperr.Write(w, r, rErr)
 		return true
+	}
+	// Redemption commits its OWN transaction, and the handler below opens a
+	// fresh one to write. The skew check inside the redemption therefore
+	// proves the row was at the pinned version when the approval was
+	// consumed, not that it still is when the effect lands — and the attacker
+	// controls both sides of that window, since the redeeming request and any
+	// racing auto-execute mutation come from the same agent. Carrying the pin
+	// forward as the request's own If-Match makes the store re-check it
+	// inside the transaction that actually mutates, where a concurrent write
+	// loses to the version compare instead of to timing.
+	if pinned {
+		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
 	}
 	next.ServeHTTP(w, r)
 	return true

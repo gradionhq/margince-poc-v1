@@ -33,7 +33,9 @@ type stubApprovals struct{}
 func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil
 }
-func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) error { return nil }
+func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (int64, bool, error) {
+	return 0, false, nil
+}
 
 // stubRetriever/stubComms exist so the derived tool list covers the
 // intent and comms registrations; the test only reads Specs().

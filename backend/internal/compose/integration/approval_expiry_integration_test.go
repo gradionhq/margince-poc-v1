@@ -67,7 +67,7 @@ func TestApprovalExpiryClosesTheDecisionGate(t *testing.T) {
 	// Never approved, so redemption is asserting authority that does not
 	// exist — refused as an invalid token, and the refusal names the
 	// expired state, not a raw pending one.
-	err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", diffHash)
+	_, _, err := svc.Redeem(e.AgentCtx(), approvalID, "advance_deal", diffHash)
 	if !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
 		t.Fatalf("redeeming an expired pending staging → %v, want ErrApprovalTokenInvalid", err)
 	}
@@ -102,7 +102,7 @@ func TestRedemptionWindowExpiresTheDecision(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := svc.Redeem(e.AgentCtx(), staleID, "advance_deal", staleHash)
+	_, _, err := svc.Redeem(e.AgentCtx(), staleID, "advance_deal", staleHash)
 	if !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
 		t.Fatalf("redeeming past the redemption window → %v, want ErrApprovalTokenInvalid", err)
 	}
@@ -112,10 +112,10 @@ func TestRedemptionWindowExpiresTheDecision(t *testing.T) {
 
 	// The window narrows time, it does not break the feature: a fresh
 	// decision redeems — and only once.
-	if err := svc.Redeem(e.AgentCtx(), freshID, "advance_deal", freshHash); err != nil {
+	if _, _, err := svc.Redeem(e.AgentCtx(), freshID, "advance_deal", freshHash); err != nil {
 		t.Fatalf("redeeming a fresh decision → %v, want ok", err)
 	}
-	if err := svc.Redeem(e.AgentCtx(), freshID, "advance_deal", freshHash); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
+	if _, _, err := svc.Redeem(e.AgentCtx(), freshID, "advance_deal", freshHash); !errors.Is(err, apperrors.ErrApprovalTokenInvalid) {
 		t.Fatalf("second redemption → %v, want ErrApprovalTokenInvalid (single-use)", err)
 	}
 }
