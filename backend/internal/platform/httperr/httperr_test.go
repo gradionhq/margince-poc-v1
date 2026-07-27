@@ -12,6 +12,7 @@ package httperr
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 func writeAndDecode(t *testing.T, err error) (int, map[string]any) {
@@ -91,3 +93,39 @@ type fakeNetError struct{ msg string }
 func (e *fakeNetError) Error() string   { return e.msg }
 func (e *fakeNetError) Timeout() bool   { return false }
 func (e *fakeNetError) Temporary() bool { return false }
+
+// Both seam errors document "422 on every surface"; this pins the HTTP half
+// of that promise for each, so a future seam error added without a branch in
+// clientInputValidation cannot silently answer 500 to a client mistake.
+func TestWrite_datasourceSeamRefusalsAreClientFaults(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		err   error
+		field string
+		body  string
+	}{
+		{
+			name:  "an entity_type no provider serves",
+			err:   &datasource.UnsupportedEntityError{Type: "compnay"},
+			field: "entity_type",
+			body:  "compnay",
+		},
+		{
+			name:  "a write payload the seam could not decode",
+			err:   &datasource.FieldDecodeError{Cause: errors.New(`unknown field "naem"`)},
+			field: "fields",
+			body:  "naem",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			status, body := writeAndDecode(t, fmt.Errorf("creating a record: %w", tc.err))
+			if status != http.StatusUnprocessableEntity {
+				t.Fatalf("status = %d, want 422 — a client naming the wrong %s is never a server fault", status, tc.field)
+			}
+			detail, _ := body["detail"].(string)
+			if !strings.Contains(detail, tc.body) {
+				t.Errorf("detail = %q, want it to name %q so the caller can see what to correct", detail, tc.body)
+			}
+		})
+	}
+}

@@ -121,6 +121,16 @@ func clientInputValidation(err error) (error, bool) {
 			badFields.Cause.Error()+" — check the field names and value types against this operation's request schema"), true
 	}
 
+	// An entity_type no provider on this installation serves. Same obligation
+	// as the decode branch above: the seam documents 422 on every surface, and
+	// naming a type the installation does not serve is a client mistake, which
+	// must never answer 500. The seam's message already carries the known
+	// vocabulary, so it is the actionable half on its own.
+	var unservedEntity *datasource.UnsupportedEntityError
+	if errors.As(err, &unservedEntity) {
+		return Validation("entity_type", "unsupported_entity_type", unservedEntity.Error()), true
+	}
+
 	return nil, false
 }
 
