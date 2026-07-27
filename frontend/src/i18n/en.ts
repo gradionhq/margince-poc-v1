@@ -1916,6 +1916,7 @@ export const en = {
   "settings.tab.audit": "Audit log",
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrations",
+  "settings.tab.overlay": "Overlay",
   "settings.group.you": "Your settings",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",

@@ -447,6 +447,107 @@ describe("SettingsScreen tab layout", () => {
   });
 });
 
+// Overlay had outgrown one card in Integrations (connect + sync/budget
+// health + user mapping) — it now gets its own org tab. `system_of_record`
+// is stubbed explicitly per test: the tab must stay reachable in native
+// mode (a workspace is native until an overlay is connected, so gating the
+// tab on overlay mode would hide the only place to connect one), and the
+// card must be entirely gone from Integrations regardless of mode.
+function overlaySettingsBackend(opts: {
+  roles: string[];
+  sorMode: "native" | "overlay";
+}) {
+  return vi.fn(async (input: RequestInfo | URL) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { id: "u1", email: "ada@acme.test" },
+        roles: opts.roles,
+        teams: [],
+        system_of_record: { mode: opts.sorMode },
+      });
+    }
+    if (url.includes("/overlay/connection")) {
+      return jsonResponse({ detail: "not found" }, 404);
+    }
+    if (url.includes("/overlay/user-map")) {
+      return jsonResponse({
+        incumbent: "hubspot",
+        entries: [],
+        next_cursor: null,
+      });
+    }
+    if (url.includes("/overlay/owners")) {
+      return jsonResponse({
+        incumbent: "hubspot",
+        owners: [],
+        truncated: false,
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("SettingsScreen overlay tab", () => {
+  it("gives overlay its own org tab, reachable before any overlay is connected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({ roles: ["admin"], sorMode: "native" }),
+    );
+    render(<SettingsScreen tab="overlay" />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("link", { name: /overlay/i })
+          .getAttribute("aria-current"),
+      ).toBe("page"),
+    );
+    // OverlayCard's own heading — proof its connect flow rendered on this
+    // tab even though the workspace has never connected an overlay.
+    expect(
+      await screen.findByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeTruthy();
+  });
+
+  it("no longer renders the overlay card under Integrations", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({ roles: ["admin"], sorMode: "overlay" }),
+    );
+    render(<SettingsScreen tab="integrations" />);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /integrations/i })).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeNull();
+  });
+
+  // The mapping card carries every user's email and the incumbent's external
+  // directory, and the API 403s a non-admin anyway — the tab must inherit
+  // the org-admin nav filter rather than the Integrations exemption (every
+  // role holds webhook_subscription read, but no role but admin/ops holds
+  // the overlay user-map read).
+  it("hides the Overlay tab from a non-admin rep", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({ roles: ["rep"], sorMode: "native" }),
+    );
+    render(<SettingsScreen tab="overlay" />);
+    // A stale/forbidden deep link falls back to the first visible (personal)
+    // tab rather than a blank screen — the same fallback the layout suite
+    // already covers for an unknown id.
+    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
+    expect(screen.queryByRole("link", { name: /overlay/i })).toBeNull();
+    expect(
+      screen.queryByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeNull();
+  });
+});
+
 // Routed by URL, with the pipelines list stubbed to the D-8 shape (an array
 // with embedded stages) and a POST /stages hook so a test can inspect the exact
 // body shipped.

@@ -10,6 +10,7 @@ import {
   Coins,
   Database,
   Factory,
+  Layers,
   type LucideIcon,
   Mic,
   Package,
@@ -67,6 +68,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { OverlayCard } from "./overlay";
+import { MirrorUserMapCard } from "./overlay-usermap";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
@@ -105,6 +107,7 @@ const SETTINGS_TABS = [
   { id: "privacy", icon: ShieldCheck, group: "org" },
   { id: "audit", icon: ScrollText, group: "org" },
   { id: "integrations", icon: Webhook, group: "org" },
+  { id: "overlay", icon: Layers, group: "org" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
@@ -155,10 +158,23 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <ConnectorsCard />
-          <OverlayCard />
           <CaptureSettingsCard />
           <CaptureExclusionsCard />
           <WebhooksCard />
+        </>
+      );
+    case "overlay":
+      // Everything overlay lives here — connect, live sync/budget health
+      // (OverlayCard renders OverlayLiveSection itself once a connection is
+      // active/error — this tab does not render it a second time), and the
+      // user mapping. The tab is NOT gated on useSorMode() === "overlay": a
+      // workspace is native until an overlay is connected, so mode-gating
+      // would hide the only surface that can connect one. In native mode
+      // OverlayCard renders its connect form and the rest stays quiet.
+      return (
+        <>
+          <OverlayCard />
+          <MirrorUserMapCard />
         </>
       );
   }

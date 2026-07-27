@@ -1956,6 +1956,7 @@ export const de = {
   "settings.tab.audit": "Audit-Log",
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrationen",
+  "settings.tab.overlay": "Overlay",
   "settings.group.you": "Deine Einstellungen",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",
