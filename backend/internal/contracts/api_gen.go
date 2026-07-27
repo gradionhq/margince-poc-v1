@@ -11998,25 +11998,39 @@ type ListActivitiesParamsEntityType string
 
 // LogActivityParams defines parameters for LogActivity.
 type LogActivityParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateActivityParams defines parameters for UpdateActivity.
 type UpdateActivityParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -12044,13 +12058,20 @@ type RelinkActivityJSONBody struct {
 
 // RelinkActivityParams defines parameters for RelinkActivity.
 type RelinkActivityParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12059,13 +12080,20 @@ type RelinkActivityJSONBodyEntityType string
 
 // SendEmailParams defines parameters for SendEmail.
 type SendEmailParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12137,13 +12165,20 @@ type ListApprovalsParamsStatus string
 
 // ApproveApprovalParams defines parameters for ApproveApproval.
 type ApproveApprovalParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12299,13 +12334,20 @@ type BookMeetingJSONBody struct {
 
 // BookMeetingParams defines parameters for BookMeeting.
 type BookMeetingParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12329,25 +12371,39 @@ type GetCompanyContextParams struct {
 
 // StartCompanySiteReadParams defines parameters for StartCompanySiteRead.
 type StartCompanySiteReadParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // ConfirmCompanySiteReadParams defines parameters for ConfirmCompanySiteRead.
 type ConfirmCompanySiteReadParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12419,13 +12475,20 @@ type ListCustomFieldsParamsStatus string
 
 // CreateCustomFieldParams defines parameters for CreateCustomField.
 type CreateCustomFieldParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12440,13 +12503,20 @@ type CreateCustomFieldParams struct {
 
 // RenameCustomFieldParams defines parameters for RenameCustomField.
 type RenameCustomFieldParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -12459,13 +12529,20 @@ type RenameCustomFieldParams struct {
 
 // UpdateCustomFieldOptionsParams defines parameters for UpdateCustomFieldOptions.
 type UpdateCustomFieldOptionsParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12480,13 +12557,20 @@ type UpdateCustomFieldOptionsParams struct {
 
 // RetireCustomFieldParams defines parameters for RetireCustomField.
 type RetireCustomFieldParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12522,13 +12606,20 @@ type ListDataSubjectRequestsParamsStatus string
 
 // CreateDataSubjectRequestParams defines parameters for CreateDataSubjectRequest.
 type CreateDataSubjectRequestParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12585,25 +12676,39 @@ type ListDealsParamsStatus string
 
 // CreateDealParams defines parameters for CreateDeal.
 type CreateDealParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateDealParams defines parameters for UpdateDeal.
 type UpdateDealParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -12616,13 +12721,20 @@ type UpdateDealParams struct {
 
 // AdvanceDealParams defines parameters for AdvanceDeal.
 type AdvanceDealParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12664,13 +12776,20 @@ type ListDealOffersParamsStatus string
 
 // CreateOfferParams defines parameters for CreateOffer.
 type CreateOfferParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12772,25 +12891,39 @@ type ListLeadsParamsStatus string
 
 // CreateLeadParams defines parameters for CreateLead.
 type CreateLeadParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateLeadParams defines parameters for UpdateLead.
 type UpdateLeadParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -12803,13 +12936,20 @@ type UpdateLeadParams struct {
 
 // PromoteLeadParams defines parameters for PromoteLead.
 type PromoteLeadParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -12883,13 +13023,20 @@ type ListOfferTemplatesParams struct {
 
 // CreateOfferTemplateParams defines parameters for CreateOfferTemplate.
 type CreateOfferTemplateParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12902,13 +13049,20 @@ type UpdateOfferTemplateParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12934,13 +13088,20 @@ type AcceptOfferParams struct {
 
 // RegenerateOfferParams defines parameters for RegenerateOffer.
 type RegenerateOfferParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -12956,25 +13117,39 @@ type RejectOfferParams struct {
 
 // RenderOfferParams defines parameters for RenderOffer.
 type RenderOfferParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // SendOfferParams defines parameters for SendOffer.
 type SendOfferParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -13005,13 +13180,20 @@ type GetOnboardingCompanyProposalParamsLocale string
 
 // PutOnboardingStateParams defines parameters for PutOnboardingState.
 type PutOnboardingStateParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13051,25 +13233,39 @@ type ListOrganizationsParams struct {
 
 // CreateOrganizationParams defines parameters for CreateOrganization.
 type CreateOrganizationParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateOrganizationParams defines parameters for UpdateOrganization.
 type UpdateOrganizationParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -13097,13 +13293,20 @@ type MergeOrganizationJSONBody struct {
 
 // MergeOrganizationParams defines parameters for MergeOrganization.
 type MergeOrganizationParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -13207,25 +13410,39 @@ type ListPeopleParams struct {
 
 // CreatePersonParams defines parameters for CreatePerson.
 type CreatePersonParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdatePersonParams defines parameters for UpdatePerson.
 type UpdatePersonParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -13238,13 +13455,20 @@ type UpdatePersonParams struct {
 
 // RecordConsentParams defines parameters for RecordConsent.
 type RecordConsentParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13263,13 +13487,20 @@ type MergePersonJSONBody struct {
 
 // MergePersonParams defines parameters for MergePerson.
 type MergePersonParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -13288,25 +13519,39 @@ type ListPipelinesParams struct {
 
 // CreatePipelineParams defines parameters for CreatePipeline.
 type CreatePipelineParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdatePipelineParams defines parameters for UpdatePipeline.
 type UpdatePipelineParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13345,13 +13590,20 @@ type ListProductsParams struct {
 
 // CreateProductParams defines parameters for CreateProduct.
 type CreateProductParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13412,13 +13664,20 @@ type ListProjectsParamsPhase string
 
 // CreateProjectParams defines parameters for CreateProject.
 type CreateProjectParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -13452,6 +13711,22 @@ type ArchiveProjectParams struct {
 
 // UpdateProjectParams defines parameters for UpdateProject.
 type UpdateProjectParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
 	// the last-seen entity `version`. If the row's current `version` differs, the write is
 	// rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
@@ -13471,13 +13746,20 @@ type UpdateProjectParams struct {
 
 // AdvanceProjectPhaseParams defines parameters for AdvanceProjectPhase.
 type AdvanceProjectPhaseParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -13539,13 +13821,20 @@ type BookPublicMeetingJSONBody struct {
 
 // BookPublicMeetingParams defines parameters for BookPublicMeeting.
 type BookPublicMeetingParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13609,25 +13898,39 @@ type ListQuotasParams struct {
 
 // CreateQuotaParams defines parameters for CreateQuota.
 type CreateQuotaParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateQuotaParams defines parameters for UpdateQuota.
 type UpdateQuotaParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -13667,13 +13970,20 @@ type ListRecordGrantsParamsSubjectType string
 
 // CreateRecordGrantParams defines parameters for CreateRecordGrant.
 type CreateRecordGrantParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
@@ -13830,25 +14140,39 @@ type ListSignalsParamsResolutionState string
 
 // CreateSignalParams defines parameters for CreateSignal.
 type CreateSignalParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateSignalParams defines parameters for UpdateSignal.
 type UpdateSignalParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 
 	// IfMatch Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
@@ -13861,13 +14185,20 @@ type UpdateSignalParams struct {
 
 // ResolveSignalParams defines parameters for ResolveSignal.
 type ResolveSignalParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13881,25 +14212,39 @@ type ListStagesParams struct {
 
 // CreateStageParams defines parameters for CreateStage.
 type CreateStageParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // UpdateStageParams defines parameters for UpdateStage.
 type UpdateStageParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -13973,13 +14318,20 @@ type UpdateSavedViewParams struct {
 
 // CreateVoiceProfileParams defines parameters for CreateVoiceProfile.
 type CreateVoiceProfileParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -14005,13 +14357,20 @@ type UpdateVoiceProfileParams struct {
 
 // CreateVoiceBuildParams defines parameters for CreateVoiceBuild.
 type CreateVoiceBuildParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -14024,13 +14383,20 @@ type ClearVoiceCorpusParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -14052,13 +14418,20 @@ type ListVoiceProfileDeltasParams struct {
 
 // RejectVoiceDraftParams defines parameters for RejectVoiceDraft.
 type RejectVoiceDraftParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -14080,13 +14453,20 @@ type ListVoiceCorpusSourcesParams struct {
 
 // IngestVoiceCorpusSourceParams defines parameters for IngestVoiceCorpusSource.
 type IngestVoiceCorpusSourceParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -14135,13 +14515,20 @@ type ApplyVoiceProfileVersionParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -14154,25 +14541,39 @@ type RejectVoiceProfileVersionParams struct {
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
 // RollbackVoiceProfileVersionParams defines parameters for RollbackVoiceProfileVersion.
 type RollbackVoiceProfileVersionParams struct {
-	// IdempotencyKey Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
 	// returns the original status + body. Reusing the same key with a *different* request body
 	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
 	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
 	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
-	// (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
 
@@ -31265,6 +31666,25 @@ func (siw *ServerInterfaceWrapper) UpdateProject(w http.ResponseWriter, r *http.
 	var params UpdateProjectParams
 
 	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
 
 	// ------------- Optional header parameter "If-Match" -------------
 	if valueList, found := headers[http.CanonicalHeaderKey("If-Match")]; found {
