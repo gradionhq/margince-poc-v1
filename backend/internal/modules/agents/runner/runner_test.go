@@ -191,7 +191,8 @@ func TestResumeApprovedRedeemsWithApprovalID(t *testing.T) {
 	}}
 	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"sent after approval"}}`}}
 	pending := Pending{
-		ApprovalID: approvalID, Tool: "send_email",
+		TranscriptVersion: neutralisedObservations,
+		ApprovalID:        approvalID, Tool: "send_email",
 		Args:      json.RawMessage(`{"to":"a@b.c"}`),
 		Window:    []model.Message{{Role: "user", Content: "Goal: follow up"}},
 		Fence:     promptfence.New(),
@@ -220,7 +221,8 @@ func TestResumeRejectedObservesAndReplans(t *testing.T) {
 	surface := &fakeSurface{}
 	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"skipped the send"}}`}}
 	pending := Pending{
-		ApprovalID: ids.New[ids.ApprovalKind](), Tool: "send_email",
+		TranscriptVersion: neutralisedObservations,
+		ApprovalID:        ids.New[ids.ApprovalKind](), Tool: "send_email",
 		Args:   json.RawMessage(`{"to":"a@b.c"}`),
 		Window: []model.Message{{Role: "user", Content: "Goal: follow up"}},
 		Fence:  promptfence.New(),
@@ -250,7 +252,8 @@ func TestResumeApprovedVersionSkewIsObservedNotFatal(t *testing.T) {
 	}}
 	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"could not apply; reported"}}`}}
 	pending := Pending{
-		ApprovalID: ids.New[ids.ApprovalKind](), Tool: "send_email",
+		TranscriptVersion: neutralisedObservations,
+		ApprovalID:        ids.New[ids.ApprovalKind](), Tool: "send_email",
 		Args:   json.RawMessage(`{"to":"a@b.c"}`),
 		Window: []model.Message{{Role: "user", Content: "Goal: follow up"}},
 		Fence:  promptfence.New(),
@@ -505,7 +508,8 @@ func windowMarker(t *testing.T, system string) string {
 // name a boundary its own stored text does not have, so it is refused.
 func TestResumeRefusesASnapshotWithNoBoundary(t *testing.T) {
 	pending := Pending{
-		ApprovalID: ids.New[ids.ApprovalKind](), Tool: "send_email",
+		TranscriptVersion: neutralisedObservations,
+		ApprovalID:        ids.New[ids.ApprovalKind](), Tool: "send_email",
 		Args:      json.RawMessage(`{"to":"a@b.c"}`),
 		Window:    []model.Message{{Role: "user", Content: "Goal: follow up"}},
 		StepsUsed: 3, OutputTokens: 100,
@@ -586,5 +590,65 @@ func TestADirectiveOnlyObservationCarriesNoSpan(t *testing.T) {
 	}
 	if !strings.Contains(last, "re-plan without it") {
 		t.Fatalf("the directive is missing: %q", last)
+	}
+}
+
+// A run suspended before observations were neutralised may ALREADY carry
+// prompt-voice text inside what looks like a span: its observations were
+// bounded with Wrap, and the model had read the marker since step 1. Nothing
+// downstream can tell such a transcript from a clean one, so resuming it is
+// refused the same way a pre-boundary snapshot is.
+func TestResumeRefusesATranscriptWrittenBeforeObservationsWereNeutralised(t *testing.T) {
+	stale := Pending{
+		ApprovalID: ids.New[ids.ApprovalKind](),
+		Tool:       "send_email",
+		Args:       json.RawMessage(`{"to":"a@b.c"}`),
+		Window:     []model.Message{{Role: "user", Content: "Goal: follow up"}},
+		Fence:      promptfence.New(),
+		// No TranscriptVersion: this is what a row stored by an older build
+		// unmarshals to.
+	}
+
+	surface := &fakeSurface{results: map[string]json.RawMessage{"send_email": json.RawMessage(`{"sent":true}`)}}
+	brain := &scriptedBrain{texts: []string{`{"final":{"summary":"x"}}`}}
+	_, err := New(surface, brain).Resume(
+		context.Background(), Job{Goal: "follow up"}, Decision{Pending: stale, Approved: true})
+
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("resuming a pre-neutralisation transcript returned %v, want ErrConflict", err)
+	}
+	if !strings.Contains(err.Error(), "start it again") {
+		t.Fatalf("the refusal does not say what to do instead: %v", err)
+	}
+}
+
+// The round trip the version gate must not break: a run this build suspends is
+// one this build can resume. Asserting the refusal alone would leave a suspend
+// that forgot to stamp the version indistinguishable from a stale transcript —
+// every approval in flight would be refused, and no test would say so.
+func TestARunSuspendedByThisBuildResumes(t *testing.T) {
+	approvalID := ids.New[ids.ApprovalKind]()
+	staging := &fakeSurface{errs: map[string]error{
+		"send_email": &workflow.StagedApprovalError{ApprovalID: approvalID},
+	}}
+	suspended, err := New(staging, &scriptedBrain{
+		texts: []string{`{"tool":"send_email","args":{"to":"a@b.c"}}`},
+	}).Run(context.Background(), Job{Goal: "follow up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suspended.Pending == nil {
+		t.Fatalf("expected a suspension: %+v", suspended)
+	}
+
+	// Resume the snapshot the runner itself produced, not one written by hand.
+	redeeming := &fakeSurface{results: map[string]json.RawMessage{"send_email": json.RawMessage(`{"sent":true}`)}}
+	res, err := New(redeeming, &scriptedBrain{texts: []string{`{"final":{"summary":"sent"}}`}}).Resume(
+		context.Background(), Job{Goal: "follow up"}, Decision{Pending: *suspended.Pending, Approved: true})
+	if err != nil {
+		t.Fatalf("a run this build suspended could not be resumed: %v", err)
+	}
+	if res.Outcome != OutcomeCompleted {
+		t.Fatalf("resume did not complete: %+v", res)
 	}
 }

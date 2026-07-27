@@ -78,12 +78,23 @@ func newWindow(job Job, specs []mcp.ToolSpec) *window {
 // are marked with a fixed marker any captured page or mail could have written,
 // so no marker this build could name would actually bound them. The run is
 // refused rather than continued under a boundary that is not one.
-func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message, fence promptfence.Fence) (*window, error) {
+//
+// An older transcriptVersion is refused for the same reason one step later. Its
+// observations were bounded with Wrap, so the model — which had read the marker
+// since step 1 — was free to close its own span, and the stored text may already
+// carry prompt-voice content inside what looks like data. It cannot be told from
+// a clean transcript after the fact: the goal prompt legitimately holds several
+// spans, so "one balanced span per message" is not an invariant to check against,
+// and a `</m>…<m>` injection reads as two well-formed spans either way.
+func windowFromSnapshot(job Job, specs []mcp.ToolSpec, snapshot []model.Message, fence promptfence.Fence, transcriptVersion int) (*window, error) {
 	if len(snapshot) == 0 {
 		return newWindow(job, specs), nil
 	}
 	if !fence.Minted() {
 		return nil, fmt.Errorf("%w: this run was suspended before prompt boundaries were per-run; start it again rather than resuming it", apperrors.ErrConflict)
+	}
+	if transcriptVersion < neutralisedObservations {
+		return nil, fmt.Errorf("%w: this run was suspended before its observations were bounded against the marker the model can read; start it again rather than resuming it", apperrors.ErrConflict)
 	}
 	w := &window{system: systemPrompt(specs, fence), fence: fence, knownSources: sourceVocabulary(specs)}
 	w.msgs = append(w.msgs, snapshot...)

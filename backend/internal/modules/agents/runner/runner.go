@@ -140,10 +140,23 @@ type Pending struct {
 	// with. It travels WITH the window: a resumed run that minted a
 	// fresh marker would be telling the model to honour a boundary its
 	// own stored text does not carry.
-	Fence        promptfence.Fence
-	StepsUsed    int
-	OutputTokens int
+	Fence promptfence.Fence
+	// TranscriptVersion records the rules the stored Window's spans were
+	// written under. The fence alone does not say whether they hold: a
+	// transcript bounded with Wrap rather than WrapAuthored carries a marker
+	// the model was free to close, so it may ALREADY contain prompt-voice
+	// text inside what looks like a span. Absent (zero) means it predates
+	// that fix and cannot be told apart from an escaped one after the fact.
+	TranscriptVersion int
+	StepsUsed         int
+	OutputTokens      int
 }
+
+// neutralisedObservations is the current transcript version: every observation
+// bounded with [promptfence.Fence.WrapAuthored], so nothing the model wrote can
+// end its own span. Bump this whenever a change makes an OLD transcript unsafe
+// to resume — the resume path refuses anything older rather than guessing.
+const neutralisedObservations = 1
 
 type Runner struct {
 	tools Invoker
@@ -173,7 +186,7 @@ type Decision struct {
 // silently changed under an approved diff). Rejected: the refusal is
 // observed and the model re-plans without that action.
 func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, error) {
-	win, err := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window, dec.Pending.Fence)
+	win, err := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window, dec.Pending.Fence, dec.Pending.TranscriptVersion)
 	if err != nil {
 		return Result{}, err
 	}
@@ -309,13 +322,14 @@ func suspend(acc Result, approvalID ids.ApprovalID, step modelStep, win *window,
 		Admission: "staged",
 	})
 	acc.Pending = &Pending{
-		ApprovalID:   approvalID,
-		Tool:         step.Tool,
-		Args:         step.Args,
-		Window:       win.snapshot(),
-		Fence:        win.fence,
-		StepsUsed:    acc.StepsUsed,
-		OutputTokens: acc.OutputTokens,
+		ApprovalID:        approvalID,
+		Tool:              step.Tool,
+		Args:              step.Args,
+		Window:            win.snapshot(),
+		Fence:             win.fence,
+		TranscriptVersion: neutralisedObservations,
+		StepsUsed:         acc.StepsUsed,
+		OutputTokens:      acc.OutputTokens,
 	}
 	return acc
 }
