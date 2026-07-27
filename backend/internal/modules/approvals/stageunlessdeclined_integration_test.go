@@ -194,3 +194,106 @@ func waitForLockWaiter(t *testing.T, e *stagingEnv) {
 	}
 	t.Fatal("no backend ever waited on the advisory lock — the staging did not reach it, so this run proved nothing")
 }
+
+// The refusal is narrow: only a REJECTED prior offer stops a staging. Everything
+// else about the same proposal behaves exactly as Stage does, which is what makes
+// StageUnlessDeclined safe to use in place of it.
+func TestStageUnlessDeclinedStagesWhenNothingWasRefused(t *testing.T) {
+	e := setupStaging(t)
+	target := ids.NewV7()
+	if _, err := e.owner.Exec(context.Background(), `
+		INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Gitex', 'gmail:seed', 'connector:gmail')`, target, e.ws); err != nil {
+		t.Fatal(err)
+	}
+	in := StageInput{
+		Kind:           "org_name_promotion",
+		ProposedChange: []byte(`{"proposed_name":"Gitex Global"}`),
+		DiffHash:       "hash-nothing-refused",
+		TargetType:     "organization",
+		TargetID:       target,
+		Summary:        "Rename Gitex to Gitex Global?",
+		JoinPending:    true,
+	}
+
+	first, staged, err := e.svc.StageUnlessDeclined(e.as(), in)
+	if err != nil {
+		t.Fatalf("StageUnlessDeclined: %v", err)
+	}
+	if !staged || first.IsZero() {
+		t.Fatal("a proposal nobody has refused must stage")
+	}
+
+	t.Run("a second pass joins the standing offer instead of adding one", func(t *testing.T) {
+		again, staged, err := e.svc.StageUnlessDeclined(e.as(), in)
+		if err != nil {
+			t.Fatalf("StageUnlessDeclined: %v", err)
+		}
+		if !staged || again != first {
+			t.Fatalf("second pass returned %v (staged=%v), want the standing offer %v", again, staged, first)
+		}
+		var offers int
+		if err := e.owner.QueryRow(context.Background(),
+			`SELECT count(*) FROM approval WHERE workspace_id = $1 AND target_entity_id = $2`,
+			e.ws, target).Scan(&offers); err != nil {
+			t.Fatal(err)
+		}
+		if offers != 1 {
+			t.Fatalf("%d offers, want the one that was already standing", offers)
+		}
+	})
+
+	t.Run("an approved offer does not block a later one", func(t *testing.T) {
+		// Only a refusal is an answer of "no". An offer the human ACCEPTED says
+		// nothing about whether the same proposal may be made again — and for a
+		// nightly stager it usually means the work simply came round again.
+		if _, err := e.owner.Exec(context.Background(),
+			`UPDATE approval SET status = 'approved', decided_by = $2, decided_at = now()
+			  WHERE workspace_id = $1 AND target_entity_id = $3`, e.ws, e.rep, target); err != nil {
+			t.Fatal(err)
+		}
+		_, staged, err := e.svc.StageUnlessDeclined(e.as(), in)
+		if err != nil {
+			t.Fatalf("StageUnlessDeclined: %v", err)
+		}
+		if !staged {
+			t.Fatal("an approved offer must not be read as a refusal")
+		}
+	})
+}
+
+// The non-joining form takes the same refusal check: a caller that does not want
+// its proposal joined to a standing one still must not re-offer a refused one.
+func TestStageUnlessDeclinedRefusesWithoutJoinPending(t *testing.T) {
+	e := setupStaging(t)
+	target := ids.NewV7()
+	if _, err := e.owner.Exec(context.Background(), `
+		INSERT INTO organization (id, workspace_id, display_name, source, captured_by)
+		VALUES ($1, $2, 'Gitex', 'gmail:seed', 'connector:gmail')`, target, e.ws); err != nil {
+		t.Fatal(err)
+	}
+	in := StageInput{
+		Kind:           "org_name_promotion",
+		ProposedChange: []byte(`{"proposed_name":"Gitex Global"}`),
+		DiffHash:       "hash-no-join",
+		TargetType:     "organization",
+		TargetID:       target,
+		Summary:        "Rename Gitex to Gitex Global?",
+	}
+
+	if _, staged, err := e.svc.StageUnlessDeclined(e.as(), in); err != nil || !staged {
+		t.Fatalf("first staging: staged=%v err=%v", staged, err)
+	}
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE approval SET status = 'rejected', decided_by = $2, decided_at = now()
+		  WHERE workspace_id = $1 AND target_entity_id = $3`, e.ws, e.rep, target); err != nil {
+		t.Fatal(err)
+	}
+	_, staged, err := e.svc.StageUnlessDeclined(e.as(), in)
+	if err != nil {
+		t.Fatalf("StageUnlessDeclined: %v", err)
+	}
+	if staged {
+		t.Fatal("re-offered a refused proposal on the non-joining path")
+	}
+}
