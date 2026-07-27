@@ -49,15 +49,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 		BaseURL: "/v1",
 		Middlewares: []crmcontracts.MiddlewareFunc{
 			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
-			idempotency(pool, map[string]replayProbe{
-				// A replay of an approval decision is a read of that approval,
-				// so it clears the same visibility rule the inbox does rather
-				// than a copy of it (API-CC-8).
-				probeApproval: func(ctx context.Context, id ids.UUID) error {
-					_, err := staging.svc.Get(ctx, ids.From[ids.ApprovalKind](id))
-					return err
-				},
-			}),
+			idempotency(pool, replayProbes(staging.svc)),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent
 			// approval — the honest unsupported_by_sor, for every principal.
@@ -74,6 +66,21 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 // operationalMux mounts the contract surface next to the operational
 // edges: health probes, metrics, the anonymous public paths, and the A2
 // authorization server.
+// replayProbes wires the module-owned visibility rules the replay gate borrows
+// (API-CC-8). Named rather than inline so a test can assert it covers every
+// moduleProbe replayableOperations names: an unwired key fails closed, which
+// retires the replay promise for that route silently instead of loudly.
+func replayProbes(approvalsSvc *approvals.Service) map[string]replayProbe {
+	return map[string]replayProbe{
+		// A replay of an approval decision is a read of that approval, so it
+		// clears the same visibility rule the inbox does, not a copy of it.
+		probeApproval: func(ctx context.Context, id ids.UUID) error {
+			_, err := approvalsSvc.Get(ctx, ids.From[ids.ApprovalKind](id))
+			return err
+		},
+	}
+}
+
 func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
 	// The session middleware (authH.Middleware) fronts BOTH /v1 and the /oauth/
 	// authorization server (/oauth/authorize requires a live session); the

@@ -89,3 +89,31 @@ func TestReplayRefusesAnUnclassifiedRoute(t *testing.T) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
 	}
 }
+
+// The composition root must wire a probe for every route that says it needs
+// one. An unwired key is not a compile error and not a runtime panic — it
+// fails closed, which retires that route's replay promise silently. This is
+// the assertion the hand-built probe maps above cannot make, because they are
+// not the map the server runs.
+func TestEveryModuleProbeIsWiredAtTheCompositionRoot(t *testing.T) {
+	wired := replayProbes(nil) // keys only; nothing here calls a probe
+	needed := map[string]string{}
+	for route, target := range replayableOperations {
+		if target.moduleProbe != "" {
+			needed[target.moduleProbe] = route
+		}
+	}
+	if len(needed) == 0 {
+		t.Fatal("no route names a module probe — the extractor lost its source")
+	}
+	for key, route := range needed {
+		if _, ok := wired[key]; !ok {
+			t.Errorf("%s needs the %q probe and the composition root wires none — its replays would refuse silently", route, key)
+		}
+	}
+	for key := range wired {
+		if _, ok := needed[key]; !ok {
+			t.Errorf("the composition root wires a %q probe no route asks for — delete the stale wiring", key)
+		}
+	}
+}
