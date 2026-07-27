@@ -35,80 +35,6 @@ import (
 
 const idempotencyKeyHeader = "Idempotency-Key"
 
-// idempotentOperations mirrors the contract operations that declare the
-// IdempotencyKey parameter, keyed by "METHOD <chi route pattern>"
-// exactly like agentPolicies. Requests outside this set pass through
-// untouched even when they carry the header — the contract scopes the
-// promise, not the client. TestIdempotentOperationsMirrorTheContract
-// derives the expected set from api/crm.yaml, so a declared operation
-// missing here (or a stale entry) fails the unit lane.
-//
-// bookPublicMeeting declares the parameter but is deliberately NOT
-// mapped (the gate's idempotencyExemptions entry): the anonymous edge
-// binds ONE shared system principal for every visitor, so this table's
-// per-principal claim scope cannot tell callers apart — one visitor's
-// key + body would replay another's recorded confirmation. The anonymous
-// surface needs its own dedupe scope (workspace + request digest) before
-// the header's promise can be honored; until then the slot's natural key
-// refuses a duplicate booking.
-var idempotentOperations = map[string]bool{
-	"POST /v1/company/site-reads":                  true,
-	"POST /v1/company/site-reads/{readId}/confirm": true,
-	"PUT /v1/onboarding/state":                     true,
-	"POST /v1/people":                              true,
-	"PATCH /v1/people/{id}":                        true,
-	"POST /v1/people/{id}/merge":                   true,
-	"POST /v1/organizations":                       true,
-	"PATCH /v1/organizations/{id}":                 true,
-	"POST /v1/organizations/{id}/merge":            true,
-	"POST /v1/deals":                               true,
-	"PATCH /v1/deals/{id}":                         true,
-	"POST /v1/deals/{id}/advance":                  true,
-	"POST /v1/projects":                            true,
-	"POST /v1/projects/{id}/advance":               true,
-	"POST /v1/deals/{id}/offers":                   true,
-	"POST /v1/offers/{id}/regenerate":              true,
-	"POST /v1/offers/{id}/send":                    true,
-	"POST /v1/pipelines":                           true,
-	"PATCH /v1/pipelines/{id}":                     true,
-	"POST /v1/stages":                              true,
-	"PATCH /v1/stages/{id}":                        true,
-	"POST /v1/activities":                          true,
-	"PATCH /v1/activities/{id}":                    true,
-	"POST /v1/activities/{id}/relink":              true,
-	"POST /v1/activities/{id}/send-email":          true,
-	"POST /v1/bookings":                            true,
-	"POST /v1/leads":                               true,
-	"PATCH /v1/leads/{id}":                         true,
-	"POST /v1/leads/{id}/promote":                  true,
-	"POST /v1/approvals/{id}/approve":              true,
-	"POST /v1/custom-fields":                       true,
-	"PATCH /v1/custom-fields/{id}":                 true,
-	"PATCH /v1/custom-fields/{id}/options":         true,
-	"POST /v1/custom-fields/{id}/retire":           true,
-	"POST /v1/products":                            true,
-	"POST /v1/offer-templates":                     true,
-	"PUT /v1/offer-templates/{id}":                 true,
-	"POST /v1/offers/{id}/render":                  true,
-	"POST /v1/quotas":                              true,
-	"PATCH /v1/quotas/{id}":                        true,
-	"POST /v1/signals":                             true,
-	"PATCH /v1/signals/{id}":                       true,
-	"POST /v1/signals/{id}/resolve":                true,
-	"POST /v1/data-subject-requests":               true,
-	"POST /v1/people/{id}/consent":                 true,
-	"POST /v1/record-grants":                       true,
-
-	"POST /v1/voice-profiles":                                         true,
-	"POST /v1/voice-profiles/{id}/builds":                             true,
-	"POST /v1/voice-profiles/{id}/corpus/clear":                       true,
-	"POST /v1/voice-profiles/{id}/draft-rejections":                   true,
-	"POST /v1/voice-profiles/{id}/sources":                            true,
-	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/apply":    true,
-	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/reject":   true,
-	"POST /v1/voice-profiles/{id}/versions/{profileVersion}/rollback": true,
-}
-
 // claimOutcome is what the claim transaction decided.
 type claimOutcome int
 
@@ -122,7 +48,7 @@ const (
 // idempotency is a contract-router middleware; it rides inside the
 // session middleware, so workspace and principal are bound (the claim
 // table is RLS-guarded and scoped per principal).
-func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
+func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := r.Header.Get(idempotencyKeyHeader)
@@ -130,8 +56,8 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			pattern := chi.RouteContext(r.Context()).RoutePattern()
-			if !idempotentOperations[r.Method+" "+pattern] {
+			route := r.Method + " " + chi.RouteContext(r.Context()).RoutePattern()
+			if _, replayable := replayableOperations[route]; !replayable {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -161,32 +87,8 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			endpoint := r.Method + " " + r.URL.Path
 
 			outcome, stored := claimKey(r, pool, actor.ID, key, endpoint, digest)
-			switch outcome {
-			case claimReplay:
-				// The replay repeats the ORIGINAL response verbatim —
-				// status, body, and the media type recorded with it (0069),
-				// never a restamped Content-Type.
-				if stored.contentType != "" {
-					w.Header().Set("Content-Type", stored.contentType)
-				}
-				w.WriteHeader(stored.status)
-				if stored.body != "" {
-					_, _ = io.WriteString(w, stored.body)
-				}
-				return
-			case claimInProgress:
-				httperr.Write(w, r, &httperr.DetailedError{
-					Status: http.StatusConflict,
-					Code:   "idempotency_key_conflict",
-					Detail: "a request with this idempotency key is still in progress",
-				})
-				return
-			case claimMismatch:
-				httperr.Write(w, r, &httperr.DetailedError{
-					Status: http.StatusConflict,
-					Code:   "idempotency_key_conflict",
-					Detail: "this idempotency key was already used with a different request body",
-				})
+			if outcome != claimFresh {
+				writeClaimOutcome(w, r, pool, probes, route, outcome, stored)
 				return
 			}
 
@@ -194,6 +96,45 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			next.ServeHTTP(rec, r)
 			settleClaim(r, pool, actor.ID, key, endpoint, rec)
 		})
+	}
+}
+
+// writeClaimOutcome answers a claim that did not win the race: a replay
+// (gated), a first attempt still in flight, or the same key reused for a
+// different body.
+func writeClaimOutcome(w http.ResponseWriter, r *http.Request, pool *pgxpool.Pool, probes map[string]replayProbe, route string, outcome claimOutcome, stored storedResponse) {
+	switch outcome {
+	case claimReplay:
+		// A replay is a read (API-CC-8): the recorded body only goes back if
+		// the caller can still see the record it carries.
+		if err := ensureReplayVisible(r.Context(), pool, probes, route, stored.body); err != nil {
+			httperr.Write(w, r, err)
+			return
+		}
+		// The replay repeats the ORIGINAL response verbatim — status, body,
+		// and the media type recorded with it (0069), never a restamped
+		// Content-Type.
+		if stored.contentType != "" {
+			w.Header().Set("Content-Type", stored.contentType)
+		}
+		w.WriteHeader(stored.status)
+		if stored.body != "" {
+			_, _ = io.WriteString(w, stored.body)
+		}
+	case claimInProgress:
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "idempotency_key_conflict",
+			Detail: "a request with this idempotency key is still in progress",
+		})
+	case claimMismatch:
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusConflict,
+			Code:   "idempotency_key_conflict",
+			Detail: "this idempotency key was already used with a different request body",
+		})
+	case claimFresh:
+		// Unreachable: the caller returns early only for a non-fresh claim.
 	}
 }
 

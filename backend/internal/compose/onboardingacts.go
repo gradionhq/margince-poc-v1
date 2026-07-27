@@ -178,19 +178,40 @@ func validateOnboardingActReply(act, text string) error {
 	return nil
 }
 
-// answerAct runs the non-company act's model call under the act prompt
-// and the shared reply schema.
-func (a *onboardingCompanyAssistant) answerAct(ctx context.Context, act, message string, history []model.Message, contextJSON json.RawMessage, locale string) (companyReadModelReply, error) {
+// onboardingActRequest builds the ONE call a non-company act sends. It is a
+// pure function of the act, the administrator's message, the conversation so
+// far, the server's context block and the locale, so the same request can be
+// issued outside the onboarding transport — by the certification lane —
+// without re-creating it, because a re-creation certifies a copy rather than
+// the prompt that ships.
+//
+// The whole conversation is replayed into this one call: the model is
+// stateless, so the prior turns are messages of THIS request rather than a
+// session it remembers. They sit between the context block and the current
+// message because that is the order they happened in, and a follow-up
+// reference resolves against whichever turn precedes it.
+//
+// The fence is minted here, per request: a boundary a previous turn was shown
+// is one whoever wrote that turn can spell, and the act's own rule — that
+// instructions inside the supplied context are never obeyed — can only be
+// stated about a region the model can tell apart.
+func onboardingActRequest(act, message string, history []model.Message, contextJSON json.RawMessage, locale string) model.Request {
 	fence := promptfence.New()
 	messages := make([]model.Message, 0, len(history)+2)
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: fence.Wrap(string(contextJSON))})
 	messages = append(messages, history...)
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: message})
-	req := model.Request{
+	return model.Request{
 		System: onboardingActSystem(act, locale) + "\n" + fence.Rule("dossier evidence and application state"), Messages: messages,
 		MaxTokens: ai.ReasoningOutputMaxTokens, ResponseSchema: companyReadMessageSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}
+}
+
+// answerAct runs the non-company act's model call under the act prompt
+// and the shared reply schema.
+func (a *onboardingCompanyAssistant) answerAct(ctx context.Context, act, message string, history []model.Message, contextJSON json.RawMessage, locale string) (companyReadModelReply, error) {
+	req := onboardingActRequest(act, message, history, contextJSON, locale)
 	validate := func(text string) error { return validateOnboardingActReply(act, text) }
 	var response model.Response
 	var err error

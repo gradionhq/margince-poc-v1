@@ -70,10 +70,10 @@ var hardGateProfileFields = map[string]bool{
 // profileReply is the profile call's JSON shape.
 type profileReply struct {
 	Fields []struct {
-		F string  `json:"f"`
-		V string  `json:"v"`
-		E string  `json:"e"`
-		C float32 `json:"c"`
+		F string            `json:"f"`
+		V string            `json:"v"`
+		E string            `json:"e"`
+		C schema.Confidence `json:"c"`
 	} `json:"fields"`
 }
 
@@ -170,14 +170,7 @@ func (x evidenceExtractor) extractProfile(ctx context.Context, pages []crawlPage
 	if len(idx.refs) == 0 {
 		return nil, nil
 	}
-	fence := promptfence.New()
-	req := model.Request{
-		System:         profileSystemFor(fence),
-		Messages:       []model.Message{{Role: chatRoleUser, Content: idx.renderNumbered(fence)}},
-		MaxTokens:      ai.ReasoningOutputMaxTokens,
-		ResponseSchema: profileSchema(idx.ids()),
-		SecretStripper: ai.NewSecretStripper(),
-	}
+	req := profileRequest(idx)
 	var resp model.Response
 	var err error
 	if structured, ok := x.brain.(validatedBrain); ok {
@@ -191,6 +184,31 @@ func (x evidenceExtractor) extractProfile(ctx context.Context, pages []crawlPage
 	fields, dropped := gateProfile(resp.Text, idx)
 	x.reportDrops(ctx, laneProfile, dropped)
 	return fields, nil
+}
+
+// profileRequest builds the ONE model call that grounds the company profile. It
+// is a pure function of the numbered index so the same request can be issued
+// outside the deep read — by the certification lane — without re-creating it,
+// because a re-creation certifies a copy rather than the prompt that ships.
+//
+// The index arrives already built rather than being built here: the citation
+// gate resolves every id against the SAME numbering the model was shown, so one
+// index feeds both readers and neither can drift. That is also why the schema's
+// id enum is derived here, per call, from that index — a fixed enum would offer
+// ids this call cannot resolve and withhold the ids it can.
+//
+// The fence is minted here, per request: a boundary reused across calls is one
+// some crawled site has already been shown, and every passage in this prompt is
+// a site's own writing.
+func profileRequest(idx snippetIndex) model.Request {
+	fence := promptfence.New()
+	return model.Request{
+		System:         profileSystemFor(fence),
+		Messages:       []model.Message{{Role: chatRoleUser, Content: idx.renderNumbered(fence)}},
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
+		ResponseSchema: profileSchema(idx.ids()),
+		SecretStripper: ai.NewSecretStripper(),
+	}
 }
 
 // gateProfile verifies the profile reply: known field, resolvable
@@ -247,7 +265,7 @@ func gateProfile(modelText string, idx snippetIndex) ([]evidencedField, []droppe
 			Value:           strings.TrimSpace(f.V),
 			EvidenceSnippet: evidence,
 			SourceURL:       ref.pageURL,
-			Confidence:      f.C,
+			Confidence:      float32(f.C),
 		})
 	}
 	return out, dropped

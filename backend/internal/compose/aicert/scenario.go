@@ -2,14 +2,14 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package aicert is the manual-lane AI certification harness's pure-library
-// layer: the scenario corpus format, structural output checks, the §5
-// verdict math, and the on-disk record format. It has no side effects
-// beyond the file I/O its functions are named for (LoadCorpus,
-// WriteRecord/LoadRecords) — no time.Now, no network, no database — so a
-// certification run is reproducible from a corpus, a set of RunResults, and
-// a clock reading the CALLER supplies. The runner that drives real model
-// calls lives in this package too, but as its own file: this file and its
-// siblings (checks.go, score.go, record.go) stay callable without one.
+// layer: the scenario corpus format, the §5 verdict math, and the on-disk
+// record format. It has no side effects beyond the file I/O its functions
+// are named for (LoadCorpus, WriteRecord/LoadRecords) — no time.Now, no
+// network, no database — so a certification run is reproducible from a
+// corpus, a set of RunResults, and a clock reading the CALLER supplies. The
+// runner that drives real model calls lives in this package too, but as its
+// own file: this file and its siblings (score.go, record.go) stay callable
+// without one.
 package aicert
 
 import (
@@ -23,6 +23,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
@@ -37,69 +38,54 @@ const sourceHandAuthored = "hand_authored"
 // extractedSourcePrefix marks the reserved-but-not-yet-supported source.
 const extractedSourcePrefix = "extracted:"
 
-// Turn is one prior message in a scenario's conversation history, replayed
-// to the candidate model ahead of Input.
-type Turn struct {
-	Role string `yaml:"role"`
-	Text string `yaml:"text"`
-}
+// JSONValue is a corpus value the harness never reads itself and hands
+// straight to the site that owns it: a fixture is whatever that site's
+// Prepare takes, and an expected answer is whatever that site's own
+// vocabulary spells an answer in.
+//
+// It is written as YAML and carried as JSON because those are the two
+// different jobs: YAML is what a scenario author edits, JSON is what
+// CaseFactory.Prepare unmarshals. yaml.v3 cannot decode a nested mapping
+// straight into json.RawMessage, so the node is decoded and re-encoded HERE,
+// once, at load time — rather than at every read, where two callers could
+// disagree about what the bytes meant.
+//
+// Declaring it as its own type rather than hand-decoding Scenario keeps the
+// corpus-wide decoder's KnownFields(true) in force at every OTHER level: a
+// typo'd key in expect.bands is still an error, while the arbitrary keys
+// inside a fixture are still the site's business.
+type JSONValue []byte
 
-// Check is one structural assertion run against a candidate's raw output
-// text. Kind selects the assertion: "json_schema" (Schema must validate
-// per shared/schema.ValidateJSON), "contains"/"not_contains" (Arg is the
-// substring), or "min_facts" (Arg is the minimum count, parsed as an
-// integer, of elements in the output's top-level JSON object's "facts"
-// array — the shape modules/ai's extraction tasks already emit).
-type Check struct {
-	Kind   string
-	Arg    string
-	Schema json.RawMessage
-}
-
-// checkKnownKeys is Check's yaml key allowlist — decoded by hand (see
-// UnmarshalYAML) because Schema's value is an arbitrary nested JSON Schema
-// mapping, not a scalar yaml.v3 can decode straight into json.RawMessage;
-// enforcing the allowlist here keeps a typo'd key an error, the same
-// promise the corpus-wide decoder's KnownFields(true) makes for every
-// other field.
-var checkKnownKeys = map[string]bool{"kind": true, "arg": true, "schema": true}
-
-// UnmarshalYAML decodes a Check, converting its optional nested "schema"
-// mapping into JSON bytes so Check.Schema is directly usable with
-// shared/schema.ValidateJSON without a second parse step at check time.
-func (c *Check) UnmarshalYAML(node *yaml.Node) error {
-	if node.Kind != yaml.MappingNode {
-		return fmt.Errorf("aicert: check: want a mapping, got kind %d at line %d", node.Kind, node.Line)
-	}
-	for i := 0; i < len(node.Content); i += 2 {
-		key := node.Content[i].Value
-		if !checkKnownKeys[key] {
-			return fmt.Errorf("aicert: check: unknown field %q at line %d", key, node.Content[i].Line)
-		}
-	}
-	var raw struct {
-		Kind   string    `yaml:"kind"`
-		Arg    string    `yaml:"arg"`
-		Schema yaml.Node `yaml:"schema"`
-	}
-	if err := node.Decode(&raw); err != nil {
-		return fmt.Errorf("aicert: check: %w", err)
-	}
-	c.Kind = raw.Kind
-	c.Arg = raw.Arg
-	if raw.Schema.IsZero() {
+// UnmarshalYAML renders one YAML value as the JSON bytes the owning site
+// parses. An absent value stays absent — a nil JSONValue, never the four
+// bytes "null" — so a scenario that simply omits the block is refused by the
+// field's own rule rather than reaching a site's Prepare as a JSON null.
+func (v *JSONValue) UnmarshalYAML(node *yaml.Node) error {
+	if node.Tag == "!!null" {
 		return nil
 	}
-	var v any
-	if err := raw.Schema.Decode(&v); err != nil {
-		return fmt.Errorf("aicert: check: decoding schema: %w", err)
+	// The shape is the site's, not this package's: decoding through the empty
+	// interface is what "carry it through unread" means here.
+	var decoded any
+	if err := node.Decode(&decoded); err != nil {
+		return fmt.Errorf("aicert: value at line %d: %w", node.Line, err)
 	}
-	rendered, err := json.Marshal(v)
+	rendered, err := json.Marshal(decoded)
 	if err != nil {
-		return fmt.Errorf("aicert: check: schema is not JSON-representable: %w", err)
+		return fmt.Errorf("aicert: the value at line %d is not JSON-representable: %w", node.Line, err)
 	}
-	c.Schema = rendered
+	*v = rendered
 	return nil
+}
+
+// MarshalJSON emits the value's own JSON bytes, mirroring json.RawMessage —
+// without it a []byte-shaped type marshals as base64, and PromptVersion's
+// digest would stamp an encoding nobody wrote.
+func (v JSONValue) MarshalJSON() ([]byte, error) {
+	if len(v) == 0 {
+		return []byte("null"), nil
+	}
+	return v, nil
 }
 
 // Bands are the 0-100 score thresholds a run set is graded against (spec
@@ -112,7 +98,7 @@ type Bands struct {
 }
 
 // Caps are the resource ceilings a run is judged against alongside its
-// structural/rubric score. P95LatencyMS applies to cloud-served candidates
+// validator verdict and rubric score. P95LatencyMS applies to cloud-served candidates
 // only (a local model's latency is a deployment fact, not a certification
 // criterion).
 type Caps struct {
@@ -121,23 +107,36 @@ type Caps struct {
 }
 
 // Expectations is what a scenario's candidate output is graded against.
+//
+// Outcome names which of the three things a certified reply can be this
+// scenario asserts, in the seam's own vocabulary (aitasks.OutcomeAccepted and
+// its siblings). Answer is the answer itself, in the site's vocabulary rather
+// than a common one: the verdict site takes a bare verdict token because a
+// correct reply differs from an incorrect one in that token alone, and a
+// wrapper around it would be a second thing to keep true.
 type Expectations struct {
-	Structural []Check `yaml:"structural,omitempty"`
-	Rubric     string  `yaml:"rubric,omitempty"`
-	Bands      Bands   `yaml:"bands"`
-	Caps       Caps    `yaml:"caps,omitempty"`
+	Outcome string    `yaml:"outcome"`
+	Answer  JSONValue `yaml:"answer,omitempty"`
+	Rubric  string    `yaml:"rubric,omitempty"`
+	Bands   Bands     `yaml:"bands"`
+	Caps    Caps      `yaml:"caps,omitempty"`
 }
 
 // Scenario is one certification test case, parsed from
 // corpus/<task>/<name>.yaml.
+//
+// It carries the DATA production is given, never the prompt production sends:
+// Site names which registered invocation site is under certification, and that
+// site's own code builds the request from Fixture. A scenario that carried a
+// prompt would certify a copy of one, and a copy stays green through the change
+// that breaks the original.
 type Scenario struct {
 	Name        string       `yaml:"name"`
 	Task        string       `yaml:"task"`
+	Site        string       `yaml:"site"`
 	Source      string       `yaml:"source"`
 	SanitizedBy string       `yaml:"sanitized_by"`
-	System      string       `yaml:"system,omitempty"`
-	History     []Turn       `yaml:"history,omitempty"`
-	Input       string       `yaml:"input"`
+	Fixture     JSONValue    `yaml:"fixture"`
 	Expect      Expectations `yaml:"expect"`
 }
 
@@ -145,13 +144,20 @@ type Scenario struct {
 // own subdirectories — e.g. fixture assets that are not themselves
 // scenarios — are simply not *.yaml and are skipped) into a Scenario,
 // validating each: Task must name a contract task ai.AllTasks() actually
-// carries, Source must be "hand_authored" (an "extracted:" scenario is
-// refused — see sourceHandAuthored), and SanitizedBy must be non-empty —
-// every scenario names who reviewed it for sensitive content before it
-// entered the corpus. A malformed or non-conforming file fails the whole
-// load: a corpus with one bad scenario is not a corpus a certification run
-// can trust the rest of.
-func LoadCorpus(dir string) ([]Scenario, error) {
+// carries, Site must name an invocation site census registers, Source must be
+// "hand_authored" (an "extracted:" scenario is refused — see
+// sourceHandAuthored), and SanitizedBy must be non-empty — every scenario
+// names who reviewed it for sensitive content before it entered the corpus. A
+// malformed or non-conforming file fails the whole load: a corpus with one bad
+// scenario is not a corpus a certification run can trust the rest of.
+//
+// The census is required rather than optional because a scenario's site is the
+// only thing that says which code certifies it. Without one, every scenario
+// naming a site nobody built would load cleanly and fail on a paid run.
+func LoadCorpus(dir string, census *aitasks.Registry) ([]Scenario, error) {
+	if census == nil {
+		return nil, fmt.Errorf("aicert: corpus %s: no census supplied — a scenario names the site that certifies it, and only the census says which sites this build has", dir)
+	}
 	var scenarios []Scenario
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -170,7 +176,7 @@ func LoadCorpus(dir string) ([]Scenario, error) {
 		if decodeErr := dec.Decode(&sc); decodeErr != nil {
 			return fmt.Errorf("aicert: parsing %s: %w", path, decodeErr)
 		}
-		if validateErr := validateScenario(sc, path); validateErr != nil {
+		if validateErr := validateScenario(sc, path, census); validateErr != nil {
 			return validateErr
 		}
 		scenarios = append(scenarios, sc)
@@ -182,14 +188,33 @@ func LoadCorpus(dir string) ([]Scenario, error) {
 	return scenarios, nil
 }
 
-// validateScenario enforces the invariants LoadCorpus promises: an
-// unknown task, a not-yet-supported or unrecognized source, a missing
-// sign-off, or an incoherent set of score bands all fail the load, naming
-// both the scenario file and the offending value so a corpus author can
+// validateScenario enforces the invariants LoadCorpus promises: an unknown
+// task, a site this build does not register, a missing fixture, an outcome
+// outside the seam's vocabulary, a not-yet-supported or unrecognized source, a
+// missing sign-off, or an incoherent set of score bands all fail the load,
+// naming both the scenario file and the offending value so a corpus author can
 // fix it without re-reading this function.
-func validateScenario(sc Scenario, path string) error {
+func validateScenario(sc Scenario, path string, census *aitasks.Registry) error {
 	if !isKnownTask(sc.Task) {
 		return fmt.Errorf("aicert: %s: unknown task %q (not in ai.AllTasks())", path, sc.Task)
+	}
+	if sc.Site == "" {
+		return fmt.Errorf(
+			"aicert: %s: names no site — a scenario certifies ONE invocation site, so `site:` carries the variant the task contract declares",
+			path)
+	}
+	if _, registered := census.Lookup(ai.Task(sc.Task), sc.Site); !registered {
+		return fmt.Errorf(
+			"aicert: %s: site %s/%s is not registered by this build (fix the site name, or register the site in NewTaskCensus)",
+			path, sc.Task, sc.Site)
+	}
+	if len(sc.Fixture) == 0 {
+		return fmt.Errorf(
+			"aicert: %s: carries no fixture — the corpus holds the data production is GIVEN, and the site's own code builds the request from it",
+			path)
+	}
+	if err := validateOutcome(sc.Expect.Outcome, path); err != nil {
+		return err
 	}
 	if strings.HasPrefix(sc.Source, extractedSourcePrefix) {
 		return fmt.Errorf(
@@ -204,6 +229,19 @@ func validateScenario(sc Scenario, path string) error {
 		return fmt.Errorf("aicert: %s: sanitized_by is required — name who reviewed this scenario for sensitive content", path)
 	}
 	return validateBands(sc.Expect.Bands, path)
+}
+
+// validateOutcome holds expect.outcome to the four things a certified reply can
+// be. The vocabulary is the seam's own (aitasks), not a corpus-side copy: a
+// scenario expecting a fifth word would assert something no Evaluate can ever
+// report, and would read as an unmet expectation forever.
+func validateOutcome(outcome, path string) error {
+	if aitasks.KnownOutcome(outcome) {
+		return nil
+	}
+	return fmt.Errorf("aicert: %s: expect.outcome is %q, want one of %s|%s|%s|%s",
+		path, outcome,
+		aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid, aitasks.OutcomeAbstained)
 }
 
 // validateBands enforces the §5 ordering Verdict (score.go) relies on:

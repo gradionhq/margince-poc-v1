@@ -8,11 +8,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 )
 
-// unitRule is the single source of truth for how ONE backfill task's units and
-// floor are computed. Centralizing the three per-task differences here — keyed
-// by the generated ai.Task enum — replaces the switch statements that used to
-// spread this logic across the estimator, so a new backfill task is a compiler-
-// visible map entry rather than three switch arms a change can silently miss.
+// unitRule is the single source of truth for how ONE unit rule's units and
+// floor are computed. Centralizing the per-rule differences here — keyed by the
+// contract's cost-unit rule NAME — replaces the switch statements that used to
+// spread this logic across the estimator, so a new priced task is a contract
+// entry naming a rule rather than three switch arms a change can silently miss.
 // TestEveryBackfillTaskHasAUnitRule is the build guardrail: it fails if a
 // backfill task lacks a rule (or a rule is incomplete).
 type unitRule struct {
@@ -46,11 +46,12 @@ type unitRule struct {
 	floor ai.Usage
 }
 
-// backfillUnitRules keys the per-task backfill rules by the generated ai.Task
-// enum — one exhaustive table for volume, denominator, and floor. The keys ARE
-// the priced task set; backfillTasks (below) is the ordered view of them.
-var backfillUnitRules = map[ai.Task]unitRule{
-	ai.TaskCaptureClassify: {
+// unitRulesByName keys the backfill rules by the contract's cost-unit rule name
+// — one table for volume, denominator, and floor. The contract says WHICH rule
+// prices a task; this package says what the rule computes, so neither half can
+// drift without the other failing the build.
+var unitRulesByName = map[string]unitRule{
+	"per_message": {
 		// units = captured messages, scaled from the yield's captured/scanned ratio.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
 			return scanned * y.Captured / y.Scanned, true // messages
@@ -64,7 +65,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 			TokensOut: classifyVerdictTokens,
 		},
 	},
-	ai.TaskEnrich: {
+	"per_person": {
 		// A zero people_created is "ratio unavailable", not "zero people": a run
 		// counts only the counterparties its own pages minted, so a window whose
 		// senders were all already known — or all deferred to the verdict engine —
@@ -86,7 +87,7 @@ var backfillUnitRules = map[ai.Task]unitRule{
 			TokensOut: enrichFieldsTokens,
 		},
 	},
-	ai.TaskEmbeddings: {
+	"per_entity": {
 		// person/org embed entities are UNDER-counted while people_created /
 		// organizations_created are unpopulated by the backfill loop (they are
 		// created asynchronously downstream, not at page-commit), so this degrades
@@ -103,11 +104,27 @@ var backfillUnitRules = map[ai.Task]unitRule{
 	},
 }
 
+// unitRuleFor resolves the rule the contract names for a task. The bool is
+// false for an unpriced task — which is honest, not an error: cost stays
+// transparency, never a gate.
+func unitRuleFor(task ai.Task) (unitRule, bool) {
+	name := ai.CostUnitFor(task)
+	if name == "" && task == ai.TaskEmbeddings {
+		// embed is a contract section, not a task, so its rule is named there.
+		name = ai.EmbedCostUnit()
+	}
+	if name == "" {
+		return unitRule{}, false
+	}
+	rule, ok := unitRulesByName[name]
+	return rule, ok
+}
+
 // backfillTasks is the closed set of tasks the backfill preview prices — the
 // three AI passes a connect-time backfill drives (ai-operational-spec §2.8/§2.9
-// + the embed lane). It is the ordered view of backfillUnitRules' keys, iterated
-// in this fixed order for a deterministic estimate; TestEveryBackfillTaskHasAUnitRule
-// asserts it matches the map's key set exactly.
+// + the embed lane). It is iterated in this fixed order for a deterministic
+// estimate; TestEveryBackfillTaskHasAUnitRule asserts it matches the set of
+// tasks the contract prices exactly.
 var backfillTasks = []ai.Task{ai.TaskCaptureClassify, ai.TaskEnrich, ai.TaskEmbeddings}
 
 // sumCompletedCalls totals the COMPLETED served calls (error_sentinel IS NULL,

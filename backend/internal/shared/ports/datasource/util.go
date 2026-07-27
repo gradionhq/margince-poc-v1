@@ -18,12 +18,29 @@ import (
 	"time"
 )
 
-// UnsupportedEntityError maps to 422 on every surface.
+// UnsupportedEntityError maps to 422 on every surface. It is raised by the
+// provider a request reached, which owns a SUBSET of the vocabulary — so the
+// type it names is routinely a valid one sitting at the wrong provider
+// (`deal` at the people provider), not an invalid one. The refusal is
+// therefore about service, and the vocabulary rides along as a hint rather
+// than as the set being denied.
 type UnsupportedEntityError struct{ Type string }
 
 func (e *UnsupportedEntityError) Error() string {
-	return "entity_type " + e.Type + " is not person|organization|deal|lead|activity"
+	return "entity_type " + e.Type + " is not served here; known types are " + entityVocabulary
 }
+
+// entityVocabulary renders the known set from EntityTypes rather than
+// restating it: this package defines that vocabulary, so a restated copy here
+// is the one most likely to be believed and the least likely to be updated.
+var entityVocabulary = func() string {
+	all := EntityTypes()
+	names := make([]string, 0, len(all))
+	for _, t := range all {
+		names = append(names, string(t))
+	}
+	return strings.Join(names, "|")
+}()
 
 // FieldDecodeError maps to 422 on every surface.
 type FieldDecodeError struct{ Cause error }

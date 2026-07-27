@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // contractAPI builds the generated contract router with the ADR-0055
@@ -48,7 +49,7 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 		BaseURL: "/v1",
 		Middlewares: []crmcontracts.MiddlewareFunc{
 			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
-			idempotency(pool),
+			idempotency(pool, replayProbes(staging.svc)),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent
 			// approval — the honest unsupported_by_sor, for every principal.
@@ -60,6 +61,21 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 		ErrorHandlerFunc: paramParseError,
 	})
 	return api
+}
+
+// replayProbes wires the module-owned visibility rules the replay gate borrows
+// (API-CC-8). Named rather than inline so a test can assert it covers every
+// moduleProbe replayableOperations names: an unwired key fails closed, which
+// retires the replay promise for that route silently instead of loudly.
+func replayProbes(approvalsSvc *approvals.Service) map[string]replayProbe {
+	return map[string]replayProbe{
+		// A replay of an approval decision is a read of that approval, so it
+		// clears the same visibility rule the inbox does, not a copy of it.
+		probeApproval: func(ctx context.Context, id ids.UUID) error {
+			_, err := approvalsSvc.Get(ctx, ids.From[ids.ApprovalKind](id))
+			return err
+		},
+	}
 }
 
 // operationalMux mounts the contract surface next to the operational

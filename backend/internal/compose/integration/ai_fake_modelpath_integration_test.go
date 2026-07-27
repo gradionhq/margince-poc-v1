@@ -60,8 +60,8 @@ func TestAIFakeModelPathBindsEveryLane(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewModelPath(FakeRoutingConfig()): %v", err)
 	}
-	if modelPath.Agent == nil {
-		t.Error("Agent lane is nil")
+	if modelPath.AgentLoop == nil {
+		t.Error("AgentLoop lane is nil")
 	}
 	if modelPath.ColdStart == nil {
 		t.Error("ColdStart lane is nil")
@@ -69,8 +69,8 @@ func TestAIFakeModelPathBindsEveryLane(t *testing.T) {
 	if modelPath.SiteExtract == nil {
 		t.Error("SiteExtract lane is nil")
 	}
-	if modelPath.BriefRank == nil {
-		t.Error("BriefRank lane is nil")
+	if modelPath.BriefRanking == nil {
+		t.Error("BriefRanking lane is nil")
 	}
 	if modelPath.DraftReply == nil {
 		t.Error("DraftReply lane is nil")

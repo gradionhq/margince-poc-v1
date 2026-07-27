@@ -248,7 +248,7 @@ func (s *Store) ArchiveList(ctx context.Context, id ids.ListID) (listRow, error)
 func validateSegmentDefinition(entityType string, definition map[string]any) error {
 	engine, ok := segmentEngines[entityType]
 	if !ok {
-		return &BadInputError{Field: "entity_type", Reason: "no dynamic segment engine for " + entityType}
+		return &BadInputError{Field: entityTypeField, Reason: "no dynamic segment engine for " + entityType}
 	}
 	pred, err := predicateFromDefinition(definition)
 	if err != nil {

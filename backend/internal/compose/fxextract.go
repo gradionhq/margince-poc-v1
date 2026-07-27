@@ -6,13 +6,12 @@ package compose
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"math/big"
-	"strconv"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
+	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
 // fxExtractSystem is the verbatim production prompt — kept byte-identical to
@@ -46,7 +45,14 @@ type extractedFxPair struct {
 	ToCurrency   string `json:"to_currency"`
 	Rate         string `json:"rate"`
 	Evidence     string `json:"evidence"`
-	Confidence   string `json:"confidence"`
+	// Confidence is read through schema.Confidence, which takes the score
+	// quoted or bare. The prompt and response schema above ask for a string
+	// and a conforming provider sends one, but neither binds: the model
+	// runtime retries with the schema cleared when a provider rejects it, and
+	// a provider with no schema-constrained mode never had it. A reader that
+	// insisted on the quotes would refuse a perfectly good rate over its
+	// wrapper.
+	Confidence schema.Confidence `json:"confidence"`
 }
 
 type fxExtraction struct {
@@ -63,17 +69,16 @@ func parseFxExtraction(text string) ([]extractedFxPair, error) {
 }
 
 // fxPairAccepted is the no-guess gate: an ungrounded pair (no evidence) or one
-// whose confidence is not a finite value in [minRateExtractConfidence, 1] is
-// dropped, never staged.
+// whose confidence is outside [minRateExtractConfidence, 1] is dropped, never
+// staged. A confidence that is no number at all never reaches here — decoding
+// refuses it, because a score nothing can compare would make this range test
+// answer false for a reason it cannot report.
 func fxPairAccepted(p extractedFxPair) bool {
 	if strings.TrimSpace(p.Evidence) == "" {
 		return false
 	}
-	conf, err := strconv.ParseFloat(strings.TrimSpace(p.Confidence), 64)
-	if err != nil || math.IsNaN(conf) || conf < minRateExtractConfidence || conf > 1 {
-		return false
-	}
-	return true
+	conf := float64(p.Confidence)
+	return conf >= minRateExtractConfidence && conf <= 1
 }
 
 // fxAnchor decides how a page-stated pair maps onto the workspace base: the

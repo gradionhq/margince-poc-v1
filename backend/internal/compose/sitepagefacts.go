@@ -228,19 +228,7 @@ func (x evidenceExtractor) extractPageFacts(ctx context.Context, page crawlPage)
 	if len(idx.refs) == 0 {
 		return pageFactsResult{url: page.URL, kind: page.Kind}, nil
 	}
-	fence := promptfence.New()
-	req := model.Request{
-		System: pageFactsSystem(menu, fence),
-		Messages: []model.Message{{
-			Role: chatRoleUser,
-			// renderNumbered names the page inside the fence; repeating the URL
-			// here would put the site's own text in the prompt's voice.
-			Content: idx.renderNumbered(fence),
-		}},
-		MaxTokens:      ai.ReasoningOutputMaxTokens,
-		ResponseSchema: pageFactsSchema(menu, idx.ids()),
-		SecretStripper: ai.NewSecretStripper(),
-	}
+	req := pageFactsRequest(menu, idx)
 	brain := x.factCompleter()
 	var resp model.Response
 	var err error
@@ -255,6 +243,41 @@ func (x evidenceExtractor) extractPageFacts(ctx context.Context, page crawlPage)
 	result, dropped := gatePageFacts(resp.Text, page, menu, idx)
 	x.reportDrops(ctx, page.URL, dropped)
 	return result, nil
+}
+
+// pageFactsRequest builds the ONE call one page's fact lane sends. It is a
+// pure function of the page's menu and its numbered passages, so the same
+// request can be issued outside the deep read — by the certification lane —
+// without re-creating it, because a re-creation certifies a copy rather than
+// the prompt that ships.
+//
+// BOTH halves of the call are the menu's: the system prompt asks only for the
+// lanes this page kind carries, and the schema's field enum offers only the
+// fields it may answer with. Neither can be fixed — a pinned prompt would ask
+// a catalog page for a legal entity, and a pinned schema would offer a legal
+// notice fields its own menu never named.
+//
+// The id enum is this call's index for the same reason it is in the profile
+// lane: the gate resolves every citation against the SAME numbering the model
+// was shown, so one index feeds the prompt, the schema and the gate alike.
+//
+// The fence is minted here, per request: a boundary reused across calls is one
+// some crawled site has already been shown, and every passage in this prompt is
+// a site's own writing.
+func pageFactsRequest(menu pageMenu, idx snippetIndex) model.Request {
+	fence := promptfence.New()
+	return model.Request{
+		System: pageFactsSystem(menu, fence),
+		Messages: []model.Message{{
+			Role: chatRoleUser,
+			// renderNumbered names the page inside the fence; repeating the URL
+			// here would put the site's own text in the prompt's voice.
+			Content: idx.renderNumbered(fence),
+		}},
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
+		ResponseSchema: pageFactsSchema(menu, idx.ids()),
+		SecretStripper: ai.NewSecretStripper(),
+	}
 }
 
 // zeroedStat rejects a measurable claim whose measurement is zero. Sites

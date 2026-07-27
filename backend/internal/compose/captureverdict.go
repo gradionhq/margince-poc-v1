@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
+	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
 const (
@@ -144,9 +145,9 @@ func (e *CounterpartyVerdictEngine) workspaceCtx(ctx context.Context, ws ids.UUI
 
 // verdictResult is one model answer.
 type verdictResult struct {
-	ID         string  `json:"id"`
-	Verdict    string  `json:"verdict"`
-	Confidence float64 `json:"confidence"`
+	ID         string            `json:"id"`
+	Verdict    string            `json:"verdict"`
+	Confidence schema.Confidence `json:"confidence"`
 }
 
 type verdictPayload struct {

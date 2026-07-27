@@ -19,7 +19,6 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"go/format"
@@ -71,14 +70,124 @@ func main() {
 	fmt.Printf("%d tasks, %d tiers generated\n", len(c.Tasks), len(c.Tiers))
 }
 
+// siteDef is one entry of a task's sites[]: the named model-invocation site
+// the build registers. Written either as a bare name (kind defaults to
+// one_shot) or as a mapping when the kind differs.
+type siteDef struct {
+	Name string `yaml:"name"`
+	Kind string `yaml:"kind"`
+}
+
+// UnmarshalYAML accepts both spellings so the common case — a one-shot site —
+// stays a bare string in the contract.
+func (s *siteDef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		s.Name, s.Kind = node.Value, kindOneShot
+		return nil
+	}
+	var raw struct {
+		Name string `yaml:"name"`
+		Kind string `yaml:"kind"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return fmt.Errorf("site: %w", err)
+	}
+	s.Name, s.Kind = raw.Name, raw.Kind
+	if s.Kind == "" {
+		s.Kind = kindOneShot
+	}
+	return nil
+}
+
+// companyContextDef is the ADR-0065 policy: which anchor-company scopes ride
+// this task's prompt, under what character budget, and whether the caller must
+// ask. Absent means the task takes none.
+type companyContextDef struct {
+	Scopes      []string `yaml:"scopes"`
+	TokenBudget int      `yaml:"token_budget"`
+	Conditional bool     `yaml:"conditional"`
+}
+
+// UnmarshalYAML accepts the scalar `none` alongside a policy mapping: most
+// tasks take no company context, and spelling that as an empty mapping would
+// read as an oversight rather than a decision.
+func (p *companyContextDef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		if node.Value != "none" {
+			return fmt.Errorf("company_context: want a policy mapping or %q, got %q", "none", node.Value)
+		}
+		*p = companyContextDef{}
+		return nil
+	}
+	var raw struct {
+		Scopes      []string `yaml:"scopes"`
+		TokenBudget int      `yaml:"token_budget"`
+		Conditional bool     `yaml:"conditional"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return fmt.Errorf("company_context: %w", err)
+	}
+	p.Scopes, p.TokenBudget, p.Conditional = raw.Scopes, raw.TokenBudget, raw.Conditional
+	return nil
+}
+
+// validate refuses a policy that cannot do what it says. Scope names are the
+// composition layer's to resolve — this generator does not know the module's
+// scope vocabulary — but coherence between the three fields is decidable here,
+// and here is where every task is in view at once. An undeclared policy stays
+// nil and is caught by CompanyContextFor's bool at the call, not by this rule.
+func (p *companyContextDef) validate(task string) error {
+	if p == nil {
+		return nil
+	}
+	seen := make(map[string]bool, len(p.Scopes))
+	for _, scope := range p.Scopes {
+		if seen[scope] {
+			return fmt.Errorf("task %q: company_context scope %q is declared twice", task, scope)
+		}
+		seen[scope] = true
+	}
+	if len(p.Scopes) == 0 {
+		// `none` means none: a budget or a condition attached to a policy that
+		// selects nothing reads as a scope list someone deleted, not a decision.
+		if p.TokenBudget != 0 || p.Conditional {
+			return fmt.Errorf("task %q: company_context selects no scopes but carries token_budget %d and conditional %t",
+				task, p.TokenBudget, p.Conditional)
+		}
+		return nil
+	}
+	if p.TokenBudget <= 0 {
+		// The budget is what the renderer bounds the block by; at zero it admits
+		// no item, so the scopes would ride no prompt.
+		return fmt.Errorf("task %q: company_context declares %d scope(s) and needs a positive token_budget, got %d",
+			task, len(p.Scopes), p.TokenBudget)
+	}
+	return nil
+}
+
+// embedDef is the embeddings workload. It is NOT a task: its tier is not a
+// chat tier, and it has no prompt, no text answer and no completion path, so
+// it carries no sites and no certification obligation.
+type embedDef struct {
+	Tier     string `yaml:"tier"`
+	CostUnit string `yaml:"cost_unit"`
+}
+
 // taskDef is one tasks.<name> entry: the routing ladder, the
-// execution mode, budget-exhaustion policy, and an optional doc string carried through
+// execution mode, budget-exhaustion policy, the declaration fields the census
+// is built on (status, sites, payload posture, company-context policy,
+// cost-unit rule name), and an optional doc string carried through
 // to the generated constant's comment.
 type taskDef struct {
-	Ladder            []string `yaml:"ladder"`
-	ExecutionMode     string   `yaml:"execution_mode"`
-	OnBudgetExhausted string   `yaml:"on_budget_exhausted"`
-	Doc               string   `yaml:"doc"`
+	Ladder            []string           `yaml:"ladder"`
+	ExecutionMode     string             `yaml:"execution_mode"`
+	OnBudgetExhausted string             `yaml:"on_budget_exhausted"`
+	Status            string             `yaml:"status"`
+	Sites             []siteDef          `yaml:"sites"`
+	NoPayload         bool               `yaml:"no_payload"`
+	CompanyContext    *companyContextDef `yaml:"company_context"`
+	CostUnit          string             `yaml:"cost_unit"`
+	Doc               string             `yaml:"doc"`
 }
 
 // contract is the parsed ai-tasks.yaml. Tiers is a YAML sequence, so its
@@ -90,12 +199,34 @@ type taskDef struct {
 type contract struct {
 	Tiers     []string           `yaml:"tiers"`
 	Tasks     map[string]taskDef `yaml:"tasks"`
+	Embed     embedDef           `yaml:"embed"`
 	DegradeTo map[string]string  `yaml:"degrade_to"`
 }
 
 // taskNameRE is the contract's task-naming rule: lowercase snake_case,
 // matching the Go identifier derivation (pascalCase) 1:1.
 var taskNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// siteNameRE mirrors taskNameRE: a site name is a Go-identifier source too.
+var siteNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// The closed set of invocation kinds. A new kind is a code-and-test change in
+// the census, never data: each one needs a certification strategy that can
+// actually run it.
+const (
+	kindOneShot   = "one_shot"
+	kindMultiTurn = "multi_turn"
+	kindAgentLoop = "agent_loop"
+)
+
+var siteKinds = map[string]bool{kindOneShot: true, kindMultiTurn: true, kindAgentLoop: true}
+
+// A task either ships — and owes a site the census can locate — or is declared
+// but unbuilt, and owes none.
+const (
+	statusShipped = "shipped"
+	statusPlanned = "planned"
+)
 
 const goConstBlockStart = "const (\n"
 
@@ -119,6 +250,9 @@ func parseContract(raw []byte) (contract, error) {
 // is a valid Go-identifier source, and on_budget_exhausted is one of the
 // two policies the runtime understands. Execution mode and exhaustion policy
 // are a closed pair: interactive tasks degrade, background tasks queue.
+// Status and sites are a closed pair too: a shipped task owes at least one
+// uniquely named site of a known kind, a planned task owes none. A declared
+// company-context policy must be internally coherent.
 func (c contract) validate() error {
 	if len(c.Tiers) == 0 {
 		return fmt.Errorf("contract declares no tiers")
@@ -158,6 +292,34 @@ func (c contract) validate() error {
 			}
 		default:
 			return fmt.Errorf("task %q: execution_mode must be \"interactive\" or \"background\", got %q", name, def.ExecutionMode)
+		}
+		switch def.Status {
+		case statusShipped:
+			if len(def.Sites) == 0 {
+				return fmt.Errorf("task %q: status shipped requires at least one site — a shipped task with no site cannot be certified, and would present as covered", name)
+			}
+		case statusPlanned:
+			if len(def.Sites) > 0 {
+				return fmt.Errorf("task %q: status planned declares %d site(s); a planned task has no implementation", name, len(def.Sites))
+			}
+		default:
+			return fmt.Errorf("task %q: status must be %q or %q, got %q", name, statusShipped, statusPlanned, def.Status)
+		}
+		seenSite := make(map[string]bool, len(def.Sites))
+		for _, s := range def.Sites {
+			if !siteNameRE.MatchString(s.Name) {
+				return fmt.Errorf("task %q: site name %q must match %s", name, s.Name, siteNameRE.String())
+			}
+			if seenSite[s.Name] {
+				return fmt.Errorf("task %q: site %q is declared twice", name, s.Name)
+			}
+			seenSite[s.Name] = true
+			if !siteKinds[s.Kind] {
+				return fmt.Errorf("task %q: site %q has unknown kind %q", name, s.Name, s.Kind)
+			}
+		}
+		if err := def.CompanyContext.validate(name); err != nil {
+			return err
 		}
 	}
 	for from, to := range c.DegradeTo {
@@ -201,11 +363,11 @@ func pascalCase(snake string) string {
 func taskConst(name string) string { return "Task" + pascalCase(name) }
 func tierConst(name string) string { return "Tier" + pascalCase(name) }
 
-// emitGo renders tasks_gen.go: the Task/Tier types and constants, the
-// routing ladders, the degrade-to map, the execution-mode table, and
-// knownTiers — the one table compiled from the contract, so tasks.go and
-// routing.go never hand-maintain it. The result is gofmt-clean, matching
-// every other *_gen.go the repo checks in.
+// emitGo renders tasks_gen.go: the Task/Tier types and constants, then the
+// routing tables and the declaration tables the census is built on. These are
+// the tables compiled from the contract, so tasks.go and routing.go never
+// hand-maintain them. The result is gofmt-clean, matching every other
+// *_gen.go the repo checks in.
 func emitGo(c contract, contractHash string) (string, error) {
 	taskNames := c.sortedTaskNames()
 
@@ -259,6 +421,23 @@ func emitGo(c contract, contractHash string) (string, error) {
 	}
 	b.WriteString("\t}\n}\n\n")
 
+	writeRoutingTables(&b, c, taskNames)
+	writeDeclarationTables(&b, c, taskNames)
+
+	formatted, err := format.Source([]byte(b.String()))
+	if err != nil {
+		return "", fmt.Errorf("formatting generated source: %w", err)
+	}
+	return string(formatted), nil
+}
+
+// writeRoutingTables appends the routing half of tasks_gen.go: the per-task
+// ladder, the economy-mode degrade move, the execution-mode table, and the
+// tier-name validation set.
+//
+// taskNames arrives already sorted, and the tier-keyed tables walk c.Tiers in
+// declaration order, so every map literal is byte-stable across runs.
+func writeRoutingTables(b *strings.Builder, c contract, taskNames []string) {
 	b.WriteString("// taskLadders is the §1.2 routing table: primary tier first, then the\n")
 	b.WriteString("// fallback rungs fired on provider error or schema-validation failure.\n")
 	b.WriteString("var taskLadders = map[Task][]Tier{\n")
@@ -267,7 +446,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 		for i, tier := range c.Tasks[name].Ladder {
 			rungs[i] = tierConst(tier)
 		}
-		fmt.Fprintf(&b, "\t%s: {%s},\n", taskConst(name), strings.Join(rungs, ", "))
+		fmt.Fprintf(b, "\t%s: {%s},\n", taskConst(name), strings.Join(rungs, ", "))
 	}
 	b.WriteString("}\n\n")
 
@@ -279,7 +458,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 		if !ok {
 			continue
 		}
-		fmt.Fprintf(&b, "\t%s: %s,\n", tierConst(from), tierConst(to))
+		fmt.Fprintf(b, "\t%s: %s,\n", tierConst(from), tierConst(to))
 	}
 	b.WriteString("}\n\n")
 
@@ -288,7 +467,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 	b.WriteString("var taskExecutionModes = map[Task]ExecutionMode{\n")
 	for _, name := range taskNames {
 		mode := "ExecutionMode" + pascalCase(c.Tasks[name].ExecutionMode)
-		fmt.Fprintf(&b, "\t%s: %s,\n", taskConst(name), mode)
+		fmt.Fprintf(b, "\t%s: %s,\n", taskConst(name), mode)
 	}
 	b.WriteString("}\n\n")
 
@@ -297,107 +476,7 @@ func emitGo(c contract, contractHash string) (string, error) {
 	b.WriteString("// rejects any name this set doesn't contain.\n")
 	b.WriteString("var knownTiers = map[Tier]bool{\n")
 	for _, name := range c.Tiers {
-		fmt.Fprintf(&b, "\t%s: true,\n", tierConst(name))
+		fmt.Fprintf(b, "\t%s: true,\n", tierConst(name))
 	}
-	b.WriteString("}\n")
-
-	formatted, err := format.Source([]byte(b.String()))
-	if err != nil {
-		return "", fmt.Errorf("formatting generated source: %w", err)
-	}
-	return string(formatted), nil
-}
-
-// schemaTemplate mirrors config/ai-routing.schema.json's structure
-// exactly; %s is the tier enum (propertyNames.enum), the one part the
-// contract drives. Keeping this as a literal template rather than
-// round-tripping through encoding/json preserves the file's hand-tuned
-// key order and formatting byte-for-byte across regenerations.
-const schemaTemplate = `{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://margince.dev/schema/ai-routing.json",
-  "title": "Margince AI routing config",
-  "$comment": "GENERATED by tools/gen-aitasks from backend/api/ai-tasks.yaml — do not edit",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["profile", "tiers", "embeddings"],
-  "properties": {
-    "profile": {
-      "description": "Location ladder: eu_hosted (partner EU inference), sovereign (zero egress — cloud providers refused), cloud_frontier (BYOK cloud).",
-      "enum": ["eu_hosted", "sovereign", "cloud_frontier"]
-    },
-    "tiers": {
-      "description": "Capability tiers; bind each to one provider. An unbound tier is legal — the router degrades honestly.",
-      "type": "object",
-      "minProperties": 1,
-      "additionalProperties": false,
-      "propertyNames": { "enum": [%s] },
-      "patternProperties": { ".*": { "$ref": "#/$defs/binding" } }
-    },
-    "embeddings": {
-      "description": "The embedding lane, bound separately from chat (retrieval must survive a chat-budget exhaustion). Required.",
-      "$ref": "#/$defs/embeddingsBinding"
-    }
-  },
-  "$defs": {
-    "binding": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["provider"],
-      "properties": {
-        "provider": {
-          "description": "fake | anthropic | ollama | vllm | openai_compatible | openai | gemini. The only place vendor names appear.",
-          "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible", "openai", "gemini"]
-        },
-        "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
-        "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor host root, NO /v1). Empty ⇒ provider default." }
-      },
-      "allOf": [
-        {
-          "if":   { "properties": { "provider": { "const": "openai_compatible" } } },
-          "then": { "required": ["base_url"] }
-        }
-      ]
-    },
-    "embeddingsBinding": {
-      "description": "The embeddings-lane binding: same shape as $defs/binding plus dimensions — a field only this lane carries (chat tiers have no notion of output width), so it gets its own $def rather than widening the shared one's additionalProperties:false.",
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["provider"],
-      "properties": {
-        "provider": {
-          "description": "fake | anthropic | ollama | vllm | openai_compatible | openai | gemini. The only place vendor names appear.",
-          "enum": ["fake", "anthropic", "ollama", "vllm", "openai_compatible", "openai", "gemini"]
-        },
-        "model":    { "type": "string", "description": "Provider-native model id. ollama/vllm default to a Gemma-class model when omitted (A23)." },
-        "base_url": { "type": "string", "description": "Endpoint override. REQUIRED for openai_compatible (the vendor host root, NO /v1). Empty ⇒ provider default." },
-        "dimensions": { "type": "integer", "minimum": 0, "maximum": 2000, "description": "Vector width the provider is asked to emit. Optional; 0 or omitted defaults to 1536." }
-      },
-      "allOf": [
-        {
-          "if":   { "properties": { "provider": { "const": "openai_compatible" } } },
-          "then": { "required": ["base_url"] }
-        }
-      ]
-    }
-  }
-}
-`
-
-// emitSchema renders config/ai-routing.schema.json with its tier enum
-// sourced from the contract's tiers list, in contract order. The result
-// is validated as JSON before it is returned: a template substitution
-// bug must fail generation, not ship a broken schema.
-func emitSchema(tiers []string) (string, error) {
-	quoted := make([]string, len(tiers))
-	for i, t := range tiers {
-		quoted[i] = fmt.Sprintf("%q", t)
-	}
-	schema := fmt.Sprintf(schemaTemplate, strings.Join(quoted, ", "))
-
-	var v any
-	if err := json.Unmarshal([]byte(schema), &v); err != nil {
-		return "", fmt.Errorf("generated schema is not valid JSON: %w", err)
-	}
-	return schema, nil
+	b.WriteString("}\n\n")
 }

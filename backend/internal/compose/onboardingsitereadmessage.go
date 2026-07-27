@@ -18,7 +18,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -31,6 +30,7 @@ const (
 	companyReadHistoryMaxRunes        = 4_000
 	companyConversationStatus         = "status"
 	companyConversationRecommendation = "recommendation"
+	companyConversationCorrection     = "correction"
 	companyProductTerm                = "product"
 )
 
@@ -119,35 +119,14 @@ func (e *deepReadEngine) messageCompanySiteRead(w http.ResponseWriter, r *http.R
 }
 
 func (e *deepReadEngine) answerCompanySiteRead(ctx context.Context, message string, history []model.Message, evidence []companyReadEvidence) (companyReadModelReply, error) {
-	fence := promptfence.New()
-	contextJSON, err := json.Marshal(struct {
-		Dossier []companyReadEvidence `json:"dossier_evidence"`
-	}{Dossier: evidence})
+	req, err := companyReadAnswerRequest(message, history, evidence)
 	if err != nil {
 		return companyReadModelReply{}, err
 	}
-	messages := make([]model.Message, 0, len(history)+2)
-	messages = append(messages, model.Message{Role: chatRoleUser, Content: fence.Wrap(string(contextJSON))})
-	messages = append(messages, history...)
-	messages = append(messages, model.Message{Role: chatRoleUser, Content: message})
-	req := model.Request{
-		System:    companyReadMessageSystem + "\n" + fence.Rule("dossier evidence and application state"),
-		Messages:  messages,
-		MaxTokens: ai.ReasoningOutputMaxTokens, ResponseSchema: companyReadMessageSchema,
-		SecretStripper: ai.NewSecretStripper(),
-	}
-	known := make(map[string]companyReadEvidence, len(evidence))
-	for _, source := range evidence {
-		known[source.ID] = source
-	}
-	administratorStatements := administratorConversation(history, message)
-	authorization := newCompanyChangeAuthorization(message, history, "")
-	validate := func(text string) error {
-		return validateCompanyReadReply(text, known, administratorStatements, authorization)
-	}
+	gate := newCompanyReadGate(message, history, evidence)
 	var response model.Response
 	if structured, ok := e.brain.(validatedBrain); ok {
-		response, err = structured.CompleteValidated(ctx, req, validate)
+		response, err = structured.CompleteValidated(ctx, req, gate.validate)
 	} else {
 		response, err = e.brain.Complete(ctx, req)
 	}
@@ -158,7 +137,7 @@ func (e *deepReadEngine) answerCompanySiteRead(ctx context.Context, message stri
 	if err := json.Unmarshal([]byte(ai.Unfence(response.Text)), &reply); err != nil {
 		return companyReadModelReply{}, fmt.Errorf("compose: company read answer is not valid JSON: %w", err)
 	}
-	if err := validateCompanyReadReplyValue(reply, known, administratorStatements, authorization); err != nil {
+	if err := gate.validateReply(reply); err != nil {
 		return companyReadModelReply{}, err
 	}
 	return reply, nil
@@ -193,7 +172,7 @@ func validateCompanyReadReplyShape(reply companyReadModelReply) error {
 	if len(reply.ProposedChanges) > companyReadChangeLimit {
 		return fmt.Errorf("compose: company read answer proposes more than %d changes", companyReadChangeLimit)
 	}
-	if len(reply.ProposedChanges) > 0 && reply.Kind != companyConversationRecommendation && reply.Kind != "correction" {
+	if len(reply.ProposedChanges) > 0 && reply.Kind != companyConversationRecommendation && reply.Kind != companyConversationCorrection {
 		return fmt.Errorf("compose: company read %s answer may not propose changes", clampToken(reply.Kind))
 	}
 	return nil
@@ -361,7 +340,8 @@ func looksLikeQuestion(message string) bool {
 
 func companyConversationKindValid(kind string) bool {
 	switch kind {
-	case companyConversationStatus, "answer", companyConversationRecommendation, "correction", "confirmation", "clarification", "off_topic":
+	case companyConversationStatus, "answer", companyConversationRecommendation, companyConversationCorrection,
+		"confirmation", "clarification", "off_topic":
 		return true
 	default:
 		return false

@@ -143,7 +143,7 @@ func (s *Store) AddMember(ctx context.Context, listID ids.ListID, entityType str
 			return &BadInputError{Field: "list", Reason: "a dynamic segment computes its members; only static lists take them"}
 		}
 		if entityType != listEntityType {
-			return &BadInputError{Field: "entity_type", Reason: "must match the list's entity_type " + listEntityType}
+			return &BadInputError{Field: entityTypeField, Reason: "must match the list's entity_type " + listEntityType}
 		}
 		// The member reference is a READ of a row-scoped record (H1).
 		if err := auth.EnsureLinkTarget(ctx, tx, entityType, entityID); err != nil {
