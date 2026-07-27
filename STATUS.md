@@ -1239,9 +1239,13 @@ Open work, roughly in priority order:
   logs when it is hit rather than trimming silently. Second: `JoinPending` joins
   only a PENDING offer, so once a human declined a rename the next pass found
   nothing to join and staged a fresh copy of what was just refused — nightly,
-  because the signature behind it never goes away. A new
-  `approvals.Service.WasDeclined` (kind + target + diff hash, the already-refused
-  half of `HasPendingFor`) is checked before staging, so a "no" holds.
+  because the signature behind it never goes away. `approvals.Service.
+  StageUnlessDeclined` checks and stages in ONE transaction, under the same
+  `SELECT ... FOR UPDATE` on the approval row that `decideInTx` takes — a
+  separate check followed by a stage leaves a window where a decision lands in
+  between, the check reads "not declined", the staging finds no pending row to
+  join, and the refused offer is recreated anyway. Ordered instead of
+  interleaved, whoever gets there first wins cleanly.
   The §2.9 amendment landed with it: `SignatureCandidates` no longer retires a
   person the moment ANY profile-field row exists (one accepted title used to
   silence the company name their signature also states) — the predicate is now

@@ -261,3 +261,57 @@ func TestOrgNamePromotionDoesNotReofferADeclinedRename(t *testing.T) {
 		t.Fatalf("organization = %q/%q — a declined rename must change nothing", name, source)
 	}
 }
+
+// The decline check and the staging must be ONE transaction. Checking first and
+// staging afterwards leaves a window: a decision landing in between leaves the
+// check reading "not declined" and the staging finding no pending row to join,
+// so the refused offer is recreated anyway.
+//
+// Proven by driving the window directly: the offer is declined AFTER the pass
+// has computed its verdict — which is exactly the interleaving a separate check
+// would lose — and the pass must still refuse to re-offer it.
+func TestOrgNamePromotionRefusesADeclineThatLandsMidPass(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	svc := approvalsServiceWithEffects(e.Pool)
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// Decline every offer standing for this rename, then run the pass again with
+	// the identical evidence — the state a second worker would find having
+	// already decided the verdict before the human answered.
+	rows := e.WsCount(t, `
+		SELECT count(*) FROM approval WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org)
+	if rows != 1 {
+		t.Fatalf("%d offers after the first pass, want 1", rows)
+	}
+	var approvalID ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT id FROM approval WHERE kind = 'org_name_promotion' AND target_entity_id = $1`,
+			org).Scan(&approvalID)
+	}); err != nil {
+		t.Fatalf("reading the staged offer: %v", err)
+	}
+	if _, err := svc.Decide(e.As(e.Rep1, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](approvalID), false, nil); err != nil {
+		t.Fatalf("declining the rename: %v", err)
+	}
+
+	// Two further passes: the refusal must hold on every one of them, not just
+	// the first.
+	for i := 0; i < 2; i++ {
+		if err := promoter.Run(context.Background()); err != nil {
+			t.Fatalf("Run %d: %v", i, err)
+		}
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org); n != 1 {
+		t.Fatalf("%d offers, want the one that was declined — a refused rename must never be recreated", n)
+	}
+}
