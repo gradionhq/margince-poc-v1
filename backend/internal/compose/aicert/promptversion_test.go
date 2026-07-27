@@ -84,10 +84,70 @@ func TestPromptVersionMovesWhenTheRequestTheSiteBuildsMoves(t *testing.T) {
 	}
 }
 
+// The other half a record's verdict rests on: score_p50, the band it lands in,
+// and therefore the whole claim come from the GRADER, so a build that grades
+// differently must not go on matching a record scored under the old grader.
+//
+// The grader's prompt is this build's own text and no census can hand the stamp
+// a different one, so the claim is checked in its two parts: that the stamp's
+// grader half is the request compose.JudgeRequest actually returns for this
+// scenario, and that that digest separates two grader requests differing only in
+// their system prompt. Together they say an edit to the grader's instruction
+// moves the stamp.
+func TestPromptVersionCoversTheRequestTheGraderIsSent(t *testing.T) {
+	sc := testScenarioOnSite("one", promptVariant, wideBands)
+	sc.Expect.Rubric = "Score the grounding."
+	candidate := model.Request{
+		System:    "Describe the subject in one sentence.",
+		Messages:  []model.Message{{Role: roleUser, Content: "a widget"}},
+		MaxTokens: 1024,
+	}
+
+	got, err := graderRequestDigest(sc, candidate)
+	if err != nil {
+		t.Fatalf("graderRequestDigest: %v", err)
+	}
+	shipped := compose.JudgeRequest(sc.Expect.Rubric, "a widget", stampCandidateOutput)
+	want, err := canonicalRequestDigest(shipped)
+	if err != nil {
+		t.Fatalf("digesting the shipped grader request: %v", err)
+	}
+	if got != want {
+		t.Fatalf("the stamp's grader half is %s and the request compose.JudgeRequest builds digests to %s — the stamp covers a grading call this build does not make", got, want)
+	}
+
+	edited := compose.JudgeRequest(sc.Expect.Rubric, "a widget", stampCandidateOutput)
+	edited.System = "Grade generously.\n" + edited.System
+	generous, err := canonicalRequestDigest(edited)
+	if err != nil {
+		t.Fatalf("digesting the edited grader request: %v", err)
+	}
+	if generous == want {
+		t.Fatal("a grader instructed differently digests the same — editing the grader's system prompt would leave every record claiming to certify scores it can no longer produce")
+	}
+}
+
+// The grader is shown the turn the candidate was given, so a case that asks the
+// model nothing leaves nothing to grade — and judgeScore fails a run for exactly
+// that. A stamp over such a case would be certifying a grading call that cannot
+// be built, which is worse than refusing it.
+func TestPromptVersionRefusesACaseTheGraderCouldNotBeBuiltFrom(t *testing.T) {
+	site := aitasks.Site{Task: ai.TaskSummarize, Variant: promptVariant, Kind: ai.SiteKindOneShot}
+	census := aitasks.NewRegistry()
+	census.Register(site)
+	census.BindCase(site, systemOnlyCases{site: site})
+
+	_, err := PromptVersion(context.Background(), []Scenario{testScenarioOnSite("one", promptVariant, wideBands)}, census)
+	if err == nil || !strings.Contains(err.Error(), "carries no user turn") {
+		t.Fatalf("want a refusal naming the missing ask, got %v", err)
+	}
+}
+
 // A site mints two things per call that a scenario cannot carry: the data
-// boundary, and the id it tells the model to answer that data by. Both differ
-// between two sends of the SAME prompt, so a stamp that moved with them would
-// call every record stale the moment it was written.
+// boundary, and the id it tells the model to answer that data by. The grader
+// mints a boundary of its own on top. All of them differ between two sends of
+// the SAME prompt, so a stamp that moved with them would call every record stale
+// the moment it was written.
 func TestPromptVersionIgnoresWhatEachCallMintsForItself(t *testing.T) {
 	sc := testScenarioOnSite("one", promptVariant, wideBands)
 	census := fencedCensus(t)
@@ -257,6 +317,34 @@ func (c promptCase) Run(ctx context.Context, completer aitasks.Completer) (aitas
 }
 
 func (promptCase) Evaluate(aitasks.Trace) aitasks.Outcome {
+	return aitasks.Outcome{Result: aitasks.OutcomeAccepted}
+}
+
+// systemOnlyCases is the case that instructs the model and asks it nothing: its
+// request exists, so the candidate half of the stamp is fine, and there is still
+// no turn a grader could be shown as the question under grading.
+type systemOnlyCases struct{ site aitasks.Site }
+
+func (c systemOnlyCases) Site() aitasks.Site { return c.site }
+
+func (systemOnlyCases) Prepare(json.RawMessage, json.RawMessage) (aitasks.PreparedCase, error) {
+	return systemOnlyCase{}, nil
+}
+
+type systemOnlyCase struct{}
+
+func (systemOnlyCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
+	req := model.Request{System: "Describe the subject in one sentence.", MaxTokens: 1024}
+	trace := aitasks.Trace{Requests: []model.Request{req}}
+	resp, err := completer.Complete(ctx, req)
+	if err != nil {
+		return trace, err
+	}
+	trace.Output = resp.Text
+	return trace, nil
+}
+
+func (systemOnlyCase) Evaluate(aitasks.Trace) aitasks.Outcome {
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted}
 }
 

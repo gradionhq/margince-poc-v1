@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
@@ -26,29 +27,33 @@ import (
 
 // PromptVersion is a task's certification stamp: a digest of the exact SCENARIOS
 // a run was scored against, and of the REQUESTS this build's own code builds
-// from them.
+// from them — the candidate's and the grader's alike.
 //
-// It is both halves because a record claims to describe what ships, and either
-// half moving breaks that claim.
+// It is all three because a record claims to describe what ships, and any one of
+// them moving breaks that claim.
 //
 // The scenario is digested WHOLE. The rubric is read to the grader, the expected
 // answer decides what "right" means, and the caps and bands decide what passes —
 // each of them changes what a score means, and none of them reaches a request.
 //
-// The request is digested because the corpus does not hold it: a scenario
+// The requests are digested because the corpus does not hold them: a scenario
 // carries the data a site is GIVEN, and the site's own code turns that into the
 // prompt the model sees. A stamp over the scenario alone would leave every
 // prompt in the product free to change under a record still claiming to certify
 // it — the failure a fixture corpus otherwise reintroduces.
 //
-// What is digested is the FIRST request each case issues, built by driving the
-// same Prepare/Run a paid run drives, so the stamp cannot be a second
-// description of the request kept in sync by hand. The first request is the one
-// a multi-call site builds before any reply exists, which is what makes it a
-// pure function of the fixture and the code rather than of what a model said.
-// Everything a call mints for itself is canonicalised away — the data boundary
-// and the record ids a prompt identifies its data by — so the stamp moves when
-// the wording moves and stays put when only one call's own identifiers do.
+// What is digested on the candidate's side is the FIRST request each case
+// issues, built by driving the same Prepare/Run a paid run drives, so the stamp
+// cannot be a second description of the request kept in sync by hand. The first
+// request is the one a multi-call site builds before any reply exists, which is
+// what makes it a pure function of the fixture and the code rather than of what
+// a model said. Everything a call mints for itself is canonicalised away — the
+// data boundary and the record ids a prompt identifies its data by — so the
+// stamp moves when the wording moves and stays put when only one call's own
+// identifiers do.
+//
+// The grader's request is digested beside it, and graderRequestDigest states
+// what that reaches.
 func PromptVersion(ctx context.Context, scenarios []Scenario, census *aitasks.Registry) (string, error) {
 	if census == nil {
 		return "", fmt.Errorf("aicert: stamp: no census supplied — a stamp covers the request each site's own code builds, and only the census says which case builds it")
@@ -61,13 +66,21 @@ func PromptVersion(ctx context.Context, scenarios []Scenario, census *aitasks.Re
 		if err != nil {
 			return "", fmt.Errorf("aicert: stamp: scenario %q cannot be digested: %w", sc.Name, err)
 		}
-		request, err := builtRequestDigest(ctx, sc, census)
+		request, err := firstBuiltRequest(ctx, sc, census)
+		if err != nil {
+			return "", err
+		}
+		candidate, err := canonicalRequestDigest(request)
+		if err != nil {
+			return "", err
+		}
+		grader, err := graderRequestDigest(sc, request)
 		if err != nil {
 			return "", err
 		}
 		sum := sha256.Sum256(encoded)
-		// Both halves are fixed-width hex, so concatenating them is unambiguous.
-		ordered = append(ordered, hex.EncodeToString(sum[:])+request)
+		// All three parts are fixed-width hex, so concatenating them is unambiguous.
+		ordered = append(ordered, hex.EncodeToString(sum[:])+candidate+grader)
 	}
 	sort.Strings(ordered)
 	sum := sha256.Sum256([]byte(strings.Join(ordered, "")))
@@ -98,19 +111,20 @@ func (c *stampCompleter) Complete(_ context.Context, req model.Request) (model.R
 	return model.Response{Text: stampReply}, nil
 }
 
-// builtRequestDigest is the hex digest of the first request sc's site builds
-// from it. A site whose case cannot be prepared, or which reaches a reply
-// without ever building a request, has nothing to stamp and is refused: a
-// silently empty half would let the product's own code drift under a stamp that
-// still matched.
-func builtRequestDigest(ctx context.Context, sc Scenario, census *aitasks.Registry) (string, error) {
+// firstBuiltRequest is the first request sc's site builds from it — the one both
+// halves of the stamp are taken from, the candidate's directly and the grader's
+// through the ask it carries. A site whose case cannot be prepared, or which
+// reaches a reply without ever building a request, has nothing to stamp and is
+// refused: a silently empty half would let the product's own code drift under a
+// stamp that still matched.
+func firstBuiltRequest(ctx context.Context, sc Scenario, census *aitasks.Registry) (model.Request, error) {
 	factory, bound := census.CaseFor(ai.Task(sc.Task), sc.Site)
 	if !bound {
-		return "", fmt.Errorf("aicert: stamp: scenario %q names site %s/%s, which binds no certification case", sc.Name, sc.Task, sc.Site)
+		return model.Request{}, fmt.Errorf("aicert: stamp: scenario %q names site %s/%s, which binds no certification case", sc.Name, sc.Task, sc.Site)
 	}
 	prepared, err := factory.Prepare(json.RawMessage(sc.Fixture), json.RawMessage(sc.Expect.Answer))
 	if err != nil {
-		return "", fmt.Errorf("aicert: stamp: scenario %q: preparing the case: %w", sc.Name, err)
+		return model.Request{}, fmt.Errorf("aicert: stamp: scenario %q: preparing the case: %w", sc.Name, err)
 	}
 	completer := &stampCompleter{}
 	// Whether the case REACHES a usable reply is not this function's
@@ -121,11 +135,52 @@ func builtRequestDigest(ctx context.Context, sc Scenario, census *aitasks.Regist
 	_, runErr := prepared.Run(ctx, completer)
 	if !completer.firstSeen {
 		if runErr != nil {
-			return "", fmt.Errorf("aicert: stamp: scenario %q: the case built no request to stamp: %w", sc.Name, runErr)
+			return model.Request{}, fmt.Errorf("aicert: stamp: scenario %q: the case built no request to stamp: %w", sc.Name, runErr)
 		}
-		return "", fmt.Errorf("aicert: stamp: scenario %q: the case completed without building a request, so nothing it sends can be stamped", sc.Name)
+		return model.Request{}, fmt.Errorf("aicert: stamp: scenario %q: the case completed without building a request, so nothing it sends can be stamped", sc.Name)
 	}
-	return canonicalRequestDigest(completer.first)
+	return completer.first, nil
+}
+
+// stampCandidateOutput holds the place the candidate's answer takes in the
+// grader's request. It names itself, because a reader who finds it in a digest's
+// input needs to know it is a position rather than a value.
+const stampCandidateOutput = "(the candidate output, which no stamp can know before the run that produces it)"
+
+// graderRequestDigest is the hex digest of the request the GRADER is sent for
+// sc. A record's score, the band it lands in, and therefore its whole verdict
+// come from that one call, so a build whose grader asks differently must not go
+// on matching a record scored under the old one.
+//
+// It is BUILT rather than described: compose.JudgeRequest is the same builder
+// judgeVerdict calls, so this half of the stamp cannot become a second spelling
+// of the grader's prompt kept in sync by hand. The grader mints its own data
+// boundary per call, canonicalised away exactly as the candidate's is.
+//
+// Two of the three things that request is made of are knowable before a run. The
+// rubric is the scenario's own text. The ask is read off the request the case
+// just built, by the same candidateAsk a run reads it with, so a site that
+// changes what it asks changes what its grader is shown. The third — the
+// candidate's OUTPUT — is what the run produces, and stampCandidateOutput stands
+// in its position.
+//
+// So the digest reaches every part of the grading call this build decides
+// independently of the candidate's words: the system prompt and the boundary it
+// declares, the labels and order of the user turn, which spans are fenced and
+// which are read in the clear, the answer ceiling, and both texts that arrive
+// verbatim. Editing any of them moves the stamp.
+//
+// It does not reach a change whose effect depends on the candidate's actual
+// words — one that reshaped a long output and left a short one alone. That is a
+// property of the stamp, not a gap in it: those words belong to one run, and a
+// stamp that read them would differ for every run of the same corpus, which is
+// the opposite of what a staleness signal is for.
+func graderRequestDigest(sc Scenario, candidateRequest model.Request) (string, error) {
+	ask, err := candidateAsk(aitasks.Trace{Requests: []model.Request{candidateRequest}})
+	if err != nil {
+		return "", fmt.Errorf("aicert: stamp: scenario %q: %w", sc.Name, err)
+	}
+	return canonicalRequestDigest(compose.JudgeRequest(sc.Expect.Rubric, ask, stampCandidateOutput))
 }
 
 // perCallID matches a canonical UUID, which is the shape of every identifier

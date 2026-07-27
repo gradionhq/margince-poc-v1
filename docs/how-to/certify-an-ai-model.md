@@ -114,11 +114,12 @@ the scenario asked for an abstention.
 Three states, and they never collapse into each other:
 
 - **`current`** — the record's stamp is the one this build computes, so its band
-  describes the request this build actually sends. The stamp covers both halves
-  of that claim: the scenarios, and the requests the sites' own code builds from
-  them.
+  describes the request this build actually sends. The stamp covers all three
+  parts of that claim: the scenarios, the requests the sites' own code builds
+  from them, and the request the grader those scores come from is sent.
 - **`stale`** — a scenario changed after the run, or the code that turns it into
-  a prompt did. The band is a claim about requests that are no longer sent;
+  a prompt did, or the grader's own prompt did. The band is a claim about
+  requests that are no longer sent, or about scores a grader no longer produces;
   re-certify that task.
 - **`absent`** — nothing has ever been measured. The columns are dashes rather
   than zeroes, because a zero is a result and this is not one.
