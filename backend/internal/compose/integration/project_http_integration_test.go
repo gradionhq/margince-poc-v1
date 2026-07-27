@@ -550,9 +550,14 @@ func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
 				} `json:"stages"`
 			} `json:"data"`
 		}
-		if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK ||
-			len(pipelines.Data) == 0 || len(pipelines.Data[0].Stages) == 0 {
-			t.Skipf("no seeded pipeline to anchor a deal to (status %d)", status)
+		// Not a skip: bootstrapping seeds the default pipeline, so an empty
+		// list means the fixture broke, and skipping here would retire the
+		// only check on a rule that lives in a constraint trigger.
+		if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK {
+			t.Fatalf("GET /pipelines → %d, want 200", status)
+		}
+		if len(pipelines.Data) == 0 || len(pipelines.Data[0].Stages) == 0 {
+			t.Fatal("the bootstrapped workspace has no pipeline with stages — the fixture no longer seeds one")
 		}
 		var problem projectProblem
 		status := e.call(t, "POST", "/v1/deals", anyMap{
@@ -595,11 +600,17 @@ func TestAStaleVersionCannotOverwriteAProject(t *testing.T) {
 		t.Fatalf("first PATCH → %d, want 200", status)
 	}
 	// The second writer still holds the version from before that.
+	// 409 with code version_skew is what the contract names for this — a
+	// different 4xx would be a different promise, so accepting either would
+	// let the surface change contracts without anything noticing.
+	var problem projectProblem
 	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
 		"description": "second writer",
-	}, map[string]string{"If-Match": stale}, nil); status != http.StatusConflict &&
-		status != http.StatusPreconditionFailed {
-		t.Fatalf("a stale If-Match → %d, want a version-skew refusal", status)
+	}, map[string]string{"If-Match": stale}, &problem); status != http.StatusConflict {
+		t.Fatalf("a stale If-Match → %d, want 409", status)
+	}
+	if problem.Code != "version_skew" {
+		t.Errorf("refusal code = %q, want version_skew", problem.Code)
 	}
 	if n := e.callDescription(t, project.ID); n != "first writer" {
 		t.Fatalf("description = %q — the stale write landed anyway", n)
