@@ -78,13 +78,15 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation("links", "invalid_entity_type", badLink.Error()))
 		return
 	}
-	// An activity carries at most one project link (PROJ-AC-15), and the
-	// index enforcing that is partial — on activity_id alone — so relink's
-	// ON CONFLICT target cannot see it. Pointing an already-projected
-	// activity at a SECOND project is therefore a refusal the caller can
-	// act on (re-issue with replace_existing_of_type), not a server fault.
+	// An activity carries at most one project link (PROJ-AC-15), enforced by
+	// a PARTIAL unique index on activity_id alone — which relink's ON CONFLICT
+	// target cannot see, so a second project raises 23505 instead of being
+	// absorbed. It is a business rule like any CHECK here, and relinkActivity
+	// declares 422 for a refusal, so it answers as one: the caller re-issues
+	// with replace_existing_of_type rather than reading a server fault.
 	if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "uq_activity_link_project" {
-		httperr.Write(w, r, httperr.Duplicate("activity_project_link_exists", ""))
+		httperr.Write(w, r, httperr.Validation("entity_id", "constraint_violated",
+			"an activity links to at most one project — re-issue with replace_existing_of_type to move it"))
 		return
 	}
 	// Defense-in-depth net: a CHECK constraint is a business rule, so a
