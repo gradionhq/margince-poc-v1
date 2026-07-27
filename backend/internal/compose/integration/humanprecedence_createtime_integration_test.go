@@ -18,8 +18,8 @@ package integration
 // the forecast, with no approval staged and no human asked.
 
 import (
-	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -72,30 +72,37 @@ func TestAgentCannotSilentlyOverwriteCreateTimeHumanValues(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
 	// The agent rewrites the money and the forecast. Neither key appears in
-	// the create audit's after-image, which is the whole point.
-	var split struct {
-		AmountMinor    int64  `json:"amount_minor"`
-		ExpectedClose  string `json:"expected_close_date"`
-		StagedApproval struct {
-			ApprovalID string          `json:"approval_id"`
-			Fields     []string        `json:"fields"`
-			Replay     json.RawMessage `json:"replay"`
-		} `json:"staged_approval"`
+	// the create audit's after-image, which is the whole point. EVERY field
+	// of this patch is human-owned, so there is no auto-execute half to
+	// apply: the whole request is the staged change and the call is refused
+	// with the redemption instructions.
+	var problem struct {
+		Code   string `json:"code"`
+		Detail string `json:"detail"`
 	}
 	if status := e.call(t, "PATCH", "/v1/deals/"+deal.ID, anyMap{
 		"amount_minor": 100, "expected_close_date": "2027-06-30",
-	}, bearer, &split); status != http.StatusOK {
-		t.Fatalf("agent money patch → %d", status)
+	}, bearer, &problem); status != http.StatusForbidden || problem.Code != "approval_required" {
+		t.Fatalf("agent money patch → %d %q, want 403 approval_required — the human typed those values at create",
+			status, problem.Code)
 	}
-	if split.StagedApproval.ApprovalID == "" {
-		t.Fatal("the agent rewrote human-typed money with no approval staged")
+	approvalID := extractStagedApprovalID(t, problem.Detail)
+
+	// The staged row names the deal, so it reaches the right inbox.
+	var staged struct {
+		TargetType string `json:"target_entity_type"`
+		Summary    string `json:"summary"`
 	}
-	staged := map[string]bool{}
-	for _, f := range split.StagedApproval.Fields {
-		staged[f] = true
+	if status := e.call(t, "GET", "/v1/approvals/"+approvalID, nil, nil, &staged); status != http.StatusOK {
+		t.Fatalf("read the staged approval → %d", status)
 	}
-	if !staged["amount_minor"] || !staged["expected_close_date"] {
-		t.Errorf("staged fields = %v, want both create-time values withheld", split.StagedApproval.Fields)
+	if staged.TargetType != "deal" {
+		t.Errorf("staged target type = %q, want deal", staged.TargetType)
+	}
+	// And the human can see WHAT they are approving without opening the
+	// envelope (the summary half of the same review pass).
+	if !strings.Contains(staged.Summary, "amount_minor=100") {
+		t.Errorf("summary %q does not name the value the agent would write", staged.Summary)
 	}
 
 	// Nothing landed while the approval is pending.

@@ -30,6 +30,10 @@ import (
 
 func TestAgentMintedStagingDoesNotInvokeAServerSideEffect(t *testing.T) {
 	e := Setup(t)
+	// A real seeded user: approval rows foreign-key both the proposer and
+	// the decider, so a synthetic principal id is rejected by the database
+	// rather than by the code under test.
+	admin := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 
 	const kind = "enrich"
 	var ran int
@@ -41,7 +45,7 @@ func TestAgentMintedStagingDoesNotInvokeAServerSideEffect(t *testing.T) {
 
 	// The shape the REST gate stages: a canonicalized {operation, path, body}
 	// call, under an AGENT principal holding a passport.
-	agentCtx := e.AgentCtxWithPassport()
+	agentCtx := e.AgentCtxWithPassport(e.SeedPassport(t, OwnerConn(t), "provenance probe"))
 	approvalID, err := svc.Stage(agentCtx, approvals.StageInput{
 		Kind:           kind,
 		ProposedChange: json.RawMessage(`{"operation":"scrapeCompany","path":"/v1/organizations/x/enrich","body":null}`),
@@ -53,7 +57,7 @@ func TestAgentMintedStagingDoesNotInvokeAServerSideEffect(t *testing.T) {
 	}
 
 	// A human approves it. The decision must succeed on its own terms.
-	if _, err := svc.Decide(e.Admin(), approvalID, true, nil); err != nil {
+	if _, err := svc.Decide(admin, approvalID, true, nil); err != nil {
 		t.Fatalf("approving an agent-minted staging → %v, want ok (the server-side executor is not its business)", err)
 	}
 	if ran != 0 {
@@ -73,6 +77,10 @@ func TestAgentMintedStagingDoesNotInvokeAServerSideEffect(t *testing.T) {
 // confirm-first proposal flows.
 func TestServerMintedProposalStillInvokesItsEffect(t *testing.T) {
 	e := Setup(t)
+	// A real seeded user: approval rows foreign-key both the proposer and
+	// the decider, so a synthetic principal id is rejected by the database
+	// rather than by the code under test.
+	admin := e.As(e.Rep1, []ids.UUID{e.Team1}, AdminPerms)
 
 	const kind = "enrich"
 	var ran int
@@ -82,7 +90,7 @@ func TestServerMintedProposalStillInvokesItsEffect(t *testing.T) {
 			return nil
 		})
 
-	approvalID, err := svc.Stage(e.Admin(), approvals.StageInput{
+	approvalID, err := svc.Stage(admin, approvals.StageInput{
 		Kind:           kind,
 		ProposedChange: json.RawMessage(`{"organization_id":"018f2a10-0000-7000-8000-000000000001","fields":[]}`),
 		DiffHash:       "h-" + ids.NewV7().String(),
@@ -91,7 +99,7 @@ func TestServerMintedProposalStillInvokesItsEffect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Decide(e.Admin(), approvalID, true, nil); err != nil {
+	if _, err := svc.Decide(admin, approvalID, true, nil); err != nil {
 		t.Fatalf("approving a server-minted proposal → %v", err)
 	}
 	if ran != 1 {
