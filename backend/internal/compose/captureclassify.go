@@ -252,15 +252,18 @@ func validateClassifyPayload(payload classifyPayload, batch []unlabeledMessage) 
 		want[m.ID.String()] = true
 	}
 	for _, r := range payload.Results {
+		// Every echoed token is MODEL output, and a sender who got the model to
+		// obey can choose it — so it is bounded before it reaches an error string
+		// that ends up in the operator's log and, on a retry, back in the prompt.
 		if !want[r.ID] {
-			return fmt.Sprintf("result id %q was not requested", r.ID)
+			return fmt.Sprintf("result id %q was not requested", clampToken(r.ID))
 		}
 		if seen[r.ID] {
-			return fmt.Sprintf("result id %q appears twice", r.ID)
+			return fmt.Sprintf("result id %q appears twice", clampToken(r.ID))
 		}
 		seen[r.ID] = true
 		if !classifyLabels[r.Label] {
-			return fmt.Sprintf("label %q is not commitment|meeting|noise", r.Label)
+			return fmt.Sprintf("label %q is not commitment|meeting|noise", clampToken(r.Label))
 		}
 		if r.Confidence < 0 || r.Confidence > 1 {
 			return fmt.Sprintf("confidence %v is outside [0,1]", r.Confidence)

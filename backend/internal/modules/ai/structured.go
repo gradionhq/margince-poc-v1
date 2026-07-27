@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -101,15 +102,49 @@ func (r *Router) forgetCached(ctx context.Context, task Task, req model.Request)
 // error as conversation turns, so the retry is a correction, not a
 // blind re-roll. The changed messages also miss the result cache — a
 // retry can never be served the cached invalid answer.
+// Both echoed turns are DATA and go inside the request's boundary. The failed
+// output is the model repeating text a sender steered, and the validator's
+// message quotes tokens out of it, so appending either in the clear would put
+// captured text back in the instruction region — while the system prompt still
+// says the markers are the ONLY boundary. That is the hole the fence exists to
+// close, reached on the repair path instead of the first attempt, and it
+// compounds: attempt 3 escalates to a STRONGER model carrying the same turns.
+//
+// A prompt that declares NO boundary was shown no untrusted data, so its failed
+// output is not attacker-steered and goes back plainly. The quarantine is for
+// the prompts that named a fence, which are exactly the ones that read captured
+// text.
 func withValidatorFeedback(req model.Request, failedText string, cause error) model.Request {
 	out := req
+	echo := func(s string) string { return s }
+	if fence, declared := feedbackFence(out); declared {
+		// WrapAuthored, not Wrap: this text came from a model that was SHOWN the
+		// marker, so it is the one author who can close the span exactly.
+		echo = fence.WrapAuthored
+	}
 	out.Messages = append(
 		append([]model.Message{}, req.Messages...),
-		model.Message{Role: "assistant", Content: failedText},
-		model.Message{Role: "user", Content: "That output failed validation: " + cause.Error() +
-			"\nReturn ONLY the corrected output in the required format."},
+		model.Message{Role: "assistant", Content: echo(failedText)},
+		model.Message{Role: "user", Content: "That output failed validation: " +
+			echo(cause.Error()) + "\n" + retryInstruction},
 	)
 	return out
+}
+
+// retryInstruction is the only part of the feedback turns written by this
+// codebase, and therefore the only part that carries authority.
+const retryInstruction = "Return ONLY the corrected output in the required format."
+
+// feedbackFence resolves the boundary the echoed turns belong in: the one the
+// prompt already declared, never a second one beside it. A marker this package
+// could not have minted is not a boundary, and borrowing it would claim a
+// protection the span does not have.
+func feedbackFence(req model.Request) (promptfence.Fence, bool) {
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		return promptfence.Fence{}, false
+	}
+	return promptfence.FromMarker(marker)
 }
 
 // completeEscalated serves one attempt from the task's ladder with the

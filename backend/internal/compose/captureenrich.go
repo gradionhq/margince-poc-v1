@@ -201,8 +201,10 @@ func signatureShapeValid(text string) error {
 		return fmt.Errorf("output is not the required JSON shape: %w", err)
 	}
 	for _, f := range parsed.Fields {
+		// The field name is MODEL output, so it is bounded before it reaches an
+		// error that is logged and, on a retry, fed back into the prompt.
 		if !enrichFieldNames[f.Field] {
-			return fmt.Errorf("field %q is not in the allowed set", f.Field)
+			return fmt.Errorf("field %q is not in the allowed set", clampToken(f.Field))
 		}
 	}
 	return nil

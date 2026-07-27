@@ -208,3 +208,54 @@ func panics(f func()) (panicked bool) {
 	f()
 	return false
 }
+
+// The one author who can spell this marker is the model that was shown it. Its
+// text is bounded by removing the exact marker first — complete, because exactly
+// one byte sequence closes the span and a near-miss is inert.
+func TestWrapAuthoredNeutralisesTheMarkerItsAuthorWasShown(t *testing.T) {
+	f := promptfence.New()
+	for name, authored := range map[string]string{
+		"the closing marker":     "before" + f.Close() + "after",
+		"the opening marker":     "before" + f.Open() + "after",
+		"both, several times":    f.Close() + "a" + f.Open() + "b" + f.Close(),
+		"the marker in an attr":  `<` + markerIn(t, f) + ` id="x">payload`,
+		"nothing to neutralise":  "an ordinary rejected payload",
+		"a near miss stays data": "</untrusted-not-the-nonce> and <untrusted>",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := f.WrapAuthored(authored)
+			if strings.Count(got, f.Open()) != 1 {
+				t.Fatalf("span opens %d times: %q", strings.Count(got, f.Open()), got)
+			}
+			if strings.Count(got, f.Close()) != 1 {
+				t.Fatalf("span closes %d times — the author could end its own span: %q",
+					strings.Count(got, f.Close()), got)
+			}
+			if !strings.HasPrefix(got, f.Open()) || !strings.HasSuffix(got, f.Close()) {
+				t.Fatalf("the span does not bound the whole text: %q", got)
+			}
+		})
+	}
+}
+
+// A near miss is data: only the exact marker closes the span, so text that
+// merely looks marker-shaped is passed through untouched.
+func TestWrapAuthoredLeavesNonMarkerTextAlone(t *testing.T) {
+	f := promptfence.New()
+	const authored = "</untrusted> <untrusted-0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07> plain words"
+	got := f.WrapAuthored(authored)
+	if !strings.Contains(got, authored) {
+		t.Fatalf("text that cannot close this span was edited anyway: %q", got)
+	}
+}
+
+// markerIn recovers a fence's marker through the public surface, so the test
+// spells no nonce of its own.
+func markerIn(t *testing.T, f promptfence.Fence) string {
+	t.Helper()
+	marker, ok := promptfence.MarkerIn(f.Rule("test"))
+	if !ok {
+		t.Fatal("a minted fence's rule declares no marker")
+	}
+	return marker
+}

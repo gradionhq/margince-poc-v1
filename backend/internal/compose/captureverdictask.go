@@ -127,6 +127,10 @@ func validateVerdictPayload(payload verdictPayload, row capture.PendingCounterpa
 // maxEchoedToken bounds how much model-chosen text any validation message may
 // repeat back. Long enough to identify a malformed id at a glance, short enough
 // that the log cannot be used as a writing surface.
+//
+// Every validated capture lane echoes through clampToken — verdict, classify
+// and signature enrich — because each one's message is both logged and, on a
+// §5.2 retry, appended back into the prompt.
 const maxEchoedToken = 64
 
 // clampToken bounds one echoed token on a rune boundary.
