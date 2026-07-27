@@ -143,8 +143,12 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		TargetType:     pol.RecordType,
 		TargetID:       targetID,
 		TargetVersion:  recordVersion(record),
-		Summary: fmt.Sprintf("Agent REST %s %s: overwrite human-edited %s",
-			r.Method, r.URL.Path, strings.Join(split.Conflicts, ", ")),
+		// The staged sub-patch is what the approval binds to, so the summary
+		// names the values it would write, not only the field names it would
+		// write them to: "overwrite human-edited amount_minor" told an
+		// approver which field was at stake and never with what.
+		Summary: "overwrite human-edited " + strings.Join(split.Conflicts, ", ") + " — " +
+			restSummary(pol.Op, r.Method, r.URL.Path, split.Staged),
 	})
 	if sErr != nil {
 		httperr.Write(w, r, fmt.Errorf("the other fields were updated, but staging the human-edited fields (%s) failed: %w",

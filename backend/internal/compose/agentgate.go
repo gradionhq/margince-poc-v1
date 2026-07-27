@@ -298,7 +298,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 		DiffHash:       diffHash,
 		TargetType:     pol.RecordType,
 		TargetID:       targetID,
-		Summary:        fmt.Sprintf("Agent REST %s %s", r.Method, r.URL.Path),
+		Summary:        restSummary(pol.Op, r.Method, r.URL.Path, body),
 	})
 	if sErr != nil {
 		httperr.Write(w, r, sErr)

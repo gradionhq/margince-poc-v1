@@ -281,6 +281,10 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no actor bound to context")
 	}
+	// The summary is prose, and several stagers build it out of record text
+	// the agent or an inbound sender could have written. Sanitizing at the
+	// one place every staging passes through means no stager can bypass it.
+	in.Summary = sanitizeSummary(in.Summary)
 	current, pinned, err := resolveTargetVersion(ctx, tx, in)
 	if err != nil {
 		return ids.ApprovalID{}, err
