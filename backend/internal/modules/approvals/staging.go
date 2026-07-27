@@ -437,3 +437,24 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 	}
 	return true, nil
 }
+
+// WasDeclined reports whether a human has already REJECTED this exact proposal —
+// same kind, same target, same proposed change.
+//
+// HasPendingFor answers the question for an offer still in the inbox; this one
+// answers it for an offer already refused, which a nightly stager needs just as
+// much. Without it a sweep that re-derives the same proposal every pass re-offers
+// what was declined: JoinPending only joins a PENDING row, so the moment a human
+// says no the next pass finds nothing to join and stages a fresh copy. The human
+// then declines the same thing nightly, and their "no" means nothing.
+func (s *Service) WasDeclined(ctx context.Context, kind string, targetID ids.UUID, diffHash string) (bool, error) {
+	var exists bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM approval
+			  WHERE kind = $1 AND target_entity_id = $2 AND diff_hash = $3
+			    AND status = 'rejected')`,
+			kind, targetID, diffHash).Scan(&exists)
+	})
+	return exists, err
+}

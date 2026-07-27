@@ -43,9 +43,13 @@ const (
 	orgNameTargetType = "organization"
 	// orgNamePromotionActor is the principal the sweep and the accept write as.
 	orgNamePromotionActor = "agent:" + orgNameProposalKind
-	// orgNamePromotionPassLimit bounds one pass's candidate set; the next
-	// nightly cycle takes the rest.
-	orgNamePromotionPassLimit = 200
+	// orgNamePromotionPageSize bounds ONE page of candidates — a memory bound,
+	// not a work bound: the pass reads every candidate, a page at a time.
+	orgNamePromotionPageSize = 200
+	// orgNamePromotionMaxPages is a runaway backstop, not a policy. A workspace
+	// that reaches it has more provisionally-named organizations than any real
+	// installation, and the pass says so rather than trimming the work silently.
+	orgNamePromotionMaxPages = 500
 )
 
 // orgNameProposal is the staged offer's payload: the name being proposed, the
@@ -100,17 +104,43 @@ func (p *OrgNamePromoter) Run(ctx context.Context) error {
 				Type: principal.PrincipalSystem,
 				ID:   orgNamePromotionActor,
 			}), ids.NewV7())
-		candidates, err := p.store.OrgNameCandidates(wsCtx, orgNamePromotionPassLimit)
+		if err := p.sweepWorkspace(wsCtx, ws); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sweepWorkspace walks every candidate in one workspace, a page at a time.
+//
+// It walks ALL of them rather than the first page. A candidate that reaches no
+// verdict — or one waiting on a human — stays a candidate indefinitely, so a
+// pass that only ever read the first page would spend every night on the same
+// unresolvable rows while an organization behind them, whose corroborated name
+// could be applied today, was never reached.
+func (p *OrgNamePromoter) sweepWorkspace(ctx context.Context, ws ids.UUID) error {
+	var cursor ids.OrganizationID
+	for page := 0; page < orgNamePromotionMaxPages; page++ {
+		candidates, err := p.store.OrgNameCandidates(ctx, cursor, orgNamePromotionPageSize)
 		if err != nil {
 			return err
 		}
 		for _, cand := range candidates {
-			if err := p.decideOne(wsCtx, cand); err != nil {
+			if err := p.decideOne(ctx, cand); err != nil {
 				p.log.WarnContext(ctx, "org-name promotion: candidate failed",
 					"organization", cand.OrganizationID.String(), "err", err)
 			}
+			cursor = cand.OrganizationID
+		}
+		if len(candidates) < orgNamePromotionPageSize {
+			return nil
 		}
 	}
+	// Reached only by a workspace far outside any real shape. Said out loud,
+	// because a bounded sweep that reports nothing reads exactly like one that
+	// covered everything.
+	p.log.WarnContext(ctx, "org-name promotion: page ceiling reached, the rest waits for the next pass",
+		"workspace", ws.String(), "pages", orgNamePromotionMaxPages)
 	return nil
 }
 
@@ -147,10 +177,22 @@ func (p *OrgNamePromoter) stageOrgNameReview(ctx context.Context, cand people.Or
 		return fmt.Errorf("compose: encoding the org-name proposal: %w", err)
 	}
 	digest := sha256.Sum256(body)
+	diffHash := hex.EncodeToString(digest[:])
+	// A human who declined this rename declined it for good. JoinPending below
+	// only joins a PENDING offer, so without this check the next pass would find
+	// nothing to join and stage a fresh copy of the offer they just refused —
+	// nightly, forever, because the evidence that produced it never goes away.
+	declined, err := p.approvals.WasDeclined(ctx, orgNameProposalKind, cand.OrganizationID.UUID, diffHash)
+	if err != nil {
+		return err
+	}
+	if declined {
+		return nil
+	}
 	_, err = p.approvals.Stage(ctx, approvals.StageInput{
 		Kind:           orgNameProposalKind,
 		ProposedChange: body,
-		DiffHash:       hex.EncodeToString(digest[:]),
+		DiffHash:       diffHash,
 		TargetType:     orgNameTargetType,
 		TargetID:       cand.OrganizationID.UUID,
 		Summary:        "Rename " + cand.DisplayName + " to " + verdict.Name + "?",

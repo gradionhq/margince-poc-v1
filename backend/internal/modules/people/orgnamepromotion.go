@@ -214,15 +214,30 @@ func sortedPersonIDs(set map[ids.PersonID]bool) []ids.PersonID {
 
 // OrgNameCandidates lists provisionally-named organizations that have at least
 // one employee signature naming a company, each with the evidence to judge it.
-// Bounded for one pass; the next cycle picks up the rest.
-func (s *Store) OrgNameCandidates(ctx context.Context, limit int) ([]OrgNameCandidate, error) {
+//
+// One PAGE, keyed on the organization id the caller last saw — not the first N
+// by age. The difference is the whole correctness of the sweep: most candidates
+// reach a verdict that changes nothing (their signatures restate the name the
+// record already carries, or the one name proposed is uncorroborated and waits
+// on a human), and those rows stay candidates forever. A fixed prefix of a fixed
+// ordering therefore fills with rows that will never resolve, and every
+// organization behind them — including ones whose corroborated name is ready to
+// apply today — is never looked at again. Paging to exhaustion is what stops
+// that, and it costs nothing: the work per organization is one in-memory
+// decision, no model call and no network.
+func (s *Store) OrgNameCandidates(ctx context.Context, after ids.OrganizationID, limit int) ([]OrgNameCandidate, error) {
 	var out []OrgNameCandidate
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var cursor *ids.OrganizationID
+		if !after.IsZero() {
+			cursor = &after
+		}
 		rows, err := tx.Query(ctx, `
 			SELECT o.id, o.display_name
 			FROM organization o
 			WHERE o.name_source = 'domain'
 			  AND o.archived_at IS NULL AND o.merged_into_id IS NULL
+			  AND ($1::uuid IS NULL OR o.id > $1)
 			  AND EXISTS (
 				SELECT 1
 				FROM relationship r
@@ -230,8 +245,8 @@ func (s *Store) OrgNameCandidates(ctx context.Context, limit int) ([]OrgNameCand
 				  AND p.archived_at IS NULL AND p.merged_into_id IS NULL
 				JOIN person_profile_field f ON f.person_id = p.id AND f.field = 'org_name'
 				WHERE r.organization_id = o.id AND r.kind = 'employment' AND r.archived_at IS NULL)
-			ORDER BY o.created_at
-			LIMIT $1`, limit)
+			ORDER BY o.id
+			LIMIT $2`, cursor, limit)
 		if err != nil {
 			return err
 		}
