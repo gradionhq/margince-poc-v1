@@ -57,6 +57,7 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	// inside the case's own file keeps one place to read what this build can
 	// certify, and Validate refuses a case bound to a site nobody registered.
 	r.BindCase(counterpartyVerdictCases{})
+	r.BindCase(fieldExtractCases{})
 
 	return r, r.Validate()
 }

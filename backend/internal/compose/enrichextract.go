@@ -356,19 +356,28 @@ func mergeSiteFields(seed, legal []evidencedField) []evidencedField {
 	return out
 }
 
-// extractFields is the model+gate step for ONE page: an empty result is a
-// page with nothing to quote — a normal answer during a multi-page read, not
-// an error. extractGrounded keeps the empty-is-unreadable contract for the
-// single-source inputs (paste, self-description).
-func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourceText, sourceURL string, accept func(string) bool) ([]evidencedField, error) {
+// boundedExtractionText caps what ONE call hands the model. It is applied before
+// the request is built, because the evidence gate must match quotes against the
+// SAME text the model saw — never against a region nobody was given.
+func boundedExtractionText(sourceText string) string {
 	if runes := []rune(sourceText); len(runes) > maxExtractionText {
-		sourceText = string(runes[:maxExtractionText])
+		return string(runes[:maxExtractionText])
 	}
+	return sourceText
+}
+
+// companyFactsRequest builds the ONE extraction call for one source text. It is
+// a pure function of that source rather than a method so the certification lane
+// can issue the request the extractor issues instead of re-creating it — a copy
+// stays green through the very change that breaks the original. The text arrives
+// already bounded, so the model and the gate read one text. The fence is minted
+// per request: a boundary reused is one a previous page has already been shown.
+func companyFactsRequest(sourceLabel, sourceText, sourceURL string) model.Request {
 	// The page goes in exactly as it was fetched. A verbatim-markdown page can
 	// carry a literal </untrusted>, and it is welcome to: the boundary is this
 	// call's nonce, which the page's author has never seen. Passing the bytes
-	// through is what lets the evidence gate below match a quote against the
-	// page as WRITTEN — the gate and the model read the same text.
+	// through is what lets the evidence gate match a quote against the page as
+	// WRITTEN — the gate and the model read the same text.
 	fence := promptfence.New()
 	// The URL names the source, so it belongs in the prompt — INSIDE the
 	// boundary, like the page it points at. An attacker publishes the link that
@@ -378,7 +387,7 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 	if sourceURL != "" {
 		header += " " + fence.Wrap(sourceURL)
 	}
-	req := model.Request{
+	return model.Request{
 		System: companyFactsSystemFor(fence),
 		Messages: []model.Message{{
 			Role:    "user",
@@ -388,6 +397,15 @@ func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourc
 		ResponseSchema: companyFactsSchema,
 		SecretStripper: ai.NewSecretStripper(),
 	}
+}
+
+// extractFields is the model+gate step for ONE page: an empty result is a
+// page with nothing to quote — a normal answer during a multi-page read, not
+// an error. extractGrounded keeps the empty-is-unreadable contract for the
+// single-source inputs (paste, self-description).
+func (x evidenceExtractor) extractFields(ctx context.Context, sourceLabel, sourceText, sourceURL string, accept func(string) bool) ([]evidencedField, error) {
+	sourceText = boundedExtractionText(sourceText)
+	req := companyFactsRequest(sourceLabel, sourceText, sourceURL)
 	var resp model.Response
 	var err error
 	if structured, ok := x.brain.(validatedBrain); ok {
