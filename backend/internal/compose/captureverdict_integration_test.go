@@ -958,3 +958,41 @@ func TestAnUnansweredReviewAgesOutAndTakesItsOfferWithIt(t *testing.T) {
 		t.Fatal("ageing out a question touched the message that raised it")
 	}
 }
+
+// A human deciding the offer between the stale-row scan and the age-out write
+// must win. Losing that race would create the records AND record the question as
+// closed unanswered — the ledger describing an outcome the database contradicts.
+func TestAgeingOutLosesToAHumanWhoDecidedFirst(t *testing.T) {
+	e := integration.Setup(t)
+	activityID := seedCapturedMail(t, e, "decided@maybe.example", "hi")
+	dispositionID := seedPendingDisposition(t, e, "decided@maybe.example", "maybe.example", activityID)
+	retireToUnsure(t, e, dispositionID)
+
+	svc := approvalsServiceWithEffects(e.Pool)
+	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
+	if err := engine.StageReviews(context.Background(), 0); err != nil {
+		t.Fatalf("staging reviews: %v", err)
+	}
+	approvalID := stagedProposalID(t, e, dispositionID)
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE capture_pending_counterparty
+			   SET resolved_at = now() - interval '31 days' WHERE id = $1`, dispositionID)
+		return err
+	}); err != nil {
+		t.Fatalf("backdating the review: %v", err)
+	}
+
+	// The human answers first — the row is stale by the clock, and decided.
+	if _, err := svc.Decide(e.As(e.Rep1, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](approvalID), true, nil); err != nil {
+		t.Fatalf("approving the proposal: %v", err)
+	}
+	if err := engine.AgeOutStaleReviews(context.Background(), capture.UnsureReviewWindow); err != nil {
+		t.Fatalf("ageing out reviews: %v", err)
+	}
+
+	if got := dispositionStatus(t, e, dispositionID); got == capture.PendingStatusRejected {
+		t.Fatal("the sweep overwrote a decision a human had already made")
+	}
+}

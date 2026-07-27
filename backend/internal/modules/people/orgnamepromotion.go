@@ -91,61 +91,79 @@ type OrgNameVerdict struct {
 // Pure, so the rule is testable without a database and reads as the rule
 // rather than as a query plan.
 func DecideOrgName(c OrgNameCandidate) (OrgNameVerdict, bool) {
-	current := normalizeOrgName(c.DisplayName)
-	dossier := make(map[string]bool, len(c.DossierNames))
-	for _, n := range c.DossierNames {
-		if key := normalizeOrgName(n); key != "" {
-			dossier[key] = true
-		}
-	}
-
-	// Group the signatures by normalized name: "Acme GmbH" and "ACME" are one
-	// claim made twice, which is exactly what corroboration is counting.
-	type group struct {
-		key      string
-		spelling map[string]int
-		persons  map[ids.PersonID]bool
-	}
-	groups := map[string]*group{}
-	for _, s := range c.Signatures {
-		key := normalizeOrgName(s.Value)
-		// A signature that merely restates the name already on the record
-		// proposes nothing — it cannot corroborate a change either.
-		if key == "" || key == current {
-			continue
-		}
-		g, ok := groups[key]
-		if !ok {
-			g = &group{key: key, spelling: map[string]int{}, persons: map[ids.PersonID]bool{}}
-			groups[key] = g
-		}
-		g.spelling[s.Value]++
-		g.persons[s.PersonID] = true
-	}
+	groups := groupSignatureNames(c.Signatures, normalizeOrgName(c.DisplayName))
 	if len(groups) == 0 {
 		return OrgNameVerdict{}, false
 	}
+	winner := bestNameClaim(groups, dossierKeys(c.DossierNames))
+	corroboration := winner.corroboration
+	return OrgNameVerdict{
+		Name:          dominantSpelling(winner.spelling),
+		Corroborated:  corroboration != OrgNameCorroborationNone,
+		Corroboration: corroboration,
+		Persons:       sortedPersonIDs(winner.persons),
+	}, true
+}
 
-	// Rank: corroborated beats uncorroborated, more people beats fewer, and the
-	// normalized name breaks the remaining tie so two workers reading the same
-	// evidence always reach the same answer.
-	ranked := make([]*group, 0, len(groups))
-	for _, g := range groups {
-		ranked = append(ranked, g)
-	}
-	corroborationOf := func(g *group) string {
-		switch {
-		case dossier[g.key]:
-			return OrgNameCorroborationDossier
-		case len(g.persons) >= 2:
-			return OrgNameCorroborationSignatures
-		default:
-			return OrgNameCorroborationNone
+// nameClaim is one company name several signatures agree on, with the spellings
+// they used and the people who used them.
+type nameClaim struct {
+	key      string
+	spelling map[string]int
+	persons  map[ids.PersonID]bool
+	// corroboration is filled by bestNameClaim, which is where the dossier is
+	// known; until then a claim is just a claim.
+	corroboration string
+}
+
+// dossierKeys reduces the site-stated names to the normalized set a signature
+// can agree with.
+func dossierKeys(names []string) map[string]bool {
+	keys := make(map[string]bool, len(names))
+	for _, n := range names {
+		if key := normalizeOrgName(n); key != "" {
+			keys[key] = true
 		}
 	}
+	return keys
+}
+
+// groupSignatureNames folds the signatures into one claim per normalized name:
+// "Acme GmbH" and "ACME" are one claim made twice, which is exactly what
+// corroboration counts. A signature restating the name already on the record
+// proposes nothing and is dropped — it cannot corroborate a change either.
+func groupSignatureNames(signatures []SignatureOrgName, current string) map[string]*nameClaim {
+	claims := map[string]*nameClaim{}
+	for _, s := range signatures {
+		key := normalizeOrgName(s.Value)
+		if key == "" || key == current {
+			continue
+		}
+		c, ok := claims[key]
+		if !ok {
+			c = &nameClaim{key: key, spelling: map[string]int{}, persons: map[ids.PersonID]bool{}}
+			claims[key] = c
+		}
+		c.spelling[s.Value]++
+		c.persons[s.PersonID] = true
+	}
+	return claims
+}
+
+// bestNameClaim ranks the claims and returns the winner with its corroboration
+// resolved: corroborated beats uncorroborated, more people beats fewer, and the
+// normalized name breaks the remaining tie — so two workers reading the same
+// evidence always reach the same answer rather than renaming the organization
+// back and forth.
+func bestNameClaim(claims map[string]*nameClaim, dossier map[string]bool) *nameClaim {
+	ranked := make([]*nameClaim, 0, len(claims))
+	for _, c := range claims {
+		c.corroboration = corroborationFor(c, dossier)
+		ranked = append(ranked, c)
+	}
 	sort.Slice(ranked, func(i, j int) bool {
-		ci := corroborationOf(ranked[i]) != OrgNameCorroborationNone
-		cj := corroborationOf(ranked[j]) != OrgNameCorroborationNone
+		ci := ranked[i].corroboration != OrgNameCorroborationNone
+		cj := ranked[j].corroboration != OrgNameCorroborationNone
 		if ci != cj {
 			return ci
 		}
@@ -154,15 +172,19 @@ func DecideOrgName(c OrgNameCandidate) (OrgNameVerdict, bool) {
 		}
 		return ranked[i].key < ranked[j].key
 	})
-	winner := ranked[0]
+	return ranked[0]
+}
 
-	corroboration := corroborationOf(winner)
-	return OrgNameVerdict{
-		Name:          dominantSpelling(winner.spelling),
-		Corroborated:  corroboration != OrgNameCorroborationNone,
-		Corroboration: corroboration,
-		Persons:       sortedPersonIDs(winner.persons),
-	}, true
+// corroborationFor names the second source that agrees with a claim, if any.
+func corroborationFor(c *nameClaim, dossier map[string]bool) string {
+	switch {
+	case dossier[c.key]:
+		return OrgNameCorroborationDossier
+	case len(c.persons) >= 2:
+		return OrgNameCorroborationSignatures
+	default:
+		return OrgNameCorroborationNone
+	}
 }
 
 // dominantSpelling picks the raw form to write: the one most signatures used,
@@ -214,18 +236,11 @@ func (s *Store) OrgNameCandidates(ctx context.Context, limit int) ([]OrgNameCand
 			return err
 		}
 		defer rows.Close()
-		byID := map[ids.OrganizationID]int{}
-		for rows.Next() {
-			var c OrgNameCandidate
-			if err := rows.Scan(&c.OrganizationID, &c.DisplayName); err != nil {
-				return err
-			}
-			byID[c.OrganizationID] = len(out)
-			out = append(out, c)
-		}
-		if err := rows.Err(); err != nil {
+		candidates, byID, err := scanOrgNameCandidates(rows)
+		if err != nil {
 			return err
 		}
+		out = candidates
 		if len(out) == 0 {
 			return nil
 		}
@@ -242,6 +257,26 @@ func (s *Store) OrgNameCandidates(ctx context.Context, limit int) ([]OrgNameCand
 		return nil, fmt.Errorf("people: listing org-name promotion candidates: %w", err)
 	}
 	return out, nil
+}
+
+// scanOrgNameCandidates reads the candidate rows and the index the evidence
+// loaders fill them through — one pass, so an organization's position is known
+// before its signatures arrive.
+func scanOrgNameCandidates(rows pgx.Rows) ([]OrgNameCandidate, map[ids.OrganizationID]int, error) {
+	var out []OrgNameCandidate
+	byID := map[ids.OrganizationID]int{}
+	for rows.Next() {
+		var c OrgNameCandidate
+		if err := rows.Scan(&c.OrganizationID, &c.DisplayName); err != nil {
+			return nil, nil, err
+		}
+		byID[c.OrganizationID] = len(out)
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, err
+	}
+	return out, byID, nil
 }
 
 func loadSignatureOrgNames(ctx context.Context, tx pgx.Tx, orgIDs []ids.OrganizationID,

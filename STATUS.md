@@ -955,11 +955,25 @@ Open work, roughly in priority order:
   proposal; site people still stage as leads (NEVER-8). The flag is re-read each
   pass (toggle-off stops new reads). `make check` + `make check-fe` + full
   zero-skip integration lane green.
-  **Deferred follow-ups (noted, not blocking):** the synchronous
-  enrich-on-capture trigger (the sweep already self-heals, so it's a latency
-  optimization); per-run crawl caps pinned lower for auto reads (12 pages);
-  and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
-  person instead of always staging a lead).
+  `ApplySitePersonFields` closed this list's last item: a published person the
+  workspace already records at that company is no longer staged as a duplicate
+  lead — the site's role fills their empty fields instead. The match is
+  deliberately narrow, and it is the whole safety argument: an exact live email
+  among that ORGANIZATION's own employees, or exactly one employee whose name
+  matches at ≥0.92 (well above the 0.72 dedupe-review threshold, because this
+  path asks nobody). Zero or ambiguous matches stage the lead exactly as before,
+  so strangers stay staged (NEVER-8). The scope is the org's employees rather
+  than the workspace on purpose: filling a title from company X's site onto a
+  person the CRM records at company Y is a disagreement a human should see. The
+  published EMAIL is a matching key and never a fill — adding an address changes
+  who a record is reachable as, and a site is not authority for that. Everything
+  written is fill-only-empty with a `person_profile_field` evidence row
+  (first-verdict-wins, so a signature or a human already there is untouchable),
+  one audit row and one `person.updated`.
+  **Deferred follow-up still open:** the synchronous enrich-on-capture trigger
+  (the sweep already self-heals, so it is a latency optimization). The 12-page
+  auto-read ceiling this list also named turned out to be built already
+  (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
   **Phase 2a (build, landed):** the counterparty-identity column
   (`activity.counterparty_email`, migration 0123, partial index) stamped
   (lowercased) at capture — captured from now so the phase-2b correspondence

@@ -46,8 +46,31 @@ func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArg
 	// the leads were evidenced independently of the org columns, and dropping
 	// them on an apply failure would break the strangers-stay-staged invariant
 	// (NEVER-8). Staged first so a later apply error cannot skip them.
+	//
+	// A published person the workspace ALREADY records at this company is not a
+	// stranger, so they are not staged: the site's role fills the empty fields on
+	// the record that exists. That match is deliberately narrow (exact email, or
+	// exactly one confident name among the org's own employees) — everyone else,
+	// and every ambiguity, stages exactly as before.
 	var proposalIDs []ids.UUID
 	for _, person := range mergedPeople {
+		matched, err := w.people.ApplySitePersonFields(ctx, orgID, people.SitePersonFields{
+			Name:            person.Name,
+			Role:            person.Role,
+			PublishedEmail:  person.PublishedEmail,
+			LinkedinURL:     person.LinkedinURL,
+			EvidenceSnippet: person.EvidenceSnippet,
+			SourceURL:       person.SourceURL,
+		})
+		if err != nil {
+			// A fill that failed must not cost the lead: fall through to staging
+			// so the person still reaches a human, and say why in the log.
+			w.log.WarnContext(ctx, "auto-enrich: filling a matched site person failed",
+				"org", orgID.String(), "person", person.Name, "err", err)
+		}
+		if matched {
+			continue
+		}
 		approvalID, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person)
 		if err != nil {
 			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)

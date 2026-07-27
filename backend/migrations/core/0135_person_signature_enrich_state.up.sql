@@ -13,6 +13,13 @@
 -- to the model. A person is a candidate again only when newer mail arrives, so
 -- the cost of asking is bounded by mail volume rather than by time.
 --
+-- The comparison is on TIME, not on identity, and the cursor only ever moves
+-- forward. Asking "is the newest mail a different row than the one I read" would
+-- reopen a person the moment the mail that was read is archived — the next
+-- candidate query then finds an OLDER message and pays for reading a signature
+-- that has already been read. Two workers finishing out of order would rewind it
+-- the same way.
+--
 -- Sidecar rather than a column on person, deliberately: person carries the
 -- set_updated_at_bump_version trigger, so stamping the attempt on the row would
 -- bump the record's version and updated_at on every pass — manufacturing
@@ -34,6 +41,12 @@ CREATE TABLE person_signature_enrich_state (
   CONSTRAINT person_signature_enrich_state_person_id_fkey
     FOREIGN KEY (workspace_id, person_id)
     REFERENCES person (workspace_id, id) ON DELETE CASCADE,
+
+  -- The read watermark: the occurred_at of the newest mail already shown to the
+  -- model. This is what the candidate query compares against, and it is written
+  -- as a GREATEST so it never moves backwards — unlike activity_id, which names
+  -- WHICH mail was read and is provenance only.
+  last_activity_at timestamptz NOT NULL,
 
   attempted_at timestamptz NOT NULL DEFAULT now()
 );

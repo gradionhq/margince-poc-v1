@@ -401,26 +401,39 @@ func (s *Service) HasPendingKind(ctx context.Context, kind string, targetID ids.
 //
 // It exists so an owner of the underlying question can retract it when the
 // question stops being one — the capture ledger ageing out an unanswered review
-// is the first caller. Withdrawing an already-decided approval does nothing:
-// what a human answered is not the caller's to take back.
-func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, reason string) error {
+// is the first caller. It reports whether the offer was still live to take:
+// withdrawing an already-decided approval does nothing and says so, because what
+// a human answered is not the caller's to take back, and a caller that acts on
+// the retraction needs to know the retraction happened.
+func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, reason string) (bool, error) {
 	p, ok := principal.Actor(ctx)
 	if !ok {
-		return errors.New("crmapprovals: no actor bound to context")
+		return false, errors.New("crmapprovals: no actor bound to context")
+	}
+	// The same row lock decideInTx takes, for the same reason: a decision landing
+	// concurrently has to be ordered against this write rather than interleaved
+	// with it. A human who wins the lock leaves the row decided and this reports
+	// false; one who loses re-reads an expired row and is refused.
+	var locked ids.ApprovalID
+	if err := tx.QueryRow(ctx, `SELECT id FROM approval WHERE id = $1 FOR UPDATE`, id).Scan(&locked); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		return false, fmt.Errorf("lock approval to withdraw: %w", err)
 	}
 	tag, err := tx.Exec(ctx, `
 		UPDATE approval SET expires_at = now() - interval '1 day'
-		 WHERE id = $1 AND status = 'pending' AND expires_at > now()`, id)
+		 WHERE id = $1 AND status = 'pending'`, id)
 	if err != nil {
-		return fmt.Errorf("withdraw approval: %w", err)
+		return false, fmt.Errorf("withdraw approval: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
-		return nil
+		return false, nil
 	}
 	if _, err := s.audit(ctx, tx, p, "update", id.UUID, map[string]any{
 		"withdrawn": true, "reason": reason,
 	}); err != nil {
-		return fmt.Errorf("audit withdrawn approval: %w", err)
+		return false, fmt.Errorf("audit withdrawn approval: %w", err)
 	}
-	return nil
+	return true, nil
 }
