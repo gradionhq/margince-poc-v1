@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -131,6 +132,30 @@ func TestListOverlayUserMapIs404InNativeMode(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "mode_not_overlay") {
 		t.Errorf("body = %s, want the mode_not_overlay code", rec.Body.String())
+	}
+}
+
+// A cursor is opaque client input, so a mangled one is the caller's own
+// mistake and the contract promises it a 422. Answering 500 sends an admin
+// looking for an outage that is not there — and this is the status the whole
+// fix exists to correct, so it is pinned at the transport, not just at the
+// decoder.
+func TestListOverlayUserMapAnswers422ForAMalformedCursor(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	h := NewHandlers(connectedUserMapService(ctx, t, pool, &directoryIncumbent{}))
+	garbage := "not valid base64!!"
+
+	rec := httptest.NewRecorder()
+	h.ListOverlayUserMap(rec,
+		httptest.NewRequest(http.MethodGet, "/overlay/user-map?cursor="+url.QueryEscape(garbage), nil).WithContext(ctx),
+		crmcontracts.ListOverlayUserMapParams{Cursor: &garbage})
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d for a malformed cursor (body: %s)",
+			rec.Code, http.StatusUnprocessableEntity, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "malformed_cursor") {
+		t.Errorf("body = %s, want the malformed_cursor code so the client knows which input to drop", rec.Body.String())
 	}
 }
 

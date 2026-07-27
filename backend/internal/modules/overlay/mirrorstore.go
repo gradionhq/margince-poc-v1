@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -467,13 +468,20 @@ func encodeMirrorCursor(externalID string) string {
 	return base64.RawURLEncoding.EncodeToString([]byte(externalID))
 }
 
+// decodeMirrorCursor answers storekit.MalformedCursorError, not a bare wrap:
+// the cursor is client-supplied input on every surface that pages this store,
+// so a token that does not decode is the caller's mistake and httperr must be
+// able to say so (422 malformed_cursor). An opaque wrap falls through to a 500
+// and sends an admin looking for an outage that is not there. The base64
+// cause is deliberately dropped — it tells the client nothing it can act on
+// beyond "the token is not one we minted".
 func decodeMirrorCursor(cursor string) (string, error) {
 	if cursor == "" {
 		return "", nil
 	}
 	raw, err := base64.RawURLEncoding.DecodeString(cursor)
 	if err != nil {
-		return "", fmt.Errorf("overlay: malformed list cursor: %w", err)
+		return "", &storekit.MalformedCursorError{}
 	}
 	return string(raw), nil
 }
