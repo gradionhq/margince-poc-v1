@@ -14,6 +14,7 @@ package integration
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
@@ -423,5 +424,81 @@ func TestListProjectsAppliesFiltersRegisteredAfterThePrelude(t *testing.T) {
 	}
 	if len(byKey) != 1 {
 		t.Errorf("key lookup returned %d rows, want 1", len(byKey))
+	}
+}
+
+// The merge refusal is a read of both sides, so it obeys row scope like any
+// other read. Work the caller cannot see must still BLOCK the merge —
+// otherwise a rep quietly combines two companies whose projects another team
+// owns — but it must not be NAMED, because naming a project is reading it.
+func TestTheMergeRefusalCountsInvisibleProjectsWithoutNamingThem(t *testing.T) {
+	e := Setup(t)
+	source := e.SeedOrg(t, "Helios GmbH", nil)
+	target := e.SeedOrg(t, "Helios AG", nil)
+	// Each side's project belongs to a different rep, and the caller below
+	// owns neither.
+	seedProject(e.Admin(), t, e, "Secret migration", nil, source, &e.Rep1)
+	seedProject(e.Admin(), t, e, "Secret rollout", nil, target, &e.Rep2)
+
+	outsider := e.As(e.Rep3, []ids.UUID{e.Team2}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true, Update: true, Delete: true},
+			"project":      {Read: true},
+			"person":       {Read: true, Update: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	_, err := e.People.MergeOrganization(outsider, orgIDOf(source), orgIDOf(target))
+	var both *people.BothCompaniesCarryProjectsError
+	if !errors.As(err, &both) {
+		t.Fatalf("the merge produced %v, want a refusal — invisible work still blocks it", err)
+	}
+	// Blocked on the true state of the world...
+	if both.SourceCount != 1 || both.TargetCount != 1 {
+		t.Errorf("counted %d and %d live projects, want one each", both.SourceCount, both.TargetCount)
+	}
+	// ...and silent about work this caller may not read.
+	if len(both.Source) != 0 || len(both.Target) != 0 {
+		t.Errorf("the refusal named %v and %v to a caller who can see neither", both.Source, both.Target)
+	}
+	for _, secret := range []string{"Secret migration", "Secret rollout"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("the refusal message leaked %q to a caller who cannot read it: %v", secret, err)
+		}
+	}
+}
+
+// The same refusal, seen by someone who owns both projects: it names them,
+// because for this caller they are not a secret — the point of scoping the
+// naming is precision, not silence.
+func TestTheMergeRefusalNamesTheProjectsTheCallerCanSee(t *testing.T) {
+	e := Setup(t)
+	source := e.SeedOrg(t, "Vector Ltd", nil)
+	target := e.SeedOrg(t, "Vector Limited", nil)
+	seedProject(e.Admin(), t, e, "Mine A", nil, source, &e.Rep1)
+	seedProject(e.Admin(), t, e, "Mine B", nil, target, &e.Rep1)
+
+	owner := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true, Update: true, Delete: true},
+			"project":      {Read: true},
+			"person":       {Read: true, Update: true},
+		},
+		RowScope: principal.RowScopeOwn,
+	})
+
+	_, err := e.People.MergeOrganization(owner, orgIDOf(source), orgIDOf(target))
+	var both *people.BothCompaniesCarryProjectsError
+	if !errors.As(err, &both) {
+		t.Fatalf("the merge produced %v, want a refusal", err)
+	}
+	if len(both.Source) != 1 || both.Source[0] != "Mine A" {
+		t.Errorf("source projects = %v, want the one this caller owns", both.Source)
+	}
+	if len(both.Target) != 1 || both.Target[0] != "Mine B" {
+		t.Errorf("target projects = %v, want the one this caller owns", both.Target)
 	}
 }

@@ -275,47 +275,87 @@ func relinkOrgEdges(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.Organ
 //
 // Only live projects count. An archived project is a grouping already ended,
 // and it relinks with everything else.
+// The DECISION is unscoped and the NAMING is not, and the split is the whole
+// point: work the caller cannot see must still block the merge, or a rep
+// would quietly combine two companies whose projects another team owns. But
+// naming a project is a read of it, so the refusal lists only the ones this
+// caller may already see and counts the rest.
 func refuseWhenBothCarryProjects(ctx context.Context, tx pgx.Tx, sourceID, targetID ids.OrganizationID) error {
-	rows, err := tx.Query(ctx, `
-		SELECT organization_id, name FROM project
-		WHERE organization_id IN ($1, $2) AND archived_at IS NULL
-		ORDER BY organization_id, name`, sourceID, targetID)
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	sourcePos, targetPos := arg(sourceID), arg(targetID)
+	scope, err := auth.ScopeClauseFor(ctx, projectObjectName, "", arg)
+	if err != nil {
+		return err
+	}
+	visible := "true"
+	if scope != "" {
+		visible = scope
+	}
+	rows, err := tx.Query(ctx, storekit.SQLf(`
+		SELECT organization_id, name, (%s) AS visible FROM project
+		WHERE organization_id IN ($%d, $%d) AND archived_at IS NULL
+		ORDER BY organization_id, name`, visible, sourcePos, targetPos), args...)
 	if err != nil {
 		return fmt.Errorf("read projects on both merge endpoints: %w", err)
 	}
 	defer rows.Close()
 
-	var sourceNames, targetNames []string
+	var refusal BothCompaniesCarryProjectsError
 	for rows.Next() {
 		var org ids.UUID
 		var name string
-		if err := rows.Scan(&org, &name); err != nil {
+		var canSee bool
+		if err := rows.Scan(&org, &name, &canSee); err != nil {
 			return err
 		}
+		side, names := &refusal.TargetCount, &refusal.Target
 		if org == sourceID.UUID {
-			sourceNames = append(sourceNames, name)
-			continue
+			side, names = &refusal.SourceCount, &refusal.Source
 		}
-		targetNames = append(targetNames, name)
+		*side++
+		if canSee {
+			*names = append(*names, name)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return err
 	}
-	if len(sourceNames) > 0 && len(targetNames) > 0 {
-		return &BothCompaniesCarryProjectsError{Source: sourceNames, Target: targetNames}
+	if refusal.SourceCount > 0 && refusal.TargetCount > 0 {
+		return &refusal
 	}
 	return nil
 }
 
 // BothCompaniesCarryProjectsError maps to 409: the merge needs a human to
 // say whether the two sets of work are the same body of work or two.
+// Source and Target name only the projects the caller may see; the counts
+// cover every live project on each side, visible or not. A caller with no
+// sight of either side still learns the merge is blocked and why, without
+// learning what another team is working on.
 type BothCompaniesCarryProjectsError struct {
-	Source []string
-	Target []string
+	Source      []string
+	Target      []string
+	SourceCount int
+	TargetCount int
 }
 
 func (e *BothCompaniesCarryProjectsError) Error() string {
 	return "both companies have live projects (" +
-		strings.Join(e.Source, ", ") + " and " + strings.Join(e.Target, ", ") +
+		mergeSideSummary(e.Source, e.SourceCount) + " and " + mergeSideSummary(e.Target, e.TargetCount) +
 		"); archive or re-anchor one side before merging, so the merge does not guess whether they are the same work"
+}
+
+// mergeSideSummary names what the caller may see and counts what it may not,
+// so the sentence stays true either way rather than falling silent about
+// work that is genuinely blocking the merge.
+func mergeSideSummary(names []string, total int) string {
+	switch {
+	case len(names) == 0:
+		return fmt.Sprintf("%d not visible to you", total)
+	case len(names) == total:
+		return strings.Join(names, ", ")
+	default:
+		return fmt.Sprintf("%s and %d more not visible to you", strings.Join(names, ", "), total-len(names))
+	}
 }
