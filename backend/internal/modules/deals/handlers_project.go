@@ -9,6 +9,7 @@ package deals
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -132,11 +133,16 @@ func (h Handlers) ArchiveProject(w http.ResponseWriter, r *http.Request, id crmc
 }
 
 func projectCreateInput(req crmcontracts.CreateProjectRequest) (CreateProjectInput, error) {
-	if req.Name == "" {
+	// Trimmed, because a name of spaces is not a name: it satisfies "required"
+	// on the wire and then reads as blank on every screen that shows it. The
+	// company surface refuses whitespace-only required fields for the same
+	// reason, and the stored name is the trimmed one so the two agree.
+	name := strings.TrimSpace(req.Name)
+	if name == "" {
 		return CreateProjectInput{}, &RequiredFieldError{Field: dealNameColumn}
 	}
 	in := CreateProjectInput{
-		Name:           req.Name,
+		Name:           name,
 		Key:            req.Key,
 		OrganizationID: pathID[ids.OrganizationKind](req.OrganizationId),
 		OwnerID:        idArg[ids.UserKind](req.OwnerId),
