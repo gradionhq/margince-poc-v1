@@ -73,7 +73,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/agents/runner:StartRun":                 "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:SaveOutcome":              "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:MarkFailed":               "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
-	"internal/modules/agents/runner:FindSuspendedByApproval":  "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
+	"internal/modules/agents/runner:ClaimSuspendedByApproval": "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:EnqueueJob":               "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:ClaimDueJobs":             "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
 	"internal/modules/agents/runner:FinishJob":                "agent-runner persistence driven by the worker loop under the system principal; admission happened at the tool gate that enqueued the run",
