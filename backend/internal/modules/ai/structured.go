@@ -124,7 +124,7 @@ func withValidatorFeedback(req model.Request, failedText string, cause error) mo
 		// Fail closed: the retry keeps the instruction and loses the detail,
 		// which costs a correction and risks nothing.
 		out.Messages = append(append([]model.Message{}, req.Messages...),
-			model.Message{Role: "user", Content: retryInstruction})
+			model.Message{Role: roleUser, Content: retryInstruction})
 		return out
 	case boundaryNone:
 		return appendFeedback(out, req, failedText, cause, func(s string) string { return s })
@@ -138,8 +138,8 @@ func withValidatorFeedback(req model.Request, failedText string, cause error) mo
 func appendFeedback(out, req model.Request, failedText string, cause error, echo func(string) string) model.Request {
 	out.Messages = append(
 		append([]model.Message{}, req.Messages...),
-		model.Message{Role: "assistant", Content: echo(failedText)},
-		model.Message{Role: "user", Content: "That output failed validation: " +
+		model.Message{Role: roleAssistant, Content: echo(failedText)},
+		model.Message{Role: roleUser, Content: "That output failed validation: " +
 			echo(cause.Error()) + "\n" + retryInstruction},
 	)
 	return out
