@@ -37,14 +37,18 @@ type Site struct {
 
 func (s Site) key() string { return string(s.Task) + "/" + s.Variant }
 
-// Registry collects the sites one composition registers.
+// Registry collects the sites one composition registers, and the certification
+// case each site is served by.
 type Registry struct {
 	sites map[string]Site
+	cases map[string]CaseFactory
 	dupes []string
 }
 
 // NewRegistry builds an empty registry.
-func NewRegistry() *Registry { return &Registry{sites: map[string]Site{}} }
+func NewRegistry() *Registry {
+	return &Registry{sites: map[string]Site{}, cases: map[string]CaseFactory{}}
+}
 
 // Register adds one site. A duplicate key is recorded rather than overwritten
 // silently — Validate reports it, so two implementations of one site cannot
@@ -55,6 +59,17 @@ func (r *Registry) Register(s Site) {
 		return
 	}
 	r.sites[s.key()] = s
+}
+
+// BindCase attaches the certification case that serves one site. The binding
+// is keyed off the factory's own Site, so a case cannot be filed under a site
+// it does not claim.
+func (r *Registry) BindCase(c CaseFactory) { r.cases[c.Site().key()] = c }
+
+// CaseFor finds the case bound to one site.
+func (r *Registry) CaseFor(task ai.Task, variant string) (CaseFactory, bool) {
+	c, ok := r.cases[string(task)+"/"+variant]
+	return c, ok
 }
 
 // All returns every registered site, ordered by task then variant.
@@ -75,8 +90,9 @@ func (r *Registry) Lookup(task ai.Task, variant string) (Site, bool) {
 
 // Validate holds the registered set to the contract: no duplicates, every
 // registered site declared with the kind the contract gives it, every shipped
-// task's sites all present, and no site on a planned task. It reports every
-// problem at once — a wiring fix wants the whole list.
+// task's sites all present, no site on a planned task, and no certification
+// case bound to a site nobody registered. It reports every problem at once —
+// a wiring fix wants the whole list.
 func (r *Registry) Validate() error {
 	var problems []string
 	for _, key := range r.dupes {
@@ -100,6 +116,13 @@ func (r *Registry) Validate() error {
 		if s.Kind != kind {
 			problems = append(problems, fmt.Sprintf(
 				"site %s is registered as kind %q but the contract declares %q", s.key(), s.Kind, kind))
+		}
+	}
+
+	for key := range r.cases {
+		if _, registered := r.sites[key]; !registered {
+			problems = append(problems, fmt.Sprintf(
+				"a certification case is bound to site %s, which is not registered (register the site, or delete the case)", key))
 		}
 	}
 
