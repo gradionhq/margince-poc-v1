@@ -872,6 +872,56 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Recorded idempotency bodies survive Art. 17 erasure.**
+  `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
+  `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that
+  table. Erasure anonymizes the person row in place, so the replay's row-scope
+  probe still passes for the original owner — API-CC-8 does not close this by
+  construction. Within the window a rep can replay their own key and receive the
+  pre-erasure name and email verbatim. Fix: purge `response_body` for claims
+  whose recorded record is the subject through the ratified cross-store seam, or
+  cap that column's retention well below the DSR SLA.
+
+- **17 replay routes re-check nothing at all.** Those carrying a `rowNote`
+  (pipelines, stages, products, offer-templates, quotas, custom-fields,
+  onboarding, DSR, site-reads) have no row-scoped record AND no object re-check,
+  so it is zero dimensions rather than half a gate. Related: ADR-0055's
+  "revocation binds mid-session" is false for a passport on a replay — narrowing
+  a passport's scope does not stop it replaying a body recorded under the wider
+  scope, because scope is the object dimension.
+
+- **Idempotent replay does not re-check the OBJECT grant (the row scope now is).**
+  `compose/replayscope.go` re-probes row-scope visibility before serving a
+  recorded body (API-CC-8), which closes the leak that mattered: a grant or
+  ownership transfer moves a record out of sight while permissions stay
+  byte-identical. The object half is recorded per route in `replayTarget.object`
+  but not re-run, because the ACTION to re-check is per-route data and both
+  obvious derivations are wrong. `ActionRead` is stricter than the write the
+  caller originally passed — a role with create and no read would have every
+  retry 403, breaking idempotency outright rather than only after a revocation
+  (this is not hypothetical: it broke `TestIdempotencyReplayRepeatsTheRecordedContentType`
+  when tried). Deriving the action from the HTTP method fails too, since
+  `POST /v1/deals/{id}/advance`, `/merge` and `/offers/{id}/send` are updates.
+  Closing it needs the required action recorded per route beside the object,
+  then re-checked; the fitness test already forces every route to name its
+  object or say why it has none, so the data half is in place.
+  Second, separate defect in the same area: `settleClaim` runs on
+  `r.Context()`, already cancelled when a client disconnects mid-request, so
+  the claim strands with `response_status IS NULL` and every retry of that key
+  answers `409 idempotency_key_conflict` for 24h — the write did not land *and*
+  the retry is refused. The repo already has the idiom: `context.WithoutCancel`
+  in `capture/backfillpager.go` and `ai/tracing.go`.
+
+- **403 is declared on a minority of the operations that can answer it.**
+  margince-foundation#1194 made the narrow invariant unanimous — every
+  operation declaring `ApprovalToken` now declares 403 — but the broader one is
+  open: ~113 operations declare 404 without 403 while their handlers reach
+  `auth.Require`, including the `getProject` / `getDeal` / `updateDeal` triads
+  whose `/people/{id}` peers all declare it. Fix upstream first (the spec's
+  `crm.yaml` is the source of truth), then re-derive here; and pin it with a
+  fitness test on the `idempotencymap_test.go` model — derive the expected set
+  from the handlers, carry a reasoned exemption map — so it cannot drift again.
+
 - **Capture quality gates + captured-company auto-enrichment — spec ratified,
   implementation in flight (margince-foundation ADR-0072/A118).**
   **Phase 0 (spec):** ADR-0072/A118 authored in `margince-foundation`

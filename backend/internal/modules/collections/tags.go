@@ -142,7 +142,7 @@ func (s *Store) ApplyTag(ctx context.Context, tagID ids.TagID, entityType string
 		return taggableRow{}, err
 	}
 	if !memberEntityTables[entityType] {
-		return taggableRow{}, &BadInputError{Field: "entity_type", Reason: "must be person|organization|deal|lead"}
+		return taggableRow{}, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
 	var out taggableRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

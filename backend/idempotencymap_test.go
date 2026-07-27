@@ -5,7 +5,7 @@ package backendarch
 
 // The idempotency allowlist as a fitness function: the contract is the
 // authority on which operations promise Idempotency-Key retry safety,
-// and internal/compose's hand-maintained idempotentOperations map must
+// and internal/compose's hand-maintained replayableOperations map must
 // mirror it exactly. A declared operation missing from the map silently
 // drops the promise (a retried create duplicates the row); a mapped
 // operation the contract no longer declares claims keys for a promise
@@ -26,7 +26,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const idempotencyMapSource = "internal/compose/idempotency.go"
+const idempotencyMapSource = "internal/compose/replayscope.go"
 
 // idempotencyExemptions names the contract operations that declare the
 // IdempotencyKey parameter but are deliberately NOT claimed by the
@@ -96,7 +96,7 @@ func idempotencyKeyDeclarations(t *testing.T) map[string]bool {
 	return declared
 }
 
-// mappedIdempotentOperations reads the idempotentOperations map literal
+// mappedIdempotentOperations reads the replayableOperations map literal
 // out of the compose source (the rbacgate AST technique — the root
 // component walks the contract, it never imports compose). The decl
 // walk skips everything that is not the map being sought; once found,
@@ -116,21 +116,21 @@ func mappedIdempotentOperations(t *testing.T) map[string]bool {
 		}
 		for _, spec := range gen.Specs {
 			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || value.Names[0].Name != "idempotentOperations" || len(value.Values) != 1 {
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != "replayableOperations" || len(value.Values) != 1 {
 				continue
 			}
 			lit, ok := value.Values[0].(*ast.CompositeLit)
 			if !ok {
-				t.Fatalf("%s: idempotentOperations is no longer a composite map literal — teach this extractor the new shape", idempotencyMapSource)
+				t.Fatalf("%s: replayableOperations is no longer a composite map literal — teach this extractor the new shape", idempotencyMapSource)
 			}
 			for _, elt := range lit.Elts {
 				kv, ok := elt.(*ast.KeyValueExpr)
 				if !ok {
-					t.Fatalf("%s: idempotentOperations holds a non key/value element — teach this extractor the new shape", idempotencyMapSource)
+					t.Fatalf("%s: replayableOperations holds a non key/value element — teach this extractor the new shape", idempotencyMapSource)
 				}
 				keyLit, ok := kv.Key.(*ast.BasicLit)
 				if !ok || keyLit.Kind != token.STRING {
-					t.Fatalf("%s: idempotentOperations has a non-string-literal key — teach this extractor the new shape", idempotencyMapSource)
+					t.Fatalf("%s: replayableOperations has a non-string-literal key — teach this extractor the new shape", idempotencyMapSource)
 				}
 				key, err := strconv.Unquote(keyLit.Value)
 				if err != nil {
@@ -153,7 +153,7 @@ func TestIdempotentOperationsMirrorTheContract(t *testing.T) {
 		t.Fatalf("found only %d IdempotencyKey declarations in api/crm.yaml — the contract walk no longer sees the schema", len(declared))
 	}
 	if len(mapped) < 20 {
-		t.Fatalf("found only %d entries in idempotentOperations — the source extractor no longer sees the map", len(mapped))
+		t.Fatalf("found only %d entries in replayableOperations — the source extractor no longer sees the map", len(mapped))
 	}
 
 	for op := range idempotencyExemptions {
@@ -161,17 +161,17 @@ func TestIdempotentOperationsMirrorTheContract(t *testing.T) {
 			t.Errorf("idempotencyExemptions names %s but the contract no longer declares IdempotencyKey on it — delete the stale exemption", op)
 		}
 		if mapped[op] {
-			t.Errorf("%s is exempted yet present in idempotentOperations — either honor the promise and delete the exemption, or keep the operation out of the map", op)
+			t.Errorf("%s is exempted yet present in replayableOperations — either honor the promise and delete the exemption, or keep the operation out of the map", op)
 		}
 	}
 	for op := range declared {
 		if !mapped[op] && idempotencyExemptions[op] == "" {
-			t.Errorf("%s declares the IdempotencyKey parameter but is missing from idempotentOperations — a retried request re-executes instead of replaying", op)
+			t.Errorf("%s declares the IdempotencyKey parameter but is missing from replayableOperations — a retried request re-executes instead of replaying", op)
 		}
 	}
 	for op := range mapped {
 		if !declared[op] {
-			t.Errorf("idempotentOperations maps %s but the contract does not declare IdempotencyKey on it — the map claims keys for a promise the contract never made", op)
+			t.Errorf("replayableOperations maps %s but the contract does not declare IdempotencyKey on it — the map claims keys for a promise the contract never made", op)
 		}
 	}
 }
