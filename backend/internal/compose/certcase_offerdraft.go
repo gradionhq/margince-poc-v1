@@ -353,6 +353,12 @@ func (c *offerDraftCase) Run(ctx context.Context, completer aitasks.Completer) (
 //
 // A reply that staged something is usable whatever else it claimed, so a missing
 // or misgrounded line is a wrong answer, named as such.
+//
+// A lookup FAULT is neither: it ends the draft. The ladder propagates it rather
+// than calling the line ungrounded, the gate returns it, and the orchestrator
+// returns it too — so nothing stages, the offer is left exactly as the
+// mechanical clone made it, and the lines that had already grounded reach
+// nobody. There is no reply left to grade, which is what this reports.
 func (c *offerDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	candidates, err := parseOfferDraftLines(trace.Output)
 	if err != nil {
@@ -361,7 +367,13 @@ func (c *offerDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 			Detail: fmt.Sprintf("unparseable model output: %v", err),
 		}
 	}
-	staged, refusals := c.gate(candidates)
+	staged, refusals, err := c.gate(candidates)
+	if err != nil {
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeInvalid,
+			Detail: fmt.Sprintf("no draft was measured: %v, and the whole draft is abandoned with it", err),
+		}
+	}
 	// Every refusal reaches the Detail whatever the result: a draft that staged
 	// the expected lines while inventing three ungrounded ones is not the clean
 	// run it would otherwise look like.
@@ -389,7 +401,13 @@ func (c *offerDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 // by absence, so asking about a single candidate is the only way to learn WHICH
 // one it dropped; it holds no state across candidates, so what this collects is
 // what one batched call stages, in the order it stages it.
-func (c *offerDraftCase) gate(candidates []offerLineCandidate) ([]deals.StagedOfferLineInput, []string) {
+//
+// A fault is where the one batched call and this walk would come apart, so it
+// ends the walk: the batched call returns the fault and no lines at all, and a
+// walk that carried on collecting would hold a draft the orchestrator never had.
+// The fault names the candidate it happened on, because that is the diagnosis
+// the one call cannot give.
+func (c *offerDraftCase) gate(candidates []offerLineCandidate) ([]deals.StagedOfferLineInput, []string, error) {
 	var (
 		staged   []deals.StagedOfferLineInput
 		refusals []string
@@ -401,17 +419,15 @@ func (c *offerDraftCase) gate(candidates []offerLineCandidate) ([]deals.StagedOf
 			context.Background(), candidates[i:i+1], c.dealContext, c.currency)
 		switch {
 		case err != nil:
-			// A lookup fault is not a grounding verdict — the ladder propagates it
-			// rather than calling the line ungrounded, and so does this.
-			refusals = append(refusals, fmt.Sprintf(
-				"the rate-card lookup faulted on %s: %v", offerLineName(candidates[i], i), err))
+			return nil, nil, fmt.Errorf(
+				"the rate-card lookup faulted on %s: %w", offerLineName(candidates[i], i), err)
 		case len(lines) == 0:
 			refusals = append(refusals, "the gate refused "+offerLineName(candidates[i], i))
 		default:
 			staged = append(staged, lines...)
 		}
 	}
-	return staged, refusals
+	return staged, refusals, nil
 }
 
 // offerLineName says which drafted line a refusal is about. A line with no

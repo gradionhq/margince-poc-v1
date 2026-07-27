@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 	"text/tabwriter"
 
@@ -272,6 +273,26 @@ func summarize(rows []readinessRow) string {
 		len(covered), len(sites))
 }
 
+// taskContextsNotServed names every certified task whose contract has
+// production prepend company context, with the scopes its runs went without —
+// each task once, however many of its sites have rows. A task whose contract
+// prepends none is left out: nothing was missing from it, and listing it would
+// bury the ones where something was.
+func taskContextsNotServed(rows []readinessRow) []string {
+	named := map[string]bool{}
+	var out []string
+	for _, row := range rows {
+		record := row.record
+		if !row.certified || record.ContextApplied || len(record.ContextScopes) == 0 || named[record.Task] {
+			continue
+		}
+		named[record.Task] = true
+		out = append(out, record.Task+" ("+strings.Join(record.ContextScopes, ", ")+")")
+	}
+	sort.Strings(out)
+	return out
+}
+
 // legend states what the table's words mean and what a row does NOT say. Both
 // belong in the output rather than in a reader's head: the binding is part of
 // every claim here, and a row read as a property of the product rather than of
@@ -309,6 +330,15 @@ func legend(rows []readinessRow, sites []aitasks.Site, unclaimed []aicert.Record
 	if stale > 0 || absent > 0 {
 		lines = append(lines,
 			"Run `make e2e-ai TASK=<task> MODEL=<provider:model>` to certify (paid: real model, real network).")
+	}
+	// No run is served the company context production prepends — the lane has no
+	// database to assemble it from — and for most tasks that costs nothing,
+	// because their contract prepends none. The tasks whose contract DOES is the
+	// part a reader cannot infer from a row, so those rows say it.
+	if without := taskContextsNotServed(rows); len(without) > 0 {
+		lines = append(lines,
+			"Certified without the company context production prepends (this lane runs with no database to",
+			"assemble it from): "+strings.Join(without, "; ")+".")
 	}
 	shippedTasks := map[string]bool{}
 	for _, site := range sites {

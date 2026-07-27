@@ -12,6 +12,7 @@ package aicert
 
 import (
 	"encoding/json"
+	"slices"
 	"testing"
 	"time"
 
@@ -152,6 +153,64 @@ func TestBuildRecordCountsWhatEachRunActuallyProduced(t *testing.T) {
 	}
 	if rec.ContextApplied {
 		t.Fatal("context_applied is true, but the cert lane runs without a database and never applies the company context prompt")
+	}
+}
+
+// context_applied is one fact about the LANE: it is false on every record,
+// because assembling the company context reads a database no certification run
+// has. WHICH records that costs something is a fact about the task, and only the
+// task's own declared scopes say it — a task production always prepends scopes
+// to was certified without reference data every real call carries, and a task
+// that declares none went without nothing.
+//
+// Derived from the contract for every task rather than pinned task by task: a
+// scope added upstream must not be able to leave a record naming the old set.
+func TestEveryRecordNamesTheCompanyContextItsTaskWentWithout(t *testing.T) {
+	withFixedNow(t, time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC))
+	scoped := 0
+	for _, task := range ai.AllTasks() {
+		policy, declared := ai.CompanyContextFor(task)
+		if !declared {
+			t.Errorf("the contract declares no company-context policy for %s, so no record of it can be read", task)
+			continue
+		}
+		if len(policy.Scopes) > 0 {
+			scoped++
+		}
+		rec := buildRecord(task, VerdictCertified, ratedAccumulation(),
+			ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
+		if rec.ContextApplied {
+			t.Errorf("the %s record claims the company context was applied, and this lane has no database to assemble it from", task)
+		}
+		if !slices.Equal(rec.ContextScopes, policy.Scopes) {
+			t.Errorf("the %s record names context scopes %v, and the contract has production prepend %v",
+				task, rec.ContextScopes, policy.Scopes)
+		}
+	}
+	if scoped == 0 {
+		t.Fatal("no task declares a company-context scope, so every assertion above held over the empty set")
+	}
+}
+
+// The contract's scope list is package state shared by every reader of it. A
+// record handed the original would let anything holding one edit what the next
+// record claims production prepends.
+func TestARecordDoesNotHandOutTheContractsOwnScopes(t *testing.T) {
+	withFixedNow(t, time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC))
+	rec := buildRecord(ai.TaskOfferDraft, VerdictCertified, ratedAccumulation(),
+		ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
+	if len(rec.ContextScopes) == 0 {
+		t.Fatal("offer_draft declares no company-context scope, so this record has nothing to share")
+	}
+
+	rec.ContextScopes[0] = "edited by a record holder"
+
+	policy, declared := ai.CompanyContextFor(ai.TaskOfferDraft)
+	if !declared {
+		t.Fatal("the contract declares no company-context policy for offer_draft")
+	}
+	if policy.Scopes[0] == rec.ContextScopes[0] {
+		t.Error("editing a record's scopes edited the task contract every later record is built from")
 	}
 }
 

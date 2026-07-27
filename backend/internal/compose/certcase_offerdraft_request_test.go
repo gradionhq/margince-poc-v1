@@ -11,11 +11,15 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -119,13 +123,73 @@ func assertOrchestratorAgrees(
 	assertSameStagedLines(t, "the orchestrator", staged, wantStaged)
 	// The case asks the gate one candidate at a time so it can say WHICH line was
 	// dropped; this is the proof that means the same thing.
-	certified, refusals := c.gate(candidates)
+	certified, refusals, err := c.gate(candidates)
+	if err != nil {
+		t.Fatalf("the case's gate faulted where the orchestrator's did not: %v", err)
+	}
 	assertSameStagedLines(t, "the case", certified, staged)
 	if len(refusals) != len(candidates)-len(certified) {
 		t.Errorf("the case names %d refusals for %d dropped candidates: %v",
 			len(refusals), len(candidates)-len(certified), refusals)
 	}
 	assertSameOfferDraftRequest(t, brain.request, trace.Requests[0])
+}
+
+// faultingRateCard is the catalogue read failing for a reason that is NOT "no
+// such product" — a real infra or permission fault. It is the one answer this
+// case's own rate card cannot give, and the whole point of the ladder's
+// distinction between a lookup that says no and a lookup that cannot answer.
+type faultingRateCard struct{ err error }
+
+func (f faultingRateCard) GetProduct(
+	context.Context, ids.ProductID, storekit.ArchivedFilter,
+) (crmcontracts.Product, error) {
+	return crmcontracts.Product{}, f.err
+}
+
+// A lookup fault is not a grounding verdict, and it does not leave a partial
+// draft behind either: the ladder propagates it, the gate returns it, and
+// production abandons the whole draft — the lines that had already grounded
+// never reach a human. So a case that went on grading the survivors would grade
+// an offer nobody is shown.
+//
+// The reply is written so the two sides can disagree: its FIRST line grounds and
+// prices itself off the conversation, and only the SECOND reaches the catalogue.
+func TestOfferDraftCaseAbandonsTheDraftProductionAbandons(t *testing.T) {
+	c := prepareOfferDraftCase(t, offerDraftDealFixture(), offerDraftKickoffExpected(t))
+	fault := errors.New("the products table is unreachable")
+	c.drafter.rateCard = faultingRateCard{err: fault}
+
+	outcome, trace := runOfferDraftCase(t, c, func(req model.Request) string {
+		return draftReply(
+			kickoffLine(`"conversation_price_minor":20000`),
+			supportLine(`"product_id":"`+catalogIDFor(t, req, offerDraftSupportPlan)+`"`),
+		)
+	})
+
+	orchestrator := offerDrafter{
+		brain:    &replyBrainStub{response: model.Response{Text: trace.Output}},
+		rateCard: c.drafter.rateCard,
+	}
+	candidates, err := orchestrator.draftCandidates(context.Background(), c.dealContext, c.catalog)
+	if err != nil {
+		t.Fatalf("the orchestrator refused the reply outright: %v", err)
+	}
+	staged, err := orchestrator.groundOfferLines(context.Background(), candidates, c.dealContext, c.currency)
+	if err == nil {
+		t.Fatal("the orchestrator ground this reply without a fault, so the scenario proves nothing")
+	}
+	if len(staged) != 0 {
+		t.Errorf("the orchestrator staged %d lines beside the fault it raised", len(staged))
+	}
+
+	if outcome.Result != aitasks.OutcomeInvalid {
+		t.Fatalf("Result = %q (%s), want the run to report the draft production abandoned",
+			outcome.Result, outcome.Detail)
+	}
+	if !strings.Contains(outcome.Detail, fault.Error()) {
+		t.Errorf("Detail = %q, want it to name the fault that ended the draft", outcome.Detail)
+	}
 }
 
 func assertSameStagedLines(t *testing.T, whose string, got, want []deals.StagedOfferLineInput) {

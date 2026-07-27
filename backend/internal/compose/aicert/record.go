@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -65,12 +66,23 @@ type Record struct {
 	// answer is no: assembling that context reads the database, and the cert
 	// lane runs without one. A record that omitted the field would leave a
 	// reader to assume parity nobody checked.
-	ContextApplied bool  `json:"context_applied"`
-	ScoreP50       int   `json:"score_p50"`
-	ScoreMin       int   `json:"score_min"`
-	LatencyP50     int64 `json:"latency_p50"`
-	LatencyP95     int64 `json:"latency_p95"`
-	MeanTokens     int   `json:"mean_tokens"`
+	ContextApplied bool `json:"context_applied"`
+	// ContextScopes is what THIS task's contract has production prepend, and it
+	// is what makes ContextApplied's answer readable on one row instead of only
+	// as a fact about the lane. Most tasks declare no scopes and lose nothing by
+	// running DB-less; the ones that declare some were certified without
+	// reference data every production call carries, and how much that costs
+	// starts with which scopes they are.
+	//
+	// It is read off the task contract at build time rather than kept as a list
+	// beside it, so a scope added to a task cannot leave a record naming the old
+	// set.
+	ContextScopes []string `json:"context_scopes"`
+	ScoreP50      int      `json:"score_p50"`
+	ScoreMin      int      `json:"score_min"`
+	LatencyP50    int64    `json:"latency_p50"`
+	LatencyP95    int64    `json:"latency_p95"`
+	MeanTokens    int      `json:"mean_tokens"`
 	// MeanTokensIn/MeanTokensOut/MeanCachedTokens/MeanCacheWriteTokens are
 	// the four-bucket baseline (ADR-0067 phase 2): the pooled run set's
 	// per-bucket mean, each bucket's own truncating integer division —
@@ -317,6 +329,7 @@ func buildRecord(task ai.Task, taskVerdict string, acc *taskAccumulation, baseCf
 		ReportedAbstained:    tally.abstained,
 		CertifiedScope:       acc.certifiedScope,
 		ContextApplied:       certLaneAppliesCompanyContext,
+		ContextScopes:        declaredCompanyContextScopes(task),
 		ScoreP50:             scores[len(scores)/2],
 		ScoreMin:             scores[0],
 		LatencyP50:           percentile(sortedLatencies, 0.50),
@@ -359,6 +372,23 @@ func meanUsage(acc *taskAccumulation, n int) (int, ai.Usage) {
 		CachedTokens:     acc.cachedTokensTotal / n,
 		CacheWriteTokens: acc.cacheWriteTokensTotal / n,
 	}
+}
+
+// declaredCompanyContextScopes reads the task contract's own answer to what
+// production prepends for this task. Every task declares a policy — the ai
+// module's contract holds that — so an absent one is a build that could not
+// have run this task at all, and the empty set is the honest reading of it
+// rather than a scope list invented here.
+//
+// The slice is copied because the contract's own is package state: a record
+// handed the original would let anything holding it edit what the next record
+// claims.
+func declaredCompanyContextScopes(task ai.Task) []string {
+	policy, declared := ai.CompanyContextFor(task)
+	if !declared {
+		return nil
+	}
+	return slices.Clone(policy.Scopes)
 }
 
 // certLaneAppliesCompanyContext is false because this lane has no database.

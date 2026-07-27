@@ -34,9 +34,11 @@ func rowFor(t *testing.T, out, site string) string {
 
 // scenarioRecordFor is one all-passing scenario row on a site, which is what a
 // record needs to carry for the report to attribute it to that site at all.
-func scenarioRecordFor(site, verdict string) aicert.ScenarioRecord {
+// Three runs, three passes, three accepted replies: the verdict is not a
+// parameter because those numbers leave it nothing else to be.
+func scenarioRecordFor(site string) aicert.ScenarioRecord {
 	return aicert.ScenarioRecord{
-		Scenario: site + "_01", Site: site, Verdict: verdict,
+		Scenario: site + "_01", Site: site, Verdict: aicert.VerdictCertified,
 		Runs: 3, Passed: 3, ReportedAccepted: 3,
 	}
 }
@@ -91,13 +93,13 @@ func TestReadinessReportRendersStaleAndAbsentDistinctly(t *testing.T) {
 			Task: "rate_extract", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
 			PromptVersion: currentStamp,
 			Verdict:       aicert.VerdictCertified, Runs: 3, Passed: 3,
-			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("fx", aicert.VerdictCertified)},
+			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("fx")},
 		},
 		{
 			Task: "brief_ranking", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
 			PromptVersion: staleStamp,
 			Verdict:       aicert.VerdictCertified, Runs: 3, Passed: 3,
-			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("rank", aicert.VerdictCertified)},
+			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("rank")},
 		},
 	}
 
@@ -287,7 +289,7 @@ func TestReadinessReportNamesARecordNoSiteRowCanCarry(t *testing.T) {
 	records := []aicert.Record{{
 		Task: "rate_extract", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
 		PromptVersion: currentStamp, Verdict: aicert.VerdictCertified, Runs: 3, Passed: 3,
-		Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("a_site_that_moved", aicert.VerdictCertified)},
+		Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("a_site_that_moved")},
 	}}
 
 	out := renderReadiness(shippedCensus{sites: sites}, map[string]string{"rate_extract": currentStamp}, records)
@@ -297,5 +299,43 @@ func TestReadinessReportNamesARecordNoSiteRowCanCarry(t *testing.T) {
 	}
 	if !strings.Contains(out, "no row above can attribute it") {
 		t.Errorf("the unattributable record vanished from the report:\n%s", out)
+	}
+}
+
+// Every run in this lane is served the site's own prompt and nothing else,
+// because assembling the company context reads a database no certification run
+// has. For most tasks that is a difference of nothing — their contract prepends
+// no context either. For the ones whose contract does, the certified prompt is
+// short exactly what production always supplies, and no column of the table can
+// say so: the report has to.
+func TestReadinessReportNamesTheTasksCertifiedWithoutTheirCompanyContext(t *testing.T) {
+	sites := []aitasks.Site{
+		{Task: ai.TaskOfferDraft, Variant: "draft", Kind: ai.SiteKindOneShot},
+		{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot},
+	}
+	records := []aicert.Record{
+		{
+			Task: "offer_draft", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
+			PromptVersion: currentStamp, Verdict: aicert.VerdictCertified, Runs: 3, Passed: 3,
+			ContextScopes: []string{"offer", "positioning", "proof"},
+			Scenarios:     []aicert.ScenarioRecord{scenarioRecordFor("draft")},
+		},
+		{
+			Task: "rate_extract", Provider: "anthropic", ServedModel: "claude-sonnet-4-6", EnvClass: "byok",
+			PromptVersion: currentStamp, Verdict: aicert.VerdictCertified, Runs: 3, Passed: 3,
+			Scenarios: []aicert.ScenarioRecord{scenarioRecordFor("fx")},
+		},
+	}
+	stamps := map[string]string{"offer_draft": currentStamp, "rate_extract": currentStamp}
+
+	out := renderReadiness(shippedCensus{sites: sites}, stamps, records)
+
+	if !strings.Contains(out, "offer_draft (offer, positioning, proof)") {
+		t.Errorf("the report never says which reference data offer_draft was certified without:\n%s", out)
+	}
+	// The task that prepends nothing lost nothing, and listing it would bury the
+	// one that did.
+	if strings.Contains(out, "rate_extract (") {
+		t.Errorf("a task whose contract prepends no company context is named as having gone without one:\n%s", out)
 	}
 }
