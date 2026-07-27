@@ -117,6 +117,16 @@ type Assoc struct {
 type Page struct {
 	Records    []Record
 	NextCursor string
+	// Truncated marks a Backfill page a capping decorator (compose's
+	// cappedIncumbent, MARGINCE_OVERLAY_BACKFILL_LIMIT) cut short — the
+	// incumbent's own list still had more, but the cap declined it.
+	// Backfill (backfill.go) carries it sticky-true into the persisted
+	// cursor's own truncated column, so a capped class's done=true (correct:
+	// re-listing under the same cap would accomplish nothing) is never
+	// mistaken for a genuine convergence by backfillCompleteFor
+	// (syncstatus.go). A real, uncapped incumbent never sets this; it stays
+	// the zero value.
+	Truncated bool
 }
 
 // OwnerRef is one entry of the incumbent's owners directory: an owner's

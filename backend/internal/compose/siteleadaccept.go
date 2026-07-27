@@ -36,7 +36,7 @@ func siteLeadAcceptEffect(svc *approvals.Service, sink connector.Sink) approvals
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
 		// The single-use redemption IS the idempotency claim on the APPROVAL;
 		// the Sink's natural key is the idempotency claim on the LEAD.
-		if err := svc.Redeem(ctx, approvalID, siteLeadProposalKind, diffHash); err != nil {
+		if _, _, err := svc.Redeem(ctx, approvalID, siteLeadProposalKind, diffHash); err != nil {
 			return err
 		}
 		var proposal siteLeadProposal

@@ -146,11 +146,21 @@ func (s *StdioServer) toolList() []map[string]any {
 		case mcp.TierDynamic:
 			tier = "auto_execute, except moves that close a deal require human approval"
 		}
-		tools = append(tools, map[string]any{
+		desc := fmt.Sprintf("Autonomy: %s. Requires passport scope %q.", tier, spec.RequiredScope)
+		if spec.OpenAPIOp != "" {
+			// Extension tools map to no crm.yaml operation; only append the
+			// clause when there is one, rather than rendering "Maps to .".
+			desc += fmt.Sprintf(" Maps to %s.", spec.OpenAPIOp)
+		}
+		tool := map[string]any{
 			"name":        spec.Name,
-			"description": fmt.Sprintf("Autonomy: %s. Requires passport scope %q. Maps to %s.", tier, spec.RequiredScope, spec.OpenAPIOp),
+			"description": desc,
 			"inputSchema": spec.InputSchema,
-		})
+		}
+		if spec.OutputSchema != nil {
+			tool["outputSchema"] = spec.OutputSchema
+		}
+		tools = append(tools, tool)
 	}
 	return tools
 }

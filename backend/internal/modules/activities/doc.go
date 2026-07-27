@@ -12,7 +12,10 @@
 // Activities have no owner_id; their visibility walks the linked
 // records' row scope via platform/auth.ActivityScopeClause — the scope
 // rule lives in the platform (one spelling, ADR-0054 §8) because
-// people's promotion-evidence check enforces the same clause. Imports
+// people's promotion-evidence check enforces the same clause. Single-row
+// access carries that clause inside readActivity, so get, update, archive
+// and relink alike answer an out-of-scope id with ErrNotFound and no call
+// site can reach a row by forgetting to probe. Imports
 // shared + platform + the generated contract only; never a sibling
 // module. Every write rides storekit's audit+outbox shape and every
 // entry point is gated by platform/auth.

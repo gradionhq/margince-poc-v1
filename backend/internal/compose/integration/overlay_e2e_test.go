@@ -187,7 +187,7 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	rec.ObjectClass = "person"
 	rec.OwnerExternalID = "owner-1"
 	fakeInc.Seed(overlay.IncumbentClassContacts, rec)
-	if err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassContacts); err != nil {
+	if _, err := overlay.Backfill(adminCtx, fakeInc, mirror, overlay.IncumbentClassContacts, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("backfilling the fake incumbent's contacts: %v", err)
 	}
 

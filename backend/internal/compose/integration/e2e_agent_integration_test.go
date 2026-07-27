@@ -64,9 +64,13 @@ func TestEndToEnd_passportBearerSurface(t *testing.T) {
 		}
 	}
 
-	// The list is a human Settings surface: an agent bearer is refused.
-	if status := e.call(t, "GET", "/v1/passports", nil, bearer, nil); status != 401 {
-		t.Fatalf("agent bearer lists passports → %d, want 401", status)
+	// The list is a human Settings surface (x-agent-access: human-only), and
+	// the gate now enforces that on reads as it always did on writes: an
+	// agent bearer is refused with the same permission_denied a human-only
+	// mutation answers, not the incidental 401 the handler used to give for
+	// wanting a session identity.
+	if status := e.call(t, "GET", "/v1/passports", nil, bearer, nil); status != 403 {
+		t.Fatalf("agent bearer lists passports → %d, want 403 (human-only read)", status)
 	}
 
 	// The read scope reads…

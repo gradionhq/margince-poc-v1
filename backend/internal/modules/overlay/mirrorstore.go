@@ -56,12 +56,26 @@ type MirrorStore struct {
 	emails OwnerEmailResolver
 	// fenced opts this store into the disconnect-race fence
 	// (disconnectfence.go): every mutation that could resurrect
-	// incumbent-derived data first asserts an active incumbent_connection,
-	// returning ErrConnectionGone if the workspace has been disconnected
-	// mid-sweep. Only the background reconcile sweep sets it (WithFence);
-	// the read-path and on-connect stores leave it false so a write outside
-	// a live connection (a test, the seed) is not gated on one.
+	// incumbent-derived data first asserts the connection (status alone, or
+	// status+identity — assertFence), returning ErrConnectionGone if it no
+	// longer holds. Set by WithFence (request-scoped write-back / on-demand
+	// sweep-request paths) or WithFenceIdentity (the unattended sweep
+	// paths); the read-path and on-connect stores leave it false so a write
+	// outside a live connection (a test, the seed) is not gated on one.
 	fenced bool
+	// identityFenced is set only by WithFenceIdentity: it marks that THIS
+	// store promised identity checking, so assertFence must fail closed
+	// (errIdentityFenceMisconfigured) if connectedAt somehow came back zero,
+	// rather than silently falling back to WithFence's weaker status-only
+	// check — a caller that builds WithFenceIdentity(zeroTime) by mistake
+	// gets a loud, distinct rejection instead of a silent downgrade to a
+	// guarantee it never asked for.
+	identityFenced bool
+	// connectedAt is set only by WithFenceIdentity (disconnectfence.go): the
+	// connection identity (incumbent_connection.connected_at) a fenced
+	// write additionally requires, on top of plain status (assertFence).
+	// Zero for a store built with the weaker WithFence.
+	connectedAt time.Time
 }
 
 // NewMirrorStore constructs a MirrorStore over pool. emails resolves an
@@ -87,18 +101,11 @@ func (s *MirrorStore) WithResolver(r OwnerEmailResolver) *MirrorStore {
 	return &c
 }
 
-// WithFence returns a MirrorStore identical to s with the disconnect-race
-// fence engaged (see the fenced field and disconnectfence.go). The reconcile
-// sweep binds it — ms.WithResolver(inc).WithFence() — so every sync write it
-// issues aborts with ErrConnectionGone the moment the workspace is
-// disconnected, instead of resurrecting purged incumbent-derived data. It is
-// opt-in precisely so the read path and the many unit tests that ingest
-// without standing up a connection are not forced to hold one.
-func (s *MirrorStore) WithFence() *MirrorStore {
-	c := *s
-	c.fenced = true
-	return &c
-}
+// WithFence and WithFenceIdentity (the fence's two constructors) and
+// assertFence (the one call every fenced method makes) live in
+// disconnectfence.go, next to assertActiveConnection/assertOwnConnection —
+// the fence's own mechanics kept together, split out of this file purely to
+// stay under the file-length cap.
 
 // ingestSQL is the in-SQL cache-refresh upsert design.md §4.4/§4.9
 // specifies verbatim. Three guards, all IN the statement so concurrent
@@ -217,10 +224,21 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	if rec.OwnerExternalID != "" {
 		ownerArg = rec.OwnerExternalID
 	}
-	if s.fenced {
-		if err := assertActiveConnection(ctx, tx); err != nil {
-			return false, err
-		}
+	if err := s.assertFence(ctx, tx); err != nil {
+		return false, err
+	}
+	// Re-check the mirror-halt flag (writeledger.go's haltedTx) ATOMICALLY
+	// with the write about to happen: a caller's own pre-flight Halted call
+	// (the refetch worker's cost-saving early exit) is a check-then-act
+	// gap — a collision Classify detects between that check and this write
+	// would otherwise still land. This is the correctness boundary every
+	// Ingest caller relies on (Backfill, Reconcile, the refetch worker
+	// alike); a halted mirror simply lands nothing, the same honest
+	// no-op the in-SQL tombstone/staleness/dirty guards below already are.
+	if halted, err := haltedTx(ctx, tx); err != nil {
+		return false, err
+	} else if halted {
+		return false, nil
 	}
 	// Ingest's owner projection (ProjectOwnerVisibility, and the
 	// owner-change revalidation) mutates mirror_visibility, so it takes
@@ -286,10 +304,8 @@ func (s *MirrorStore) UpsertAssoc(ctx context.Context, a Assoc) error {
 		label = a.Label
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if s.fenced {
-			if err := assertActiveConnection(ctx, tx); err != nil {
-				return err
-			}
+		if err := s.assertFence(ctx, tx); err != nil {
+			return err
 		}
 		if _, err := tx.Exec(
 			ctx, upsertAssocSQL,

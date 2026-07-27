@@ -133,18 +133,35 @@ type SuspendedRun struct {
 	Pending    Pending
 }
 
-// FindSuspendedByApproval resolves an approval decision to its parked
-// run. Not-found is a normal answer: most approvals are not runner
-// stagings.
-func (s *Store) FindSuspendedByApproval(ctx context.Context, approvalID ids.ApprovalID) (SuspendedRun, bool, error) {
+// ClaimSuspendedByApproval resolves an approval decision to its parked run
+// and CLAIMS it in the same statement: the row leaves awaiting_approval as
+// it is read, so exactly one delivery of a given decision can resume it.
+//
+// Reading without claiming was not safe here. The bus is at-least-once and
+// nothing downstream is idempotent: a resumed run is a fresh multi-step
+// loop, not an upsert by natural key, and the row only left
+// awaiting_approval when that whole loop finished — up to the run's full
+// wall clock later. A redelivery, a reclaim by a peer worker, or a restart
+// mid-resume therefore found the run still resumable and started a SECOND
+// loop from the same Pending and the same spent-budget baseline, so the
+// per-run ceilings were enforced per goroutine rather than per run, and the
+// two races to write the outcome.
+//
+// A claimed run that then dies leaves the row in 'running' with nothing to
+// resume it — the deliberate direction to fail in, since the alternative is
+// executing an approved mutation twice.
+//
+// Not-found is a normal answer: most approvals are not runner stagings, and
+// a second delivery of one that is now reads the same way.
+func (s *Store) ClaimSuspendedByApproval(ctx context.Context, approvalID ids.ApprovalID) (SuspendedRun, bool, error) {
 	var run SuspendedRun
 	var pendingJSON []byte
 	found := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		row := tx.QueryRow(ctx, `
-			SELECT id, agent_spec, goal, trigger_ref, passport_id, pending
-			FROM agent_run
-			WHERE approval_id = $1 AND status = 'awaiting_approval'`, approvalID)
+			UPDATE agent_run SET status = 'running', updated_at = now()
+			WHERE approval_id = $1 AND status = 'awaiting_approval'
+			RETURNING id, agent_spec, goal, trigger_ref, passport_id, pending`, approvalID)
 		err := row.Scan(&run.RunID, &run.SpecName, &run.Goal, &run.TriggerRef, &run.PassportID, &pendingJSON)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil
@@ -156,7 +173,7 @@ func (s *Store) FindSuspendedByApproval(ctx context.Context, approvalID ids.Appr
 		return json.Unmarshal(pendingJSON, &run.Pending)
 	})
 	if err != nil {
-		return SuspendedRun{}, false, fmt.Errorf("runner: find suspended run: %w", err)
+		return SuspendedRun{}, false, fmt.Errorf("runner: claim suspended run: %w", err)
 	}
 	return run, found, nil
 }

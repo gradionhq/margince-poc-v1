@@ -12,7 +12,11 @@ package overlay
 // Both save paths carry the disconnect-race fence (disconnectfence.go): a
 // checkpoint resurrected after teardown would make a later connection resume
 // mid-stream, so the sweep's fenced store refuses to write one into a
-// disconnected workspace.
+// disconnected workspace — and, because a checkpoint (unlike a plain mirror
+// row) is never revisited once it says done/advanced, both saves fence on
+// the connection's IDENTITY (assertOwnConnection), not just its status: a
+// write from a sweep that straddled a disconnect+reconnect must not land
+// under the connection it no longer belongs to.
 
 import (
 	"context"
@@ -36,28 +40,49 @@ import (
 // from a slower concurrent pass (the periodic poller racing an on-demand
 // reconcile) — that would re-list the whole incumbent. Within one
 // connection's life done only ever goes false→true (a reconnect purges the
-// row and starts fresh), so OR-ing is monotonic, never sticky at the wrong
-// value.
+// row and starts fresh), so OR-ing is monotonic; assertOwnConnection
+// (SaveBackfillCursor, below) is what keeps that premise true across a
+// disconnect+reconnect straddle, rather than leaving it an assumption.
+// truncated is sticky the same way, for the same reason (a capped run's
+// truncated=true must never be overwritten back to false by an earlier
+// in-flight save landing after it).
 const upsertBackfillCursorSQL = `
-INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, updated_at)
-VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, now())
+INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, truncated, updated_at)
+VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4, now())
 ON CONFLICT (workspace_id, object_class) DO UPDATE
    SET cursor = EXCLUDED.cursor,
        done = overlay_backfill_cursor.done OR EXCLUDED.done,
+       truncated = overlay_backfill_cursor.truncated OR EXCLUDED.truncated,
        updated_at = now()`
 
-// SaveBackfillCursor persists Backfill's (overlay/backfill.go) list
-// cursor for objectClass after each page — the checkpoint a restart
-// resumes from instead of re-listing the incumbent from the start.
-// done retires a converged backfill so a later call is a cheap no-op.
-func (s *MirrorStore) SaveBackfillCursor(ctx context.Context, objectClass, cursor string, done bool) error {
+// BackfillProgress is one object class's backfill state as of the page just
+// landed — grouped so a SaveBackfillCursor call site never reads as two
+// anonymous positional bools whose meaning depends on argument order alone.
+type BackfillProgress struct {
+	// Done retires a converged backfill so a later call is a cheap no-op.
+	Done bool
+	// Truncated marks a converged run that the
+	// MARGINCE_OVERLAY_BACKFILL_LIMIT cap cut short rather than the
+	// incumbent's own list ending (overlay.Page.Truncated) —
+	// backfillCompleteFor (syncstatus.go) reads it back so a capped class
+	// is never reported complete.
+	Truncated bool
+}
+
+// SaveBackfillCursor persists Backfill's (overlay/backfill.go) list cursor
+// for objectClass after each page — the checkpoint a restart resumes from
+// instead of re-listing the incumbent from the start. connectedAt is the
+// sweep's own belief of the connection it is writing under; when fenced, it
+// must still be the ACTIVE connection's identity (assertOwnConnection), not
+// just an active row.
+func (s *MirrorStore) SaveBackfillCursor(ctx context.Context, objectClass, cursor string, progress BackfillProgress, connectedAt time.Time) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if s.fenced {
-			if err := assertActiveConnection(ctx, tx); err != nil {
+			if err := assertOwnConnection(ctx, tx, connectedAt); err != nil {
 				return err
 			}
 		}
-		if _, err := tx.Exec(ctx, upsertBackfillCursorSQL, objectClass, cursor, done); err != nil {
+		if _, err := tx.Exec(ctx, upsertBackfillCursorSQL, objectClass, cursor, progress.Done, progress.Truncated); err != nil {
 			return fmt.Errorf("overlay: checkpointing the %s backfill cursor: %w", objectClass, err)
 		}
 		return nil
@@ -107,13 +132,17 @@ ON CONFLICT (workspace_id, object_class) DO UPDATE
    SET watermark = EXCLUDED.watermark, updated_at = now()
    WHERE EXCLUDED.watermark > overlay_reconcile_watermark.watermark`
 
-// SaveReconcileWatermark persists Reconcile's new watermark for
-// objectClass after a sweep pass — the checkpoint the next scheduled
-// pass resumes from instead of re-walking every record since epoch.
-func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass string, watermark time.Time) error {
+// SaveReconcileWatermark persists Reconcile's new watermark for objectClass
+// after a sweep pass — the checkpoint the next scheduled pass resumes from
+// instead of re-walking every record since epoch. connectedAt is the
+// sweep's own belief of the connection it is writing under; when fenced, it
+// must still be the ACTIVE connection's identity (assertOwnConnection), not
+// just an active row — see SaveBackfillCursor's doc for why this checkpoint
+// specifically needs identity, not just status.
+func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass string, watermark, connectedAt time.Time) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if s.fenced {
-			if err := assertActiveConnection(ctx, tx); err != nil {
+			if err := assertOwnConnection(ctx, tx, connectedAt); err != nil {
 				return err
 			}
 		}
@@ -125,9 +154,10 @@ func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass st
 }
 
 // LoadReconcileWatermark reads back objectClass's persisted incremental
-// watermark. No row yet (a sweep that has never run) answers the zero
-// time — an honest "not started", not an error; Reconcile's own caller
-// (jobs.go's worker) treats that as "sweep from the epoch."
+// watermark. No row yet answers the zero time — an honest "not started",
+// not an error — which Reconcile (reconcile.go) raises through its internal
+// floor before ever sweeping from it, so this store never hands a raw zero
+// time to the incumbent seam.
 func (s *MirrorStore) LoadReconcileWatermark(ctx context.Context, objectClass string) (time.Time, error) {
 	var watermark time.Time
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

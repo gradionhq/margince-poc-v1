@@ -165,13 +165,13 @@ func replayedActivity(ctx context.Context, tx pgx.Tx, in LogActivityInput) (*crm
 	if err != nil {
 		return nil, err
 	}
-	if verr := auth.EnsureActivityVisible(ctx, tx, existing.UUID); verr != nil {
-		if errors.Is(verr, apperrors.ErrNotFound) {
-			return nil, apperrors.ErrConflict
-		}
-		return nil, verr
-	}
+	// The row exists — the SELECT above just found it — so the only way
+	// readActivity's own row-scope gate can answer ErrNotFound here is that
+	// the key belongs to someone out of scope.
 	out, err := readActivity(ctx, tx, existing, storekit.IncludeArchived)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return nil, apperrors.ErrConflict
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -221,9 +221,6 @@ func (s *Store) GetActivity(ctx context.Context, id ids.ActivityID, archived sto
 	}
 	var out crmcontracts.Activity
 	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
-			return err
-		}
 		out, err = readActivity(ctx, tx, id, archived)
 		return err
 	})
@@ -327,7 +324,18 @@ const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occu
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at`
 
+// readActivity is the module's ONE single-row activity read, and it
+// carries the row scope itself. An activity has no owner_id and RLS binds
+// only the workspace, so its scope exists solely as the link-walk in
+// auth.ActivityScopeClause — a probe a call site can forget, and three
+// lifecycle mutators did. Anything that returns a record is a read, so the
+// gate lives here: an out-of-scope id reads as ErrNotFound, the same answer
+// a missing row gives, whether the caller is getting, updating, archiving
+// or relinking.
 func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived storekit.ArchivedFilter) (crmcontracts.Activity, error) {
+	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
+		return crmcontracts.Activity{}, err
+	}
 	q := `SELECT ` + activityColumns + ` FROM activity a WHERE a.id = $1`
 	if archived == storekit.LiveOnly {
 		q += ` AND a.archived_at IS NULL`

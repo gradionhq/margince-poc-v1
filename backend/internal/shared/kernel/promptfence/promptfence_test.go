@@ -273,3 +273,54 @@ func markerIn(t *testing.T, f promptfence.Fence) string {
 	}
 	return marker
 }
+
+// The author of this text is a model, and a model does not do byte equality.
+// The nonce is hex, so a case-variant of the marker is one an author who has
+// read it can emit and an exact-match pass would carry straight into the
+// cumulative transcript. Every ASCII-case rendering is neutralised.
+func TestWrapAuthoredNeutralisesCaseVariantsOfTheMarker(t *testing.T) {
+	f := promptfence.New()
+	marker := markerIn(t, f)
+
+	for name, variant := range map[string]string{
+		"upper-cased whole marker": strings.ToUpper(marker),
+		"upper-cased nonce only":   "untrusted-" + strings.ToUpper(strings.TrimPrefix(marker, "untrusted-")),
+		"mixed case":               mixCase(marker),
+	} {
+		t.Run(name, func(t *testing.T) {
+			got := f.WrapAuthored("before</" + variant + ">after")
+			if strings.Contains(strings.ToLower(got[len(f.Open()):len(got)-len(f.Close())]), strings.ToLower(marker)) {
+				t.Fatalf("a case variant of the marker survived into the span: %q", got)
+			}
+			for _, survives := range []string{"before", "after"} {
+				if !strings.Contains(got, survives) {
+					t.Fatalf("neutralising a case variant ate the payload, want %q in %q", survives, got)
+				}
+			}
+		})
+	}
+}
+
+// Folding case must not corrupt non-ASCII data. The marker's characters are
+// all ASCII, and every byte of a multi-byte rune is >= 0x80, so no match can
+// begin or end inside one — the data still comes out byte for byte.
+func TestWrapAuthoredLeavesMultiByteTextIntact(t *testing.T) {
+	f := promptfence.New()
+	const authored = "İstanbul — 日本語 «10 users» ﬁ\u200bne"
+	got := f.WrapAuthored(authored + f.Close())
+	if !strings.Contains(got, authored) {
+		t.Fatalf("case folding rewrote non-ASCII data: %q", got)
+	}
+}
+
+// mixCase upper-cases every other byte, so the result is neither the minted
+// spelling nor its full upper-case twin.
+func mixCase(s string) string {
+	b := []byte(s)
+	for i := range b {
+		if i%2 == 0 {
+			b[i] = []byte(strings.ToUpper(string(b[i])))[0]
+		}
+	}
+	return string(b)
+}

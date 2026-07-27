@@ -145,7 +145,7 @@ func normalizedCreateLeadInput(in CreateLeadInput) (CreateLeadInput, error) {
 	if in.Status == "" {
 		in.Status = string(LeadStatusNew)
 	}
-	if _, err := ParseLeadStatus(in.Status); err != nil {
+	if _, err := parseWritableLeadStatus(in.Status); err != nil {
 		return CreateLeadInput{}, err
 	}
 	if in.Email != nil {

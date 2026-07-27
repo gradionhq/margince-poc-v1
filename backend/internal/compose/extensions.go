@@ -18,10 +18,19 @@ import (
 // duplicate-capability panic from a core registry — aborts the boot, and
 // no capability applies unless the whole set validated, so a partially
 // registered extension never serves. This is also where the manifest
-// emission (ADR-0069 §5) and the approval filtering (§7) slot in: both
+// emission and the approval filtering slot in: both
 // operate on the declared set before anything is applied.
 func RegisterExtensions(exts []extension.Extension) error {
 	if err := validateExtensionSet(exts); err != nil {
+		return err
+	}
+	// Do every fallible step before applying anything, so the whole
+	// reconciliation stays validate-then-apply: adapting the handler-bearing
+	// tools to the core seam can (in principle — preflightTools already
+	// precludes it, but this stays fail-closed) fail, and it must not fail
+	// with a jurisdiction pack already half-applied.
+	tools, err := buildExtensionTools(exts)
+	if err != nil {
 		return err
 	}
 	for _, e := range exts {
@@ -29,6 +38,7 @@ func RegisterExtensions(exts []extension.Extension) error {
 			jurisdiction.Register(p)
 		}
 	}
+	setComposedTools(tools)
 	return nil
 }
 
@@ -53,6 +63,28 @@ func validateExtensionSet(exts []extension.Extension) error {
 		if err := preflightJurisdictions(e, packCodes); err != nil {
 			return err
 		}
+		if err := preflightTools(e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// preflightTools validates one unit's governed tools through the same
+// published Tool.Validate the manifest generator runs, and rejects a verb
+// declared twice within the unit — so the fail-closed boundary holds at
+// boot even for a declaration that reached the composed set outside the
+// generator path.
+func preflightTools(e extension.Extension) error {
+	seen := make(map[string]bool, len(e.Tools))
+	for _, tool := range e.Tools {
+		if err := tool.Validate(); err != nil {
+			return fmt.Errorf("compose: extension %q: %w", e.Name, err)
+		}
+		if seen[tool.Name] {
+			return fmt.Errorf("compose: extension %q declares tool %q twice", e.Name, tool.Name)
+		}
+		seen[tool.Name] = true
 	}
 	return nil
 }

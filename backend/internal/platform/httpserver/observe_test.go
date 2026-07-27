@@ -6,6 +6,8 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -126,5 +128,51 @@ func TestReadyzDependencyFailureStillReturns503RegardlessOfEmbedState(t *testing
 
 	if rec.Code != 503 {
 		t.Fatalf("want 503 on a failed dependency check regardless of embed state, got %d", rec.Code)
+	}
+}
+
+// The preference centre's capability token travels in a path segment, and
+// the access log writes the path on every request. These cases pin the
+// redaction from both sides: the credential never reaches the line, and
+// everything an operator reads the log FOR — method, route, trailing verb,
+// ordinary record ids — still does.
+func TestAccessLogRedactsCapabilityPathSegments(t *testing.T) {
+	const prefix = "/v1/public/preferences/"
+	// Deliberately a sentence rather than a realistic token: the assertion
+	// is that this segment does not reach the log line, and a fixture that
+	// LOOKS like a credential is one every secret scanner has to be told
+	// about forever after.
+	const token = "this-stands-in-for-a-preference-capability-token"
+
+	for _, tc := range []struct {
+		name, path, want string
+	}{
+		{"the token segment itself", prefix + token, prefix + "[redacted]"},
+		{"a trailing verb survives", prefix + token + "/unsubscribe", prefix + "[redacted]/unsubscribe"},
+		{"an unrelated path is untouched", "/v1/deals/018f2a10-0000-7000-8000-000000000001", "/v1/deals/018f2a10-0000-7000-8000-000000000001"},
+		{"the prefix with nothing after it has nothing to hide", prefix, prefix},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RedactCapabilitySegment(tc.path, prefix); got != tc.want {
+				t.Errorf("RedactCapabilitySegment(%q) = %q, want %q", tc.path, got, tc.want)
+			}
+		})
+	}
+
+	// End to end through the middleware: the emitted line carries the
+	// redacted path and no trace of the token.
+	var buf strings.Builder
+	log := slog.New(slog.NewTextHandler(&buf, nil))
+	handler := AccessLog(log, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}), prefix)
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPut, prefix+token, nil))
+
+	line := buf.String()
+	if strings.Contains(line, token) {
+		t.Errorf("the access log line carries the capability token: %s", line)
+	}
+	if !strings.Contains(line, prefix+"[redacted]") {
+		t.Errorf("the access log line lost the route it was asked for: %s", line)
 	}
 }

@@ -241,6 +241,37 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 	return nil
 }
 
+// resolveTargetVersion reads the staged target's CURRENT version inside the
+// staging transaction, so what a human approves is bound to the row as it
+// stood when they were asked.
+//
+// The pin is taken here, at the ONE place every stager passes through, and
+// never from what the caller supplied. A caller-supplied pin is a pin the
+// caller can decline to supply: on the REST admission path it came from the
+// optional If-Match header, so an agent that simply left the header off
+// staged target_version NULL, and validateRedemptionTarget short-circuits on
+// NULL — the approval then authorized the operation against whatever the row
+// had drifted to inside the TTL, which for a body-less action route (send
+// this offer) is any content state at all. Automation-staged actions carried
+// no pin for the same reason: nothing had computed one.
+//
+// A target type outside versionTables has no version column to read, so it
+// stays unpinned and the diff_hash identical-call binding is what holds. That
+// residue is bounded and declared: TestConfirmFirstTargetsArePinnable holds
+// the confirm-first surface to a ratified list of them.
+// pinned is false for a target with no version column to read, and for a
+// create, which has no prior row to bind to.
+func resolveTargetVersion(ctx context.Context, tx pgx.Tx, in StageInput) (version int64, pinned bool, err error) {
+	if in.TargetID.IsZero() || !TargetVersionCheckable(in.TargetType) {
+		return 0, false, nil
+	}
+	current, err := targetVersion(ctx, tx, in.TargetType, in.TargetID)
+	if err != nil {
+		return 0, false, err
+	}
+	return current, true, nil
+}
+
 // StageInTx records a proposal through a caller-owned transaction. Compose
 // uses it when another module's state transition creates the target the
 // proposal refers to, so the target and its separately governed follow-up
@@ -249,6 +280,18 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	p, ok := principal.Actor(ctx)
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no actor bound to context")
+	}
+	// The summary is prose, and several stagers build it out of record text
+	// the agent or an inbound sender could have written. Sanitizing at the
+	// one place every staging passes through means no stager can bypass it.
+	in.Summary = sanitizeSummary(in.Summary)
+	current, pinned, err := resolveTargetVersion(ctx, tx, in)
+	if err != nil {
+		return ids.ApprovalID{}, err
+	}
+	in.TargetVersion = nil
+	if pinned {
+		in.TargetVersion = &current
 	}
 	wsID, _ := principal.WorkspaceID(ctx)
 	id := ids.New[ids.ApprovalKind]()

@@ -52,7 +52,6 @@ const (
 	toolMergeRecords   = "merge_records"
 	toolPromoteLead    = "promote_lead"
 	toolLogActivity    = "log_activity"
-	accessTool         = "tool"
 )
 
 // overlayWriteVerbs maps the generated policy's tool verb onto the SoR seam's
@@ -128,7 +127,7 @@ func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler 
 			// seam can serve that write at all. Only a write the provider serves
 			// is allowed through — to its shadow, never to the native handler.
 			if !known || pol.Access != accessTool ||
-				!overlayRecordWriteTools[pol.Tool] || !overlayMirroredTypes[pol.RecordType] {
+				!overlayRecordWriteTools[pol.Tool] || !overlayMirroredTypes[string(pol.RecordType)] {
 				next.ServeHTTP(w, r)
 				return
 			}

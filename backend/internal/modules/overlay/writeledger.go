@@ -199,20 +199,38 @@ func haltMirrorTx(ctx context.Context, tx pgx.Tx, reason string) error {
 	return nil
 }
 
+// haltedTx is Halted's query, taking the caller's own transaction instead of
+// opening one — ingestTx (mirrorstore.go) uses this to re-check the flag
+// ATOMICALLY with the write it is about to make, closing the TOCTOU window a
+// pre-transaction Halted call alone would leave open (a collision detected
+// between the check and the write would otherwise still land).
+func haltedTx(ctx context.Context, tx pgx.Tx) (bool, error) {
+	var halted bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM overlay_mirror_halt)`).Scan(&halted); err != nil {
+		return false, fmt.Errorf("overlay: reading the mirror-halt flag: %w", err)
+	}
+	return halted, nil
+}
+
 // Halted reports whether ctx's workspace mirror is halted — a ledger collision
-// tripped the fail-safe. The receiver refuses to enqueue re-fetches and the
-// re-fetch worker refuses to read/ingest for a halted workspace, so a mirror we
-// no longer trust never mis-suppresses or serves through. The flag is cleared
+// tripped the fail-safe. The refetch worker's pre-flight check uses this to
+// skip a doomed live incumbent read/budget reservation entirely before ever
+// reaching ingestTx's own atomic re-check (haltedTx, above) — an
+// optimization, not the correctness boundary: ingestTx is what actually
+// guarantees a halted mirror is never written to, from any caller
+// (Backfill, Reconcile, or the refetch worker alike). The flag is cleared
 // today only by disconnect/teardown (which purges the whole overlay); an
 // operator-facing unhalt is a tracked follow-up — acceptable because the sole
 // trigger is a SHA-256 value-hash collision, which does not occur in practice.
 func (l *WriteLedger) Halted(ctx context.Context) (bool, error) {
 	var halted bool
 	err := database.WithWorkspaceTx(ctx, l.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM overlay_mirror_halt)`).Scan(&halted)
+		var err error
+		halted, err = haltedTx(ctx, tx)
+		return err
 	})
 	if err != nil {
-		return false, fmt.Errorf("overlay: reading the mirror-halt flag: %w", err)
+		return false, err
 	}
 	return halted, nil
 }

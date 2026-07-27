@@ -2,16 +2,75 @@
 
 package compose
 
-// agentPolicy is one mutating contract operation's admission class for
-// AGENT (Passport) principals (ADR-0055): either the MCP tool verb whose
-// tier governs it on every transport, or an x-agent-access marker. The
-// gate default-denies any mutating route absent from this table.
+// agentAccess is an operation's admission class for an AGENT principal.
+//
+// Values are the closed set declared by components.schemas.AgentAdmissionPolicy in
+// api/crm.yaml; a value outside it fails generation.
+type agentAccess string
+
+const (
+	accessTool          agentAccess = "tool"
+	accessHumanOnly     agentAccess = "human-only"
+	accessAuthBootstrap agentAccess = "auth-bootstrap"
+)
+
+// agentTier is the autonomy tier the gate admits against, identical on REST and MCP.
+//
+// Values are the closed set declared by components.schemas.AgentAdmissionPolicy in
+// api/crm.yaml; a value outside it fails generation.
+type agentTier string
+
+const (
+	tierAutoExecute          agentTier = "auto_execute"
+	tierConfirmationRequired agentTier = "confirmation_required"
+	tierDynamic              agentTier = "dynamic"
+)
+
+// agentRecordType is the record an operation targets; the zero value means it declares none.
+//
+// Values are the closed set declared by components.schemas.AgentAdmissionPolicy in
+// api/crm.yaml; a value outside it fails generation.
+type agentRecordType string
+
+const (
+	recordTypeActivity            agentRecordType = "activity"
+	recordTypeAppUser             agentRecordType = "app_user"
+	recordTypeCustomField         agentRecordType = "custom_field"
+	recordTypeDataSubjectRequest  agentRecordType = "data_subject_request"
+	recordTypeDeal                agentRecordType = "deal"
+	recordTypeLead                agentRecordType = "lead"
+	recordTypeList                agentRecordType = "list"
+	recordTypeOffer               agentRecordType = "offer"
+	recordTypeOfferTemplate       agentRecordType = "offer_template"
+	recordTypeOrganization        agentRecordType = "organization"
+	recordTypeOverlayConnection   agentRecordType = "overlay_connection"
+	recordTypePartner             agentRecordType = "partner"
+	recordTypePerson              agentRecordType = "person"
+	recordTypeProduct             agentRecordType = "product"
+	recordTypeQuota               agentRecordType = "quota"
+	recordTypeRecordGrant         agentRecordType = "record_grant"
+	recordTypeRelationship        agentRecordType = "relationship"
+	recordTypeSavedView           agentRecordType = "saved_view"
+	recordTypeTag                 agentRecordType = "tag"
+	recordTypeTeam                agentRecordType = "team"
+	recordTypeWebhookSubscription agentRecordType = "webhook_subscription"
+)
+
+// agentPolicy is one contract operation's admission class for AGENT
+// (Passport) principals (ADR-0055): either the MCP tool verb whose tier
+// governs it on every transport, or an x-agent-access marker. The gate
+// default-denies any MUTATING route absent from this table, and admits a
+// read absent from it — the contract annotates the exceptions to agent
+// readability, not the rule.
+//
+// The three vocabulary fields are typed, so a comparison against a value the
+// contract does not declare fails to compile rather than never matching.
 type agentPolicy struct {
-	Op         string // crm.yaml operationId
-	Access     string // "tool" | "human-only" | "auth-bootstrap"
-	Tool       string // backing MCP tool verb (Access == "tool")
-	RecordType string // the record type the operation targets
-	Tier       string // contract-declared tier: auto_execute | confirmation_required | dynamic
+	Op         string          // crm.yaml operationId
+	Access     agentAccess     // how an agent principal is admitted at all
+	Tool       string          // backing MCP tool verb (Access == accessTool)
+	RecordType agentRecordType // the record the operation targets; zero when it declares none
+	Tier       agentTier       // contract-declared autonomy tier; zero when it declares none
 }
 
 // agentPolicies is keyed by "METHOD <chi route pattern>" as the generated
@@ -44,6 +103,71 @@ var agentPolicies = map[string]agentPolicy{
 	"DELETE /v1/voice-profiles/{id}":                                     {Op: "deleteVoiceProfile", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/voice-profiles/{id}/sources/{sourceId}":                  {Op: "deleteVoiceCorpusSource", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"DELETE /v1/webhook-subscriptions/{id}":                              {Op: "archiveWebhookSubscription", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/activities":                                                 {Op: "listActivities", Access: "tool", Tool: "search_records", RecordType: "activity", Tier: "auto_execute"},
+	"GET /v1/activities/{id}":                                            {Op: "getActivity", Access: "tool", Tool: "read_record", RecordType: "activity", Tier: "auto_execute"},
+	"GET /v1/agent-tools":                                                {Op: "listAgentTools", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/ai/calls":                                                   {Op: "listAiCalls", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/ai/calls/{id}":                                              {Op: "getAiCall", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/ai/profile":                                                 {Op: "getAiProfile", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/ai/usage":                                                   {Op: "getAiUsage", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/assistant/profile":                                          {Op: "getAssistantProfile", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/attachments":                                                {Op: "listAttachments", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/attachments/{id}":                                           {Op: "downloadAttachment", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/attachments/{id}/extraction":                                {Op: "getAttachmentExtraction", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/audit-log":                                                  {Op: "listAuditLog", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/auth/capabilities":                                          {Op: "getAuthCapabilities", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/automations/{id}/runs":                                      {Op: "listAutomationRuns", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/availability":                                               {Op: "getAvailability", Access: "tool", Tool: "check_availability", RecordType: "", Tier: "auto_execute"},
+	"GET /v1/capture/exclusions":                                         {Op: "listCaptureExclusions", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/company":                                                    {Op: "getCompany", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/company/context":                                            {Op: "getCompanyContext", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/company/context/capabilities":                               {Op: "getCompanyContextCapabilities", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/company/site-reads/{readId}":                                {Op: "getCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/connectors":                                                 {Op: "listConnectors", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/custom-fields":                                              {Op: "listCustomFields", Access: "tool", Tool: "search_records", RecordType: "custom_field", Tier: "auto_execute"},
+	"GET /v1/data-subject-requests":                                      {Op: "listDataSubjectRequests", Access: "tool", Tool: "search_records", RecordType: "data_subject_request", Tier: "auto_execute"},
+	"GET /v1/deals":                                                      {Op: "listDeals", Access: "tool", Tool: "search_records", RecordType: "deal", Tier: "auto_execute"},
+	"GET /v1/deals/{id}":                                                 {Op: "getDeal", Access: "tool", Tool: "read_record", RecordType: "deal", Tier: "auto_execute"},
+	"GET /v1/deals/{id}/offers":                                          {Op: "listDealOffers", Access: "tool", Tool: "search_records", RecordType: "offer", Tier: "auto_execute"},
+	"GET /v1/embeddings/reindex/preview":                                 {Op: "EmbedReindexPreview", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/embeddings/reindex/status":                                  {Op: "EmbedReindexStatus", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/field-history":                                              {Op: "getFieldHistory", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/leads":                                                      {Op: "listLeads", Access: "tool", Tool: "search_records", RecordType: "lead", Tier: "auto_execute"},
+	"GET /v1/leads/{id}":                                                 {Op: "getLead", Access: "tool", Tool: "read_record", RecordType: "lead", Tier: "auto_execute"},
+	"GET /v1/offer-templates":                                            {Op: "listOfferTemplates", Access: "tool", Tool: "search_records", RecordType: "offer_template", Tier: "auto_execute"},
+	"GET /v1/offer-templates/{id}":                                       {Op: "getOfferTemplate", Access: "tool", Tool: "read_record", RecordType: "offer_template", Tier: "auto_execute"},
+	"GET /v1/offers/{id}":                                                {Op: "getOffer", Access: "tool", Tool: "read_record", RecordType: "offer", Tier: "auto_execute"},
+	"GET /v1/offers/{id}/pdf":                                            {Op: "downloadOfferPdf", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/onboarding/company/proposal":                                {Op: "getOnboardingCompanyProposal", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/onboarding/state":                                           {Op: "getOnboardingState", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/organizations":                                              {Op: "listOrganizations", Access: "tool", Tool: "search_records", RecordType: "organization", Tier: "auto_execute"},
+	"GET /v1/organizations/{id}":                                         {Op: "getOrganization", Access: "tool", Tool: "read_record", RecordType: "organization", Tier: "auto_execute"},
+	"GET /v1/organizations/{id}/site-reads/{readId}":                     {Op: "getSiteRead", Access: "tool", Tool: "read_record", RecordType: "organization", Tier: "auto_execute"},
+	"GET /v1/partners":                                                   {Op: "listPartners", Access: "tool", Tool: "search_records", RecordType: "partner", Tier: "auto_execute"},
+	"GET /v1/passports":                                                  {Op: "listPassports", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/people":                                                     {Op: "listPeople", Access: "tool", Tool: "search_records", RecordType: "person", Tier: "auto_execute"},
+	"GET /v1/people/{id}":                                                {Op: "getPerson", Access: "tool", Tool: "read_record", RecordType: "person", Tier: "auto_execute"},
+	"GET /v1/products":                                                   {Op: "listProducts", Access: "tool", Tool: "search_records", RecordType: "product", Tier: "auto_execute"},
+	"GET /v1/products/{id}":                                              {Op: "getProduct", Access: "tool", Tool: "read_record", RecordType: "product", Tier: "auto_execute"},
+	"GET /v1/quotas":                                                     {Op: "listQuotas", Access: "tool", Tool: "search_records", RecordType: "quota", Tier: "auto_execute"},
+	"GET /v1/quotas/{id}":                                                {Op: "getQuota", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute"},
+	"GET /v1/quotas/{id}/attainment":                                     {Op: "getQuotaAttainment", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute"},
+	"GET /v1/record-grants":                                              {Op: "listRecordGrants", Access: "tool", Tool: "search_records", RecordType: "record_grant", Tier: "auto_execute"},
+	"GET /v1/records/{entity_type}/{id}/context":                         {Op: "getRecordContext", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/records/{entity_type}/{id}/history":                         {Op: "getRecordHistory", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/search":                                                     {Op: "search", Access: "tool", Tool: "search_records", RecordType: "", Tier: "auto_execute"},
+	"GET /v1/teams":                                                      {Op: "listTeams", Access: "tool", Tool: "search_records", RecordType: "team", Tier: "auto_execute"},
+	"GET /v1/users":                                                      {Op: "listUsers", Access: "tool", Tool: "search_records", RecordType: "app_user", Tier: "auto_execute"},
+	"GET /v1/voice-profiles":                                             {Op: "listVoiceProfiles", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/voice-profiles/{id}":                                        {Op: "getVoiceProfile", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/voice-profiles/{id}/builds/{buildId}":                       {Op: "getVoiceBuild", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/voice-profiles/{id}/deltas":                                 {Op: "listVoiceProfileDeltas", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/voice-profiles/{id}/learning":                               {Op: "getVoiceLearningSummary", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/voice-profiles/{id}/sources":                                {Op: "listVoiceCorpusSources", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/voice-profiles/{id}/versions":                               {Op: "listVoiceProfileVersions", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/webhook-subscriptions":                                      {Op: "listWebhookSubscriptions", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/webhook-subscriptions/{id}":                                 {Op: "getWebhookSubscription", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/webhook-subscriptions/{id}/deliveries":                      {Op: "listWebhookDeliveries", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/activities/{id}":                                          {Op: "updateActivity", Access: "tool", Tool: "update_record", RecordType: "activity", Tier: "auto_execute"},
 	"PATCH /v1/automations/{id}":                                         {Op: "updateAutomation", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"PATCH /v1/capture/settings":                                         {Op: "updateCaptureSettings", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
@@ -92,7 +216,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/brief/items/{itemId}/snooze":                               {Op: "snoozeBriefItem", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/capture/exclusions":                                        {Op: "createCaptureExclusion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/coldstart":                                                 {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "confirmation_required"},
-	"POST /v1/coldstart/preview":                                         {Op: "coldStartPreview", Access: "tool", Tool: "read", RecordType: "", Tier: "auto_execute"},
+	"POST /v1/coldstart/preview":                                         {Op: "coldStartPreview", Access: "tool", Tool: "enrich", RecordType: "", Tier: "confirmation_required"},
 	"POST /v1/company/site-reads":                                        {Op: "startCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/company/site-reads/{readId}/confirm":                       {Op: "confirmCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/company/site-reads/{readId}/messages":                      {Op: "messageCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
@@ -126,8 +250,8 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/offers/{id}/send":                                          {Op: "sendOffer", Access: "tool", Tool: "send_offer", RecordType: "offer", Tier: "confirmation_required"},
 	"POST /v1/onboarding/company/messages":                               {Op: "messageOnboardingCompany", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/organizations":                                             {Op: "createOrganization", Access: "tool", Tool: "create_record", RecordType: "organization", Tier: "auto_execute"},
-	"POST /v1/organizations/{id}/deep-read":                              {Op: "deepReadCompany", Access: "tool", Tool: "enrich", RecordType: "", Tier: "confirmation_required"},
-	"POST /v1/organizations/{id}/enrich":                                 {Op: "scrapeCompany", Access: "tool", Tool: "enrich", RecordType: "", Tier: "confirmation_required"},
+	"POST /v1/organizations/{id}/deep-read":                              {Op: "deepReadCompany", Access: "tool", Tool: "enrich", RecordType: "organization", Tier: "confirmation_required"},
+	"POST /v1/organizations/{id}/enrich":                                 {Op: "scrapeCompany", Access: "tool", Tool: "enrich", RecordType: "organization", Tier: "confirmation_required"},
 	"POST /v1/organizations/{id}/merge":                                  {Op: "mergeOrganization", Access: "tool", Tool: "merge_records", RecordType: "organization", Tier: "confirmation_required"},
 	"POST /v1/overlay/connection":                                        {Op: "connectOverlay", Access: "tool", Tool: "connect_incumbent", RecordType: "overlay_connection", Tier: "confirmation_required"},
 	"POST /v1/overlay/flip":                                              {Op: "executeOverlayFlip", Access: "tool", Tool: "execute_overlay_flip", RecordType: "overlay_connection", Tier: "confirmation_required"},

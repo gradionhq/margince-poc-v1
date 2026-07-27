@@ -28,10 +28,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -44,14 +44,6 @@ import (
 
 const approvalTokenHeader = "X-Approval-Token"
 
-// The wire tier values an agentPolicy carries (agentPolicy.Tier is the
-// generated string, not the typed enum), pinned to the contract enum so a
-// rename of the tier spelling follows the contract rather than drifting.
-const (
-	tierWireDynamic              = string(crmcontracts.AgentToolTierDynamic)
-	tierWireConfirmationRequired = string(crmcontracts.AgentToolTierConfirmationRequired)
-)
-
 // maxGatedBody bounds what the gate buffers to hash and stage a proposed
 // mutation; anything larger is not a plausible contract payload.
 const maxGatedBody = 1 << 20
@@ -62,8 +54,12 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			p, ok := principal.Actor(ctx)
-			if !ok || p.Type != principal.PrincipalAgent || !mutatingMethod(r.Method) {
+			if !ok || p.Type != principal.PrincipalAgent {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if !mutatingMethod(r.Method) {
+				refuseHumanOnlyRead(w, r, next)
 				return
 			}
 			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
@@ -77,6 +73,32 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			})
 		})
 	}
+}
+
+// refuseHumanOnlyRead applies x-agent-access to a NON-mutating agent call.
+//
+// A read has no tier to admit and no change to stage, but it does have a
+// governance class, and `x-agent-access: human-only` binds a `get:` exactly
+// as it binds a `post:`. auth.RequireHuman is the in-handler twin of this
+// check and about a dozen human-only reads call it; the rest — attachment
+// bytes and their extractions, AI call logs, voice profiles, automation run
+// history, webhook subscriptions — did not, and the gate could not cover
+// them because it returned early on every non-mutating method. It no longer
+// does.
+//
+// The default is the OPPOSITE of the mutating side's, deliberately: a
+// mutating route absent from the table is refused, a read absent from it is
+// admitted. The table now carries every ANNOTATED read, and an unannotated
+// read is ordinary agent-readable data whose authority is the granting
+// human's RBAC and row scope at the store, unchanged.
+func refuseHumanOnlyRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	pattern := chi.RouteContext(r.Context()).RoutePattern()
+	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != accessTool {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
+		return
+	}
+	next.ServeHTTP(w, r)
 }
 
 // prepareAgentGate resolves the admission inputs for a mutating agent call:
@@ -96,7 +118,7 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 			"agent gate: %s %s carries no autonomy tier: %w", r.Method, pattern, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
-	if pol.Access != "tool" {
+	if pol.Access != accessTool {
 		// human-only governance (self-approval class) and the
 		// session/bootstrap machinery: an agent principal is rejected
 		// outright, whatever its scope or seat.
@@ -192,9 +214,22 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
 		return true
 	}
-	if rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash); rErr != nil {
+	pin, pinned, rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash)
+	if rErr != nil {
 		httperr.Write(w, r, rErr)
 		return true
+	}
+	// Redemption commits its OWN transaction, and the handler below opens a
+	// fresh one to write. The skew check inside the redemption therefore
+	// proves the row was at the pinned version when the approval was
+	// consumed, not that it still is when the effect lands — and the attacker
+	// controls both sides of that window, since the redeeming request and any
+	// racing auto-execute mutation come from the same agent. Carrying the pin
+	// forward as the request's own If-Match makes the store re-check it
+	// inside the transaction that actually mutates, where a concurrent write
+	// loses to the version compare instead of to timing.
+	if pinned {
+		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
 	}
 	next.ServeHTTP(w, r)
 	return true
@@ -218,10 +253,6 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 			"agent gate: %s (%s) has no approval decision mapping: %w", pol.Op, pol.Tool, apperrors.ErrPermissionDenied))
 		return
 	}
-	ifVersion, ok := httperr.IfMatchVersion(w, r)
-	if !ok {
-		return
-	}
 	var targetID ids.UUID
 	if raw := chi.URLParam(r, "id"); raw != "" {
 		var err error
@@ -230,14 +261,35 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 			return
 		}
 	}
+	// A concrete target with no record type is unstageable authority: the
+	// approvals surface scopes an inbox row by probing its target's own/team
+	// visibility, and it cannot probe a type it was not told. Such a row
+	// would show a record's summary and proposed change to everyone holding
+	// the object grant, and let any of them decide a write against a row
+	// their own scope hides. Refuse it here, the same fail-closed shape as
+	// an undecidable kind, rather than mint an unscopable authority object.
+	if targetID != (ids.UUID{}) && pol.RecordType == "" {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s stages against a concrete record but declares no record type: %w",
+			pol.Op, apperrors.ErrPermissionDenied))
+		return
+	}
+	// The version a human approves is pinned SERVER-SIDE, inside the staging
+	// transaction, by approvals.StageInTx — the one place every stager passes
+	// through, so the REST gate, the MCP tool twins and the automation engine
+	// cannot each get it differently. The gate deliberately passes NO pin of
+	// its own: the only one it could offer is the agent's own If-Match header,
+	// which is optional, and an agent that simply omitted it staged
+	// target_version NULL — a NULL the redemption skew check short-circuits
+	// on. A create (no target id) has nothing to pin, and says so by carrying
+	// a zero id.
 	approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     pol.RecordType,
+		TargetType:     string(pol.RecordType),
 		TargetID:       targetID,
-		TargetVersion:  ifVersion,
-		Summary:        fmt.Sprintf("Agent REST %s %s", r.Method, r.URL.Path),
+		Summary:        restSummary(pol.Op, r.Method, r.URL.Path, body),
 	})
 	if sErr != nil {
 		httperr.Write(w, r, sErr)
@@ -258,19 +310,19 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	spec, registered := reg.Spec(pol.Tool)
 	if !registered {
-		if pol.Tier == tierWireDynamic {
+		if pol.Tier == tierDynamic {
 			return mcp.ToolSpec{}, false
 		}
 		tier := mcp.TierAutoExecute
-		if pol.Tier == tierWireConfirmationRequired {
+		if pol.Tier == tierConfirmationRequired {
 			tier = mcp.TierConfirmationRequired
 		}
 		return mcp.ToolSpec{Name: pol.Tool, RequiredScope: principal.ScopeWrite, Tier: tier}, true
 	}
-	if pol.Tier == tierWireDynamic && spec.Tier != mcp.TierDynamic {
+	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
 		return mcp.ToolSpec{}, false
 	}
-	if pol.Tier == tierWireConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
+	if pol.Tier == tierConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
 		spec.Tier, spec.TierResolver = mcp.TierConfirmationRequired, nil
 	}
 	return spec, true
