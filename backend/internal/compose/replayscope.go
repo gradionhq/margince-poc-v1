@@ -66,6 +66,9 @@ const (
 	tableVoiceProfile = "voice_profile"
 	tableSignal       = "signal"
 
+	// The field an offer names its deal by.
+	offerDealField = "deal_id"
+
 	objectOffer         = "offer"
 	objectPipeline      = "pipeline"
 	objectSignal        = "signal"
@@ -130,10 +133,10 @@ var replayableOperations = map[string]replayTarget{
 	// Bodies with no owner column of their own that hand back a record which
 	// has one. An offer without its deal's scope would return that deal's
 	// pricing and buyer snapshot to someone who can no longer open the deal.
-	"POST /v1/deals/{id}/offers":      {object: objectOffer, table: tableDeal, idPath: "deal_id"},
-	"POST /v1/offers/{id}/regenerate": {object: objectOffer, table: tableDeal, idPath: "deal_id"},
-	"POST /v1/offers/{id}/send":       {object: objectOffer, table: tableDeal, idPath: "deal_id"},
-	"POST /v1/offers/{id}/render":     {object: objectOffer, table: tableDeal, idPath: "deal_id"},
+	"POST /v1/deals/{id}/offers":      {object: objectOffer, table: tableDeal, idPath: offerDealField},
+	"POST /v1/offers/{id}/regenerate": {object: objectOffer, table: tableDeal, idPath: offerDealField},
+	"POST /v1/offers/{id}/send":       {object: objectOffer, table: tableDeal, idPath: offerDealField},
+	"POST /v1/offers/{id}/render":     {object: objectOffer, table: tableDeal, idPath: offerDealField},
 	"POST /v1/record-grants": {
 		objectNote: "sharing is gated by the manage-sharing permission, which is not an entry in policy.coreObjects",
 		tableField: "record_type", idPath: "record_id",
