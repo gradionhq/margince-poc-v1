@@ -71,14 +71,90 @@ func main() {
 	fmt.Printf("%d tasks, %d tiers generated\n", len(c.Tasks), len(c.Tiers))
 }
 
+// siteDef is one entry of a task's sites[]: the named model-invocation site
+// the build registers. Written either as a bare name (kind defaults to
+// one_shot) or as a mapping when the kind differs.
+type siteDef struct {
+	Name string `yaml:"name"`
+	Kind string `yaml:"kind"`
+}
+
+// UnmarshalYAML accepts both spellings so the common case — a one-shot site —
+// stays a bare string in the contract.
+func (s *siteDef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		s.Name, s.Kind = node.Value, kindOneShot
+		return nil
+	}
+	var raw struct {
+		Name string `yaml:"name"`
+		Kind string `yaml:"kind"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return fmt.Errorf("site: %w", err)
+	}
+	s.Name, s.Kind = raw.Name, raw.Kind
+	if s.Kind == "" {
+		s.Kind = kindOneShot
+	}
+	return nil
+}
+
+// companyContextDef is the ADR-0065 policy: which anchor-company scopes ride
+// this task's prompt, under what character budget, and whether the caller must
+// ask. Absent means the task takes none.
+type companyContextDef struct {
+	Scopes      []string `yaml:"scopes"`
+	TokenBudget int      `yaml:"token_budget"`
+	Conditional bool     `yaml:"conditional"`
+}
+
+// UnmarshalYAML accepts the scalar `none` alongside a policy mapping: most
+// tasks take no company context, and spelling that as an empty mapping would
+// read as an oversight rather than a decision.
+func (p *companyContextDef) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		if node.Value != "none" {
+			return fmt.Errorf("company_context: want a policy mapping or %q, got %q", "none", node.Value)
+		}
+		*p = companyContextDef{}
+		return nil
+	}
+	var raw struct {
+		Scopes      []string `yaml:"scopes"`
+		TokenBudget int      `yaml:"token_budget"`
+		Conditional bool     `yaml:"conditional"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return fmt.Errorf("company_context: %w", err)
+	}
+	p.Scopes, p.TokenBudget, p.Conditional = raw.Scopes, raw.TokenBudget, raw.Conditional
+	return nil
+}
+
+// embedDef is the embeddings workload. It is NOT a task: its tier is not a
+// chat tier, and it has no prompt, no text answer and no completion path, so
+// it carries no sites and no certification obligation.
+type embedDef struct {
+	Tier     string `yaml:"tier"`
+	CostUnit string `yaml:"cost_unit"`
+}
+
 // taskDef is one tasks.<name> entry: the routing ladder, the
-// execution mode, budget-exhaustion policy, and an optional doc string carried through
+// execution mode, budget-exhaustion policy, the declaration fields the census
+// is built on (status, sites, payload posture, company-context policy,
+// cost-unit rule name), and an optional doc string carried through
 // to the generated constant's comment.
 type taskDef struct {
-	Ladder            []string `yaml:"ladder"`
-	ExecutionMode     string   `yaml:"execution_mode"`
-	OnBudgetExhausted string   `yaml:"on_budget_exhausted"`
-	Doc               string   `yaml:"doc"`
+	Ladder            []string           `yaml:"ladder"`
+	ExecutionMode     string             `yaml:"execution_mode"`
+	OnBudgetExhausted string             `yaml:"on_budget_exhausted"`
+	Status            string             `yaml:"status"`
+	Sites             []siteDef          `yaml:"sites"`
+	NoPayload         bool               `yaml:"no_payload"`
+	CompanyContext    *companyContextDef `yaml:"company_context"`
+	CostUnit          string             `yaml:"cost_unit"`
+	Doc               string             `yaml:"doc"`
 }
 
 // contract is the parsed ai-tasks.yaml. Tiers is a YAML sequence, so its
@@ -90,12 +166,34 @@ type taskDef struct {
 type contract struct {
 	Tiers     []string           `yaml:"tiers"`
 	Tasks     map[string]taskDef `yaml:"tasks"`
+	Embed     embedDef           `yaml:"embed"`
 	DegradeTo map[string]string  `yaml:"degrade_to"`
 }
 
 // taskNameRE is the contract's task-naming rule: lowercase snake_case,
 // matching the Go identifier derivation (pascalCase) 1:1.
 var taskNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// siteNameRE mirrors taskNameRE: a site name is a Go-identifier source too.
+var siteNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// The closed set of invocation kinds. A new kind is a code-and-test change in
+// the census, never data: each one needs a certification strategy that can
+// actually run it.
+const (
+	kindOneShot   = "one_shot"
+	kindMultiTurn = "multi_turn"
+	kindAgentLoop = "agent_loop"
+)
+
+var siteKinds = map[string]bool{kindOneShot: true, kindMultiTurn: true, kindAgentLoop: true}
+
+// A task either ships — and owes a site the census can locate — or is declared
+// but unbuilt, and owes none.
+const (
+	statusShipped = "shipped"
+	statusPlanned = "planned"
+)
 
 const goConstBlockStart = "const (\n"
 
@@ -119,6 +217,8 @@ func parseContract(raw []byte) (contract, error) {
 // is a valid Go-identifier source, and on_budget_exhausted is one of the
 // two policies the runtime understands. Execution mode and exhaustion policy
 // are a closed pair: interactive tasks degrade, background tasks queue.
+// Status and sites are a closed pair too: a shipped task owes at least one
+// uniquely named site of a known kind, a planned task owes none.
 func (c contract) validate() error {
 	if len(c.Tiers) == 0 {
 		return fmt.Errorf("contract declares no tiers")
@@ -158,6 +258,31 @@ func (c contract) validate() error {
 			}
 		default:
 			return fmt.Errorf("task %q: execution_mode must be \"interactive\" or \"background\", got %q", name, def.ExecutionMode)
+		}
+		switch def.Status {
+		case statusShipped:
+			if len(def.Sites) == 0 {
+				return fmt.Errorf("task %q: status shipped requires at least one site — a shipped task with no site cannot be certified, and would present as covered", name)
+			}
+		case statusPlanned:
+			if len(def.Sites) > 0 {
+				return fmt.Errorf("task %q: status planned declares %d site(s); a planned task has no implementation", name, len(def.Sites))
+			}
+		default:
+			return fmt.Errorf("task %q: status must be %q or %q, got %q", name, statusShipped, statusPlanned, def.Status)
+		}
+		seenSite := make(map[string]bool, len(def.Sites))
+		for _, s := range def.Sites {
+			if !siteNameRE.MatchString(s.Name) {
+				return fmt.Errorf("task %q: site name %q must match %s", name, s.Name, siteNameRE.String())
+			}
+			if seenSite[s.Name] {
+				return fmt.Errorf("task %q: site %q is declared twice", name, s.Name)
+			}
+			seenSite[s.Name] = true
+			if !siteKinds[s.Kind] {
+				return fmt.Errorf("task %q: site %q has unknown kind %q", name, s.Name, s.Kind)
+			}
 		}
 	}
 	for from, to := range c.DegradeTo {
