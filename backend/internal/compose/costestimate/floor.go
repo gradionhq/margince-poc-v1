@@ -73,12 +73,16 @@ const (
 const defaultPersonsPerMsg = 1.0 / classifyBatchSize
 
 // workShapeFloor returns the per-UNIT token means for one task's floor estimate,
-// derived from the real prompt shape above and held in backfillUnitRules.
-// Deterministic and non-zero for every backfill task; a non-backfill task (e.g.
-// summarize) carries no rule and so returns the zero Usage rather than a
-// fabricated floor.
+// derived from the real prompt shape above and held in the rule the contract
+// names for the task. Deterministic and non-zero for every backfill task; an
+// unpriced task (e.g. summarize) names no rule and so returns the zero Usage
+// rather than a fabricated floor.
 func workShapeFloor(task ai.Task) ai.Usage {
-	return backfillUnitRules[task].floor
+	rule, ok := unitRuleFor(task)
+	if !ok {
+		return ai.Usage{}
+	}
+	return rule.floor
 }
 
 // unitsFloor is the built-in volume ratio used when a connection has no
