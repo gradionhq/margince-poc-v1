@@ -13,8 +13,75 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
+
+// The request is the whole security perimeter of this site, and it carries
+// SEVERAL senders at once: each one's bytes reach the model unedited, and the
+// only thing that stops one of them ending its own span — and speaking about the
+// mail below it — is a marker minted for THIS call and named in THIS call's
+// system prompt. A request that fences under some other marker, or repeats a
+// message outside its span, hands the instruction region to whoever wrote it.
+func TestClassifyRequestFencesEveryMessageUnderTheMarkerItDeclares(t *testing.T) {
+	batch := []unlabeledMessage{
+		{ID: ids.NewV7(), Subject: "quote please", Body: "We need forty seats by March."},
+		{ID: ids.NewV7(), Subject: "lunch thursday", Body: "Shall we say noon at the usual place?"},
+	}
+
+	req := classifyRequest(batch)
+
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		t.Fatalf("the classify system prompt declares no data boundary: %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Fatalf("got %d messages, want the single user turn", len(req.Messages))
+	}
+	content := req.Messages[0].Content
+	for _, m := range batch {
+		openTag, closeTag := "<"+marker+` source_id="`+m.ID.String()+`">`, "</"+marker+">"
+		openAt := strings.Index(content, openTag)
+		if openAt < 0 {
+			t.Fatalf("message %s is not opened under the declared marker keyed by its id:\n%s", m.ID, content)
+		}
+		closeAt := strings.Index(content[openAt:], closeTag)
+		if closeAt < 0 {
+			t.Fatalf("the span for message %s never closes:\n%s", m.ID, content)
+		}
+		span := content[openAt+len(openTag) : openAt+closeAt]
+		for _, text := range []string{m.Subject, m.Body} {
+			if !strings.Contains(span, text) {
+				t.Errorf("message text %q never reached its own fenced span:\n%s", text, content)
+			}
+			// Containment is a question of counts, not membership: a prompt that
+			// keeps the fence and ALSO repeats a message beside it puts that copy in
+			// the instruction region while "is it inside?" stays true.
+			if n := strings.Count(content, text); n != 1 {
+				t.Errorf("message text %q appears %d times, want only the fenced one:\n%s", text, n, content)
+			}
+		}
+	}
+}
+
+// A fence's scope is one call. A marker a previous sender was shown is a marker
+// they can spell, so reusing one would give away the only thing they cannot
+// forge.
+func TestClassifyRequestMintsAFreshBoundaryPerCall(t *testing.T) {
+	batch := []unlabeledMessage{{ID: ids.NewV7(), Subject: "quote please"}}
+
+	first, declared := promptfence.MarkerIn(classifyRequest(batch).System)
+	if !declared {
+		t.Fatal("the classify system prompt declares no data boundary")
+	}
+	second, declared := promptfence.MarkerIn(classifyRequest(batch).System)
+	if !declared {
+		t.Fatal("the second classify system prompt declares no data boundary")
+	}
+	if first == second {
+		t.Errorf("two classify requests share the boundary %q", first)
+	}
+}
 
 func TestClassifyPayloadFidelity(t *testing.T) {
 	a, b := ids.NewV7(), ids.NewV7()
