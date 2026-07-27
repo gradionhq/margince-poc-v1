@@ -15,10 +15,19 @@ expect:
   outcome: accepted
   answer: [meeting]
   rubric: >
-    Score whether the label correctly identifies this email as a meeting
-    request and whether evidence_snippet is a verbatim quote from the email
-    that actually supports that label. A confident wrong label, or a snippet
-    that is paraphrased rather than quoted, scores low.
+    This site answers with {id, label, confidence} per message and nothing
+    else, the label drawn from the closed set commitment | meeting | noise.
+    Score the label first: the mail asks for thirty minutes on Thursday
+    afternoon and offers a time, which is scheduling and nothing more, so
+    "meeting" is right — the tie-break that prefers commitment when a message
+    is both does not fire here, and "noise" is wrong on a mail that names a
+    slot. Then score the confidence as a real judgement rather than a
+    formality, because production spends on it: every message left under the
+    0.7 floor is re-asked alone on the next rung of the routing ladder, and
+    every label at or above it is applied unexamined. So a correct label held
+    confidently scores highest; a correct one hedged below the floor scores
+    lower, since it buys a second call it did not need; a wrong label scores
+    low, and lowest when it is asserted confidently enough to be applied.
   bands:
     certified_min: 70
     degraded_min: 50
