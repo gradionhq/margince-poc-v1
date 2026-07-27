@@ -29,7 +29,7 @@ import (
 // consume: they call the model once and use only its Response, never the
 // runner's per-step Meta. Both routerBrain and the offline *ai.FakeClient
 // satisfy it, so the fake path needs no adapter on these lanes. Only the
-// Surface-B runner lane (Agent) needs runner.Brain's Meta return.
+// Surface-B runner lane (AgentLoop) needs runner.Brain's Meta return.
 type completer interface {
 	Complete(ctx context.Context, req model.Request) (model.Response, error)
 }
@@ -37,32 +37,33 @@ type completer interface {
 // ModelPath is the wired model surface one process role hands around:
 // each lane is the same router under a task label, so ai-routing.yaml
 // decides the tier per workload, and every lane draws on the
-// seat-derived monthly budget.
+// seat-derived monthly budget. A lane is named for the ai.Task it rides,
+// so the wiring reads in one vocabulary — the contract's.
 type ModelPath struct {
-	Agent           runner.Brain // the Surface-B reason-act loop (records served model identity)
+	AgentLoop       runner.Brain // the Surface-B reason-act loop (records served model identity)
 	ColdStart       completer    // the website read-back extraction
 	SiteExtract     completer    // the deep read's profile lane (one premium-first call)
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
 	RateExtract     completer    // the model-cost refresh pricing-page extraction lane
-	BriefRank       completer    // the Morning-Brief L2 re-order (B-E05.2)
+	BriefRanking    completer    // the Morning-Brief L2 re-order (B-E05.2)
 	DraftReply      completer    // activity-anchored email reply drafting
 	OfferDraft      completer    // the offer regenerate-from-signal drafting call
 	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
 	// the highest-volume, cheapest task, routed L-S with the C-C solo
 	// re-ask riding the same ladder.
 	CaptureClassify completer
-	// CounterpartyVerdict is the ADR-0072/A118 creation gate for the
+	// CaptureCounterpartyVerdict is the ADR-0072/A118 creation gate for the
 	// ambiguous first-time sender: real | noise, floor 0.7, below-floor
 	// abstains to unsure. A separate task from CaptureClassify on purpose —
 	// classify labels a known contact's mail for attention, this decides
 	// whether a stranger becomes a record at all.
-	CounterpartyVerdict completer
-	// SignatureEnrich is the §2.9 evidence-or-omit field extraction lane.
-	SignatureEnrich completer
+	CaptureCounterpartyVerdict completer
+	// Enrich is the §2.9 evidence-or-omit signature field extraction lane.
+	Enrich completer
 	// VoiceBuild is the durable Voice DNA build lane: the builder pass and
 	// its evaluation drafts ride the same task label and budget.
 	VoiceBuild completer
-	Embedder   search.Embedder // the retrieval embed lane
+	Embedder   search.Embedder // the retrieval embed lane — the router itself, not a task lane
 }
 
 // SetCompanyContextEnabled applies the operator's ordered task-rollout stage
@@ -72,7 +73,7 @@ func (p *ModelPath) SetCompanyContextEnabled(enabled bool) {
 	if p == nil {
 		return
 	}
-	if brain, ok := p.Agent.(agentBrain); ok && brain.companyContext != nil {
+	if brain, ok := p.AgentLoop.(agentBrain); ok && brain.companyContext != nil {
 		brain.companyContext.enabled = enabled
 	}
 }
@@ -161,19 +162,19 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		return routerBrain{router: router, task: task, companyContext: companyContext}
 	}
 	return ModelPath{
-		Agent:               agentBrain{router: router, companyContext: companyContext},
-		ColdStart:           brain(ai.TaskColdStart),
-		SiteExtract:         brain(ai.TaskSiteExtract),
-		SiteFactExtract:     brain(ai.TaskSiteFactExtract),
-		RateExtract:         brain(ai.TaskRateExtract),
-		BriefRank:           brain(ai.TaskBriefRanking),
-		DraftReply:          brain(ai.TaskDraftReply),
-		OfferDraft:          brain(ai.TaskOfferDraft),
-		CaptureClassify:     brain(ai.TaskCaptureClassify),
-		CounterpartyVerdict: brain(ai.TaskCaptureCounterpartyVerdict),
-		SignatureEnrich:     brain(ai.TaskEnrich),
-		VoiceBuild:          brain(ai.TaskVoiceBuild),
-		Embedder:            router,
+		AgentLoop:                  agentBrain{router: router, companyContext: companyContext},
+		ColdStart:                  brain(ai.TaskColdStart),
+		SiteExtract:                brain(ai.TaskSiteExtract),
+		SiteFactExtract:            brain(ai.TaskSiteFactExtract),
+		RateExtract:                brain(ai.TaskRateExtract),
+		BriefRanking:               brain(ai.TaskBriefRanking),
+		DraftReply:                 brain(ai.TaskDraftReply),
+		OfferDraft:                 brain(ai.TaskOfferDraft),
+		CaptureClassify:            brain(ai.TaskCaptureClassify),
+		CaptureCounterpartyVerdict: brain(ai.TaskCaptureCounterpartyVerdict),
+		Enrich:                     brain(ai.TaskEnrich),
+		VoiceBuild:                 brain(ai.TaskVoiceBuild),
+		Embedder:                   router,
 	}
 }
 
@@ -196,11 +197,11 @@ func NewLocalRouterForCert(cfg ai.RoutingConfig, opts ...ai.LocalOption) (*ai.Ro
 // Router exposes the model path's underlying router — the same one every model
 // lane rides — so the ADR-0068 cost pre-flight can price observed history at the
 // exact tier bindings that will serve it (via the router's BoundLadder /
-// CurrentModelForTier resolvers). Nil when no router backs this path (a nil-Agent
+// CurrentModelForTier resolvers). Nil when no router backs this path (a nil-AgentLoop
 // ModelPath), so a caller wires no priced estimate rather than pricing against an
 // absent ladder.
 func (p ModelPath) Router() *ai.Router {
-	if r, ok := p.Agent.(agentBrain); ok {
+	if r, ok := p.AgentLoop.(agentBrain); ok {
 		return r.router
 	}
 	return nil
@@ -208,11 +209,11 @@ func (p ModelPath) Router() *ai.Router {
 
 // WriteMetrics renders the model path's underlying router's AI call
 // counters (margince_ai_calls_total et al.) for the /metrics endpoint.
-// Nil-safe for a ModelPath built with a nil Agent (no model path
+// Nil-safe for a ModelPath built with a nil AgentLoop (no model path
 // configured), so a role that never wired one writes nothing rather than
 // panicking.
 func (p ModelPath) WriteMetrics(w io.Writer) {
-	if r, ok := p.Agent.(agentBrain); ok {
+	if r, ok := p.AgentLoop.(agentBrain); ok {
 		r.router.WriteMetrics(w)
 	}
 }

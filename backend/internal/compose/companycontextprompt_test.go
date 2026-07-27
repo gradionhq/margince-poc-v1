@@ -152,7 +152,7 @@ func TestModelPathCompanyContextSwitchIsNilSafeAndReachesTheAgentProvider(t *tes
 	path.SetCompanyContextEnabled(false)
 
 	provider := newCompanyContextProvider(nil)
-	path = &ModelPath{Agent: agentBrain{companyContext: provider}}
+	path = &ModelPath{AgentLoop: agentBrain{companyContext: provider}}
 	path.SetCompanyContextEnabled(false)
 	if provider.enabled {
 		t.Fatal("company-context provider remained enabled")

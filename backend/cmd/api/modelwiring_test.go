@@ -66,8 +66,8 @@ func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
 	if profile.State != "development" || profile.InferenceMode != "development" || len(profile.Providers) != 0 {
 		t.Fatalf("profile = %+v, want development posture without a fake provider label", profile)
 	}
-	if modelPath.Agent == nil {
-		t.Error("Agent lane is nil")
+	if modelPath.AgentLoop == nil {
+		t.Error("AgentLoop lane is nil")
 	}
 	if modelPath.ColdStart == nil {
 		t.Error("ColdStart lane is nil")
@@ -75,8 +75,8 @@ func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
 	if modelPath.SiteExtract == nil {
 		t.Error("SiteExtract lane is nil")
 	}
-	if modelPath.BriefRank == nil {
-		t.Error("BriefRank lane is nil")
+	if modelPath.BriefRanking == nil {
+		t.Error("BriefRanking lane is nil")
 	}
 	if modelPath.DraftReply == nil {
 		t.Error("DraftReply lane is nil")

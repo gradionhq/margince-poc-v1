@@ -130,7 +130,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// cmd/api's relay group; a bare goroutine would be killed mid-handler
 	// when the relay returns.
 	var background sync.WaitGroup
-	if modelPath.Agent != nil {
+	if modelPath.AgentLoop != nil {
 		grounding := search.NewRetriever(search.NewStore(pool), modelPath.Embedder)
 		// The Surface-B runner's agent tools reach overlay write-back through
 		// the workspace's own vaulted incumbent token; wire the FromEnv
@@ -140,7 +140,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if rverr != nil {
 			return rverr
 		}
-		svc := compose.NewRunnerService(pool, modelPath.Agent, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault))
+		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault))
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
 		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
@@ -285,8 +285,8 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// The classify + enrich passes run only where a model is
 		// configured; without one both are absent by omission.
 		ClassifyBrain:        modelPath.CaptureClassify,
-		VerdictBrain:         modelPath.CounterpartyVerdict,
-		EnrichBrain:          modelPath.SignatureEnrich,
+		VerdictBrain:         modelPath.CaptureCounterpartyVerdict,
+		EnrichBrain:          modelPath.Enrich,
 		OverlayVault:         overlayVault,
 		OverlayInterval:      cfg.overlayInterval,
 		OverlayBackfillLimit: cfg.overlayBackfillLimit,
