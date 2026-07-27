@@ -22,6 +22,15 @@ import (
 // keys on the mapping's subject — the app_user it governs.
 const auditEntityUserMap = "mirror_user_map"
 
+// auditEntityAutoMapBlock is the audit_log.entity_type an admin's auto-map
+// block is recorded under. Its own type, not mirror_user_map's: the block is a
+// standing decision about FUTURE automatic mapping, not the removal of a
+// mapping row, and folding it into the mapping's trail would make an unmap of
+// an already-unmapped user read as the deletion of a row that never existed.
+// Keyed on the same subject — the app_user the decision governs — because
+// mirror_user_automap_block has no id column either.
+const auditEntityAutoMapBlock = "mirror_user_automap_block"
+
 // userMapImage is the before/after field image an audited mapping change
 // records. It carries the row's OWN fields only: operation metadata folded in
 // here would make downstream field-history projections read it as field
@@ -29,6 +38,14 @@ const auditEntityUserMap = "mirror_user_map"
 type userMapImage struct {
 	IncumbentUserID string `json:"incumbent_user_id"`
 	MatchSource     string `json:"match_source"`
+}
+
+// autoMapBlockImage is the after-image an auto-map block records. Same
+// row-fields-only rule as userMapImage, and the fields it omits are the ones
+// the audit row itself already carries: blocked_by IS the actor, blocked_at IS
+// the audit timestamp.
+type autoMapBlockImage struct {
+	Incumbent string `json:"incumbent"`
 }
 
 // revokedMapping is one mirror_user_map row an automated revoke deleted: the
@@ -136,7 +153,10 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 	if after != "" {
 		afterID, err = ids.ParseAs[ids.UserKind](after)
 		if err != nil {
-			return nil, "", fmt.Errorf("overlay: malformed user-map cursor: %w", err)
+			// A token that decodes but does not carry a user id is the same
+			// client fault as one that does not decode at all — this cursor's
+			// payload IS a user id, so anything else was never minted here.
+			return nil, "", &storekit.MalformedCursorError{}
 		}
 	}
 
@@ -290,8 +310,26 @@ func (s *MirrorStore) BlockAutoMap(ctx context.Context, appUser ids.UserID, incu
 			}
 		}
 
-		if _, err := tx.Exec(ctx, insertAutomapBlockSQL, appUser, incumbent, actor.UserID); err != nil {
+		tag, err := tx.Exec(ctx, insertAutomapBlockSQL, appUser, incumbent, actor.UserID)
+		if err != nil {
 			return fmt.Errorf("overlay: recording the auto-map block for %s: %w", appUser, err)
+		}
+		// The block is its own governance fact and needs its own record: it
+		// permanently stops the sweep from mapping this user, and on the
+		// already-unmapped path it is the ONLY thing that changed — the archive
+		// above never ran, so without this the decision leaves no trace, and
+		// "who decided this user sees nothing?" has no answer once a disconnect
+		// purges the block row's own blocked_by.
+		//
+		// ON CONFLICT DO NOTHING makes a repeat call affect no rows, which is
+		// exactly the signal that separates the decision from a retry of it:
+		// auditing the retry would claim a decision nobody took twice.
+		if tag.RowsAffected() == 0 {
+			return nil
+		}
+		if _, err := storekit.Audit(ctx, tx, "create", auditEntityAutoMapBlock, appUser.UUID,
+			nil, autoMapBlockImage{Incumbent: incumbent}); err != nil {
+			return fmt.Errorf("overlay: auditing %s's auto-map block: %w", appUser, err)
 		}
 		return nil
 	})
