@@ -245,9 +245,30 @@ func normalizeEmail(email string) string {
 	return strings.ToLower(strings.TrimSpace(email))
 }
 
+// upsertUserMapSQL writes one mapping AND enforces the auto-map block in the
+// SAME statement. The block cannot be checked as a preceding SELECT: the
+// sweep reads its candidate users in one transaction (usersMatchingEmail) and
+// writes each mapping in another (UpsertUserMap), so a block committed
+// between the two is invisible to any check-then-act pair and the mapping
+// lands anyway — leaving the user mapped AND blocked, permanently. Deciding
+// inside the statement closes that window, the same in-SQL discipline the
+// erasure tombstone uses against a re-hydrating sweep (design.md §4.9).
+//
+// match_source='manual' is deliberately exempt: a human vouching for a
+// mapping is the override the block is not meant to fight (design.md §4.6
+// rule 4), and the `cleared` CTE drops the block on that path so an admin who
+// re-maps a previously unmapped user never leaves the row mapped and blocked
+// at once.
 const upsertUserMapSQL = `
+WITH cleared AS (
+  DELETE FROM mirror_user_automap_block
+   WHERE app_user_id = $1 AND incumbent = $2 AND $4 = 'manual'
+)
 INSERT INTO mirror_user_map (workspace_id, app_user_id, incumbent, incumbent_user_id, match_source)
-VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4)
+SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4
+ WHERE $4 = 'manual'
+    OR NOT EXISTS (SELECT 1 FROM mirror_user_automap_block b
+                    WHERE b.app_user_id = $1 AND b.incumbent = $2)
 ON CONFLICT (workspace_id, app_user_id, incumbent) DO UPDATE
    SET incumbent_user_id = EXCLUDED.incumbent_user_id, match_source = EXCLUDED.match_source`
 
@@ -339,8 +360,16 @@ func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, inc
 		// mapped to this incumbent before — nothing to revoke.
 		remapped := err == nil && priorIncumbentUserID != incumbentUserID
 
-		if _, err := tx.Exec(ctx, upsertUserMapSQL, appUser, incumbent, incumbentUserID, source); err != nil {
+		tag, err := tx.Exec(ctx, upsertUserMapSQL, appUser, incumbent, incumbentUserID, source)
+		if err != nil {
 			return fmt.Errorf("overlay: writing mirror_user_map for %s: %w", appUser, err)
+		}
+		if tag.RowsAffected() == 0 {
+			// An admin blocked automatic mapping for this user. Not an error:
+			// SeedUserMap walks every owner in the directory and one blocked
+			// user must not stop the rest from seeding. Nothing was written,
+			// so there is nothing to recompute either.
+			return nil
 		}
 
 		if err := recomputeForOwnerTx(ctx, tx, incumbentUserID); err != nil {

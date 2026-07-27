@@ -198,6 +198,29 @@ func testMemberCtx(ws, userID ids.UUID) context.Context {
 	})
 }
 
+// seedAutoMapBlock writes the mirror_user_automap_block row an admin's
+// deliberate unmap leaves behind, so a test can put a user in the blocked
+// state without going through the admin write path. It inserts through
+// database.WithWorkspaceTx like every other tenant write, so RLS and the
+// workspace GUC apply exactly as they do in production; blocked_by is the
+// acting principal, which is who an admin unmap would record.
+func seedAutoMapBlock(ctx context.Context, t *testing.T, pool *pgxpool.Pool, user ids.UserID, incumbent string) {
+	t.Helper()
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		t.Fatal("seeding an auto-map block needs an acting principal on the context")
+	}
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO mirror_user_automap_block (workspace_id, app_user_id, incumbent, blocked_by)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+			user, incumbent, actor.UserID)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the auto-map block for %s: %v", user, err)
+	}
+}
+
 // noOwnerEmails is an OwnerEmailResolver that never resolves any owner —
 // the tests that only exercise the tombstone/staleness/dirty guards (not
 // email matching) have no owner-email fixture to seed, and a resolver that
