@@ -72,7 +72,8 @@ func NewCloseDateCorrector(pool *pgxpool.Pool, log *slog.Logger) *deals.CloseDat
 // their update also clears the provisional flag.
 func closeDateConfirmEffect(svc *approvals.Service, store *deals.Store) approvals.ApprovedEffect {
 	return func(ctx context.Context, approvalID ids.ApprovalID, proposedChange json.RawMessage, diffHash string) error {
-		if err := svc.Redeem(ctx, approvalID, deals.CloseDateCorrectionKind, diffHash); err != nil {
+		version, pinned, err := svc.Redeem(ctx, approvalID, deals.CloseDateCorrectionKind, diffHash)
+		if err != nil {
 			return err
 		}
 		correction, err := deals.UnmarshalCloseDateCorrection(proposedChange)
@@ -83,7 +84,16 @@ func closeDateConfirmEffect(svc *approvals.Service, store *deals.Store) approval
 		if err != nil {
 			return fmt.Errorf("compose: confirmed close date: %w", err)
 		}
-		_, err = store.UpdateDeal(ctx, correction.DealID, deals.UpdateDealInput{ExpectedClose: &confirmed})
+		// Redemption validated the pin in ITS transaction and committed; this
+		// write opens another. Carrying the pin into the update puts the
+		// version compare inside the transaction that actually moves the date,
+		// so a deal edited between the two loses to the compare rather than
+		// silently taking a date the approver never saw.
+		update := deals.UpdateDealInput{ExpectedClose: &confirmed}
+		if pinned {
+			update.IfVersion = &version
+		}
+		_, err = store.UpdateDeal(ctx, correction.DealID, update)
 		return err
 	}
 }

@@ -78,13 +78,34 @@ func (s *Service) decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 	// approval IS decided either way; an effect failure surfaces to the
 	// deciding human (the approved-unredeemed row and its audit trail
 	// say exactly how far it got) rather than un-deciding anything.
-	if effect, ok := s.effects[a.Kind]; ok && approve {
+	if effect, ok := s.effects[a.Kind]; ok && approve && serverProposed(a) {
 		if err := effect(ctx, id, a.ProposedChange, a.DiffHash); err != nil {
 			return a, fmt.Errorf("approved, but executing the %s effect failed: %w", a.Kind, err)
 		}
 	}
 	return a, err
 }
+
+// serverProposed reports whether this staging was minted by a SERVER-SIDE
+// proposal flow rather than by an agent asserting a passport.
+//
+// The effect table is keyed by the kind string alone, and a kind is not a
+// namespace: the REST admission gate stages under the operation's TOOL name,
+// so an agent could mint a staging whose kind matched a kind some compose
+// proposal flow had registered an executor for — "enrich" names both the
+// scrape proposal and the tool behind three agent-reachable routes. A human
+// approving that staging then invoked the compose executor over an
+// agent-authored REST envelope, which consumed the approval in its own
+// committed transaction and only then failed to parse: the human got a 500,
+// the approval could never be redeemed again, and the audit row asserted a
+// redemption for an effect that never ran.
+//
+// Provenance is the discriminator, because it is the thing that actually
+// differs: a server-side proposal is staged by the system or by a human, and
+// carries no passport. An agent-minted staging is redeemed the way ADR-0055
+// says — by repeating the identical call with the approval token — and needs
+// no server-side executor at all.
+func serverProposed(a row) bool { return a.PassportID == nil }
 
 // decideInTx runs the decision inside the caller's transaction: the
 // decide-authority + row-scope gate, the pending guard, the optional

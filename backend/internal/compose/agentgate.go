@@ -28,10 +28,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 
 	"github.com/go-chi/chi/v5"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -39,56 +39,27 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 const approvalTokenHeader = "X-Approval-Token"
 
-// recordVersionReader reads a governed record so the gate can pin a staged
-// 🟡 REST call to the version a human actually approves — resolved
-// server-side from the record as it stands, exactly as the MCP tool twins
-// do (StageInfo reads &rec.Version), never from an agent-omittable If-Match
-// header. The composite SystemOfRecordProvider satisfies it.
-type recordVersionReader interface {
-	Read(ctx context.Context, ref datasource.EntityRef) (datasource.Record, error)
-}
-
-// datasourceReadable reports whether the composite SystemOfRecordProvider can
-// Read this record type — the five datasource.EntityType records. A
-// version-checkable approval target outside this set (offer, product, list,
-// tag, relationship) is not on the provider seam, so the gate cannot resolve
-// its current version server-side; its pin stays the caller's If-Match value.
-func datasourceReadable(recordType string) bool {
-	switch datasource.EntityType(recordType) {
-	case datasource.EntityPerson, datasource.EntityOrganization,
-		datasource.EntityDeal, datasource.EntityLead, datasource.EntityActivity:
-		return true
-	default:
-		return false
-	}
-}
-
-// The wire tier values an agentPolicy carries (agentPolicy.Tier is the
-// generated string, not the typed enum), pinned to the contract enum so a
-// rename of the tier spelling follows the contract rather than drifting.
-const (
-	tierWireDynamic              = string(crmcontracts.AgentToolTierDynamic)
-	tierWireConfirmationRequired = string(crmcontracts.AgentToolTierConfirmationRequired)
-)
-
 // maxGatedBody bounds what the gate buffers to hash and stage a proposed
 // mutation; anything larger is not a plausible contract payload.
 const maxGatedBody = 1 << 20
 
-func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, reader recordVersionReader, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
+func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.StageResolver, ownership agents.FieldOwnership, gate *auth.Gate) func(http.Handler) http.Handler {
 	deps := tierDeps{stages: stages, ownership: ownership}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ctx := r.Context()
 			p, ok := principal.Actor(ctx)
-			if !ok || p.Type != principal.PrincipalAgent || !mutatingMethod(r.Method) {
+			if !ok || p.Type != principal.PrincipalAgent {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if !mutatingMethod(r.Method) {
+				refuseHumanOnlyRead(w, r, next)
 				return
 			}
 			spec, resolve, pol, body, ok := prepareAgentGate(w, r, reg, deps)
@@ -98,10 +69,36 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 			ctx, err := gate.Admit(ctx, spec, resolve)
 			r = r.WithContext(ctx)
 			admitAgentCall(w, r, next, admissionOutcome{
-				staging: staging, reader: reader, ownership: ownership, pol: pol, body: body, err: err,
+				staging: staging, ownership: ownership, pol: pol, body: body, err: err,
 			})
 		})
 	}
+}
+
+// refuseHumanOnlyRead applies x-agent-access to a NON-mutating agent call.
+//
+// A read has no tier to admit and no change to stage, but it does have a
+// governance class, and `x-agent-access: human-only` binds a `get:` exactly
+// as it binds a `post:`. auth.RequireHuman is the in-handler twin of this
+// check and about a dozen human-only reads call it; the rest — attachment
+// bytes and their extractions, AI call logs, voice profiles, automation run
+// history, webhook subscriptions — did not, and the gate could not cover
+// them because it returned early on every non-mutating method. It no longer
+// does.
+//
+// The default is the OPPOSITE of the mutating side's, deliberately: a
+// mutating route absent from the table is refused, a read absent from it is
+// admitted. The table now carries every ANNOTATED read, and an unannotated
+// read is ordinary agent-readable data whose authority is the granting
+// human's RBAC and row scope at the store, unchanged.
+func refuseHumanOnlyRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	pattern := chi.RouteContext(r.Context()).RoutePattern()
+	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != accessTool {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
+		return
+	}
+	next.ServeHTTP(w, r)
 }
 
 // prepareAgentGate resolves the admission inputs for a mutating agent call:
@@ -121,7 +118,7 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 			"agent gate: %s %s carries no autonomy tier: %w", r.Method, pattern, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
-	if pol.Access != "tool" {
+	if pol.Access != accessTool {
 		// human-only governance (self-approval class) and the
 		// session/bootstrap machinery: an agent principal is rejected
 		// outright, whatever its scope or seat.
@@ -154,7 +151,6 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 // (err) plus the fields needed to act on it.
 type admissionOutcome struct {
 	staging   agents.Approvals
-	reader    recordVersionReader
 	ownership agents.FieldOwnership
 	pol       agentPolicy
 	body      []byte
@@ -169,14 +165,14 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 	switch {
 	case outcome.err == nil:
 		if outcome.pol.Tool == "update_record" && !actionShapedUpdateOps[outcome.pol.Op] {
-			splitOrRedeemUpdate(w, r, next, outcome.staging, outcome.reader, outcome.ownership, outcome.pol, outcome.body)
+			splitOrRedeemUpdate(w, r, next, outcome.staging, outcome.ownership, outcome.pol, outcome.body)
 			return
 		}
 		next.ServeHTTP(w, r)
 	case !errors.Is(outcome.err, apperrors.ErrRequiresApproval) || outcome.staging == nil:
 		httperr.Write(w, r, outcome.err)
 	default:
-		stageOrRedeem(w, r, next, outcome.staging, outcome.reader, outcome.pol, outcome.body)
+		stageOrRedeem(w, r, next, outcome.staging, outcome.pol, outcome.body)
 	}
 }
 
@@ -186,11 +182,11 @@ func admitAgentCall(w http.ResponseWriter, r *http.Request, next http.Handler, o
 // X-Approval-Token redeems a previously approved identical call and lets
 // it through; otherwise the call is staged as a new approval and refused
 // with the redemption instructions.
-func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, reader recordVersionReader, pol agentPolicy, body []byte) {
+func stageOrRedeem(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, pol agentPolicy, body []byte) {
 	if redeemIfPresented(w, r, next, staging, pol, body) {
 		return
 	}
-	stageRefusal(w, r, staging, reader, pol, body)
+	stageRefusal(w, r, staging, pol, body)
 }
 
 // redeemIfPresented consumes an X-Approval-Token when the request carries
@@ -218,9 +214,22 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
 		return true
 	}
-	if rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash); rErr != nil {
+	pin, pinned, rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash)
+	if rErr != nil {
 		httperr.Write(w, r, rErr)
 		return true
+	}
+	// Redemption commits its OWN transaction, and the handler below opens a
+	// fresh one to write. The skew check inside the redemption therefore
+	// proves the row was at the pinned version when the approval was
+	// consumed, not that it still is when the effect lands — and the attacker
+	// controls both sides of that window, since the redeeming request and any
+	// racing auto-execute mutation come from the same agent. Carrying the pin
+	// forward as the request's own If-Match makes the store re-check it
+	// inside the transaction that actually mutates, where a concurrent write
+	// loses to the version compare instead of to timing.
+	if pinned {
+		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
 	}
 	next.ServeHTTP(w, r)
 	return true
@@ -229,7 +238,7 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 // stageRefusal stages the refused call as a pending approval and answers
 // with the redemption instructions — the whole request, unapplied, is the
 // staged change, so the approved retry is this exact request again.
-func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, reader recordVersionReader, pol agentPolicy, body []byte) {
+func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approvals, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	canonical, diffHash, cErr := canonicalRESTCall(pol.Op, r.URL.Path, body)
 	if cErr != nil {
@@ -252,45 +261,35 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 			return
 		}
 	}
-	// Pin the version a human approves SERVER-SIDE, from the record as it
-	// stands now — never from the agent-omittable If-Match header — for the
-	// record types the system-of-record provider can Read (the five
-	// datasource.EntityType records, exactly as the MCP tool twins pin
-	// &rec.Version). An agent that simply left the header off would otherwise
-	// stage target_version NULL, and the redemption skew check short-circuits
-	// on NULL (validateRedemptionTarget): the approved effect would then apply
-	// to whatever version the row had drifted to within the approval TTL.
-	//
-	// Version-checkable types the provider does NOT serve (offer, product,
-	// list, tag, relationship) are not on the datasource seam, so the gate
-	// cannot read their current version — they keep the caller's If-Match pin,
-	// exactly as before; the redemption skew check still binds it. A create
-	// (no target id) has nothing to pin.
-	var targetVersion *int64
-	switch {
-	case targetID != (ids.UUID{}) && datasourceReadable(pol.RecordType):
-		rec, rErr := reader.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(pol.RecordType), ID: targetID})
-		if rErr != nil {
-			httperr.Write(w, r, rErr)
-			return
-		}
-		version := rec.Version
-		targetVersion = &version
-	default:
-		ifVersion, ok := httperr.IfMatchVersion(w, r)
-		if !ok {
-			return
-		}
-		targetVersion = ifVersion
+	// A concrete target with no record type is unstageable authority: the
+	// approvals surface scopes an inbox row by probing its target's own/team
+	// visibility, and it cannot probe a type it was not told. Such a row
+	// would show a record's summary and proposed change to everyone holding
+	// the object grant, and let any of them decide a write against a row
+	// their own scope hides. Refuse it here, the same fail-closed shape as
+	// an undecidable kind, rather than mint an unscopable authority object.
+	if targetID != (ids.UUID{}) && pol.RecordType == "" {
+		httperr.Write(w, r, fmt.Errorf(
+			"agent gate: %s stages against a concrete record but declares no record type: %w",
+			pol.Op, apperrors.ErrPermissionDenied))
+		return
 	}
+	// The version a human approves is pinned SERVER-SIDE, inside the staging
+	// transaction, by approvals.StageInTx — the one place every stager passes
+	// through, so the REST gate, the MCP tool twins and the automation engine
+	// cannot each get it differently. The gate deliberately passes NO pin of
+	// its own: the only one it could offer is the agent's own If-Match header,
+	// which is optional, and an agent that simply omitted it staged
+	// target_version NULL — a NULL the redemption skew check short-circuits
+	// on. A create (no target id) has nothing to pin, and says so by carrying
+	// a zero id.
 	approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     pol.RecordType,
+		TargetType:     string(pol.RecordType),
 		TargetID:       targetID,
-		TargetVersion:  targetVersion,
-		Summary:        fmt.Sprintf("Agent REST %s %s", r.Method, r.URL.Path),
+		Summary:        restSummary(pol.Op, r.Method, r.URL.Path, body),
 	})
 	if sErr != nil {
 		httperr.Write(w, r, sErr)
@@ -311,19 +310,19 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	spec, registered := reg.Spec(pol.Tool)
 	if !registered {
-		if pol.Tier == tierWireDynamic {
+		if pol.Tier == tierDynamic {
 			return mcp.ToolSpec{}, false
 		}
 		tier := mcp.TierAutoExecute
-		if pol.Tier == tierWireConfirmationRequired {
+		if pol.Tier == tierConfirmationRequired {
 			tier = mcp.TierConfirmationRequired
 		}
 		return mcp.ToolSpec{Name: pol.Tool, RequiredScope: principal.ScopeWrite, Tier: tier}, true
 	}
-	if pol.Tier == tierWireDynamic && spec.Tier != mcp.TierDynamic {
+	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
 		return mcp.ToolSpec{}, false
 	}
-	if pol.Tier == tierWireConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
+	if pol.Tier == tierConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
 		spec.Tier, spec.TierResolver = mcp.TierConfirmationRequired, nil
 	}
 	return spec, true

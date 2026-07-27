@@ -39,6 +39,7 @@ type UpdateLeadInput struct {
 	// transports carry the distinction here.
 	ClearScoreOverride bool
 	OwnerID            *ids.UserID
+	ProjectID          *ids.ProjectID
 	IfVersion          *int64
 	// CustomFields carries the request body's extra top-level keys
 	// (additionalProperties); only active cf_* catalog columns land,
@@ -104,6 +105,14 @@ func (s *Store) updateLeadTx(ctx context.Context, tx pgx.Tx, id ids.LeadID, in U
 	if err != nil {
 		return crmcontracts.Lead{}, err
 	}
+	// A client-supplied reference to a row-scoped record is a read of it.
+	// Deliberately no same-company check: a lead has no company to compare
+	// (Note PROJ-DDL-N-4).
+	if in.ProjectID != nil {
+		if err := auth.EnsureLinkTarget(ctx, tx, "project", in.ProjectID.UUID); err != nil {
+			return crmcontracts.Lead{}, err
+		}
+	}
 	p, resumeRecompute, err := buildLeadPatch(current, in)
 	if err != nil {
 		return crmcontracts.Lead{}, err
@@ -161,6 +170,9 @@ func buildLeadPatch(current crmcontracts.Lead, in UpdateLeadInput) (*storekit.Pa
 	}
 	if in.CandidateOrgKey != nil {
 		p.Set("candidate_org_key", current.CandidateOrgKey, *in.CandidateOrgKey)
+	}
+	if in.ProjectID != nil {
+		p.Set("project_id", current.ProjectId, *in.ProjectID)
 	}
 	if in.Status != nil {
 		status, err := parseWritableLeadStatus(*in.Status)

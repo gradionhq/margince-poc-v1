@@ -128,7 +128,7 @@ func (s *Store) entityVisibleTo(ctx context.Context, eventType, entityType strin
 		return false, nil
 	}
 	switch entityType {
-	case "person", "organization", "deal", "lead", "voice_profile":
+	case "person", "organization", "deal", "lead", "project", "voice_profile":
 		return s.rowScopedVisible(ctx, entityType, func(c context.Context, tx pgx.Tx) error {
 			return auth.EnsureVisible(c, tx, entityType, entityID)
 		})

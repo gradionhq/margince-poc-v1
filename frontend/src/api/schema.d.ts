@@ -691,6 +691,133 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List projects (live by default; cursor-paginated). */
+        get: operations["listProjects"];
+        put?: never;
+        /**
+         * Create a project on a company.
+         * @description `organization_id` is required — a project has exactly one anchor company.
+         *     A `key` is optional but must match `^[A-Za-z][A-Za-z0-9_-]{1,23}$` and be unique
+         *     among live projects; a collision is `409` carrying the existing project's id.
+         *     The project starts in `initiative` and its creation row is appended to the phase history.
+         */
+        post: operations["createProject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /** Get a project by id. */
+        get: operations["getProject"];
+        put?: never;
+        post?: never;
+        /**
+         * Archive a project (soft delete; archive is the delete).
+         * @description Archives the project and its phase history, and frees its key for reuse. It does NOT
+         *     archive the activities or deals it grouped — the grouping dies, the history does not.
+         */
+        delete: operations["archiveProject"];
+        options?: never;
+        head?: never;
+        /**
+         * Update a project.
+         * @description `phase` is NOT settable here — a transition goes through `advanceProjectPhase` so the
+         *     history row and `project.phase_changed` are written from the same transaction.
+         */
+        patch: operations["updateProject"];
+        trace?: never;
+    };
+    "/projects/{id}/advance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a project along the phase ladder (audit-logged with prior + next phase).
+         * @description The one phase-transition verb. Writes one phase-history row in the same transaction as
+         *     the row update and emits `project.phase_changed` instead of `project.updated`.
+         *     Transitions may move in either direction (a closed project may re-open); every
+         *     transition is recorded. Closing without a `reason` is `422 closed_reason_required`.
+         */
+        post: operations["advanceProjectPhase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/stakeholders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * List a project's stakeholders (project↔person relationships).
+         * @description `relationship` rows of kind `project_stakeholder` — the deal-stakeholder surface's twin,
+         *     reusing its role vocabulary and adding the delivery roles. One person may hold edges on
+         *     several projects at the same company simultaneously.
+         */
+        get: operations["listProjectStakeholders"];
+        /** Attach a person to a project with a role (idempotent per person). */
+        put: operations["setProjectStakeholder"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/projects/{id}/stakeholders/{person_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Detach a person from a project (archives the edge). */
+        delete: operations["removeProjectStakeholder"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pipelines": {
         parameters: {
             query?: never;
@@ -1821,9 +1948,13 @@ export interface paths {
         /**
          * Read a company back from a website (or text) to PRE-FILL the company form. Stages nothing.
          * @description The same extraction + no-guess gate as POST /coldstart, with no staging: the fields are returned
-         *     for a human to check and correct in the company form, and NOTHING is written or queued. Confirm-first
-         *     (🟡) is honoured by the form itself — the unsaved form IS the staged state, and PUT /company is the
-         *     human's confirmation. This is the read-back onboarding uses; POST /coldstart's approval-inbox
+         *     for a human to check and correct in the company form, and NOTHING is written or queued. For a
+         *     HUMAN, confirm-first (🟡) is honoured by the form itself — the unsaved form IS the staged state,
+         *     and PUT /company is the human's confirmation. That reasoning covers only the WRITE effect and
+         *     presupposes someone at the screen; on the agent path there is neither, and the EGRESS effect is
+         *     the same one POST /coldstart performs — an outbound GET to a caller-chosen host, with the
+         *     caller's path and query, from the server's own address. So the agent tier matches its sibling's:
+         *     🟡, staged for a human. This is the read-back onboarding uses; POST /coldstart's approval-inbox
          *     staging remains for callers that propose asynchronously, with no human at the screen.
          *
          *     Exactly one of `url`, `text` or `self_description`, as on /coldstart. Every field still carries a
@@ -5782,7 +5913,8 @@ export interface components {
         };
         /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
-         *     `employment` (person↔org), `deal_stakeholder` (deal↔person), and the partner edges
+         *     `employment` (person↔org), `deal_stakeholder` (deal↔person), `project_stakeholder`
+         *     (project↔person — the deal-stakeholder shape applied to a body of work), and the partner edges
          *     (A41/ADR-0032, org↔org via `counterparty_org_id`): `partner_of` (org served by a partner
          *     org), `referred_by` (org referred by a partner org), `co_sell_with` (org co-sold with a partner org).
          */
@@ -5792,7 +5924,7 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             /** @enum {string} */
-            kind: "employment" | "deal_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
+            kind: "employment" | "deal_stakeholder" | "project_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
             /** Format: uuid */
             person_id?: string | null;
             /** Format: uuid */
@@ -5804,7 +5936,12 @@ export interface components {
             counterparty_org_id?: string | null;
             /** Format: uuid */
             deal_id?: string | null;
-            /** @description employment: cto/vp_sales/...; stakeholder: champion/economic_buyer/blocker/influencer/user. */
+            /**
+             * Format: uuid
+             * @description The project on a project_stakeholder edge. Null for every other kind.
+             */
+            project_id?: string | null;
+            /** @description employment: cto/vp_sales/...; deal or project stakeholder: champion/economic_buyer/blocker/influencer/user, plus sponsor/project_lead/delivery_lead/subject_matter_expert on a project. */
             role?: string | null;
             /**
              * @description Employment — the one current primary employer (≤1 per person).
@@ -5831,7 +5968,7 @@ export interface components {
         };
         CreateRelationshipRequest: {
             /** @enum {string} */
-            kind: "employment" | "deal_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
+            kind: "employment" | "deal_stakeholder" | "project_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
             /** Format: uuid */
             person_id?: string | null;
             /** Format: uuid */
@@ -5840,6 +5977,8 @@ export interface components {
             counterparty_org_id?: string | null;
             /** Format: uuid */
             deal_id?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
             role?: string | null;
             /** @default false */
             is_current_primary: boolean;
@@ -5895,6 +6034,11 @@ export interface components {
              * @description Deal registration/attribution to a partner org (A38/A41/ADR-0032). The org must have a `partner` row.
              */
             partner_org_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The body of work this deal belongs to. A deal has at most one project; a project carries several deals over time. The deal and the project must name the same company — a cross-company pointer is refused 422.
+             */
+            project_id?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
             /**
@@ -5954,6 +6098,11 @@ export interface components {
             stage_id: string;
             /** Format: uuid */
             organization_id?: string | null;
+            /**
+             * Format: uuid
+             * @description The body of work this deal belongs to; must name the same company as the deal.
+             */
+            project_id?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
             /**
@@ -5974,6 +6123,8 @@ export interface components {
             organization_id?: string | null;
             /** Format: uuid */
             partner_org_id?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
             /** Format: uuid */
             owner_id?: string | null;
             /** @enum {string} */
@@ -6011,6 +6162,109 @@ export interface components {
         };
         DealListResponse: {
             data: components["schemas"]["Deal"][];
+            page: components["schemas"]["PageInfo"];
+        };
+        /** @description A project — the body of work a client relationship is made of. Mirrors the `project` table. */
+        Project: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            workspace_id: string;
+            name: string;
+            /** @description The short handle a human writes in a subject line. Letter-led and bounded so it can never be a bare number, which would match dates, amounts and order numbers. Unique among LIVE projects; archiving frees it. */
+            key?: string | null;
+            /**
+             * Format: uuid
+             * @description The anchor company — required and singular. A company has many projects; a project has one company.
+             */
+            organization_id: string;
+            /** Format: uuid */
+            owner_id?: string | null;
+            /**
+             * @description Read-only here — transitions go through advanceProjectPhase so the history row and project.phase_changed are written from one transaction.
+             * @default initiative
+             * @enum {string}
+             */
+            readonly phase: "initiative" | "pursuing" | "delivering" | "closed";
+            /** @description Required when phase=closed. */
+            closed_reason?: string | null;
+            description?: string | null;
+            /** Format: date */
+            started_at?: string | null;
+            /** Format: date */
+            target_end_date?: string | null;
+            /** Format: date */
+            ended_at?: string | null;
+            /**
+             * Format: date-time
+             * @description Maintained from the timeline on link write; a read accelerator, never a second truth — a rebuild must reproduce it exactly.
+             */
+            readonly last_activity_at?: string | null;
+            source: string;
+            /** @description Server-stamped from the authenticated principal; never client-supplied. */
+            readonly captured_by: string;
+            raw?: {
+                [key: string]: unknown;
+            } | null;
+            version?: components["schemas"]["RowVersion"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            archived_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        CreateProjectRequest: {
+            name: string;
+            key?: string | null;
+            /** Format: uuid */
+            organization_id: string;
+            /** Format: uuid */
+            owner_id?: string | null;
+            description?: string | null;
+            /** Format: date */
+            started_at?: string | null;
+            /** Format: date */
+            target_end_date?: string | null;
+            source: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /** @description Note `phase` is absent by design — it moves only through advanceProjectPhase. */
+        UpdateProjectRequest: {
+            name?: string;
+            key?: string | null;
+            /** Format: uuid */
+            owner_id?: string | null;
+            description?: string | null;
+            /** Format: date */
+            started_at?: string | null;
+            /** Format: date */
+            target_end_date?: string | null;
+            /** Format: date */
+            ended_at?: string | null;
+        } & {
+            [key: string]: unknown;
+        };
+        AdvanceProjectPhaseRequest: {
+            /** @enum {string} */
+            to_phase: "initiative" | "pursuing" | "delivering" | "closed";
+            /** @description Required when to_phase=closed (422 closed_reason_required); recorded on the phase-history row either way. */
+            reason?: string | null;
+        };
+        SetProjectStakeholderRequest: {
+            /** Format: uuid */
+            person_id: string;
+            /**
+             * @description The deal-stakeholder vocabulary plus the delivery roles a body of work running past close needs.
+             * @enum {string}
+             */
+            role: "champion" | "economic_buyer" | "blocker" | "influencer" | "user" | "sponsor" | "project_lead" | "delivery_lead" | "subject_matter_expert";
+        };
+        ProjectListResponse: {
+            data: components["schemas"]["Project"][];
             page: components["schemas"]["PageInfo"];
         };
         /** @description A pipeline stage. Mirrors the `stage` table. */
@@ -6108,7 +6362,7 @@ export interface components {
             /** Format: uuid */
             activity_id?: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "lead";
+            entity_type: "person" | "organization" | "deal" | "lead" | "project";
             /** Format: uuid */
             entity_id: string;
         };
@@ -6252,7 +6506,7 @@ export interface components {
             /** Format: uuid */
             workspace_id: string;
             /** @enum {string} */
-            entity_type: "person" | "organization" | "deal" | "activity" | "lead";
+            entity_type: "person" | "organization" | "deal" | "activity" | "lead" | "project";
             /** Format: uuid */
             entity_id: string;
             filename: string;
@@ -6376,6 +6630,11 @@ export interface components {
             /** @description Loose key for ABM routing without creating an org. */
             candidate_org_key?: string | null;
             /**
+             * Format: uuid
+             * @description The body of work this lead belongs to; a lead has at most one. NO same-company guard exists on this arm and none can: a lead has no organization_id, only candidate_org_key, so the deal_project_same_org trigger has no lead twin. Promotion is where a mismatch becomes visible.
+             */
+            project_id?: string | null;
+            /**
              * @default new
              * @enum {string}
              */
@@ -6425,6 +6684,8 @@ export interface components {
             title?: string | null;
             company_name?: string | null;
             candidate_org_key?: string | null;
+            /** Format: uuid */
+            project_id?: string | null;
             /**
              * @default new
              * @enum {string}
@@ -6452,6 +6713,11 @@ export interface components {
             company_name?: string | null;
             /** @description Loose ABM routing key. Format: lowercased registrable domain when known (`acme.com`), else a slug of company_name. Never an organization FK. */
             candidate_org_key?: string | null;
+            /**
+             * Format: uuid
+             * @description The body of work this lead belongs to; carries no same-company guard (a lead has no company).
+             */
+            project_id?: string | null;
             /** @enum {string} */
             status?: "new" | "working";
             /** @description Manual human score override (formulas §3.1, AC-S1). Omit to keep the computed lead-local score. Setting it REQUIRES `score_override_reason`; passing null clears the override and resumes recompute. */
@@ -6813,7 +7079,7 @@ export interface components {
              */
             shared_scope: "private" | "team" | "workspace";
             /** @enum {string} */
-            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners";
+            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
             name: string;
             /** @description The saved column choice, sort, and filter state (§13.5 vocabulary); persisted verbatim and restored exactly. */
             query: {
@@ -6833,7 +7099,7 @@ export interface components {
         };
         CreateSavedViewRequest: {
             /** @enum {string} */
-            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners";
+            resource: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
             name: string;
             query: {
                 [key: string]: unknown;
@@ -7062,7 +7328,7 @@ export interface components {
              */
             on_behalf_of?: string | null;
             /** @enum {string} */
-            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo";
+            action: "create" | "update" | "archive" | "merge" | "promote" | "demote" | "disqualify" | "restore" | "export" | "erase" | "anonymize" | "assign" | "advance_stage" | "advance_phase" | "send_email" | "consent_grant" | "consent_withdraw" | "approve" | "reject" | "record_share" | "record_unshare" | "activity_relink" | "import" | "import_undo";
             entity_type: string;
             /**
              * Format: uuid
@@ -7313,7 +7579,7 @@ export interface components {
         };
         SearchResult: {
             /** @enum {string} */
-            type: "person" | "organization" | "deal" | "activity" | "lead";
+            type: "person" | "organization" | "deal" | "activity" | "lead" | "project";
             /** Format: uuid */
             id: string;
             /** @description Display label (name/subject). */
@@ -7367,6 +7633,50 @@ export interface components {
         };
         AgentToolListResponse: {
             data: components["schemas"]["AgentTool"][];
+        };
+        /**
+         * @description One operation's agent-admission policy: the shape `tools/gen-agentpolicy`
+         *     derives from this file's `x-agent-access` / `x-mcp-tool` annotations and the
+         *     ADR-0055 gate enforces at runtime.
+         *
+         *     It is declared as a schema so these closed vocabularies live in the contract
+         *     rather than in prose, and so the generator can emit Go TYPES for them instead
+         *     of bare strings. That moves two classes of mistake from runtime to build time:
+         *     an annotation carrying a value outside these enums fails GENERATION instead of
+         *     landing in the table as an unrecognized string the gate silently reads as "not
+         *     a tool" or "no tier", and Go comparing against a misspelled constant fails to
+         *     COMPILE instead of never matching. As extensions add operations, those two
+         *     gates are what keep their annotations honest.
+         *
+         *     This schema describes no response body, and is deliberately not referenced by
+         *     any operation — the code generator prunes it from the wire types, which is
+         *     correct. Its consumer is `tools/gen-agentpolicy`, which reads these enums out
+         *     of this file directly. Do not "fix" the pruning by wiring it into an endpoint.
+         *
+         *     Absent is distinct from invalid: `tier` and `record_type` are empty for
+         *     operations that declare none (a human-only op has no tier; an untyped
+         *     operation targets no record), and only NON-empty values are checked.
+         */
+        AgentAdmissionPolicy: {
+            /** @description The operationId this policy governs. */
+            operation: string;
+            /**
+             * @description tool — governed by the tier below. human-only — an agent principal is refused outright, on reads as well as writes. auth-bootstrap — the session machinery itself, not tier-gated and not an agent tool.
+             * @enum {string}
+             */
+            access: "tool" | "human-only" | "auth-bootstrap";
+            /** @description The MCP tool verb backing this operation (access = tool). */
+            tool?: string;
+            /**
+             * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
+             * @enum {string}
+             */
+            record_type?: "activity" | "app_user" | "custom_field" | "data_subject_request" | "deal" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "project" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            /**
+             * @description The autonomy tier, identical on REST and MCP (ADR-0055).
+             * @enum {string}
+             */
+            tier?: "auto_execute" | "confirmation_required" | "dynamic";
         };
         /**
          * @description EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
@@ -10837,6 +11147,8 @@ export interface operations {
                 status?: "open" | "won" | "lost";
                 /** @description Deterministic stalled flag (no activity past the threshold). */
                 stalled?: boolean;
+                /** @description Filter to the deals belonging to one body of work. */
+                project_id?: string;
                 /** @description Filter to deals attributed to a specific partner org (deal.partner_org_id). */
                 partner_org_id?: string;
                 /** @description true ⇒ partner_org_id IS NOT NULL; false ⇒ partner_org_id IS NULL. Drives the partner-sourced pipeline slice. */
@@ -11094,6 +11406,419 @@ export interface operations {
                     "application/json": components["schemas"]["RelationshipListResponse"];
                 };
             };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listProjects: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+                /**
+                 * @description Sort spec: ONE field, `-` prefix = descending (e.g. `-updated_at`). The house
+                 *     `created_at`/`id` tie-breaker is always appended so ordering is total and the keyset
+                 *     cursor is deterministic. The default sort when omitted is `-created_at,id` — also the only
+                 *     accepted multi-field spelling; any other comma-separated multi-field spec returns
+                 *     `422 code: sort_unsupported`. **Allowed sort fields per resource** are the indexed columns
+                 *     enumerated in data-model.md §13 (Sort/filter vocabulary) plus the workspace's active `cf_`
+                 *     columns (custom columns carry no index in V1 — a `cf_` sort runs as a tenant-scoped scan);
+                 *     an out-of-vocabulary field returns `422 code: sort_field_not_allowed`.
+                 */
+                sort?: components["parameters"]["Sort"];
+                /** @description Include soft-deleted (archived) rows. Default false. */
+                include_archived?: components["parameters"]["IncludeArchived"];
+                /** @description The anchor company. A project has exactly one. */
+                organization_id?: string;
+                owner_id?: string;
+                /** @description Omit for all phases; `phase != closed` is the open-projects slice the link ladder probes. */
+                phase?: "initiative" | "pursuing" | "delivering" | "closed";
+                /** @description Exact (case-insensitive) key lookup. */
+                key?: string;
+                /** @description Name/key quick-find (trigram + weighted tsvector). */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of projects. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A sort or filter field outside the allow-list. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    createProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description Created project. */
+            201: {
+                headers: {
+                    Location?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description A live project already holds this key. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getProject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    archiveProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Archived. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateProject: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateProjectRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    advanceProjectPhase: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a POST safe to retry. **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. Strongly recommended on all POSTs.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+                /**
+                 * @description Optional optimistic-concurrency precondition for a mutating request (PATCH/advance/merge):
+                 *     the last-seen entity `version`. If the row's current `version` differs, the write is
+                 *     rejected with `409 code: version_skew` (ErrVersionSkew) and no change is made — re-read,
+                 *     re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
+                 *     Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
+                 */
+                "If-Match"?: components["parameters"]["IfMatch"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdvanceProjectPhaseRequest"];
+            };
+        };
+        responses: {
+            /** @description The project at its new phase. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Validation error (e.g. closing without a reason). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    listProjectStakeholders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Stakeholder relationships for the project. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RelationshipListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setProjectStakeholder: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetProjectStakeholderRequest"];
+            };
+        };
+        responses: {
+            /** @description The stakeholder edge. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Relationship"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    removeProjectStakeholder: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+                person_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Detached. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -11577,7 +12302,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    entity_type: "person" | "organization" | "deal" | "lead";
+                    entity_type: "person" | "organization" | "deal" | "lead" | "project";
                     /** Format: uuid */
                     entity_id: string;
                     /**
@@ -12537,7 +13262,7 @@ export interface operations {
                 limit?: components["parameters"]["Limit"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
-                kind?: "employment" | "deal_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
+                kind?: "employment" | "deal_stakeholder" | "project_stakeholder" | "partner_of" | "referred_by" | "co_sell_with";
                 person_id?: string;
                 organization_id?: string;
                 deal_id?: string;
@@ -12818,7 +13543,7 @@ export interface operations {
     listSavedViews: {
         parameters: {
             query?: {
-                resource?: "people" | "organizations" | "deals" | "activities" | "leads" | "partners";
+                resource?: "people" | "organizations" | "deals" | "activities" | "leads" | "partners" | "projects";
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
             };
@@ -13417,7 +14142,7 @@ export interface operations {
                 /** @description The search query. */
                 q: string;
                 /** @description Restrict to these object types (default all). */
-                types?: ("person" | "organization" | "deal" | "activity" | "lead")[];
+                types?: ("person" | "organization" | "deal" | "activity" | "lead" | "project")[];
                 /**
                  * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
                  *     effective `sort` of the originating request (field + direction) plus the last row's keyset
@@ -18288,7 +19013,7 @@ export interface operations {
                 cursor?: components["parameters"]["Cursor"];
                 /** @description Max items in the page. */
                 limit?: components["parameters"]["Limit"];
-                entity_type: "person" | "organization" | "deal" | "activity" | "lead";
+                entity_type: "person" | "organization" | "deal" | "activity" | "lead" | "project";
                 entity_id: string;
             };
             header?: never;
@@ -18322,7 +19047,7 @@ export interface operations {
             content: {
                 "multipart/form-data": {
                     /** @enum {string} */
-                    entity_type: "person" | "organization" | "deal" | "activity" | "lead";
+                    entity_type: "person" | "organization" | "deal" | "activity" | "lead" | "project";
                     /** Format: uuid */
                     entity_id: string;
                     /** Format: binary */

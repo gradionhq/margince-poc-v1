@@ -119,11 +119,22 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 // decide — a staged change against another team's deal. The probe uses
 // the same platform/auth clauses the owning store's reads use, so the
 // approval surface can never disclose more than the record itself would.
-// A staged row without a target (e.g. a cold-start proposal) is scoped
-// by grants alone; a target the probe errors on stays invisible.
+// A staged row with NEITHER a target type nor a target id (a cold-start
+// proposal, which is about no record yet) is scoped by grants alone; a
+// target the probe errors on stays invisible.
+//
+// A row carrying one half and not the other is neither of those things and
+// is not decidable. An id with no type names a concrete record the probe
+// cannot resolve — treating it as target-less would put that record's
+// summary and proposed change in the inbox of everyone holding the object
+// grant, and let any of them decide a write against a row their own scope
+// hides. A type with no id has nothing to check the scope against.
 func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
-	if a.TargetType == nil || a.TargetID == nil {
+	if a.TargetType == nil && a.TargetID == nil {
 		return true, nil
+	}
+	if a.TargetType == nil || a.TargetID == nil {
+		return false, nil
 	}
 	switch *a.TargetType {
 	case "person", "organization", "deal", "lead":

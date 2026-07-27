@@ -262,6 +262,7 @@ export const de = {
   "rel.addConfirm": "{kind}-Verknüpfung zu {target} hinzufügen.",
   "rel.kind.employment": "Anstellung",
   "rel.kind.dealStakeholder": "Deal-Beteiligter",
+  "rel.kind.projectStakeholder": "Projekt-Beteiligter",
   "rel.kind.partnerOf": "Partner von",
   "rel.kind.referredBy": "Empfohlen von",
   "rel.kind.coSellWith": "Co-Sell mit",

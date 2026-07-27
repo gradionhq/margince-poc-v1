@@ -56,10 +56,16 @@ func (s *Store) WithFieldCatalog(catalog fieldcatalog.Reader) *Store {
 // deadlock shape). A store without a wired catalog answers empty: core
 // columns only.
 func (s *Store) activeColumns(ctx context.Context) ([]fieldcatalog.Column, error) {
+	return s.activeColumnsFor(ctx, "deal")
+}
+
+// activeColumnsFor is activeColumns for the module's other record type.
+// The rule about fetching BEFORE the transaction opens is the same.
+func (s *Store) activeColumnsFor(ctx context.Context, object string) ([]fieldcatalog.Column, error) {
 	if s.catalog == nil {
 		return nil, nil
 	}
-	return s.catalog.ActiveColumns(ctx, "deal")
+	return s.catalog.ActiveColumns(ctx, object)
 }
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {

@@ -33,7 +33,9 @@ type stubApprovals struct{}
 func (stubApprovals) Stage(_ context.Context, _ agents.StageRequest) (ids.ApprovalID, error) {
 	return ids.ApprovalID{}, nil
 }
-func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) error { return nil }
+func (stubApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ string) (int64, bool, error) {
+	return 0, false, nil
+}
 
 // stubRetriever/stubComms exist so the derived tool list covers the
 // intent and comms registrations; the test only reads Specs().
@@ -96,5 +98,46 @@ func TestEveryRegisteredEffectKindHasADecisionGrantMapping(t *testing.T) {
 		if !approvals.KindHasDecisionGrants(kind) {
 			t.Errorf("kind %q has a registered approved-effect but no decision-grant mapping — its proposals would be staged and then be undecidable by anyone", kind)
 		}
+	}
+}
+
+// The kind string is not a namespace, and the two writers of it do not
+// coordinate: the REST admission gate stages under the operation's TOOL
+// name, while compose registers approved-effect executors under kinds its
+// own proposal flows mint. "enrich" is both — the scrape proposal's kind
+// and the tool behind coldStartReadback, deepReadCompany and scrapeCompany
+// — so an agent could mint a staging that a human's approve click would
+// feed to the compose enrichment executor.
+//
+// This test names the overlap rather than forbidding it, because forbidding
+// it would mean either renaming stored kinds or refusing three legitimate
+// confirm-first agent routes. What the system guarantees instead is that
+// provenance decides: an executor runs only for a staging with no passport.
+// The list below is the evidence that the guarantee is load-bearing — if it
+// ever empties, the collision is gone and this test should go with it.
+func TestCollidingEffectKindsAreCoveredByProvenance(t *testing.T) {
+	svc := approvalsServiceWithEffects(nil)
+	effects := map[string]bool{}
+	for _, kind := range svc.EffectKinds() {
+		effects[kind] = true
+	}
+	if len(effects) == 0 {
+		t.Fatal("no effect kinds registered — the scan found nothing to check, which means it is broken")
+	}
+
+	colliding := map[string]string{}
+	for route, pol := range agentPolicies {
+		if pol.Access == accessTool && effects[pol.Tool] {
+			colliding[pol.Tool] = route
+		}
+	}
+	if len(colliding) == 0 {
+		t.Error("no agent tool name collides with a registered effect kind — the provenance check in " +
+			"approvals.decide now guards nothing, so delete it and delete this test rather than " +
+			"leaving a control nobody can see is dead")
+	}
+	for tool, route := range colliding {
+		t.Logf("agent route %s stages kind %q, which also has a server-side effect executor — "+
+			"only the no-passport check keeps a human's approve click from running it", route, tool)
 	}
 }

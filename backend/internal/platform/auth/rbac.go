@@ -104,7 +104,7 @@ func OwnerPredicate(p principal.Principal, arg func(any) int) func(alias string)
 // shareableTables are the record types manual per-record grants can
 // widen (A52/ADR-0039); grants on anything else cannot exist (the
 // record_grant CHECK is the schema-side twin of this set).
-var shareableTables = map[string]bool{"person": true, "organization": true, "deal": true, "lead": true}
+var shareableTables = map[string]bool{"person": true, "organization": true, "deal": true, "lead": true, "project": true}
 
 // ownerScopedTables is the closed set of table names the row-scope
 // primitives interpolate into SQL — exactly the tables carrying an
@@ -114,7 +114,7 @@ var shareableTables = map[string]bool{"person": true, "organization": true, "dea
 // names itself so a new caller that forwards an unvalidated string is
 // an error, never an injection.
 var ownerScopedTables = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true,
+	"person": true, "organization": true, "deal": true, "lead": true, "project": true,
 	"list": true, "saved_view": true, "automation": true, "voice_profile": true,
 }
 
@@ -314,13 +314,15 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 	organization := VisiblePredicate(p, "organization", arg)
 	deal := VisiblePredicate(p, "deal", arg)
 	lead := VisiblePredicate(p, "lead", arg)
+	project := VisiblePredicate(p, "project", arg)
 	return fmt.Sprintf(`(NOT EXISTS (SELECT 1 FROM activity_link nl WHERE nl.activity_id = %[1]s.id)
 	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND (
 	      (l.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = l.person_id AND %[2]s))
 	   OR (l.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization so WHERE so.id = l.organization_id AND %[3]s))
 	   OR (l.deal_id IS NOT NULL AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = l.deal_id AND %[4]s))
-	   OR (l.lead_id IS NOT NULL AND EXISTS (SELECT 1 FROM lead sl WHERE sl.id = l.lead_id AND %[5]s)))))`,
-		alias, person("sp"), organization("so"), deal("sd"), lead("sl")), nil
+	   OR (l.lead_id IS NOT NULL AND EXISTS (SELECT 1 FROM lead sl WHERE sl.id = l.lead_id AND %[5]s))
+	   OR (l.project_id IS NOT NULL AND EXISTS (SELECT 1 FROM project spr WHERE spr.id = l.project_id AND %[6]s)))))`,
+		alias, person("sp"), organization("so"), deal("sd"), lead("sl"), project("spr")), nil
 }
 
 // SignalScopeClause is the signal analogue of ActivityScopeClause: a

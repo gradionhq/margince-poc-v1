@@ -319,7 +319,7 @@ func TestFieldTypes_MatchesMigrationCheckSpelling(t *testing.T) {
 }
 
 func TestFieldObjects_MatchesMigrationCheckSpelling(t *testing.T) {
-	want := []string{"person", "organization", "deal", "lead", "activity"}
+	want := []string{"person", "organization", "deal", "lead", "activity", "project"}
 	if len(FieldObjects) != len(want) {
 		t.Fatalf("FieldObjects = %v, want %v", FieldObjects, want)
 	}

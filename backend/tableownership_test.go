@@ -76,11 +76,15 @@ var tableOwners = map[string]string{
 	"pipeline":           "internal/modules/deals",
 	"stage":              "internal/modules/deals",
 	"deal_stage_history": "internal/modules/deals",
-	"fx_rate":            "internal/modules/deals",
-	"product":            "internal/modules/deals",
-	"offer":              "internal/modules/deals",
-	"offer_line_item":    "internal/modules/deals",
-	"offer_template":     "internal/modules/deals",
+	// The project lives in the deals bounded context (ADR-0073): it is the
+	// body of work the deals hang off, not a context of its own.
+	"project":               "internal/modules/deals",
+	"project_phase_history": "internal/modules/deals",
+	"fx_rate":               "internal/modules/deals",
+	"product":               "internal/modules/deals",
+	"offer":                 "internal/modules/deals",
+	"offer_line_item":       "internal/modules/deals",
+	"offer_template":        "internal/modules/deals",
 	// activities
 	"activity":      "internal/modules/activities",
 	"activity_link": "internal/modules/activities",
@@ -188,6 +192,7 @@ var crossStoreWrites = map[string]string{
 	// cross-aggregate write, because a merge that could half-commit its
 	// relinks would corrupt referential history.
 	"internal/modules/people:deal":           "merge/promote relink deal FK rows in the single transaction",
+	"internal/modules/people:project":        "org merge re-anchors the merged-away company's projects onto the survivor in the same transaction (PROJ-LIFE-4) — the anchor is NOT NULL ... ON DELETE RESTRICT, so a project cannot stay behind, and leaving it turns the survivor's deals un-editable against the deal_project_same_org trigger",
 	"internal/modules/people:activity_link":  "merge/promote relink timeline links in the single transaction",
 	"internal/modules/people:list_member":    "merge relinks list memberships (and archive purges them) in the single transaction",
 	"internal/modules/people:taggable":       "merge relinks tag rows (and archive purges them) in the single transaction",

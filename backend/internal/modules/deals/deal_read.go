@@ -9,7 +9,6 @@ package deals
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -51,6 +50,7 @@ type ListDealsInput struct {
 	StageID         *ids.StageID
 	OwnerID         *ids.UserID
 	OrganizationID  *ids.OrganizationID
+	ProjectID       *ids.ProjectID
 	PartnerOrgID    *ids.OrganizationID
 	PartnerSourced  *bool
 	Status          *string
@@ -88,65 +88,15 @@ func (s *Store) ListDeals(ctx context.Context, in ListDealsInput) ([]crmcontract
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	sorted, err := storekit.ParseListSort(in.Sort, storekit.SortVocabulary(dealListFields, active))
+	pre, err := buildListPrelude(ctx, "deal", dealListFields, active,
+		in.Sort, in.Limit, in.Cursor, in.CustomFilters)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
-	limit := storekit.ClampLimit(in.Limit)
+	where := appendDealFilters(pre.where, in, pre.arg)
 
-	where := []string{"1=1"}
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	scope, err := auth.ScopeClauseFor(ctx, "deal", "", arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-
-	where = appendDealFilters(where, in, arg)
-	cfClauses, err := storekit.CustomFilterClauses(active, in.CustomFilters, arg)
-	if err != nil {
-		return nil, storekit.Page{}, err
-	}
-	where = append(where, cfClauses...)
-	if in.Cursor != nil && *in.Cursor != "" {
-		clause, err := sorted.KeysetClause(*in.Cursor, arg)
-		if err != nil {
-			return nil, storekit.Page{}, err
-		}
-		where = append(where, clause)
-	}
-
-	var deals []crmcontracts.Deal
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+dealColumns+storekit.SelectSuffix(active)+sorted.CursorKeySuffix()+
-				` FROM deal WHERE `+strings.Join(where, " AND ")+
-				sorted.OrderBy()+storekit.SQLf(` LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		var cursorKeys []*string
-		if deals, cursorKeys, err = scanDealPage(rows, active, sorted); err != nil {
-			return err
-		}
-		if len(deals) > limit {
-			deals = deals[:limit]
-			last := deals[len(deals)-1]
-			page = storekit.Page{HasMore: true, NextCursor: sorted.EncodePageCursor(cursorKeys[limit-1], last.CreatedAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if deals == nil {
-		deals = []crmcontracts.Deal{}
-	}
-	return deals, page, err
+	return runListPage(ctx, s, pre, "deal", dealColumns, active, where, scanDealPage,
+		func(d crmcontracts.Deal) (time.Time, ids.UUID) { return d.CreatedAt, ids.UUID(d.Id) })
 }
 
 // scanDealPage drains one list query's rows: each deal plus, under a
@@ -197,6 +147,9 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 	if in.OrganizationID != nil {
 		where = append(where, storekit.SQLf("organization_id = $%d", arg(*in.OrganizationID)))
 	}
+	if in.ProjectID != nil {
+		where = append(where, storekit.SQLf("project_id = $%d", arg(*in.ProjectID)))
+	}
 	if in.PartnerOrgID != nil {
 		where = append(where, storekit.SQLf("partner_org_id = $%d", arg(*in.PartnerOrgID)))
 	}
@@ -223,7 +176,7 @@ func appendDealFilters(where []string, in ListDealsInput, arg func(any) int) []s
 }
 
 const dealColumns = `id, workspace_id, name, amount_minor, currency, pipeline_id, stage_id,
-	organization_id, owner_id, partner_org_id, status, lost_reason,
+	organization_id, project_id, owner_id, partner_org_id, status, lost_reason,
 	expected_close_date, close_date_provisional, closed_at, forecast_category, wait_until, last_activity_at,
 	source, captured_by, version, created_at, updated_at, archived_at`
 
@@ -248,7 +201,7 @@ func readDeal(ctx context.Context, tx pgx.Tx, id ids.DealID, archived storekit.A
 func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontracts.Deal, error) {
 	var d crmcontracts.Deal
 	var id, wsID, pipelineID, stageID ids.UUID
-	var orgID, ownerID, partnerID *ids.UUID
+	var orgID, projectID, ownerID, partnerID *ids.UUID
 	var status string
 	var forecastCat *string
 	var expectedClose, waitUntil *time.Time
@@ -257,7 +210,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 
 	dests := []any{
 		&id, &wsID, &d.Name, &d.AmountMinor, &d.Currency, &pipelineID, &stageID,
-		&orgID, &ownerID, &partnerID, &status, &d.LostReason,
+		&orgID, &projectID, &ownerID, &partnerID, &status, &d.LostReason,
 		&expectedClose, &closeDateProvisional, &d.ClosedAt, &forecastCat, &waitUntil, &d.LastActivityAt,
 		&d.Source, &d.CapturedBy, &version, &d.CreatedAt, &d.UpdatedAt, &d.ArchivedAt,
 	}
@@ -280,6 +233,7 @@ func scanDeal(row pgx.Row, active []fieldcatalog.Column, extra ...any) (crmcontr
 	sid := openapi_types.UUID(stageID)
 	d.StageId = &sid
 	d.OrganizationId = uuidPtr(orgID)
+	d.ProjectId = uuidPtr(projectID)
 	d.OwnerId = uuidPtr(ownerID)
 	d.PartnerOrgId = uuidPtr(partnerID)
 	d.Status = crmcontracts.DealStatus(status)

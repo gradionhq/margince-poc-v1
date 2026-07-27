@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 type Store struct {
@@ -32,10 +34,33 @@ func NewStore(pool *pgxpool.Pool) *Store {
 }
 
 // memberEntityTables is the closed polymorphic target set — the table
-// name doubles as the RBAC object and the visibility-probe table.
-var memberEntityTables = map[string]bool{
-	"person": true, "organization": true, "deal": true, "lead": true,
-}
+// name doubles as the RBAC object and the visibility-probe table. It is
+// derived from the canonical record vocabulary rather than restated, so a
+// new record type reaches lists, tags and saved views by widening one set.
+var memberEntityTables = func() map[string]bool {
+	m := map[string]bool{}
+	for _, t := range datasource.RecordTypes() {
+		m[string(t)] = true
+	}
+	return m
+}()
+
+// entityTypeField names the input every polymorphic refusal on this surface
+// points at.
+const entityTypeField = "entity_type"
+
+// memberEntityVocabulary renders the accepted set for the refusal message.
+// Derived from the same map the check uses, because a message that restates
+// the vocabulary drifts from it silently — the caller is then told a record
+// type is invalid while being shown a list that does not include it.
+var memberEntityVocabulary = func() string {
+	names := make([]string, 0, len(memberEntityTables))
+	for name := range memberEntityTables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, "|")
+}()
 
 const listColumns = `id, workspace_id, name, entity_type, list_type, definition, owner_id, team_id, created_at, updated_at, archived_at`
 
@@ -131,7 +156,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		return listRow{}, err
 	}
 	if !memberEntityTables[in.EntityType] {
-		return listRow{}, &BadInputError{Field: "entity_type", Reason: "must be person|organization|deal|lead"}
+		return listRow{}, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
 	if in.ListType == "" {
 		in.ListType = "static"

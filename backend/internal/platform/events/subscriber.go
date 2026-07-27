@@ -44,11 +44,14 @@ type Subscriber struct {
 	// block is the XREADGROUP wait; it bounds shutdown latency.
 	block time.Duration
 	// minIdle is how long an entry may sit pending (its consumer
-	// presumed dead) before the reclaim pass adopts it. It should still
-	// exceed the slowest handler's honest runtime: reclaiming an entry
-	// whose consumer is merely slow runs the effect twice concurrently —
-	// absorbed by the natural-key idempotency layer, but wasted work and
-	// a needless conflict path.
+	// presumed dead) before the reclaim pass adopts it. It MUST exceed the
+	// slowest handler's honest runtime on this group: reclaiming an entry
+	// whose consumer is merely slow runs the effect twice concurrently.
+	// Where the effect is an upsert by natural key that costs wasted work
+	// and a needless conflict path; where it is not — the agent-runner
+	// resume, a fresh multi-step loop — it is a second execution. The
+	// default suits the fast handlers; a group whose handler can run longer
+	// sets its own with [Subscriber.WithMinIdle].
 	minIdle time.Duration
 	batch   int64
 }
@@ -68,6 +71,17 @@ func NewSubscriber(rdb *redis.Client, group kevents.Group, handler Handler, log 
 		minIdle:  5 * time.Minute,
 		batch:    64,
 	}
+}
+
+// WithMinIdle raises the reclaim window for a group whose handler runs
+// longer than the default. It is a mutate-and-return builder so a caller
+// reads as one expression; a non-positive value is ignored rather than
+// silently disabling the reclaim pass entirely.
+func (s *Subscriber) WithMinIdle(d time.Duration) *Subscriber {
+	if d > 0 {
+		s.minIdle = d
+	}
+	return s
 }
 
 // Run consumes until ctx is canceled. Like the relay, transport errors

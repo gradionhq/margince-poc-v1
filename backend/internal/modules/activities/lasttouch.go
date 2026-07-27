@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -76,18 +77,18 @@ func (s *Store) LastTouchBefore(ctx context.Context, cutoff time.Time, limit int
 	}
 	var out []LastTouchCandidate
 	err := s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
+		rows, err := tx.Query(ctx, storekit.SQLf(`
 			SELECT al.entity_type,
-			       coalesce(al.person_id, al.organization_id, al.deal_id, al.lead_id) AS entity_id,
+			       %[1]s AS entity_id,
 			       max(a.occurred_at) AS last_touch
 			FROM activity_link al
 			JOIN activity a ON a.id = al.activity_id
 			WHERE a.archived_at IS NULL
 			  AND a.source <> $1
-			GROUP BY al.entity_type, coalesce(al.person_id, al.organization_id, al.deal_id, al.lead_id)
+			GROUP BY al.entity_type, %[1]s
 			HAVING max(a.occurred_at) < $2
 			ORDER BY max(a.occurred_at), entity_id
-			LIMIT $3`, automationSource, cutoff, limit)
+			LIMIT $3`, linkIDCoalesceQualified("al")), automationSource, cutoff, limit)
 		if err != nil {
 			return err
 		}
