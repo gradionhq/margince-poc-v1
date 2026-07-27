@@ -22,7 +22,20 @@ import (
 type UnsupportedEntityError struct{ Type string }
 
 func (e *UnsupportedEntityError) Error() string {
-	return "entity_type " + e.Type + " is not person|organization|deal|lead|activity"
+	return "entity_type " + e.Type + " is not " + entityVocabulary()
+}
+
+// entityVocabulary renders the accepted set from EntityTypes rather than
+// restating it. This message sits in the package that DEFINES the vocabulary,
+// so a restated copy here is the one most likely to be believed and the least
+// likely to be updated — it had already lost `project` and gained `activity`.
+func entityVocabulary() string {
+	all := EntityTypes()
+	names := make([]string, 0, len(all))
+	for _, t := range all {
+		names = append(names, string(t))
+	}
+	return strings.Join(names, "|")
 }
 
 // FieldDecodeError maps to 422 on every surface.
