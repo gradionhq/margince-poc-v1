@@ -199,11 +199,12 @@ func (c *rateFxCase) Run(ctx context.Context, completer aitasks.Completer) (aita
 // it. The order is the meaning: a pair collect dropped is not a rate to disagree
 // with.
 //
-// Nothing surviving is OutcomeInvalid because collect's map is the whole output
-// of this site: a reply from which no rate survives leaves the refresh with
-// nothing to diff and the administrator with nothing to approve, whatever the
-// model wrote. A reply that grounded something is usable whatever else it
-// claimed, so a missing or misread rate is a wrong answer, named as such.
+// Nothing surviving is OutcomeInvalid and NOT an abstention. There is no silence
+// to report here: collect is driven by the workspace's tracked currencies and
+// names every one the page left unpriced, so a run that fetched nothing always
+// carries a refusal per tracked currency — the gate spoke even when the model
+// did not. A reply that grounded something is usable whatever else it claimed, so
+// a missing or misread rate is a wrong answer, named as such.
 func (c *rateFxCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	pairs, err := parseFxExtraction(trace.Output)
 	if err != nil {

@@ -231,17 +231,18 @@ func validateScenario(sc Scenario, path string, census *aitasks.Registry) error 
 	return validateBands(sc.Expect.Bands, path)
 }
 
-// validateOutcome holds expect.outcome to the three things a certified reply
-// can be. The vocabulary is the seam's own (aitasks), not a corpus-side copy:
-// a scenario expecting a fourth word would assert something no Evaluate can
-// ever report, and would read as an unmet expectation forever.
+// validateOutcome holds expect.outcome to the four things a certified reply can
+// be. The vocabulary is the seam's own (aitasks), not a corpus-side copy: a
+// scenario expecting a fifth word would assert something no Evaluate can ever
+// report, and would read as an unmet expectation forever.
 func validateOutcome(outcome, path string) error {
 	switch outcome {
-	case aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid:
+	case aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid, aitasks.OutcomeAbstained:
 		return nil
 	}
-	return fmt.Errorf("aicert: %s: expect.outcome is %q, want one of %s|%s|%s",
-		path, outcome, aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid)
+	return fmt.Errorf("aicert: %s: expect.outcome is %q, want one of %s|%s|%s|%s",
+		path, outcome,
+		aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid, aitasks.OutcomeAbstained)
 }
 
 // validateBands enforces the §5 ordering Verdict (score.go) relies on:

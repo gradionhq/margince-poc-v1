@@ -131,15 +131,21 @@ func (offerDraftCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prepa
 	// A draft differs from a guess in which context item each line cites and what
 	// price that line carries, so the expectation IS that mapping rather than a
 	// wrapper around it.
+	// An expectation the scenario simply forgot is refused; one written out as
+	// empty is honoured. They arrive as different bytes — an absent `answer:`
+	// carries none at all — and they are different claims: the first says
+	// nothing, the second says this deal supports no line, which is the whole
+	// content of a scenario whose right answer is an empty draft.
+	if len(expected) == 0 {
+		return nil, fmt.Errorf(
+			"%s: the scenario carries no expected answer — write `answer: {}` to assert that this deal grounds no line",
+			offerDraftSite)
+	}
 	var want map[string]offerDraftExpectedLine
 	if err := json.Unmarshal(expected, &want); err != nil {
 		return nil, fmt.Errorf(
 			"%s: the expected answer is not a map of context source id to the line it grounds: %w",
 			offerDraftSite, err)
-	}
-	if len(want) == 0 {
-		return nil, fmt.Errorf(
-			"%s: the scenario expects no line, so no draft could disagree with it", offerDraftSite)
 	}
 	dealContext := make([]dealContextItem, 0, len(f.ContextItems))
 	for _, item := range f.ContextItems {
@@ -165,15 +171,17 @@ func (offerDraftCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prepa
 // bound the drafting path already holds: gatherDealContext skips an evidence
 // item missing either half, the two reads are capped, a citation names one
 // source, and an offer is always denominated.
+//
+// An EMPTY deal context is not one of those bounds. The orchestrator drafts a
+// freshly regenerated offer whatever the retrieval walk returned, and
+// renderContextBlock has a sentence for the empty result — "(none captured yet)"
+// — so a deal with nothing captured is a call this site really makes, and the
+// one where drafting nothing is the only honest reply.
 func refuseUndraftableDeal(f offerDraftFixture) error {
 	if strings.TrimSpace(f.Currency) == "" {
 		return fmt.Errorf(
 			"%s: the fixture names no currency, and the ladder reads a price in the offer's own denomination",
 			offerDraftSite)
-	}
-	if len(f.ContextItems) == 0 {
-		return fmt.Errorf(
-			"%s: the fixture captures no deal context, so no line could ever be evidenced", offerDraftSite)
 	}
 	if len(f.ContextItems) > offerDraftContextItems || len(f.RateCard) > offerDraftCatalogItems {
 		return fmt.Errorf(
@@ -334,11 +342,17 @@ func (c *offerDraftCase) Run(ctx context.Context, completer aitasks.Completer) (
 // it. The order is the meaning: a line the gate refused is not a price to
 // disagree with.
 //
-// Nothing staging is OutcomeInvalid because the staged lines are the whole
-// product of this site: a reply from which none survive leaves the offer exactly
-// as the mechanical clone left it and the human with nothing to review, whatever
-// the model wrote. A reply that staged something is usable whatever else it
-// claimed, so a missing or misgrounded line is a wrong answer, named as such.
+// Nothing staging splits two ways, and the split is the point. A draft the gate
+// EMPTIED is OutcomeInvalid: the model wrote lines, none could be grounded, and
+// what reaches the human is an offer exactly as the mechanical clone left it
+// with a model's inventions refused behind it. A draft that proposed nothing in
+// the first place is an abstention, because that is the reply production has a
+// branch for — DraftOfferLines returns the offer untouched and calls it an
+// honest empty draft (P11) — and it is the only correct answer for a deal whose
+// context grounds no line.
+//
+// A reply that staged something is usable whatever else it claimed, so a missing
+// or misgrounded line is a wrong answer, named as such.
 func (c *offerDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	candidates, err := parseOfferDraftLines(trace.Output)
 	if err != nil {
@@ -348,16 +362,20 @@ func (c *offerDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		}
 	}
 	staged, refusals := c.gate(candidates)
-	if len(staged) == 0 {
-		if len(refusals) == 0 {
-			refusals = []string{"the model drafted no line at all"}
-		}
-		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: strings.Join(refusals, "; ")}
-	}
 	// Every refusal reaches the Detail whatever the result: a draft that staged
 	// the expected lines while inventing three ungrounded ones is not the clean
 	// run it would otherwise look like.
-	if disagreements := c.disagreements(staged); len(disagreements) > 0 {
+	if len(staged) == 0 && len(refusals) > 0 {
+		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: strings.Join(refusals, "; ")}
+	}
+	disagreements := c.disagreements(staged)
+	if len(staged) == 0 {
+		// A scenario that DID expect lines still reads its own disagreements
+		// here: the reply is an abstention either way, and what it declined to
+		// draft is the diagnosis.
+		return aitasks.Outcome{Result: aitasks.OutcomeAbstained, Detail: strings.Join(disagreements, "; ")}
+	}
+	if len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, refusals...), "; "),

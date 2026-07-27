@@ -21,14 +21,22 @@ package compose
 // as a clean read.
 //
 // What the expectation MEANS here: the profile fields that must survive the
-// citation gate, with the values they must carry. The lane grounds eleven company
-// fields against cited passages, so what it is right or wrong about is a field —
-// it either grounds the one the scenario named, or it grounds something else, or
-// it grounds nothing. It is a subset claim, never an inventory: a real site
-// grounds more of the eleven than a scenario cares to pin, and demanding
-// exhaustiveness would fail a read for being richer than its author imagined.
+// citation gate, with the values they must carry, and — separately — the fields
+// this crawl must NOT ground at all. The lane grounds company fields against
+// cited passages, so what it is right or wrong about is a field: it either
+// grounds the one the scenario named, or it grounds something else, or it
+// grounds nothing.
+//
+// The positive half is a subset claim, never an inventory: a real site grounds
+// more fields than a scenario cares to pin, and demanding exhaustiveness would
+// fail a read for being richer than its author imagined. The negative half is
+// the opposite kind of claim and needs its own words for exactly that reason —
+// a subset claim can say what must be there and can never say what must not,
+// and "must not" is the whole content of a page that grounds nothing and a
+// legal notice that names two entities.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -100,17 +108,74 @@ func (siteProfileCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prep
 		return nil, errors.New(
 			"site_extract/profile: the fixture's pages yield no passage, and the deep read calls no model without one")
 	}
-	var want map[string]string
-	if err := json.Unmarshal(expected, &want); err != nil {
-		return nil, fmt.Errorf("site_extract/profile: the expected answer is not a field to value map: %w", err)
-	}
-	if len(want) == 0 {
-		return nil, errors.New("site_extract/profile: the scenario expects no field, so no reply could disagree with it")
+	want, err := parseSiteProfileExpectation(expected)
+	if err != nil {
+		return nil, err
 	}
 	if err := refuseUngroundableExpectation(want, idx); err != nil {
 		return nil, err
 	}
 	return &siteProfileCase{idx: idx, expected: want}, nil
+}
+
+// The two keys the explicit expectation form is spelled with. They are not
+// profile field names, which is what lets one mapping carry both forms without
+// a discriminator: an expectation using either key is the explicit form, and
+// anything else is the bare field-to-value map.
+const (
+	siteProfileGroundedKey    = "grounded"
+	siteProfileNotGroundedKey = "not_grounded"
+)
+
+// siteProfileExpectation is what a profile scenario asserts about one crawl:
+// the fields the read must ground with the values they must carry, and the
+// fields it must not ground at all.
+type siteProfileExpectation struct {
+	grounded    map[string]string
+	notGrounded []string
+}
+
+// parseSiteProfileExpectation reads either spelling of this site's expectation.
+//
+// The bare field-to-value map stays legal because it is the whole claim of a
+// scenario that only says what a page grounds, and rewriting those into a
+// wrapper would buy nothing but churn. The explicit form exists for the claim
+// the bare map cannot make at all — that a field must NOT be grounded — and a
+// scenario asserting an abstention is making exactly that claim about a page
+// whose passages state nothing.
+//
+// The explicit form refuses an unknown key rather than ignoring it, because a
+// mistyped `not_ground:` would otherwise load as an expectation that forbids
+// nothing and pass whatever the model fabricated.
+func parseSiteProfileExpectation(expected json.RawMessage) (siteProfileExpectation, error) {
+	var keyed map[string]json.RawMessage
+	if err := json.Unmarshal(expected, &keyed); err != nil {
+		return siteProfileExpectation{}, fmt.Errorf(
+			"site_extract/profile: the expected answer is not a mapping: %w", err)
+	}
+	_, hasGrounded := keyed[siteProfileGroundedKey]
+	_, hasNotGrounded := keyed[siteProfileNotGroundedKey]
+	if !hasGrounded && !hasNotGrounded {
+		var bare map[string]string
+		if err := json.Unmarshal(expected, &bare); err != nil {
+			return siteProfileExpectation{}, fmt.Errorf(
+				"site_extract/profile: the expected answer is neither a field to value map nor a %s/%s mapping: %w",
+				siteProfileGroundedKey, siteProfileNotGroundedKey, err)
+		}
+		return siteProfileExpectation{grounded: bare}, nil
+	}
+	var explicit struct {
+		Grounded    map[string]string `json:"grounded"`
+		NotGrounded []string          `json:"not_grounded"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(expected))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&explicit); err != nil {
+		return siteProfileExpectation{}, fmt.Errorf(
+			"site_extract/profile: the expected answer carries %s or %s but is not that form: %w",
+			siteProfileGroundedKey, siteProfileNotGroundedKey, err)
+	}
+	return siteProfileExpectation{grounded: explicit.Grounded, notGrounded: explicit.NotGrounded}, nil
 }
 
 // refuseUngroundableExpectation names an expectation this site could never
@@ -132,10 +197,20 @@ func (siteProfileCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prep
 // the crawl grounds in substance can survive, and refusing one here would delete
 // the cross-language reads the warning class exists to admit.
 //
+// A negative claim is unmeasurable for its own reasons: a forbidden field
+// outside the vocabulary is one no model can propose, and a field both required
+// and forbidden is a contradiction no reply can satisfy. An expectation that
+// forbids something is NOT an empty expectation, which is why only the
+// expectation asserting neither half is refused as asserting nothing.
+//
 // Sorted so a fixture with two offences names the same one every time.
-func refuseUngroundableExpectation(want map[string]string, idx snippetIndex) error {
-	for _, name := range slices.Sorted(maps.Keys(want)) {
-		value := want[name]
+func refuseUngroundableExpectation(want siteProfileExpectation, idx snippetIndex) error {
+	if len(want.grounded) == 0 && len(want.notGrounded) == 0 {
+		return errors.New(
+			"site_extract/profile: the scenario requires no field and forbids none, so no reply could disagree with it")
+	}
+	for _, name := range slices.Sorted(maps.Keys(want.grounded)) {
+		value := want.grounded[name]
 		switch {
 		case !slices.Contains(extractionFieldNames, name):
 			return fmt.Errorf(
@@ -147,6 +222,16 @@ func refuseUngroundableExpectation(want map[string]string, idx snippetIndex) err
 			return fmt.Errorf(
 				"site_extract/profile: the scenario expects %q to read %q, which no passage of this fixture contains, "+
 					"and the gate demands a verbatim-shaped value appear in the passage cited for it", name, value)
+		}
+	}
+	for _, name := range slices.Sorted(slices.Values(want.notGrounded)) {
+		switch {
+		case !slices.Contains(extractionFieldNames, name):
+			return fmt.Errorf(
+				"site_extract/profile: the scenario forbids %q, which this prompt never offers the model", name)
+		case want.grounded[name] != "":
+			return fmt.Errorf(
+				"site_extract/profile: the scenario both expects and forbids %q, and no reply can satisfy both", name)
 		}
 	}
 	return nil
@@ -170,7 +255,7 @@ func citableInSomePassage(idx snippetIndex, value string) bool {
 // expects.
 type siteProfileCase struct {
 	idx      snippetIndex
-	expected map[string]string
+	expected siteProfileExpectation
 }
 
 // Run issues the one request this site sends. It sends it bare: production wraps
@@ -194,9 +279,15 @@ func (c *siteProfileCase) Run(ctx context.Context, completer aitasks.Completer) 
 //
 // A reply is unusable only when the gate refused everything it claimed: an
 // unreadable answer, an id outside this call's index, a legal name the imprint
-// never carries. Claiming NOTHING is a different thing and is judged a wrong
-// answer, because omission is what this prompt asks for when the passages ground
-// nothing — the lane stores no profile field and the deep read carries on.
+// never carries. Claiming NOTHING is the opposite event and is reported as an
+// abstention, because omission is what this prompt asks for when the passages
+// ground nothing — the lane stores no profile field and the deep read carries
+// on, exactly as it does after a read that grounded ten.
+//
+// A forbidden field that survived is judged BEFORE the abstention, and before
+// the positive comparison: it is the sharpest thing a reply can do wrong here,
+// and a page that grounds nothing invites precisely one failure — a plausible
+// value with a citation that resolves to a passage saying nothing of the kind.
 //
 // Nothing is imposed beyond the gate: the lane has no acceptance floor of its own
 // past the confidence range the gate already enforces, so a case that added one
@@ -211,11 +302,49 @@ func (c *siteProfileCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	if len(grounded) == 0 && len(dropped) > 0 {
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: strings.Join(detail, "; ")}
 	}
-	if disagreements := expectationDisagreements(c.expected, groundedValues(grounded)); len(disagreements) > 0 {
+	values := groundedValues(grounded)
+	if fabricated := forbiddenGroundings(c.expected.notGrounded, values); len(fabricated) > 0 {
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeWrongAnswer,
+			Detail: strings.Join(append(fabricated, detail...), "; "),
+		}
+	}
+	disagreements := expectationDisagreements(c.expected.grounded, values)
+	if len(grounded) == 0 {
+		// A scenario that DID expect fields still reads its own disagreements
+		// here: the reply is an abstention either way, and what it declined to
+		// ground is the diagnosis.
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeAbstained,
+			Detail: strings.Join(append(disagreements, detail...), "; "),
+		}
+	}
+	if len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, detail...), "; "),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: strings.Join(detail, "; ")}
+}
+
+// forbiddenGroundings names every field the scenario said this crawl must not
+// ground and the reply grounded anyway, with the value it invented — the value,
+// because a record saying only that legal_name appeared cannot tell a reviewer
+// which of two conflicting entities the model picked.
+//
+// It lives here rather than beside the shared comparison because it is this
+// site's vocabulary: the other grounding cases assert only what must be present,
+// and a shared negative helper with one caller is an owner nobody keeps true.
+//
+// Sorted so a reply with two fabrications names them in the same order every time.
+func forbiddenGroundings(forbidden []string, grounded map[string]string) []string {
+	var out []string
+	for _, name := range slices.Sorted(slices.Values(forbidden)) {
+		if value, survived := grounded[name]; survived {
+			out = append(out, fmt.Sprintf(
+				"%s reads %q, which the scenario says this crawl grounds no value for", name, value))
+		}
+	}
+	return out
 }

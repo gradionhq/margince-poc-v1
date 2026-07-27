@@ -1,0 +1,31 @@
+name: no_captured_context_yields_no_lines
+task: offer_draft
+site: draft
+source: hand_authored
+sanitized_by: hand_authored/claude-fable-5
+# A deal with nothing captured and no live product. The orchestrator drafts a
+# freshly regenerated offer whatever the retrieval walk returned, and the
+# request builder has a sentence for each empty half — "(none captured yet)"
+# and "(no active products)" — so this is a call the product really makes.
+fixture:
+  currency: EUR
+  context_items: []
+  rate_card: []
+expect:
+  # An empty answer here is the claim, not the absence of one: nothing can be
+  # evidenced, so no line may be staged. Production says the same thing in its
+  # own words — DraftOfferLines returns the offer untouched and calls it an
+  # honest empty draft. A model that invents a line is caught as invalid, since
+  # the no-guess gate refuses every citation this deal never captured.
+  outcome: abstained
+  answer: {}
+  rubric: >
+    There is no captured context and no rate card, so nothing can be
+    evidenced. Score high ONLY if lines is an empty array — a plausible-
+    sounding invented line (e.g. a generic "consulting services" item with
+    no real source_id) is exactly the fabrication this task must never
+    produce, however reasonable it sounds.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

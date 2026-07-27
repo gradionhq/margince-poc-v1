@@ -31,19 +31,16 @@ func TestOfferDraftCaseRefusesAnUnreachableExpectation(t *testing.T) {
 		wantMsg  string
 	}{
 		{
-			name:     "no line expected at all",
-			expected: json.RawMessage(`{}`),
-			wantMsg:  "expects no line",
-		},
-		{
 			name:     "an expectation shaped like something else",
 			expected: json.RawMessage(`["activity:1"]`),
 			wantMsg:  "context source id to the line it grounds",
 		},
 		{
+			// An author who forgot the block is refused; one who wrote `answer: {}`
+			// asserted that this deal grounds no line, and that is a claim.
 			name:     "no expectation at all",
 			expected: nil,
-			wantMsg:  "context source id to the line it grounds",
+			wantMsg:  "carries no expected answer",
 		},
 		{
 			name: "a citation the fixture never captures",
@@ -91,6 +88,22 @@ func TestOfferDraftCaseRefusesAnUnreachableExpectation(t *testing.T) {
 	}
 }
 
+// A deal with nothing captured and no live product is a call the orchestrator
+// really makes — renderContextBlock and renderCatalogBlock each have a sentence
+// for the empty result — and it is the one call whose only honest reply is no
+// line at all. Prepare must let that scenario exist, or the corpus can hold
+// every claim about what this site must draft and none about what it must not.
+func TestOfferDraftCasePreparesADealWithNothingCaptured(t *testing.T) {
+	f := offerDraftDealFixture()
+	f.ContextItems = nil
+	f.RateCard = nil
+
+	_, err := offerDraftCases{}.Prepare(offerDraftFixtureJSON(t, f), json.RawMessage(`{}`))
+	if err != nil {
+		t.Fatalf("a scenario whose right answer is an empty draft did not prepare: %v", err)
+	}
+}
+
 // A fixture the orchestrator could never have handed this call would certify a
 // prompt the product does not send.
 func TestOfferDraftCaseRefusesAFixtureTheOrchestratorCouldNotHandIt(t *testing.T) {
@@ -108,11 +121,6 @@ func TestOfferDraftCaseRefusesAFixtureTheOrchestratorCouldNotHandIt(t *testing.T
 			name:    "an offer with no currency",
 			mutate:  func(f *offerDraftFixture) { f.Currency = " " },
 			wantMsg: "names no currency",
-		},
-		{
-			name:    "a deal with no captured context",
-			mutate:  func(f *offerDraftFixture) { f.ContextItems = nil },
-			wantMsg: "captures no deal context",
 		},
 		{
 			name: "a context item missing its evidence",

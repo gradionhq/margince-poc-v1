@@ -31,6 +31,10 @@ const widgetVariant = "widget"
 // description to carry, and the answer every scenario below expects.
 const containsWidget = "widget"
 
+// widgetAbstention is the reply this stand-in site treats as declining to
+// describe anything — the one a scenario whose right answer is silence expects.
+const widgetAbstention = "(nothing to describe)"
+
 func widgetSite() aitasks.Site {
 	return aitasks.Site{Task: ai.TaskSummarize, Variant: widgetVariant, Kind: ai.SiteKindOneShot}
 }
@@ -78,6 +82,9 @@ func (c widgetCase) Run(ctx context.Context, completer aitasks.Completer) (aitas
 func (c widgetCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	if strings.TrimSpace(trace.Output) == "" {
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: "the reply carries no text to read"}
+	}
+	if strings.TrimSpace(trace.Output) == widgetAbstention {
+		return aitasks.Outcome{Result: aitasks.OutcomeAbstained, Detail: "the model described nothing"}
 	}
 	if !strings.Contains(trace.Output, c.want) {
 		return aitasks.Outcome{

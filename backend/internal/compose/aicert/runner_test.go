@@ -360,6 +360,43 @@ func TestCertifyTaskJudgeScoresZeroWhenBothAttemptsFailToParse(t *testing.T) {
 	}
 }
 
+// A run passes when what happened is what the scenario said should happen, and
+// nothing in the runner privileges "accepted". This is what lets a scenario
+// whose right answer is silence exist at all: the same three replies pass a
+// scenario expecting an abstention and fail one expecting an answer, so the
+// comparison is doing the work rather than a hardcoded word.
+func TestCertifyTaskPassesTheRunsAScenarioSaysShouldAbstain(t *testing.T) {
+	cases := []struct {
+		name            string
+		expectedOutcome string
+		wantReliability float64
+	}{
+		{"the scenario expects the abstention", aitasks.OutcomeAbstained, 1},
+		{"the scenario expects an answer", aitasks.OutcomeAccepted, 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			candidateFake := ai.NewFakeClient().Script(widgetAbstention, widgetAbstention, widgetAbstention)
+			judgeFake := ai.NewFakeClient().Script(scoreJSON(90), scoreJSON(90), scoreJSON(90))
+
+			sc := testScenario("abstains", wideBands)
+			sc.Expect.Outcome = tc.expectedOutcome
+
+			rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{sc}, testCensus(t),
+				ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+					candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
+					judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
+				})
+			if err != nil {
+				t.Fatalf("certifyTask: %v", err)
+			}
+			if rec.Reliability != tc.wantReliability {
+				t.Fatalf("reliability = %v, want %v (record: %+v)", rec.Reliability, tc.wantReliability, rec)
+			}
+		})
+	}
+}
+
 // TestCertifyTaskFoldsMultipleScenariosToTheirWorstVerdict pins the
 // multi-scenario rollup: Verdict itself is scoped to ONE scenario's odd
 // run count (score.go panics on an even N), so a task with 2 scenarios ×

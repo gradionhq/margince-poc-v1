@@ -109,7 +109,7 @@ func runSignatureEnrichCase(
 
 var signatureEnrichWantTitle = map[string]string{"title": "CTO"}
 
-func TestSignatureEnrichCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
+func TestSignatureEnrichCaseSeparatesTheFourThingsAReplyCanBe(t *testing.T) {
 	titleClaim := signatureEnrichClaim("title", "CTO", "CTO, Acme Robotics GmbH")
 
 	cases := []struct {
@@ -126,8 +126,8 @@ func TestSignatureEnrichCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			wantResult: aitasks.OutcomeAccepted,
 		},
 		{
-			// The gate's own refusal, reported in its own words. An invented quote is
-			// the shape a fabricating model takes, and nothing survives it here.
+			// The gate's own refusal, in its own words: an invented quote is the
+			// shape a fabricating model takes, and nothing survives it here.
 			name:       "every claim quotes something the signature never said",
 			want:       signatureEnrichWantTitle,
 			reply:      signatureEnrichReply(signatureEnrichClaim("title", "VP Sales", "VP Sales, Acme Robotics")),
@@ -149,19 +149,18 @@ func TestSignatureEnrichCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			wantDetail: dropUnknownField,
 		},
 		{
-			// Omission is what this prompt asks for when there is nothing to quote, so
-			// a reply that claims nothing is a usable answer that misses the fact the
-			// scenario pinned — not a broken reply. The pass agrees: it applies
-			// nothing and picks the person up again next cycle.
+			// Omission is what this prompt asks for when there is nothing to quote,
+			// so a reply that claims nothing is an abstention, never invalid — the
+			// pass agrees, applying nothing and picking the person up next cycle.
 			name:       "a reply that claims nothing at all",
 			want:       signatureEnrichWantTitle,
 			reply:      signatureEnrichReply(),
-			wantResult: aitasks.OutcomeWrongAnswer,
+			wantResult: aitasks.OutcomeAbstained,
 			wantDetail: "no surviving title",
 		},
 		{
-			// Grounded, usable, and not the value the scenario pinned: a measurement
-			// of the model, not a defect in the reply.
+			// Grounded, usable, and not the value the scenario pinned: a model
+			// measurement, not a defect in the reply.
 			name:       "a grounded field the scenario disagrees with",
 			want:       signatureEnrichWantTitle,
 			reply:      signatureEnrichReply(signatureEnrichClaim("title", "Chief Technology Officer", "CTO, Acme")),
@@ -169,9 +168,8 @@ func TestSignatureEnrichCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			wantDetail: `expects "CTO"`,
 		},
 		{
-			// The floor is the pass's acceptance rule, not a hint: a field below it is
-			// never written, so a scenario that counted it would certify a fill the
-			// product does not perform.
+			// The floor is the pass's acceptance rule, not a hint: a field below it
+			// is never written, so counting it would certify a fill nobody performs.
 			name:       "the expected field, hedged below the acceptance floor",
 			want:       signatureEnrichWantTitle,
 			reply:      signatureEnrichReply(signatureEnrichClaimAt("title", "CTO", "CTO, Acme Robotics GmbH", 0.4)),

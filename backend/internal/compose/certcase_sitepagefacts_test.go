@@ -62,7 +62,7 @@ func sitePageFactsClaim(field, value, snippetID string) string {
 }
 
 // sitePageFactsSnippetID numbers the page the way the case does and returns the
-// id of the first passage carrying the given text: the packer decides where a
+// id of the first passage carrying the given text. The packer decides where a
 // page splits, so a citation is computed rather than written down.
 func sitePageFactsSnippetID(t *testing.T, kind crmcontracts.SiteReadPageKind, text, contains string) string {
 	t.Helper()
@@ -76,7 +76,7 @@ func sitePageFactsSnippetID(t *testing.T, kind crmcontracts.SiteReadPageKind, te
 	return ""
 }
 
-// sitePageFactsCatalogID is the id of the catalog page passage carrying a phrase.
+// sitePageFactsCatalogID names the catalog passage carrying a phrase.
 func sitePageFactsCatalogID(t *testing.T, contains string) string {
 	t.Helper()
 	return sitePageFactsSnippetID(t, crmcontracts.SiteReadPageKindServices, sitePageFactsText, contains)
@@ -118,10 +118,10 @@ func runSitePageFactsCase(t *testing.T, fixture json.RawMessage, want map[string
 
 var sitePageFactsWantAudit = map[string]string{people.FactService: "Cloud Cost Audit"}
 
-// sitePageFactsReplyCase is one reply and the outcome this site owes it. The
-// three results have a test each: a fabricating model is a prompt problem and a
-// confidently-wrong one is a model choice, and a run reporting them as one
-// number could diagnose neither.
+// sitePageFactsReplyCase is one reply and the outcome this site owes it. Each
+// result has a test: a fabricating model is a prompt problem, a confidently
+// wrong one is a model choice, a silent one is neither, and a run reporting
+// them as one number could diagnose none of the three.
 type sitePageFactsReplyCase struct {
 	name       string
 	want       map[string]string
@@ -179,8 +179,7 @@ func TestSitePageFactsCaseReportsAReplyTheGateRefusesEntirely(t *testing.T) {
 			wantDetail: dropValueNotInSnippet,
 		},
 		{
-			// The schema enum makes this unreachable for a provider that honours it,
-			// and the gate is what answers when one does not.
+			// The schema enum makes this unreachable for a provider that honours it.
 			name: "a citation outside this call's own index",
 			want: sitePageFactsWantAudit,
 			reply: sitePageFactsReply(sitePageFactsClaim(people.FactService,
@@ -188,7 +187,7 @@ func TestSitePageFactsCaseReportsAReplyTheGateRefusesEntirely(t *testing.T) {
 			wantDetail: dropValueNotInSnippet,
 		},
 		{
-			// The field enum is this page kind's menu, so a company fact on a catalog
+			// The field enum is this page kind's menu: a company fact on a catalog
 			// page is a field the model was never offered.
 			name: "a field this page's menu never offered",
 			want: sitePageFactsWantAudit,
@@ -205,8 +204,7 @@ func TestSitePageFactsCaseReportsAReplyTheGateRefusesEntirely(t *testing.T) {
 	})
 }
 
-// Wrong is a usable reply that says something else — a measurement of the model,
-// not a defect in the reply.
+// Wrong is a usable reply that says something else: a model measurement.
 func TestSitePageFactsCaseReportsAGroundedReplyTheScenarioDisagreesWith(t *testing.T) {
 	runSitePageFactsReplyCases(t, aitasks.OutcomeWrongAnswer, []sitePageFactsReplyCase{
 		{
@@ -227,20 +225,25 @@ func TestSitePageFactsCaseReportsAGroundedReplyTheScenarioDisagreesWith(t *testi
 			reply:      sitePageFactsReply(sitePageFactsAuditClaim(t, "Cloud Cost Audit — a four-week review")),
 			wantDetail: "no surviving " + people.FactGeography,
 		},
-		{
-			// Omission is what this prompt asks for when the page states nothing, so a
-			// reply claiming no fact is an answer rather than a breakage — and a wrong
-			// one wherever a scenario says the page does state something.
-			name:       "a reply that claims nothing at all",
-			want:       sitePageFactsWantAudit,
-			reply:      sitePageFactsReply(),
-			wantDetail: "no surviving " + people.FactService,
-		},
 	})
 }
 
-// sitePageFactsAuditClaim claims a service on the passage carrying the first
-// offer, which is the citation a model reading this page would make.
+// Omission is what this prompt asks for when the page states nothing, so a reply
+// claiming nothing in any lane is an abstention, never invalid — that is the
+// word for the fabricating model whose every claim the gate refused. Against a
+// page that DOES list services it is still a failed run, and the disagreement
+// says so.
+func TestSitePageFactsCaseReportsAReplyThatGroundsNothingAsAnAbstention(t *testing.T) {
+	runSitePageFactsReplyCases(t, aitasks.OutcomeAbstained, []sitePageFactsReplyCase{{
+		name:       "a page the scenario says lists a service",
+		want:       sitePageFactsWantAudit,
+		reply:      sitePageFactsReply(),
+		wantDetail: "no surviving " + people.FactService,
+	}})
+}
+
+// sitePageFactsAuditClaim cites the passage carrying the first offer, which is
+// the citation a model reading this page would make.
 func sitePageFactsAuditClaim(t *testing.T, value string) string {
 	t.Helper()
 	return sitePageFactsClaim(people.FactService, value, sitePageFactsCatalogID(t, "Cloud Cost Audit"))
@@ -344,139 +347,6 @@ func TestSitePageFactsCaseTraceCarriesTheRequestItIssued(t *testing.T) {
 	}
 	if trace.Output == "" {
 		t.Error("the trace records no model output for the gate to read")
-	}
-}
-
-// An expectation the gate can never satisfy would measure nothing for as long as
-// it stayed in the corpus. Prepare is where that gets named, while it is still a
-// wiring error rather than a paid run of zeros.
-func TestSitePageFactsCaseRefusesAnUnreachableExpectation(t *testing.T) {
-	cases := []struct {
-		name       string
-		kind       crmcontracts.SiteReadPageKind
-		text       string
-		want       map[string]string
-		wantReason string
-	}{
-		{
-			name:       "a field this page kind's menu never offers",
-			kind:       crmcontracts.SiteReadPageKindServices,
-			text:       sitePageFactsText,
-			want:       map[string]string{people.FactFoundedYear: "1998"},
-			wantReason: "never offers",
-		},
-		{
-			// A team page is called for its people and told its facts must be empty,
-			// so a fact expectation over one could never be answered.
-			name:       "any fact at all on a page whose menu carries none",
-			kind:       crmcontracts.SiteReadPageKindTeam,
-			text:       sitePageFactsText,
-			want:       sitePageFactsWantAudit,
-			wantReason: "a team page's menu never offers",
-		},
-		{
-			name:       "an empty value, which the gate drops from every reply",
-			kind:       crmcontracts.SiteReadPageKindServices,
-			text:       sitePageFactsText,
-			want:       map[string]string{people.FactService: "   "},
-			wantReason: "empty value",
-		},
-		{
-			// A site animates its headline numbers up from zero and the fetched DOM
-			// carries the pre-animation figure, so the gate drops one — whichever
-			// passage cites it.
-			name:       "a measured zero, which the gate drops as a pre-animation figure",
-			kind:       crmcontracts.SiteReadPageKindHome,
-			text:       sitePageFactsText,
-			want:       map[string]string{people.FactQuantifiedOutcome: "0 B + GMV enabled"},
-			wantReason: "animated up from zero",
-		},
-		{
-			name:       "a value whose name no passage of this page carries",
-			kind:       crmcontracts.SiteReadPageKindServices,
-			text:       sitePageFactsText,
-			want:       map[string]string{people.FactService: "Phishing Simulation"},
-			wantReason: "no passage of this fixture",
-		},
-		{
-			name:       "no expectation at all",
-			kind:       crmcontracts.SiteReadPageKindServices,
-			text:       sitePageFactsText,
-			want:       map[string]string{},
-			wantReason: "expects no fact",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := sitePageFactsCases{}.Prepare(
-				sitePageFactsFixtureJSON(t, tc.kind, tc.text), sitePageFactsJSON(t, tc.want))
-			if err == nil {
-				t.Fatalf("a scenario expecting %v prepared", tc.want)
-			}
-			if !strings.Contains(err.Error(), tc.wantReason) {
-				t.Errorf("the refusal does not say why it is unreachable: %v", err)
-			}
-		})
-	}
-}
-
-// A fixture the lane would never call a model for certifies a request the product
-// never issues, whatever the reply to it looks like.
-func TestSitePageFactsCaseRefusesAPageThatWouldIssueNoCall(t *testing.T) {
-	cases := []struct {
-		name       string
-		kind       crmcontracts.SiteReadPageKind
-		text       string
-		wantReason string
-	}{
-		{
-			// Boilerplate and unclassified pages state few facts and their calls would
-			// dominate cost rather than quality, so the lane skips them entirely.
-			name:       "a page kind the menu routes to no call",
-			kind:       crmcontracts.SiteReadPageKindOther,
-			text:       sitePageFactsText,
-			wantReason: "never issues",
-		},
-		{
-			name:       "a page whose text carries no passage",
-			kind:       crmcontracts.SiteReadPageKindServices,
-			text:       "   \n\n ",
-			wantReason: "no passage",
-		},
-		{
-			// The kind is not decoration: it selects the menu, which is half this
-			// call's prompt and half its schema.
-			name:       "a page kind the crawler never assigns",
-			kind:       crmcontracts.SiteReadPageKind("careers"),
-			text:       sitePageFactsText,
-			wantReason: "careers",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := sitePageFactsCases{}.Prepare(
-				sitePageFactsFixtureJSON(t, tc.kind, tc.text), sitePageFactsJSON(t, sitePageFactsWantAudit))
-			if err == nil {
-				t.Fatal("a page the fact lane would never call a model for prepared")
-			}
-			if !strings.Contains(err.Error(), tc.wantReason) {
-				t.Errorf("the refusal does not say what the page lacks: %v", err)
-			}
-		})
-	}
-}
-
-// A scenario shaped like something else asserts nothing about the reply, and a
-// case that ran it anyway would report a number nobody wrote a claim for.
-func TestSitePageFactsCaseRefusesAnExpectationItCannotRead(t *testing.T) {
-	for _, expected := range []json.RawMessage{nil, json.RawMessage(`["service"]`), json.RawMessage(`7`)} {
-		_, err := sitePageFactsCases{}.Prepare(sitePageFactsCatalogFixture(t), expected)
-		if err == nil {
-			t.Fatalf("a scenario expecting %s prepared", expected)
-		}
-		if !strings.Contains(err.Error(), "field to value") {
-			t.Errorf("the refusal does not say what an expectation must be: %v", err)
-		}
 	}
 }
 

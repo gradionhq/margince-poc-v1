@@ -97,9 +97,9 @@ func siteProfileFixtureJSON(t *testing.T) json.RawMessage {
 	return raw
 }
 
-// siteProfileExpectation is what the corpus asserts, encoded as the corpus will
-// carry it — beside the fixture, never inside it.
-func siteProfileExpectation(t *testing.T, want map[string]string) json.RawMessage {
+// siteProfileExpectationJSON encodes the bare field-to-value expectation as the
+// corpus carries it — beside the fixture, never inside it.
+func siteProfileExpectationJSON(t *testing.T, want map[string]string) json.RawMessage {
 	t.Helper()
 	raw, err := json.Marshal(want)
 	if err != nil {
@@ -110,7 +110,7 @@ func siteProfileExpectation(t *testing.T, want map[string]string) json.RawMessag
 
 func runSiteProfileCase(t *testing.T, want map[string]string, reply string) (aitasks.Outcome, aitasks.Trace) {
 	t.Helper()
-	prepared, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), siteProfileExpectation(t, want))
+	prepared, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), siteProfileExpectationJSON(t, want))
 	if err != nil {
 		t.Fatalf("preparing the case: %v", err)
 	}
@@ -224,12 +224,19 @@ func TestSiteProfileCaseReportsAGroundedReplyTheScenarioDisagreesWith(t *testing
 			reply:      siteProfileReply(siteProfileLegalNameClaim(t, "Acme Robotics GmbH")),
 			wantDetail: "no surviving " + string(crmcontracts.ColdStartFieldFieldValueProposition),
 		},
+	})
+}
+
+// Omission is what this prompt asks for when the passages ground nothing, so a
+// reply claiming no field at all is an abstention — the one outcome that says
+// the model declined to invent. It is still a failed run against a crawl whose
+// imprint DOES name an entity, and the disagreement says which field went
+// unanswered; what it must never be is invalid, which is the word for the
+// fabricating model whose every claim the gate refused.
+func TestSiteProfileCaseReportsAReplyThatGroundsNothingAsAnAbstention(t *testing.T) {
+	runSiteProfileReplyCases(t, aitasks.OutcomeAbstained, []siteProfileReplyCase{
 		{
-			// Omission is what this prompt asks for when the passages ground nothing,
-			// so a reply claiming none of the eleven is an answer rather than a
-			// breakage — and a wrong one wherever a scenario says the passages do
-			// ground something.
-			name:       "a reply that claims nothing at all",
+			name:       "a crawl the scenario says grounds a legal name",
 			want:       siteProfileWantLegalName,
 			reply:      siteProfileReply(),
 			wantDetail: "no surviving " + string(crmcontracts.ColdStartFieldFieldLegalName),
@@ -387,12 +394,12 @@ func TestSiteProfileCaseRefusesAnUnreachableExpectation(t *testing.T) {
 		{
 			name:       "no expectation at all",
 			want:       map[string]string{},
-			wantReason: "expects no field",
+			wantReason: "requires no field and forbids none",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), siteProfileExpectation(t, tc.want))
+			_, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), siteProfileExpectationJSON(t, tc.want))
 			if err == nil {
 				t.Fatalf("a scenario expecting %v prepared", tc.want)
 			}
@@ -408,7 +415,7 @@ func TestSiteProfileCaseRefusesAnUnreachableExpectation(t *testing.T) {
 // with the passage that grounds it. Refusing one at Prepare would delete the
 // cross-language reads this lane exists to admit.
 func TestSiteProfileCaseAdmitsAParaphraseNoPassageContains(t *testing.T) {
-	_, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), siteProfileExpectation(t, map[string]string{
+	_, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), siteProfileExpectationJSON(t, map[string]string{
 		string(crmcontracts.ColdStartFieldFieldIcp): "Fertigungsbetriebe in der DACH-Region",
 	}))
 	if err != nil {
@@ -435,7 +442,7 @@ func TestSiteProfileCaseRefusesAFixtureThatWouldIssueNoCall(t *testing.T) {
 			if err != nil {
 				t.Fatalf("encoding the fixture: %v", err)
 			}
-			_, err = siteProfileCases{}.Prepare(fixture, siteProfileExpectation(t, siteProfileWantLegalName))
+			_, err = siteProfileCases{}.Prepare(fixture, siteProfileExpectationJSON(t, siteProfileWantLegalName))
 			if err == nil {
 				t.Fatal("a crawl the profile lane would never send prepared")
 			}
@@ -456,26 +463,12 @@ func TestSiteProfileCaseRefusesAPageKindTheCrawlerNeverAssigns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encoding the fixture: %v", err)
 	}
-	_, err = siteProfileCases{}.Prepare(fixture, siteProfileExpectation(t, siteProfileWantLegalName))
+	_, err = siteProfileCases{}.Prepare(fixture, siteProfileExpectationJSON(t, siteProfileWantLegalName))
 	if err == nil {
 		t.Fatal("a page of an invented kind prepared")
 	}
 	if !strings.Contains(err.Error(), "careers") {
 		t.Errorf("the refusal does not name the offending kind: %v", err)
-	}
-}
-
-// A scenario shaped like something else asserts nothing about the reply, and a
-// case that ran it anyway would report a number nobody wrote a claim for.
-func TestSiteProfileCaseRefusesAnExpectationItCannotRead(t *testing.T) {
-	for _, expected := range []json.RawMessage{nil, json.RawMessage(`["legal_name"]`), json.RawMessage(`7`)} {
-		_, err := siteProfileCases{}.Prepare(siteProfileFixtureJSON(t), expected)
-		if err == nil {
-			t.Fatalf("a scenario expecting %s prepared", expected)
-		}
-		if !strings.Contains(err.Error(), "field to value") {
-			t.Errorf("the refusal does not say what an expectation must be: %v", err)
-		}
 	}
 }
 

@@ -207,9 +207,16 @@ func (c *sitePageFactsCase) Run(ctx context.Context, completer aitasks.Completer
 //
 // A reply is unusable when the fact lane refused everything it claimed there: an
 // unreadable answer, a field off this page's menu, a value the cited passage does
-// not name. Claiming NO fact is a different thing and is judged a wrong answer,
-// because omission is what this prompt asks for when the page states nothing —
-// the lane stores no fact and the deep read carries on.
+// not name. Claiming NOTHING — no fact, no person, no entity, and nothing for
+// any lane to refuse — is the opposite event and is reported as an abstention,
+// because omission is what this prompt asks for when the page states nothing:
+// the lane stores no fact and the deep read carries on, exactly as it does after
+// a page that grounded ten.
+//
+// The abstention is asked of every lane the call carries, not of the facts
+// alone. A reply that named three people states plenty; that the scenario grades
+// facts is a fact about the scenario, and calling such a reply silent would put
+// the word "abstained" on a record for a model that spoke.
 //
 // Nothing is imposed beyond the gate: the fact lane has no acceptance floor of
 // its own past the citation rule, so a case that added one would refuse a fact
@@ -224,13 +231,32 @@ func (c *sitePageFactsCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: strings.Join(detail, "; ")}
 	}
 	grounded := groundedFactIdentities(result.facts, c.expected)
-	if disagreements := expectationDisagreements(c.expected, grounded); len(disagreements) > 0 {
+	disagreements := expectationDisagreements(c.expected, grounded)
+	if pageFactsReplyIsSilent(result, dropped) {
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeAbstained,
+			Detail: strings.Join(append(disagreements, detail...), "; "),
+		}
+	}
+	if len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, detail...), "; "),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: strings.Join(detail, "; ")}
+}
+
+// pageFactsReplyIsSilent answers whether this reply claimed nothing at all: no
+// lane grounded a row and no lane refused one. The refusals matter as much as
+// the rows — a reply whose every claim the gate dropped said something, and
+// scoring it as silence would credit a fabricator with the restraint of a model
+// that declined to fabricate.
+func pageFactsReplyIsSilent(result pageFactsResult, dropped []droppedFinding) bool {
+	return len(result.facts) == 0 &&
+		len(result.people) == 0 &&
+		len(result.entities) == 0 &&
+		len(dropped) == 0
 }
 
 // factLaneRefused answers whether the FACT lane refused anything, which is what

@@ -231,7 +231,7 @@ expect:
 	}
 }
 
-// An outcome outside the seam's three words asserts something no Evaluate can
+// An outcome outside the seam's four words asserts something no Evaluate can
 // ever report.
 func TestLoadCorpusRefusesAnUnknownExpectedOutcome(t *testing.T) {
 	dir := t.TempDir()
@@ -254,10 +254,45 @@ expect:
 	if !strings.Contains(err.Error(), "pretty_good") {
 		t.Fatalf("error %q does not name the offending value", err)
 	}
-	for _, want := range []string{aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid} {
+	for _, want := range []string{
+		aitasks.OutcomeAccepted,
+		aitasks.OutcomeWrongAnswer,
+		aitasks.OutcomeInvalid,
+		aitasks.OutcomeAbstained,
+	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not offer the %q vocabulary", err, want)
 		}
+	}
+}
+
+// A scenario whose right answer is silence must load: expect.outcome carries the
+// seam's abstention word, and the runner passes a run whose reported outcome
+// equals it. Without this the corpus could hold every claim about what a model
+// must SAY and none about what it must not.
+func TestLoadCorpusAcceptsAnAbstentionOutcome(t *testing.T) {
+	dir := t.TempDir()
+	writeCorpusFile(t, dir, "summarize/abstain.yaml", `
+name: x
+task: summarize
+site: widget
+source: hand_authored
+sanitized_by: jane
+fixture: {subject: hi}
+expect:
+  outcome: abstained
+  answer: {}
+  bands: {certified_min: 70, degraded_min: 50, floor: 40}
+`)
+	scenarios, err := aicert.LoadCorpus(dir, censusFor(t, ai.TaskSummarize))
+	if err != nil {
+		t.Fatalf("LoadCorpus refused an abstention scenario: %v", err)
+	}
+	if len(scenarios) != 1 {
+		t.Fatalf("loaded %d scenarios, want 1", len(scenarios))
+	}
+	if scenarios[0].Expect.Outcome != aitasks.OutcomeAbstained {
+		t.Fatalf("outcome = %q, want %q", scenarios[0].Expect.Outcome, aitasks.OutcomeAbstained)
 	}
 }
 

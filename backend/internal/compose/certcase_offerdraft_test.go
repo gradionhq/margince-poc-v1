@@ -182,7 +182,7 @@ func draftOutcome(
 	return runOfferDraftCase(t, prepareOfferDraftCase(t, offerDraftDealFixture(), expected), reply)
 }
 
-func TestOfferDraftCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
+func TestOfferDraftCaseSeparatesTheFourThingsAReplyCanBe(t *testing.T) {
 	cases := []struct {
 		name       string
 		reply      string
@@ -201,10 +201,13 @@ func TestOfferDraftCaseSeparatesTheThreeThingsAReplyCanBe(t *testing.T) {
 			wantDetail: `the gate refused the line "Kickoff workshop"`,
 		},
 		{
+			// This deal's context DOES ground a line, so declining to draft one is
+			// still a failed run — but it fails as an abstention, and the record has
+			// to keep that apart from a draft the gate emptied.
 			name:       "no line drafted at all",
 			reply:      draftReply(),
-			wantResult: aitasks.OutcomeInvalid,
-			wantDetail: "the model drafted no line at all",
+			wantResult: aitasks.OutcomeAbstained,
+			wantDetail: `no staged line cites "activity:1"`,
 		},
 		{
 			name:       "a reply that is not the required JSON",

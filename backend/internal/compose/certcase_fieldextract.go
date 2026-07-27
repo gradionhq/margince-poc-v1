@@ -142,10 +142,15 @@ func (c *fieldExtractCase) Run(ctx context.Context, completer aitasks.Completer)
 // what the scenario expects. The order is the meaning: a fact the gate refused
 // is not a fact to disagree with.
 //
-// Nothing surviving is OutcomeInvalid because it is production's own failure —
-// extractGrounded turns an empty gate result into the unreadable error a human
-// is shown. A reply that grounded something is usable whatever else it claimed,
-// so a missing or fabricated expected fact is a wrong answer, named as such.
+// Nothing surviving is OutcomeInvalid and NOT an abstention, alone among the
+// grounding sites. Everywhere else a reply that grounds nothing is a completed
+// piece of work — the deep read carries on, the enrichment pass picks the person
+// up next cycle — but here extractGrounded turns an empty gate result into the
+// unreadable-source error a human is shown, so producing nothing IS this path's
+// failure and must not wear the word for a right answer.
+//
+// A reply that grounded something is usable whatever else it claimed, so a
+// missing or fabricated expected fact is a wrong answer, named as such.
 func (c *fieldExtractCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	fields, dropped := gateEvidence(trace.Output, c.sourceText, c.sourceURL, c.accept)
 	// Every refusal reaches the Detail whatever the result: a reply that grounded

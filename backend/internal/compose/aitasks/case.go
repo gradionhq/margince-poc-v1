@@ -62,9 +62,9 @@ type Trace struct {
 	Output   string
 }
 
-// The three things a certified reply can be. They are distinct because an
-// unusable reply and a wrong answer fail for opposite reasons and want
-// opposite fixes, and a record that collapses them can report neither.
+// The four things a certified reply can be. They are distinct because they fail
+// — or succeed — for different reasons and want different fixes, and a record
+// that collapses any two of them can report neither.
 const (
 	// OutcomeAccepted: the production validator accepted the reply AND it is
 	// the answer the fixture expects.
@@ -75,6 +75,31 @@ const (
 	// OutcomeInvalid: the production validator refused the reply. This is the
 	// deterministic signal that the model produced something unusable.
 	OutcomeInvalid = "invalid"
+	// OutcomeAbstained: the reply survived the production validator and carries
+	// nothing — no grounded field, no staged line — and the site's own path
+	// treats that as a completed piece of work rather than a failure.
+	//
+	// It is a RIGHT answer, and its own word for two reasons.
+	//
+	// Against OutcomeInvalid: a validator that refused everything a reply
+	// claimed and a reply that claimed nothing look identical downstream — both
+	// leave zero rows — and they are opposite events. The first is a model
+	// fabricating past a gate; the second is a model declining to fabricate. A
+	// harness that spelled them the same could not measure the failure mode it
+	// exists for.
+	//
+	// Against OutcomeWrongAnswer: a wrong answer asserts something else. An
+	// abstention asserts nothing, which is what every one of these prompts asks
+	// for when the evidence grounds nothing ("OMIT any field the passages do not
+	// ground — never guess"). Grading it as a wrong answer scores obedience as
+	// error, and a corpus cannot then hold a scenario whose right answer is
+	// silence.
+	//
+	// A site whose production path treats an empty result as an ERROR — the
+	// cold-start field extraction turns one into the unreadable-source message a
+	// human is shown — reports OutcomeInvalid instead, because there the empty
+	// result IS the failure.
+	OutcomeAbstained = "abstained"
 )
 
 // Outcome is one evaluated run. Detail names why, in the validator's own

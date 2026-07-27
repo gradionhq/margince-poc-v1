@@ -155,10 +155,15 @@ func (c *signatureEnrichCase) Run(ctx context.Context, completer aitasks.Complet
 // order is the meaning: a field the gate refused is not a field to disagree with.
 //
 // A reply is unusable only when the gate refused everything it claimed: an
-// unreadable answer, or one whose every quote is invented. Claiming NOTHING is a
-// different thing and is judged as a wrong answer, because omission is what this
-// prompt asks for when there is nothing to quote — the pass applies nothing,
-// logs nothing, and picks the person up again next cycle.
+// unreadable answer, or one whose every quote is invented. Claiming NOTHING is
+// the opposite event and is reported as an abstention, because omission is what
+// this prompt asks for when there is nothing to quote — the pass applies
+// nothing, logs nothing, and picks the person up again next cycle, which is the
+// same thing it does after a mail whose signature block held no phone number.
+//
+// A reply the FLOOR emptied is not an abstention: the model proposed fields and
+// hedged them, which is speaking, and the record has to keep that apart from
+// declining to speak.
 //
 // The floor is applied, unlike the classify site's confidence, because it is the
 // §2.9 acceptance rule and not a routing decision: a hedged field is never
@@ -189,7 +194,17 @@ func (c *signatureEnrichCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		}
 		proposed[f.Field] = f.Value
 	}
-	if disagreements := expectationDisagreements(c.expected, proposed); len(disagreements) > 0 {
+	disagreements := expectationDisagreements(c.expected, proposed)
+	if len(gated) == 0 {
+		// A scenario that DID expect a field still reads its own disagreements
+		// here: the reply is an abstention either way, and what it declined to
+		// quote is the diagnosis.
+		return aitasks.Outcome{
+			Result: aitasks.OutcomeAbstained,
+			Detail: strings.Join(append(disagreements, detail...), "; "),
+		}
+	}
+	if len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, detail...), "; "),

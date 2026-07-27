@@ -62,11 +62,18 @@ func TestValidateRefusesACaseForAnUnregisteredSite(t *testing.T) {
 }
 
 // An Outcome must distinguish "the model answered wrongly" from "the reply was
-// unusable". Collapsed into one number they are the reason an injection
-// scenario cannot say whether the injection worked.
+// unusable" from "the model correctly answered nothing". Collapsed into one
+// number they are the reason an injection scenario cannot say whether the
+// injection worked, and the reason an abstention scenario cannot say whether the
+// model declined to fabricate or fabricated past a gate.
 func TestOutcomeResultsAreDistinctAndNamed(t *testing.T) {
 	seen := map[string]bool{}
-	for _, result := range []string{aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid} {
+	for _, result := range []string{
+		aitasks.OutcomeAccepted,
+		aitasks.OutcomeWrongAnswer,
+		aitasks.OutcomeInvalid,
+		aitasks.OutcomeAbstained,
+	} {
 		if result == "" {
 			t.Error("an outcome result is the empty string, which reads as unset")
 		}

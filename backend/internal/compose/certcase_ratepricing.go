@@ -216,10 +216,11 @@ func (c *ratePricingCase) Run(ctx context.Context, completer aitasks.Completer) 
 // the scenario says the page prices it. The order is the meaning: a row the gate
 // refused is not a price to disagree with.
 //
-// Nothing surviving is OutcomeInvalid because the whole output of this site is
-// its gated rows: a reply from which none survive leaves the crawl with nothing
-// to diff and the administrator with nothing to approve, whatever the model
-// wrote. A reply that grounded something is usable whatever else it claimed, so a
+// Nothing surviving is OutcomeInvalid and NOT an abstention. This site is not
+// handed evidence that may or may not carry an answer: it is handed a pricing
+// page a configured source publishes precisely to state prices, so a reply that
+// prices nothing has failed to read the page rather than declined to invent one.
+// A reply that grounded something is usable whatever else it claimed, so a
 // missing or misread price is a wrong answer, named as such.
 func (c *ratePricingCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	var out rateExtraction
