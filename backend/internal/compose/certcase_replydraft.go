@@ -267,8 +267,12 @@ type replyDraftCase struct {
 // What completeVoiced returns is its own reading of the reply, and the case does
 // not inherit it: Evaluate re-reads the reply with the same validators, so the
 // record's verdict is measured rather than inferred from the absence of an
-// error. So Run carries the raw text the drafter last read, and returns an error
-// only when there was no reply to measure.
+// error. So Run carries raw model text, and which text it carries is the whole
+// point of this method — the LAST reply is not the served one. The drafter
+// discards a reply it cannot read and keeps the draft it already had, so a
+// finished draft is the last reply the drafter ACCEPTED; only when it reached no
+// servable draft at all is there nothing to measure but the reply it refused
+// last, and then it is the deterministic text a human sees.
 func (c *replyDraftCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
 	recorder := &replyDraftRecorder{completer: completer}
 	_, _, _, err := replyDrafter{brain: recorder}.completeVoiced(ctx, c.anchor, c.activity, c.voice)
@@ -276,15 +280,19 @@ func (c *replyDraftCase) Run(ctx context.Context, completer aitasks.Completer) (
 	if recorder.failed != nil {
 		return trace, fmt.Errorf("%s: the model call did not complete: %w", replyDraftSite, recorder.failed)
 	}
-	if err != nil && recorder.reply == "" {
-		return trace, fmt.Errorf("%s: no reply reached the drafter to be measured: %w", replyDraftSite, err)
+	if err != nil {
+		if recorder.last == "" {
+			return trace, fmt.Errorf("%s: no reply reached the drafter to be measured: %w", replyDraftSite, err)
+		}
+		trace.Output = recorder.last
+		return trace, nil
 	}
-	trace.Output = recorder.reply
+	trace.Output = recorder.served
 	return trace, nil
 }
 
 // replyDraftRecorder is the brain the drafter drafts through: it records every
-// request the drafter issues and the last reply it read, and it deliberately
+// request the drafter issues and the replies it read back, and it deliberately
 // does NOT implement validatedBrain, so each call is sent bare. Production wraps
 // the same request in the shape-retry when the brain supports one, and a case
 // that retried would certify the answer a model gives after being told to try
@@ -292,7 +300,11 @@ func (c *replyDraftCase) Run(ctx context.Context, completer aitasks.Completer) (
 type replyDraftRecorder struct {
 	completer aitasks.Completer
 	requests  []model.Request
-	reply     string
+	// last is the most recent reply; served is the most recent one the drafter
+	// kept. They are two fields because they come apart on the path that decides
+	// this site: a critic retry the drafter cannot read leaves the first draft
+	// standing, and that draft is what a human is shown.
+	last, served string
 	// failed is the completer's own failure. It is kept apart from the
 	// drafter's refusal because a call that never completed is the lane's
 	// problem, not a measurement of the reply.
@@ -306,7 +318,13 @@ func (r *replyDraftRecorder) Complete(ctx context.Context, req model.Request) (m
 		r.failed = err
 		return model.Response{}, err
 	}
-	r.reply = resp.Text
+	r.last = resp.Text
+	// The drafter keeps a reply exactly when it parses and validates — one it
+	// cannot read never becomes a draft — so the same predicate decides what is
+	// servable here, rather than a second reading of the same rule.
+	if replyDraftShapeValid(resp.Text) == nil {
+		r.served = resp.Text
+	}
 	return resp, nil
 }
 
@@ -314,6 +332,14 @@ func (r *replyDraftRecorder) Complete(ctx context.Context, req model.Request) (m
 // then validateReplyDraft — and only then asks whether the draft was served in
 // the register the scenario expects. The order is the meaning: a reply the
 // drafter refuses has no register to disagree with.
+//
+// The anti-AI floor is not among the checks, because the drafter has already
+// spent it by the time a draft is served: a voice-styled draft that trips the
+// floor is replaced by the plain one, and the plain one the product serves is
+// never held to the floor at all. Re-applying it here would either repeat a
+// decision already made or report a draft the product puts in front of a human
+// as unusable — and what an ugly served draft costs is the rubric's measurement,
+// not the validator's.
 func (c *replyDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	draft, err := parseReplyDraft(trace.Output)
 	if err != nil {
@@ -321,26 +347,6 @@ func (c *replyDraftCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	}
 	if err := validateReplyDraft(draft); err != nil {
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: err.Error()}
-	}
-	// The floor is the standard a voiced call is made under: completeVoiced will
-	// not serve a voice-styled draft that trips it, and when it cannot get a
-	// clean one it serves the plain draft instead. A plain draft that trips the
-	// floor as well is a voiced call with no clean answer anywhere in it, which
-	// is the one path this check can fire on — and unusable is what it is, for a
-	// workspace that asked to be written for in its own voice.
-	//
-	// It runs on the SANITIZED text because the sanitizer edits what is served,
-	// and a case that judged the raw reply would judge a draft nobody is shown.
-	// A workspace with no Voice DNA state is never held to the floor by the
-	// product, so it is not held to it here either.
-	if c.voice.ok {
-		sanitized := replyDraft{
-			Subject: ai.SanitizeAIPatterns(draft.Subject),
-			Body:    ai.SanitizeAIPatterns(draft.Body),
-		}
-		if violations := voiceDraftViolations(sanitized); len(violations) > 0 {
-			return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: replyDraftFloorRefusal(violations)}
-		}
 	}
 	register, err := replyDraftServedRegister(trace)
 	if err != nil {
@@ -373,15 +379,4 @@ func replyDraftServedRegister(trace aitasks.Trace) (string, error) {
 	default:
 		return "", errors.New("compose: the last request is in neither system variant this site sends")
 	}
-}
-
-// replyDraftFloorRefusal renders the floor's drops in the floor's own words,
-// all of them: a draft that broke three rules is not the near miss one line
-// would read as.
-func replyDraftFloorRefusal(violations []ai.VoiceViolation) string {
-	broken := make([]string, 0, len(violations))
-	for _, violation := range violations {
-		broken = append(broken, violation.Code+" ("+violation.Detail+")")
-	}
-	return "compose: the served draft still trips the anti-AI floor: " + strings.Join(broken, "; ")
 }

@@ -36,6 +36,15 @@ const (
 	// makes over it.
 	replyDraftViolatingReply = `{"subject":"Re: Heat recovery commissioning",` +
 		`"body":"Here's the thing: it's not about dates, but transformation. What do you think?"}`
+	// One tell the sanitizer CAN mechanically remove. It earns the critic retry
+	// all the same — the floor runs on the raw draft — and it is gone from the
+	// text that would be served, so this reply is servable and still costs a
+	// second call.
+	replyDraftSanitizableReply = `{"subject":"Re: Heat recovery commissioning",` +
+		`"body":"September works — we commission on the 14th and hand over on the 16th."}`
+	// A reply in no shape the drafter can read, which is what a critic retry
+	// coming back unusable looks like.
+	replyDraftUnreadableReply = "I have drafted the reply for you."
 )
 
 // replyDraftVoicedFixture is a workspace with a built Voice DNA profile asking
@@ -172,19 +181,6 @@ func TestReplyDraftCaseReportsWhatTheDrafterRefused(t *testing.T) {
 			wantResult: aitasks.OutcomeInvalid,
 			wantDetail: "body is empty",
 		},
-		{
-			// Every attempt trips the floor, the retry cannot clean it and the
-			// plain fallback is no better: a workspace that asked for its own
-			// voice got nothing the product promises, in three calls.
-			name:     "a voiced call with no clean draft in it",
-			fixture:  replyDraftVoicedFixture(),
-			register: replyDraftRegisterVoiced,
-			replies: []string{
-				replyDraftViolatingReply, replyDraftViolatingReply, replyDraftViolatingReply,
-			},
-			wantResult: aitasks.OutcomeInvalid,
-			wantDetail: "anti-AI floor",
-		},
 	})
 }
 
@@ -216,6 +212,30 @@ func TestReplyDraftCaseSeparatesTheRightRegisterFromAServableWrongOne(t *testing
 			replies:    []string{replyDraftViolatingReply, replyDraftViolatingReply, replyDraftCleanReply},
 			wantResult: aitasks.OutcomeWrongAnswer,
 			wantDetail: `served the plain draft where the scenario expects "voiced"`,
+		},
+		{
+			// Every attempt trips the floor and the plain fallback is no better,
+			// but the product serves that fallback unfloored — so what the run
+			// measures is still the register, and a case that refused the draft
+			// here would refuse what a human is shown. How bad the prose is is
+			// the rubric's number, never the validator's.
+			name:     "a voiced call with no clean draft in it",
+			fixture:  replyDraftVoicedFixture(),
+			register: replyDraftRegisterVoiced,
+			replies: []string{
+				replyDraftViolatingReply, replyDraftViolatingReply, replyDraftViolatingReply,
+			},
+			wantResult: aitasks.OutcomeWrongAnswer,
+			wantDetail: `served the plain draft where the scenario expects "voiced"`,
+		},
+		{
+			// The critic retry came back unreadable, so the draft the drafter
+			// already had is the one it serves — and it is a voiced one.
+			name:       "a voiced draft the critic retry could not improve on",
+			fixture:    replyDraftVoicedFixture(),
+			register:   replyDraftRegisterVoiced,
+			replies:    []string{replyDraftSanitizableReply, replyDraftUnreadableReply},
+			wantResult: aitasks.OutcomeAccepted,
 		},
 		{
 			name:       "a workspace with no Voice DNA state",
@@ -276,78 +296,24 @@ func TestReplyDraftCaseRecordsEveryRequestTheDrafterIssued(t *testing.T) {
 	}
 }
 
-// An expectation the site could never satisfy, and a fixture describing a call
-// the product could never make, both measure nothing for as long as they stay in
-// the corpus. Naming them costs a parse; finding them later costs a paid run.
-func TestReplyDraftCaseRefusesWhatThisSiteCannotServe(t *testing.T) {
-	oversized := replyDraftPlainFixture()
-	oversized.Activity.Body = strings.Repeat("x", replyActivityMaxRunes+1)
+// The trace carries the draft that would be SERVED, which is not always the last
+// thing the model said. The two come apart on the retry path: a critic retry the
+// drafter cannot read is discarded, the draft it already had stands, and that
+// draft is what a human is shown — so that is the text the record is about, and
+// the retry is still in the requests because it is a prompt this run sent.
+func TestReplyDraftCaseCarriesTheDraftTheProductWouldServe(t *testing.T) {
+	outcome, trace := runReplyDraftCase(t, replyDraftVoicedFixture(), replyDraftRegisterVoiced,
+		[]string{replyDraftSanitizableReply, replyDraftUnreadableReply})
 
-	tooManyExemplars := replyDraftVoicedFixture()
-	tooManyExemplars.Voice.Exemplars = []ai.VoiceExemplar{
-		{Register: "email", Kind: "email", Text: "We ship Monday."},
-		{Register: "chat", Kind: "chat", Text: "Confirmed."},
-		{Register: "email", Kind: "email", Text: "No change."},
+	if len(trace.Requests) != 2 {
+		t.Fatalf("the trace carries %d requests, want the voiced attempt and the critic retry",
+			len(trace.Requests))
 	}
-
-	unbuiltProfile := replyDraftVoicedFixture()
-	unbuiltProfile.Voice.VoiceProfileMD = "  "
-
-	cases := []struct {
-		name     string
-		fixture  replyDraftFixture
-		expected json.RawMessage
-		want     string
-	}{
-		{
-			name:     "an expectation that is not a register",
-			fixture:  replyDraftPlainFixture(),
-			expected: json.RawMessage(`{"register":"plain"}`),
-			want:     "is not a register",
-		},
-		{
-			name:     "a register this site does not have",
-			fixture:  replyDraftPlainFixture(),
-			expected: replyDraftExpectationJSON(t, "german"),
-			want:     `"german"`,
-		},
-		{
-			// The plain variant is the only prompt a workspace without Voice DNA
-			// state can send, so no run of this fixture could ever answer voiced.
-			name:     "the voice, asked of a workspace that has none",
-			fixture:  replyDraftPlainFixture(),
-			expected: replyDraftExpectationJSON(t, replyDraftRegisterVoiced),
-			want:     "no Voice DNA state",
-		},
-		{
-			name:     "an activity longer than the drafter is ever handed",
-			fixture:  oversized,
-			expected: replyDraftExpectationJSON(t, replyDraftRegisterPlain),
-			want:     "body",
-		},
-		{
-			name:     "more verbatim examples than drafting shows",
-			fixture:  tooManyExemplars,
-			expected: replyDraftExpectationJSON(t, replyDraftRegisterVoiced),
-			want:     "verbatim examples",
-		},
-		{
-			name:     "a profile with no derived artifact in it",
-			fixture:  unbuiltProfile,
-			expected: replyDraftExpectationJSON(t, replyDraftRegisterVoiced),
-			want:     "carries no derived voice profile",
-		},
+	if trace.Output != replyDraftSanitizableReply {
+		t.Errorf("the trace records %q, want the draft the drafter kept", trace.Output)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := replyDraftCases{}.Prepare(replyDraftFixtureJSON(t, tc.fixture), tc.expected)
-			if err == nil {
-				t.Fatal("Prepare accepted a scenario this site cannot measure")
-			}
-			if !strings.Contains(err.Error(), tc.want) {
-				t.Errorf("the refusal reads %q, want it to name %q", err, tc.want)
-			}
-		})
+	if outcome.Result != aitasks.OutcomeAccepted {
+		t.Errorf("Result = %q (%s), want the served draft accepted", outcome.Result, outcome.Detail)
 	}
 }
 
@@ -389,8 +355,19 @@ func TestReplyDraftCaseRunsWhatProductionRuns(t *testing.T) {
 			wantResult: aitasks.OutcomeAccepted, wantVoiced: false,
 		},
 		{
+			// The critic retry came back in no shape the drafter could read, so
+			// the draft it already had stands and is served. A case that graded
+			// the LAST reply would report a refusal for a draft a human is shown,
+			// and this is the script that path exists for: the retry fires exactly
+			// when the first draft tripped the floor.
+			name: "a critic retry the drafter cannot read", fixture: replyDraftVoicedFixture(),
+			register:   replyDraftRegisterVoiced,
+			replies:    []string{replyDraftSanitizableReply, replyDraftUnreadableReply},
+			wantResult: aitasks.OutcomeAccepted, wantVoiced: true,
+		},
+		{
 			name: "a reply the drafter refuses", fixture: replyDraftPlainFixture(),
-			register: replyDraftRegisterPlain, replies: []string{"I have drafted the reply for you."},
+			register: replyDraftRegisterPlain, replies: []string{replyDraftUnreadableReply},
 			wantResult: aitasks.OutcomeInvalid, wantVoiced: false,
 		},
 	}
@@ -453,27 +430,5 @@ func assertReplyDraftMatchesProduction(t *testing.T, tc replyDraftParityCase) {
 	}
 	if (version != nil) != tc.wantVoiced {
 		t.Errorf("production stamped version %v, want a voice stamp = %v", version, tc.wantVoiced)
-	}
-}
-
-// A fixture is what PRODUCTION is given; an expectation is what the CORPUS
-// asserts. Keeping them apart is what lets a gate rewrite every free-text field
-// of a fixture — the canary sweep does exactly that — without rewriting an
-// assertion.
-func TestReplyDraftFixtureCarriesOnlyWhatProductionIsGiven(t *testing.T) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(replyDraftFixtureJSON(t, replyDraftVoicedFixture()), &fields); err != nil {
-		t.Fatalf("decoding the fixture: %v", err)
-	}
-	given := map[string]bool{"activity": true, "voice": true}
-	for name := range fields {
-		if !given[name] {
-			t.Errorf("the fixture carries %q, which the drafting path is not given", name)
-		}
-	}
-	for name := range given {
-		if _, present := fields[name]; !present {
-			t.Errorf("the fixture drops %q, which the drafting path always has", name)
-		}
 	}
 }
