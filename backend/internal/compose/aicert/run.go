@@ -158,7 +158,7 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 	output := ai.Unfence(caseTrace.Output)
 
 	judgeMark := judgeRec.mark()
-	score, judgeServedModel, judgeDegraded, err := judgeScore(ctx, judge, judgeRec, sc, output, log)
+	score, judgeServedModel, judgeDegraded, err := judgeScore(ctx, judge, judgeRec, sc, caseTrace, output, log)
 	if err != nil {
 		return runOutcome{}, fmt.Errorf("judge: %w", err)
 	}

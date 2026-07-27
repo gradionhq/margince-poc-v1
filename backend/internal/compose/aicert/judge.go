@@ -21,12 +21,56 @@ package aicert
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
+
+// roleUser is the model.Message role a request's own asks carry. The port
+// declares the two-role vocabulary ("user" | "assistant") without exporting a
+// constant for either.
+const roleUser = "user"
+
+// candidateAsk is the input the grader is shown: the turn the candidate was
+// actually handed, read off the first request the case issued.
+//
+// It is that rather than the corpus fixture because a site's own code builds the
+// prompt, and several sites MINT the identifiers they tell the model to answer
+// by — a verdict row id, a batch's message ids, a queue's candidate ids —
+// precisely so an answer carrying one proves the model read the prompt. Those
+// ids exist in the request and nowhere in the fixture, so a grader shown the
+// fixture reads every correct, id-bearing answer as invented.
+//
+// The FIRST request, because that is what the model was ASKED. A site may answer
+// in several calls — a shape retry, a fallback, a whole tool loop — and each
+// later request is built around a reply that already exists, which is the answer
+// under grading rather than the question that produced it.
+//
+// Every user turn of that request, joined, because a site may split one ask
+// across several messages (a delimited context block, then the question), and a
+// grader shown only the first would be missing what was actually asked. The
+// system prompt and any assistant turn stay out: JudgeRequest's contract is the
+// candidate's input and output, never its instructions or its own prior words.
+func candidateAsk(trace aitasks.Trace) (string, error) {
+	if len(trace.Requests) == 0 {
+		return "", errors.New("the case recorded no request, so there is no input to grade its answer against")
+	}
+	var turns []string
+	for _, m := range trace.Requests[0].Messages {
+		if m.Role == roleUser {
+			turns = append(turns, m.Content)
+		}
+	}
+	if len(turns) == 0 {
+		return "", errors.New("the case's first request carries no user turn, so there is no input to grade its answer against")
+	}
+	return strings.Join(turns, "\n\n"), nil
+}
 
 // judgeScore drives the judge router for one candidate output: one call,
 // one retry on a parse failure, then a 0 score with the parse error
@@ -40,9 +84,17 @@ import (
 // rule applies to the judge exactly like the candidate, and a demotion
 // the retry recovered from still means this run's grading budget ran
 // out — which must never be certified silently.
-func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Scenario, candidateOutput string, log *slog.Logger) (score int, judgeServedModel string, judgeDegraded bool, err error) {
+//
+// The grader is shown the answer under grading and the case's own trace, from
+// which candidateAsk reads the input that answer was given: the site's built
+// prompt, never the fixture it was built from.
+func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Scenario, caseTrace aitasks.Trace, candidateOutput string, log *slog.Logger) (score int, judgeServedModel string, judgeDegraded bool, err error) {
+	ask, err := candidateAsk(caseTrace)
+	if err != nil {
+		return 0, "", false, err
+	}
 	mark := rec.mark()
-	score, judgeServedModel, err = judgeVerdict(ctx, judge, rec, sc, candidateOutput, log)
+	score, judgeServedModel, err = judgeVerdict(ctx, judge, rec, sc, ask, candidateOutput, log)
 	if err != nil {
 		return 0, "", false, err
 	}
@@ -64,12 +116,13 @@ func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Sc
 // judgeVerdict drives the call and its one retry, returning the score and the
 // served identity of the attempt the score actually came from — which is the
 // retry's whenever one ran, since that is the reply that was parsed.
-func judgeVerdict(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Scenario, candidateOutput string, log *slog.Logger) (int, string, error) {
-	// The fixture is what the candidate was answering ABOUT, so it is what the
-	// grader is shown alongside the answer: under the fixture format there is no
-	// scenario-authored prompt to show it instead.
+func judgeVerdict(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Scenario, ask, candidateOutput string, log *slog.Logger) (int, string, error) {
+	// ask is the turn the candidate was given (candidateAsk), and it reaches the
+	// grader as UNTRUSTED data behind the boundary JudgeRequest mints: it is if
+	// anything more hostile than the fixture it was built from, because it
+	// carries that fixture already wrapped in the candidate site's own markers.
 	resp, _, callErr := judge.Complete(ctx, ai.TaskCertJudge,
-		compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput))
+		compose.JudgeRequest(sc.Expect.Rubric, ask, candidateOutput))
 	if callErr != nil {
 		return 0, "", fmt.Errorf("judge call: %w", callErr)
 	}
@@ -89,7 +142,7 @@ func judgeVerdict(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc 
 	// The retry is BUILT again, never re-sent: JudgeRequest mints the call's data
 	// boundary, and the attempt that just failed was shown the first one.
 	resp2, _, callErr2 := judge.Complete(ctx, ai.TaskCertJudge,
-		compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput))
+		compose.JudgeRequest(sc.Expect.Rubric, ask, candidateOutput))
 	if callErr2 != nil {
 		return 0, "", fmt.Errorf("judge retry call: %w", callErr2)
 	}
