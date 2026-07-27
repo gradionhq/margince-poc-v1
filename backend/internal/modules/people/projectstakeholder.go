@@ -72,7 +72,7 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 		Source: projectStakeholderSource,
 	})
 	var conflict *RelationshipConflictError
-	if errors.As(err, &conflict) && conflict.Constraint == "uq_rel_project_stakeholder" {
+	if errors.As(err, &conflict) && conflict.Constraint == projectStakeholderUnique {
 		// Someone attached the same person between our read and our write.
 		// That is the state this call wanted, so adopt their edge and apply
 		// the role rather than failing a request that asked for exactly this.

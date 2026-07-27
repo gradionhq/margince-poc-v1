@@ -50,7 +50,7 @@ type RelationshipConflictError struct{ Constraint string }
 var relationshipConflictDetails = map[string]string{
 	"uq_rel_current_primary_employer": "this person already has a current primary employer — end that employment, or add this one without the primary flag",
 	"uq_rel_deal_person_role":         "this person already holds that role on the deal",
-	"uq_rel_project_stakeholder":      "this person is already a stakeholder on the project",
+	projectStakeholderUnique:          "this person is already a stakeholder on the project",
 }
 
 // Error says what the caller can act on. The constraint name stays OFF the
@@ -264,7 +264,7 @@ func mapRelationshipConstraint(err error, kind string) error {
 	}
 	if constraint, ok := storekit.UniqueViolation(err); ok {
 		switch constraint {
-		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", "uq_rel_project_stakeholder":
+		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", projectStakeholderUnique:
 			return &RelationshipConflictError{Constraint: constraint}
 		}
 	}

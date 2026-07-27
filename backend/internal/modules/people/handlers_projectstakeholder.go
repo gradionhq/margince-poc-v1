@@ -26,6 +26,11 @@ import (
 const (
 	projectStakeholderKind = "project_stakeholder"
 	projectObjectName      = "project"
+	// projectStakeholderUnique is the index that makes "already attached"
+	// detectable rather than duplicated. Named here because three places rely
+	// on the same spelling: the constraint mapper, its client-facing detail,
+	// and the attach path that recovers from losing its own race.
+	projectStakeholderUnique = "uq_rel_project_stakeholder"
 )
 
 // ListProjectStakeholders serves the project-scoped stakeholder view; the
