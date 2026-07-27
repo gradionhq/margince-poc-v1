@@ -68,6 +68,7 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	r.BindCase(replyDraftCases{})
 	r.BindCase(ratePricingCases{})
 	r.BindCase(rateFxCases{})
+	r.BindCase(voiceDeriveCases{})
 	r.BindCase(voiceEvalDraftCases{})
 	r.BindCase(voiceEvalScoresCases{})
 	r.BindCase(briefRankingCases{})
