@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -161,16 +162,30 @@ func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumben
 				continue
 			}
 			seen[ownerID] = true
-			tag, err := tx.Exec(ctx,
-				`DELETE FROM mirror_user_map WHERE incumbent = $1 AND incumbent_user_id = $2 AND match_source = 'email'`,
+			rows, err := tx.Query(ctx,
+				`DELETE FROM mirror_user_map
+				  WHERE incumbent = $1 AND incumbent_user_id = $2 AND match_source = 'email'
+				RETURNING app_user_id, incumbent_user_id, match_source`,
 				incumbent, ownerID)
+			if err != nil {
+				return fmt.Errorf("overlay: revoking email mappings for owner %s: %w", ownerID, err)
+			}
+			dropped, err := pgx.CollectRows(rows, collectRevokedMapping)
 			if err != nil {
 				return fmt.Errorf("overlay: revoking email mappings for owner %s: %w", ownerID, err)
 			}
 			// Recompute only when a mapping was actually dropped — a no-op
 			// avoids rewriting the owner's visibility rows for nothing.
-			if tag.RowsAffected() == 0 {
+			if len(dropped) == 0 {
 				continue
+			}
+			// Audited per dropped row: the ambiguity rule is automation
+			// taking a user's access away, and the audit row is the only
+			// place that decision survives once the mapping is gone.
+			for _, r := range dropped {
+				if _, err := storekit.Audit(ctx, tx, "archive", auditEntityUserMap, r.appUser.UUID, r.image, nil); err != nil {
+					return fmt.Errorf("overlay: auditing %s's revoked mapping: %w", r.appUser, err)
+				}
 			}
 			if err := recomputeForOwnerTx(ctx, tx, ownerID); err != nil {
 				return err

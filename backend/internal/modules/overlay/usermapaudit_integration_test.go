@@ -84,3 +84,55 @@ func TestMatchSourceFlipAloneWritesAnUpdateAudit(t *testing.T) {
 		t.Fatalf("an email->manual flip on the same owner must audit, got %d update audits", got)
 	}
 }
+
+// Revalidation silently removes a user's access when the incumbent owner's
+// email changes. Without an audit row that access disappears with no record
+// of why, which is exactly the question an admin asks afterwards.
+func TestRevalidationRevokeIsAudited(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	emails := stubOwnerEmails{"owner-1": "rep@acme.test"}
+	store := NewMirrorStore(pool, emails)
+	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
+	rep := ids.From[ids.UserKind](repRaw)
+
+	if err := store.UpsertUserMap(ctx, rep, "hubspot", "owner-1", "email"); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	// The owner's email moves on; the mapping is now stale.
+	emails["owner-1"] = "someone.else@acme.test"
+	if err := store.RevalidateEmailMappings(ctx, emails); err != nil {
+		t.Fatalf("revalidating: %v", err)
+	}
+
+	if got := countMappingAudits(ctx, t, pool, "archive"); got != 1 {
+		t.Fatalf("want 1 archive audit for the revoked mapping, got %d", got)
+	}
+}
+
+// Two distinct incumbent owners sharing one email is the ambiguity case:
+// SeedUserMap revokes the existing email-sourced mapping rather than guess.
+// That revoke is audited for the same reason.
+func TestAmbiguityRevokeIsAudited(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
+	rep := ids.From[ids.UserKind](repRaw)
+
+	if err := store.UpsertUserMap(ctx, rep, "hubspot", "owner-1", "email"); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	// A second owner now claims the same email.
+	owners := []OwnerRef{
+		{ExternalID: "owner-1", Email: "rep@acme.test"},
+		{ExternalID: "owner-2", Email: "rep@acme.test"},
+	}
+	if err := store.SeedUserMap(ctx, "hubspot", owners); err != nil {
+		t.Fatalf("seeding with an ambiguous email: %v", err)
+	}
+
+	if got := countMappingAudits(ctx, t, pool, "archive"); got != 1 {
+		t.Fatalf("want 1 archive audit for the ambiguity revoke, got %d", got)
+	}
+}
