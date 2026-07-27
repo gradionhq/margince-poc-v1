@@ -1,7 +1,12 @@
 # CLAUDE.md — operating this repo
 
 This file provides guidance to Claude Code (claude.ai/code) when working in this
-repository. It mirrors [AGENTS.md](AGENTS.md); keep the two in sync when either changes.
+repository. It is the long form: the full operating detail lives here.
+[AGENTS.md](AGENTS.md) is a deliberately shorter digest for other agent
+harnesses that links back here — the two are **not** copies, so do not sync
+them line by line. What AGENTS.md must keep is its `## Craftsmanship` section:
+`make check-craft-doc` asserts it exists, and `cli/craft` assembles it into the
+gate prompt. When a rule below changes, decide whether the digest needs it too.
 
 Margince CRM implementation PoC (WP0 foundation + WP1 core spine). This is the
 **build repo** — the running Go software. The *specification* lives in a separate
@@ -67,65 +72,49 @@ make install            # one-shot fresh-worktree setup: FE deps + gate tools + 
 make db-up              # start PG16 + Redis 7 containers, create the app role
 make migrate            # apply core + custom migrations (owner DSN)
 make check              # the full merge gate = check-backend + check-fe
-make check-backend      # backend half: build, vet, lint (baseline + new-code
-                        # strict), arch-lint, unit + fitness tests, contract drift,
-                        # plus the root script gates (craft drift, image pins,
-                        # contract-breaking, test-lanes, file-length, rls-store-path,
-                        # no-jurisdiction, pkg-freeze). This is what CI's
-                        # deterministic-gates runs.
+make check-backend      # backend half; this is what CI's deterministic-gates runs
 make check-fe           # frontend half (biome + vitest + tsc + build)
 make test-integration   # real-Postgres lane: RLS gates + HTTP end-to-end (needs db-up).
-                        # Parallel — each package on its own throwaway clone db; ends
-                        # with `OK: integration passed with 0 skips`, never skips silently
-make dev                # full local stack: the app on :8080 (api behind it on :18080)
-                        # (worker = cmd/worker, always on: outbox relay + Surface-B runner)
-                        # (DEV_SLUG=x → isolated margince_dev_<slug> on slug-derived ports)
-make dev-stop           # stop the stack (add DEV_SLUG=x [DROP=1] for an isolated env)
-make dev-logs           # follow the stack log, coloured per process; ROLE=/LEVEL=/ALL=1 filter it
+                        # Ends with `OK: integration passed with 0 skips` — it fails
+                        # loudly without a database rather than skipping silently
+make dev                # full local stack: the app on :8080, worker always on
+make dev-stop           # stop the stack
+make dev-logs           # follow the stack log, coloured per process
 ```
+
+What each target actually runs, plus `check-q`, `check-go`, `fe-typecheck`,
+`fe-uat`, `infra-up`/`infra-down`, and the `DEV_SLUG` flags:
+[docs/reference/make-targets.md](docs/reference/make-targets.md).
 
 ### EXACTLY ONE dev stack at a time (non-negotiable)
 
 **`make dev` enforces this itself — it sweeps before it starts.** A bare
 `make dev` kills every margince api/worker/vite on the machine (recorded,
-orphaned, or from another checkout), evicts whatever holds :8080, drops
-every leftover `margince_dev_*` database, and only then boots ONE stack on
-:8080 against `margince`. So `make dev` is always safe to run; you no
-longer stop the old stack by hand.
+orphaned, or from another checkout), evicts whatever holds :8080, drops every
+leftover `margince_dev_*` database, and only then boots ONE stack. So `make dev`
+is always safe to run; you no longer stop the old stack by hand. Bare
+`make dev-stop` is the mirror and stops EVERY stack; `DEV_SLUG=x` gives an
+isolated stack that the sweep spares, until the next bare `make dev` takes it
+down. Details and the other targets:
+[docs/reference/make-targets.md](docs/reference/make-targets.md).
 
-The failure it removes is the one that does NOT announce itself: an `api`
-binary started from an earlier branch keeps serving :8080 happily while Vite
-hot-reloads the code you just wrote. The SPA then calls endpoints the running
-binary has never heard of, and the app fails in ways that look like your bug
-and are not — an old server is indistinguishable from a broken feature.
+Two failures this prevents, both of which look exactly like a bug in your code:
 
-The api is a compiled binary: **Vite hot-reloads the frontend, the API does
-not.** Any backend change — a new endpoint, a migration, a handler fix — needs
-`make dev` again (it sweeps and rebuilds). Restarting is the only way your Go
-code reaches the browser.
+- **A stale api still serving :8080.** A binary started from an earlier branch
+  keeps answering happily while Vite hot-reloads the code you just wrote. The
+  SPA then calls endpoints that binary has never heard of. An old server is
+  indistinguishable from a broken feature.
+- **A backend change that never reached the browser.** The api is compiled —
+  Vite hot-reloads the frontend, the API does not. Every backend change (new
+  endpoint, migration, handler fix) needs `make dev` again.
 
-`make dev-fresh` is `make dev` onto a rebuilt database — the first-run
-installation again, for when a previous session left data behind.
-
-`make dev-stop` is the mirror: bare, it stops EVERY stack, not just the one it
-recorded. The `margince` database survives both (stopping is not deleting);
-`DROP=1` removes the per-slug databases only.
-
-`DEV_SLUG=x` still gives an isolated stack (own database, own ports) and is the
-one thing the sweep leaves alone — but the next bare `make dev` will take it
-down, by design. Tear yours down with `DEV_SLUG=x make dev-stop DROP=1`.
-
-This repo's working tree is often shared with parallel agent sessions that
-switch branches under you. Before you trust ANY manual test, confirm both:
+This working tree is often shared with parallel agent sessions that switch
+branches under you. Before you trust ANY manual test, confirm both:
 `git branch --show-current` is the branch you think it is, and the api on :8080
 was started after your last backend change.
 
-`check-q` (quiet), `check-go` (backend-only), `fe-typecheck`, `fe-uat`
-(change-scoped Storybook render gate), and `infra-up`/`infra-down` round out
-the golden-command set. Full table:
-[docs/reference/make-targets.md](docs/reference/make-targets.md). The CI
-pipeline that runs these gates as required checks — the change classifier, the
-job graph, and the SonarCloud coverage flow — is documented in
+The CI pipeline that runs these gates as required checks — the change
+classifier, the job graph, and the SonarCloud coverage flow — is documented in
 [infra/ci-pipeline.md](infra/ci-pipeline.md).
 
 Four process-role binaries, all wired through
@@ -145,25 +134,15 @@ revocation binds mid-session.
 Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen
 tool chain is pure Go, in its own module `backend/tools/`).
 
-One installation serves one organization (A107/ADR-0061): the server
-resolves its singleton organization itself — no request selects a tenant:
-`curl http://localhost:8080/v1/me --cookie 'crm_session=…'`. First boot
-bootstraps the organization + admin from `margince.yaml` (`--config` /
-`MARGINCE_CONFIG`). `make dev` seeds a gitignored `config/margince.yaml`
-from `config/margince.example.yaml` on first run and then **leaves it**
-(the same create-if-missing / leave-if-exists pattern as
-`config/ai-routing.yaml`), so edits — org details, admin, or the
-`ai.capture_payloads` posture — persist across `make dev-stop` / `make dev`;
-delete it to reset.
+One installation serves one organization (A107/ADR-0061): the server resolves
+its singleton organization itself — no request selects a tenant. First boot
+bootstraps the organization + admin from `margince.yaml`, which `make dev`
+seeds from `config/margince.example.yaml` on first run and then **leaves
+alone**, so your edits survive a restart; delete it to reset.
 
-Operational surface: `/healthz` (dumb liveness), `/readyz` (dependency
-probes; 503 names the unready dependency), and `/metrics` (Prometheus
-text: outbox backlog, relay throughput, pool state) sit next to `/v1`.
-api, worker, and mcp take `--log-level` (debug|info|warn|error) and
-`--log-format` (text|json), env-backed as `MARGINCE_LOG_LEVEL` /
-`MARGINCE_LOG_FORMAT`; an invalid value is a boot error, never a silent
-default. The full flag/env table:
-[docs/reference/configuration.md](docs/reference/configuration.md).
+`/healthz`, `/readyz`, and `/metrics` sit next to `/v1`. The config file, the
+CLI flags and their env equivalents, and the operational endpoints are all
+documented in [docs/reference/configuration.md](docs/reference/configuration.md).
 
 ## Shipping a change (branch → local gates → PR → green → merge)
 
