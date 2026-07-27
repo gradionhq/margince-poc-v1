@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -36,6 +37,10 @@ type DueOverlayConnection struct {
 	Incumbent     string
 	Region        string
 	CredentialRef keyvault.Ref
+	// ConnectedAt is when this connection was established (reset on a
+	// reconnect). It floors the incremental sweep of a class that has no
+	// watermark yet — see ReconcileFloor.
+	ConnectedAt time.Time
 }
 
 // DueOverlayConnections lists every workspace with an ACTIVE incumbent
@@ -63,6 +68,7 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 		ws := ids.From[ids.WorkspaceKind](wsID)
 		err := database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
 			var incumbent, region, ref string
+			var connectedAt time.Time
 			// The LEFT JOIN + next_sweep_at gate is the backoff (branch-1b):
 			// a workspace whose last sweep failed carries an overlay_sync_state
 			// row with a future next_sweep_at, so it is NOT selected until due
@@ -70,11 +76,11 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 			// connection hot every tick. No row (never swept, or reset by a
 			// success) is due immediately (COALESCE to now()).
 			scanErr := tx.QueryRow(wsCtx, `
-				SELECT c.incumbent, c.region, c.credential_ref
+				SELECT c.incumbent, c.region, c.credential_ref, c.connected_at
 				FROM incumbent_connection c
 				LEFT JOIN overlay_sync_state s ON s.workspace_id = c.workspace_id
 				WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()`,
-				statusActive).Scan(&incumbent, &region, &ref)
+				statusActive).Scan(&incumbent, &region, &ref, &connectedAt)
 			if errors.Is(scanErr, pgx.ErrNoRows) {
 				// Either x_sor_mode='overlay' with no active connection row (a
 				// transient mid-teardown state), or an active connection that
@@ -87,6 +93,7 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 			}
 			due = append(due, DueOverlayConnection{
 				Workspace: ws, Incumbent: incumbent, Region: region, CredentialRef: keyvault.Ref(ref),
+				ConnectedAt: connectedAt,
 			})
 			return nil
 		})
@@ -232,10 +239,11 @@ func ActiveConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnec
 		return DueOverlayConnection{}, fmt.Errorf("overlay: active connection lookup requires a workspace-bound context")
 	}
 	var incumbent, region, ref string
+	var connectedAt time.Time
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `
-			SELECT incumbent, region, credential_ref FROM incumbent_connection
-			WHERE status = $1`, statusActive).Scan(&incumbent, &region, &ref)
+			SELECT incumbent, region, credential_ref, connected_at FROM incumbent_connection
+			WHERE status = $1`, statusActive).Scan(&incumbent, &region, &ref, &connectedAt)
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -248,5 +256,6 @@ func ActiveConnection(ctx context.Context, pool *pgxpool.Pool) (DueOverlayConnec
 		Incumbent:     incumbent,
 		Region:        region,
 		CredentialRef: keyvault.Ref(ref),
+		ConnectedAt:   connectedAt,
 	}, nil
 }

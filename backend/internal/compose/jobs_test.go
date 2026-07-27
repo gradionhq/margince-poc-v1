@@ -6,7 +6,9 @@ package compose
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/riverqueue/river/rivertype"
 
@@ -87,6 +89,9 @@ func TestReconcileConnectionRejectsANonHubSpotIncumbent(t *testing.T) {
 	if err == nil {
 		t.Fatal("reconcileConnection: want an error for a non-HubSpot incumbent, got nil")
 	}
+	if !strings.Contains(err.Error(), "salesforce") {
+		t.Fatalf("reconcileConnection = %v, want the error to name the unsupported incumbent", err)
+	}
 }
 
 // failingVault is a keyvault.Vault stub whose Get always fails —
@@ -100,7 +105,7 @@ func (failingVault) Get(context.Context, ids.WorkspaceID, keyvault.Ref) ([]byte,
 }
 
 // TestReconcileConnectionSurfacesAVaultResolutionFailure proves
-// reconcileConnection's second guard: a HubSpot connection whose vaulted
+// reconcileConnection's vault-resolution guard: a HubSpot connection whose vaulted
 // token fails to resolve stops the sweep for this connection entirely
 // (an honest "there is no adapter to sweep ANYTHING with," per the
 // function's own doc) rather than silently skipping to the object-class
@@ -110,10 +115,38 @@ func TestReconcileConnectionSurfacesAVaultResolutionFailure(t *testing.T) {
 		Workspace: ids.WorkspaceID{UUID: ids.NewV7()},
 		Incumbent: "hubspot",
 		Region:    "eu1",
+		// A real ConnectedAt, so the connected_at guard does not answer first:
+		// this test must reach the vault. Asserting the MESSAGE, not merely
+		// non-nil, is what keeps that true — another guard added ahead of the
+		// vault would otherwise hijack this test and it would still pass.
+		ConnectedAt: time.Date(2026, 7, 1, 12, 0, 0, 0, time.UTC),
 	}
 	err := reconcileConnection(context.Background(), nil, failingVault{}, nil, nil, nil, d, nil)
 	if err == nil {
 		t.Fatal("reconcileConnection: want an error when the vaulted token fails to resolve, got nil")
+	}
+	if !strings.Contains(err.Error(), "vaulted token") {
+		t.Fatalf("reconcileConnection = %v, want the vault-resolution failure — this test must reach the vault, not stop at an earlier guard", err)
+	}
+}
+
+// TestReconcileConnectionRefusesAConnectionWithoutConnectedAt proves the sweep
+// refuses rather than reads the whole portal. connected_at is NOT NULL in the
+// schema, so a zero value means the DueOverlayConnection was built without it;
+// sweeping anyway would floor the incremental window at the zero time, which
+// the incumbent reads as "every record you hold", on every tick forever.
+func TestReconcileConnectionRefusesAConnectionWithoutConnectedAt(t *testing.T) {
+	d := overlay.DueOverlayConnection{
+		Workspace: ids.WorkspaceID{UUID: ids.NewV7()},
+		Incumbent: "hubspot",
+		Region:    "eu1",
+	}
+	err := reconcileConnection(context.Background(), nil, failingVault{}, nil, nil, nil, d, nil)
+	if err == nil {
+		t.Fatal("reconcileConnection: want an error for a connection carrying no connected_at, got nil")
+	}
+	if !strings.Contains(err.Error(), "connected_at") {
+		t.Fatalf("reconcileConnection = %v, want the error to name the missing connected_at", err)
 	}
 }
 

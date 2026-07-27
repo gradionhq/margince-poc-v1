@@ -51,8 +51,9 @@ func (c *Client) SearchModified(
 // hsMillis renders t as the epoch-millisecond string HubSpot's Search API
 // requires for a datetime property filter — an RFC 3339 string is rejected
 // with a 400, so the watermark sweep must send millis. A zero/pre-epoch
-// watermark (the first sweep after a fresh connect) floors to "0" so the
-// GTE filter means "everything", never a negative epoch HubSpot would reject.
+// watermark floors to "0" rather than a negative epoch HubSpot would reject;
+// note that "0" is a GTE filter matching the entire portal, so the sweep
+// window a caller passes is the only thing bounding the read.
 func hsMillis(t time.Time) string {
 	ms := t.UnixMilli()
 	if ms < 0 {

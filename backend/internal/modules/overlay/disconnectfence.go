@@ -37,11 +37,34 @@ var ErrConnectionGone = errors.New("overlay: the incumbent connection was revoke
 //     and returns ErrConnectionGone, writing nothing.
 //
 // Either way a stray in-flight sweep can never resurrect incumbent-derived
-// data into a disconnected workspace. overlay_mirror ingest is additionally
+// data into a DISCONNECTED workspace. overlay_mirror ingest is additionally
 // tombstone-guarded in-SQL (mirrorstore.go's ingestSQL), but the association
 // edges, the backfill cursor, the reconcile watermark, and mirror_user_map
 // are not record-keyed and cannot be tombstoned — this fence is what
 // protects THEM (and a brand-new mirror row that has no tombstone yet).
+//
+// KNOWN GAP — a RECONNECTED workspace is a different matter, and this fence
+// does not cover it. The query asks whether AN active connection exists, never
+// whether it is the one the caller started under, and reconnectConnection
+// revives the same row in place (status revoked→active, connected_at reset).
+// So ANY fenced operation straddling a disconnect+reconnect passes this check
+// and commits into the freshly-connected workspace — every write listed above
+// as protected, plus the sync state and the write ledger. Not only the poller:
+// the provider write-back binds the same fence, and RequestSweep reaches it
+// straight from POST /overlay/reconcile, so the window is reachable on demand
+// rather than only by a background race. Two consequences outrank the rest — a
+// terminal done=true backfill cursor permanently short-circuits the new
+// connection's initial load, and reconnect clears overlay_tombstone, so mirror
+// rows the tombstone guard would have refused now land (or, through
+// purgeRecordTx, a freshly-mirrored row is deleted instead).
+//
+// Closing it needs the connection's IDENTITY in the predicate, not just its
+// status: incumbent_connection.connected_at is reset on revive and written
+// nowhere else, so carrying (id, connected_at) onto the fenced store and
+// asserting both here rejects a caller that outlived its own connection.
+// Until that lands the straddle is SILENT, because ReconcileFloor removed the
+// accidental epoch-wide re-read that used to refill the mirror on the next
+// tick — an emptied class now reports backfill-complete and stays empty.
 //
 // The GUC is read WITHOUT missing_ok, exactly as lockWorkspaceVisibility is:
 // a fenced write with app.workspace_id unset RAISEs rather than resolving to

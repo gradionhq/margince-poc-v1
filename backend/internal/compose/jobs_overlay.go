@@ -291,6 +291,12 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		// named gap, never a guessed adapter.
 		return fmt.Errorf("overlay reconcile: no adapter for incumbent %q", d.Incumbent)
 	}
+	if d.ConnectedAt.IsZero() {
+		// connected_at is NOT NULL, so a zero means this struct was built without
+		// it — and sweeping would then floor at the zero time, i.e. the whole
+		// portal every tick (ReconcileFloor). Refuse rather than burn the quota.
+		return fmt.Errorf("overlay reconcile: connection for workspace %s carries no connected_at; refusing to sweep from the epoch", d.Workspace)
+	}
 	token, err := vault.Get(ctx, d.Workspace, d.CredentialRef)
 	if err != nil {
 		return fmt.Errorf("overlay reconcile: resolving the vaulted token: %w", err)
@@ -390,7 +396,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 		// classes are swept best-effort with no requested scope, so a portal
 		// that gates one of them (a 403/404 for that object alone) skips just
 		// that class here — overlaySweepAborts encodes the distinction.
-		if err := sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass); err != nil {
+		if err := sweepObjectClass(ctx, inc, ms, meter, log, d.Workspace.String(), objectClass, d.ConnectedAt); err != nil {
 			if overlaySweepAborts(objectClass, err) {
 				return err
 			}
@@ -413,7 +419,8 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 // Any step's failure is logged and skips the REST of this class's sweep
 // this tick (the next tick resumes from the checkpoint), never aborting the
 // other classes — which is why it returns nothing. workspace is the
-// stringified id, for logging only. Extracted from reconcileConnection so
+// stringified id, for logging only; connectedAt floors the incremental sweep
+// of a class that has no watermark yet. Extracted from reconcileConnection so
 // the per-class sequence reads as one unit and the connection-level loop
 // stays short.
 // It returns a non-nil error only for a connection-level incumbent failure
@@ -424,7 +431,7 @@ func reconcileConnection(ctx context.Context, pool *pgxpool.Pool, vault keyvault
 // mapping/data defect, a DB read/write blip) is logged and skips the rest of
 // THIS class with a nil return, so the connection-level loop moves on to the
 // next class.
-func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, workspace, objectClass string) error {
+func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.MirrorStore, meter *overlaybudget.Meter, log *slog.Logger, workspace, objectClass string, connectedAt time.Time) error {
 	// Initial full load before the incremental sweep: Backfill lists the
 	// object class id-cursor style AND fetches its associations (design.md
 	// §4.4), checkpointing overlay_backfill_cursor so SyncStatus's
@@ -441,7 +448,7 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 			"workspace", workspace, "object_class", objectClass, "err", err)
 		return nil
 	}
-	since, err := ms.LoadReconcileWatermark(ctx, objectClass)
+	watermark, err := ms.LoadReconcileWatermark(ctx, objectClass)
 	if err != nil {
 		// A watermark read is a local DB call, not an incumbent one — a blip
 		// here is not a connection-level failure, so skip this class rather
@@ -450,6 +457,9 @@ func sweepObjectClass(ctx context.Context, inc overlay.Incumbent, ms *overlay.Mi
 			"workspace", workspace, "object_class", objectClass, "err", err)
 		return nil
 	}
+	// An unfloored class sweeps from the zero time — the incumbent's entire
+	// portal (see ReconcileFloor); raising it keeps the cap from being undone.
+	since := overlay.ReconcileFloor(watermark, connectedAt)
 	newWatermark, err := overlay.Reconcile(ctx, inc, ms, meter, objectClass, since)
 	if err != nil {
 		if errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err) {

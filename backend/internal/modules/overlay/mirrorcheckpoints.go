@@ -36,8 +36,9 @@ import (
 // from a slower concurrent pass (the periodic poller racing an on-demand
 // reconcile) — that would re-list the whole incumbent. Within one
 // connection's life done only ever goes false→true (a reconnect purges the
-// row and starts fresh), so OR-ing is monotonic, never sticky at the wrong
-// value.
+// row and starts fresh), so OR-ing is monotonic. That premise holds only per
+// connection: a sweep straddling a disconnect+reconnect can still land a
+// done=true here, which is the known gap assertActiveConnection documents.
 const upsertBackfillCursorSQL = `
 INSERT INTO overlay_backfill_cursor (workspace_id, object_class, cursor, done, updated_at)
 VALUES (NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, now())
@@ -125,9 +126,9 @@ func (s *MirrorStore) SaveReconcileWatermark(ctx context.Context, objectClass st
 }
 
 // LoadReconcileWatermark reads back objectClass's persisted incremental
-// watermark. No row yet (a sweep that has never run) answers the zero
-// time — an honest "not started", not an error; Reconcile's own caller
-// (jobs.go's worker) treats that as "sweep from the epoch."
+// watermark. No row yet answers the zero time — an honest "not started",
+// not an error — which a sweep must read as "from the epoch", i.e. the whole
+// portal, so a caller raises it through ReconcileFloor before sweeping.
 func (s *MirrorStore) LoadReconcileWatermark(ctx context.Context, objectClass string) (time.Time, error) {
 	var watermark time.Time
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {

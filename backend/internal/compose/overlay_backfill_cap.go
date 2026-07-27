@@ -19,10 +19,19 @@ import (
 // cursor it returns, so it is stateless and restart-safe: a resumed
 // backfill reads the count back out of the cursor rather than needing any
 // state of its own. Only Backfill is capped — Modified/Get/Associations/
-// Owners/Name pass straight through, so continuous sync (the modified
-// sweeps) stays uncapped by design: records edited outside the first N
-// still trickle in on later ticks, and the ingest guards make the extras
-// harmless.
+// Owners/Name pass straight through, so continuous sync stays uncapped by
+// design: a record edited AFTER the sweep's watermark still trickles in on a
+// later tick even when the cap declined it here, and the ingest guards make
+// the extras harmless.
+//
+// Capping Backfill alone bounds nothing the next sweep would not undo. It
+// holds only while the sweep raises the window of a class that has no
+// watermark yet (overlay.ReconcileFloor, which documents why): read from the
+// zero time and the Modified pass pulls down every record the cap just
+// declined, so the laptop gets the whole portal one tick later. Capping
+// Modified is NOT the alternative — truncating a watermark-ordered page
+// stalls the watermark whenever more than limit records share a timestamp
+// (a bulk import), and the sweep then re-reads that same page forever.
 //
 // Caveat (dev/demo only): the running count is carried in the persisted
 // overlay_backfill_cursor as a "<count>|<inner>" prefix. If the cap is
