@@ -295,6 +295,16 @@ func emitMirrorConflict(ctx context.Context, ms *MirrorStore, rec Record, prior 
 		"incumbent_updated_at": rec.ModifiedAt,
 	}
 	err = database.WithWorkspaceTx(ctx, ms.pool, func(tx pgx.Tx) error {
+		// Fenced the same way every other sweep write is: a disconnect (or
+		// disconnect+reconnect) landing between reconcileOne's ingest commit
+		// and this call must not let a stray system_log/event_outbox row
+		// commit into a workspace that has left overlay mode, or attribute a
+		// prior connection's record ids to a DIFFERENT one now active —
+		// neither table is purged by teardown, so a stray row here would
+		// outlive the disconnect it should have been fenced against.
+		if err := ms.assertFence(ctx, tx); err != nil {
+			return err
+		}
 		logID, err := storekit.LogSystem(ctx, tx, "mirror.conflict", detail)
 		if err != nil {
 			return fmt.Errorf("overlay: reconcile: logging the mirror.conflict system event: %w", err)

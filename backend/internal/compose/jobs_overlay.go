@@ -337,10 +337,14 @@ func sweepMustStop(err error) bool {
 // is logged and skips the rest of THIS class with a nil return, so the
 // connection-level loop moves on to the next class.
 func sweepObjectClass(ctx context.Context, deps sweepDeps, workspace, objectClass string, connectedAt time.Time) error {
-	if err := sweepBackfillPhase(ctx, deps, workspace, objectClass, connectedAt); err != nil {
+	proceed, err := sweepBackfillPhase(ctx, deps, workspace, objectClass, connectedAt)
+	if err != nil {
 		return err
 	}
-	proceed, err := sweepModifiedPhase(ctx, deps, workspace, objectClass, connectedAt)
+	if !proceed {
+		return nil // the phase already logged and skipped (backfill pass failed)
+	}
+	proceed, err = sweepModifiedPhase(ctx, deps, workspace, objectClass, connectedAt)
 	if err != nil {
 		return err
 	}
@@ -357,22 +361,26 @@ func sweepObjectClass(ctx context.Context, deps sweepDeps, workspace, objectClas
 // once its cursor has converged, so every later sweep skips straight to
 // the Modified pass — the first sweep after a connect (via the poller, or
 // on-demand through POST /overlay/reconcile) does the load, the rest ride
-// the watermark.
-func sweepBackfillPhase(ctx context.Context, deps sweepDeps, workspace, objectClass string, connectedAt time.Time) error {
+// the watermark. proceed is false when the backfill pass itself failed
+// (already logged): the Modified and deletion phases must not spend
+// incumbent quota sweeping a class whose initial load never converged this
+// tick — the same "stop the rest of this class, not the others" contract
+// every phase here honors.
+func sweepBackfillPhase(ctx context.Context, deps sweepDeps, workspace, objectClass string, connectedAt time.Time) (proceed bool, err error) {
 	truncated, err := overlay.Backfill(ctx, deps.inc, deps.ms, objectClass, connectedAt)
 	if err != nil {
 		if sweepMustStop(err) {
-			return err
+			return false, err
 		}
 		deps.log.WarnContext(ctx, "overlay reconcile: backfill pass failed, skipping this object class this tick",
 			"workspace", workspace, "object_class", objectClass, "err", err)
-		return nil
+		return false, nil
 	}
 	if truncated {
 		deps.log.WarnContext(ctx, "overlay reconcile: backfill capped by MARGINCE_OVERLAY_BACKFILL_LIMIT; this object class will report backfill-complete=false until its overlay_backfill_cursor row is cleared (unsetting the cap alone does not resume it)",
 			"workspace", workspace, "object_class", objectClass)
 	}
-	return nil
+	return true, nil
 }
 
 // sweepModifiedPhase runs the incremental modified-record sweep: load the

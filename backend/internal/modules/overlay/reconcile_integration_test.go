@@ -15,6 +15,7 @@ package overlay
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
 // sweptRecords is a minimal in-memory Incumbent exercising ONLY Modified
@@ -175,10 +177,10 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 	}}}
 	meter := testBudgetMeter(t, "test-swept")
 
-	// connectedAt predates oldBaseline's watermark by more than the floor's
-	// skew grace, so reconcileFloor lets the passed watermark win unchanged —
-	// this test is about the sweep's own convergence/conflict behavior, not
-	// the floor.
+	// The watermark sits above the connection-derived floor (connectedAt
+	// minus the 15-minute skew grace), so reconcileFloor leaves it
+	// unchanged — this test is about the sweep's own convergence/conflict
+	// behavior, not the floor.
 	watermark, err := Reconcile(ctx, inc, ms, meter, objectClass, oldBaseline.Add(-time.Second), oldBaseline)
 	if err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -208,6 +210,59 @@ func TestReconcileOverwritesDivergedNonDirtyRowAndEmitsConflict(t *testing.T) {
 
 	if snap := meter.Snapshot(ctx, "test-swept"); snap.Consumed != 1 {
 		t.Fatalf("meter consumed = %d, want 1 (one poller REST charge for the one page fetch)", snap.Consumed)
+	}
+}
+
+// TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection proves
+// emitMirrorConflict — the sweep's mirror.conflict event write, which opens
+// its OWN transaction separate from the ingest that precedes it — is fenced
+// exactly like every other sweep write: a connection revoked between that
+// ingest committing and this call must not let a stray system_log/
+// event_outbox row land for a workspace that has left overlay mode (neither
+// table is purged by teardown, so a stray row here would outlive the
+// disconnect it should have been fenced against). emitMirrorConflict is
+// called directly (this test lives in package overlay) so the race can be
+// proven without needing an incumbent-side hook between the two
+// transactions.
+func TestEmitMirrorConflictIsFencedAgainstADisconnectedConnection(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	svc := NewService(pool, vault, store)
+	conn, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-conflict-fence-secret"})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	fenced := store.WithFenceIdentity(conn.ConnectedAt)
+
+	const objectClass = "organization"
+	const externalID = "61655665899"
+
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	prior := Row{ObjectClass: objectClass, ExternalID: externalID, UpdatedAtBaseline: time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)}
+	rec := Record{ObjectClass: objectClass, ExternalID: externalID, ModifiedAt: time.Date(2026, 7, 1, 1, 0, 0, 0, time.UTC)}
+
+	if err := emitMirrorConflict(ctx, fenced, rec, prior); !errors.Is(err, ErrConnectionGone) {
+		t.Fatalf("emitMirrorConflict after disconnect = %v, want ErrConnectionGone", err)
+	}
+
+	eventCount, err := countMirrorConflictEvents(ctx, pool, ws.String(), externalID)
+	if err != nil {
+		t.Fatalf("querying event_outbox: %v", err)
+	}
+	if eventCount != 0 {
+		t.Errorf("mirror.conflict outbox rows = %d after a fenced emit on a disconnected workspace, want 0", eventCount)
+	}
+
+	var logCount int
+	queryRowWS(ctx, t, pool,
+		`SELECT count(*) FROM system_log WHERE action = 'mirror.conflict' AND detail->>'external_id' = $1`,
+		[]any{externalID}, &logCount)
+	if logCount != 0 {
+		t.Errorf("system_log holds %d mirror.conflict row(s) after a fenced emit on a disconnected workspace, want 0", logCount)
 	}
 }
 

@@ -227,6 +227,19 @@ func (s *MirrorStore) ingestTx(ctx context.Context, tx pgx.Tx, rec Record) (bool
 	if err := s.assertFence(ctx, tx); err != nil {
 		return false, err
 	}
+	// Re-check the mirror-halt flag (writeledger.go's haltedTx) ATOMICALLY
+	// with the write about to happen: a caller's own pre-flight Halted call
+	// (the refetch worker's cost-saving early exit) is a check-then-act
+	// gap — a collision Classify detects between that check and this write
+	// would otherwise still land. This is the correctness boundary every
+	// Ingest caller relies on (Backfill, Reconcile, the refetch worker
+	// alike); a halted mirror simply lands nothing, the same honest
+	// no-op the in-SQL tombstone/staleness/dirty guards below already are.
+	if halted, err := haltedTx(ctx, tx); err != nil {
+		return false, err
+	} else if halted {
+		return false, nil
+	}
 	// Ingest's owner projection (ProjectOwnerVisibility, and the
 	// owner-change revalidation) mutates mirror_visibility, so it takes
 	// the same per-workspace visibility lock every other mutator takes —

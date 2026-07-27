@@ -286,11 +286,27 @@ func TestFencedSyncWritesAbortOnceTheConnectionIsRevoked(t *testing.T) {
 	// delete it before the fenced writes ever run) is exactly the "a stray
 	// write must not act on a row a straddling process resurrected" shape
 	// this whole fence exists for, applied to the test fixture itself.
+	// A DEDICATED app_user, not actor.UserID: the "UpsertUserMap" case below
+	// targets (app_user_id=actor.UserID, incumbent='hubspot') too, and
+	// upsertUserMapSQL's ON CONFLICT (workspace_id, app_user_id, incumbent)
+	// would silently UPDATE this row in place rather than insert a second
+	// one — an unfenced UpsertUserMap would then leave the total row count
+	// unchanged, making the count-based assertion below pass even though a
+	// resurrection happened. A distinct app_user_id keeps this fixture's
+	// row and UpsertUserMap's stray write on separate conflict keys, so
+	// either one landing is independently visible.
+	fixtureUser := ids.New[ids.UserKind]()
 	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO app_user (id, workspace_id, email, display_name)
+			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid, $2, 'Revalidate Fixture User')`,
+			fixtureUser, "revalidate-fixture-"+fixtureUser.String()+"@overlay.test"); err != nil {
+			return err
+		}
 		_, execErr := tx.Exec(ctx, `
 			INSERT INTO mirror_user_map (workspace_id, app_user_id, incumbent, incumbent_user_id, match_source)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, 'email')`,
-			actor.UserID, "hubspot", "owner-revalidate")
+			fixtureUser, "hubspot", "owner-revalidate")
 		return execErr
 	}); err != nil {
 		t.Fatalf("seeding the post-teardown email-sourced mapping fixture: %v", err)
