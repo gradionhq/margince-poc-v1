@@ -17,6 +17,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -55,7 +56,30 @@ type projectProblem struct {
 	Detail  string `json:"detail"`
 	Details struct {
 		ExistingID string `json:"existing_id"`
+		// A validation refusal names the field and the rule that fired, so a
+		// client can point at the input rather than re-reading prose.
+		Errors []struct {
+			Field string `json:"field"`
+			Code  string `json:"code"`
+		} `json:"errors"`
 	} `json:"details"`
+}
+
+// fieldCode returns the rule a validation refusal names, so a test asserts on
+// the code a client switches on rather than on the sentence.
+func (p projectProblem) fieldCode() string {
+	if len(p.Details.Errors) == 0 {
+		return ""
+	}
+	return p.Details.Errors[0].Code
+}
+
+// fieldName returns the input a validation refusal points at.
+func (p projectProblem) fieldName() string {
+	if len(p.Details.Errors) == 0 {
+		return ""
+	}
+	return p.Details.Errors[0].Field
 }
 
 // anchorOrg creates the company a project hangs from. A project has exactly
@@ -442,4 +466,155 @@ func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("relink with replace → %d, want 200", status)
 	}
+}
+
+// Every refusal this surface can answer is a promise in the contract: a code
+// the client switches on and a field it can point at. A rule that fires as an
+// untyped 500, or under the wrong code, is a promise broken — so each arm is
+// provoked here through the real schema rule that raises it.
+func TestEachProjectRefusalAnswersItsOwnCode(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	org := anchorOrg(t, e, "Refusal GmbH")
+
+	var project projectDTO
+	if status := e.call(t, "POST", "/v1/projects", anyMap{
+		"name": "Baseline", "organization_id": org, "source": "manual",
+	}, nil, &project); status != http.StatusCreated {
+		t.Fatalf("POST /projects → %d, want 201", status)
+	}
+
+	t.Run("a key that is not key-shaped", func(t *testing.T) {
+		// Letter-led on purpose: a bare number would match dates, amounts and
+		// order numbers in an inbound subject line.
+		var problem projectProblem
+		if status := e.call(t, "POST", "/v1/projects", anyMap{
+			"name": "Numeric", "key": "2026", "organization_id": org, "source": "manual",
+		}, nil, &problem); status != http.StatusUnprocessableEntity {
+			t.Fatalf("a numeric key → %d, want 422", status)
+		}
+		if problem.fieldCode() != "invalid_key" {
+			t.Errorf("rule = %q, want invalid_key", problem.fieldCode())
+		}
+		if problem.fieldName() != "key" {
+			t.Errorf("refusal points at %q, want the key input", problem.fieldName())
+		}
+	})
+
+	t.Run("an end date before the start", func(t *testing.T) {
+		var problem projectProblem
+		if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+			"started_at": "2026-06-01", "ended_at": "2026-01-01",
+		}, nil, &problem); status != http.StatusUnprocessableEntity {
+			t.Fatalf("an inverted date range → %d, want 422", status)
+		}
+		if problem.fieldCode() != "invalid_date_range" {
+			t.Errorf("rule = %q, want invalid_date_range", problem.fieldCode())
+		}
+		if problem.fieldName() != "ended_at" {
+			t.Errorf("refusal points at %q, want the ended_at input", problem.fieldName())
+		}
+	})
+
+	t.Run("closing without a reason", func(t *testing.T) {
+		var problem projectProblem
+		if status := e.call(t, "POST", "/v1/projects/"+project.ID+"/advance", anyMap{
+			"to_phase": "closed",
+		}, nil, &problem); status != http.StatusUnprocessableEntity {
+			t.Fatalf("closing with no reason → %d, want 422", status)
+		}
+		if problem.fieldCode() != "closed_reason_required" {
+			t.Errorf("rule = %q, want closed_reason_required", problem.fieldCode())
+		}
+		if problem.fieldName() != "reason" {
+			t.Errorf("refusal points at %q, want the reason input", problem.fieldName())
+		}
+	})
+
+	t.Run("a deal anchored to another company's project", func(t *testing.T) {
+		// The rule spans two rows, so it lives in a constraint trigger — the
+		// only place a cross-row rule can be enforced — and must still read as
+		// a 422 about the rule rather than a server fault.
+		other := anchorOrg(t, e, "Elsewhere AG")
+		var elsewhere projectDTO
+		if status := e.call(t, "POST", "/v1/projects", anyMap{
+			"name": "Their work", "organization_id": other, "source": "manual",
+		}, nil, &elsewhere); status != http.StatusCreated {
+			t.Fatalf("POST /projects → %d, want 201", status)
+		}
+		var pipelines struct {
+			Data []struct {
+				ID     string `json:"id"`
+				Stages []struct {
+					ID string `json:"id"`
+				} `json:"stages"`
+			} `json:"data"`
+		}
+		if status := e.call(t, "GET", "/v1/pipelines", nil, nil, &pipelines); status != http.StatusOK ||
+			len(pipelines.Data) == 0 || len(pipelines.Data[0].Stages) == 0 {
+			t.Skipf("no seeded pipeline to anchor a deal to (status %d)", status)
+		}
+		var problem projectProblem
+		status := e.call(t, "POST", "/v1/deals", anyMap{
+			"name": "Mismatched", "organization_id": org, "project_id": elsewhere.ID,
+			"pipeline_id": pipelines.Data[0].ID, "stage_id": pipelines.Data[0].Stages[0].ID,
+			"source": "manual",
+		}, nil, &problem)
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("a deal and project on different companies → %d, want 422", status)
+		}
+		if problem.fieldCode() != "project_organization_mismatch" {
+			t.Errorf("rule = %q, want project_organization_mismatch", problem.fieldCode())
+		}
+		if problem.fieldName() != "project_id" {
+			t.Errorf("refusal points at %q, want the project_id input", problem.fieldName())
+		}
+	})
+}
+
+// If-Match is the caller's claim about what they are editing. A stale version
+// must not silently win: the write is refused so the client re-reads rather
+// than overwriting someone else's change.
+func TestAStaleVersionCannotOverwriteAProject(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	org := anchorOrg(t, e, "Skew GmbH")
+
+	var project projectDTO
+	if status := e.call(t, "POST", "/v1/projects", anyMap{
+		"name": "Contended", "organization_id": org, "source": "manual",
+	}, nil, &project); status != http.StatusCreated {
+		t.Fatalf("POST /projects → %d, want 201", status)
+	}
+	stale := strconv.Itoa(project.Version)
+
+	// Someone else moves first.
+	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+		"description": "first writer",
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("first PATCH → %d, want 200", status)
+	}
+	// The second writer still holds the version from before that.
+	if status := e.call(t, "PATCH", "/v1/projects/"+project.ID, anyMap{
+		"description": "second writer",
+	}, map[string]string{"If-Match": stale}, nil); status != http.StatusConflict &&
+		status != http.StatusPreconditionFailed {
+		t.Fatalf("a stale If-Match → %d, want a version-skew refusal", status)
+	}
+	if n := e.callDescription(t, project.ID); n != "first writer" {
+		t.Fatalf("description = %q — the stale write landed anyway", n)
+	}
+}
+
+// callDescription reads one project's description back over the wire.
+func (e *env) callDescription(t *testing.T, id string) string {
+	t.Helper()
+	var out projectDTO
+	if status := e.call(t, "GET", "/v1/projects/"+id, nil, nil, &out); status != http.StatusOK {
+		t.Fatalf("GET /projects/{id} → %d, want 200", status)
+	}
+	if out.Description == nil {
+		return ""
+	}
+	return *out.Description
 }
