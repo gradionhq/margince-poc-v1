@@ -583,10 +583,13 @@ func TestRelinkReplacesOnlyTheLinksTheCallerCanSee(t *testing.T) {
 // be closed from the relink path: hiding the link and enforcing
 // one-per-activity are the same question asked twice.
 //
-// What must NOT widen is everything else. The refusal names no id and no
-// project, and the link itself survives — so the caller learns that something
-// is there, never what, and cannot remove it.
-func TestReplacingAnInvisibleProjectLinkLeaksNothingBeyondItsExistence(t *testing.T) {
+// What this holds is that the bit is ALL that escapes at the store: the
+// invisible link survives, so a caller who cannot see it also cannot remove
+// it. The refusal's caller-visible WORDING is not this layer's to prove —
+// the store answers a raw uniqueness violation here, and the transport turns
+// it into the message; that message is pinned in
+// TestASecondProjectLinkIsRefusedWithoutNamingTheFirst.
+func TestReplacingAnInvisibleProjectLinkCannotRemoveIt(t *testing.T) {
 	e := Setup(t)
 	org := e.SeedOrg(t, "Oracle GmbH", nil)
 	hidden := seedProject(e.Admin(), t, e, "Hidden delivery", nil, org, &e.Rep1)
@@ -614,20 +617,13 @@ func TestReplacingAnInvisibleProjectLinkLeaksNothingBeyondItsExistence(t *testin
 		RowScope: principal.RowScopeOwn,
 	})
 
-	_, err = e.Activities.RelinkActivity(outsider, ids.From[ids.ActivityKind](ids.UUID(act.Id)),
+	if _, err := e.Activities.RelinkActivity(outsider, ids.From[ids.ActivityKind](ids.UUID(act.Id)),
 		activities.RelinkActivityInput{
 			EntityType: "project", EntityID: ours.ID.UUID, ReplaceExistingOfType: true,
-		})
-	if err == nil {
+		}); err == nil {
 		t.Fatal("replacing an invisible project link succeeded — it was removed by someone who could not see it")
 	}
-	// The bit is all that escapes: nothing in the refusal identifies it.
-	for _, secret := range []string{"Hidden delivery", hidden.ID.String()} {
-		if strings.Contains(err.Error(), secret) {
-			t.Errorf("the refusal disclosed %q about a project the caller cannot read: %v", secret, err)
-		}
-	}
-	// And the link is still there — an oracle, not a lever.
+	// An oracle, not a lever: the link they could not see is still there.
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM activity_link
 		WHERE activity_id = $1 AND entity_type = 'project' AND project_id = $2`,

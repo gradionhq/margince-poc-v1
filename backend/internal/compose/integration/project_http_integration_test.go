@@ -17,6 +17,7 @@ package integration
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -373,5 +374,72 @@ func TestAReadSeatCannotWriteAProjectOverHTTP(t *testing.T) {
 	if status := e.call(t, "DELETE",
 		fmt.Sprintf("/v1/projects/%s/stakeholders/%s", project.ID, person), nil, nil, nil); status != http.StatusForbidden {
 		t.Fatalf("a read seat detaching a stakeholder → %d, want 403", status)
+	}
+}
+
+// An activity carries at most one project link, and the index enforcing that
+// is PARTIAL — on activity_id alone — so relink's ON CONFLICT target cannot
+// absorb it. Without this mapping the second project raises a raw uniqueness
+// violation and the caller reads a 500 about nothing.
+//
+// This is also where the wording is decided. The same refusal answers a
+// caller whose existing link is invisible to them, so it must name neither
+// the project nor its id — only what happened and what to do instead.
+func TestASecondProjectLinkIsRefusedWithoutNamingTheFirst(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+	org := anchorOrg(t, e, "Wayne Enterprises")
+
+	var first, second projectDTO
+	if status := e.call(t, "POST", "/v1/projects", anyMap{
+		"name": "Applied Sciences", "organization_id": org, "source": "manual",
+	}, nil, &first); status != http.StatusCreated {
+		t.Fatalf("POST /projects → %d, want 201", status)
+	}
+	if status := e.call(t, "POST", "/v1/projects", anyMap{
+		"name": "Batcave retrofit", "organization_id": org, "source": "manual",
+	}, nil, &second); status != http.StatusCreated {
+		t.Fatalf("POST /projects → %d, want 201", status)
+	}
+
+	var activity struct {
+		ID string `json:"id"`
+	}
+	if status := e.call(t, "POST", "/v1/activities", anyMap{
+		"kind": "note", "source": "manual",
+		"links": []anyMap{{"entity_type": "project", "entity_id": first.ID}},
+	}, nil, &activity); status != http.StatusCreated {
+		t.Fatalf("POST /activities → %d, want 201", status)
+	}
+
+	// A second project without asking to replace: the index refuses, and the
+	// caller must be told that in terms they can act on.
+	var problem projectProblem
+	status := e.call(t, "POST", "/v1/activities/"+activity.ID+"/relink", anyMap{
+		"entity_type": "project", "entity_id": second.ID, "replace_existing_of_type": false,
+	}, nil, &problem)
+	if status != http.StatusUnprocessableEntity {
+		t.Fatalf("a second project link → %d, want 422 — a raw uniqueness violation would be a 500", status)
+	}
+	if problem.Detail == "" {
+		t.Fatal("the refusal says nothing about what to fix")
+	}
+	if !strings.Contains(problem.Detail, "replace_existing_of_type") {
+		t.Errorf("the refusal does not say how to move the link instead: %q", problem.Detail)
+	}
+	// The same message answers a caller whose existing link is invisible, so
+	// it may identify neither the project nor its id.
+	for _, secret := range []string{"Applied Sciences", first.ID} {
+		if strings.Contains(problem.Detail, secret) {
+			t.Errorf("the refusal disclosed %q about the existing link: %q", secret, problem.Detail)
+		}
+	}
+
+	// Asking to replace moves it, so the refusal really was about the rule
+	// and not about the caller's authority.
+	if status := e.call(t, "POST", "/v1/activities/"+activity.ID+"/relink", anyMap{
+		"entity_type": "project", "entity_id": second.ID, "replace_existing_of_type": true,
+	}, nil, nil); status != http.StatusOK {
+		t.Fatalf("relink with replace → %d, want 200", status)
 	}
 }
