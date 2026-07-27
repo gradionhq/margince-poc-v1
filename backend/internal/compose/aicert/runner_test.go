@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
@@ -292,7 +293,7 @@ func TestCertifyTaskDegradedJudgeAttemptYieldsNoRecord(t *testing.T) {
 	const candidateOutput = "the widget is blue and durable"
 	sc := testScenario("basic", wideBands, widgetChecks())
 
-	probeReq := judgeRequest(sc, candidateOutput)
+	probeReq := compose.JudgeRequest(sc.Expect.Rubric, sc.Input, candidateOutput)
 	probeResp, err := ai.NewFakeClient().Script("not valid json at all").Complete(context.Background(), probeReq)
 	if err != nil {
 		t.Fatalf("probing the judge's first-call token cost: %v", err)

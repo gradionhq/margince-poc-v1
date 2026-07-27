@@ -41,7 +41,7 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	oneShot(ai.TaskOfferDraft, "draft")                   // offerdraft.go
 	oneShot(ai.TaskSiteExtract, "profile")                // siteprofile.go
 	oneShot(ai.TaskSiteFactExtract, "page_facts")         // sitepagefacts.go
-	oneShot(ai.TaskCertJudge, "judge")                    // aicert/judge.go
+	oneShot(ai.TaskCertJudge, "judge")                    // certjudge.go
 	oneShot(ai.TaskRateExtract, "pricing")                // modelraterefresh.go
 	oneShot(ai.TaskRateExtract, "fx")                     // fxrefresh.go
 	oneShot(ai.TaskVoiceBuild, "derive")                  // modules/ai/voicebuilder.go
@@ -73,6 +73,7 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	r.BindCase(voiceEvalScoresCases{})
 	r.BindCase(briefRankingCases{})
 	r.BindCase(agentLoopCases{})
+	r.BindCase(certJudgeCases{})
 
 	return r, r.Validate()
 }

@@ -9,34 +9,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
-func TestParseJudgeVerdictAcceptsTheStrictShape(t *testing.T) {
-	v, err := parseJudgeVerdict(`{"score": 82, "reason": "grounded, on-topic"}`)
-	if err != nil {
-		t.Fatalf("valid judge output rejected: %v", err)
-	}
-	if v.Score != 82 || v.Reason != "grounded, on-topic" {
-		t.Fatalf("parsed %+v, want score=82 reason=%q", v, "grounded, on-topic")
-	}
-}
-
-func TestParseJudgeVerdictRefusesInvalidJSON(t *testing.T) {
-	if _, err := parseJudgeVerdict("not json at all"); err == nil {
-		t.Fatal("want an error for non-JSON judge output")
-	}
-}
-
-func TestParseJudgeVerdictRefusesAnOutOfRangeScore(t *testing.T) {
-	cases := []string{
-		`{"score": 101, "reason": "too high"}`,
-		`{"score": -1, "reason": "negative"}`,
-	}
-	for _, raw := range cases {
-		if _, err := parseJudgeVerdict(raw); err == nil {
-			t.Fatalf("want an error for out-of-range score in %q", raw)
-		}
-	}
-}
-
 func TestSelfJudgedComparesTheResolvedIdentities(t *testing.T) {
 	cases := []struct {
 		name             string

@@ -3,18 +3,22 @@
 
 package aicert
 
-// The candidate's request shape, the judge's rubric-scoring prompt and
-// its strict-JSON parse/retry, and the per-run caps gate — everything
-// runner.go's certifyTask needs to turn one Scenario into one scored
-// RunResult, split out of runner.go to keep that file to the
-// orchestration loop.
+// The candidate's request shape, the judge's call-and-retry drive, and
+// the per-run caps gate — everything runner.go's certifyTask needs to
+// turn one Scenario into one scored RunResult, split out of runner.go to
+// keep that file to the orchestration loop.
+//
+// The judge's own prompt and verdict parse are NOT here: cert_judge is a
+// registered invocation site, and a site's prompt is built in compose
+// (compose.JudgeRequest / compose.ParseJudgeVerdict) so the census can
+// certify it like every other.
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
@@ -26,19 +30,6 @@ import (
 // answer alone starves it into a MAX_TOKENS stop with zero visible text.
 // See that constant's doc for the full rationale.
 const defaultRunMaxTokens = ai.ReasoningOutputMaxTokens
-
-// judgeMaxTokens bounds the judge's own reply. The verdict is one line
-// of JSON, but reasoning models (Gemini 2.5, o-series) spend output
-// tokens on internal thinking BEFORE the verdict — a tight cap starves
-// the reply into a MAX_TOKENS stop with zero visible text, so the cap
-// carries thinking headroom, not just verdict length.
-const judgeMaxTokens = 4096
-
-// judgeSystemPrompt is the fixed rubric-scorer instruction every judge
-// call carries — never the candidate's own system prompt, so a
-// candidate that tried to redirect its instructions cannot also redirect
-// its grader.
-const judgeSystemPrompt = `You are a strict grader for an AI certification harness. Score the candidate's output 0-100 against the rubric below. Reply with EXACTLY one JSON object and nothing else — no prose, no markdown fence: {"score": <integer 0-100>, "reason": "<one sentence>"}.`
 
 // buildRequest turns one scenario into the candidate's completion
 // request: its prior turns replayed as history, Input as the final
@@ -69,47 +60,6 @@ func runMaxOutputTokens(answerCap int) int {
 	return answerCap + defaultRunMaxTokens
 }
 
-// judgeRequest builds the judge's own completion request: the rubric,
-// the scenario's input for context, and the candidate's raw output to
-// score — never the candidate's system prompt or history, only what a
-// grader needs to judge the answer actually produced. The candidate's
-// output is interpolated verbatim, so a candidate CAN address the judge
-// in its answer — accepted for this manually-run internal lane (fixed
-// grader system prompt, separate never-overridden router, strict
-// range-checked verdict parse, self_judged surfaced on the record);
-// anything higher-stakes than a committed QA record needs a delimited
-// or tool-forced verdict channel first.
-func judgeRequest(sc Scenario, candidateOutput string) model.Request {
-	user := fmt.Sprintf("Rubric:\n%s\n\nScenario input:\n%s\n\nCandidate output:\n%s", sc.Expect.Rubric, sc.Input, candidateOutput)
-	return model.Request{
-		System:    judgeSystemPrompt,
-		Messages:  []model.Message{{Role: "user", Content: user}},
-		MaxTokens: judgeMaxTokens,
-	}
-}
-
-// judgeVerdict is the judge's strict-JSON reply shape.
-type judgeVerdict struct {
-	Score  int    `json:"score"`
-	Reason string `json:"reason"`
-}
-
-// parseJudgeVerdict parses the judge's raw text strictly: invalid JSON,
-// an unexpected shape, or a score outside 0-100 are all refused so a
-// caller's one retry (judgeScore) has a genuine chance to recover a
-// judge that emitted a stray token around its JSON, rather than
-// silently accepting a nonsense score.
-func parseJudgeVerdict(text string) (judgeVerdict, error) {
-	var v judgeVerdict
-	if err := json.Unmarshal([]byte(ai.Unfence(text)), &v); err != nil {
-		return judgeVerdict{}, fmt.Errorf("judge output is not the expected JSON object: %w", err)
-	}
-	if v.Score < 0 || v.Score > 100 {
-		return judgeVerdict{}, fmt.Errorf("judge score %d is outside 0-100", v.Score)
-	}
-	return v, nil
-}
-
 // judgeScore drives the judge router for one candidate output: one call,
 // one retry on a parse failure, then a 0 score with the parse error
 // logged rather than propagated — a flaky grader must never abort an
@@ -123,7 +73,7 @@ func parseJudgeVerdict(text string) (judgeVerdict, error) {
 // candidate: a budget-forced demotion here means the score itself came
 // from a weaker grader, which must never be trusted silently.
 func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Scenario, candidateOutput string, log *slog.Logger) (score int, judgeServedModel string, judgeDegraded bool, err error) {
-	req := judgeRequest(sc, candidateOutput)
+	req := compose.JudgeRequest(sc.Expect.Rubric, sc.Input, candidateOutput)
 	resp, _, callErr := judge.Complete(ctx, ai.TaskCertJudge, req)
 	if callErr != nil {
 		return 0, "", false, fmt.Errorf("judge call: %w", callErr)
@@ -135,7 +85,7 @@ func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Sc
 	judgeServedModel = term.ServedModel
 	judgeDegraded = term.Degraded
 
-	verdict, parseErr := parseJudgeVerdict(resp.Text)
+	verdict, parseErr := compose.ParseJudgeVerdict(resp.Text)
 	if parseErr == nil {
 		return verdict.Score, judgeServedModel, judgeDegraded, nil
 	}
@@ -150,7 +100,7 @@ func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Sc
 		judgeServedModel = term2.ServedModel
 		judgeDegraded = term2.Degraded
 	}
-	verdict2, parseErr2 := parseJudgeVerdict(resp2.Text)
+	verdict2, parseErr2 := compose.ParseJudgeVerdict(resp2.Text)
 	if parseErr2 != nil {
 		log.ErrorContext(ctx, "aicert: judge output failed to parse twice — scoring this run 0",
 			"scenario", sc.Name, "err", parseErr2)
