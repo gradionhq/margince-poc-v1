@@ -631,3 +631,45 @@ func TestReplacingAnInvisibleProjectLinkCannotRemoveIt(t *testing.T) {
 		t.Fatalf("the invisible project link was removed (%d remain)", n)
 	}
 }
+
+// The timeline filter and the timeline write must speak one vocabulary. They
+// did not: writes accepted every link target while the filter knew only
+// three, so an activity could be linked to a lead or a project and then be
+// unfindable by the very link that had just been written.
+func TestTheTimelineFilterKnowsEveryLinkTargetTheWriteAccepts(t *testing.T) {
+	e := Setup(t)
+	org := e.SeedOrg(t, "Vocabulary GmbH", nil)
+	project := seedProject(e.Admin(), t, e, "Findable work", nil, org, nil)
+	person := e.SeedPerson(t, "Findable Contact", nil)
+
+	act, _, err := e.Activities.LogActivity(e.Admin(), activities.LogActivityInput{
+		Kind: "note", Source: "manual",
+		Links: []activities.ActivityLinkInput{
+			{EntityType: "project", EntityID: project.ID.UUID},
+			{EntityType: "person", EntityID: person},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Every kind the write took must answer a filter on that same kind.
+	for kind, id := range map[string]ids.UUID{
+		"project": project.ID.UUID,
+		"person":  person,
+	} {
+		t.Run(kind, func(t *testing.T) {
+			entityType := kind
+			entityID := id
+			found, _, err := e.Activities.ListActivities(e.Admin(), activities.ListActivitiesInput{
+				EntityType: &entityType, EntityID: &entityID,
+			})
+			if err != nil {
+				t.Fatalf("filtering the timeline by %s: %v", kind, err)
+			}
+			if len(found) != 1 || ids.UUID(found[0].Id) != ids.UUID(act.Id) {
+				t.Fatalf("filtering by %s returned %d activities, want the one linked to it", kind, len(found))
+			}
+		})
+	}
+}

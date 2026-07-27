@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -42,6 +43,19 @@ var memberEntityTables = func() map[string]bool {
 		m[string(t)] = true
 	}
 	return m
+}()
+
+// memberEntityVocabulary renders the accepted set for the refusal message.
+// Derived from the same map the check uses, because a message that restates
+// the vocabulary drifts from it silently — the caller is then told a record
+// type is invalid while being shown a list that does not include it.
+var memberEntityVocabulary = func() string {
+	names := make([]string, 0, len(memberEntityTables))
+	for name := range memberEntityTables {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return strings.Join(names, "|")
 }()
 
 const listColumns = `id, workspace_id, name, entity_type, list_type, definition, owner_id, team_id, created_at, updated_at, archived_at`
@@ -138,7 +152,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		return listRow{}, err
 	}
 	if !memberEntityTables[in.EntityType] {
-		return listRow{}, &BadInputError{Field: "entity_type", Reason: "must be person|organization|deal|lead"}
+		return listRow{}, &BadInputError{Field: "entity_type", Reason: "must be " + memberEntityVocabulary}
 	}
 	if in.ListType == "" {
 		in.ListType = "static"

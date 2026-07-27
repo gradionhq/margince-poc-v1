@@ -9453,7 +9453,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         activity_id: { type: string, format: uuid }
-        entity_type: { type: string, enum: [person, organization, deal, lead] }
+        entity_type: { type: string, enum: [person, organization, deal, lead, project] }
         entity_id: { type: string, format: uuid }
 
     Activity:

@@ -126,6 +126,7 @@ const (
 	ActivityLinkEntityTypeLead         ActivityLinkEntityType = "lead"
 	ActivityLinkEntityTypeOrganization ActivityLinkEntityType = "organization"
 	ActivityLinkEntityTypePerson       ActivityLinkEntityType = "person"
+	ActivityLinkEntityTypeProject      ActivityLinkEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the ActivityLinkEntityType enum.
@@ -138,6 +139,8 @@ func (e ActivityLinkEntityType) Valid() bool {
 	case ActivityLinkEntityTypeOrganization:
 		return true
 	case ActivityLinkEntityTypePerson:
+		return true
+	case ActivityLinkEntityTypeProject:
 		return true
 	default:
 		return false

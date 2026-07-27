@@ -270,13 +270,15 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 	if in.EntityType != nil && in.EntityID != nil {
 		join = ` JOIN activity_link al ON al.activity_id = a.id`
 		where = append(where, sprintf("al.entity_type = $%d", arg(*in.EntityType)))
-		column := map[string]string{
-			"person": "al.person_id", "organization": "al.organization_id", "deal": "al.deal_id",
-		}[*in.EntityType]
+		// The SAME vocabulary the write uses. A second list here drifted from
+		// linkTargets and silently dropped two kinds: an activity could be
+		// linked to a lead or a project and then be unfindable by filtering on
+		// the very link that was just written.
+		column := linkColumn(*in.EntityType)
 		if column == "" {
 			return nil, storekit.Page{}, &InvalidLinkTypeError{EntityType: *in.EntityType}
 		}
-		where = append(where, sprintf("%s = $%d", column, arg(*in.EntityID)))
+		where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
 	}
 	if in.Cursor != nil && *in.Cursor != "" {
 		c, err := storekit.DecodeCursor(*in.Cursor)
