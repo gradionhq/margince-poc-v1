@@ -21,10 +21,12 @@ import (
 
 // Handlers is the overlay module's transport surface (crm.yaml
 // /overlay/*): the incumbent connection lifecycle, mirror sync health,
-// budget, reconcile, and the read-mode→overlay flip. svc backs every
-// verb except the flip pair (branch 2), which stays an explicit 501
-// until it lands regardless of whether svc is set — a partially-wired
-// Handlers never silently succeeds on an op it doesn't yet serve.
+// budget, reconcile, and the read-mode→overlay flip. The admin user-map
+// and owners-directory verbs live next door in handlers_usermap.go, on
+// this same type. svc backs every verb except the flip pair (branch 2),
+// which stays an explicit 501 until it lands regardless of whether svc
+// is set — a partially-wired Handlers never silently succeeds on an op
+// it doesn't yet serve.
 type Handlers struct {
 	svc *Service
 }
@@ -236,31 +238,4 @@ func (h Handlers) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 // migration.
 func (h Handlers) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	httperr.NotImplemented(w, r, "executeOverlayFlip")
-}
-
-// ListOverlayUserMap lists the workspace users' incumbent-user mapping.
-// Contract-only placeholder (RC-15/ADR-0057): the admin user-map store and
-// RBAC-gated read land separately.
-func (h Handlers) ListOverlayUserMap(w http.ResponseWriter, r *http.Request, _ crmcontracts.ListOverlayUserMapParams) {
-	httperr.NotImplemented(w, r, "listOverlayUserMap")
-}
-
-// SetOverlayUserMap pins one user to an incumbent user as a manual admin
-// override. Contract-only placeholder; the mapping write lands separately.
-func (h Handlers) SetOverlayUserMap(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "setOverlayUserMap")
-}
-
-// DeleteOverlayUserMap unmaps one user and blocks automatic re-mapping.
-// Contract-only placeholder; the unmap + automap-block write lands
-// separately.
-func (h Handlers) DeleteOverlayUserMap(w http.ResponseWriter, r *http.Request, _ crmcontracts.Id) {
-	httperr.NotImplemented(w, r, "deleteOverlayUserMap")
-}
-
-// ListOverlayOwners lists the connected incumbent's user directory for the
-// mapping picker. Contract-only placeholder; the Incumbent Owners() read
-// lands separately.
-func (h Handlers) ListOverlayOwners(w http.ResponseWriter, r *http.Request) {
-	httperr.NotImplemented(w, r, "listOverlayOwners")
 }
