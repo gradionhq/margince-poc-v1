@@ -41,9 +41,10 @@ func (s Site) key() string { return string(s.Task) + "/" + s.Variant }
 // Registry collects the sites one composition registers, and the certification
 // case each site is served by.
 type Registry struct {
-	sites map[string]Site
-	cases map[string]binding
-	dupes []string
+	sites     map[string]Site
+	cases     map[string]binding
+	dupes     []string
+	caseDupes []string
 }
 
 // binding is one certification case together with the site it was bound under.
@@ -75,7 +76,18 @@ func (r *Registry) Register(s Site) {
 // named here rather than taken from the factory so the composition's claim and
 // the case's own can differ — which is what makes a disagreement between them
 // reportable instead of silently deciding where the case lands.
-func (r *Registry) BindCase(s Site, c CaseFactory) { r.cases[s.key()] = binding{site: s, factory: c} }
+//
+// A second bind on one site is recorded rather than overwritten, exactly as
+// Register records a second registration: which of two cases certifies a site
+// decides what its record measures, and that must never fall to whichever line
+// ran last.
+func (r *Registry) BindCase(s Site, c CaseFactory) {
+	if _, bound := r.cases[s.key()]; bound {
+		r.caseDupes = append(r.caseDupes, s.key())
+		return
+	}
+	r.cases[s.key()] = binding{site: s, factory: c}
+}
 
 // CaseFor finds the case bound to one site.
 //
@@ -104,7 +116,8 @@ func (r *Registry) Lookup(task ai.Task, variant string) (Site, bool) {
 	return s, ok
 }
 
-// Validate holds the registered set to the contract: no duplicates, every
+// Validate holds the registered set to the contract: no site and no case
+// claimed twice, every
 // registered site declared with the kind the contract gives it, every shipped
 // task's sites all present, no site on a planned task, no certification case
 // bound to a site nobody registered, a case bound to every shipped site, and
@@ -114,6 +127,10 @@ func (r *Registry) Validate() error {
 	var problems []string
 	for _, key := range r.dupes {
 		problems = append(problems, fmt.Sprintf("site %s is registered twice", key))
+	}
+	for _, key := range r.caseDupes {
+		problems = append(problems, fmt.Sprintf(
+			"site %s has a second certification case bound (keep the one that certifies the request this build sends, and delete the other)", key))
 	}
 
 	declared := map[string]string{} // "task/variant" -> kind

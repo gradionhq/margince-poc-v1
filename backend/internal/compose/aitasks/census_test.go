@@ -33,6 +33,45 @@ func TestRegistryRefusesADuplicateSite(t *testing.T) {
 	}
 }
 
+// Two cases on one site is the same defect as two registrations of it, one
+// level along: the surviving case is what a record measures, so a silent
+// last-one-wins would let the certified prompt be chosen by line order.
+func TestRegistryRefusesASecondCaseOnOneSite(t *testing.T) {
+	r := aitasks.NewRegistry()
+	site := aitasks.Site{Task: ai.TaskRateExtract, Variant: "pricing", Kind: ai.SiteKindOneShot}
+	r.Register(site)
+	r.BindCase(site, stubCase{site: site})
+	r.BindCase(site, stubCase{site: site})
+
+	err := r.Validate()
+	if err == nil {
+		t.Fatal("a second case bound to one site validated; which case certifies a site is not a matter of registration order")
+	}
+	if !strings.Contains(err.Error(), "rate_extract/pricing has a second certification case bound") {
+		t.Errorf("the error does not name the doubly-bound site: %v", err)
+	}
+}
+
+// The first bind stands, so the report names the DUPLICATE as the thing to
+// delete: a second bind that silently displaced the first would leave the
+// error pointing at whichever case the reader still expects to be there.
+func TestASecondCaseDoesNotDisplaceTheFirst(t *testing.T) {
+	r := aitasks.NewRegistry()
+	site := aitasks.Site{Task: ai.TaskRateExtract, Variant: "pricing", Kind: ai.SiteKindOneShot}
+	other := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
+	r.Register(site)
+	r.BindCase(site, stubCase{site: site})
+	r.BindCase(site, stubCase{site: other})
+
+	bound, ok := r.CaseFor(ai.TaskRateExtract, "pricing")
+	if !ok {
+		t.Fatal("the site lost its case to the duplicate bind")
+	}
+	if got := bound.Site(); got != site {
+		t.Errorf("CaseFor returned the case claiming %s; the first bind stands", got)
+	}
+}
+
 func TestRegistryRefusesAMismatchedKind(t *testing.T) {
 	r := aitasks.NewRegistry()
 	r.Register(aitasks.Site{Task: ai.TaskAgentLoop, Variant: "loop", Kind: ai.SiteKindOneShot})
