@@ -291,41 +291,75 @@ func evaluateVoiceCandidate(ctx context.Context, brain completer, artifact ai.Vo
 	return scoreVoiceCandidate(artifact, drafts, hardFailures, structuredValid, predecessor), nil
 }
 
-// judgeVoiceDrafts scores one prompt's repeats against its held-out original
-// in ONE call. A malformed judge answer scores neutrally at 0.5 AND reports
-// valid=false, so the caller blocks auto-activation instead of letting the
-// neutral fallback blend into a passing score.
-func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
+// voiceEvalJudgeSchema bounds the judge to one number per draft in [0,1]. The
+// count is not expressible here — a schema cannot see how many drafts this call
+// carries — which is why readVoiceJudgeScores checks it.
+var voiceEvalJudgeSchema = json.RawMessage(
+	`{"type":"object","additionalProperties":false,"required":["scores"],` +
+		`"properties":{"scores":{"type":"array","items":{"type":"number","minimum":0,"maximum":1}}}}`)
+
+// voiceEvalJudgeRequest is ONE judging call: the held-out original and every
+// repeat drafted against it, each inside the marker this call's system prompt
+// names. Both sides are model-adjacent text — the original is the author's own
+// mail and the drafts are model output — so neither is presented as
+// instruction.
+func voiceEvalJudgeRequest(original string, bodies []string) model.Request {
 	fence := promptfence.New()
 	var payload strings.Builder
 	payload.WriteString("Author sample:\n" + fence.Wrap(original) + "\n")
 	for i, body := range bodies {
 		fmt.Fprintf(&payload, "Draft %d:\n%s\n", i+1, fence.Wrap(body))
 	}
-	resp, err := brain.Complete(ctx, model.Request{
+	return model.Request{
 		System:         voiceEvalJudgeSystemFor(fence),
 		Messages:       []model.Message{{Role: chatRoleUser, Content: payload.String()}},
 		MaxTokens:      300,
-		ResponseSchema: json.RawMessage(`{"type":"object","additionalProperties":false,"required":["scores"],"properties":{"scores":{"type":"array","items":{"type":"number","minimum":0,"maximum":1}}}}`),
+		ResponseSchema: voiceEvalJudgeSchema,
 		SecretStripper: ai.NewSecretStripper(),
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("voice evaluation judge: %w", err)
 	}
+}
+
+// readVoiceJudgeScores is the evaluation's own reading of a judge answer: one
+// score per draft, clamped to the range the prompt asked for.
+//
+// An answer it cannot read — or one that scores a different number of drafts
+// than were judged, which leaves every score ambiguous about which draft it
+// belongs to — is refused, and the neutral 0.5 per draft is returned beside the
+// refusal. The caller keeps the neutral scores so a whole prompt is not lost,
+// and blocks auto-activation on the refusal so the fallback never blends into a
+// passing score.
+func readVoiceJudgeScores(text string, want int) ([]float64, error) {
 	var judged struct {
 		Scores []float64 `json:"scores"`
 	}
-	scores := make([]float64, len(bodies))
-	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &judged); err != nil || len(judged.Scores) != len(bodies) {
-		for i := range scores {
-			scores[i] = 0.5
-		}
-		return scores, false, nil
+	neutral := make([]float64, want)
+	for i := range neutral {
+		neutral[i] = 0.5
 	}
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &judged); err != nil {
+		return neutral, fmt.Errorf(`compose: voice evaluation judge answer is not {"scores":[...]}: %w`, err)
+	}
+	if len(judged.Scores) != want {
+		return neutral, fmt.Errorf("compose: voice evaluation judge scored %d drafts, and %d were judged",
+			len(judged.Scores), want)
+	}
+	scores := make([]float64, want)
 	for i := range scores {
 		scores[i] = clamp01(judged.Scores[i])
 	}
-	return scores, true, nil
+	return scores, nil
+}
+
+// judgeVoiceDrafts scores one prompt's repeats against its held-out original
+// in ONE call. A refused answer is not a failed call: the neutral scores stand
+// and the caller is told they are not a verdict.
+func judgeVoiceDrafts(ctx context.Context, brain completer, original string, bodies []string) ([]float64, bool, error) {
+	resp, err := brain.Complete(ctx, voiceEvalJudgeRequest(original, bodies))
+	if err != nil {
+		return nil, false, fmt.Errorf("voice evaluation judge: %w", err)
+	}
+	scores, refused := readVoiceJudgeScores(resp.Text, len(bodies))
+	return scores, refused == nil, nil
 }
 
 // stylometricProximity measures how close a draft's deterministic
