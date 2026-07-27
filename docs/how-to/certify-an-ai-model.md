@@ -69,20 +69,44 @@ candidate, then compare their records before you change the binding.
 Other knobs: `RUNS=5` (odd repeat count), `MARGINCE_AI_ROUTING=<path>` (a scratch
 routing file).
 
-## 3. Read the matrix
+## 3. Read the readiness report
 
 ```
 make e2e-ai-report
 ```
 
-Prints every committed record as a task × provider × model table — free, no
-network, reads the JSON under `records/`:
+Free, no network: it reads the census, the corpus and the JSON under `records/`,
+and prints one row per shipped invocation site — including the sites nothing has
+ever certified, which is the whole reason it enumerates the census rather than
+the records:
 
 ```
-TASK        PROVIDER  MODEL                  VERDICT    RELIABILITY  SCORE_P50  LATENCY_P50_MS  RUNS
-cold_start  gemini    gemini-2.5-flash       certified  1.00         100        5329            3
-cold_start  gemini    gemini-2.5-flash-lite  certified  1.00         100        2020            3
+AI certification readiness: 1 of 19 shipped sites carry a current record.
+
+SITE                  SCOPE            STATUS  BAND       PROVIDER  MODEL             ENV   RUNS  RELIABILITY  ACCEPTED  WRONG_ANSWER  INVALID  ABSTAINED
+agent_loop/loop       single_turn      absent  -          -         -                 -     -     -            -         -             -        -
+cold_start/acts       single_turn      current certified  gemini    gemini-2.5-flash  byok  3     1.00         3         0             0        0
+rate_extract/pricing  full_invocation  stale   certified  gemini    gemini-2.5-flash  byok  3     1.00         3         0             0        0
 ```
+
+Three states, and they never collapse into each other:
+
+- **`current`** — the record's stamp is the one this corpus computes, so its band
+  describes the request this build actually sends.
+- **`stale`** — a scenario changed after the run. The band is a claim about
+  prompts that no longer exist; re-certify that task.
+- **`absent`** — nothing has ever been measured. The columns are dashes rather
+  than zeroes, because a zero is a result and this is not one.
+
+`SCOPE` is how much of the site a run covers: `single_turn` means the scenario
+seeds the window and grades the one reply that follows — the surrounding
+conversation or tool loop is supplied, not exercised.
+
+**Every row is one (provider, model, env) binding.** A `certified` band
+green-lights that deployment and says nothing about another one, which is why
+the binding sits in the row rather than in the file name only. The report is a
+view for a human release decision, not a gate: it always exits 0, because the
+lane it reports on is paid, manual and BYOK-gated.
 
 ## 4. See the prompts — trace request/response for tuning
 

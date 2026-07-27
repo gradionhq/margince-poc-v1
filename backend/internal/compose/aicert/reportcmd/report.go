@@ -9,19 +9,62 @@ import (
 	"text/tabwriter"
 
 	"github.com/gradionhq/margince/backend/internal/compose/aicert"
+	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 )
 
-// renderMatrix formats records — already sorted by LoadRecords on
-// Task/Provider/ServedModel/EnvClass — as a task×model certification
-// matrix. An empty set (nothing has been certified yet, e.g. before the
-// corpus exists or before `make e2e-ai` has ever run) renders no table at
-// all: a header with zero rows reads like a passing check, so the empty
-// case gets its own honest sentence instead.
-func renderMatrix(records []aicert.Record) string {
-	if len(records) == 0 {
-		return "no certification records found — run `make e2e-ai` " +
-			"(e.g. `make e2e-ai TASK=<task> MODEL=<provider:model>`) to produce some\n"
-	}
+// The three states a shipped site's certification can be in. They are separate
+// words because they are separate claims: a current record describes what this
+// build sends, a stale one describes prompts it no longer sends, and an absent
+// one describes nothing. Collapsing stale into absent would hide a lie behind a
+// gap; collapsing absent into a zeroed row would print a measurement nobody
+// made.
+const (
+	statusCurrent = "current"
+	statusStale   = "stale"
+	statusAbsent  = "absent"
+)
+
+// unmeasured is what a column shows when there is no record to read it from. A
+// dash rather than a zero, because zero accepted runs is a result and "never
+// run" is not.
+const unmeasured = "-"
+
+// reportColumns is the table's header and, by its length, how wide a row is —
+// so an absent site's dashes and a certified site's numbers cannot drift apart
+// from the header they sit under.
+var reportColumns = []string{
+	"SITE", "SCOPE", "STATUS", "BAND",
+	"PROVIDER", "MODEL", "ENV",
+	"RUNS", "RELIABILITY",
+	"ACCEPTED", "WRONG_ANSWER", "INVALID", "ABSTAINED",
+}
+
+// readinessRow is one shipped site as the report renders it: the site itself,
+// which is known from the census alone, and the record covering it, which may
+// not exist. certified says which of the two a row is — a Record zero value and
+// a genuinely all-zero record are indistinguishable otherwise.
+type readinessRow struct {
+	site      aitasks.Site
+	record    aicert.Record
+	certified bool
+	stale     bool
+}
+
+// renderReadiness reports every shipped site's certification state: the band a
+// record reached, the per-outcome counts behind it, the scope the run actually
+// covered, and the (provider, model, env) it was measured on.
+//
+// The sites come from the census rather than from the records, because absence
+// is the finding this report exists to surface and a missing record cannot name
+// itself. Staleness is computed here too: a record stamped against scenarios
+// this corpus no longer contains is a claim about prompts the build no longer
+// sends.
+//
+// Nothing here fails or exits non-zero. The certification lane is paid, manual
+// and BYOK-gated, so this is a view a human reads before a release decision —
+// not a gate, which would make every prompt edit wait on a paid run.
+func renderReadiness(sites []aitasks.Site, corpus []aicert.Scenario, records []aicert.Record) string {
+	rows, unclaimed := readinessRows(sites, corpus, records)
 
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 0, 0, 2, ' ', 0)
@@ -32,19 +75,184 @@ func renderMatrix(records []aicert.Record) string {
 		}
 		_, writeErr = fmt.Fprintf(w, format, args...)
 	}
-	writeRow("TASK\tPROVIDER\tMODEL\tVERDICT\tRELIABILITY\tSCORE_P50\tLATENCY_P50_MS\tRUNS\n")
-	for _, r := range records {
-		writeRow("%s\t%s\t%s\t%s\t%.2f\t%d\t%d\t%d\n",
-			r.Task, r.Provider, r.ServedModel, r.Verdict, r.Reliability, r.ScoreP50, r.LatencyP50, r.Runs)
+
+	writeRow("%s\n\n", summarize(rows))
+	writeRow("%s\n", strings.Join(reportColumns, "\t"))
+	for _, row := range rows {
+		writeRow("%s\n", strings.Join(row.cells(), "\t"))
+	}
+	for _, line := range legend(rows, unclaimed) {
+		writeRow("%s\n", line)
 	}
 	if writeErr == nil {
 		writeErr = w.Flush()
 	}
 	if writeErr != nil {
-		// An in-memory strings.Builder never actually errors, but a
-		// write into the tabwriter is still, mechanically, a write —
-		// checked like any other rather than assumed infallible.
-		return fmt.Sprintf("aicert: formatting the report table: %v\n", writeErr)
+		// An in-memory strings.Builder never actually errors, but a write into
+		// the tabwriter is still, mechanically, a write — checked like any other
+		// rather than assumed infallible.
+		return fmt.Sprintf("aicert: formatting the readiness report: %v\n", writeErr)
 	}
 	return buf.String()
+}
+
+// readinessRows pairs every shipped site with the records covering it, and
+// returns alongside them the records no shipped site claims.
+//
+// A record is written per TASK and pools every scenario of that task's sites, so
+// one record can cover several sites and a task certified on two bindings gives
+// a site two rows. The site is still the unit here: it is what the contract
+// ships and what a scenario names.
+func readinessRows(sites []aitasks.Site, corpus []aicert.Scenario, records []aicert.Record) ([]readinessRow, []aicert.Record) {
+	stamps := currentStamps(corpus)
+	byTask := map[string][]aicert.Record{}
+	for _, rec := range records {
+		byTask[rec.Task] = append(byTask[rec.Task], rec)
+	}
+
+	rows := make([]readinessRow, 0, len(sites))
+	claimed := map[string]bool{}
+	for _, site := range sites {
+		task := string(site.Task)
+		covering := byTask[task]
+		if len(covering) == 0 {
+			rows = append(rows, readinessRow{site: site})
+			continue
+		}
+		claimed[task] = true
+		for _, rec := range covering {
+			rows = append(rows, readinessRow{
+				site: site, record: rec, certified: true,
+				stale: rec.PromptVersion != stamps[task],
+			})
+		}
+	}
+
+	var unclaimed []aicert.Record
+	for _, rec := range records {
+		if !claimed[rec.Task] {
+			unclaimed = append(unclaimed, rec)
+		}
+	}
+	return rows, unclaimed
+}
+
+// currentStamps is the certification stamp this corpus computes per task — the
+// value a record's own stamp must equal to still describe what ships. A task
+// with no scenarios gets no entry, so every record for it reads as stale: a
+// record whose scenarios are gone cannot be current against anything.
+func currentStamps(corpus []aicert.Scenario) map[string]string {
+	byTask := map[string][]aicert.Scenario{}
+	for _, sc := range corpus {
+		byTask[sc.Task] = append(byTask[sc.Task], sc)
+	}
+	stamps := make(map[string]string, len(byTask))
+	for task, scenarios := range byTask {
+		stamps[task] = aicert.PromptVersion(scenarios)
+	}
+	return stamps
+}
+
+// status names which of the three states this row is in.
+func (r readinessRow) status() string {
+	switch {
+	case !r.certified:
+		return statusAbsent
+	case r.stale:
+		return statusStale
+	default:
+		return statusCurrent
+	}
+}
+
+// scope is how much of the site the row can claim. With a record it is what that
+// run folded to; with none it is the most a run could ever cover, which is how
+// the agent loop's one-turn limit stays visible while nothing is certified.
+func (r readinessRow) scope() string {
+	if !r.certified {
+		return r.site.CertifiedScope()
+	}
+	if r.record.CertifiedScope == "" {
+		return unmeasured
+	}
+	return r.record.CertifiedScope
+}
+
+// cells renders the row's columns, one per reportColumns entry. An absent row
+// pads with dashes rather than the record's zero value: every number below is a
+// count of runs that happened.
+func (r readinessRow) cells() []string {
+	site := string(r.site.Task) + "/" + r.site.Variant
+	if !r.certified {
+		cells := []string{site, r.scope(), r.status()}
+		for len(cells) < len(reportColumns) {
+			cells = append(cells, unmeasured)
+		}
+		return cells
+	}
+	rec := r.record
+	return []string{
+		site, r.scope(), r.status(), rec.Verdict,
+		rec.Provider, rec.ServedModel, rec.EnvClass,
+		fmt.Sprintf("%d", rec.Runs), fmt.Sprintf("%.2f", rec.Reliability),
+		fmt.Sprintf("%d", rec.Accepted), fmt.Sprintf("%d", rec.WrongAnswer),
+		fmt.Sprintf("%d", rec.Invalid), fmt.Sprintf("%d", rec.Abstained),
+	}
+}
+
+// summarize opens the report with the one number a reader wants first: how much
+// of what ships is currently certified at all.
+func summarize(rows []readinessRow) string {
+	sites, covered := map[string]bool{}, map[string]bool{}
+	for _, row := range rows {
+		key := string(row.site.Task) + "/" + row.site.Variant
+		sites[key] = true
+		if row.status() == statusCurrent {
+			covered[key] = true
+		}
+	}
+	return fmt.Sprintf("AI certification readiness: %d of %d shipped sites carry a current record.",
+		len(covered), len(sites))
+}
+
+// legend states what the table's words mean and what a row does NOT say. Both
+// belong in the output rather than in a reader's head: the binding is part of
+// every claim here, and a row read as a property of the product rather than of
+// one deployment is the way this report would mislead.
+func legend(rows []readinessRow, unclaimed []aicert.Record) []string {
+	lines := []string{
+		"",
+		"Every row is one (provider, model, env) binding: a band says what that deployment did,",
+		"and green-lights no other. A record is written per task and pools every scenario of that",
+		"task's sites, so sites sharing a task share its record.",
+	}
+	var stale, absent int
+	for _, row := range rows {
+		switch row.status() {
+		case statusStale:
+			stale++
+		case statusAbsent:
+			absent++
+		}
+	}
+	if stale > 0 {
+		lines = append(lines,
+			fmt.Sprintf("%d stale: the record was scored against scenarios this corpus no longer contains,", stale),
+			"so its band describes prompts this build does not send. Re-certify to make it a claim again.")
+	}
+	if absent > 0 {
+		lines = append(lines,
+			fmt.Sprintf("%d absent: never certified on any binding. This is the honest state, not a failure —", absent),
+			"the columns are dashes because no run has measured them.")
+	}
+	if stale > 0 || absent > 0 {
+		lines = append(lines,
+			"Run `make e2e-ai TASK=<task> MODEL=<provider:model>` to certify (paid: real model, real network).")
+	}
+	for _, rec := range unclaimed {
+		lines = append(lines, fmt.Sprintf(
+			"Record %s/%s_%s_%s covers no site this build registers — a stale artifact of a task that has moved.",
+			rec.Task, rec.Provider, rec.ServedModel, rec.EnvClass))
+	}
+	return lines
 }

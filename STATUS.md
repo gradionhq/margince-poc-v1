@@ -520,7 +520,10 @@ fitness-tested), structural checks + a pinned rubric judge
 (`cert_judge`, own router, never the candidate's binding), N-odd
 cache-off repeats, spec §5 verdict math, and committed JSON records —
 `make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
-`make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
+`make e2e-ai-report` prints the readiness report — every shipped site's
+band, outcome counts, certified scope and binding, with a record that no
+longer matches the corpus marked stale and one that was never produced
+marked absent. Boot warns loudly on unbound
 ladders; `/readyz` names the AI state. A payload trace (`TRACE=1`, on by
 default) dumps every candidate+judge request/response — the post-stripper
 `ai_call_payload` shape — to a gitignored `.tmp/aicert/*.jsonl` for prompt
