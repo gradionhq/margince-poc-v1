@@ -89,7 +89,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/brief/items/{itemId}/snooze":                               {Op: "snoozeBriefItem", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/capture/exclusions":                                        {Op: "createCaptureExclusion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/coldstart":                                                 {Op: "coldStartReadback", Access: "tool", Tool: "enrich", RecordType: "", Tier: "confirmation_required"},
-	"POST /v1/coldstart/preview":                                         {Op: "coldStartPreview", Access: "tool", Tool: "read", RecordType: "", Tier: "auto_execute"},
+	"POST /v1/coldstart/preview":                                         {Op: "coldStartPreview", Access: "tool", Tool: "enrich", RecordType: "", Tier: "confirmation_required"},
 	"POST /v1/company/site-reads":                                        {Op: "startCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/company/site-reads/{readId}/confirm":                       {Op: "confirmCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/company/site-reads/{readId}/messages":                      {Op: "messageCompanySiteRead", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
