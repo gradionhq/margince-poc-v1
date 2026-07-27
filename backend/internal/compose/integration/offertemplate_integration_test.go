@@ -379,7 +379,8 @@ func TestOfferTemplateRBAC_RepCreatesReadOnlyCannot(t *testing.T) {
 		t.Fatalf("rep read must be allowed, got %v", err)
 	}
 	repV1 := int64(1)
-	if _, err := e.Deals.UpdateOfferTemplate(rep,
+	if _, err := e.Deals.UpdateOfferTemplate(
+		rep,
 		ids.From[ids.OfferTemplateKind](ids.UUID(repCreated.Id)),
 		deals.UpdateOfferTemplateInput{Name: "Rep Made Renamed", Locale: "de-DE", Layout: map[string]any{}, IfVersion: &repV1},
 	); err != nil {
@@ -395,7 +396,8 @@ func TestOfferTemplateRBAC_RepCreatesReadOnlyCannot(t *testing.T) {
 		t.Fatalf("read_only create must answer ErrPermissionDenied, got %v", err)
 	}
 	roV1 := int64(1)
-	if _, err := e.Deals.UpdateOfferTemplate(readOnly, id,
+	if _, err := e.Deals.UpdateOfferTemplate(
+		readOnly, id,
 		deals.UpdateOfferTemplateInput{Name: "Hijacked", Locale: "de-DE", Layout: map[string]any{}, IfVersion: &roV1},
 	); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Fatalf("read_only update must answer ErrPermissionDenied, got %v", err)

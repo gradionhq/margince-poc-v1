@@ -285,6 +285,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		// The classify + enrich passes run only where a model is
 		// configured; without one both are absent by omission.
 		ClassifyBrain:        modelPath.CaptureClassify,
+		VerdictBrain:         modelPath.CounterpartyVerdict,
 		EnrichBrain:          modelPath.SignatureEnrich,
 		OverlayVault:         overlayVault,
 		OverlayInterval:      cfg.overlayInterval,

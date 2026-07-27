@@ -13,6 +13,7 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -37,9 +38,9 @@ type recordingOAuth struct{ exchanged bool }
 
 func (o *recordingOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
 
-func (o *recordingOAuth) Exchange(context.Context, string, string) (string, error) {
+func (o *recordingOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
 	o.exchanged = true
-	return "refresh", nil
+	return oauthflow.TokenGrant{RefreshToken: "refresh"}, nil
 }
 
 func (o *recordingOAuth) AccessToken(context.Context, string) (string, error) { return "access", nil }
@@ -68,13 +69,15 @@ func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, e
 	return "1", time.Time{}, nil
 }
 
-// The account-linking-CSRF defence: the callback must have the oauth_csrf
-// cookie matching the nonce in the signed state before it exchanges the code.
+// The account-linking-CSRF defence: the callback must have the provider's
+// nonce cookie matching the nonce in the signed state before it exchanges the
+// code.
 func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	signer := newStateSigner([]byte("0123456789abcdef0123456789abcdef"))
 	oauth := &recordingOAuth{}
 	h := connectorHandlers{
-		registry:      capture.NewRegistry(nil, nil, nil, nil),
+		registry:      capture.NewRegistry(nil, nil, liveAuthority{}, nil),
+		authority:     liveAuthority{},
 		oauth:         oauth,
 		gmailAPI:      stubGmailAPI{},
 		signer:        signer,
@@ -87,6 +90,7 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 		User:      ids.MustParse("22222222-2222-2222-2222-222222222222"),
 		Provider:  "gmail",
 		Nonce:     nonce,
+		Version:   stateVersionNamespacedCSRF,
 	}, time.Now().Add(time.Hour))
 	code := "the-code"
 	params := crmcontracts.ConnectorOAuthCallbackParams{Code: &code, State: state}
@@ -95,9 +99,12 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.ConnectorOAuthCallback(rec, httptest.NewRequest(http.MethodGet, "/cb", nil), "gmail", params)
 	if oauth.exchanged {
-		t.Fatal("token exchange ran without a matching oauth_csrf cookie (CSRF gate bypassed)")
+		t.Fatal("token exchange ran without a matching nonce cookie (CSRF gate bypassed)")
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error" {
+	if rec.Code != http.StatusFound {
+		t.Fatalf("no-cookie status = %d, want 302", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error/gmail" {
 		t.Errorf("no-cookie Location = %q, want the error landing", loc)
 	}
 
@@ -107,7 +114,7 @@ func TestCallbackRequiresMatchingCSRFCookie(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: csrfCookieName("gmail"), Value: nonce, HttpOnly: true, Secure: true, SameSite: http.SameSiteLaxMode})
 	h.ConnectorOAuthCallback(httptest.NewRecorder(), req, "gmail", params)
 	if !oauth.exchanged {
-		t.Fatal("a matching oauth_csrf cookie should let the flow reach the token exchange")
+		t.Fatal("a matching nonce cookie should let the flow reach the token exchange")
 	}
 }
 
@@ -186,7 +193,7 @@ func TestContractMapping(t *testing.T) {
 	watch := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	c := toContractConnection(capture.ConnectionView{
 		ID: id, Provider: "gmail", Status: "connected",
-		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, Scopes: []string{"read"},
+		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, ProviderScopes: []string{"https://www.googleapis.com/auth/gmail.readonly"},
 	})
 	if c.Provider != "gmail" || c.Status != crmcontracts.CaptureConnectionStatusConnected || c.SyncCursor == nil || *c.SyncCursor != `{"history_id":"7"}` {
 		t.Errorf("mapping wrong: %+v", c)
@@ -198,7 +205,12 @@ func TestContractMapping(t *testing.T) {
 	if got := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "reauth_required"}); got.Status != crmcontracts.CaptureConnectionStatusReauthRequired {
 		t.Errorf("reauth_required → %q, want reauth_required", got.Status)
 	}
-	// A row with no scopes maps to an empty slice, never null.
+	// The wire `scopes` is the PROVIDER's vocabulary, not the internal one.
+	if len(c.Scopes) != 1 || c.Scopes[0] != "https://www.googleapis.com/auth/gmail.readonly" {
+		t.Errorf("scopes = %v, want the provider-granted set", c.Scopes)
+	}
+	// A connection whose grant was never recorded maps to an empty slice,
+	// never null.
 	if c2 := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "connected"}); c2.Scopes == nil {
 		t.Error("nil scopes should map to an empty slice")
 	}

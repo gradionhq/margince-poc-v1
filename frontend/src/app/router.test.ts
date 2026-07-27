@@ -30,6 +30,15 @@ describe("parseHash", () => {
     });
   });
 
+  it("parses a four-segment route (the consent return's provider)", () => {
+    expect(parseHash("#/onboarding/connect/ok/graph")).toEqual({
+      screen: "onboarding",
+      id: "connect",
+      id2: "ok",
+      id3: "graph",
+    });
+  });
+
   it("falls back to home when the hash is empty", () => {
     expect(parseHash("")).toEqual({ screen: "home" });
     expect(parseHash("#/")).toEqual({ screen: "home" });
@@ -49,6 +58,17 @@ describe("routeHash", () => {
     expect(routeHash({ screen: "share", id: "deal", id2: "abc" })).toBe(
       "#/share/deal/abc",
     );
+  });
+
+  it("serializes a four-segment route", () => {
+    expect(
+      routeHash({
+        screen: "onboarding",
+        id: "connect",
+        id2: "ok",
+        id3: "graph",
+      }),
+    ).toBe("#/onboarding/connect/ok/graph");
   });
 
   it("round-trips share hashes through parse and back", () => {

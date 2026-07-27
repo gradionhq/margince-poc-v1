@@ -61,15 +61,21 @@ func seedOverAgeRecords(t *testing.T, e *Env) (staleLead, heldLead, staleDeal, t
 			sql  string
 			args []any
 		}{
-			{`INSERT INTO lead (id, workspace_id, full_name, email, status, source, captured_by, created_at)
+			{
+				`INSERT INTO lead (id, workspace_id, full_name, email, status, source, captured_by, created_at)
 			  VALUES ($1, ` + wsClause + `, 'Old Cold Lead', 'cold@old.example', 'new', 'manual', 'human:x', now() - interval '400 days')`,
-				[]any{staleLead}},
-			{`INSERT INTO lead (id, workspace_id, full_name, status, legal_hold, source, captured_by, created_at)
+				[]any{staleLead},
+			},
+			{
+				`INSERT INTO lead (id, workspace_id, full_name, status, legal_hold, source, captured_by, created_at)
 			  VALUES ($1, ` + wsClause + `, 'Held Lead', 'new', true, 'manual', 'human:x', now() - interval '400 days')`,
-				[]any{heldLead}},
-			{`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, source_system, source_id, captured_by)
+				[]any{heldLead},
+			},
+			{
+				`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, source, source_system, source_id, captured_by)
 			  VALUES ($1, ` + wsClause + `, 'note', 'Transcript', 'sensitive words', now() - interval '400 days', 'capture', 'transcript', 't-1', 'connector:t')`,
-				[]any{transcript}},
+				[]any{transcript},
+			},
 		} {
 			if _, err := tx.Exec(context.Background(), stmt.sql, stmt.args...); err != nil {
 				return fmt.Errorf("%s: %w", stmt.sql[:40], err)

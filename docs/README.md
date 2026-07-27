@@ -21,7 +21,7 @@ maps the codebase and links everything below.
 - [mint-a-passport.md](how-to/mint-a-passport.md) — issue an agent passport token.
 - [run-the-mcp-server.md](how-to/run-the-mcp-server.md) — serve the governed MCP tool surface.
 - [run-the-frontend.md](how-to/run-the-frontend.md) — run the SPA in dev.
-- [connect-a-mailbox.md](how-to/connect-a-mailbox.md) — connect a mailbox for capture: Gmail over OAuth (standing sync + backfill) and IMAP one-shot pull for a Gmail/Outlook mailbox with an app-password.
+- [connect-a-mailbox.md](how-to/connect-a-mailbox.md) — connect a mailbox for capture: Gmail over OAuth (standing sync + backfill), and IMAP with an app-password (standing sync) for a Gmail/Outlook mailbox.
 - [enrich-with-a-local-llm.md](how-to/enrich-with-a-local-llm.md) — point the AI lanes at a local Ollama and enrich a company with no cloud key.
 - [connect-a-hubspot-overlay.md](how-to/connect-a-hubspot-overlay.md) — connect a workspace to a HubSpot portal in overlay (read + continuous sync) mode.
 - [connect-a-cloud-model-provider.md](how-to/connect-a-cloud-model-provider.md) — bind the AI lanes to a BYOK cloud key (Anthropic / OpenAI / Gemini / any OpenAI-compatible vendor).

@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -118,6 +119,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var dedupeHit *ids.LeadID
 	var dedupeFields json.RawMessage
 	var activityCreated bool
+	var decision counterpartyDecision
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw
@@ -146,7 +148,7 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		switch fields := rec.Fields.(type) {
 		case ActivityFields:
 			var err error
-			ref, activityCreated, err = s.captureActivity(ctx, tx, rec, fields)
+			ref, activityCreated, decision, err = s.captureActivity(ctx, tx, rec, fields)
 			return err
 		case LeadFields:
 			var err error
@@ -160,11 +162,12 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		return datasource.EntityRef{}, err
 	}
 	if activityCreated {
-		// Auto-create runs AFTER the activity committed, in its own
-		// transaction: the timeline row is never lost to a resolver fault,
-		// and a fault here is logged for the nightly reconcile, not
+		// The tier ladder already decided, and recorded its decision, inside
+		// the transaction above. Creation runs AFTER that commit, in its own
+		// transaction: the timeline row is never lost to a resolver fault, and
+		// a fault here is logged for the nightly reconcile rather than
 		// surfaced as a capture failure (the 60s p95 already delivered).
-		s.ensureCounterparty(ctx, rec, ref)
+		s.ensureCounterparty(ctx, rec, ref, decision)
 	}
 	if dedupeHit != nil && s.stager != nil {
 		// Staged OUTSIDE the capture transaction on purpose: the capture
@@ -184,31 +187,42 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 
 // captureActivity lands one activity: upsert on the natural key, links,
 // audit and event only when the row is new — a replay writes nothing.
-func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, error) {
+func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (datasource.EntityRef, bool, counterpartyDecision, error) {
 	id, created, err := s.upsertActivity(ctx, tx, rec, fields)
 	if err != nil {
-		return datasource.EntityRef{}, false, err
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	ref := datasource.EntityRef{Type: datasource.EntityActivity, ID: id.UUID}
 	if !created {
-		return ref, false, nil
+		return ref, false, counterpartyDecision{}, nil
 	}
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
-		return datasource.EntityRef{}, false, err
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is
 	// metadata-only, never the subject/body (capturedActivityAuditImage).
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, capturedActivityAuditImage(rec, fields))
 	if err != nil {
-		return datasource.EntityRef{}, false, err
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, activityCaptureEventPayload(fields.Kind, rec.NaturalKey.SourceSystem)); err != nil {
-		return datasource.EntityRef{}, false, err
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
 	if err := s.emitReply(ctx, tx, auditID, id, rec, fields); err != nil {
-		return datasource.EntityRef{}, false, err
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
-	return ref, true, nil
+	// The tiered creation gate decides and records in THIS transaction, so a
+	// SUCCESSFUL gate leaves no window between an activity landing and its
+	// disposition being known. A gate FAULT is contained by the savepoint inside
+	// decideCounterpartyGuarded: it costs the derivation only, the message still
+	// commits, and the link-less activity plus its capture_ensure_fault
+	// breadcrumb are what the reconcile pass looks for. Failing the whole capture
+	// would throw away a message we had already successfully read.
+	decision, err := s.decideCounterpartyGuarded(ctx, tx, rec, id.UUID)
+	if err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
+	return ref, true, decision, nil
 }
 
 // activityCaptureEventPayload builds the activity.captured event for the
@@ -276,74 +290,6 @@ func engagementReplyPayload(matched ids.UUID, occurredAt time.Time, idempotencyK
 	return payload
 }
 
-// captureLead lands one lead behind the suppression and dedupe guards.
-// A collision with a live lead from another source writes nothing in
-// this transaction: it returns the incumbent's ref plus the collision
-// (the incumbent's id and the captured fields) for the caller to stage
-// after commit.
-func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (datasource.EntityRef, *ids.LeadID, json.RawMessage, error) {
-	// Provider payloads carry whitespace; every downstream email
-	// comparison (suppression, dedupe, the DB lower()) assumes a
-	// trimmed address.
-	fields.Email = strings.TrimSpace(fields.Email)
-	// The A13 resurrection guard: an erased subject's address
-	// refuses re-capture — deletion sticks. The natural key, not
-	// the address, names the skip (the log must not re-store PII).
-	if fields.Email != "" {
-		suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
-		if err != nil {
-			return datasource.EntityRef{}, nil, nil, err
-		}
-		if suppressed {
-			return datasource.EntityRef{}, nil, nil, fmt.Errorf("capture: %s/%s matches the erasure suppression list: %w",
-				rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, connector.ErrSkip)
-		}
-		// Dedupe: an email already on a LIVE lead from a DIFFERENT
-		// source is a collision, not a second row — remember it and
-		// stage the merge after this transaction commits (a replay
-		// of the same natural key is the idempotent path below).
-		var existing ids.LeadID
-		err = tx.QueryRow(ctx, `
-			SELECT id FROM lead WHERE email = lower($1) AND archived_at IS NULL
-			  AND (source_system IS DISTINCT FROM $2 OR source_id IS DISTINCT FROM $3)`,
-			fields.Email, rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&existing)
-		if err == nil {
-			captured, err := json.Marshal(fields)
-			if err != nil {
-				return datasource.EntityRef{}, nil, nil, err
-			}
-			return datasource.EntityRef{Type: datasource.EntityLead, ID: existing.UUID}, &existing, captured, nil
-		}
-		if !errors.Is(err, pgx.ErrNoRows) {
-			return datasource.EntityRef{}, nil, nil, err
-		}
-	}
-	id, created, err := s.upsertLead(ctx, tx, rec, fields)
-	if err != nil {
-		return datasource.EntityRef{}, nil, nil, err
-	}
-	ref := datasource.EntityRef{Type: datasource.EntityLead, ID: id.UUID}
-	if !created {
-		return ref, nil, nil, nil
-	}
-	auditID, err := storekit.Audit(ctx, tx, "create", "lead", id.UUID, nil, fields)
-	if err != nil {
-		return datasource.EntityRef{}, nil, nil, err
-	}
-	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, leadCreatedCapturePayload(rec.NaturalKey.SourceSystem)); err != nil {
-		return datasource.EntityRef{}, nil, nil, err
-	}
-	return ref, nil, nil, nil
-}
-
-// leadCreatedCapturePayload builds the lead.created event for the
-// capture auto-create path — the one emit site (of the event's two)
-// that names an originating source system; the direct-create path
-// (people/lead.go) sets no fields at all.
-func leadCreatedCapturePayload(sourceSystem string) crmcontracts.PublicEventLeadCreated {
-	return crmcontracts.PublicEventLeadCreated{SourceSystem: &sourceSystem}
-}
-
 func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields ActivityFields) (ids.ActivityID, bool, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
 		return ids.ActivityID{}, false, err
@@ -388,55 +334,20 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return ids.ActivityID{}, false, fmt.Errorf("capture: activity upsert: %w", err)
 	}
-	// Replay: the natural key already landed — return the incumbent.
+	// Replay: the natural key already landed — return the incumbent. Returning
+	// a record is a read, so the row scope binds on this path too; an activity
+	// scopes through its links, which can move after the first capture.
 	err = tx.QueryRow(ctx,
 		`SELECT id FROM activity WHERE source_system = $1 AND source_id = $2`,
 		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&id)
 	if err != nil {
 		return ids.ActivityID{}, false, fmt.Errorf("capture: activity replay lookup: %w", err)
 	}
-	return id, false, nil
-}
-
-func (s *Sink) upsertLead(ctx context.Context, tx pgx.Tx, rec connector.NormalizedRecord, fields LeadFields) (ids.LeadID, bool, error) {
-	if err := auth.Require(ctx, "lead", principal.ActionCreate); err != nil {
-		return ids.LeadID{}, false, err
-	}
-	var id ids.LeadID
-	err := tx.QueryRow(ctx, `
-		INSERT INTO lead (workspace_id, full_name, email, company_name, title, source_system, source_id, source, captured_by)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        NULLIF($1, ''), NULLIF(lower($2), ''), NULLIF($3, ''), NULLIF($4, ''), $5, $6, $7, $8)
-		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
-		DO NOTHING
-		RETURNING id`,
-		fields.FullName, fields.Email, fields.CompanyName, fields.Title,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, captureSource(rec), rec.CapturedBy).Scan(&id)
-	if err == nil {
-		var stamps []storekit.FieldStamp
-		for _, f := range []struct{ field, value string }{
-			{"full_name", fields.FullName},
-			{"email", fields.Email},
-			{"company_name", fields.CompanyName},
-			{"title", fields.Title},
-		} {
-			if f.value != "" {
-				stamps = append(stamps, storekit.FieldStamp{Field: f.field})
-			}
+	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) {
+			return ids.ActivityID{}, false, skipInvisibleIncumbent(rec, "activity")
 		}
-		if err := storekit.StampFields(ctx, tx, "lead", id.UUID, captureSource(rec), rec.CapturedBy, stamps); err != nil {
-			return ids.LeadID{}, false, err
-		}
-		return id, true, nil
-	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return ids.LeadID{}, false, fmt.Errorf("capture: lead upsert: %w", err)
-	}
-	err = tx.QueryRow(ctx,
-		`SELECT id FROM lead WHERE source_system = $1 AND source_id = $2`,
-		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID).Scan(&id)
-	if err != nil {
-		return ids.LeadID{}, false, fmt.Errorf("capture: lead replay lookup: %w", err)
+		return ids.ActivityID{}, false, err
 	}
 	return id, false, nil
 }
@@ -476,6 +387,18 @@ func defaultOccurredAt(occurredAt time.Time) time.Time {
 		return time.Now().UTC()
 	}
 	return occurredAt
+}
+
+// skipInvisibleIncumbent refuses a record whose incumbent row — the lead an
+// address collides with, the activity a replayed natural key already landed
+// as — lies outside the granting human's row scope. Resolving it is not the
+// connector's to do: returning the ref would disclose a row the caller cannot
+// read, and writing a second row anyway would fork the record across scopes.
+// The natural key names the skip, never the captured address or the
+// incumbent's id — a skip must re-store neither PII nor an existence proof.
+func skipInvisibleIncumbent(rec connector.NormalizedRecord, object string) error {
+	return fmt.Errorf("capture: %s/%s resolves onto a %s outside the granting human's row scope: %w",
+		rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, object, connector.ErrSkip)
 }
 
 // captureSource is the provenance channel column value; the natural

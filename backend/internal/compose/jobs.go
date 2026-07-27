@@ -127,7 +127,12 @@ type JobRunnerConfig struct {
 	ClassifyBrain completer
 	// EnrichBrain is the signature-enrich lane; nil = the pass is absent
 	// by omission and connector-created people keep their empty fields.
-	EnrichBrain     completer
+	EnrichBrain completer
+	// VerdictBrain is the ADR-0072 counterparty-verdict lane. Nil = no AI
+	// configured, and the consequence is deliberate: deferred senders stay
+	// deferred rather than being created on sight. An installation without a
+	// model keeps the old junk OUT, it does not fall back to letting it in.
+	VerdictBrain    completer
 	OverlayVault    keyvault.Vault
 	OverlayInterval time.Duration
 	// OverlayMeter is the poller's OVB meter — built by cmd/worker over the
@@ -288,6 +293,25 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) { return CaptureEnrichArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	{
+		// Registered unconditionally: only the JUDGING stage needs a model, and
+		// the worker skips it when none is configured. Gating the whole worker on
+		// a brain would mean an AI-less deployment never staged a review for an
+		// existing unsure row and never redacted mail it had already hidden.
+		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
+		river.AddWorker(workers, &counterpartyVerdictWorker{engine: verdicts})
+		// Hourly, like classify: the ledger's due-index makes an empty pass one
+		// cheap probe, and a deferred sender should not wait a day to become a
+		// record. The one job runs every stage in dependency order —
+		// judging fills the unsure backlog that staging then offers, and
+		// redaction only ever acts on windows that closed before this tick.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CounterpartyVerdictArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}

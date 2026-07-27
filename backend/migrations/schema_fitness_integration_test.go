@@ -279,6 +279,11 @@ var rowScopedFKDecisions = map[string]string{
 	"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
 	"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
 	"brief_item.deal_id":            "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
+	// The capture disposition ledger (CAP-DDL-8): capture writes the row in
+	// the same transaction as the activity it just created, from that
+	// activity's own id — a connector principal supplies message bytes, never
+	// a record reference.
+	"capture_pending_counterparty.activity_id": "server-derived: stamped by the capture Sink from the activity it just wrote",
 	// Client-supplied edge endpoints — every one probed at the store:
 	"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",

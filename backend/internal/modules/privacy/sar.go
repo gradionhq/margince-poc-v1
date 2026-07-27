@@ -41,6 +41,9 @@ type SARPackage struct {
 	ConsentEvents []map[string]any `json:"consent_events"`
 	RawCapture    []map[string]any `json:"raw_capture"`
 	FieldOrigins  []map[string]any `json:"field_origins"`
+	// What capture decided about the subject's own address, and why — an
+	// automated decision the subject is owed sight of (CAP-DDL-8).
+	CaptureDispositions []map[string]any `json:"capture_dispositions"`
 }
 
 // AssembleSAR builds the package. It is a privileged read: the caller
@@ -155,6 +158,9 @@ func sarSections(pkg *SARPackage) []sarSection {
 		   WHERE (at.entity_type = 'person' AND at.entity_id = $1)
 		      OR (at.entity_type = 'activity' AND at.entity_id IN (
 		            SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1))`},
+		{&pkg.CaptureDispositions, `SELECT p.email, p.display_name, p.status, p.disposition_reason, p.created_at, p.resolved_at
+		   FROM capture_pending_counterparty p
+		   WHERE p.email IN (SELECT email FROM person_email WHERE person_id = $1)`},
 		{&pkg.Consent, `SELECT cp.key AS purpose, pc.state, pc.lawful_basis, pc.captured_at
 		   FROM person_consent pc JOIN consent_purpose cp ON cp.id = pc.purpose_id
 		   WHERE pc.person_id = $1`},

@@ -131,12 +131,12 @@ func TestAuthCodeURLCarriesStateAndOfflineConsent(t *testing.T) {
 
 func TestExchangeReturnsRefreshToken(t *testing.T) {
 	oauth, _ := newTestClients(t)
-	rt, err := oauth.Exchange(context.Background(), "the-code", "https://app/callback")
+	grant, err := oauth.Exchange(context.Background(), "the-code", "https://app/callback")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
-	if rt != "refresh-1" {
-		t.Errorf("refresh token = %q, want refresh-1", rt)
+	if grant.RefreshToken != "refresh-1" {
+		t.Errorf("refresh token = %q, want refresh-1", grant.RefreshToken)
 	}
 }
 

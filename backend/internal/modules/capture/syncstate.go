@@ -31,6 +31,13 @@ const (
 	backoffBase = 2 * time.Minute
 	backoffCap  = 4 * time.Hour
 
+	// backfillMaxConsecutiveFailures ends a run that cannot get a single page
+	// through. On the ladder above, ten consecutive failures span roughly half a
+	// day of retrying: a provider still refusing after that is not weather, and a
+	// run making no progress for half a day is better ended visibly — the user
+	// sees an error class and can restart — than left retrying where nobody looks.
+	backfillMaxConsecutiveFailures = 10
+
 	// degradeAfterFailures flips a connection to status 'error' — which means
 	// "degraded, probed daily", never a tombstone: the due-scan keeps
 	// selecting it at errProbeInterval and one success flips it back.
@@ -124,6 +131,14 @@ func (r *Registry) recordSyncSuccess(ctx context.Context, connectionID ids.UUID)
 // recordSyncFailure classifies, schedules the retry, and degrades — never
 // tombstones. Auth parks the connection as reauth_required until its human
 // reconnects (the OAuth callback resets both rows).
+//
+// It carries no generation predicate, and does not need one: every
+// capture_connection write here is guarded by the status it moves FROM
+// ('connected'/'error'), and that guard is the fence — a disconnected or
+// reauth-parked row matches nothing, so a cycle that started before its human
+// acted can never drag the row back to a healthier status. What it records is
+// the connection's own health, which outlives any one grant: the daily probe of
+// a degraded connection has to be able to write its verdict.
 func (r *Registry) recordSyncFailure(ctx context.Context, connectionID ids.UUID, syncErr error) error {
 	class := classifySyncError(syncErr)
 	ws, err := syncStateWorkspace(ctx)

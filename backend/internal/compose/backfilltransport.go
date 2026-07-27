@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 	"github.com/riverqueue/river"
@@ -171,7 +172,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 	}
 	if string(req.Window) == "none" {
 		// An honest zero: no window, no scan, no spend.
-		writeBackfillJSON(w, crmcontracts.BackfillPreview{
+		writeBackfillJSON(w, http.StatusOK, crmcontracts.BackfillPreview{
 			Window: crmcontracts.BackfillPreviewWindow(req.Window), ComputedAt: time.Now().UTC(),
 		})
 		return
@@ -217,7 +218,7 @@ func (h backfillHandlers) PreviewConnectorBackfill(w http.ResponseWriter, r *htt
 			}
 		}
 	}
-	writeBackfillJSON(w, preview)
+	writeBackfillJSON(w, http.StatusOK, preview)
 }
 
 func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -251,33 +252,42 @@ func (h backfillHandlers) StartConnectorBackfill(w http.ResponseWriter, r *http.
 	if messages, err := h.registry.EstimateBackfill(r.Context(), string(provider), userID, months); err == nil {
 		estimate = messages
 	}
-	run, err := h.registry.StartBackfill(r.Context(), string(provider), userID, months, estimate)
+	ws, ok := principal.WorkspaceID(r.Context())
+	if !ok {
+		// Every authenticated request carries its workspace, so its absence is a
+		// wiring defect — surfaced before anything is written, since the job the
+		// run needs cannot be addressed without it.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError, Code: "workspace_missing",
+			Detail: "The request carries no workspace context; nothing was started. Try again.",
+		})
+		return
+	}
+	// The job is inserted inside the run's transaction, so an unreachable queue
+	// leaves no queued row for the live-run index to make permanent. enqueueErr
+	// is kept out of the closure's return path so the failure keeps its own
+	// status and copy instead of the generic connector-fault mapping.
+	var enqueueErr error
+	run, err := h.registry.StartBackfill(r.Context(), string(provider), userID, months, estimate,
+		func(ctx context.Context, tx pgx.Tx, backfillID ids.UUID) error {
+			enqueueErr = h.inserter.EnqueueTx(ctx, tx, CaptureBackfillArgs{
+				Workspace: ws.String(), BackfillID: backfillID.String(),
+			}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}})
+			return enqueueErr
+		})
+	if enqueueErr != nil {
+		h.log.ErrorContext(r.Context(), "backfill: enqueue", "err", enqueueErr)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError, Code: "backfill_enqueue_failed",
+			Detail: "The backfill could not be scheduled, so nothing was started. Try again.",
+		})
+		return
+	}
 	if err != nil {
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	ws, ok := principal.WorkspaceID(r.Context())
-	if !ok {
-		// StartBackfill just committed under a workspace-bound transaction, so
-		// a missing workspace here is a wiring defect, surfaced honestly.
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusInternalServerError, Code: "workspace_missing",
-			Detail: "The request carries no workspace context; the run was recorded but not scheduled. Try again.",
-		})
-		return
-	}
-	if err := h.inserter.Enqueue(r.Context(), CaptureBackfillArgs{
-		Workspace: ws.String(), BackfillID: run.ID.String(),
-	}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates}}); err != nil {
-		h.log.ErrorContext(r.Context(), "backfill: enqueue", "err", err)
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusInternalServerError, Code: "backfill_enqueue_failed",
-			Detail: "The backfill was recorded but could not be scheduled. Try again — the run resumes, nothing is lost.",
-		})
-		return
-	}
-	w.WriteHeader(http.StatusAccepted)
-	writeBackfillBody(w, h.statusPayload(&run))
+	writeBackfillJSON(w, http.StatusAccepted, h.statusPayload(&run))
 }
 
 func (h backfillHandlers) GetConnectorBackfillStatus(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -293,7 +303,7 @@ func (h backfillHandlers) GetConnectorBackfillStatus(w http.ResponseWriter, r *h
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	writeBackfillJSON(w, h.statusPayload(run))
+	writeBackfillJSON(w, http.StatusOK, h.statusPayload(run))
 }
 
 func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http.Request, provider crmcontracts.CaptureProvider) {
@@ -309,8 +319,7 @@ func (h backfillHandlers) CancelConnectorBackfill(w http.ResponseWriter, r *http
 		h.writeBackfillError(w, r, err)
 		return
 	}
-	w.WriteHeader(http.StatusAccepted)
-	writeBackfillBody(w, h.statusPayload(run))
+	writeBackfillJSON(w, http.StatusAccepted, h.statusPayload(run))
 }
 
 // GetMorningDigest serves the caller's stored digest (CAP-WIRE-6): one
@@ -431,12 +440,13 @@ func (h backfillHandlers) writeBackfillError(w http.ResponseWriter, r *http.Requ
 	}
 }
 
-func writeBackfillJSON(w http.ResponseWriter, v any) {
+// writeBackfillJSON is the ONE spelling of a backfill success response. The
+// header has to be set before the status is written — net/http sniffs an
+// undeclared body into text/plain, and a typed client reading a JSON run row
+// under that content type is the transport lying about what it sent.
+func writeBackfillJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	writeBackfillBody(w, v)
-}
-
-func writeBackfillBody(w http.ResponseWriter, v any) {
+	w.WriteHeader(status)
 	//craft:ignore swallowed-errors terminal response encode; the client sees a broken body, retrying changes nothing
 	_ = json.NewEncoder(w).Encode(v)
 }

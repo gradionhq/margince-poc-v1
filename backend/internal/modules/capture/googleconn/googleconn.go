@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -322,7 +323,7 @@ func Session(ctx context.Context, oauth OAuth, auth connector.Auth) (owner, acce
 // Authenticate — the same three-method shape gmail and gcal implement.
 type OAuth interface {
 	AuthCodeURL(state, redirectURI string) string
-	Exchange(ctx context.Context, code, redirectURI string) (refreshToken string, err error)
+	Exchange(ctx context.Context, code, redirectURI string) (oauthflow.TokenGrant, error)
 	AccessToken(ctx context.Context, refreshToken string) (accessToken string, err error)
 }
 
@@ -331,9 +332,16 @@ type OAuth interface {
 // from it each Sync and never stored. Owner is the connected account's address —
 // the internal-vs-external anchor.
 type AuthState struct {
-	RefreshToken string   `json:"refresh_token"`
-	Owner        string   `json:"owner_email"`
-	Scopes       []string `json:"scopes"`
+	RefreshToken string `json:"refresh_token"`
+	Owner        string `json:"owner_email"`
+	// Scopes is this system's INTERNAL permission vocabulary (the connector's
+	// declared principal scopes), frozen at grant time.
+	Scopes []string `json:"scopes"`
+	// Granted is what GOOGLE says it granted, in Google's own vocabulary. A
+	// separate field because the two vocabularies mean different things and
+	// must never overwrite one another; empty for a bundle sealed before the
+	// grant was recorded.
+	Granted []string `json:"granted_scopes,omitempty"`
 }
 
 // authPayload is the connect request the transport hands to Authenticate: the
@@ -380,10 +388,11 @@ func Authenticate(ctx context.Context, oauth OAuth, req connector.AuthRequest, s
 	if p.Code == "" {
 		return nil, fmt.Errorf("googleconn: authorization code required: %w", ErrAuthRejected)
 	}
-	refresh, err := oauth.Exchange(ctx, p.Code, p.RedirectURI)
+	grant, err := oauth.Exchange(ctx, p.Code, p.RedirectURI)
 	if err != nil {
 		return nil, err
 	}
+	refresh := grant.RefreshToken
 	access, err := oauth.AccessToken(ctx, refresh)
 	if err != nil {
 		return nil, err
@@ -399,11 +408,36 @@ func Authenticate(ctx context.Context, oauth OAuth, req connector.AuthRequest, s
 	if strings.TrimSpace(owner) == "" {
 		return nil, fmt.Errorf("googleconn: provider returned an empty account owner: %w", ErrAuthRejected)
 	}
-	state := AuthState{RefreshToken: refresh, Owner: owner, Scopes: ScopeStrings(scopes)}
+	state := AuthState{RefreshToken: refresh, Owner: owner, Scopes: ScopeStrings(scopes), Granted: grant.Scopes}
 	//nolint:gosec // G117: sealing the connector's own refresh token into the opaque Auth bundle IS the intended path — the registry stores it encrypted in the vault, never logged or returned
 	auth, err := json.Marshal(state)
 	if err != nil {
 		return nil, fmt.Errorf("googleconn: encoding auth state: %w", err)
 	}
 	return auth, nil
+}
+
+// AccountLabel reads the authorizing Google account back out of a sealed
+// bundle — the connector.AccountLabeler answer both Google connectors share.
+// No vault round-trip and no network: the connect already resolved it. A bundle
+// that names no account reports none, which the caller stores as an absent
+// label rather than an error.
+func AccountLabel(auth connector.Auth) (string, error) {
+	var st AuthState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return "", fmt.Errorf("googleconn: malformed auth bundle: %w", err)
+	}
+	return st.Owner, nil
+}
+
+// GrantedScopes reads the provider scopes back out of a sealed bundle — the
+// connector.GrantedScoper answer both Google connectors share. A bundle sealed
+// before the grant was recorded reports none, which the caller stores as an
+// absent claim rather than an empty one.
+func GrantedScopes(auth connector.Auth) ([]string, error) {
+	var st AuthState
+	if err := json.Unmarshal(auth, &st); err != nil {
+		return nil, fmt.Errorf("googleconn: malformed auth bundle: %w", err)
+	}
+	return st.Granted, nil
 }

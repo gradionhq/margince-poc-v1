@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -143,8 +144,9 @@ func (f fxRefresh) run(ctx context.Context) error {
 }
 
 // extract fetches the configured page and returns the model's extracted pairs
-// (raw — gating and anchoring happen in collect). The page text is wrapped in
-// the <untrusted> data envelope so a hostile page cannot break out of it.
+// (raw — gating and anchoring happen in collect). The page text is wrapped in a
+// per-call nonce boundary, so a hostile page cannot break out of it: the marker
+// it would have to spell is one its author has never seen.
 func (f fxRefresh) extract(ctx context.Context) ([]extractedFxPair, error) {
 	doc, err := f.fetcher.Fetch(ctx, f.url)
 	if err != nil {
@@ -153,11 +155,12 @@ func (f fxRefresh) extract(ctx context.Context) ([]extractedFxPair, error) {
 	if doc.IsMarkdown() {
 		f.log.Debug("fx source served markdown", "url", f.url)
 	}
+	fence := promptfence.New()
 	req := model.Request{
-		System: fxExtractSystem,
+		System: fxExtractSystemFor(fence),
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
-			Content: "<untrusted>\n" + numberPassages(doc.Text) + "\n</untrusted>",
+			Content: fence.Wrap("\n" + numberPassages(doc.Text) + "\n"),
 		}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: fxExtractSchema,

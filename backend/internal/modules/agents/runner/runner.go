@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
@@ -131,13 +132,31 @@ type Step struct {
 // the budget already consumed (the resumed run continues the SAME
 // budget — suspension is not a refill).
 type Pending struct {
-	ApprovalID   ids.ApprovalID
-	Tool         string
-	Args         json.RawMessage
-	Window       []model.Message
-	StepsUsed    int
-	OutputTokens int
+	ApprovalID ids.ApprovalID
+	Tool       string
+	Args       json.RawMessage
+	Window     []model.Message
+	// Fence is the boundary the window's untrusted spans were written
+	// with. It travels WITH the window: a resumed run that minted a
+	// fresh marker would be telling the model to honour a boundary its
+	// own stored text does not carry.
+	Fence promptfence.Fence
+	// TranscriptVersion records the rules the stored Window's spans were
+	// written under. The fence alone does not say whether they hold: a
+	// transcript bounded with Wrap rather than WrapAuthored carries a marker
+	// the model was free to close, so it may ALREADY contain prompt-voice
+	// text inside what looks like a span. Absent (zero) means it predates
+	// that fix and cannot be told apart from an escaped one after the fact.
+	TranscriptVersion int
+	StepsUsed         int
+	OutputTokens      int
 }
+
+// neutralisedObservations is the current transcript version: every observation
+// bounded with [promptfence.Fence.WrapAuthored], so nothing the model wrote can
+// end its own span. Bump this whenever a change makes an OLD transcript unsafe
+// to resume — the resume path refuses anything older rather than guessing.
+const neutralisedObservations = 1
 
 type Runner struct {
 	tools Invoker
@@ -167,11 +186,14 @@ type Decision struct {
 // silently changed under an approved diff). Rejected: the refusal is
 // observed and the model re-plans without that action.
 func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, error) {
-	win := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window)
+	win, err := windowFromSnapshot(job, r.tools.Specs(), dec.Pending.Window, dec.Pending.Fence, dec.Pending.TranscriptVersion)
+	if err != nil {
+		return Result{}, err
+	}
 	carried := Result{StepsUsed: dec.Pending.StepsUsed, OutputTokens: dec.Pending.OutputTokens}
 
 	if !dec.Approved {
-		win.observe(dec.Pending.Tool, "the human REJECTED this proposed action; re-plan without it")
+		win.observeThen(dec.Pending.Tool, "", "the human REJECTED this proposed action; re-plan without it")
 		// A rejection is a human action, not a model call: ModelID/Tier stay
 		// empty and tokens zero — the trace records honestly that no model
 		// served this step.
@@ -215,6 +237,10 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 // (ai-operational-spec §5.2 — never a partial fabrication).
 const consecutiveInvalidLimit = 3
 
+// maxToolNameLen bounds a proposed tool name. Generous next to the longest
+// registered name, short enough that the field cannot carry prose.
+const maxToolNameLen = 64
+
 func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Result, error) {
 	budget := job.Budget.withDefaults()
 	invalidStreak := 0
@@ -244,7 +270,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			if invalidStreak >= consecutiveInvalidLimit {
 				return r.degrade(acc, "model output failed validation "+fmt.Sprint(invalidStreak)+" times: "+parseErr.Error()), nil
 			}
-			win.observe("output_validator", "your previous output failed validation: "+parseErr.Error()+"; return ONLY the step JSON")
+			win.observeThen(outputValidatorSource, "your previous output failed validation: "+parseErr.Error(), "Return ONLY the step JSON.")
 			continue
 		}
 		invalidStreak = 0
@@ -261,21 +287,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 		case errors.As(err, &staged):
 			// 🟡 mid-loop: the proposal is durably staged; suspend, never
 			// block (§5). The snapshot makes the run resumable.
-			acc.Outcome = OutcomeAwaitingApproval
-			acc.Steps = append(acc.Steps, Step{
-				Tool: step.Tool, Args: step.Args, Observation: "staged for approval " + staged.ApprovalID.String(),
-				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
-				Admission: "staged",
-			})
-			acc.Pending = &Pending{
-				ApprovalID:   staged.ApprovalID,
-				Tool:         step.Tool,
-				Args:         step.Args,
-				Window:       win.snapshot(),
-				StepsUsed:    acc.StepsUsed,
-				OutputTokens: acc.OutputTokens,
-			}
-			return acc, nil
+			return suspend(acc, staged.ApprovalID, step, win, meta, resp), nil
 		case err != nil:
 			// Refusals (scope, tier, seat, unknown tool, bad args) feed
 			// back as observations — the model learns it cannot do that
@@ -297,6 +309,29 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			})
 		}
 	}
+}
+
+// suspend records the staged proposal and the state a Resume needs: the
+// transcript, the boundary that transcript's untrusted spans were written
+// with, and the budget already spent — suspension is not a refill.
+func suspend(acc Result, approvalID ids.ApprovalID, step modelStep, win *window, meta Meta, resp model.Response) Result {
+	acc.Outcome = OutcomeAwaitingApproval
+	acc.Steps = append(acc.Steps, Step{
+		Tool: step.Tool, Args: step.Args, Observation: "staged for approval " + approvalID.String(),
+		ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+		Admission: "staged",
+	})
+	acc.Pending = &Pending{
+		ApprovalID:        approvalID,
+		Tool:              step.Tool,
+		Args:              step.Args,
+		Window:            win.snapshot(),
+		Fence:             win.fence,
+		TranscriptVersion: neutralisedObservations,
+		StepsUsed:         acc.StepsUsed,
+		OutputTokens:      acc.OutputTokens,
+	}
+	return acc
 }
 
 // degrade produces the best partial result reached so far — the B32
@@ -342,6 +377,13 @@ func parseStep(text string) (modelStep, error) {
 	hasFinal := step.Final != nil
 	if hasTool == hasFinal {
 		return modelStep{}, errors.New(`exactly one of "tool" or "final" must be set`)
+	}
+	if hasTool && len(step.Tool) > maxToolNameLen {
+		// A tool name is a registry identifier, so a long one is not a typo —
+		// it is the model writing a payload into a field the trace persists and
+		// the refusal path echoes. Bound it here, at the one place model output
+		// becomes a step, rather than at each place it is later printed.
+		return modelStep{}, fmt.Errorf("tool name is longer than %d characters", maxToolNameLen)
 	}
 	if hasTool && step.Args == nil {
 		step.Args = json.RawMessage(`{}`)

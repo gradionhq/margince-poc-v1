@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -80,12 +81,12 @@ func TestExchangeReturnsRefreshTokenAndSendsScopeWhenConfigured(t *testing.T) {
 	srv := tokenServer(t, http.StatusOK, `{"refresh_token":"r3fr3sh"}`, &form)
 
 	c := New(testConfig(srv.URL, true))
-	rt, err := c.Exchange(context.Background(), "code123", "https://app.example/cb")
+	grant, err := c.Exchange(context.Background(), "code123", "https://app.example/cb")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
-	if rt != "r3fr3sh" {
-		t.Fatalf("refresh token = %q", rt)
+	if grant.RefreshToken != "r3fr3sh" {
+		t.Fatalf("refresh token = %q", grant.RefreshToken)
 	}
 	if form.Get("grant_type") != "authorization_code" || form.Get("code") != "code123" {
 		t.Fatalf("exchange form = %v", form)
@@ -250,5 +251,38 @@ func TestRefusedTokenExchangeCarriesTheOAuthErrorCode(t *testing.T) {
 				t.Errorf("Op = %q, want %q", pe.Op, tokenOp)
 			}
 		})
+	}
+}
+
+func TestExchangeReportsTheScopesTheProviderGranted(t *testing.T) {
+	var form url.Values
+	srv := tokenServer(t, http.StatusOK,
+		`{"refresh_token":"r","scope":"offline_access User.Read Mail.Read"}`, &form)
+
+	c := New(testConfig(srv.URL, true))
+	grant, err := c.Exchange(context.Background(), "c", "cb")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	want := []string{"offline_access", "User.Read", "Mail.Read"}
+	if !slices.Equal(grant.Scopes, want) {
+		t.Errorf("granted scopes = %v, want %v", grant.Scopes, want)
+	}
+}
+
+func TestExchangeTreatsAnAbsentScopeAsGrantedAsRequested(t *testing.T) {
+	// Google omits `scope` when it granted exactly what was asked for.
+	// Omission means "as requested", not "none": reading it as none would
+	// persist an empty grant for a connection that in fact holds its scopes.
+	var form url.Values
+	srv := tokenServer(t, http.StatusOK, `{"refresh_token":"r"}`, &form)
+
+	c := New(testConfig(srv.URL, false))
+	grant, err := c.Exchange(context.Background(), "c", "cb")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if !slices.Equal(grant.Scopes, baseScope) {
+		t.Errorf("granted scopes = %v, want the requested %v", grant.Scopes, baseScope)
 	}
 }

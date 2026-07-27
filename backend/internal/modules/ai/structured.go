@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -101,15 +102,76 @@ func (r *Router) forgetCached(ctx context.Context, task Task, req model.Request)
 // error as conversation turns, so the retry is a correction, not a
 // blind re-roll. The changed messages also miss the result cache — a
 // retry can never be served the cached invalid answer.
+// Both echoed turns are DATA and go inside the request's boundary. The failed
+// output is the model repeating text a sender steered, and the validator's
+// message quotes tokens out of it, so appending either in the clear would put
+// captured text back in the instruction region — while the system prompt still
+// says the markers are the ONLY boundary. That is the hole the fence exists to
+// close, reached on the repair path instead of the first attempt, and it
+// compounds: attempt 3 escalates to a STRONGER model carrying the same turns.
+//
+// A prompt that declares NO boundary was shown no untrusted data, so its failed
+// output is not attacker-steered and goes back plainly. The quarantine is for
+// the prompts that named a fence, which are exactly the ones that read captured
+// text. A prompt that declares a boundary this package could not have minted is
+// neither of those: it claims to carry untrusted data behind a marker nothing
+// guarantees, so the echo is dropped rather than sent under a false protection.
 func withValidatorFeedback(req model.Request, failedText string, cause error) model.Request {
 	out := req
+	fence, boundary := feedbackFence(out)
+	switch boundary {
+	case boundaryMalformed:
+		// Fail closed: the retry keeps the instruction and loses the detail,
+		// which costs a correction and risks nothing.
+		out.Messages = append(append([]model.Message{}, req.Messages...),
+			model.Message{Role: roleUser, Content: retryInstruction})
+		return out
+	case boundaryNone:
+		return appendFeedback(out, req, failedText, cause, func(s string) string { return s })
+	default:
+		// WrapAuthored, not Wrap: this text came from a model that was SHOWN the
+		// marker, so it is the one author who can close the span exactly.
+		return appendFeedback(out, req, failedText, cause, fence.WrapAuthored)
+	}
+}
+
+func appendFeedback(out, req model.Request, failedText string, cause error, echo func(string) string) model.Request {
 	out.Messages = append(
 		append([]model.Message{}, req.Messages...),
-		model.Message{Role: "assistant", Content: failedText},
-		model.Message{Role: "user", Content: "That output failed validation: " + cause.Error() +
-			"\nReturn ONLY the corrected output in the required format."},
+		model.Message{Role: roleAssistant, Content: echo(failedText)},
+		model.Message{Role: roleUser, Content: "That output failed validation: " +
+			echo(cause.Error()) + "\n" + retryInstruction},
 	)
 	return out
+}
+
+// retryInstruction is the only part of the feedback turns written by this
+// codebase, and therefore the only part that carries authority.
+const retryInstruction = "Return ONLY the corrected output in the required format."
+
+// boundaryState is what a prompt says about its own data boundary. The three
+// cases need three different answers, and collapsing "malformed" into "none" is
+// the one combination that fails OPEN.
+type boundaryState int
+
+const (
+	boundaryNone boundaryState = iota
+	boundaryDeclared
+	boundaryMalformed
+)
+
+// feedbackFence resolves the boundary the echoed turns belong in: the one the
+// prompt already declared, never a second one beside it.
+func feedbackFence(req model.Request) (promptfence.Fence, boundaryState) {
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		return promptfence.Fence{}, boundaryNone
+	}
+	fence, ok := promptfence.FromMarker(marker)
+	if !ok {
+		return promptfence.Fence{}, boundaryMalformed
+	}
+	return fence, boundaryDeclared
 }
 
 // completeEscalated serves one attempt from the task's ladder with the

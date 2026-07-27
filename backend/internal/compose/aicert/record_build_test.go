@@ -49,7 +49,7 @@ func TestBuildRecordPricesPerBucketMeansAgainstTheSeedRateSheet(t *testing.T) {
 	rec := buildRecord(ai.TaskSummarize, VerdictCertified, 1, results, latencies,
 		3000, 500, 400, 200,
 		"anthropic", "claude-haiku-4-5-20251001", "response", "claude-opus-4-8", false,
-		ai.RoutingConfig{Profile: ai.ProfileEUHosted})
+		ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 
 	if rec.MeanTokensIn != 1500 || rec.MeanTokensOut != 250 || rec.MeanCachedTokens != 200 || rec.MeanCacheWriteTokens != 100 {
 		t.Fatalf("mean buckets = in=%d out=%d cached=%d cache_write=%d, want 1500/250/200/100",
@@ -74,7 +74,7 @@ func TestBuildRecordUnpricedWhenNoSeedRateMatchesTheServedModel(t *testing.T) {
 	rec := buildRecord(ai.TaskSummarize, VerdictCertified, 1, results, []int64{100},
 		1000, 200, 0, 0,
 		"anthropic", "claude-does-not-exist", "response", "claude-opus-4-8", false,
-		ai.RoutingConfig{Profile: ai.ProfileEUHosted})
+		ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 
 	if rec.EstCostMicroUSD != 0 {
 		t.Fatalf("est_cost_microusd = %d, want 0 for an unrated served model", rec.EstCostMicroUSD)
@@ -98,7 +98,7 @@ func TestBuildRecordIsByteForByteDeterministicForIdenticalInputs(t *testing.T) {
 		return buildRecord(ai.TaskSummarize, VerdictCertified, 1, results, []int64{100, 200},
 			3000, 500, 400, 200,
 			"anthropic", "claude-haiku-4-5-20251001", "response", "claude-opus-4-8", false,
-			ai.RoutingConfig{Profile: ai.ProfileEUHosted})
+			ai.RoutingConfig{Profile: ai.ProfileEUHosted}, "p000000000000")
 	}
 
 	first, err := json.Marshal(call())

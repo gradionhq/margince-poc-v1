@@ -9,7 +9,15 @@ package integration
 // from the auto-create suite because the tiers are their own subject: one file
 // proves what each tier decides in isolation, the other what a capture writes.
 
-import "testing"
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+)
 
 // The suppressing tiers, each on its own: a free-mail domain is a person and
 // never a company, mail infrastructure is neither while its activity stands,
@@ -27,13 +35,22 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'gmail.com'`); n != 0 {
 			t.Fatal("gmail.com must never become an organization")
 		}
+		// And free-mail is decided HERE, not deferred. Nothing but tier order
+		// enforces that: a deferred free-mail sender would be judged later from
+		// a ledger row that carries only the domain, and a `real` verdict would
+		// mint the "Gmail" organization the tier just refused.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty WHERE email = 'bob@gmail.com'`); n != 0 {
+			t.Fatalf("%d ledger rows for a free-mail sender, want 0 — deferring one lets a later verdict mint a company from gmail.com", n)
+		}
 	})
 	t.Run("transactional infrastructure keeps the activity, derives no counterparty", func(t *testing.T) {
 		// A DocuSign envelope (exact infra eSLD, no corroboration needed) and a
 		// conference blast on a prefix subdomain WITH a List-Unsubscribe header
 		// (corroborated) both suppress person+org while the timeline row stands
 		// (ADR-0072/A118, CAP-PARAM-6).
-		sync(t,
+		sync(
+			t,
 			email("dse@eu.docusign.net", "DocuSign EU", captureOwner, "ds1@docusign.net", ""),
 			emailWithListUnsub("hello@event.gitex.com", "GITEX", captureOwner, "gx1@event.gitex.com"),
 		)
@@ -54,14 +71,30 @@ func TestCaptureTierGateSuppressesWhatIsNotACounterparty(t *testing.T) {
 			t.Fatalf("%d transactional-suppression breadcrumbs, want 2", n)
 		}
 	})
-	t.Run("a conference blast WITHOUT corroboration is a normal counterparty", func(t *testing.T) {
+	t.Run("a conference blast WITHOUT corroboration is deferred, not suppressed", func(t *testing.T) {
 		// The same prefix subdomain, but no List-Unsubscribe and a human
-		// localpart: not suppressed — a real company can live at event.*.
+		// localpart: T2 does not fire, because a real company can live at
+		// event.*. What used to happen next was a record on sight; the sender
+		// is now the ambiguous class and waits for a verdict instead.
 		sync(t, email("ada@event.realco.example", "Ada Real", captureOwner, "rc1@event.realco.example", ""))
+
+		if n := countRows(t, e, `
+			SELECT count(*) FROM system_log
+			WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'rc1@event.realco.example'`); n != 0 {
+			t.Fatal("an uncorroborated prefix sender was suppressed — a real company can live at event.*")
+		}
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'ada@event.realco.example' AND status = 'pending'`); n != 1 {
+			t.Fatalf("%d pending ledger rows, want 1 — an unknown sender defers rather than creating", n)
+		}
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-			WHERE pe.email = 'ada@event.realco.example'`); n != 1 {
-			t.Fatal("an uncorroborated prefix sender must create a normal person")
+			WHERE pe.email = 'ada@event.realco.example'`); n != 0 {
+			t.Fatal("a first-time sender minted a person — ADR-0063's create-on-sight is what this amends")
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE source_id = 'rc1@event.realco.example'`); n != 1 {
+			t.Fatal("the activity must stand — deferring the record never drops the message")
 		}
 	})
 }
@@ -157,5 +190,48 @@ func TestCaptureTierGateSuppressesAMachineLocalpartWithoutLosingTheMessage(t *te
 		SELECT count(*) FROM system_log
 		WHERE action = 'capture_transactional_suppressed' AND detail->>'source_id' = 'v1@em.vendor.example'`); n != 1 {
 		t.Fatalf("%d suppression breadcrumbs, want 1 — the corroboration rule must be the one that fired", n)
+	}
+}
+
+// A noise verdict settles only the mail it can still reach (ADR-0072 §4). Past
+// that window the sender's next message is new evidence and raises its own
+// question — without which one forged message would bar an address from ever
+// becoming a record, while its later mail went neither judged nor hidden.
+func TestCaptureTierGateReopensASenderWhoseNoiseVerdictHasAged(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+
+	sync(t, email("stale@judged.example", "Judged", captureOwner, "aged1@judged.example", ""))
+	resolveDispositionAged(t, e, "stale@judged.example", "noise", 30*24*time.Hour)
+
+	sync(t, email("stale@judged.example", "Judged", captureOwner, "aged2@judged.example", ""))
+
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty
+		WHERE email = 'stale@judged.example' AND status = 'pending'`); n != 1 {
+		t.Fatalf("%d fresh questions for a sender whose verdict aged out, want 1", n)
+	}
+	// A RECENT verdict still settles the matter — the rule is about age, not
+	// about ignoring the ledger.
+	if n := countRows(t, e, `
+		SELECT count(*) FROM system_log WHERE action = 'capture_noise_sender'`); n != 0 {
+		t.Fatal("an aged-out verdict was still treated as settling the sender")
+	}
+}
+
+// resolveDispositionAged puts an address's disposition into a terminal state
+// resolved the given duration ago.
+func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ago time.Duration) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE capture_pending_counterparty
+			   SET status = $2, resolved_at = now() - $3::interval,
+			       next_attempt_at = NULL, claimed_until = NULL, claimed_by = NULL
+			 WHERE email = $1`, email, status, ago.String())
+		return err
+	})
+	if err != nil {
+		t.Fatalf("aging the disposition: %v", err)
 	}
 }

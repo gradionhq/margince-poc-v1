@@ -46,7 +46,8 @@ func TestRelationshipStrengthOverSeededRows(t *testing.T) {
 		activity := SeedRow(t, owner, fmt.Sprintf(
 			`INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
 			 VALUES ($1, $2, 'email', 'touch', '%s', '%s', 'manual', 'human:x')`,
-			occurred.Format(time.RFC3339), direction), e.WS)
+			occurred.Format(time.RFC3339), direction,
+		), e.WS)
 		if _, err := owner.Exec(context.Background(),
 			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id) VALUES ($1, $2, 'person', $3)`,
 			e.WS, activity, person); err != nil {

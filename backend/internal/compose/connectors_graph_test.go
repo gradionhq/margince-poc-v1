@@ -111,7 +111,7 @@ func TestGraphCallbackRejectsGmailState(t *testing.T) {
 	if rec.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302", rec.Code)
 	}
-	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error" {
+	if loc := rec.Header().Get("Location"); loc != "https://app.test/#/onboarding/connect/error/graph" {
 		t.Errorf("Location = %q, want the error landing (provider mismatch)", loc)
 	}
 }

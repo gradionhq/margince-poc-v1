@@ -18,6 +18,24 @@ path actually sends (prompt constructor output and
 `sitesnippet.go`'s `renderNumbered()`), not restated from memory, so a
 prompt change there is a corpus change here too.
 
+## The fence marker in a scenario
+
+A live prompt bounds its untrusted data with a marker minted per call
+(`internal/shared/kernel/promptfence`) — the sender has never seen it, so
+nothing they write can close the span. A scenario file cannot mint one and
+still be a fixed document, so every scenario here uses the same EXAMPLE
+marker, `untrusted-0198f3a1-7c42-7e0b-9d51-2a6f4b8c1e07`, in both its
+`system` and its `input`. It stands in for the value a real call generates;
+nothing may depend on it, and a scenario that would pass only because the
+marker is predictable is testing the wrong thing.
+
+The nonce is the ONLY thing a scenario is allowed to differ from production
+in. `TestRateExtractPromptMatchesCorpus` and `TestFxExtractPromptMatchesCorpus`
+enforce that for their two lanes: they lift the marker out of the scenario,
+rebuild the shipped prompt around it, and compare byte for byte — the
+boundary sentence's exact wording included, since that wording is part of
+what a certification run certified.
+
 Every scenario currently under this tree carries `sanitized_by:
 hand_authored/claude-fable-5`: every input, evidence snippet, and fixture
 (`site_extract/fixtures/*.html`) is synthetic, invented for this corpus —

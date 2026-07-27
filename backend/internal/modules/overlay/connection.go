@@ -407,23 +407,17 @@ func (s *Service) insertConnection(ctx context.Context, in ConnectInput, ref key
 	return out, nil
 }
 
-// vaultCleanupTimeout bounds every credential delete that runs outside the
-// request's own success path (the three below). Each is detached from the
-// caller's cancellation, so without a deadline of its own a stalled vault
-// would hang the request worker indefinitely.
-const vaultCleanupTimeout = 5 * time.Second
-
 // cleanupOrphanedRef deletes a vault ref this Connect attempt sealed but lost
 // the UNIQUE(workspace_id) race to persist (the INSERT hit the unique
 // constraint after vault.Put already ran) — the row definitively did not
 // persist, so nothing references the ref. Delete is idempotent. It runs on a
 // context DETACHED from ctx's cancellation (context.WithoutCancel) so a
 // cancelled/timed-out Connect still removes what it sealed, but with its OWN
-// short deadline (vaultCleanupTimeout). A cleanup failure is surfaced rather
-// than masked, but never shadows the ErrIncumbentAlreadyConnected the caller
-// actually needs.
+// short deadline (keyvault.CleanupTimeout). A cleanup failure is surfaced
+// rather than masked, but never shadows the ErrIncumbentAlreadyConnected the
+// caller actually needs.
 func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyvault.Ref) error {
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), vaultCleanupTimeout)
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), keyvault.CleanupTimeout)
 	defer cancel()
 	if delErr := s.vault.Delete(cleanupCtx, ids.From[ids.WorkspaceKind](ws), ref); delErr != nil {
 		return fmt.Errorf("overlay: connect lost a concurrent race (already connected) and failed to clean up its orphaned vault entry: %w", delErr)
@@ -431,35 +425,13 @@ func (s *Service) cleanupOrphanedRef(ctx context.Context, ws ids.UUID, ref keyva
 	return apperrors.ErrIncumbentAlreadyConnected
 }
 
-// deleteUnreferencedRef removes a credential that a COMMITTED lifecycle change
-// left unreferenced: the superseded blob after a reconnect re-pointed the row
-// at a fresh one, the revoked blob after a disconnect. Both callers share one
-// shape, so they share one implementation.
-//
-// It never fails its caller. The lifecycle change is already authoritative and
-// the caller has nothing to undo; worse, a retry could never re-attempt this
-// delete (a second Disconnect answers ErrNotFound, a second reconnect finds no
-// revoked row), so failing here would misreport a change that DID happen AND
-// strand the blob anyway. On failure it logs at ERROR for operational cleanup
-// instead: the blob is inert — unreferenced, encrypted at rest — and the ref is
-// a vault key, never the secret, so it is safe to log.
-//
-// The delete runs AFTER its transaction commits, which means it must OUTLIVE
-// the request. ctx is the caller's cancellable request context; a client that
-// hangs up the moment it has its response would otherwise cancel this cleanup
-// before it starts, stranding the blob on every such call. So the vault sees a
-// context detached from that cancellation (context.WithoutCancel) under its own
-// vaultCleanupTimeout deadline — the same shape cleanupOrphanedRef carries.
+// deleteUnreferencedRef binds the service's vault and logger to the shared
+// post-commit credential delete: the superseded blob after a reconnect
+// re-pointed the row at a fresh one, the revoked blob after a disconnect.
+// keyvault.DeleteDetached owns the contract (never fails its caller, outlives
+// the request, reports an orphan at ERROR).
 func (s *Service) deleteUnreferencedRef(ctx context.Context, ws ids.UUID, ref keyvault.Ref, lifecycle string) {
-	if ref == "" {
-		return
-	}
-	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), vaultCleanupTimeout)
-	defer cancel()
-	if err := s.vault.Delete(cleanupCtx, ids.From[ids.WorkspaceKind](ws), ref); err != nil {
-		s.log.ErrorContext(ctx, "overlay: the connection lifecycle change committed, but deleting the now-unreferenced incumbent credential failed — the orphaned (inert) blob needs cleanup",
-			"lifecycle", lifecycle, "workspace", ws.String(), "credential_ref", string(ref), "err", err)
-	}
+	keyvault.DeleteDetached(ctx, s.vault, s.log, ws, ref, lifecycle)
 }
 
 // Get reads the workspace's current incumbent connection. Gated by
