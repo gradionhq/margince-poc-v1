@@ -96,25 +96,28 @@ func (e *fakeNetError) Temporary() bool { return false }
 
 // Both seam errors document "422 on every surface"; this pins the HTTP half
 // of that promise for each, so a future seam error added without a branch in
-// clientInputValidation cannot silently answer 500 to a client mistake.
+// clientInputValidation cannot silently answer 500 to a client mistake. The
+// unserved case uses `deal` — a type EntityTypes() DOES return — because that
+// is what the raise sites actually produce: a valid record type arriving at a
+// provider that does not own it, not a misspelling.
 func TestWrite_datasourceSeamRefusalsAreClientFaults(t *testing.T) {
 	for _, tc := range []struct {
-		name  string
-		err   error
-		field string
-		body  string
+		name, field, code, wants string
+		err                      error
 	}{
 		{
-			name:  "an entity_type no provider on this installation serves",
-			err:   &datasource.UnsupportedEntityError{Type: "pipeline"},
+			name:  "a valid entity_type at a provider that does not serve it",
+			err:   &datasource.UnsupportedEntityError{Type: "deal"},
 			field: "entity_type",
-			body:  "pipeline",
+			code:  "unsupported_entity_type",
+			wants: "deal is not served here",
 		},
 		{
 			name:  "a write payload the seam could not decode",
 			err:   &datasource.FieldDecodeError{Cause: errors.New(`unknown field "naem"`)},
 			field: "fields",
-			body:  "naem",
+			code:  "invalid_field",
+			wants: "naem",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,9 +125,33 @@ func TestWrite_datasourceSeamRefusalsAreClientFaults(t *testing.T) {
 			if status != http.StatusUnprocessableEntity {
 				t.Fatalf("status = %d, want 422 — a client naming the wrong %s is never a server fault", status, tc.field)
 			}
+			if body["code"] != "validation_error" {
+				t.Errorf("code = %v, want validation_error", body["code"])
+			}
 			detail, _ := body["detail"].(string)
-			if !strings.Contains(detail, tc.body) {
-				t.Errorf("detail = %q, want it to name %q so the caller can see what to correct", detail, tc.body)
+			if !strings.Contains(detail, tc.wants) {
+				t.Errorf("detail = %q, want it to say %q so the caller can see what to correct", detail, tc.wants)
+			}
+			// The machine-readable half: a client that branches on the
+			// structured error, rather than on prose, must find the field
+			// and the code it is supposed to branch on.
+			details, ok := body["details"].(map[string]any)
+			if !ok {
+				t.Fatalf("details = %v, want the structured problem member", body["details"])
+			}
+			errs, ok := details["errors"].([]any)
+			if !ok || len(errs) != 1 {
+				t.Fatalf("details.errors = %v, want exactly one structured entry", details["errors"])
+			}
+			entry, ok := errs[0].(map[string]any)
+			if !ok {
+				t.Fatalf("details.errors[0] = %v, want an object", errs[0])
+			}
+			if entry["field"] != tc.field {
+				t.Errorf("details.errors[0].field = %v, want %q", entry["field"], tc.field)
+			}
+			if entry["code"] != tc.code {
+				t.Errorf("details.errors[0].code = %v, want %q", entry["code"], tc.code)
 			}
 		})
 	}

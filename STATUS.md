@@ -862,33 +862,45 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
-- **Idempotent replay serves records without re-running the row-scope gate
-  (CLAUDE.md rule 3, which names replay paths by name).** `compose/idempotency.go`
-  short-circuits the handler on a replay and writes the recorded 2xx body back,
-  so a record-returning route answers from a 24h snapshot that never re-enters
-  `auth.Require` / `auth.EnsureVisible`. Not a cross-tenant or cross-principal
-  leak — the claim is scoped by `(workspace_id, principal_id, key, endpoint)`
-  and RLS-fenced, so only the principal who already received those exact bytes
-  can trigger it. The consequence is a 24h window in which "revocation binds
-  mid-session" is weakened: a rep whose record grant or ownership is pulled can
-  still re-obtain the frozen snapshot by resending their own key.
-  **Systemic, not new** — ~50 record-returning routes are in
-  `idempotentOperations`, `PATCH /v1/people/{id}` and `POST /v1/projects` among
-  them since long before `PATCH /v1/projects/{id}` joined them.
-  A correct fix needs the `(table, id)` of the record each replayed response
-  carries — a per-route registry beside `idempotentOperations`, or the id read
-  back out of the recorded body — plus an integration test that revokes access
-  between the original and the replay. Hashing the principal's permissions
-  instead is the tempting half-fix and is wrong: it catches an RBAC change but
-  not a row-scope one (an ownership transfer leaves permissions identical),
-  which is the shape that looks complete and is not.
-  Second, smaller defect in the same file: `settleClaim` runs on `r.Context()`,
-  already cancelled when a client disconnects mid-request, so the claim strands
-  with `response_status IS NULL` and every retry of that key answers
-  `409 idempotency_key_conflict` for 24h — the write did not land *and* the
-  retry is refused, which is the opposite of the retry-safety API-CC-6 promises.
-  The repo already has the idiom: `context.WithoutCancel` in
-  `capture/backfillpager.go` and `ai/tracing.go`.
+- **Recorded idempotency bodies survive Art. 17 erasure.**
+  `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
+  `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that
+  table. Erasure anonymizes the person row in place, so the replay's row-scope
+  probe still passes for the original owner — API-CC-8 does not close this by
+  construction. Within the window a rep can replay their own key and receive the
+  pre-erasure name and email verbatim. Fix: purge `response_body` for claims
+  whose recorded record is the subject through the ratified cross-store seam, or
+  cap that column's retention well below the DSR SLA.
+
+- **17 replay routes re-check nothing at all.** Those carrying a `rowNote`
+  (pipelines, stages, products, offer-templates, quotas, custom-fields,
+  onboarding, DSR, site-reads) have no row-scoped record AND no object re-check,
+  so it is zero dimensions rather than half a gate. Related: ADR-0055's
+  "revocation binds mid-session" is false for a passport on a replay — narrowing
+  a passport's scope does not stop it replaying a body recorded under the wider
+  scope, because scope is the object dimension.
+
+- **Idempotent replay does not re-check the OBJECT grant (the row scope now is).**
+  `compose/replayscope.go` re-probes row-scope visibility before serving a
+  recorded body (API-CC-8), which closes the leak that mattered: a grant or
+  ownership transfer moves a record out of sight while permissions stay
+  byte-identical. The object half is recorded per route in `replayTarget.object`
+  but not re-run, because the ACTION to re-check is per-route data and both
+  obvious derivations are wrong. `ActionRead` is stricter than the write the
+  caller originally passed — a role with create and no read would have every
+  retry 403, breaking idempotency outright rather than only after a revocation
+  (this is not hypothetical: it broke `TestIdempotencyReplayRepeatsTheRecordedContentType`
+  when tried). Deriving the action from the HTTP method fails too, since
+  `POST /v1/deals/{id}/advance`, `/merge` and `/offers/{id}/send` are updates.
+  Closing it needs the required action recorded per route beside the object,
+  then re-checked; the fitness test already forces every route to name its
+  object or say why it has none, so the data half is in place.
+  Second, separate defect in the same area: `settleClaim` runs on
+  `r.Context()`, already cancelled when a client disconnects mid-request, so
+  the claim strands with `response_status IS NULL` and every retry of that key
+  answers `409 idempotency_key_conflict` for 24h — the write did not land *and*
+  the retry is refused. The repo already has the idiom: `context.WithoutCancel`
+  in `capture/backfillpager.go` and `ai/tracing.go`.
 
 - **403 is declared on a minority of the operations that can answer it.**
   margince-foundation#1194 made the narrow invariant unanimous — every
