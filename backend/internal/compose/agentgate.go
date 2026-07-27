@@ -54,6 +54,21 @@ type recordVersionReader interface {
 	Read(ctx context.Context, ref datasource.EntityRef) (datasource.Record, error)
 }
 
+// datasourceReadable reports whether the composite SystemOfRecordProvider can
+// Read this record type — the five datasource.EntityType records. A
+// version-checkable approval target outside this set (offer, product, list,
+// tag, relationship) is not on the provider seam, so the gate cannot resolve
+// its current version server-side; its pin stays the caller's If-Match value.
+func datasourceReadable(recordType string) bool {
+	switch datasource.EntityType(recordType) {
+	case datasource.EntityPerson, datasource.EntityOrganization,
+		datasource.EntityDeal, datasource.EntityLead, datasource.EntityActivity:
+		return true
+	default:
+		return false
+	}
+}
+
 // The wire tier values an agentPolicy carries (agentPolicy.Tier is the
 // generated string, not the typed enum), pinned to the contract enum so a
 // rename of the tier spelling follows the contract rather than drifting.
@@ -238,18 +253,22 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 		}
 	}
 	// Pin the version a human approves SERVER-SIDE, from the record as it
-	// stands now — never from the agent-omittable If-Match header. An agent
-	// that simply left the header off would otherwise stage target_version
-	// NULL, and the redemption skew check short-circuits on NULL
-	// (validateRedemptionTarget): the approved effect would then apply to
-	// whatever version the row had drifted to within the approval TTL, not
-	// the one the human saw. The MCP tool twins pin &rec.Version this same
-	// way. Un-pinnable target types (TargetVersionCheckable == false)
-	// legitimately carry no pin and fall back to the diff_hash
-	// identical-call binding; a versionable target with no id (a create)
-	// has nothing to pin either.
+	// stands now — never from the agent-omittable If-Match header — for the
+	// record types the system-of-record provider can Read (the five
+	// datasource.EntityType records, exactly as the MCP tool twins pin
+	// &rec.Version). An agent that simply left the header off would otherwise
+	// stage target_version NULL, and the redemption skew check short-circuits
+	// on NULL (validateRedemptionTarget): the approved effect would then apply
+	// to whatever version the row had drifted to within the approval TTL.
+	//
+	// Version-checkable types the provider does NOT serve (offer, product,
+	// list, tag, relationship) are not on the datasource seam, so the gate
+	// cannot read their current version — they keep the caller's If-Match pin,
+	// exactly as before; the redemption skew check still binds it. A create
+	// (no target id) has nothing to pin.
 	var targetVersion *int64
-	if targetID != (ids.UUID{}) && approvals.TargetVersionCheckable(pol.RecordType) {
+	switch {
+	case targetID != (ids.UUID{}) && datasourceReadable(pol.RecordType):
 		rec, rErr := reader.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(pol.RecordType), ID: targetID})
 		if rErr != nil {
 			httperr.Write(w, r, rErr)
@@ -257,6 +276,12 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 		}
 		version := rec.Version
 		targetVersion = &version
+	default:
+		ifVersion, ok := httperr.IfMatchVersion(w, r)
+		if !ok {
+			return
+		}
+		targetVersion = ifVersion
 	}
 	approvalID, sErr := staging.Stage(ctx, agents.StageRequest{
 		Tool:           pol.Tool,
