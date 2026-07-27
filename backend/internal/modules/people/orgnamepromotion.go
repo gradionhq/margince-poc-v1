@@ -335,11 +335,18 @@ func (s *Store) PromoteOrgNameTx(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	if source != nameSourceDomain || current == name {
 		return false, nil
 	}
-	if _, err := tx.Exec(ctx, `
+	tag, err := tx.Exec(ctx, `
 		UPDATE organization SET display_name = $2, name_source = $3
 		WHERE id = $1 AND name_source = $4`,
-		orgID, name, nameSourceSignature, nameSourceDomain); err != nil {
+		orgID, name, nameSourceSignature, nameSourceDomain)
+	if err != nil {
 		return false, fmt.Errorf("people: promoting the organization name: %w", err)
+	}
+	// The row lock above makes this unreachable, and it is checked anyway: an
+	// audit row and an organization.updated event describing a rename that did
+	// not happen are worse than the rename being skipped.
+	if tag.RowsAffected() == 0 {
+		return false, nil
 	}
 
 	before := map[string]any{fieldDisplayName: current, "name_source": nameSourceDomain}
