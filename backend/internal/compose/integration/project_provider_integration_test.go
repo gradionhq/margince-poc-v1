@@ -190,3 +190,60 @@ func principalReadOnlyProject() principal.Permissions {
 		RowScope: principal.RowScopeOwn,
 	}
 }
+
+// The advance verb through the seam, and the semantic the gate reads BEFORE
+// it runs. StageSemantic is not part of the sor interface: the admission gate
+// calls it to decide whether a move needs confirmation, so a wrong answer
+// here silently changes the autonomy tier of a real money-moving action.
+func TestTheAgentSeamAdvancesADealAndReportsTheStageSemantic(t *testing.T) {
+	e := Setup(t)
+	p := projectProvider(e)
+	ctx := e.Admin()
+	pipeline, open, won := DealFixture(t, e)
+	deal := e.SeedDeal(t, "Seam deal", pipeline, open, nil)
+
+	// The gate's question first: what KIND of stage is this move going to?
+	semantic, gotPipeline, err := p.StageSemantic(ctx, won.UUID)
+	if err != nil {
+		t.Fatalf("reading the target stage's semantic: %v", err)
+	}
+	if semantic != "won" {
+		t.Fatalf("semantic = %q, want won — the gate would resolve the wrong tier", semantic)
+	}
+	if gotPipeline != pipeline.UUID {
+		t.Fatalf("semantic came from pipeline %s, want %s", gotPipeline, pipeline)
+	}
+
+	moved, err := p.AdvanceDeal(ctx, datasource.AdvanceDealInput{
+		DealID: deal, ToStageID: won.UUID,
+	})
+	if err != nil {
+		t.Fatalf("advance through the seam: %v", err)
+	}
+	if moved.ID != deal {
+		t.Fatalf("advance returned %s, want the deal it moved", moved.ID)
+	}
+	// The move landed and left its history behind — the seam runs the same
+	// store path the human one does, so the trail is identical.
+	if n := e.WsCount(t, `SELECT count(*) FROM deal WHERE id = $1 AND stage_id = $2`,
+		deal, won.UUID); n != 1 {
+		t.Fatal("the seam's advance did not move the deal")
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM deal_stage_history WHERE deal_id = $1`, deal); n < 2 {
+		t.Fatalf("%d stage-history rows after a move, want the birth row and the move", n)
+	}
+}
+
+// A stage that does not exist has no semantic to report. The gate must get an
+// error rather than an empty string it would read as "no special handling" —
+// that would resolve an unknown move to the most permissive tier.
+func TestTheAgentSeamRefusesToInventAStageSemantic(t *testing.T) {
+	e := Setup(t)
+	p := projectProvider(e)
+	DealFixture(t, e)
+
+	semantic, _, err := p.StageSemantic(e.Admin(), ids.NewV7())
+	if err == nil {
+		t.Fatalf("an unknown stage reported semantic %q instead of failing", semantic)
+	}
+}
