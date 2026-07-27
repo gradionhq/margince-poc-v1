@@ -82,7 +82,7 @@ func TestUrlTakingOperationsAreNeverAutoExecuteForAgents(t *testing.T) {
 			continue
 		}
 		checked++
-		if pol.Access != "tool" {
+		if pol.Access != accessTool {
 			continue // human-only: an agent principal is rejected before the handler
 		}
 		if pol.Tier == "auto_execute" {
@@ -105,7 +105,7 @@ func TestUnregisteredVerbCarriesTheAnnotatedTier(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 
 	spec, ok := operationSpec(agentPolicy{
-		Op: "coldStartPreview", Access: "tool", Tool: "enrich", Tier: tierWireConfirmationRequired,
+		Op: "coldStartPreview", Access: accessTool, Tool: "enrich", Tier: tierWireConfirmationRequired,
 	}, registry)
 	if !ok {
 		t.Fatal("an unregistered verb at a static tier must resolve, not fail closed")

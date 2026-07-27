@@ -37,7 +37,7 @@ func (c *capturingApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ st
 // can decline to send.
 func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
 	dealID := ids.NewV7()
-	pol := agentPolicy{Op: "archiveDeal", Access: "tool", Tool: "archive_record", RecordType: "deal"}
+	pol := agentPolicy{Op: "archiveDeal", Access: accessTool, Tool: "archive_record", RecordType: "deal"}
 
 	for _, tc := range []struct{ name, ifMatch string }{
 		{"no If-Match", ""},
@@ -99,7 +99,7 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 	used := map[string]bool{}
 	checked := 0
 	for route, pol := range agentPolicies {
-		if pol.Access != "tool" || pol.Tier == "auto_execute" || pol.RecordType == "" {
+		if pol.Access != accessTool || pol.Tier == "auto_execute" || pol.RecordType == "" {
 			continue
 		}
 		checked++

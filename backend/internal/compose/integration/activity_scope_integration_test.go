@@ -80,13 +80,13 @@ func TestActivityLifecycleMutatorsHonorRowScope(t *testing.T) {
 		t.Errorf("victim link rows = %d, want 1 — a refused relink must not delete it", links)
 	}
 
-	assertOwnTeamActivityStillMutable(t, e, rep, myPerson)
+	assertOwnTeamActivityStillMutable(rep, t, e, myPerson)
 }
 
 // assertOwnTeamActivityStillMutable is the positive control: the same
 // three mutators keep working on an activity the caller's row scope does
 // reach.
-func assertOwnTeamActivityStillMutable(t *testing.T, e *Env, rep context.Context, myPerson ids.UUID) {
+func assertOwnTeamActivityStillMutable(rep context.Context, t *testing.T, e *Env, myPerson ids.UUID) {
 	t.Helper()
 	mine, _, err := e.Activities.LogActivity(rep, activities.LogActivityInput{
 		Kind: "note", Subject: strPtr("Mine"), Source: "manual",

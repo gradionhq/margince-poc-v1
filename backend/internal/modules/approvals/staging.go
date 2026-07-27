@@ -259,15 +259,17 @@ func (s *Service) supersedePendingInTx(ctx context.Context, tx pgx.Tx, wsID ids.
 // stays unpinned and the diff_hash identical-call binding is what holds. That
 // residue is bounded and declared: TestConfirmFirstTargetsArePinnable holds
 // the confirm-first surface to a ratified list of them.
-func resolveTargetVersion(ctx context.Context, tx pgx.Tx, in StageInput) (*int64, error) {
+// pinned is false for a target with no version column to read, and for a
+// create, which has no prior row to bind to.
+func resolveTargetVersion(ctx context.Context, tx pgx.Tx, in StageInput) (version int64, pinned bool, err error) {
 	if in.TargetID.IsZero() || !TargetVersionCheckable(in.TargetType) {
-		return nil, nil
+		return 0, false, nil
 	}
 	current, err := targetVersion(ctx, tx, in.TargetType, in.TargetID)
 	if err != nil {
-		return nil, err
+		return 0, false, err
 	}
-	return &current, nil
+	return current, true, nil
 }
 
 // StageInTx records a proposal through a caller-owned transaction. Compose
@@ -279,11 +281,14 @@ func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no actor bound to context")
 	}
-	pin, err := resolveTargetVersion(ctx, tx, in)
+	current, pinned, err := resolveTargetVersion(ctx, tx, in)
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
-	in.TargetVersion = pin
+	in.TargetVersion = nil
+	if pinned {
+		in.TargetVersion = &current
+	}
 	wsID, _ := principal.WorkspaceID(ctx)
 	id := ids.New[ids.ApprovalKind]()
 	// Compute ONE absolute expiry and use it for BOTH the persisted row and

@@ -36,12 +36,19 @@ func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
 	bearer := map[string]string{"Authorization": "Bearer " + minted.Token}
 
 	// One route per class the finding named: the attachment surface (the
-	// bytes and their extracted text), the AI call log, the audit log, the
-	// voice profiles, and the webhook subscriptions. A 404 would be a pass
-	// for the wrong reason — the point is that the refusal happens before
-	// the handler ever looks for the row — so each asserts 403 exactly.
+	// listing that supplies the ids, the bytes, and their extracted text),
+	// the AI call log, the audit log, the voice profiles, and the webhook
+	// subscriptions. A 404 would be a pass for the wrong reason — the point
+	// is that the refusal happens before the handler ever looks for the row
+	// — so each asserts 403 exactly.
+	//
+	// The listing carries its required query parameters: the generated
+	// wrapper binds those before it runs the middleware chain, so a request
+	// missing them answers 422 without ever reaching the gate. That ordering
+	// discloses nothing (it is the same answer for any principal), but a
+	// probe that stopped there would be asserting the wrong refusal.
 	for _, route := range []string{
-		"/v1/attachments",
+		"/v1/attachments?entity_type=deal&entity_id=00000000-0000-7000-8000-0000000000bb",
 		"/v1/attachments/00000000-0000-7000-8000-0000000000aa",
 		"/v1/attachments/00000000-0000-7000-8000-0000000000aa/extraction",
 		"/v1/ai/calls",

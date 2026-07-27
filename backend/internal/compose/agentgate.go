@@ -101,7 +101,7 @@ func agentGate(reg *agents.Registry, staging agents.Approvals, stages agents.Sta
 // human's RBAC and row scope at the store, unchanged.
 func refuseHumanOnlyRead(w http.ResponseWriter, r *http.Request, next http.Handler) {
 	pattern := chi.RouteContext(r.Context()).RoutePattern()
-	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != "tool" {
+	if pol, known := agentPolicies[r.Method+" "+pattern]; known && pol.Access != accessTool {
 		httperr.Write(w, r, fmt.Errorf(
 			"agent gate: %s is %s: %w", pol.Op, pol.Access, apperrors.ErrPermissionDenied))
 		return
@@ -126,7 +126,7 @@ func prepareAgentGate(w http.ResponseWriter, r *http.Request, reg *agents.Regist
 			"agent gate: %s %s carries no autonomy tier: %w", r.Method, pattern, apperrors.ErrPermissionDenied))
 		return mcp.ToolSpec{}, nil, agentPolicy{}, nil, false
 	}
-	if pol.Access != "tool" {
+	if pol.Access != accessTool {
 		// human-only governance (self-approval class) and the
 		// session/bootstrap machinery: an agent principal is rejected
 		// outright, whatever its scope or seat.
