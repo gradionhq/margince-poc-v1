@@ -44,8 +44,8 @@ func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Sc
 	// The fixture is what the candidate was answering ABOUT, so it is what the
 	// grader is shown alongside the answer: under the fixture format there is no
 	// scenario-authored prompt to show it instead.
-	req := compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput)
-	resp, _, callErr := judge.Complete(ctx, ai.TaskCertJudge, req)
+	resp, _, callErr := judge.Complete(ctx, ai.TaskCertJudge,
+		compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput))
 	if callErr != nil {
 		return 0, "", false, fmt.Errorf("judge call: %w", callErr)
 	}
@@ -63,7 +63,10 @@ func judgeScore(ctx context.Context, judge *ai.Router, rec *traceRecorder, sc Sc
 	log.WarnContext(ctx, "aicert: judge output failed to parse, retrying once",
 		"scenario", sc.Name, "err", parseErr)
 
-	resp2, _, callErr2 := judge.Complete(ctx, ai.TaskCertJudge, req)
+	// The retry is BUILT again, never re-sent: JudgeRequest mints the call's data
+	// boundary, and the attempt that just failed was shown the first one.
+	resp2, _, callErr2 := judge.Complete(ctx, ai.TaskCertJudge,
+		compose.JudgeRequest(sc.Expect.Rubric, string(sc.Fixture), candidateOutput))
 	if callErr2 != nil {
 		return 0, judgeServedModel, judgeDegraded, fmt.Errorf("judge retry call: %w", callErr2)
 	}

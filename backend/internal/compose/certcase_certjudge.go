@@ -27,13 +27,14 @@ package compose
 // discards the reason, so a case that failed a run over its wording would refuse
 // answers production uses without complaint.
 //
-// Run issues ONE call, where judgeScore retries once. The retry re-sends the
-// identical request — it is the harness's tolerance for a grader that fumbled
+// Run issues ONE call, where judgeScore retries once. The retry asks the same
+// question again — same rubric, same input, same output, under this call's own
+// freshly minted boundary — as the harness's tolerance for a grader that fumbled
 // its JSON, and its double-failure fallback is a score of 0 that no model
-// actually said. Certifying that would report a second read of the same request
-// as if it were the grader's answer, and hide an unusable reply inside a number
-// the bands would read as a terrible one. The seam already has the honest word
-// for it: OutcomeInvalid.
+// actually said. Certifying that would report a second attempt at the same
+// question as if it were the grader's answer, and hide an unusable reply inside
+// a number the bands would read as a terrible one. The seam already has the
+// honest word for it: OutcomeInvalid.
 
 import (
 	"context"

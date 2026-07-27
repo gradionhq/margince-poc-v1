@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -246,14 +247,18 @@ func TestCertJudgeCaseGradesAnEmptyCandidateOutput(t *testing.T) {
 // the harness's own judge call builds it from the same three strings, so a case
 // that reordered them — or built a request of its own — would certify a prompt
 // the harness never sends.
+//
+// The data boundary is minted per call, so it is normalised away and every other
+// byte must match: two requests for the same grading call differ in their marker
+// and in nothing else.
 func TestCertJudgeCaseIssuesTheProductionJudgeRequest(t *testing.T) {
 	_, trace := runCertJudgeCase(t, certJudgeBandOf(t, 70, 100), certJudgeReply("88", "good"))
 
 	if len(trace.Requests) != 1 {
 		t.Fatalf("the trace carries %d requests, want the one call this site issues", len(trace.Requests))
 	}
-	want := JudgeRequest(certJudgeRubric, certJudgeInput, certJudgeAnswer)
-	got := trace.Requests[0]
+	want := normalizeJudgeMarker(t, JudgeRequest(certJudgeRubric, certJudgeInput, certJudgeAnswer))
+	got := normalizeJudgeMarker(t, trace.Requests[0])
 	if got.System != want.System {
 		t.Errorf("the certified system prompt is not production's:\n%q\n%q", got.System, want.System)
 	}
@@ -268,6 +273,27 @@ func TestCertJudgeCaseIssuesTheProductionJudgeRequest(t *testing.T) {
 	if got.MaxTokens != want.MaxTokens {
 		t.Errorf("the certified request caps the grader at %d, production caps it at %d", got.MaxTokens, want.MaxTokens)
 	}
+}
+
+// normalizeJudgeMarker replaces the boundary a grading request declares with a
+// fixed string, so two requests for the same call compare byte for byte
+// everywhere the marker is not.
+func normalizeJudgeMarker(t *testing.T, req model.Request) model.Request {
+	t.Helper()
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		t.Fatalf("the grading request declares no data boundary: %q", req.System)
+	}
+	out := req
+	out.System = strings.ReplaceAll(req.System, marker, "MARKER")
+	out.Messages = make([]model.Message, len(req.Messages))
+	for i, message := range req.Messages {
+		out.Messages[i] = model.Message{
+			Role:    message.Role,
+			Content: strings.ReplaceAll(message.Content, marker, "MARKER"),
+		}
+	}
+	return out
 }
 
 // The trace records the grader's own words, unaltered: the read Evaluate applies
