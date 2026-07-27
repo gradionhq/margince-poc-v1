@@ -360,6 +360,114 @@ describe("the mirror user-map card", () => {
     expect(screen.queryByText(/you will stop seeing/i)).not.toBeInTheDocument();
   });
 
+  it("surfaces a refused unmap in the confirmation instead of closing it", async () => {
+    renderCard({
+      entries: [mappedEntry],
+      extra: {
+        "DELETE /overlay/user-map/*": () =>
+          jsonResponse(
+            { code: "mode_not_overlay", detail: "the workspace went native" },
+            404,
+          ),
+      },
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /unmap/i }),
+    );
+    const confirms = screen.getAllByRole("button", { name: /unmap/i });
+    await userEvent.click(confirms[confirms.length - 1]);
+    // The dialog stays open carrying the server's own reason — a silent close
+    // would read exactly like a mapping that was actually removed.
+    expect(
+      await screen.findByText(/the workspace went native/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Mapped Person will stop seeing every mirrored record/i),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the picker open, with the reason, when the mapping write is refused", async () => {
+    renderCard({
+      entries: [
+        {
+          user_id: "u2",
+          email: "amb@acme.test",
+          unmapped_reason: "no_email_match",
+        },
+      ],
+      extra: {
+        "PUT /overlay/user-map/*": () =>
+          jsonResponse(
+            {
+              code: "owner_not_found",
+              detail: "that owner is not in the portal",
+            },
+            422,
+          ),
+      },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
+    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Grace Hopper/ }),
+    );
+    expect(
+      await screen.findByText(/that owner is not in the portal/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText(/search .* users/i)).toBeInTheDocument();
+  });
+
+  it("drops every cached read when you remap yourself, not just this card's", async () => {
+    const { client } = renderCard({
+      me: "u2",
+      entries: [
+        {
+          user_id: "u2",
+          email: "me@acme.test",
+          unmapped_reason: "no_email_match",
+        },
+      ],
+      extra: {
+        "PUT /overlay/user-map/*": () => jsonResponse(undefined, 204),
+      },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Grace Hopper/ }),
+    );
+    // Your own mapping decides which mirrored records this session can see at
+    // all, so the whole cache is suspect — called with no key, not ["overlay"].
+    await waitFor(() => expect(invalidateSpy).toHaveBeenCalledWith());
+  });
+
+  it("drops only the overlay reads when you remap someone else", async () => {
+    const { client } = renderCard({
+      me: "admin-1",
+      entries: [
+        {
+          user_id: "u2",
+          email: "other@acme.test",
+          unmapped_reason: "no_email_match",
+        },
+      ],
+      extra: {
+        "PUT /overlay/user-map/*": () => jsonResponse(undefined, 204),
+      },
+    });
+    await userEvent.click(await screen.findByRole("button", { name: /^Map/ }));
+    const invalidateSpy = vi.spyOn(client, "invalidateQueries");
+    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Grace Hopper/ }),
+    );
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["overlay"] }),
+    );
+    expect(invalidateSpy).not.toHaveBeenCalledWith();
+  });
+
   it("maps a user to the owner picked from the directory", async () => {
     const { calls } = renderCard({
       entries: [
