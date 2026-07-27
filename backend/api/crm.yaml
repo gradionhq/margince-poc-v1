@@ -10717,6 +10717,7 @@ components:
             - partner
             - person
             - product
+            - project
             - quota
             - record_grant
             - relationship

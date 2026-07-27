@@ -47,6 +47,7 @@ const (
 	recordTypePartner             agentRecordType = "partner"
 	recordTypePerson              agentRecordType = "person"
 	recordTypeProduct             agentRecordType = "product"
+	recordTypeProject             agentRecordType = "project"
 	recordTypeQuota               agentRecordType = "quota"
 	recordTypeRecordGrant         agentRecordType = "record_grant"
 	recordTypeRelationship        agentRecordType = "relationship"
@@ -149,6 +150,8 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/people/{id}":                                                {Op: "getPerson", Access: "tool", Tool: "read_record", RecordType: "person", Tier: "auto_execute"},
 	"GET /v1/products":                                                   {Op: "listProducts", Access: "tool", Tool: "search_records", RecordType: "product", Tier: "auto_execute"},
 	"GET /v1/products/{id}":                                              {Op: "getProduct", Access: "tool", Tool: "read_record", RecordType: "product", Tier: "auto_execute"},
+	"GET /v1/projects":                                                   {Op: "listProjects", Access: "tool", Tool: "search_records", RecordType: "project", Tier: "auto_execute"},
+	"GET /v1/projects/{id}":                                              {Op: "getProject", Access: "tool", Tool: "read_record", RecordType: "project", Tier: "auto_execute"},
 	"GET /v1/quotas":                                                     {Op: "listQuotas", Access: "tool", Tool: "search_records", RecordType: "quota", Tier: "auto_execute"},
 	"GET /v1/quotas/{id}":                                                {Op: "getQuota", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute"},
 	"GET /v1/quotas/{id}/attainment":                                     {Op: "getQuotaAttainment", Access: "tool", Tool: "read_record", RecordType: "quota", Tier: "auto_execute"},
