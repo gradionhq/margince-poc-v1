@@ -1,0 +1,18 @@
+-- CAP-DDL-2: when this connection was last bound to a DIFFERENT provider
+-- account.
+--
+-- One human, one provider, one row — but not necessarily one mailbox. Connect
+-- upserts on (workspace, user, provider), so a person authorizing a second
+-- Google account over their first re-points the same row. The row's history
+-- (its sync watermark, and the import windows it has already run) belongs to
+-- the account, not to the row, and must not carry across.
+--
+-- The watermark is cleared by the same Connect that rebinds. This column is
+-- what the import history needs: the widen-only rule reads the widest window a
+-- connection has ever imported, and a run belonging to the previous account is
+-- not history the new one has to widen past.
+--
+-- NULL means "never rebound", which is every row that predates this column and
+-- every connection that has only ever held one account: all of their runs
+-- count, which is exactly the old behaviour.
+ALTER TABLE capture_connection ADD COLUMN account_bound_at timestamptz NULL;

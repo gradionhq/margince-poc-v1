@@ -11,6 +11,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { BackfillPanel } from "./backfill";
 import { problemMessage, throwProblem } from "./common";
 import { imapErrorMessage } from "./imap-connect-form";
@@ -19,6 +20,15 @@ import { imapErrorMessage } from "./imap-connect-form";
 // The conversational connect act renders them in the artifact panel behind
 // the per-purpose consent turn; connecting stays value-before-permission
 // and the panels never claim a connection the server did not confirm.
+
+// The OAuth outcomes that no retry can clear: the provider refused the grant,
+// or its API was never enabled for this deployment. Keyed off the server's
+// outcome segment, and pointing at the same copy Settings renders so the two
+// surfaces cannot drift apart.
+const PERMANENT_FAILURE_BODY: Record<string, MessageKey | undefined> = {
+  misconfigured: "connectors.oauthMisconfigured",
+  rejected: "connectors.oauthRejected",
+};
 
 // The honest-failure banner the connect panels share.
 function ConnectWarn({ title, body }: { title: string; body: string }) {
@@ -35,21 +45,57 @@ function ConnectWarn({ title, body }: { title: string; body: string }) {
   );
 }
 
-// Google: the server mints the consent URL (and the signed state + CSRF
-// cookie that guard the callback); the browser just goes. The return deep
-// link lands back here with the outcome in the route.
-export function GoogleConnectPanel({
-  outcome,
+type OAuthProvider = "gmail" | "graph";
+
+const OAUTH_PROVIDERS: readonly OAuthProvider[] = ["gmail", "graph"];
+
+// The consent return carries its provider as a route segment. A route segment
+// is just text, so it is narrowed by membership in the known set — never
+// asserted into the union. null means "no provider this build knows", which is
+// NOT the same fact as the segment being absent: the caller keeps the two apart.
+function asOAuthProvider(value: string | undefined): OAuthProvider | null {
+  return OAUTH_PROVIDERS.find((p) => p === value) ?? null;
+}
+
+const OAUTH_COPY: Record<
+  OAuthProvider,
+  {
+    btn: MessageKey;
+    hint: MessageKey;
+    unverified: MessageKey;
+    failed: MessageKey;
+  }
+> = {
+  gmail: {
+    btn: "ob.s4.googleBtn",
+    hint: "ob.s4.googleHint",
+    unverified: "ob.s4.googleUnverified",
+    failed: "ob.s4.googleFailed",
+  },
+  graph: {
+    btn: "ob.s4.microsoftBtn",
+    hint: "ob.s4.microsoftHint",
+    unverified: "ob.s4.microsoftUnverified",
+    failed: "ob.s4.microsoftFailed",
+  },
+};
+
+// Pre-consent: the server mints the consent URL (and the signed state + CSRF
+// cookie that guard the callback); the browser just goes. One panel serves
+// every OAuth provider — only the copy and the POST path vary.
+export function OAuthConnectPanel({
+  provider,
   onComplete,
 }: Readonly<{
-  outcome?: string;
+  provider: OAuthProvider;
   onComplete: (skipped: boolean) => Promise<void>;
 }>) {
   const t = useT();
-  const google = useMutation({
+  const copy = OAUTH_COPY[provider];
+  const connect = useMutation({
     mutationFn: async () => {
       const { data, error } = await api.POST("/connectors/{provider}/connect", {
-        params: { path: { provider: "gmail" } },
+        params: { path: { provider } },
         body: {},
       });
       if (error) {
@@ -63,9 +109,58 @@ export function GoogleConnectPanel({
       }
     },
   });
+  return (
+    <>
+      {connect.isError && (
+        <ConnectWarn title={t(copy.failed)} body={connect.error.message} />
+      )}
+      <p
+        className="spoken-hint"
+        style={{ maxWidth: 460, margin: "4px auto 0" }}
+      >
+        <ShieldCheck aria-hidden /> {t(copy.hint)}
+      </p>
+      <p className="t-small ob-google-unverified">{t(copy.unverified)}</p>
+      <div className="connect-acts">
+        <Button
+          variant="primary"
+          disabled={connect.isPending}
+          onClick={() => connect.mutate()}
+        >
+          {connect.isPending ? (
+            <>
+              <span className="ob-spinner" /> {t("ob.s4.connecting")}
+            </>
+          ) : (
+            <>
+              <Mail aria-hidden /> {t(copy.btn)}
+            </>
+          )}
+        </Button>
+        <Button onClick={() => void onComplete(true)}>
+          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
+        </Button>
+      </div>
+    </>
+  );
+}
 
-  // After a successful return, show the live connection rather than a
-  // static claim — the row IS the proof (never a fake-populated screen).
+// Post-consent: the roster row IS the proof a connection happened — never a
+// static claim the server hasn't confirmed. The import offered next belongs to
+// the mailbox that just connected, so the returning provider is matched
+// exactly: the roster is provider-ordered, and taking whichever OAuth row
+// comes first would offer to import Gmail after a Microsoft consent.
+export function OAuthReturnPanel({
+  outcome,
+  provider,
+  onComplete,
+}: Readonly<{
+  outcome?: string;
+  /** The provider the consent returned for, from the deep-link route. */
+  provider?: string;
+  onComplete: (skipped: boolean) => Promise<void>;
+}>) {
+  const t = useT();
   const connections = useQuery({
     queryKey: ["connectors"],
     enabled: outcome === "ok",
@@ -77,100 +172,92 @@ export function GoogleConnectPanel({
       return data;
     },
   });
-  const gmailConnected =
-    connections.data?.data.some(
-      (c) => c.provider === "gmail" && c.status === "connected",
-    ) ?? false;
+  const returning = asOAuthProvider(provider);
+  // A segment this build cannot resolve to a provider names no mailbox, and
+  // falling back would offer the import for one the human did not just connect.
+  // That is precisely the failure the exact match exists to prevent, so it lands
+  // on the confirm-failure state instead of guessing. An ABSENT segment is a
+  // different fact — a landing URL minted before the provider rode the route —
+  // and the roster's first live OAuth mailbox is the best answer there.
+  const unresolvedProvider = provider !== undefined && returning === null;
 
-  if (outcome === "ok") {
+  if (outcome === "denied") {
     return (
-      <div className="connect-result">
-        <div className="cr-h">
-          <CheckCircle2 aria-hidden /> {t("ob.s4.googleOkTitle")}
-        </div>
-        <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
-          {t("ob.s4.googleOkBody")}
-        </p>
-        {connections.isPending && (
-          <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
-            {t("ob.s4.googleVerifying")}
-          </p>
-        )}
-        {gmailConnected && (
-          <>
-            <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
-              <ShieldCheck aria-hidden /> {t("ob.s4.googleLive")}
-            </span>
-            <BackfillPanel provider="gmail" />
-          </>
-        )}
-        {!connections.isPending && !gmailConnected && (
-          <ConnectWarn
-            title={t("ob.s4.googleFailed")}
-            body={t("ob.s4.googleRetry")}
-          />
-        )}
-        <Button
-          variant="primary"
-          style={{ marginTop: "var(--space-4)" }}
-          onClick={() => void onComplete(false)}
-        >
-          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
-        </Button>
-      </div>
+      <ConnectWarn
+        title={t("ob.s4.connectDenied")}
+        body={t("ob.s4.connectRetry")}
+      />
     );
   }
-
+  // Onboarding is the DEFAULT return surface, so it sees the same server
+  // outcome enum Settings does and must handle all of it: an outcome only one
+  // renderer knows about falls through to the other's generic advice. These two
+  // failures are permanent, so neither may repeat connectRetry's "try again" —
+  // they reuse the Settings wording rather than minting a second copy of it.
+  // Object.hasOwn, not a bare index: a route segment like "constructor" would
+  // otherwise resolve to an inherited member and render an empty banner.
+  const permanentBody =
+    outcome && Object.hasOwn(PERMANENT_FAILURE_BODY, outcome)
+      ? PERMANENT_FAILURE_BODY[outcome]
+      : undefined;
+  if (permanentBody) {
+    return (
+      <ConnectWarn
+        title={t("ob.s4.connectConfirmFailed")}
+        body={t(permanentBody)}
+      />
+    );
+  }
+  if (outcome !== "ok" || unresolvedProvider) {
+    return (
+      <ConnectWarn
+        title={t("ob.s4.connectConfirmFailed")}
+        body={t("ob.s4.connectRetry")}
+      />
+    );
+  }
+  // Past the guard above, a null `returning` can only be the absent segment, so
+  // this is the deploy-skew fallback and nothing else.
+  const live = connections.data?.data.find((c) =>
+    returning === null
+      ? asOAuthProvider(c.provider) !== null && c.status === "connected"
+      : c.provider === returning && c.status === "connected",
+  );
   return (
-    <>
-      {outcome === "denied" && (
-        <ConnectWarn
-          title={t("ob.s4.googleDenied")}
-          body={t("ob.s4.googleRetry")}
-        />
-      )}
-      {outcome === "error" && (
-        <ConnectWarn
-          title={t("ob.s4.googleFailed")}
-          body={t("ob.s4.googleRetry")}
-        />
-      )}
-      {google.isError && (
-        <ConnectWarn
-          title={t("ob.s4.googleFailed")}
-          body={google.error.message}
-        />
-      )}
-      <p
-        className="spoken-hint"
-        style={{ maxWidth: 460, margin: "4px auto 0" }}
-      >
-        <ShieldCheck aria-hidden /> {t("ob.s4.googleHint")}
-      </p>
-      <p className="t-small ob-google-unverified">
-        {t("ob.s4.googleUnverified")}
-      </p>
-      <div className="connect-acts">
-        <Button
-          variant="primary"
-          disabled={google.isPending}
-          onClick={() => google.mutate()}
-        >
-          {google.isPending ? (
-            <>
-              <span className="ob-spinner" /> {t("ob.s4.connecting")}
-            </>
-          ) : (
-            <>
-              <Mail aria-hidden /> {t("ob.s4.googleBtn")}
-            </>
-          )}
-        </Button>
-        <Button onClick={() => void onComplete(true)}>
-          <SkipForward aria-hidden /> {t("ob.s4.skipLater")}
-        </Button>
+    <div className="connect-result">
+      <div className="cr-h">
+        <CheckCircle2 aria-hidden /> {t("ob.s4.connectOkTitle")}
       </div>
-    </>
+      <p className="ob-sub" style={{ margin: "8px auto 0", maxWidth: 460 }}>
+        {t("ob.s4.connectOkBody")}
+      </p>
+      {connections.isPending && (
+        <p className="t-small" style={{ marginTop: "var(--space-3)" }}>
+          {t("ob.s4.connectVerifying")}
+        </p>
+      )}
+      {live && (
+        <>
+          <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
+            <ShieldCheck aria-hidden /> {t("ob.s4.connectLive")}
+          </span>
+          <BackfillPanel provider={live.provider} />
+        </>
+      )}
+      {!connections.isPending && !live && (
+        <ConnectWarn
+          title={t("ob.s4.connectConfirmFailed")}
+          body={t("ob.s4.connectRetry")}
+        />
+      )}
+      <Button
+        variant="primary"
+        style={{ marginTop: "var(--space-4)" }}
+        onClick={() => void onComplete(false)}
+      >
+        {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+      </Button>
+    </div>
   );
 }
 

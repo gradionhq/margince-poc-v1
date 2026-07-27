@@ -94,17 +94,76 @@ func (c *Client) AuthCodeURL(state, redirectURI string) string {
 	return c.cfg.AuthURL + "?" + q.Encode()
 }
 
+// tokenOp names the handshake step in a ProviderError, so a failure reads as
+// the token exchange rather than as an anonymous rejection.
+const tokenOp = "token"
+
 // tokenResponse is the subset of the token endpoint payload both providers
-// return that this flow reads.
+// return that this flow reads. The error field is RFC 6749 §5.2's fixed code
+// (invalid_grant, invalid_client, unauthorized_client, …) — the single most
+// useful fact about a refused exchange, and a closed vocabulary rather than
+// provider prose, so it is safe to carry into a log. error_description is
+// deliberately NOT read: it is free text, and the body stops here.
 type tokenResponse struct {
 	AccessToken  string `json:"access_token"`
 	RefreshToken string `json:"refresh_token"`
+	// Scope is the space-delimited set the provider actually granted, which
+	// can be narrower than the set requested — a human may decline part of a
+	// consent screen. Omitted by providers that granted exactly what was
+	// asked for (RFC 6749 §5.1).
+	Scope string `json:"scope"`
+	Error string `json:"error"`
+}
+
+// oauthErrorCode extracts the RFC 6749 error code from a token-endpoint error
+// body, "" when the body carries none or does not decode — an unparsable body
+// must not masquerade as a named reason.
+func oauthErrorCode(body []byte) string {
+	var parsed tokenResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return ""
+	}
+	return connector.MachineReason(parsed.Error)
+}
+
+// The RFC 6749 §5.2 codes that mean THE DEPLOYMENT'S OAuth CLIENT is wrong, not
+// that this human's grant went bad: the client failed to authenticate
+// (invalid_client — a wrong client id/secret) or is not allowed this grant type
+// (unauthorized_client). Both need whoever configured the deployment; no amount
+// of re-consenting clears either. Distinct from invalid_grant, where the code
+// really is stale and retrying the consent is the right advice.
+//
+// This is provider-independent by construction: every OAuth connector on this
+// flow (gmail, gcal, graph) reports a misconfigured client the same way.
+const (
+	codeInvalidClient      = "invalid_client"
+	codeUnauthorizedClient = "unauthorized_client"
+)
+
+// Misconfigured reports whether err is a token-endpoint refusal of the
+// deployment's own OAuth client rather than of the human's grant.
+func Misconfigured(err error) bool {
+	switch connector.ProviderReason(err) {
+	case codeInvalidClient, codeUnauthorizedClient:
+		return true
+	default:
+		return false
+	}
+}
+
+// TokenGrant is what a completed consent yields: the durable refresh token
+// and the scopes the provider says it granted. The two travel together
+// because the second is only ever knowable at the moment of the first — a
+// later refresh does not re-report the grant.
+type TokenGrant struct {
+	RefreshToken string
+	Scopes       []string
 }
 
 // Exchange redeems the authorization code for a durable refresh token.
 // A consent that returns no refresh token did not grant offline access —
 // the connector cannot sync later, so it is a rejected authorization.
-func (c *Client) Exchange(ctx context.Context, code, redirectURI string) (string, error) {
+func (c *Client) Exchange(ctx context.Context, code, redirectURI string) (TokenGrant, error) {
 	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -115,12 +174,23 @@ func (c *Client) Exchange(ctx context.Context, code, redirectURI string) (string
 	c.addScope(form)
 	tok, err := c.token(ctx, form)
 	if err != nil {
-		return "", err
+		return TokenGrant{}, err
 	}
 	if tok.RefreshToken == "" {
-		return "", fmt.Errorf("%s: consent returned no refresh token: %w", c.cfg.Provider, c.cfg.AuthRejected)
+		return TokenGrant{}, fmt.Errorf("%s: consent returned no refresh token: %w", c.cfg.Provider, c.cfg.AuthRejected)
 	}
-	return tok.RefreshToken, nil
+	return TokenGrant{RefreshToken: tok.RefreshToken, Scopes: c.grantedScopes(tok.Scope)}, nil
+}
+
+// grantedScopes reads the response's granted set. An ABSENT scope means the
+// provider granted exactly what was asked for (RFC 6749 §5.1) — reading it as
+// "none" would record an empty grant for a connection that holds its scopes,
+// which is worse than recording nothing at all.
+func (c *Client) grantedScopes(scope string) []string {
+	if granted := strings.Fields(scope); len(granted) > 0 {
+		return granted
+	}
+	return c.cfg.Scopes
 }
 
 // AccessToken redeems the stored refresh token for a short-lived access
@@ -153,8 +223,9 @@ func (c *Client) addScope(form url.Values) {
 
 // token posts the form to the token endpoint and decodes the response. A 4xx
 // is an authorization problem (AuthRejected); anything else reaching or
-// reading the endpoint is Unreachable. The provider's raw body never reaches
-// the caller.
+// reading the endpoint is Unreachable. Either way the failure carries the
+// endpoint's status and its RFC 6749 error code, so a refused exchange says
+// which refusal it was. The provider's raw body never reaches the caller.
 func (c *Client) token(ctx context.Context, form url.Values) (tokenResponse, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.cfg.TokenURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -175,10 +246,14 @@ func (c *Client) token(ctx context.Context, form url.Values) (tokenResponse, err
 		return tokenResponse{}, &connector.RateLimitedError{RetryAfter: retryAfter(resp)}
 	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
-		return tokenResponse{}, c.cfg.AuthRejected
+		return tokenResponse{}, &connector.ProviderError{
+			Op: tokenOp, Status: resp.StatusCode, Reason: oauthErrorCode(body), Class: c.cfg.AuthRejected,
+		}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return tokenResponse{}, c.cfg.Unreachable
+		return tokenResponse{}, &connector.ProviderError{
+			Op: tokenOp, Status: resp.StatusCode, Reason: oauthErrorCode(body), Class: c.cfg.Unreachable,
+		}
 	}
 	if readErr != nil {
 		// A truncated body that happens to be valid-JSON prefix must never

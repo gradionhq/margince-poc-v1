@@ -77,7 +77,7 @@ func (r *Router) finalizeAttempt(ctx context.Context, lc *logicalCall, trace *Ca
 	// meter, which fails loudly to protect the budget guardrail). flush()
 	// strips it later if a further attempt supersedes this one — only the
 	// terminal row keeps it.
-	if r.capturePayloads && trace.ErrorSentinel == "" && !trace.CacheHit {
+	if r.CapturesPayload(trace.Task) && trace.ErrorSentinel == "" && !trace.CacheHit {
 		if p, perr := r.buildPayload(ctx, req, resp); perr != nil {
 			r.log.WarnContext(ctx, "ai: payload capture failed", "err", perr)
 		} else {

@@ -264,12 +264,13 @@ async function createCompany(
   values: Record<string, string>,
   rows: FormRows | undefined,
   customFields: Record<string, unknown>,
+  t: (key: MessageKey) => string,
 ): Promise<Organization> {
   const { data, error } = await api.POST("/organizations", {
     body: { ...mapOrgBody(values, rows ?? {}), ...customFields },
   });
   if (error) {
-    throwProblem(error);
+    throwProblem(error, t);
   }
   return data;
 }
@@ -297,7 +298,7 @@ export function CompaniesScreen() {
             invalidate="organizations"
             screen="companies"
             create={(values, rows) =>
-              createCompany(values, rows, cf.toBody(values))
+              createCompany(values, rows, cf.toBody(values), t)
             }
             resolveExisting={(_code, id) => ({ screen: "companies", id })}
             fields={[...companyCreateFields, ...cf.formFields]}
@@ -463,6 +464,7 @@ const SITE_READ_STATUS_LABELS: Record<SiteReadReport["status"], MessageKey> = {
   running: "deepread.statusRunning",
   done: "deepread.statusDone",
   partial: "deepread.statusPartial",
+  cancelled: "deepread.statusCancelled",
   failed: "deepread.statusFailed",
 };
 
@@ -1059,12 +1061,11 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
       <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
       {org.archived_at ? (
         <Badge tone="warn">{t("record.archived")}</Badge>
-      ) : overlay ? // Edit/merge/archive all write to a mirrored record — hidden in
-      // overlay (every such write answers unsupported_by_sor).
-      null : (
+      ) : (
         <>
           <EditAction
             label={t("record.edit")}
+            notice={overlay ? t("overlay.partialWriteBack") : undefined}
             fields={[...companyEditFields, ...cf.formFields]}
             record={{
               id: org.id,
@@ -1105,34 +1106,39 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
               id: existingId,
             })}
           />
-          <MergeAction
-            label={t("merge.org")}
-            sourceId={org.id}
-            sourceName={org.display_name}
-            searchTargets={searchOrgTargets}
-            merge={async (targetId) => {
-              const { data, error } = await api.POST(
-                "/organizations/{id}/merge",
-                {
-                  params: {
-                    path: { id: org.id },
-                    ...ifMatch(org.version),
+          {/* Merge has no incumbent-first projection — the seam refuses it
+              outright (overlay/provider_writes.go Merge) — unlike
+              edit/archive above, which it serves, so it stays hidden here. */}
+          {!overlay && (
+            <MergeAction
+              label={t("merge.org")}
+              sourceId={org.id}
+              sourceName={org.display_name}
+              searchTargets={searchOrgTargets}
+              merge={async (targetId) => {
+                const { data, error } = await api.POST(
+                  "/organizations/{id}/merge",
+                  {
+                    params: {
+                      path: { id: org.id },
+                      ...ifMatch(org.version),
+                    },
+                    body: { target_id: targetId },
                   },
-                  body: { target_id: targetId },
-                },
-              );
-              if (error) {
-                throwProblem(error);
-              }
-              return data;
-            }}
-            invalidate="organizations"
-            recordKey="organization"
-            survivorRoute={(targetId) => ({
-              screen: "companies",
-              id: targetId,
-            })}
-          />
+                );
+                if (error) {
+                  throwProblem(error, t);
+                }
+                return data;
+              }}
+              invalidate="organizations"
+              recordKey="organization"
+              survivorRoute={(targetId) => ({
+                screen: "companies",
+                id: targetId,
+              })}
+            />
+          )}
           <ArchiveAction
             label={t("record.archive")}
             confirmText={t("record.archiveConfirm")}
@@ -1149,7 +1155,13 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
             recordKey="organization"
             onArchived={() => navigate({ screen: "companies" })}
           />
-          <ShareAction recordType="organization" recordId={org.id} />
+          {/* A record grant probes the native row via auth.EnsureLinkTarget,
+              which a mirrored record has no row for — sharing stays hidden
+              in overlay regardless of record type (see deals.tsx's
+              DealBadges). */}
+          {!overlay && (
+            <ShareAction recordType="organization" recordId={org.id} />
+          )}
         </>
       )}
     </>

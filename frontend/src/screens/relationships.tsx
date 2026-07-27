@@ -7,6 +7,7 @@ import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import type { EntityKind } from "../app/entity";
+import { isOption } from "../app/options";
 import {
   Badge,
   Button,
@@ -370,9 +371,11 @@ function AddRelationshipAction({
               id={`${headingId}-kind`}
               className="input"
               value={kind}
-              onChange={(event) =>
-                selectKind(event.target.value as RelationshipKind)
-              }
+              onChange={(event) => {
+                const value = event.target.value;
+                const kinds = options.map((o) => o.kind);
+                if (isOption(value, kinds)) selectKind(value);
+              }}
             >
               {options.map((option) => (
                 <option key={option.kind} value={option.kind}>

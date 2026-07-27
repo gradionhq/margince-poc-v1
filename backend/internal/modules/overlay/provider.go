@@ -6,8 +6,9 @@ package overlay
 // This file implements the frozen datasource.SystemOfRecordProvider seam
 // (interfaces.md §3, design.md §4.5) over the overlay mirror: reads are
 // served from MirrorStore (visibility-joined, T2-labelled honest —
-// Authoritative is always false); every write verb plus RunReport is
-// declared unsupported until branch 2 lands the write-back path.
+// Authoritative is always false). The write verbs live in
+// provider_writes.go; RunReport has no incumbent analogue and is declared
+// unsupported here.
 
 import (
 	"context"
@@ -377,7 +378,16 @@ func (p *Provider) RunReport(_ context.Context, _ datasource.ReportPlan) (dataso
 // Freshness delegates to ff (the metered force-fresh reader) when
 // configured; otherwise it falls back to the mirror row's own
 // freshness, so a Provider built with ff==nil never nil-panics.
+//
+// Anything that returns a record is a read, and a force-fresh Freshness
+// spends a real incumbent call against the record: it carries the same
+// object-RBAC gate Read/Search/ListFields carry, for the same reason they
+// carry it — the MCP path reaches this provider without any transport gate
+// in front of it.
 func (p *Provider) Freshness(ctx context.Context, ref datasource.EntityRef) (datasource.FreshnessInfo, error) {
+	if err := auth.Require(ctx, string(ref.Type), principal.ActionRead); err != nil {
+		return datasource.FreshnessInfo{}, err
+	}
 	if p.ff != nil {
 		return p.ff.Read(ctx, ref)
 	}

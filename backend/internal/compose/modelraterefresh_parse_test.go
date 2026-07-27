@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
 
 // TestRateExtractPromptMatchesCorpus turns the "certified = shipped" claim into
@@ -28,8 +30,9 @@ func TestRateExtractPromptMatchesCorpus(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("parse corpus: %v", err)
 	}
-	if doc.System != rateExtractSystem {
-		t.Errorf("corpus system prompt differs from rateExtractSystem — the shipped prompt is uncertified.\n--- corpus ---\n%q\n--- const ---\n%q", doc.System, rateExtractSystem)
+	shipped := rateExtractSystemFor(corpusFence(t, doc.System))
+	if doc.System != shipped {
+		t.Errorf("corpus system prompt differs from the shipped rate_extract prompt — the shipped prompt is uncertified.\n--- corpus ---\n%q\n--- shipped ---\n%q", doc.System, shipped)
 	}
 }
 
@@ -48,9 +51,28 @@ func TestFxExtractPromptMatchesCorpus(t *testing.T) {
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf("parse corpus: %v", err)
 	}
-	if doc.System != fxExtractSystem {
-		t.Errorf("corpus system prompt differs from fxExtractSystem — the shipped prompt is uncertified.\n--- corpus ---\n%q\n--- const ---\n%q", doc.System, fxExtractSystem)
+	shipped := fxExtractSystemFor(corpusFence(t, doc.System))
+	if doc.System != shipped {
+		t.Errorf("corpus system prompt differs from the shipped fx prompt — the shipped prompt is uncertified.\n--- corpus ---\n%q\n--- shipped ---\n%q", doc.System, shipped)
 	}
+}
+
+// corpusFence recovers the example marker a corpus scenario was written with,
+// so the shipped prompt can be rebuilt around the SAME boundary and compared
+// byte for byte. The nonce is the one thing that legitimately differs between a
+// scenario and a live call — every other character, the boundary sentence
+// included, is what was certified and must still be what ships.
+func corpusFence(t *testing.T, system string) promptfence.Fence {
+	t.Helper()
+	marker, declared := promptfence.MarkerIn(system)
+	if !declared {
+		t.Fatal("the corpus scenario names no fence marker: it cannot pin a prompt whose boundary is per-call")
+	}
+	fence, ok := promptfence.FromMarker(marker)
+	if !ok {
+		t.Fatalf("corpus marker %q is not one this package could have minted", marker)
+	}
+	return fence
 }
 
 // A real sample captured from https://ai.google.dev/gemini-api/docs/pricing —

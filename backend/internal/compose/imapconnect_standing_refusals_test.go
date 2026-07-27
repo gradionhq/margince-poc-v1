@@ -75,7 +75,7 @@ func TestStandingIMAPConnectRefusals(t *testing.T) {
 	h := connectorHandlers{
 		// A nil-pool registry: the refusal branches under test all return
 		// before any persistence, so wired() passes without a database.
-		registry: NewCaptureRegistry(nil, nil),
+		registry: NewCaptureRegistry(nil, nil, CaptureConfig{}),
 		imapAuthenticate: func(context.Context, connector.AuthRequest) (connector.Auth, error) {
 			probeCalls++
 			return nil, imap.ErrLoginRejected
@@ -143,7 +143,7 @@ func TestStandingIMAPConnectFailureMapping(t *testing.T) {
 
 	t.Run("an unclassified probe error is an opaque 500", func(t *testing.T) {
 		h := connectorHandlers{
-			registry: NewCaptureRegistry(nil, nil),
+			registry: NewCaptureRegistry(nil, nil, CaptureConfig{}),
 			imapAuthenticate: func(context.Context, connector.AuthRequest) (connector.Auth, error) {
 				return nil, errors.New("something provider-shaped and internal")
 			},
@@ -161,7 +161,7 @@ func TestStandingIMAPConnectFailureMapping(t *testing.T) {
 		// A vault-less registry cannot seal the credential — the probe
 		// succeeded but the store must refuse loudly.
 		h := connectorHandlers{
-			registry: NewCaptureRegistry(nil, nil),
+			registry: NewCaptureRegistry(nil, nil, CaptureConfig{}),
 			imapAuthenticate: func(_ context.Context, req connector.AuthRequest) (connector.Auth, error) {
 				return connector.Auth(req.Payload), nil
 			},

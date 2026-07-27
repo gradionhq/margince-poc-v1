@@ -430,20 +430,28 @@ func TestAcceptance_AC_OV_2_BoundedEquivalence_ReadSubset(t *testing.T) {
 		}
 	})
 
-	t.Run("Create + Update + Archive are supported write-back verbs, not declared unsupported_by_sor", func(t *testing.T) {
-		// Write-back is incumbent-first (OVA-MAP-W); these verbs must NOT
-		// answer the unsupported sentinel. This overlayProvider is built
-		// without a write incumbent resolver, so they surface a clear
-		// configuration/permission error instead — anything but
-		// ErrUnsupportedBySoR proves they are recognized, supported verbs.
-		if _, err := overlayProvider.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-			t.Errorf("Create must be a supported write-back verb, got ErrUnsupportedBySoR")
-		}
+	t.Run("write-back verbs answer their declared capability, never a silent break", func(t *testing.T) {
+		// AC-OV-2's bounded equivalence: each op either passes identically or
+		// returns a DECLARED unsupported_by_sor — the provider's answer must
+		// match SupportsWrite exactly, whichever way that falls.
+		//
+		// This overlayProvider is built without a write incumbent resolver, so
+		// a verb it DOES serve surfaces a clear configuration error instead —
+		// anything but ErrUnsupportedBySoR proves it is a recognized verb.
 		if _, err := overlayProvider.Update(ctx, datasource.UpdateInput{Ref: datasource.EntityRef{Type: datasource.EntityPerson}}); errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 			t.Errorf("Update must be a supported write-back verb, got ErrUnsupportedBySoR")
 		}
 		if _, err := overlayProvider.Archive(ctx, datasource.EntityRef{Type: datasource.EntityPerson}); errors.Is(err, apperrors.ErrUnsupportedBySoR) {
 			t.Errorf("Archive must be a supported write-back verb, got ErrUnsupportedBySoR")
+		}
+		// Create is declared unsupported for every type (SupportsWrite): the
+		// write mapping leaves owner_id read-only, so a created incumbent
+		// record would be unowned and the NULL-OWNER rule would hide it from
+		// everyone including its author. The DECLARED refusal is the correct
+		// bounded-equivalence answer, and it must hold at the provider — not
+		// only at the REST guard, which the agent and automation seams bypass.
+		if _, err := overlayProvider.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+			t.Errorf("Create = %v, want the declared ErrUnsupportedBySoR", err)
 		}
 	})
 }
@@ -588,7 +596,8 @@ func TestAcceptance_AC_OV_7_ForceFreshDegrades(t *testing.T) {
 	}
 
 	var eventCount int
-	if err := e.Pool.QueryRow(context.Background(),
+	if err := e.Pool.QueryRow(
+		context.Background(),
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'mirror.budget_degraded' AND envelope->>'workspace_id' = $1`,
 		ws.String(),
 	).Scan(&eventCount); err != nil {

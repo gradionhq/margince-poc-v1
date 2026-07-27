@@ -1,0 +1,1 @@
+DROP TABLE capture_pending_counterparty;

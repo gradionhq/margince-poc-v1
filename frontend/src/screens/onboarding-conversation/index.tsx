@@ -331,6 +331,7 @@ export function OnboardingConversationScreen() {
           dispatch={dispatch}
           persist={persist}
           outcome={route.id === "connect" ? route.id2 : undefined}
+          returningProvider={route.id === "connect" ? route.id3 : undefined}
         />
       )}
     </div>

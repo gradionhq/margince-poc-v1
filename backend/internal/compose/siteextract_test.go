@@ -33,7 +33,7 @@ type laneFake struct {
 }
 
 func (f laneFake) Complete(_ context.Context, req model.Request) (model.Response, error) {
-	if req.System == profileSystem {
+	if strings.HasPrefix(req.System, profileSystem) {
 		if f.panicProfile {
 			panic("laneFake: profile lane panic")
 		}
@@ -44,17 +44,17 @@ func (f laneFake) Complete(_ context.Context, req model.Request) (model.Response
 	}
 	content := req.Messages[0].Content
 	for url := range f.panicFor {
-		if strings.HasPrefix(content, "Page "+url+":") {
+		if strings.Contains(content, "url: "+url+"\n") {
 			panic("laneFake: page " + url + " panic")
 		}
 	}
 	for url, err := range f.failFor {
-		if strings.HasPrefix(content, "Page "+url+":") {
+		if strings.Contains(content, "url: "+url+"\n") {
 			return model.Response{}, err
 		}
 	}
 	for url, reply := range f.pageReplies {
-		if strings.HasPrefix(content, "Page "+url+":") {
+		if strings.Contains(content, "url: "+url+"\n") {
 			return model.Response{Text: reply}, nil
 		}
 	}
@@ -266,7 +266,7 @@ type countingLaneFake struct {
 }
 
 func (f countingLaneFake) Complete(ctx context.Context, req model.Request) (model.Response, error) {
-	if req.System == profileSystem {
+	if strings.HasPrefix(req.System, profileSystem) {
 		f.profile.Add(1)
 	}
 	return f.laneFake.Complete(ctx, req)

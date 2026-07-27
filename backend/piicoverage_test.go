@@ -55,6 +55,9 @@ var piiTables = map[string]piiHandling{
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},
+	// The capture disposition ledger keys on the subject's own address and
+	// keeps the display name their mail arrived with (CAP-DDL-8).
+	"capture_pending_counterparty": {erasureWrite: true, sarRead: true},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are

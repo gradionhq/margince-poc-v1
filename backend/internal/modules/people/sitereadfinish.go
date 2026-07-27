@@ -30,7 +30,7 @@ type SiteReadClaim struct {
 
 // FinishSiteReadInput is the worker's completed crawl report.
 type FinishSiteReadInput struct {
-	Status        string // done | partial | failed
+	Status        string // done | partial | failed | cancelled
 	Pages         []SiteReadPage
 	Skipped       []SiteReadSkip
 	StoppedReason *string
@@ -51,7 +51,7 @@ type FinishSiteReadInput struct {
 // (already finished, or never begun) is ErrNotFound.
 func (s *Store) FinishSiteRead(ctx context.Context, readID ids.UUID, in FinishSiteReadInput) error {
 	if !finishedSiteReadStatuses[in.Status] {
-		return fmt.Errorf("people: %q is not a terminal site-read status (done|partial|failed)", in.Status)
+		return fmt.Errorf("people: %q is not a terminal site-read status (done|partial|failed|cancelled)", in.Status)
 	}
 	if in.StoppedReason != nil && !siteReadStopReasons[*in.StoppedReason] {
 		return fmt.Errorf("people: %q is not a site-read stop reason (budget|page_cap|byte_cap|deadline)", *in.StoppedReason)

@@ -22,7 +22,7 @@ import (
 // WithGmailCapture self-gates: absent the client id/secret, state key,
 // or public base URL it is a no-op and /connectors/gmail/* keeps its
 // declared 501.
-func gmailOptions(cfg apiConfig, freemailExtra []string, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
+func gmailOptions(cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, error) {
 	gmailCfg := compose.GmailConfig{
 		ClientID:      cfg.gmailClientID,
 		ClientSecret:  cfg.gmailClientSecret,
@@ -30,7 +30,7 @@ func gmailOptions(cfg apiConfig, freemailExtra []string, pool *pgxpool.Pool, log
 		PublicBaseURL: cfg.publicBaseURL,
 		APIBaseURL:    cfg.apiBaseURL,
 	}
-	opts := []compose.Option{compose.WithGmailCapture(gmailCfg, freemailExtra...)}
+	opts := []compose.Option{compose.WithGmailCapture(gmailCfg, capCfg)}
 	// The push webhook needs only the pool and an insert-only client — not
 	// the OAuth transport — so a configured token mounts it even while the
 	// OAuth app is incomplete (connections synced by the worker still route).

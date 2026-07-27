@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import type { Route } from "../app/router";
 import { Button, Modal } from "../design-system/atoms";
 import { useT } from "../i18n";
@@ -120,6 +120,7 @@ export function EditRecordModal({
   open,
   onClose,
   title,
+  notice,
   fields,
   record,
   pending,
@@ -131,6 +132,10 @@ export function EditRecordModal({
   open: boolean;
   onClose: () => void;
   title: string;
+  // A one-sentence advisory shown above the form fields, e.g. overlay mode's
+  // partial-write-back warning. Optional so a plain edit carries no empty
+  // banner.
+  notice?: string;
   fields: CreateField[];
   record: Record<string, unknown> & { id: string; version?: number };
   pending: boolean;
@@ -144,28 +149,41 @@ export function EditRecordModal({
   // Repeatable-row fields prefill from the record's current rows (e.g. a
   // company's domains) so an edit starts from the live set rather than blank.
   const [rows, setRows] = useState<FormRows>({});
-  // Only the closed→open TRANSITION should reset the form — `record`/`fields`
-  // are non-primitive props that a background refetch (react-query, focus
-  // revalidation, locale change) can hand a new reference to while the modal
-  // stays open, and re-running the effect on that alone would wipe whatever
-  // the user is mid-typing.
-  const wasOpen = useRef(false);
-
-  useEffect(() => {
-    if (open && !wasOpen.current) {
+  // The prefill runs DURING RENDER on the closed→open transition, never in an
+  // effect. An effect runs only after the browser has painted the open modal,
+  // so for that gap the inputs are on screen — focused and typeable — holding
+  // blanks the record's real values have not reached yet. Whatever the user
+  // types into that gap is written through empty form state and then thrown
+  // away by the prefill that lands a commit later: the field snaps back to the
+  // record's old value and Save carries the edit the user never made. Seeding
+  // during render removes the gap entirely — the inputs' very first commit
+  // already carries the record's values.
+  //
+  // The transition — not `record`/`fields`, non-primitive props a background
+  // refetch or locale change can re-identify while the modal stays open — is
+  // what this keys off, so a re-render never wipes what the user is typing.
+  // Starts false, not `open`: a modal mounted already open still has to seed.
+  const [seededOpen, setSeededOpen] = useState(false);
+  if (open !== seededOpen) {
+    setSeededOpen(open);
+    if (open) {
       // A fresh open starts from the record's current values, never a
       // previous attempt's leftovers.
       setValues(prefillFromRecord(fields, record));
       setRows(prefillRowsFromRecord(fields, record));
     }
-    wasOpen.current = open;
-  }, [open, fields, record]);
+  }
 
   return (
     <Modal open={open} onClose={onClose} labelledBy={headingId}>
       <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
         {title}
       </h2>
+      {notice && (
+        <p className="t-caption" style={{ marginBottom: "var(--space-3)" }}>
+          {notice}
+        </p>
+      )}
       <RecordFormBody
         fields={fields}
         values={values}
@@ -190,6 +208,7 @@ export function EditRecordModal({
 // prefill from, and its transport — nothing else.
 export function EditAction<Updated extends { id: string }>({
   label,
+  notice,
   fields,
   record,
   update,
@@ -198,6 +217,8 @@ export function EditAction<Updated extends { id: string }>({
   resolveExisting,
 }: Readonly<{
   label: string;
+  // See EditRecordModal — an optional one-sentence advisory over the form.
+  notice?: string;
   fields: CreateField[];
   record: Record<string, unknown> & { id: string; version?: number };
   update: (
@@ -234,6 +255,7 @@ export function EditAction<Updated extends { id: string }>({
         open={editing}
         onClose={() => setEditing(false)}
         title={label}
+        notice={notice}
         fields={fields}
         record={record}
         pending={mutation.isPending}

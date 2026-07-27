@@ -20,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -30,17 +31,26 @@ import (
 // every registered follow-on effect — the decision path and the effects
 // share one service so a released effect can redeem what it decides on.
 func approvalsHandlersWithEffects(pool *pgxpool.Pool) approvals.Handlers {
+	return approvals.NewHandlers(approvalsServiceWithEffects(pool))
+}
+
+// approvalsServiceWithEffects is the registration list itself, split from the
+// handler wiring so a fitness test can enumerate what is stageable without
+// standing up an HTTP surface. Every kind registered here must carry a
+// decision-grant mapping (TestEveryRegisteredEffectKindHasADecisionGrantMapping).
+func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc := approvals.NewService(pool)
 	store := people.NewStore(pool)
 	svc.WithEffect("coldstart", coldstartAcceptEffect(svc, store))
 	svc.WithEffect(enrichProposalKind, scrapeAcceptEffect(svc, store))
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, store))
-	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(pool, nil)))
+	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(pool, CaptureConfig{})))
+	svc.WithEffect(counterpartyProposalKind, counterpartyAcceptEffect(svc, store, activities.NewStore(pool), capture.NewPendingStore(pool)))
 	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool)))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool)))
 	svc.WithEffect(aiModelRateProposalKind, aiModelRateAcceptEffect(svc, ai.NewRateStore(pool)))
-	return approvals.NewHandlers(svc)
+	return svc
 }
 
 // coldstartAcceptEffect builds the approvals.ApprovedEffect compose

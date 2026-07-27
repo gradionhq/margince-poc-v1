@@ -154,6 +154,7 @@ func LoadRecords(dir string) ([]Record, error) {
 func buildRecord(task ai.Task, taskVerdict string, reliability float64, results []RunResult, latencies []int64,
 	tokensInTotal, tokensOutTotal, cachedTokensTotal, cacheWriteTokensTotal int,
 	provider, servedModel, identitySource, judgeServedModel string, selfJudgedEveryRun bool, baseCfg ai.RoutingConfig,
+	promptVersion string,
 ) Record {
 	scores := make([]int, len(results))
 	for i, r := range results {
@@ -198,7 +199,7 @@ func buildRecord(task ai.Task, taskVerdict string, reliability float64, results 
 		Provider:             provider,
 		ServedModel:          servedModel,
 		EnvClass:             string(baseCfg.Profile),
-		PromptVersion:        promptVersionV1,
+		PromptVersion:        promptVersion,
 		CorpusVersion:        corpusVersionV1,
 		Verdict:              taskVerdict,
 		Runs:                 n,

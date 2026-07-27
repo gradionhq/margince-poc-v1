@@ -1,0 +1,2 @@
+DROP INDEX idx_activity_counterparty_outbound_attested;
+ALTER TABLE activity DROP COLUMN counterparty_outbound_attested;

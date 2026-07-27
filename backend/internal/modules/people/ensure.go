@@ -88,24 +88,47 @@ func (s *Store) EnsureCounterparty(ctx context.Context, in EnsureCounterpartyInp
 	}
 	var res EnsureCounterpartyResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		suppressed, err := storekit.EmailSuppressed(ctx, tx, in.Email)
-		if err != nil {
-			return err
-		}
-		if suppressed {
-			return ErrCounterpartySuppressed
-		}
-		if err := s.ensurePerson(ctx, tx, in, &res); err != nil {
-			return err
-		}
-		if !in.SuppressOrg && in.Domain != "" {
-			if err := s.ensureOrgAndEmployment(ctx, tx, in, &res); err != nil {
-				return err
-			}
-		}
-		return s.linkActivityToPerson(ctx, tx, in, res.PersonID)
+		var err error
+		res, err = s.EnsureCounterpartyTx(ctx, tx, in)
+		return err
 	})
 	if err != nil {
+		return EnsureCounterpartyResult{}, err
+	}
+	return res, nil
+}
+
+// EnsureCounterpartyTx is the same resolve-or-create on a transaction the CALLER
+// owns, for the paths that must commit records together with the decision that
+// authorized them — the ADR-0072 verdict engine resolving a deferred
+// disposition, and the review-queue accept that redeems a staged proposal.
+// Neither may leave a ledger row reading `real` while the records it promised
+// rolled back, so neither can use the pool-owning form above.
+//
+// The caller is responsible for the workspace GUC; it is already set by the
+// WithWorkspaceTx that produced tx.
+func (s *Store) EnsureCounterpartyTx(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput) (EnsureCounterpartyResult, error) {
+	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
+	if in.Email == "" {
+		return EnsureCounterpartyResult{}, errors.New("people: a counterparty needs an email")
+	}
+	var res EnsureCounterpartyResult
+	suppressed, err := storekit.EmailSuppressed(ctx, tx, in.Email)
+	if err != nil {
+		return EnsureCounterpartyResult{}, err
+	}
+	if suppressed {
+		return EnsureCounterpartyResult{}, ErrCounterpartySuppressed
+	}
+	if err := s.ensurePerson(ctx, tx, in, &res); err != nil {
+		return EnsureCounterpartyResult{}, err
+	}
+	if !in.SuppressOrg && in.Domain != "" {
+		if err := s.ensureOrgAndEmployment(ctx, tx, in, &res); err != nil {
+			return EnsureCounterpartyResult{}, err
+		}
+	}
+	if err := s.linkActivityToPerson(ctx, tx, in, res.PersonID); err != nil {
 		return EnsureCounterpartyResult{}, err
 	}
 	return res, nil
@@ -187,12 +210,19 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 	if match.Decision != DecisionExactCollision {
 		wsID := workspaceID(ctx)
 		orgID = ids.New[ids.OrganizationKind]()
-		// The domain IS the honest name until enrichment learns better —
-		// inventing a prettier one here would be fabrication.
+		// A readable name derived from the domain's registrable label
+		// ("gitex.com" → "Gitex"), marked name_source='domain' so a richer
+		// source (dossier, corroborated signature) may overwrite it later
+		// without ever clobbering a human (ADR-0072/A118, PO-F-2a). The domain
+		// is retained as the honest fallback when no label can be derived.
+		displayName := DisplayNameFromDomain(in.Domain)
+		if displayName == "" {
+			displayName = in.Domain
+		}
 		if _, err := tx.Exec(ctx, `
-			INSERT INTO organization (id, workspace_id, display_name, owner_id, source, captured_by, visibility)
-			VALUES ($1, $2, $3, $4, $5, $6, 'owner')`,
-			orgID, wsID, in.Domain, in.OwnerID, in.Source, in.CapturedBy); err != nil {
+			INSERT INTO organization (id, workspace_id, display_name, name_source, owner_id, source, captured_by, visibility)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, 'owner')`,
+			orgID, wsID, displayName, nameSourceDomain, in.OwnerID, in.Source, in.CapturedBy); err != nil {
 			return fmt.Errorf("people: insert captured organization: %w", err)
 		}
 		if _, err := tx.Exec(ctx, `
@@ -201,11 +231,11 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 			wsID, orgID, in.Domain, in.Source, in.CapturedBy); err != nil {
 			return fmt.Errorf("people: insert captured organization domain: %w", err)
 		}
-		auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{fieldDisplayName: in.Domain})
+		auditID, err := storekit.Audit(ctx, tx, "create", entityOrganization, orgID.UUID, nil, map[string]any{fieldDisplayName: displayName})
 		if err != nil {
 			return err
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &in.Domain}); err != nil {
+		if err := storekit.EmitEvent(ctx, tx, auditID, orgID.UUID, crmcontracts.PublicEventOrganizationCreated{DisplayName: &displayName}); err != nil {
 			return err
 		}
 		res.OrgCreated = true

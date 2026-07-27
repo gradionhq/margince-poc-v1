@@ -7,15 +7,16 @@ package compose
 // pool and the secret vault, wired into overlay.Handlers — composed here
 // so overlay never imports keyvault's concrete provider selection (the
 // same posture capture.go documents for NewCaptureRegistry). This also
-// wires the sync-status/budget/reconcile surface: the shared OVB meter
-// every force-fresh read and the budget read must agree on, the
+// wires the sync-status/budget surface: the shared OVB meter every
+// force-fresh read and the budget read must agree on, and the
 // canonical->incumbent class translator SyncStatus's backfill-
-// completeness lookup needs, and the on-demand Reconciler ReconcileOverlay
-// drives.
+// completeness lookup needs. ReconcileOverlay's on-demand sweep request
+// (overlay.Service.RequestSweep) needs none of this compose-level wiring —
+// it only marks the workspace due, which the worker's own periodic sweep
+// (jobs_overlay.go) then picks up.
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -28,9 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // incumbentHubSpot is the connection.Incumbent discriminator for HubSpot —
@@ -71,14 +70,16 @@ func OverlayBudgetConfig(cfg deployconfig.OverlayBudget) overlaybudget.Config {
 	return out
 }
 
-// NewOverlayHandlers builds the overlay module's connection-lifecycle
-// and sync-status/budget/reconcile handlers over pool, vault (the
-// credential custodian Connect/Disconnect/Reconcile
-// need), meter (GetOverlayBudget's read — see NewOverlayMeter's doc), and
-// log (Reconcile's own per-class failure logging). Called from
-// WithKeyvault, mirroring NewCaptureRegistry's vault-gated wiring:
-// without a vault the overlay surface stays its declared 501 by
-// omission, same as capture's connect path.
+// NewOverlayHandlers builds the overlay module's connection-lifecycle,
+// sync-status/budget, and reconcile handlers over pool, vault (the
+// credential custodian Connect/Disconnect need), meter (GetOverlayBudget's
+// read — see NewOverlayMeter's doc), and log. Called from WithKeyvault,
+// mirroring NewCaptureRegistry's vault-gated wiring: without a vault the
+// overlay surface stays its declared 501 by omission, same as capture's
+// connect path. ReconcileOverlay itself (overlay.Service.RequestSweep)
+// only marks the workspace due — the live sweep runs in the worker
+// (jobs_overlay.go's overlayReconcileWorker), which builds its own
+// incumbent adapter from the same overlayIncumbentFactory.
 func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlaybudget.Meter, log *slog.Logger, backfillLimit int, onModeFlip func(workspaceID ids.UUID)) overlay.Handlers {
 	ms := overlay.NewMirrorStore(pool, unresolvedOwnerEmails{})
 	incumbent := overlayIncumbentFactory(backfillLimit)
@@ -88,8 +89,7 @@ func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay
 		WithIncumbentFactory(incumbent).
 		WithModeFlipObserver(onModeFlip).
 		WithLogger(log)
-	reconciler := overlayReconciler{pool: pool, vault: vault, ms: ms, meter: meter, log: log, newIncumbent: incumbent}
-	return overlay.NewHandlers(svc).WithReconciler(reconciler)
+	return overlay.NewHandlers(svc)
 }
 
 // hubspotIncumbentFactory builds a live HubSpot adapter over one
@@ -154,62 +154,6 @@ type unresolvedOwnerEmails struct{}
 
 func (unresolvedOwnerEmails) OwnerEmail(_ context.Context, ownerExternalID string) (string, error) {
 	return "", fmt.Errorf("overlay: owner-email resolution reached the construction placeholder — a resolving path must rebind the store to a live adapter first (owner %s)", ownerExternalID)
-}
-
-// overlayReconciler implements overlay.Reconciler (handlers.go) —
-// ReconcileOverlay's on-demand sweep. It resolves the CALLING request's
-// own workspace's active incumbent connection (never the whole fleet:
-// this is an admin asking "sync my workspace now," not a scheduled
-// sweep) and drives reconcileConnection (jobs.go) exactly like the
-// periodic worker does per connection, refactored into that one shared
-// function so neither call site duplicates the "resolve the vaulted
-// token, build a live adapter, sweep every object class" sequence. It
-// deliberately reuses ctx as-is (the caller's own already-bound actor +
-// correlation from the authenticated HTTP request) rather than
-// synthesizing a system principal the way jobs.go's periodic worker
-// must (a scheduled tick has no human caller to attribute the sweep's
-// mirror.conflict events to; an on-demand admin call already has one).
-type overlayReconciler struct {
-	pool         *pgxpool.Pool
-	vault        keyvault.Vault
-	ms           *overlay.MirrorStore
-	meter        *overlaybudget.Meter
-	log          *slog.Logger
-	newIncumbent func(region, token string) overlay.Incumbent
-}
-
-func (r overlayReconciler) Reconcile(ctx context.Context) error {
-	if _, ok := principal.WorkspaceID(ctx); !ok {
-		return fmt.Errorf("compose: reconcile called outside a workspace context")
-	}
-	// An explicit "sync my workspace now" resolves THIS workspace's active
-	// connection DIRECTLY via ActiveConnection — never the poller's
-	// DueOverlayConnections, whose next_sweep_at backoff gate would make a
-	// connection the poller recently swept (or one still backed off from an
-	// earlier failure) silently answer "not due". Routing the on-demand call
-	// through that gate turned a squarely-in-overlay-mode workspace into a
-	// misleading mode_not_overlay whenever the poller had just run — an admin
-	// pressing "sync now" must not be told the workspace is not in overlay
-	// mode. The backoff is the poller's own concern, not the human's.
-	d, err := overlay.ActiveConnection(ctx, r.pool)
-	if err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			// No active connection for THIS workspace — the same mode-question
-			// GetSyncStatus/GetBudget answer with ErrModeNotOverlay, since a
-			// reconcile sweep is meaningless without one.
-			return apperrors.ErrModeNotOverlay
-		}
-		return fmt.Errorf("compose: reconcile: resolving the active overlay connection: %w", err)
-	}
-	err = reconcileConnection(ctx, r.pool, r.vault, r.ms, r.meter, r.log, d, r.newIncumbent)
-	if errors.Is(err, overlay.ErrConnectionGone) {
-		// The connection was revoked between the resolve above and the sweep's
-		// first fenced write (a disconnect racing this on-demand reconcile).
-		// That is the same mode-question ErrNotFound answers above — not an
-		// opaque 500 — so collapse it here.
-		return apperrors.ErrModeNotOverlay
-	}
-	return err
 }
 
 // overlayMetricsSection answers the /metrics overlay section for srv,

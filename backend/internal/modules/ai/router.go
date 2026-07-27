@@ -14,6 +14,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -312,7 +313,7 @@ func (r *Router) Embed(ctx context.Context, req model.EmbedRequest) (model.Embed
 	// one for the embed lane today), so this always falls back to the
 	// tier's configured binding.
 	trace.ServedModel, trace.ServedIdentitySource = servedIdentity(trace.Provider, trace.ModelID, "")
-	if r.capturePayloads && trace.ErrorSentinel == "" {
+	if r.CapturesPayload(TaskEmbeddings) && trace.ErrorSentinel == "" {
 		trace.Payload = r.buildEmbedPayload(req, res)
 	}
 	lc := newLogicalCall()
@@ -429,6 +430,7 @@ func embedTokenEstimate(inputs []string) int {
 // with identical prompt text but a different attached document (or a different
 // reasoning/thinking knob) collide, and the second is served the first's answer.
 func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error) {
+	req = withCanonicalFence(req)
 	material, err := json.Marshal(struct {
 		Model              string                     `json:"model"`
 		System             string                     `json:"system"`
@@ -449,4 +451,31 @@ func cacheKey(wsID ids.WorkspaceID, task Task, req model.Request) (string, error
 	}
 	sum := sha256.Sum256(material)
 	return wsID.String() + "|" + string(task) + "|" + hex.EncodeToString(sum[:]), nil
+}
+
+// withCanonicalFence returns req with its data boundary replaced by a fixed
+// placeholder, for hashing only — the returned request is never sent.
+//
+// Prompts that carry captured text bound it with a marker minted per call
+// (shared/kernel/promptfence), which is the point: nothing the sender writes can
+// close it. But a fresh marker in every prompt is also a fresh cache key for
+// every prompt, and the cache would never hit again — worse than a wasted
+// optimization, since capture's auto-enrich extracts a SENDER'S site, so
+// repeated mail from one domain would pay a fresh model call each time instead
+// of collapsing onto one cached extraction.
+//
+// Only the marker the SYSTEM prompt declares is replaced, and only literally.
+// The system prompt is text this codebase wrote, so a hostile page cannot choose
+// which string is treated as the boundary and cannot make two different payloads
+// share a key.
+func withCanonicalFence(req model.Request) model.Request {
+	declaring := req.System
+	req.System = promptfence.Canonicalize(declaring, declaring)
+	messages := make([]model.Message, len(req.Messages))
+	for i, m := range req.Messages {
+		m.Content = promptfence.Canonicalize(declaring, m.Content)
+		messages[i] = m
+	}
+	req.Messages = messages
+	return req
 }

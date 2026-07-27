@@ -89,13 +89,17 @@ func msStub(t *testing.T) *httptest.Server {
 			return
 		}
 		if r.URL.Query().Get("$skiptoken") == "p2" {
-			writeJSON(w, map[string]any{"value": []map[string]any{{"id": "m2"}}})
+			writeJSON(w, map[string]any{"value": []map[string]any{{"id": "m2", "parentFolderId": "sent-folder"}}})
 			return
 		}
 		writeJSON(w, map[string]any{
-			"value":           []map[string]any{{"id": "m1"}},
+			"value":           []map[string]any{{"id": "m1", "parentFolderId": "inbox-folder"}},
 			"@odata.nextLink": srv.URL + "/me/messages?%24skiptoken=p2",
 		})
+	})
+
+	mux.HandleFunc("/me/mailFolders/sentitems", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"id": "sent-folder"})
 	})
 
 	mux.HandleFunc("/me/messages/m1/$value", func(w http.ResponseWriter, _ *http.Request) {
@@ -168,12 +172,12 @@ func TestDefaultEndpointsUseTheConfiguredTenant(t *testing.T) {
 
 func TestExchangeReturnsRefreshToken(t *testing.T) {
 	oauth, _ := newTestClients(t)
-	rt, err := oauth.Exchange(context.Background(), "the-code", "https://app/callback")
+	grant, err := oauth.Exchange(context.Background(), "the-code", "https://app/callback")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
-	if rt != "refresh-1" {
-		t.Errorf("refresh token = %q, want refresh-1", rt)
+	if grant.RefreshToken != "refresh-1" {
+		t.Errorf("refresh token = %q, want refresh-1", grant.RefreshToken)
 	}
 }
 
@@ -317,21 +321,57 @@ func TestEstimateAfterReadsODataCount(t *testing.T) {
 	}
 }
 
-func TestListAfterPagesViaNextLink(t *testing.T) {
+// messageIDs projects a listed page down to its ids so a page assertion reads
+// as the id sequence it is about.
+func messageIDs(msgs []MessageRef) []string {
+	out := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		out = append(out, m.ID)
+	}
+	return out
+}
+
+// The backfill's T1 evidence: Graph names the folder it filed each message in,
+// and SentFolderID resolves the well-known Sent Items id the comparison needs.
+// Without the pairing the backfill cannot tell the owner's own mail from an
+// inbound message whose From header merely claims to be theirs.
+func TestListAfterCarriesTheParentFolderAgainstSentItems(t *testing.T) {
 	_, api := newTestClients(t)
-	ids, next, err := api.ListAfter(context.Background(), "access-2", time.Date(2026, 1, 18, 0, 0, 0, 0, time.UTC), "", 100)
+	sent, err := api.SentFolderID(context.Background(), "access-2")
+	if err != nil {
+		t.Fatalf("SentFolderID: %v", err)
+	}
+	inbox, next, err := api.ListAfter(context.Background(), "access-2", time.Time{}, "", 100)
 	if err != nil {
 		t.Fatalf("ListAfter: %v", err)
 	}
-	if strings.Join(ids, ",") != "m1" || next == "" {
-		t.Fatalf("first page = %v next=%q, want [m1] and a nextLink", ids, next)
+	if len(inbox) != 1 || inbox[0].ParentFolderID == sent {
+		t.Fatalf("first page = %v, want one message filed outside %q", inbox, sent)
 	}
-	ids2, next2, err := api.ListAfter(context.Background(), "access-2", time.Time{}, next, 100)
+	outbox, _, err := api.ListAfter(context.Background(), "access-2", time.Time{}, next, 100)
 	if err != nil {
 		t.Fatalf("ListAfter page 2: %v", err)
 	}
-	if strings.Join(ids2, ",") != "m2" || next2 != "" {
-		t.Errorf("second page = %v next=%q, want [m2] and the end of the walk", ids2, next2)
+	if len(outbox) != 1 || outbox[0].ParentFolderID != sent {
+		t.Fatalf("second page = %v, want one message filed in %q", outbox, sent)
+	}
+}
+
+func TestListAfterPagesViaNextLink(t *testing.T) {
+	_, api := newTestClients(t)
+	msgs, next, err := api.ListAfter(context.Background(), "access-2", time.Date(2026, 1, 18, 0, 0, 0, 0, time.UTC), "", 100)
+	if err != nil {
+		t.Fatalf("ListAfter: %v", err)
+	}
+	if strings.Join(messageIDs(msgs), ",") != "m1" || next == "" {
+		t.Fatalf("first page = %v next=%q, want [m1] and a nextLink", msgs, next)
+	}
+	msgs2, next2, err := api.ListAfter(context.Background(), "access-2", time.Time{}, next, 100)
+	if err != nil {
+		t.Fatalf("ListAfter page 2: %v", err)
+	}
+	if strings.Join(messageIDs(msgs2), ",") != "m2" || next2 != "" {
+		t.Errorf("second page = %v next=%q, want [m2] and the end of the walk", msgs2, next2)
 	}
 }
 
@@ -349,4 +389,99 @@ func TestClientUnreachableWhenServerDown(t *testing.T) {
 	if _, err := api.Profile(context.Background(), "at"); !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("Profile against a closed server = %v, want ErrUnreachable", err)
 	}
+}
+
+// Microsoft's error.code is what tells an operator WHICH refusal this was —
+// a revoked token reads differently from an app that was never granted the
+// permission — so it has to survive the transport while the class stays put.
+func TestGraphRefusalCarriesMicrosoftsErrorCode(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/me/messages", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		//craft:ignore swallowed-errors test stub write
+		_, _ = w.Write([]byte(`{"error":{"code":"Authorization_RequestDenied","message":"Insufficient privileges."}}`))
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	api := NewAPI(srv.Client(), srv.URL)
+
+	_, err := api.EstimateAfter(context.Background(), "access", time.Time{})
+
+	if !errors.Is(err, ErrAuthRejected) {
+		t.Fatalf("err = %v, want ErrAuthRejected", err)
+	}
+	if got := connector.ProviderReason(err); got != "Authorization_RequestDenied" {
+		t.Errorf("ProviderReason = %q, want Authorization_RequestDenied", got)
+	}
+	pe, ok := errors.AsType[*connector.ProviderError](err)
+	if !ok {
+		t.Fatalf("err = %v, want a *connector.ProviderError", err)
+	}
+	if pe.Status != http.StatusForbidden {
+		t.Errorf("Status = %d, want 403", pe.Status)
+	}
+}
+
+// requestOp names the endpoint as a PATH: the query carries cursors and filters
+// that have no place in an error string, and the scheme+host are fixed for the
+// deployment — so an op reads like the other connectors' rather than embedding a
+// host (an ephemeral port, under test).
+func TestRequestOpReducesAURLToItsPath(t *testing.T) {
+	a := &httpAPI{base: "https://graph.microsoft.com/v1.0"}
+	for name, tc := range map[string]struct{ in, want string }{
+		"filter and count": {
+			"https://graph.microsoft.com/v1.0/me/messages?$filter=x&$count=true",
+			"/me/messages",
+		},
+		"delta token": {
+			"https://graph.microsoft.com/v1.0/me/messages/delta?$deltatoken=abc123",
+			"/me/messages/delta",
+		},
+		"no query": {"https://graph.microsoft.com/v1.0/me", "/me"},
+		// A URL that is not under the base keeps its full form rather than being
+		// silently mangled — sameAPIOrigin refuses those before they are fetched,
+		// so one appearing here is worth seeing whole.
+		"off base": {"https://elsewhere.example/x", "https://elsewhere.example/x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := a.requestOp(tc.in); got != tc.want {
+				t.Errorf("requestOp(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// A 2xx that names no folder is not an answer. Left as "", it would compare
+// equal to the empty parentFolderId of any message the same degraded response
+// returned, so the ABSENCE of the evidence would read as the evidence and
+// attest a whole page — and the activity natural key would make it permanent.
+func TestSentFolderIDRefusesA2xxThatNamesNoFolder(t *testing.T) {
+	srv := jsonStub(t, map[string]any{})
+	_, err := NewAPI(srv.Client(), srv.URL).SentFolderID(context.Background(), "access-2")
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("SentFolderID on an id-less 2xx = %v, want ErrUnreachable — an empty id must never reach the comparison", err)
+	}
+}
+
+// The mirror case, and it must fail the same way. A listed message naming no
+// parent folder cannot be captured on a guess in either direction: attested, an
+// empty id would match an unresolved folder; un-attested, the activity natural
+// key would permanently discard evidence the owner really did produce.
+func TestListAfterRefusesAMessageWithNoParentFolder(t *testing.T) {
+	srv := jsonStub(t, map[string]any{"value": []map[string]any{{"id": "m-truncated"}}})
+	_, _, err := NewAPI(srv.Client(), srv.URL).ListAfter(context.Background(), "access-2", time.Time{}, "", 100)
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("ListAfter on a folder-less message = %v, want ErrUnreachable", err)
+	}
+}
+
+// jsonStub serves one canned JSON body on every path — enough for the
+// degraded-response cases, which are about what the client REFUSES to decode.
+func jsonStub(t *testing.T, body map[string]any) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, body)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
 }

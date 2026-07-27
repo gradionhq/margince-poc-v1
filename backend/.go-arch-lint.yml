@@ -101,7 +101,8 @@ deps:
     canUse: [pgx, oapi]
   capture:
     mayDependOn: [capture, contracts, platform]
-    canUse: [pgx, oapi, emersion]
+    # xnet: publicsuffix eTLD+1 fencing for the transactional/ESP gate (ADR-0072).
+    canUse: [pgx, oapi, emersion, xnet]
   consent:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
@@ -113,7 +114,8 @@ deps:
     canUse: [pgx, oapi]
   people:
     mayDependOn: [contracts, platform]
-    canUse: [pgx, oapi, xtext]
+    # xnet: publicsuffix registrable-label derivation for org display names (ADR-0072).
+    canUse: [pgx, oapi, xtext, xnet]
   privacy:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

@@ -18,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -62,9 +63,18 @@ func TestCompanyReadAnswerBuildsABoundedGroundedModelRequest(t *testing.T) {
 	if got.Message != " I found the legal name. " || len(got.ProposedChanges) != 1 || len(got.SourceIDs) != 1 {
 		t.Fatalf("answer = %+v", got)
 	}
-	if brain.request.System != companyReadMessageSystem || brain.request.MaxTokens != ai.ReasoningOutputMaxTokens ||
+	if !strings.HasPrefix(brain.request.System, companyReadMessageSystem) || brain.request.MaxTokens != ai.ReasoningOutputMaxTokens ||
 		len(brain.request.ResponseSchema) == 0 || brain.request.SecretStripper == nil {
 		t.Fatalf("model request lost its governed bounds: %+v", brain.request)
+	}
+	// The dossier is crawled page text, so the turn carrying it sits inside the
+	// boundary this prompt declares.
+	marker, declared := promptfence.MarkerIn(brain.request.System)
+	if !declared {
+		t.Fatalf("the prompt declares no data boundary: %q", brain.request.System)
+	}
+	if !strings.HasPrefix(brain.request.Messages[0].Content, "<"+marker+">") {
+		t.Fatalf("the dossier turn is not inside the declared boundary: %q", brain.request.Messages[0].Content)
 	}
 	if len(brain.request.Messages) != 4 || !strings.Contains(brain.request.Messages[0].Content, "Acme GmbH") ||
 		brain.request.Messages[1].Content != "Did you find the imprint?" ||

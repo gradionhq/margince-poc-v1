@@ -11,6 +11,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -79,6 +80,13 @@ func (e *Exclusions) List(ctx context.Context) ([]ExclusionRule, error) {
 // (workspace, user, kind, value): re-adding an existing rule returns the
 // existing row and writes no duplicate. The value is normalized — domains
 // lowercased, labels trimmed — so the idempotency key is stable.
+//
+// Adding a rule moves the human's own privacy boundary, so it is audited with
+// the verb that actually applies: a first add creates the rule, an add over one
+// they had removed restores that same row, and an add of a rule already live
+// moved nothing and writes no audit row at all. A trail whose last entry read
+// `archive` for a boundary that is currently suppressing capture would tell an
+// auditor the opposite of the truth.
 func (e *Exclusions) Create(ctx context.Context, kind, value string) (ExclusionRule, error) {
 	actor, err := requireHuman(ctx)
 	if err != nil {
@@ -91,16 +99,38 @@ func (e *Exclusions) Create(ctx context.Context, kind, value string) (ExclusionR
 	value = normalizeValue(kind, value)
 	var r ExclusionRule
 	err = database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		// DO UPDATE (a no-op re-set of archived_at) so the RETURNING clause
-		// yields the existing row on an idempotent re-add — DO NOTHING would
-		// return nothing.
-		return tx.QueryRow(ctx, `
+		// The DO UPDATE fires only for an ARCHIVED row, which is what tells the
+		// three outcomes apart: xmax = 0 is a fresh insert, xmax <> 0 is the
+		// resurrection of a removed rule, and no row at all is a re-add of a rule
+		// that is already live. The conflicting row is locked either way — a
+		// filtered-out DO UPDATE still takes the row lock — so the re-add's read
+		// below cannot race a concurrent removal of the very rule it is returning.
+		var inserted bool
+		scanErr := tx.QueryRow(ctx, `
 			INSERT INTO capture_exclusion_rule (workspace_id, user_id, kind, value)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)
 			ON CONFLICT (workspace_id, user_id, kind, value)
 			DO UPDATE SET archived_at = NULL
-			RETURNING id, kind, value, created_at`,
-			actor.UserID, kind, value).Scan(&r.ID, &r.Kind, &r.Value, &r.CreatedAt)
+			      WHERE capture_exclusion_rule.archived_at IS NOT NULL
+			RETURNING id, kind, value, created_at, (xmax = 0) AS inserted`,
+			actor.UserID, kind, value).Scan(&r.ID, &r.Kind, &r.Value, &r.CreatedAt, &inserted)
+		if errors.Is(scanErr, pgx.ErrNoRows) {
+			// The rule is already live: the caller still gets the row it asked for,
+			// and nothing is audited because nothing changed.
+			return tx.QueryRow(ctx, `
+				SELECT id, kind, value, created_at FROM capture_exclusion_rule
+				 WHERE user_id = $1 AND kind = $2 AND value = $3 AND archived_at IS NULL`,
+				actor.UserID, kind, value).Scan(&r.ID, &r.Kind, &r.Value, &r.CreatedAt)
+		}
+		if scanErr != nil {
+			return scanErr
+		}
+		verb, before := "create", map[string]any(nil)
+		if !inserted {
+			verb, before = "restore", exclusionAuditImage(r.Kind, r.Value, true)
+		}
+		return auditLifecycle(ctx, tx, verb, captureExclusionRuleObject, r.ID, before,
+			exclusionAuditImage(r.Kind, r.Value, false))
 	})
 	if err != nil {
 		return ExclusionRule{}, fmt.Errorf("capture: creating exclusion rule: %w", err)
@@ -108,18 +138,36 @@ func (e *Exclusions) Create(ctx context.Context, kind, value string) (ExclusionR
 	return r, nil
 }
 
-// Delete removes one of the calling human's own rules by id. Idempotent —
-// a missing or already-removed rule is a no-op, not an error (204).
+// Delete removes one of the calling human's own rules by id. The row is
+// ARCHIVED, not erased: every reader already filters archived_at, so the rule
+// stops gating ingestion the moment this commits, while the record of what was
+// excluded — and the audit row saying who withdrew it and when — survives.
+// Erasing the row would erase that history with it.
+//
+// Idempotent — a missing or already-archived rule matches nothing and is a
+// no-op, not an error (204), and writes no audit row claiming a removal that
+// did not happen.
 func (e *Exclusions) Delete(ctx context.Context, id ids.UUID) error {
 	actor, err := requireHuman(ctx)
 	if err != nil {
 		return err
 	}
 	err = database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `
-			DELETE FROM capture_exclusion_rule WHERE id = $1 AND user_id = $2`,
-			id, actor.UserID)
-		return err
+		var r ExclusionRule
+		err := tx.QueryRow(ctx, `
+			UPDATE capture_exclusion_rule SET archived_at = now()
+			 WHERE id = $1 AND user_id = $2 AND archived_at IS NULL
+			RETURNING id, kind, value`,
+			id, actor.UserID).Scan(&r.ID, &r.Kind, &r.Value)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		return auditLifecycle(ctx, tx, "archive", captureExclusionRuleObject, r.ID,
+			exclusionAuditImage(r.Kind, r.Value, false),
+			exclusionAuditImage(r.Kind, r.Value, true))
 	})
 	if err != nil {
 		return fmt.Errorf("capture: deleting exclusion rule: %w", err)

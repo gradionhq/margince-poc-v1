@@ -12,6 +12,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -339,5 +340,48 @@ func TestRouterCacheKeyDistinguishesEveryExternalBinding(t *testing.T) {
 		if key == baseKey {
 			t.Fatalf("%s must change the cache key", name)
 		}
+	}
+}
+
+// The data boundary is minted per call, so two identical prompts never share a
+// byte. If it reached the cache key, nothing would ever hit again — and capture
+// auto-enrich would pay a fresh extraction for every mail from the same sender.
+func TestRouterCacheKeyIgnoresThePerCallDataBoundary(t *testing.T) {
+	wsID := ids.New[ids.WorkspaceKind]()
+	keyFor := func(t *testing.T, fence promptfence.Fence) string {
+		t.Helper()
+		key, err := cacheKey(wsID, TaskSummarize, model.Request{
+			System:   "Summarize the page.\n" + fence.Rule("page"),
+			Messages: []model.Message{{Role: "user", Content: fence.Wrap("the same page text")}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return key
+	}
+	if first, second := keyFor(t, promptfence.New()), keyFor(t, promptfence.New()); first != second {
+		t.Fatalf("the same prompt under two boundaries got two cache keys:\n%s\n%s", first, second)
+	}
+}
+
+// Canonicalising the boundary must not blur the data: the placeholder replaces
+// only the marker the system prompt declares, so different page text still keys
+// differently.
+func TestRouterCacheKeyStillSeparatesDifferentFencedData(t *testing.T) {
+	wsID := ids.New[ids.WorkspaceKind]()
+	keyFor := func(t *testing.T, page string) string {
+		t.Helper()
+		fence := promptfence.New()
+		key, err := cacheKey(wsID, TaskSummarize, model.Request{
+			System:   "Summarize the page.\n" + fence.Rule("page"),
+			Messages: []model.Message{{Role: "user", Content: fence.Wrap(page)}},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return key
+	}
+	if keyFor(t, "page one") == keyFor(t, "page two") {
+		t.Fatal("two different pages collapsed onto one cache key")
 	}
 }

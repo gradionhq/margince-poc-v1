@@ -92,21 +92,14 @@ func (s *Service) Disconnect(ctx context.Context) error {
 	s.notifyModeFlip(ws)
 
 	// The disconnect is already committed and authoritative here (connection
-	// revoked, mirror purged, workspace flipped to native) — deleting the
-	// sealed credential is best-effort cleanup AFTER that commit, not part of
-	// it. Failing Disconnect on a vault error would be doubly wrong: it
-	// misreports a disconnect that DID happen, and it strands the caller — a
-	// retry finds no active connection (revokeConnection → ErrNotFound) and
-	// could never re-attempt this delete. So on failure, log the orphaned
-	// credential ref at ERROR for operational cleanup and return success. The
-	// blob is inert: a revoked, unreferenced, encrypted-at-rest secret, not an
-	// active exposure. The ref is a vault key, never the secret (safe to log).
-	// A durable outbox-driven retry keyed off the incumbent.disconnected event
-	// emitted above would remove even the manual step.
-	if err := s.vault.Delete(ctx, ids.From[ids.WorkspaceKind](ws), keyvault.Ref(ref)); err != nil {
-		s.log.ErrorContext(ctx, "overlay: disconnect committed, but deleting the sealed incumbent credential failed — the orphaned (revoked, inert) blob needs cleanup",
-			"workspace", ws.String(), "credential_ref", ref, "err", err)
-	}
+	// revoked, mirror purged, workspace flipped to native) — deleting the sealed
+	// credential is best-effort cleanup AFTER that commit, with the caller's
+	// cancellation detached and a failure logged rather than returned. See
+	// deleteUnreferencedRef (connection.go) for why both of those are required,
+	// and why reconnect's superseded blob shares the same path. A durable
+	// outbox-driven retry keyed off the incumbent.disconnected event emitted
+	// above would remove even the manual cleanup step.
+	s.deleteUnreferencedRef(ctx, ws, keyvault.Ref(ref), "disconnect")
 	return nil
 }
 
@@ -190,10 +183,12 @@ func revokeConnection(ctx context.Context, tx pgx.Tx) (credentialRef string, err
 // they are what keeps a stray in-flight sweep from resurrecting a
 // purged row after this transaction lands. Clearing them belongs to
 // the reconnect flow — establishing a NEW connection is the fresh
-// trust decision that may mirror those records again, so that flow
-// clears the workspace's tombstones as part of connecting. No such
-// flow exists in branch 1: Connect refuses a workspace holding any
-// connection row, revoked included (hasConnection).
+// trust decision that may mirror those records again, so
+// Connect.reconnectConnection (connection.go) clears the workspace's
+// overlay_tombstone rows as part of reviving a revoked connection.
+// Connect's pre-flight (existingConnectionStatus) still refuses a
+// second connect while the existing row is active, but a revoked row
+// is exactly what that reconnect flow revives in place.
 func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	// Tombstone every row the mirror currently holds BEFORE purging it —
 	// the same in-SQL discipline as the ingest upsert (mirrorstore.go):

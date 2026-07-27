@@ -316,6 +316,26 @@ func TestColdStartApplyPayload_Created(t *testing.T) {
 	}
 }
 
+func TestColdStartApplyPayload_CreatedFromDomainFallback(t *testing.T) {
+	// No legal_name accepted: the created event must publish the domain-derived
+	// display name ("Docusign"), never the raw host ("eu.docusign.net") or an
+	// empty name — matching the value resolveOrCreateColdStartOrg stores.
+	in := ApplyColdStartProfileInput{
+		SourceURL: "https://eu.docusign.net",
+		Fields:    []ColdStartFieldInput{{Field: "industry", Value: "software"}},
+	}
+
+	payload := coldStartApplyPayload(true, in, "eu.docusign.net", "agent:coldstart", nil)
+
+	created, ok := payload.(crmcontracts.PublicEventOrganizationCreated)
+	if !ok {
+		t.Fatal("expected an organization.created payload")
+	}
+	if created.DisplayName == nil || *created.DisplayName != "Docusign" {
+		t.Fatalf("display_name = %v, want the domain-derived \"Docusign\"", created.DisplayName)
+	}
+}
+
 func TestColdStartApplyPayload_Updated(t *testing.T) {
 	in := ApplyColdStartProfileInput{SourceURL: "https://acme.example"}
 	applied := map[string]any{"industry": "software"}

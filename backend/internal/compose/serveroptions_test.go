@@ -39,6 +39,23 @@ func TestWithBusReadySetsTheProbe(t *testing.T) {
 	}
 }
 
+func TestWithCaptureConfigRecordsTheDeployedLists(t *testing.T) {
+	s := &Server{}
+	cfg := CaptureConfig{
+		FreemailExtra:      []string{"consumer.example"},
+		TransactionalExtra: []string{"esp.example"},
+		TransactionalNever: []string{"realco.example"},
+	}
+	WithCaptureConfig(cfg)(s, nil)
+
+	if len(s.captureConfig.TransactionalExtra) != 1 || s.captureConfig.TransactionalExtra[0] != "esp.example" {
+		t.Fatalf("captureConfig = %+v, want the deployed lists recorded so the vault/graph registries apply them", s.captureConfig)
+	}
+	if len(s.captureConfig.FreemailExtra) != 1 || len(s.captureConfig.TransactionalNever) != 1 {
+		t.Fatalf("captureConfig dropped a list: %+v", s.captureConfig)
+	}
+}
+
 func TestWithColdStartWiresTheEngine(t *testing.T) {
 	s := &Server{}
 	WithColdStart(nil, nil)(s, nil)

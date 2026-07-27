@@ -12,12 +12,9 @@ package compose
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 	"github.com/riverqueue/river/rivertype"
@@ -31,8 +28,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // CloseDateSweepArgs schedules one close-date hygiene pass (INV-CLOSE-PAST).
@@ -73,94 +68,19 @@ func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowU
 // next_sync_at owns that).
 const dispatchScanInterval = 30 * time.Second
 
-// GmailWatchConfig configures the Gmail push-watch maintenance pass. Topic is
-// the Pub/Sub topic Gmail publishes change notifications to (empty disables the
-// pass entirely — capture stays on the poll); Interval is the scan cadence; and
-// RenewWithin is how far ahead of a watch's expiry it is re-registered.
-type GmailWatchConfig struct {
-	Topic       string
-	Interval    time.Duration
-	RenewWithin time.Duration
-}
-
-// GmailSyncArgs schedules one DISPATCH pass: scan the fleet for due Gmail
-// connections (the sidecar's backoff/pacing gate, ADR-0063) and enqueue one
-// CaptureSyncArgs job per connection. The dispatcher never syncs inline —
-// per-connection jobs isolate failures and kill head-of-line blocking.
-type GmailSyncArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (GmailSyncArgs) Kind() string { return "gmail_sync" }
-
-// gmailSyncWorker is the dispatcher: due-scan, then one insert per
-// connection. Uniqueness on the connection id means a still-running or
-// already-queued sync is not double-enqueued; only a fleet-enumeration
-// failure is returned (so River retries the tick).
-type gmailSyncWorker struct {
-	river.WorkerDefaults[GmailSyncArgs]
-	registry *capture.Registry
-	log      *slog.Logger
-}
-
-func (w *gmailSyncWorker) Work(ctx context.Context, _ *river.Job[GmailSyncArgs]) error {
-	client := river.ClientFromContext[pgx.Tx](ctx)
-	var enumErr error
-	for _, desc := range w.registry.Connectors() {
-		due, err := w.registry.DueConnections(ctx, desc.Name)
-		if err != nil {
-			enumErr = errors.Join(enumErr, err)
-		}
-		for _, d := range due {
-			if _, err := client.Insert(ctx, CaptureSyncArgs{
-				Workspace:    d.Workspace.String(),
-				ConnectionID: d.ID.String(),
-				Provider:     desc.Name,
-			}, &river.InsertOpts{
-				UniqueOpts: river.UniqueOpts{ByArgs: true, ByState: activeSweepStates},
-			}); err != nil {
-				w.log.WarnContext(ctx, "capture sync enqueue failed", "connection", d.ID.String(), "provider", desc.Name, "err", err)
-			}
-		}
-	}
-	return enumErr
-}
-
-// CaptureSyncArgs syncs ONE connection. Unique by args while incomplete, so
-// the dispatcher and the (future) push webhook can both enqueue without
-// double-running a mailbox.
-type CaptureSyncArgs struct {
-	Workspace    string `json:"workspace"`
-	ConnectionID string `json:"connection_id"`
-	Provider     string `json:"provider"`
-}
-
-// Kind is the stable job identifier River persists in river_job.
-func (CaptureSyncArgs) Kind() string { return "capture_sync" }
-
-// captureSyncWorker runs one SyncOnce under the connection's workspace. A
-// sync failure returns nil after the registry has recorded it: the sidecar's
-// backoff owns the retry cadence (ADR-0063) — a River retry would bypass it.
-type captureSyncWorker struct {
-	river.WorkerDefaults[CaptureSyncArgs]
-	registry *capture.Registry
-	log      *slog.Logger
-}
-
-func (w *captureSyncWorker) Work(ctx context.Context, job *river.Job[CaptureSyncArgs]) error {
-	ws, err := ids.Parse(job.Args.Workspace)
-	if err != nil {
-		return fmt.Errorf("capture_sync: workspace id: %w", err)
-	}
-	conn, err := ids.Parse(job.Args.ConnectionID)
-	if err != nil {
-		return fmt.Errorf("capture_sync: connection id: %w", err)
-	}
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
-	if err := w.registry.SyncOnce(wsCtx, conn); err != nil {
-		w.log.WarnContext(ctx, "capture connection sync failed",
-			"connection", job.Args.ConnectionID, "provider", job.Args.Provider, "err", err)
-	}
-	return nil
+// activeSweepStates is the uniqueness window for the periodic passes: a new
+// tick is suppressed only while a prior run is still in flight (available,
+// pending, running, scheduled, retryable) — reproducing the old ticker's
+// one-pass-at-a-time, now enforced across replicas. It deliberately EXCLUDES
+// completed: a completed sweep must NOT block the next scheduled run (the
+// default ByState includes completed, which for a 24h cadence would stop the
+// job firing until the completed row is cleaned out).
+var activeSweepStates = []rivertype.JobState{
+	rivertype.JobStateAvailable,
+	rivertype.JobStatePending,
+	rivertype.JobStateRunning,
+	rivertype.JobStateScheduled,
+	rivertype.JobStateRetryable,
 }
 
 // TimeScanArgs schedules one clock-trigger scan pass (Task 14a): the
@@ -182,57 +102,6 @@ type timeScanWorker struct {
 
 func (w *timeScanWorker) Work(ctx context.Context, _ *river.Job[TimeScanArgs]) error {
 	return w.scanner.Scan(ctx)
-}
-
-// GmailWatchArgs schedules one push-watch maintenance pass: register a Gmail
-// users.watch for every active connection that has none yet and renew any
-// nearing its 7-day expiry (capture.md CAP-DDL-2). Scheduled only when a
-// Pub/Sub topic is configured; without one, no watch job runs and capture stays
-// on the poll (GmailSyncArgs).
-type GmailWatchArgs struct{}
-
-// Kind is the stable job identifier River persists in river_job.
-func (GmailWatchArgs) Kind() string { return "gmail_watch_renew" }
-
-// gmailWatchWorker walks the fleet's active Gmail connections whose watch is
-// missing or nearing expiry and registers/renews each against the configured
-// Pub/Sub topic, advancing watch_expires_at. One connection's failure is logged
-// and skipped (a revoked mailbox must not force the whole pass to retry); only a
-// fleet-enumeration failure is returned (so River retries the tick). It mirrors
-// gmailSyncWorker — the same DueConnections-shaped walk, keyed on the renewal
-// deadline instead of the sync cursor.
-type gmailWatchWorker struct {
-	river.WorkerDefaults[GmailWatchArgs]
-	registry    *capture.Registry
-	topic       string
-	renewWithin time.Duration
-	log         *slog.Logger
-}
-
-func (w *gmailWatchWorker) Work(ctx context.Context, _ *river.Job[GmailWatchArgs]) error {
-	due, enumErr := w.registry.DueWatches(ctx, "gmail", w.renewWithin)
-	for _, d := range due {
-		wsCtx := principal.WithWorkspaceID(ctx, d.Workspace.UUID)
-		if err := w.registry.RenewWatch(wsCtx, d.ID, w.topic); err != nil {
-			w.log.WarnContext(ctx, "gmail watch renewal failed", "connection", d.ID.String(), "err", err)
-		}
-	}
-	return enumErr
-}
-
-// activeSweepStates is the uniqueness window for the periodic passes: a new
-// tick is suppressed only while a prior run is still in flight (available,
-// pending, running, scheduled, retryable) — reproducing the old ticker's
-// one-pass-at-a-time, now enforced across replicas. It deliberately EXCLUDES
-// completed: a completed sweep must NOT block the next scheduled run (the
-// default ByState includes completed, which for a 24h cadence would stop the
-// job firing until the completed row is cleaned out).
-var activeSweepStates = []rivertype.JobState{
-	rivertype.JobStateAvailable,
-	rivertype.JobStatePending,
-	rivertype.JobStateRunning,
-	rivertype.JobStateScheduled,
-	rivertype.JobStateRetryable,
 }
 
 // sweepInsertOpts is the shared insert policy for the periodic passes.
@@ -258,7 +127,12 @@ type JobRunnerConfig struct {
 	ClassifyBrain completer
 	// EnrichBrain is the signature-enrich lane; nil = the pass is absent
 	// by omission and connector-created people keep their empty fields.
-	EnrichBrain     completer
+	EnrichBrain completer
+	// VerdictBrain is the ADR-0072 counterparty-verdict lane. Nil = no AI
+	// configured, and the consequence is deliberate: deferred senders stay
+	// deferred rather than being created on sight. An installation without a
+	// model keeps the old junk OUT, it does not fall back to letting it in.
+	VerdictBrain    completer
 	OverlayVault    keyvault.Vault
 	OverlayInterval time.Duration
 	// OverlayMeter is the poller's OVB meter — built by cmd/worker over the
@@ -365,6 +239,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// a source is configured (a nil brain / empty url no-ops honestly).
 	river.AddWorker(workers, newFxRefreshWorker(pool, cfg.FxExtractBrain, cfg.FxSourceURL, cfg.FxBootstrapCurrencies, log))
 	river.AddWorker(workers, newModelCostRefreshWorker(pool, cfg.RateExtractBrain, cfg.ModelPricingSources, log))
+	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
+	// registered, it enqueues system deep reads the worker above applies.
+	river.AddWorker(workers, newCaptureAutoEnrichSweepWorker(pool, log))
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(
@@ -387,6 +264,11 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return VoiceBuildRetryArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		),
+		// The captured-organization auto-enrich sweep (ADR-0072/A118): daily,
+		// run-on-start to enrich the existing captured backlog on a fresh boot.
+		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CaptureAutoEnrichSweepArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
 
 	if cfg.ClassifyBrain != nil {
@@ -411,6 +293,25 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		periodic = append(periodic, river.NewPeriodicJob(
 			river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) { return CaptureEnrichArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true},
+		))
+	}
+
+	{
+		// Registered unconditionally: only the JUDGING stage needs a model, and
+		// the worker skips it when none is configured. Gating the whole worker on
+		// a brain would mean an AI-less deployment never staged a review for an
+		// existing unsure row and never redacted mail it had already hidden.
+		verdicts := NewCounterpartyVerdictEngine(pool, cfg.VerdictBrain, log)
+		river.AddWorker(workers, &counterpartyVerdictWorker{engine: verdicts})
+		// Hourly, like classify: the ledger's due-index makes an empty pass one
+		// cheap probe, and a deferred sender should not wait a day to become a
+		// record. The one job runs every stage in dependency order —
+		// judging fills the unsure backlog that staging then offers, and
+		// redaction only ever acts on windows that closed before this tick.
+		periodic = append(periodic, river.NewPeriodicJob(
+			river.PeriodicInterval(time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return CounterpartyVerdictArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}

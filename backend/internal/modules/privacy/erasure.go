@@ -113,12 +113,24 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, floorInterval, floorAnchor)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails, floorInterval, floorAnchor)
 		if err != nil {
 			return err
 		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "lead", leadsWiped, reason); err != nil {
 			return err
+		}
+		// The vectors go with the text they were built from. purgeDerivedTraces
+		// reaches embeddings through activity_link, which by construction cannot
+		// see the unlinked captured mail redactSubjectTimeline now covers — and
+		// an embedding of erased text is the erased text in another shape, which
+		// a similarity probe can still reach.
+		if len(activitiesRedacted) > 0 {
+			if _, err := tx.Exec(ctx, `
+				DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = ANY($1)`,
+				activitiesRedacted); err != nil {
+				return err
+			}
 		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
 			return err
@@ -226,6 +238,15 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_social WHERE person_id = $1`, personID); err != nil {
+		return nil, err
+	}
+	// The capture disposition ledger keys on the subject's own address and
+	// carries the display name a message arrived with, so an erasure that
+	// stopped at person_email would leave both readable in the ledger — and
+	// the address would keep answering the correspondence and pending gates.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM capture_pending_counterparty
+		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
@@ -344,6 +365,31 @@ var subjectOnlyDestroyable = `
 	WHERE a.id IN (` + subjectOnlyActivities + `)
 	  ` + correspondenceFloorPredicate(2, 3)
 
+// unlinkedCapturedMail selects captured mail that is ABOUT the subject by
+// address and linked to no OTHER person — the class the link-walk above cannot
+// see, under the same exclusion it uses.
+//
+// It exists because ADR-0072 stopped creating a counterparty for every captured
+// message. Under ADR-0063 every mail ensured a person, so a link always
+// existed and walking links covered everything; a deferred, noise-dispositioned
+// or still-unsure sender now produces activities with no link at all. Erasure
+// that only walks links would leave that mail — the address, the subject line
+// and the body — sitting in the timeline after the subject exercised Art. 17.
+//
+// Mail also linked to someone else belongs to that person's record too, and
+// redacting it would erase a different subject's history.
+// $1 is the person; $2 the subject's addresses. The `m` alias keeps this
+// selector distinct from the `a`-aliased activity the correspondence floor
+// filters when redactSubjectTimeline wraps both id sets in one UPDATE.
+const unlinkedCapturedMail = `
+	SELECT m.id FROM activity m
+	WHERE m.counterparty_email = ANY($2)
+	  AND m.captured_by LIKE 'connector:%'
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link o
+	    WHERE o.activity_id = m.id
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
+
 // redactSubjectTimeline erases the subject's free text from the activity
 // timeline: subject/body of every subject-only activity are wiped (the
 // GENERATED search_tsv refreshes from the now-empty text, so the erased
@@ -352,12 +398,19 @@ var subjectOnlyDestroyable = `
 // the timeline text and its field-level provenance. It returns the
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
+	// Redact the subject's own timeline rows AND the unlinked captured mail
+	// about them, but shield commercial correspondence younger than the
+	// statutory floor: the floor filters the row being updated (aliased `a`),
+	// so it covers both id sets in one pass. $1 person, $2 addresses, $3/$4
+	// the floor interval + anchor, $5 the tombstone name.
 	rows, err := tx.Query(ctx, `
-		UPDATE activity SET subject = $4, body = NULL,
-		  archived_at = coalesce(archived_at, now())
-		WHERE id IN (`+subjectOnlyDestroyable+`)
-		RETURNING id`, personID, floorInterval, floorAnchor, erasedName)
+		UPDATE activity AS a SET subject = $5, body = NULL, raw = NULL,
+		  counterparty_email = NULL,
+		  archived_at = coalesce(a.archived_at, now())
+		WHERE (a.id IN (`+subjectOnlyActivities+`) OR a.id IN (`+unlinkedCapturedMail+`))
+		  `+correspondenceFloorPredicate(3, 4)+`
+		RETURNING a.id`, personID, emails, floorInterval, floorAnchor, erasedName)
 	if err != nil {
 		return nil, err
 	}

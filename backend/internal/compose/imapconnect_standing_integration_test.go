@@ -104,7 +104,7 @@ func TestStandingIMAPConnectTransport(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := connectorHandlers{
-		registry: NewCaptureRegistry(e.Pool, vault),
+		registry: NewCaptureRegistry(e.Pool, vault, CaptureConfig{}),
 		// The production authenticate demands TLS on a public host; the
 		// transport's own branches are the subject here, so the probe runs
 		// the standing connector over a plain loopback dial.

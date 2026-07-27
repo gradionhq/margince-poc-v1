@@ -65,8 +65,11 @@ func TestProviderWriteVerbsObjectGateBeforeTheIncumbent(t *testing.T) {
 	})
 	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
 
-	if _, err := p.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Errorf("Create without a person create grant: err = %v, want ErrPermissionDenied", err)
+	// Create is not gated on the grant at all: the provider declares the verb
+	// unsupported for every type (SupportsWrite), and a capability the mirror
+	// does not have is refused before any principal is consulted.
+	if _, err := p.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson}); !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Errorf("Create in overlay: err = %v, want ErrUnsupportedBySoR", err)
 	}
 	if _, err := p.Update(ctx, datasource.UpdateInput{Ref: ref}); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("Update without a person update grant: err = %v, want ErrPermissionDenied", err)
@@ -79,8 +82,8 @@ func TestProviderWriteVerbsObjectGateBeforeTheIncumbent(t *testing.T) {
 // TestProviderWriteWithoutIncumbentResolver proves a permitted write
 // against a Provider with no incumbent write resolver wired fails with a
 // clear configuration error — never a nil-pointer panic and never a
-// misleading ErrUnsupportedBySoR (Create/Update/Archive ARE supported
-// verbs; the resolver is simply absent).
+// misleading ErrUnsupportedBySoR (update IS a supported verb; the resolver
+// is simply absent).
 func TestProviderWriteWithoutIncumbentResolver(t *testing.T) {
 	p := NewProvider(&MirrorStore{}, nil)
 	ctx := principal.WithActor(context.Background(), principal.Principal{
@@ -90,9 +93,11 @@ func TestProviderWriteWithoutIncumbentResolver(t *testing.T) {
 			RowScope: principal.RowScopeAll,
 		},
 	})
-	_, err := p.Create(ctx, datasource.CreateInput{EntityType: datasource.EntityPerson})
+	_, err := p.Update(ctx, datasource.UpdateInput{
+		Ref: datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()},
+	})
 	if err == nil || errors.Is(err, apperrors.ErrUnsupportedBySoR) {
-		t.Fatalf("Create with no resolver: err = %v, want a clear configuration error", err)
+		t.Fatalf("Update with no resolver: err = %v, want a clear configuration error", err)
 	}
 }
 
@@ -122,6 +127,12 @@ func TestProviderReadVerbsObjectGateBeforeTheMirror(t *testing.T) {
 	}
 	if _, err := p.ListFields(ctx, datasource.EntityPerson); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("ListFields without a person read grant: err = %v, want ErrPermissionDenied", err)
+	}
+	// Freshness belongs in this list: a force-fresh answer spends a real
+	// incumbent call against the record, so it is as much a read as the three
+	// above and reaches the provider by the same ungated MCP path.
+	if _, err := p.Freshness(ctx, ref); !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("Freshness without a person read grant: err = %v, want ErrPermissionDenied", err)
 	}
 }
 

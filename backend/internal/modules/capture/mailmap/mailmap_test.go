@@ -95,28 +95,76 @@ func TestParseClassifiesOutboundByOwner(t *testing.T) {
 	}
 }
 
-func TestSkipReasonDropsAutomatedMail(t *testing.T) {
-	cases := map[string][]byte{
-		"no-reply sender": crlf(
-			"From: no-reply@newsletter.com", "To: me@myco.com", "Subject: Weekly digest",
-			"Message-ID: <n1@newsletter.com>", "Content-Type: text/plain", "", "news", "",
-		),
-		"auto-submitted header": crlf(
-			"From: system@acme.com", "To: me@myco.com", "Subject: Out of office",
-			"Auto-Submitted: auto-replied", "Message-ID: <ooo1@acme.com>", "Content-Type: text/plain", "", "away", "",
-		),
-		"no message id": crlf(
-			"From: someone@acme.com", "To: me@myco.com", "Subject: hi", "Content-Type: text/plain", "", "body", "",
-		),
+func TestParseCarriesListUnsubscribeOntoCounterparty(t *testing.T) {
+	// A bulk-mail List-Unsubscribe header from a HUMAN localpart is NOT
+	// skipped (SkipReason keeps it — it may be a real contact's newsletter),
+	// but it surfaces as the transactional-gate corroboration signal.
+	withHeader := crlf(
+		"From: hello@event.gitex.com",
+		"To: me@myco.com",
+		"Subject: Join us at GITEX",
+		"List-Unsubscribe: <https://gitex.com/unsub?x=1>",
+		"Message-ID: <blast1@event.gitex.com>",
+		"Content-Type: text/plain; charset=utf-8",
+		"",
+		"Register now.",
+		"",
+	)
+	msg, err := Parse(withHeader, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
 	}
-	for name, raw := range cases {
+	if _, drop := msg.SkipReason(); drop {
+		t.Fatalf("a human-localpart bulk mail must not be skipped outright")
+	}
+	if !msg.ToRecord("imap", withHeader).Counterparty.ListUnsubscribe {
+		t.Fatalf("Counterparty.ListUnsubscribe = false, want true when the header is present")
+	}
+
+	without := crlf(
+		"From: jane@acme.com", "To: me@myco.com", "Subject: hi",
+		"Message-ID: <m1@acme.com>", "Content-Type: text/plain", "", "body", "",
+	)
+	msg, err = Parse(without, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if msg.ToRecord("imap", without).Counterparty.ListUnsubscribe {
+		t.Fatalf("Counterparty.ListUnsubscribe = true, want false with no header")
+	}
+}
+
+// A message with no stable identity cannot be captured at all: the natural key
+// is what makes capture idempotent, and there is nobody to attribute a message
+// with no sender to. These are the preconditions, distinct from the two rules
+// that judge mail which DOES have an identity — and the reason each gives is
+// asserted here, because it is the only thing a caller sees.
+func TestSkipReasonRefusesAMessageWithNoIdentity(t *testing.T) {
+	cases := map[string]struct {
+		raw        []byte
+		wantReason string
+	}{
+		"no message id": {crlf(
+			"From: someone@acme.com", "To: me@myco.com", "Subject: hi",
+			"Content-Type: text/plain", "", "body", "",
+		), "no Message-ID"},
+		"no from address": {crlf(
+			"To: me@myco.com", "Subject: hi", "Message-ID: <x@acme.com>",
+			"Content-Type: text/plain", "", "body", "",
+		), "no From address"},
+	}
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
-			msg, err := Parse(raw, "me@myco.com")
+			msg, err := Parse(c.raw, "me@myco.com")
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
-			if _, drop := msg.SkipReason(); !drop {
-				t.Fatalf("want drop=true for %s", name)
+			reason, drop := msg.SkipReason()
+			if !drop {
+				t.Fatalf("%s was captured — it has no stable identity", name)
+			}
+			if reason != c.wantReason {
+				t.Errorf("reason = %q, want %q", reason, c.wantReason)
 			}
 		})
 	}
@@ -207,4 +255,54 @@ func TestParseCarriesCounterpartyAndThreadKey(t *testing.T) {
 			t.Fatalf("thread key = %q, want the In-Reply-To id", msg.ThreadKey())
 		}
 	})
+}
+
+// The T1 correspondence gate's evidence is the provider's, not the message's
+// (ADR-0072 §1). Parse must never infer it: a message whose From header names
+// the mailbox owner parses as outbound — that is what direction means — and it
+// still attests nothing, because anyone can write that header. Only a
+// connector holding an authenticated provider handle may set the attestation.
+func TestSentByOwnerComesFromTheProviderNotTheHeaders(t *testing.T) {
+	spoofed := crlf(
+		"From: me@myco.com", "To: victim@evil.example", "Subject: pay this invoice",
+		"Message-ID: <spoof1@evil.example>", "Content-Type: text/plain", "", "wire it", "",
+	)
+	msg, err := Parse(spoofed, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	rec := msg.ToRecord("imap", spoofed)
+	if rec.Counterparty.Direction != "outbound" {
+		t.Fatalf("Direction = %q, want outbound — the From header claims the owner", rec.Counterparty.Direction)
+	}
+	if rec.Counterparty.SentByOwner() {
+		t.Fatal("SentByOwner = true from headers alone: a forged From:owner would whitelist its recipient past suppression")
+	}
+	if attested := msg.AttestSentByOwner(true).ToRecord("imap", spoofed); !attested.Counterparty.SentByOwner() {
+		t.Fatal("AttestSentByOwner(true) must carry the provider's attestation onto the record")
+	}
+}
+
+// Placement is not authorship. A server-side rule can file a third party's
+// message into a \Sent mailbox or Sent Items, and the counterparty of such a
+// message is its SENDER — attesting on the provider's filing alone would stamp
+// a stranger's address as the workspace's own correspondence and hand them the
+// T1 spare past T2 suppression, which is the same bypass the forged header
+// would have bought.
+func TestAttestationRequiresAuthorshipNotJustPlacement(t *testing.T) {
+	filed := crlf(
+		"From: blast@sendgrid.net", "To: me@myco.com", "Subject: deal",
+		"Message-ID: <filed1@sendgrid.net>", "Content-Type: text/plain", "", "hi", "",
+	)
+	msg, err := Parse(filed, "me@myco.com")
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	rec := msg.AttestSentByOwner(true).ToRecord("imap", filed)
+	if rec.Counterparty.Email != "blast@sendgrid.net" {
+		t.Fatalf("Counterparty = %q, want the sender — this message is inbound", rec.Counterparty.Email)
+	}
+	if rec.Counterparty.SentByOwner() {
+		t.Fatal("a third party's message filed into the sent container attested the owner's authorship")
+	}
 }

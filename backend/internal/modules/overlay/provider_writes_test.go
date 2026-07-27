@@ -105,6 +105,55 @@ func TestCompleteWritePatchDealMoneyPair(t *testing.T) {
 	}
 }
 
+// SupportsWrite is the provider's own answer, not a second hand-maintained
+// list: what it reports must match what Create/Update/Archive actually do,
+// derived from the same writeContractTarget/archivableTypes those methods
+// call — so a change to either can't silently leave the guard's idea of
+// "supported" out of step with the provider's.
+func TestSupportsWriteMatchesTheProviderVerbs(t *testing.T) {
+	mirroredTypes := []datasource.EntityType{
+		datasource.EntityPerson, datasource.EntityOrganization, datasource.EntityDeal,
+		datasource.EntityLead, datasource.EntityActivity,
+	}
+
+	// Create is unsupported for every type (see SupportsWrite's doc comment:
+	// owner_id is read-only in the write mapping, so a created record would
+	// be unowned and invisible to everyone).
+	for _, et := range mirroredTypes {
+		if SupportsWrite(WriteCreate, et) {
+			t.Errorf("SupportsWrite(WriteCreate, %s) = true, want false", et)
+		}
+	}
+
+	// Update must match what writeContractTarget(et, forUpdate=true) actually
+	// accepts — all five mirrored types have an update contract target.
+	for _, et := range mirroredTypes {
+		_, err := writeContractTarget(et, true)
+		want := err == nil
+		if got := SupportsWrite(WriteUpdate, et); got != want {
+			t.Errorf("SupportsWrite(WriteUpdate, %s) = %v, want %v (writeContractTarget err = %v)", et, got, want, err)
+		}
+	}
+
+	// Archive must match archivableTypes exactly — for every mirrored type,
+	// not just the ones the map happens to list (a mirrored type absent from
+	// archivableTypes must read as false, not as a missing-key panic).
+	for _, et := range mirroredTypes {
+		want := archivableTypes[et]
+		if got := SupportsWrite(WriteArchive, et); got != want {
+			t.Errorf("SupportsWrite(WriteArchive, %s) = %v, want %v (archivableTypes)", et, got, want)
+		}
+	}
+
+	// An unrecognized type or verb is refused, never a panic or a stray true.
+	if SupportsWrite(WriteArchive, datasource.EntityType("widget")) {
+		t.Error("SupportsWrite(WriteArchive, widget) = true, want false for an unknown type")
+	}
+	if SupportsWrite(WriteVerb("noop"), datasource.EntityPerson) {
+		t.Error("SupportsWrite(noop, person) = true, want false for an unrecognized verb")
+	}
+}
+
 func TestCompleteWritePatchActivityCarriesKindForward(t *testing.T) {
 	p := NewProvider(nil, nil)
 	fields := map[string]any{"subject": "Follow up"}

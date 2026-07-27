@@ -228,6 +228,14 @@ func (stubs) DeleteCaptureExclusion(w nethttp.ResponseWriter, r *nethttp.Request
 	httperr.NotImplemented(w, r, "DeleteCaptureExclusion")
 }
 
+func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "GetCaptureSettings")
+}
+
+func (stubs) UpdateCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "UpdateCaptureSettings")
+}
+
 func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartReadback")
 }

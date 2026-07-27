@@ -256,6 +256,42 @@ func TestCompanySavedByAHumanSurvivesALaterReadBack(t *testing.T) {
 	}
 }
 
+func TestColdStartCreateWithoutLegalNameUsesDerivedDomainName(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+	base := principal.WithCorrelationID(principal.WithWorkspaceID(context.Background(), e.WS), ids.NewV7())
+	agent := principal.WithActor(base, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "agent:coldstart",
+		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: integration.AdminPerms,
+	})
+
+	// A fresh domain with no existing org and no accepted legal_name: the create
+	// path must name the org from the domain's registrable label ("Docusign",
+	// not "eu.docusign.net") and mark it name_source='domain' so a later richer
+	// source may overwrite it (ADR-0072/A118).
+	orgID, err := store.ApplyColdStartProfile(agent, people.ApplyColdStartProfileInput{
+		SourceURL: "https://eu.docusign.net",
+		Fields: []people.ColdStartFieldInput{{
+			Field: "icp", Value: "eSignature buyers", EvidenceSnippet: "For every agreement",
+			SourceURL: "https://eu.docusign.net", Confidence: 0.9,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ApplyColdStartProfile: %v", err)
+	}
+
+	var displayName, nameSource string
+	if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT display_name, name_source FROM organization WHERE id = $1`, orgID).Scan(&displayName, &nameSource)
+	}); err != nil {
+		t.Fatalf("reading the created org: %v", err)
+	}
+	if displayName != "Docusign" || nameSource != "domain" {
+		t.Fatalf("created org = (%q, %q), want (Docusign, domain)", displayName, nameSource)
+	}
+}
+
 func TestCompanyContextIsScopedProvenanceBearingAndChangesWithTheProfile(t *testing.T) {
 	e := integration.Setup(t)
 	store := people.NewStore(e.Pool)

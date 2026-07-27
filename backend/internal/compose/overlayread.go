@@ -291,18 +291,33 @@ var overlaySearchTypes = []datasource.EntityType{
 	datasource.EntityActivity,
 }
 
-// overlaySearchDefaultLimit caps an overlay search page when the request
-// names no limit — the contract's documented default page size.
-const overlaySearchDefaultLimit = 25
+// overlayMirroredTypes is the set of record types the mirror holds — the same
+// five the read shadows serve, keyed by the string form that is both
+// datasource.EntityType and the generated agentPolicy.RecordType. Derived from
+// overlaySearchTypes rather than re-listed, so reads and writes cannot drift.
+var overlayMirroredTypes = func() map[string]bool {
+	set := make(map[string]bool, len(overlaySearchTypes))
+	for _, et := range overlaySearchTypes {
+		set[string(et)] = true
+	}
+	return set
+}()
 
-// overlaySearchMaxLimit is the contract's SearchParams ceiling (crm.yaml:
-// limit maximum 100). A bound integer that slips past request validation
-// (a negative or oversized ?limit=) must never reach a slice capacity, so
-// the value is clamped here before it sizes any allocation.
-const overlaySearchMaxLimit = 100
+// overlaySearchDefaultLimit sizes an overlay search page when the request
+// names no limit — the shared Limit parameter's own default (crm.yaml's
+// components.parameters.Limit: default 50), which /search refs like every
+// other paged op. Overlay pages the same way native does or the two modes
+// answer different pages for one query.
+const overlaySearchDefaultLimit = 50
 
-// clampOverlaySearchLimit maps a caller-supplied limit onto the contract's
-// 1..100 range so it is safe to use as an allocation size.
+// overlaySearchMaxLimit is that same shared parameter's ceiling (maximum
+// 200). A bound integer that slips past request validation (a negative or
+// oversized ?limit=) must never reach a slice capacity, so the value is
+// clamped here before it sizes any allocation.
+const overlaySearchMaxLimit = 200
+
+// clampOverlaySearchLimit maps a caller-supplied limit onto the shared
+// parameter's 1..200 range so it is safe to use as an allocation size.
 func clampOverlaySearchLimit(v int) int {
 	switch {
 	case v < 1:

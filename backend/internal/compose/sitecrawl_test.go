@@ -19,6 +19,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // fakeSite is an in-memory site behind the siteFetcher seam. It records every
@@ -682,5 +683,79 @@ func TestCrawlStopsWhenTheClockRunsOut(t *testing.T) {
 	}
 	if crawl.Stopped == nil || *crawl.Stopped != crmcontracts.SiteReadReportStoppedReasonDeadline {
 		t.Fatalf("Stopped = %v, want deadline", crawl.Stopped)
+	}
+}
+
+// A per-run page ceiling is a request to read LESS. Honouring one that asked
+// for more would let a job payload raise the limit an operator configured,
+// which is the one direction a cap must never move.
+func TestPageCeilingOnlyNarrows(t *testing.T) {
+	base := newSiteCrawler(nil, CrawlCaps{MaxPages: 20})
+	cases := map[string]struct {
+		ceiling int
+		want    int
+	}{
+		"lower narrows":         {12, 12},
+		"higher is ignored":     {40, 20},
+		"equal changes nothing": {20, 20},
+		"zero means unset":      {0, 20},
+		"negative is unset":     {-5, 20},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			if got := base.withPageCeiling(c.ceiling).maxPages; got != c.want {
+				t.Errorf("ceiling %d gave maxPages %d, want %d", c.ceiling, got, c.want)
+			}
+		})
+	}
+	if base.maxPages != 20 {
+		t.Errorf("the shared crawler was mutated to %d — a per-run cap must not outlive its run", base.maxPages)
+	}
+}
+
+// The automatic lane runs under its own ceiling whatever the payload says: a
+// read nobody asked for should cost a fraction of one somebody did.
+func TestAutomaticReadsCarryTheirOwnPageCeiling(t *testing.T) {
+	w := &siteDeepReadWorker{}
+	cases := map[string]struct {
+		requestedBy string
+		maxPages    int
+		want        int
+	}{
+		"automatic, unset":           {systemAutoEnrichActor, 0, autoEnrichMaxPages},
+		"automatic asking for more":  {systemAutoEnrichActor, 40, autoEnrichMaxPages},
+		"automatic asking for less":  {systemAutoEnrichActor, 5, 5},
+		"human keeps the deployment": {"human:x", 0, 0},
+		"human may still narrow":     {"human:x", 8, 8},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := w.pageCeiling(c.requestedBy, c.maxPages)
+			if got != c.want {
+				t.Errorf("ceiling = %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// Only a human requester can be a human owner. A system namespace that happened
+// to name a uuid would otherwise be attributed to a person who never asked for
+// the read — the provenance mistake this path exists to avoid.
+func TestOnlyAHumanNamespaceYieldsAnOwner(t *testing.T) {
+	human := ids.NewV7()
+	if got := requestedByUserID("human:" + human.String()); got != human {
+		t.Errorf("human requester = %v, want %v", got, human)
+	}
+	for _, requestedBy := range []string{
+		"system:" + ids.NewV7().String(), // a system uuid is not a person
+		systemAutoEnrichActor,
+		"agent:" + ids.NewV7().String(),
+		human.String(), // no namespace at all
+		"human:not-a-uuid",
+		"",
+	} {
+		if got := requestedByUserID(requestedBy); !got.IsZero() {
+			t.Errorf("%q yielded owner %v — on_behalf_of must be NULL rather than a wrong human", requestedBy, got)
+		}
 	}
 }

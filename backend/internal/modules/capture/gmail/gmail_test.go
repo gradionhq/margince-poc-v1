@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/oauthflow"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -21,11 +22,12 @@ import (
 
 type fakeOAuth struct {
 	refresh, access string
+	granted         []string
 }
 
 func (f fakeOAuth) AuthCodeURL(state, _ string) string { return "https://auth?state=" + state }
-func (f fakeOAuth) Exchange(context.Context, string, string) (string, error) {
-	return f.refresh, nil
+func (f fakeOAuth) Exchange(context.Context, string, string) (oauthflow.TokenGrant, error) {
+	return oauthflow.TokenGrant{RefreshToken: f.refresh, Scopes: f.granted}, nil
 }
 func (f fakeOAuth) AccessToken(context.Context, string) (string, error) { return f.access, nil }
 
@@ -35,6 +37,7 @@ type fakeAPI struct {
 	addedHistoryID     string
 	historyErr, getErr error
 	raws               map[string][]byte
+	sent               map[string]bool // ids Gmail filed under the SENT label
 	gone               map[string]bool
 	historyCalls       int
 	listCalls          int
@@ -84,15 +87,15 @@ func (f *fakeAPI) Watch(_ context.Context, _, topic string) (string, time.Time, 
 	return f.watchHistoryID, f.watchExpiry, nil
 }
 
-func (f *fakeAPI) GetRaw(_ context.Context, _, id string) ([]byte, error) {
+func (f *fakeAPI) GetRaw(_ context.Context, _, id string) (Message, error) {
 	if f.gone[id] {
 		// The real client maps a 404 (deleted/moved since enumeration) here.
-		return nil, ErrMessageGone
+		return Message{}, ErrMessageGone
 	}
 	if f.getErr != nil {
-		return nil, f.getErr
+		return Message{}, f.getErr
 	}
-	return f.raws[id], nil
+	return Message{RFC822: f.raws[id], FiledAsSent: f.sent[id]}, nil
 }
 
 type recordingSink struct{ recs []connector.NormalizedRecord }
@@ -363,5 +366,45 @@ func TestNormalizeSkipsAutomatedMail(t *testing.T) {
 	}
 	if len(recs) != 1 || recs[0].Source != "gmail:keep@acme.com" {
 		t.Fatalf("want 1 record gmail:keep@acme.com, got %+v", recs)
+	}
+}
+
+// The Gmail connector's end of the T1 evidence: the SENT label the API decoded
+// has to survive the parse and reach the record, and it only counts alongside
+// the owner's authorship. Covers the wiring the API-level label test cannot —
+// captureOne → AttestSentByOwner → ToRecord.
+func TestSyncCarriesTheSentLabelOntoTheRecord(t *testing.T) {
+	api := &fakeAPI{
+		email:     owner,
+		historyID: "12345",
+		recent:    []string{"in@mail.gmail.com", "forged@mail.gmail.com", "out@mail.gmail.com"},
+		raws: map[string][]byte{
+			"in@mail.gmail.com":     rawMsg("in@mail.gmail.com", "alice@acme.com"),
+			"forged@mail.gmail.com": rawMsg("forged@mail.gmail.com", owner),
+			"out@mail.gmail.com":    rawMsg("out@mail.gmail.com", owner),
+		},
+		// Only the last one is the mailbox's own outgoing copy; the forged one
+		// claims the owner in its From header but Gmail never labelled it SENT.
+		sent: map[string]bool{"out@mail.gmail.com": true},
+	}
+	sink := &recordingSink{}
+	if _, err := New(fakeOAuth{access: "access-1"}, api).Sync(context.Background(), authBytes(t), nil, sink); err != nil {
+		t.Fatalf("Sync: %v", err)
+	}
+	if len(sink.recs) != 3 {
+		t.Fatalf("captured %d records, want 3", len(sink.recs))
+	}
+	attested := map[string]bool{}
+	for _, rec := range sink.recs {
+		attested[rec.NaturalKey.SourceID] = rec.Counterparty.SentByOwner()
+	}
+	if attested["in@mail.gmail.com"] {
+		t.Error("an unlabelled stranger's message attested the owner's authorship")
+	}
+	if attested["forged@mail.gmail.com"] {
+		t.Error("a forged From:owner message attested without the SENT label")
+	}
+	if !attested["out@mail.gmail.com"] {
+		t.Error("a SENT-labelled message the owner wrote did not reach the record attested")
 	}
 }

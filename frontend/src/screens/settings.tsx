@@ -47,6 +47,7 @@ import { AiCallsCard } from "./aicalls";
 import { AiUsageCard } from "./aiusage";
 import { ActorTag } from "./audit";
 import { CaptureExclusionsCard } from "./capture-exclusions";
+import { CaptureSettingsCard } from "./capture-settings";
 import {
   canConfigureAutomations,
   LoadMoreButton,
@@ -65,6 +66,7 @@ import { CreateAction, type CreateField, CreateRecordModal } from "./create";
 import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
+import { OverlayCard } from "./overlay";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
@@ -153,6 +155,8 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <ConnectorsCard />
+          <OverlayCard />
+          <CaptureSettingsCard />
           <CaptureExclusionsCard />
           <WebhooksCard />
         </>

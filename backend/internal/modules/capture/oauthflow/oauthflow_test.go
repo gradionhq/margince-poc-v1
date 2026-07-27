@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -80,12 +81,12 @@ func TestExchangeReturnsRefreshTokenAndSendsScopeWhenConfigured(t *testing.T) {
 	srv := tokenServer(t, http.StatusOK, `{"refresh_token":"r3fr3sh"}`, &form)
 
 	c := New(testConfig(srv.URL, true))
-	rt, err := c.Exchange(context.Background(), "code123", "https://app.example/cb")
+	grant, err := c.Exchange(context.Background(), "code123", "https://app.example/cb")
 	if err != nil {
 		t.Fatalf("Exchange: %v", err)
 	}
-	if rt != "r3fr3sh" {
-		t.Fatalf("refresh token = %q", rt)
+	if grant.RefreshToken != "r3fr3sh" {
+		t.Fatalf("refresh token = %q", grant.RefreshToken)
 	}
 	if form.Get("grant_type") != "authorization_code" || form.Get("code") != "code123" {
 		t.Fatalf("exchange form = %v", form)
@@ -205,5 +206,83 @@ func TestTokenEndpointThrottleRateLimits(t *testing.T) {
 	}
 	if rl.RetryAfter != 45*time.Second {
 		t.Fatalf("Retry-After = %v, want 45s", rl.RetryAfter)
+	}
+}
+
+// A refused exchange is the hardest connector failure to diagnose blind: the
+// remedy for invalid_grant (a stale code — retry the consent) has nothing to do
+// with the remedy for invalid_client (fix the deployment's credentials). The
+// RFC 6749 code must therefore survive into the error, without disturbing the
+// class the scheduler reads.
+func TestRefusedTokenExchangeCarriesTheOAuthErrorCode(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		status     int
+		body       string
+		wantClass  error
+		wantReason string
+	}{
+		{"stale code", http.StatusBadRequest, `{"error":"invalid_grant"}`, errAuth, "invalid_grant"},
+		{"bad credentials", http.StatusUnauthorized, `{"error":"invalid_client"}`, errAuth, "invalid_client"},
+		{"5xx keeps unreachable", http.StatusBadGateway, `{"error":"server_error"}`, errUnre, "server_error"},
+		{"a body naming nothing yields no reason", http.StatusBadRequest, `nope`, errAuth, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var form url.Values
+			srv := tokenServer(t, tc.status, tc.body, &form)
+			c := New(testConfig(srv.URL, false))
+
+			_, err := c.Exchange(context.Background(), "the-code", "https://api.test/callback")
+
+			if !errors.Is(err, tc.wantClass) {
+				t.Fatalf("err = %v, want class %v", err, tc.wantClass)
+			}
+			pe, ok := errors.AsType[*connector.ProviderError](err)
+			if !ok {
+				t.Fatalf("err = %v, want a *connector.ProviderError", err)
+			}
+			if pe.Reason != tc.wantReason {
+				t.Errorf("Reason = %q, want %q", pe.Reason, tc.wantReason)
+			}
+			if pe.Status != tc.status {
+				t.Errorf("Status = %d, want %d", pe.Status, tc.status)
+			}
+			if pe.Op != tokenOp {
+				t.Errorf("Op = %q, want %q", pe.Op, tokenOp)
+			}
+		})
+	}
+}
+
+func TestExchangeReportsTheScopesTheProviderGranted(t *testing.T) {
+	var form url.Values
+	srv := tokenServer(t, http.StatusOK,
+		`{"refresh_token":"r","scope":"offline_access User.Read Mail.Read"}`, &form)
+
+	c := New(testConfig(srv.URL, true))
+	grant, err := c.Exchange(context.Background(), "c", "cb")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	want := []string{"offline_access", "User.Read", "Mail.Read"}
+	if !slices.Equal(grant.Scopes, want) {
+		t.Errorf("granted scopes = %v, want %v", grant.Scopes, want)
+	}
+}
+
+func TestExchangeTreatsAnAbsentScopeAsGrantedAsRequested(t *testing.T) {
+	// Google omits `scope` when it granted exactly what was asked for.
+	// Omission means "as requested", not "none": reading it as none would
+	// persist an empty grant for a connection that in fact holds its scopes.
+	var form url.Values
+	srv := tokenServer(t, http.StatusOK, `{"refresh_token":"r"}`, &form)
+
+	c := New(testConfig(srv.URL, false))
+	grant, err := c.Exchange(context.Background(), "c", "cb")
+	if err != nil {
+		t.Fatalf("Exchange: %v", err)
+	}
+	if !slices.Equal(grant.Scopes, baseScope) {
+		t.Errorf("granted scopes = %v, want the requested %v", grant.Scopes, baseScope)
 	}
 }

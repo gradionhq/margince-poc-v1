@@ -88,6 +88,7 @@ export const en = {
   "search.why": "Why this result",
   "search.relevance": "relevance {pct}%",
   "search.tier.authoritative": "verified",
+  "search.tier.mirrored": "from HubSpot",
 
   "context.title": "Related evidence",
   "context.empty": "Nothing related yet.",
@@ -274,6 +275,71 @@ export const en = {
     "Sorting and filters read through HubSpot — open it there",
   "overlay.unavailable":
     "Not available while reading from HubSpot — open it in HubSpot",
+  "overlay.chipLabel": "Reading from HubSpot",
+  "overlay.chipAria":
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
+  "overlay.refused":
+    "Not available while reading from HubSpot — the mirror can't serve this write.",
+  "overlay.filterUnsupported":
+    "This filter or sort isn't available while reading from HubSpot — remove it and try again.",
+  "overlay.emptyOwnerHint":
+    "An empty list here usually means the owner's HubSpot email doesn't match a workspace user, not an empty HubSpot portal.",
+  "overlay.partialWriteBack":
+    "Only the fields HubSpot accepts are written back — anything else here, including custom fields and owner, is not applied at all; HubSpot's current value is kept.",
+
+  "overlay.title": "HubSpot mirror",
+  "overlay.sub":
+    "Connect the workspace's incumbent CRM so records read from its mirror instead of native tables.",
+  "overlay.loading": "Loading the incumbent connection…",
+  "overlay.notConfigured": "Overlay mode isn't configured in this deployment.",
+  "overlay.loadFailed": "Couldn't load the incumbent connection.",
+  "overlay.empty":
+    "No incumbent is connected. Connect HubSpot to read records from its mirror.",
+  "overlay.adminOnly":
+    "Ask an admin or ops teammate to connect or disconnect HubSpot.",
+  "overlay.region": "Region",
+  "overlay.regionEu1": "EU",
+  "overlay.regionUs": "United States",
+  "overlay.token": "Private-app token",
+  "overlay.tokenHint": "Sealed into the vault; never shown again.",
+  "overlay.connect": "Connect HubSpot",
+  "overlay.reconnect": "Reconnect",
+  "overlay.connectConfirmTitle": "Connect HubSpot for the whole workspace?",
+  "overlay.reconnectConfirmTitle": "Reconnect HubSpot for the whole workspace?",
+  "overlay.connectConfirmBody":
+    "This switches every seat's reads to HubSpot's mirror immediately, and records become read-only wherever the mirror can't serve a write. This affects the whole installation, not just your own session.",
+  "overlay.statusActive": "Connected",
+  "overlay.statusRevoked": "Revoked",
+  "overlay.statusError": "Sync error",
+  "overlay.connectedAt": "Connected {at}",
+  "overlay.syncTitle": "Mirror sync",
+  "overlay.syncLoading": "Loading sync status…",
+  "overlay.syncLoadFailed": "Couldn't load sync status.",
+  "overlay.syncEmpty": "Nothing has synced yet.",
+  "overlay.syncStateFresh": "Fresh",
+  "overlay.syncStatePending": "Pending sync",
+  "overlay.syncStateStale": "Stale",
+  "overlay.backfillDone": "Backfill complete",
+  "overlay.backfillPending": "Backfill in progress",
+  "overlay.lastSynced": "Last synced {at}",
+  "overlay.neverSynced": "Never synced",
+  "overlay.budgetTitle": "API budget",
+  "overlay.budgetLoading": "Loading the budget window…",
+  "overlay.budgetLoadFailed": "Couldn't load the budget window.",
+  "overlay.budgetHeadroom": "Headroom: {headroom}",
+  "overlay.budgetSources":
+    "Force-fresh {forceFresh} · Poller {poller} · Capture {capture}",
+  "overlay.budgetSearch": "Search API: {consumed} / {limit} per second",
+  "overlay.bandOk": "Healthy",
+  "overlay.bandWarn": "Approaching limit",
+  "overlay.bandShed": "Shedding load",
+  "overlay.reconcile": "Sync now",
+  "overlay.reconcileQueued":
+    "Sweep queued — the worker picks it up on its next poll (about every 2 minutes).",
+  "overlay.disconnect": "Disconnect",
+  "overlay.disconnectTitle": "Disconnect HubSpot?",
+  "overlay.disconnectBody":
+    "This purges the mirrored data and switches the workspace back to native records. The audit trail is kept.",
 
   "people.name": "Name",
   "people.email": "Email",
@@ -547,6 +613,7 @@ export const en = {
   "deepread.statusDone": "Done",
   "deepread.statusPartial": "Stopped early",
   "deepread.statusFailed": "Failed",
+  "deepread.statusCancelled": "Cancelled",
   "deepread.resumesAt": "Resumes automatically {when}.",
   "deepread.pagesSoFar.one": "{count} page read so far",
   "deepread.pagesSoFar.other": "{count} pages read so far",
@@ -1088,6 +1155,21 @@ export const en = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Any inbox (IMAP)",
+  "ob.s4.microsoftBtn": "Connect Microsoft",
+  "ob.s4.microsoftHint":
+    "Read-only mail access. You can disconnect any time from Settings.",
+  "ob.s4.microsoftUnverified":
+    'You may see an "unverified app" notice — that\'s this self-hosted install, not a third party.',
+  "ob.s4.microsoftFailed": "The Microsoft connection didn't complete.",
+  "ob.s4.connectOkTitle": "You're connected",
+  "ob.s4.connectOkBody":
+    "Your mailbox is linked. Capture begins on the next sync.",
+  "ob.s4.connectVerifying": "Confirming the connection…",
+  "ob.s4.connectLive": "Live and capturing",
+  "ob.s4.connectConfirmFailed": "We couldn't confirm the connection.",
+  "ob.s4.connectRetry":
+    "Head to Settings → Integrations to try connecting again.",
+  "ob.s4.connectDenied": "You declined access — nothing was connected.",
   "ob.s4.googleBtn": "Continue with Google",
   "ob.s4.soon": "Soon",
   "ob.s4.googleHint":
@@ -1210,7 +1292,23 @@ export const en = {
   "connectors.oauthDenied": "You declined access — nothing was connected.",
   "connectors.oauthError":
     "The connection couldn't be completed — please try again.",
+  // Two failures that "try again" would be wrong about: the provider refused
+  // the grant (retrying the same way repeats it), and the provider's API isn't
+  // enabled for this deployment (no user action can clear it).
+  "connectors.oauthRejected":
+    "The provider declined the connection. Make sure you accept every permission it asks for, then try connecting again.",
+  "connectors.oauthMisconfigured":
+    "This deployment can't complete that connection yet — the provider's API isn't enabled for it. An administrator needs to enable it; the server log names which API.",
   "connectors.dismissOutcome": "Dismiss",
+
+  // The always-present "Add a connection" affordance (Task 1): the empty
+  // state and the roster footer share the same not-yet-connected provider
+  // buttons, so the copy that names them lives once here.
+  "connectors.addConnection": "Add a connection",
+  "connectors.googleSeparateNote":
+    "Gmail and Google Calendar connect separately.",
+  "connectors.providerNotConfigured":
+    "{provider} isn't configured in this deployment.",
 
   // The inline IMAP connect form (Task 6): first-connect and reconnect for
   // the one credential provider, done in Settings instead of bouncing to
@@ -2135,6 +2233,14 @@ export const en = {
   "quotas.archive.title": "Archive quota",
   "quotas.archive.confirm":
     "Archiving drops this quota from the list and stops tracking its attainment. Archived quotas can't be edited.",
+
+  "captureSettings.title": "Capture",
+  "captureSettings.sub":
+    "How captured companies and contacts are enriched after they are created.",
+  "captureSettings.autoEnrich.label": "Auto-enrich captured companies",
+  "captureSettings.autoEnrich.help":
+    "When on, each new company created from captured mail gets an automatic web dossier — its site is read and its profile filled in. Runs under a daily limit.",
+  "captureSettings.adminOnly": "Only an admin or ops can change this.",
 
   "webhooks.title": "Webhooks",
   "webhooks.sub":

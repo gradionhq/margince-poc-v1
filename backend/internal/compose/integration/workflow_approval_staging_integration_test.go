@@ -121,7 +121,8 @@ func TestConfirmationRequiredActionStagesARealApprovalAndRejectionBlocksTheRun(t
 	readRun := func() {
 		t.Helper()
 		if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-			return tx.QueryRow(context.Background(),
+			return tx.QueryRow(
+				context.Background(),
 				`SELECT status, detail->>'approval_id', detail->>'reason'
 				 FROM workflow_run WHERE handler = 'task10_confirmation_required_staging_probe'`,
 			).Scan(&status, &approvalIDStr, &reason)

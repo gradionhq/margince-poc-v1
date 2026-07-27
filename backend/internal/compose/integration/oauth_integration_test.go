@@ -61,8 +61,10 @@ func setupOAuth(t *testing.T) *oauthEnv {
 	}, nil, &registered); status != http.StatusCreated || registered.ClientID == "" {
 		t.Fatalf("DCR → %d %+v", status, registered)
 	}
-	return &oauthEnv{env: e, clientID: registered.ClientID,
-		verifier: strings.Repeat("night-verifier-", 4)} // 60 chars, RFC 7636 range
+	return &oauthEnv{
+		env: e, clientID: registered.ClientID,
+		verifier: strings.Repeat("night-verifier-", 4),
+	} // 60 chars, RFC 7636 range
 }
 
 func (o *oauthEnv) challenge() string {

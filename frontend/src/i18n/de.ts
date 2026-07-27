@@ -92,6 +92,7 @@ export const de = {
   "search.why": "Warum dieses Ergebnis",
   "search.relevance": "Relevanz {pct}%",
   "search.tier.authoritative": "verifiziert",
+  "search.tier.mirrored": "aus HubSpot",
 
   "context.title": "Verwandte Belege",
   "context.empty": "Noch nichts Verwandtes.",
@@ -280,6 +281,73 @@ export const de = {
     "Sortierung und Filter laufen über HubSpot — dort öffnen",
   "overlay.unavailable":
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
+  "overlay.chipLabel": "Liest aus HubSpot",
+  "overlay.chipAria":
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+  "overlay.refused":
+    "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
+  "overlay.filterUnsupported":
+    "Dieser Filter oder diese Sortierung ist beim Lesen aus HubSpot nicht verfügbar — bitte entfernen und erneut versuchen.",
+  "overlay.emptyOwnerHint":
+    "Eine leere Liste bedeutet hier meist, dass die HubSpot-E-Mail des Owners keinem Workspace-Benutzer entspricht — nicht, dass das HubSpot-Portal leer ist.",
+  "overlay.partialWriteBack":
+    "Nur die Felder, die HubSpot akzeptiert, werden zurückgeschrieben — alles andere hier, einschließlich Custom Fields und Owner, wird überhaupt nicht angewendet; der aktuelle Wert in HubSpot bleibt bestehen.",
+
+  "overlay.title": "HubSpot-Spiegel",
+  "overlay.sub":
+    "Verbindet das führende CRM des Workspaces, damit Datensätze aus dessen Spiegel statt aus nativen Tabellen gelesen werden.",
+  "overlay.loading": "Lade die Anbieter-Verbindung…",
+  "overlay.notConfigured":
+    "Overlay-Modus ist in diesem Deployment nicht konfiguriert.",
+  "overlay.loadFailed": "Die Anbieter-Verbindung konnte nicht geladen werden.",
+  "overlay.empty":
+    "Kein führendes System verbunden. Verbinde HubSpot, um Datensätze aus dessen Spiegel zu lesen.",
+  "overlay.adminOnly":
+    "Bitte eine Admin- oder Ops-Person bitten, HubSpot zu verbinden oder zu trennen.",
+  "overlay.region": "Region",
+  "overlay.regionEu1": "EU",
+  "overlay.regionUs": "USA",
+  "overlay.token": "Private-App-Token",
+  "overlay.tokenHint": "Wird im Vault versiegelt; wird nie wieder angezeigt.",
+  "overlay.connect": "HubSpot verbinden",
+  "overlay.reconnect": "Erneut verbinden",
+  "overlay.connectConfirmTitle": "HubSpot für den ganzen Workspace verbinden?",
+  "overlay.reconnectConfirmTitle":
+    "HubSpot für den ganzen Workspace erneut verbinden?",
+  "overlay.connectConfirmBody":
+    "Dies schaltet die Lesezugriffe aller Sitze sofort auf den HubSpot-Spiegel um, und Datensätze werden schreibgeschützt, wo immer der Spiegel kein Schreiben unterstützt. Dies betrifft die gesamte Installation, nicht nur die eigene Sitzung.",
+  "overlay.statusActive": "Verbunden",
+  "overlay.statusRevoked": "Widerrufen",
+  "overlay.statusError": "Sync-Fehler",
+  "overlay.connectedAt": "Verbunden {at}",
+  "overlay.syncTitle": "Spiegel-Synchronisierung",
+  "overlay.syncLoading": "Lade Sync-Status…",
+  "overlay.syncLoadFailed": "Sync-Status konnte nicht geladen werden.",
+  "overlay.syncEmpty": "Noch nichts synchronisiert.",
+  "overlay.syncStateFresh": "Aktuell",
+  "overlay.syncStatePending": "Sync ausstehend",
+  "overlay.syncStateStale": "Veraltet",
+  "overlay.backfillDone": "Backfill abgeschlossen",
+  "overlay.backfillPending": "Backfill läuft",
+  "overlay.lastSynced": "Zuletzt synchronisiert {at}",
+  "overlay.neverSynced": "Noch nie synchronisiert",
+  "overlay.budgetTitle": "API-Budget",
+  "overlay.budgetLoading": "Lade das Budget-Fenster…",
+  "overlay.budgetLoadFailed": "Das Budget-Fenster konnte nicht geladen werden.",
+  "overlay.budgetHeadroom": "Spielraum: {headroom}",
+  "overlay.budgetSources":
+    "Force-Fresh {forceFresh} · Poller {poller} · Capture {capture}",
+  "overlay.budgetSearch": "Such-API: {consumed} / {limit} pro Sekunde",
+  "overlay.bandOk": "Gesund",
+  "overlay.bandWarn": "Nähert sich dem Limit",
+  "overlay.bandShed": "Drosselt Last",
+  "overlay.reconcile": "Jetzt synchronisieren",
+  "overlay.reconcileQueued":
+    "Abgleich eingereiht — der Worker holt ihn beim nächsten Poll ab (etwa alle 2 Minuten).",
+  "overlay.disconnect": "Trennen",
+  "overlay.disconnectTitle": "HubSpot trennen?",
+  "overlay.disconnectBody":
+    "Dies löscht die gespiegelten Daten und schaltet den Workspace zurück auf native Datensätze. Das Audit-Protokoll bleibt erhalten.",
 
   "people.name": "Name",
   "people.email": "E-Mail",
@@ -560,6 +628,7 @@ export const de = {
   "deepread.statusDone": "Fertig",
   "deepread.statusPartial": "Früh beendet",
   "deepread.statusFailed": "Fehlgeschlagen",
+  "deepread.statusCancelled": "Abgebrochen",
   "deepread.resumesAt": "Wird automatisch am {when} fortgesetzt.",
   "deepread.pagesSoFar.one": "{count} Seite gelesen",
   "deepread.pagesSoFar.other": "{count} Seiten gelesen",
@@ -1110,6 +1179,23 @@ export const de = {
   "ob.s4.provGoogle": "Google",
   "ob.s4.provMicrosoft": "Microsoft",
   "ob.s4.provImap": "Beliebiges Postfach (IMAP)",
+  "ob.s4.microsoftBtn": "Microsoft verbinden",
+  "ob.s4.microsoftHint":
+    "Nur-Lese-Zugriff auf E-Mails. Du kannst die Verbindung jederzeit in den Einstellungen trennen.",
+  "ob.s4.microsoftUnverified":
+    "Eventuell erscheint ein Hinweis „nicht verifizierte App“ — das ist diese selbstgehostete Installation, kein Dritter.",
+  "ob.s4.microsoftFailed":
+    "Die Microsoft-Verbindung wurde nicht abgeschlossen.",
+  "ob.s4.connectOkTitle": "Verbunden",
+  "ob.s4.connectOkBody":
+    "Dein Postfach ist verknüpft. Die Erfassung startet beim nächsten Sync.",
+  "ob.s4.connectVerifying": "Verbindung wird bestätigt…",
+  "ob.s4.connectLive": "Aktiv und erfassend",
+  "ob.s4.connectConfirmFailed": "Die Verbindung konnte nicht bestätigt werden.",
+  "ob.s4.connectRetry":
+    "Öffne Einstellungen → Integrationen, um es erneut zu versuchen.",
+  "ob.s4.connectDenied":
+    "Du hast den Zugriff abgelehnt — es wurde nichts verbunden.",
   "ob.s4.googleBtn": "Mit Google fortfahren",
   "ob.s4.soon": "Bald",
   "ob.s4.googleHint":
@@ -1233,7 +1319,23 @@ export const de = {
     "Sie haben den Zugriff abgelehnt — es wurde nichts verbunden.",
   "connectors.oauthError":
     "Die Verbindung konnte nicht hergestellt werden — bitte versuchen Sie es erneut.",
+  // Zwei Fälle, für die "erneut versuchen" falsch wäre: der Anbieter hat die
+  // Freigabe abgelehnt, und die API des Anbieters ist für diese Installation
+  // nicht aktiviert (das kann keine Nutzeraktion beheben).
+  "connectors.oauthRejected":
+    "Der Anbieter hat die Verbindung abgelehnt. Bestätigen Sie alle angefragten Berechtigungen und versuchen Sie es dann erneut.",
+  "connectors.oauthMisconfigured":
+    "Diese Installation kann die Verbindung noch nicht abschließen — die API des Anbieters ist dafür nicht aktiviert. Ein Administrator muss sie aktivieren; das Server-Log nennt die betroffene API.",
   "connectors.dismissOutcome": "Schließen",
+
+  // Das immer sichtbare "Verbindung hinzufügen"-Element (Task 1): der
+  // Leerzustand und die Fußzeile der Liste teilen sich dieselben Buttons für
+  // noch nicht verbundene Anbieter.
+  "connectors.addConnection": "Verbindung hinzufügen",
+  "connectors.googleSeparateNote":
+    "Gmail und Google Kalender werden separat verbunden.",
+  "connectors.providerNotConfigured":
+    "{provider} ist in dieser Installation nicht konfiguriert.",
 
   // Das eingebettete IMAP-Verbindungsformular (Task 6).
   "connectors.imapConnectCta": "IMAP-Postfach verbinden",
@@ -2175,6 +2277,16 @@ export const de = {
   "quotas.archive.title": "Quota archivieren",
   "quotas.archive.confirm":
     "Das Archivieren entfernt diese Quota aus der Liste und stoppt die Verfolgung der Zielerreichung. Archivierte Quotas können nicht bearbeitet werden.",
+
+  "captureSettings.title": "Erfassung",
+  "captureSettings.sub":
+    "Wie erfasste Unternehmen und Kontakte nach ihrer Erstellung angereichert werden.",
+  "captureSettings.autoEnrich.label":
+    "Erfasste Unternehmen automatisch anreichern",
+  "captureSettings.autoEnrich.help":
+    "Wenn aktiviert, erhält jedes aus erfassten E-Mails erstellte Unternehmen automatisch ein Web-Dossier — seine Website wird gelesen und sein Profil ausgefüllt. Läuft unter einem Tageslimit.",
+  "captureSettings.adminOnly":
+    "Nur ein Administrator oder Ops kann dies ändern.",
 
   "webhooks.title": "Webhooks",
   "webhooks.sub":

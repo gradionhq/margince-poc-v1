@@ -21,7 +21,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -95,11 +95,11 @@ var (
 // here.)
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -141,26 +141,29 @@ var defaults = map[string]Document{
 			readOnly,
 			grant{},
 			readOnly,
-			grant{},  // fx_rate — admin/ops-only
-			grant{}), // ai_model_rate — admin/ops-only
+			grant{}, // fx_rate — admin/ops-only
+			grant{}, // ai_model_rate — admin/ops-only
+			// capture_settings — everyone reads (a rep sees whether
+			// auto-enrich is on), only admin/ops toggle it.
+			readOnly),
 		RowScope: principal.RowScopeTeam,
 	},
 	"read_only": {
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate grant) map[string]grant {
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
@@ -174,6 +177,7 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 		"webhook_subscription": webhookSubscription,
 		"fx_rate":              fxRate,
 		"ai_model_rate":        aiModelRate,
+		"capture_settings":     captureSettings,
 	}
 }
 

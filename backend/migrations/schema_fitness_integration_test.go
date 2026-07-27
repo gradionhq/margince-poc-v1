@@ -278,6 +278,11 @@ var rowScopedFKDecisions = map[string]string{
 	"person.converted_from_lead_id": "server-derived: stamped by PromoteLead",
 	"deal_stage_history.deal_id":    "server-derived: appended by CreateDeal/AdvanceDeal",
 	"brief_item.deal_id":            "server-derived: written only by the brief ranker from its own row-scoped candidate query, never from a request body",
+	// The capture disposition ledger (CAP-DDL-8): capture writes the row in
+	// the same transaction as the activity it just created, from that
+	// activity's own id — a connector principal supplies message bytes, never
+	// a record reference.
+	"capture_pending_counterparty.activity_id": "server-derived: stamped by the capture Sink from the activity it just wrote",
 	// Client-supplied edge endpoints — every one probed at the store:
 	"relationship.person_id":                     "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
 	"relationship.counterparty_org_id":           "gated: auth.EnsureLinkTarget in CreateRelationship (H1)",
@@ -296,11 +301,12 @@ var rowScopedFKDecisions = map[string]string{
 	// recordDedupeCandidate stamps them from the ensure chokepoint's own
 	// row-scoped fuzzy query, never from a request body; the disposition
 	// endpoints address the candidate row, not the pair ids.
-	"dedupe_candidate.left_person_id":  "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_person_id": "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.left_org_id":     "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"dedupe_candidate.right_org_id":    "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
-	"person_profile_field.person_id":   "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
+	"dedupe_candidate.left_person_id":           "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.right_person_id":          "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.left_org_id":              "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"dedupe_candidate.right_org_id":             "server-derived: stamped by recordDedupeCandidate from the dedupe sweep's own row-scoped match query",
+	"person_profile_field.person_id":            "server-derived: the enrich pass resolves the person from its own row-scoped connector-activity query (PO-DDL-12), never from a request body",
+	"capture_auto_enrich_state.organization_id": "server-derived: the auto-enrich sweep keys the cursor on an org id its own row-scoped ListDueOrgs read produced (CAP-PARAM-7), never from a request body",
 }
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation

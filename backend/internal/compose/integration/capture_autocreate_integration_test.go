@@ -15,171 +15,67 @@ package integration
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-const autoCreateOwner = "owner@myco.example"
-
-// mailBatchConnector replays a fixed batch of RFC822 messages through the
-// production mailmap → Sink path — the provider I/O faked, nothing else.
-type mailBatchConnector struct {
-	raws [][]byte
-}
-
-func (m *mailBatchConnector) Descriptor() connector.Descriptor {
-	return connector.Descriptor{
-		Name: "gmail", Version: "1",
-		Scopes:   []principal.Scope{principal.ScopeRead},
-		RiskTier: mcp.TierAutoExecute,
-		Produces: []datasource.EntityType{datasource.EntityActivity},
-	}
-}
-
-func (m *mailBatchConnector) Authenticate(context.Context, connector.AuthRequest) (connector.Auth, error) {
-	return connector.Auth("token"), nil
-}
-
-func (m *mailBatchConnector) Sync(ctx context.Context, _ connector.Auth, _ connector.Cursor, sink connector.Sink) (connector.Cursor, error) {
-	for _, raw := range m.raws {
-		msg, err := mailmap.Parse(raw, autoCreateOwner)
-		if err != nil {
-			return nil, err
-		}
-		if _, drop := msg.SkipReason(); drop {
-			continue
-		}
-		if _, err := sink.Upsert(ctx, msg.ToRecord("gmail", raw)); err != nil {
-			return nil, err
-		}
-	}
-	return connector.Cursor(fmt.Sprintf(`{"email":%q}`, autoCreateOwner)), nil
-}
-
-func (m *mailBatchConnector) Normalize(context.Context, connector.RawRecord) ([]connector.NormalizedRecord, error) {
-	return nil, connector.ErrSkip
-}
-
-func (m *mailBatchConnector) HealthCheck(context.Context, connector.Auth) error { return nil }
-
-func email(from, fromName, to, msgID, refs string) []byte {
-	fromHeader := from
-	if fromName != "" {
-		fromHeader = fmt.Sprintf("%s <%s>", fromName, from)
-	}
-	lines := []string{
-		"From: " + fromHeader,
-		"To: " + to,
-		"Subject: project",
-		"Date: Wed, 04 Jun 2026 08:00:00 +0000",
-		"Message-ID: <" + msgID + ">",
-	}
-	if refs != "" {
-		lines = append(lines, "References: <"+refs+">")
-	}
-	lines = append(lines, "Content-Type: text/plain", "", "hello", "")
-	return []byte(strings.Join(lines, "\r\n"))
-}
-
-func countRows(t *testing.T, e *searchEnv, query string) int {
-	t.Helper()
-	var n int
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(), query).Scan(&n)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return n
-}
-
-func TestAutoCreateFromCapturedMail(t *testing.T) {
-	e := setupSearch(t)
-	conn := &mailBatchConnector{}
-	// The PRODUCTION wiring, not the bare test sink: the auto-create
-	// resolver and the free-mail gate are exactly what this test proves.
-	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e))
-	registry.Register(conn)
-
-	// The production authority resolves the granting human's LIVE role, so
-	// the rep needs a real one: capture writes activities and the ensure
-	// path creates people/organizations under the same derived principal.
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		var roleID string
-		if err := tx.QueryRow(context.Background(), `
-			INSERT INTO role (workspace_id, key, name, permissions)
-			VALUES ($1, 'capture_rep', 'Capture Rep',
-			        '{"objects":{"activity":{"create":true,"read":true},"person":{"create":true,"read":true},"organization":{"create":true,"read":true}},"row_scope":"all"}'::jsonb)
-			RETURNING id`, e.WS).Scan(&roleID); err != nil {
-			return err
-		}
-		_, err := tx.Exec(context.Background(),
-			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
-			e.WS, roleID, e.Rep1)
-		return err
-	})
-	if err != nil {
-		t.Fatalf("seeding the capture role: %v", err)
-	}
-
-	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
-	connID, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh"))
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
-	sync := func(t *testing.T, raws ...[]byte) {
-		t.Helper()
-		conn.raws = raws
-		if err := registry.SyncOnce(wsCtx, connID); err != nil {
-			t.Fatalf("SyncOnce: %v", err)
-		}
-	}
-
-	// The anchor sync seeds the mailbox's own domain as internal.
-	sync(t)
-	if n := countRows(t, e, `SELECT count(*) FROM workspace_email_domain WHERE domain = 'myco.example'`); n != 1 {
-		t.Fatalf("workspace domain seeded %d times, want 1", n)
-	}
-
+// The ADR-0063 auto-create path: a captured thread yields exactly one person,
+// one company and one employment, and a replay adds nothing.
+func TestCaptureAutoCreatesTheCounterpartyBehindAThread(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
 	t.Run("a thread becomes one person, one company, one employment", func(t *testing.T) {
-		sync(t,
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""),
-			email(autoCreateOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
-			email("alice@acme.example", "Alice Example", autoCreateOwner, "m3@acme.example", "m1@acme.example"),
+		// The owner's own reply is what makes alice a counterparty: T1
+		// correspondence-positive ensures immediately, where a first-time
+		// stranger would defer to the verdict engine. The outbound leg is
+		// attested, because only a provider-vouched send counts (ADR-0072 §1).
+		syncSent(
+			t, map[string]bool{"m2@myco.example": true},
+			email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""),
+			email(captureOwner, "", "alice@acme.example", "m2@myco.example", "m1@acme.example"),
+			email("alice@acme.example", "Alice Example", captureOwner, "m3@acme.example", "m1@acme.example"),
 		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'alice@acme.example'`); n != 1 {
 			t.Fatalf("%d persons for alice, want exactly 1", n)
 		}
-		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'acme.example'`); n != 1 {
-			t.Fatalf("%d organizations for acme.example, want exactly 1", n)
+		// The org is named from the domain's registrable label ("Acme"), not
+		// the raw eSLD, and marked name_source='domain' so a later enrichment
+		// may overwrite it (ADR-0072/A118).
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'Acme' AND name_source = 'domain'`); n != 1 {
+			t.Fatalf("%d organizations named 'Acme' with name_source='domain', want exactly 1", n)
+		}
+		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'acme.example'`); n != 0 {
+			t.Fatal("the raw eSLD must no longer be used as the display name")
 		}
 		if n := countRows(t, e, `
 			SELECT count(*) FROM relationship r JOIN person_email pe ON pe.person_id = r.person_id
 			WHERE r.kind = 'employment' AND r.is_current_primary AND pe.email = 'alice@acme.example'`); n != 1 {
 			t.Fatalf("%d employment edges, want exactly 1", n)
 		}
-		// Person-only links: every captured message links alice, none links the org.
+		// Person-only links, and only from the point alice became a
+		// counterparty: the FIRST message deferred — she was a stranger when it
+		// arrived — so the owner's reply and the message after it link her, and
+		// the deferred one waits for the verdict that resolves its ledger row.
 		if n := countRows(t, e, `
 			SELECT count(*) FROM activity_link al JOIN person_email pe ON pe.person_id = al.person_id
-			WHERE al.entity_type = 'person' AND pe.email = 'alice@acme.example'`); n != 3 {
-			t.Fatalf("%d person links, want 3 (one per captured message)", n)
+			WHERE al.entity_type = 'person' AND pe.email = 'alice@acme.example'`); n != 2 {
+			t.Fatalf("%d person links, want 2 (the reply and what followed it)", n)
+		}
+		// And the first message is not lost — it is deferred, on the ledger.
+		if n := countRows(t, e, `
+			SELECT count(*) FROM capture_pending_counterparty
+			WHERE email = 'alice@acme.example'`); n != 1 {
+			t.Fatalf("%d ledger rows for alice, want 1 — the cold first message deferred", n)
 		}
 		if n := countRows(t, e, `SELECT count(*) FROM activity_link WHERE entity_type = 'organization'`); n != 0 {
 			t.Fatalf("%d org links, want 0 — the org rolls up through employment", n)
@@ -196,9 +92,8 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("%d engagement.reply events, want exactly 1", n)
 		}
 	})
-
 	t.Run("a replay creates nothing new", func(t *testing.T) {
-		sync(t, email("alice@acme.example", "Alice Example", autoCreateOwner, "m1@acme.example", ""))
+		sync(t, email("alice@acme.example", "Alice Example", captureOwner, "m1@acme.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'alice@acme.example'`); n != 1 {
@@ -208,21 +103,91 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatalf("replay re-emitted engagement.reply (%d total)", n)
 		}
 	})
-
-	t.Run("free-mail creates the person, never a company", func(t *testing.T) {
-		sync(t, email("bob@gmail.com", "Bob Person", autoCreateOwner, "b1@gmail.com", ""))
+	t.Run("a fuzzy near-match creates anyway and queues the pair", func(t *testing.T) {
+		// A near-identical name on the SAME employer domain: the PO-F-1
+		// score (0.55·name + 0.45·org) crosses the review threshold. The
+		// near-match needs someone to be near, so this captures both halves
+		// rather than leaning on whoever a sibling subtest created.
+		// Both are written to first: a stranger defers, so a dedupe pair only
+		// exists once correspondence has made them counterparties.
+		syncSent(
+			t, map[string]bool{"fzo1@myco.example": true, "fzo2@myco.example": true},
+			email(captureOwner, "", "alice@acme.example", "fzo1@myco.example", ""),
+			email(captureOwner, "", "alice2@acme.example", "fzo2@myco.example", ""),
+		)
+		sync(
+			t,
+			email("alice@acme.example", "Alice Example", captureOwner, "fz0@acme.example", ""),
+			email("alice2@acme.example", "Alice Exampel", captureOwner, "f1@acme.example", ""),
+		)
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-			WHERE pe.email = 'bob@gmail.com'`); n != 1 {
-			t.Fatalf("%d persons for bob, want 1", n)
+			WHERE pe.email = 'alice2@acme.example'`); n != 1 {
+			t.Fatal("fuzzy must create — capture never blocks on a human")
 		}
-		if n := countRows(t, e, `SELECT count(*) FROM organization WHERE display_name = 'gmail.com'`); n != 0 {
-			t.Fatal("gmail.com must never become an organization")
+		if n := countRows(t, e, `SELECT count(*) FROM dedupe_candidate WHERE entity_type = 'person' AND disposition = 'open'`); n != 1 {
+			t.Fatalf("%d open dedupe candidates, want exactly 1", n)
 		}
 	})
+}
 
+func TestCaptureRecordsProvenanceWithoutTheMessageBody(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+	// Both halves read what a capture WROTE, so this test captures its own
+	// thread — an inbound leg and the owner's reply — rather than reading rows
+	// another test happened to leave behind.
+	sync(
+		t,
+		email("alice@acme.example", "Alice Example", captureOwner, "p1@acme.example", ""),
+		email(captureOwner, "", "alice@acme.example", "p2@myco.example", "p1@acme.example"),
+	)
+
+	t.Run("captured mail stamps the counterparty email on the activity", func(t *testing.T) {
+		// Each activity carries her normalized address, so the correspondence
+		// predicate is an index-backed lookup (CAP-DDL-7).
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example'`); n < 1 {
+			t.Fatal("captured activities must stamp counterparty_email")
+		}
+		// An outbound leg stamps it too — the substrate that 2b's
+		// correspondence-positive gate reads.
+		if n := countRows(t, e, `SELECT count(*) FROM activity WHERE counterparty_email = 'alice@acme.example' AND direction = 'outbound'`); n < 1 {
+			t.Fatal("the outbound leg must stamp counterparty_email for the correspondence predicate")
+		}
+	})
+	t.Run("a captured activity's audit image is metadata-only, never the body", func(t *testing.T) {
+		// Capture-audit minimization (ADR-0072/A118): the connector-captured
+		// activity's audit after-image carries the natural key + kind + direction
+		// + timestamp, but NEVER the subject/body — the message content stays on
+		// the activity row and raw_capture under their own retention, off the
+		// append-only audit spine.
+		var hasBody, hasSubject, hasKind, hasSourceID bool
+		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			return tx.QueryRow(context.Background(), `
+				SELECT after ? 'body', after ? 'subject', after ? 'kind', after ? 'source_id'
+				FROM audit_log
+				WHERE entity_type = 'activity' AND action = 'create'
+				ORDER BY occurred_at LIMIT 1`).Scan(&hasBody, &hasSubject, &hasKind, &hasSourceID)
+		})
+		if err != nil {
+			t.Fatalf("reading the captured-activity audit image: %v", err)
+		}
+		if hasBody || hasSubject {
+			t.Fatalf("captured-activity audit after leaked content (body=%v subject=%v) — must be metadata-only", hasBody, hasSubject)
+		}
+		if !hasKind || !hasSourceID {
+			t.Fatal("captured-activity audit after must keep the metadata (kind, natural key)")
+		}
+	})
+}
+
+// The refusals: an address the workspace owns, one an erasure killed, and a
+// connector acting for nobody. Each keeps the activity and creates no person.
+func TestCaptureRefusesToDeriveARecord(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
 	t.Run("the workspace's own domain creates nothing", func(t *testing.T) {
-		sync(t, email("carol@myco.example", "Carol Colleague", autoCreateOwner, "c1@myco.example", ""))
+		sync(t, email("carol@myco.example", "Carol Colleague", captureOwner, "c1@myco.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'carol@myco.example'`); n != 0 {
@@ -232,7 +197,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("the workspace's own domain must not become a CRM organization")
 		}
 	})
-
 	t.Run("an erased address stays dead", func(t *testing.T) {
 		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 			_, err := tx.Exec(context.Background(), `
@@ -243,7 +207,7 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		sync(t, email("dave@dead.example", "Dave Gone", autoCreateOwner, "d1@dead.example", ""))
+		sync(t, email("dave@dead.example", "Dave Gone", captureOwner, "d1@dead.example", ""))
 		if n := countRows(t, e, `
 			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
 			WHERE pe.email = 'dave@dead.example'`); n != 0 {
@@ -255,27 +219,12 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 			t.Fatal("suppression must not drop the captured activity")
 		}
 	})
-
-	t.Run("a fuzzy near-match creates anyway and queues the pair", func(t *testing.T) {
-		// A near-identical name on the SAME employer domain: the PO-F-1
-		// score (0.55·name + 0.45·org) crosses the review threshold.
-		sync(t, email("alice2@acme.example", "Alice Exampel", autoCreateOwner, "f1@acme.example", ""))
-		if n := countRows(t, e, `
-			SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
-			WHERE pe.email = 'alice2@acme.example'`); n != 1 {
-			t.Fatal("fuzzy must create — capture never blocks on a human")
-		}
-		if n := countRows(t, e, `SELECT count(*) FROM dedupe_candidate WHERE entity_type = 'person' AND disposition = 'open'`); n != 1 {
-			t.Fatalf("%d open dedupe candidates, want exactly 1", n)
-		}
-	})
-
 	t.Run("a connector with no granting human records the fault, never a person", func(t *testing.T) {
 		// A bare sink with the ensure seam wired but an ownerless connector
 		// principal: the capture itself must land, the ensure must refuse
 		// honestly (RC-8 — created rows need a human owner), and the fault
 		// must be a system_log line the nightly reconcile can find.
-		sink := capture.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capture.NewFreemailList(nil))
+		sink := capture.NewSink(e.Pool).WithEnsurer(recordingEnsurer{}, capture.NewFreemailList(nil), capture.NewTransactionalList(nil, nil))
 		ownerless := principal.WithCorrelationID(principal.WithActor(
 			principal.WithWorkspaceID(context.Background(), e.WS), principal.Principal{
 				Type: principal.PrincipalConnector, ID: "connector:gmail",
@@ -284,9 +233,10 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 					Objects:  map[string]principal.ObjectGrant{"activity": {Create: true, Read: true}},
 					RowScope: principal.RowScopeAll,
 				},
-			}), ids.NewV7())
-		raw := email("ghost@nowhere.example", "Ghost Sender", autoCreateOwner, "g1@nowhere.example", "")
-		msg, err := mailmap.Parse(raw, autoCreateOwner)
+			},
+		), ids.NewV7())
+		raw := email("ghost@nowhere.example", "Ghost Sender", captureOwner, "g1@nowhere.example", "")
+		msg, err := mailmap.Parse(raw, captureOwner)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -310,6 +260,6 @@ func TestAutoCreateFromCapturedMail(t *testing.T) {
 // case; the sink's own gates must refuse before it is ever reached.
 type recordingEnsurer struct{}
 
-func (recordingEnsurer) EnsureCounterparty(context.Context, capture.EnsureRequest) error {
-	return nil
+func (recordingEnsurer) EnsureCounterparty(context.Context, capture.EnsureRequest) (capture.EnsureOutcome, error) {
+	return capture.EnsureOutcome{}, nil
 }

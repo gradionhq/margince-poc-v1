@@ -11,6 +11,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -34,7 +35,7 @@ func TestReplyDraftKeepsActivityDataOutOfInstructions(t *testing.T) {
 		Subject: malicious,
 		Body:    "We need commissioning in September.",
 		Intent:  "Confirm the delivery window",
-	}, "")
+	}, nil)
 	if err != nil {
 		t.Fatalf("complete: %v", err)
 	}
@@ -70,7 +71,7 @@ func TestReplyDraftShapeRejectsUnsafeOrEmptyOutput(t *testing.T) {
 func TestReplyDraftCompleterErrorIsReturnedToFallbackBoundary(t *testing.T) {
 	want := errors.New("provider unavailable")
 	drafter := replyDrafter{brain: &replyBrainStub{err: want}}
-	_, err := drafter.complete(context.Background(), replyActivityData{Subject: "Topic"}, "")
+	_, err := drafter.complete(context.Background(), replyActivityData{Subject: "Topic"}, nil)
 	if !errors.Is(err, want) {
 		t.Fatalf("complete error = %v, want %v", err, want)
 	}
@@ -141,13 +142,22 @@ func TestVoicedDraftInjectsTheProfileAndStampsTheVersion(t *testing.T) {
 		t.Fatalf("voiced draft must use the voice system prompt, got %q", req.System)
 	}
 	content := req.Messages[0].Content
-	for _, fragment := range []string{"<voice_profile>", "Blunt, never hedges.", "How you think", "We ship Monday.", "limits, NOT targets"} {
+	for _, fragment := range []string{"Voice profile:", "Blunt, never hedges.", "How you think", "We ship Monday.", "limits, NOT targets"} {
 		if !strings.Contains(content, fragment) {
 			t.Fatalf("voice block misses %q", fragment)
 		}
 	}
-	if !strings.Contains(content, "<activity_data>") {
-		t.Fatal("the activity data block must survive alongside the voice block")
+	// The voice block and the activity share ONE boundary — the one this call's
+	// system prompt declares — so both are data and neither can end the other.
+	marker, ok := promptfence.MarkerIn(req.System)
+	if !ok {
+		t.Fatalf("the voiced system prompt declares no boundary: %q", req.System)
+	}
+	if !strings.Contains(content, "<"+marker+">") {
+		t.Fatalf("the user turn carries no fenced span under the declared marker: %q", content)
+	}
+	if strings.Contains(content, "<voice_profile>") || strings.Contains(content, "<activity_data>") {
+		t.Fatalf("a fixed container survived the nonce migration: %q", content)
 	}
 }
 

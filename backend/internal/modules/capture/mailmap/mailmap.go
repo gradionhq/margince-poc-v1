@@ -46,7 +46,30 @@ type Message struct {
 	threadKey        string   // conversation identity: References root / In-Reply-To / own Message-ID
 	senderDomain     string   // lowercased domain of From — for the RC-2 gate
 	recipientDomains []string // lowercased, de-duped domains of every To — for the RC-2 gate
-	autoSubmit       bool
+	autoReply        bool     // a reply nobody chose to write: kept off the timeline
+	// machineTouched is the BROADER question — did any machine have a hand in
+	// this? It never drops a message; it only refuses the outbound attestation,
+	// so a responder's reply cannot vouch for an address the owner never chose.
+	machineTouched  bool
+	listUnsubscribe bool // an RFC 2369 List-Unsubscribe header — transactional-gate corroboration
+	sentByOwner     bool // the PROVIDER attested the owner sent this — set by AttestSentByOwner, never parsed
+}
+
+// AttestSentByOwner returns a copy carrying the provider's own attestation
+// that the authenticated mailbox owner sent this message — Gmail's SENT
+// label, an IMAP \Sent special-use mailbox, Microsoft's SentItems folder.
+// The signal cannot come from Parse: every header this package reads is
+// attacker-controlled, and the T1 correspondence-positive gate (ADR-0072 §1)
+// treats a sent message as affirmative intent toward its recipient. Only a
+// connector holding an authenticated provider handle can vouch for it.
+func (m Message) AttestSentByOwner(sent bool) Message {
+	// A machine-touched message never attests, however the provider filed it.
+	// An autoresponder's reply IS genuinely owner-authored and genuinely in
+	// Sent, so nothing downstream could tell it from correspondence the owner
+	// chose — and it would spare an address the owner never chose to write to
+	// (ADR-0072 residual (b)).
+	m.sentByOwner = sent && !m.machineTouched
+	return m
 }
 
 // Counterparty is the non-owner address on the message (the person this
@@ -79,16 +102,18 @@ func Parse(raw []byte, owner string) (Message, error) {
 	body := extractText(reader)
 
 	ownerLower := strings.ToLower(strings.TrimSpace(owner))
-	direction := "inbound"
+	direction := connector.DirectionInbound
 	counterparty := from
 	counterpartyName := displayName(fromList, counterparty)
 	if strings.ToLower(from) == ownerLower && ownerLower != "" {
-		direction = "outbound"
+		direction = connector.DirectionOutbound
 		counterparty = firstNonOwner(toList, ownerLower)
 		counterpartyName = displayName(toList, counterparty)
 	}
 
-	autoSubmit := isAutoSubmitted(header.Get("Auto-Submitted"), header.Get("Precedence"))
+	autoSubmitted, precedence := header.Values("Auto-Submitted"), header.Values("Precedence")
+	autoReply := isAutoReply(autoSubmitted, precedence)
+	machineTouched := isMachineTouched(autoSubmitted, precedence, hasMachineHandledHeader(header))
 
 	return Message{
 		messageID:        strings.TrimSpace(messageID),
@@ -103,7 +128,9 @@ func Parse(raw []byte, owner string) (Message, error) {
 		threadKey:        threadKey(header.Get("References"), header.Get("In-Reply-To"), messageID),
 		senderDomain:     domainOf(from),
 		recipientDomains: domainsOf(toList),
-		autoSubmit:       autoSubmit,
+		autoReply:        autoReply,
+		machineTouched:   machineTouched,
+		listUnsubscribe:  strings.TrimSpace(header.Get("List-Unsubscribe")) != "",
 	}, nil
 }
 
@@ -138,25 +165,6 @@ func displayName(list []*mail.Address, addr string) string {
 		}
 	}
 	return ""
-}
-
-// SkipReason names why a message is intentionally dropped, or reports that
-// it should be captured. The rule set keeps automated/system noise off the
-// timeline: no stable id, no sender, auto-submitted, or a machine sender.
-func (m Message) SkipReason() (string, bool) {
-	if m.messageID == "" {
-		return "no Message-ID", true
-	}
-	if m.from == "" {
-		return "no From address", true
-	}
-	if m.autoSubmit {
-		return "auto-submitted", true
-	}
-	if isMachineSender(m.from) {
-		return "automated sender", true
-	}
-	return "", false
 }
 
 // ID is the RFC822 Message-ID — the idempotency source id every mail
@@ -201,11 +209,12 @@ func (m Message) ToRecord(connectorName string, raw []byte) connector.Normalized
 			RecipientDomains: m.recipientDomains,
 		},
 		Counterparty: connector.Counterparty{
-			Email:       strings.ToLower(strings.TrimSpace(m.counterparty)),
-			DisplayName: m.counterpartyName,
-			Domain:      domainOf(m.counterparty),
-			Direction:   m.direction,
-		},
+			Email:           strings.ToLower(strings.TrimSpace(m.counterparty)),
+			DisplayName:     m.counterpartyName,
+			Domain:          domainOf(m.counterparty),
+			Direction:       m.direction,
+			ListUnsubscribe: m.listUnsubscribe,
+		}.WithOwnerAttestation(m.sentByOwner),
 		ThreadKey: m.threadKey,
 	}
 }
@@ -294,36 +303,6 @@ func firstNonOwner(list []*mail.Address, ownerLower string) string {
 		}
 	}
 	return firstAddress(list)
-}
-
-// isMachineSender flags the common no-reply / bounce localparts that carry
-// no human counterparty worth a CRM row.
-func isMachineSender(addr string) bool {
-	local, _, found := strings.Cut(strings.ToLower(addr), "@")
-	if !found {
-		return false
-	}
-	local = strings.ReplaceAll(local, ".", "")
-	local = strings.ReplaceAll(local, "-", "")
-	switch local {
-	case "noreply", "donotreply", "mailerdaemon", "postmaster", "bounce", "bounces", "notifications", "notification":
-		return true
-	}
-	return false
-}
-
-// isAutoSubmitted reads the RFC 3834 Auto-Submitted header and the legacy
-// Precedence hint: either marks machine-generated mail.
-func isAutoSubmitted(autoSubmitted, precedence string) bool {
-	v := strings.ToLower(strings.TrimSpace(autoSubmitted))
-	if v != "" && v != "no" {
-		return true
-	}
-	switch strings.ToLower(strings.TrimSpace(precedence)) {
-	case "bulk", "list", "junk", "auto_reply":
-		return true
-	}
-	return false
 }
 
 func orDash(s string) string {

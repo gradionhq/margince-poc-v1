@@ -27,6 +27,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -69,6 +70,21 @@ func setupCaptureDB(t *testing.T) (*pgx.Conn, *pgxpool.Pool) {
 // AccountLabeler — a fixed value, since the fixture's opaque auth bytes
 // ("fixture-token") carry no real account identity to parse out.
 const fixtureOwnerEmail = "fixture-owner@example.test"
+
+// fixtureAuthority stands in for identity's resolver: the fixture's seeded
+// human is live, holds no object grants (the disconnect path asks for none),
+// and sits on a full seat. Connect refuses a grant it cannot check against
+// live authority, so a registry with no resolver cannot connect at all — and
+// what these tests are about is the vault, not identity.
+type fixtureAuthority struct{}
+
+func (fixtureAuthority) EffectiveRBAC(context.Context, ids.UUID, ids.UUID) (authz.RBAC, error) {
+	return authz.RBAC{}, nil
+}
+
+func (fixtureAuthority) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
+	return principal.SeatFull, nil
+}
 
 // fixtureConnector is the minimal connector.Connector the disconnect path
 // needs registered: Disconnect never calls Sync/Normalize/HealthCheck, and
@@ -133,7 +149,7 @@ func newCaptureRegistryFixture(t *testing.T) (context.Context, *capture.Registry
 	}
 
 	vault := keyvault.NewMemory()
-	reg := capture.NewRegistry(pool, nil, nil, vault)
+	reg := capture.NewRegistry(pool, nil, fixtureAuthority{}, vault)
 	reg.Register(fixtureConnector{})
 
 	actorCtx := principal.WithWorkspaceID(ctx, wsUUID)
@@ -340,22 +356,23 @@ func TestReconnectDeletesThePriorSecret(t *testing.T) {
 	}
 }
 
-// A Disconnect that fails to delete the vault secret must surface the error
-// and leave the row in a RECOVERABLE state: 'disconnected' (the poller
-// already stops selecting it) with credential_ref still set, so a retry can
-// find and finish the job. Nulling the ref anyway would point at nothing —
-// the destroyed-secret half of the invariant would be a lie.
-func TestDisconnectSurfacesAFailingVaultDeleteAndLeavesARecoverableRow(t *testing.T) {
+// A withdrawal that committed is reported as a withdrawal. The vault delete
+// runs after that commit, so a vault failure cannot un-disconnect the
+// connection and there is nothing for the caller to retry — the row ends fully
+// withdrawn either way and the undeleted blob is announced at ERROR for
+// operational cleanup (keyvault.DeleteDetached owns that contract). Reporting
+// an error here instead would tell a user their disconnect failed when it did
+// not, and invite a retry that finds nothing left to do.
+func TestDisconnectCompletesEvenWhenTheVaultDeleteFails(t *testing.T) {
 	ctx, reg, vault, ws := newCaptureRegistryFixture(t)
-	ref := connectFixtureConnection(ctx, t, reg)
+	connectFixtureConnection(ctx, t, reg)
 
 	failing := &deleteFailsVault{Vault: vault}
-	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, failing)
+	reg2 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, failing)
 	reg2.Register(fixtureConnector{})
-	_ = reg // the fixture's Connect already ran against the shared pool/vault
 
-	if err := reg2.Disconnect(ctx, "gmail"); err == nil {
-		t.Fatal("Disconnect must surface a failing vault delete, not swallow it")
+	if err := reg2.Disconnect(ctx, "gmail"); err != nil {
+		t.Fatalf("Disconnect: %v — a committed withdrawal must not be reported as a failure", err)
 	}
 
 	var status string
@@ -367,8 +384,8 @@ func TestDisconnectSurfacesAFailingVaultDeleteAndLeavesARecoverableRow(t *testin
 	if status != "disconnected" {
 		t.Errorf("status = %q, want %q — capture must stop even though the delete failed", status, "disconnected")
 	}
-	if credentialRef == nil || keyvault.Ref(*credentialRef) != ref {
-		t.Errorf("credential_ref = %v, want the still-live ref %q — a failed delete must stay retryable", credentialRef, ref)
+	if credentialRef != nil {
+		t.Errorf("credential_ref = %q, want NULL — the connection is withdrawn regardless of the vault outcome", *credentialRef)
 	}
 	if authBytes != nil {
 		t.Error("legacy auth column should already be cleared regardless of the vault outcome")
@@ -387,7 +404,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 	deleteStarted := make(chan struct{})
 	proceed := make(chan struct{})
 	blocking := &blockingDeleteVault{Vault: vault, started: deleteStarted, proceed: proceed}
-	reg2 := capture.NewRegistry(poolFromFixture(t), nil, nil, blocking)
+	reg2 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, blocking)
 	reg2.Register(fixtureConnector{})
 
 	disconnectErr := make(chan error, 1)
@@ -397,7 +414,7 @@ func TestDisconnectPhase3DoesNotClobberAConcurrentReconnect(t *testing.T) {
 
 	// The concurrent reconnect: a fresh Registry sharing the same pool/vault,
 	// exactly like a second request would land on the same process.
-	reg3 := capture.NewRegistry(poolFromFixture(t), nil, nil, vault)
+	reg3 := capture.NewRegistry(poolFromFixture(t), nil, fixtureAuthority{}, vault)
 	reg3.Register(fixtureConnector{})
 	if _, err := reg3.Connect(ctx, "gmail", connector.Auth("fixture-token-reconnect")); err != nil {
 		t.Fatalf("concurrent reconnect: %v", err)
