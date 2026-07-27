@@ -4443,6 +4443,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/overlay/user-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace users' incumbent-user mapping, with unmapped users flagged.
+         * @description Admin-managed per RC-15/ADR-0057 — this IS the overlay-connection settings surface the spec names, not a general CRUD endpoint. Requires the overlay_connection UPDATE grant (admin/ops), NOT its read grant: every role holds the read so a rep can see whether overlay mode is live, and this payload carries every user's email plus their incumbent mapping, which no non-admin sees today.
+         */
+        get: operations["listOverlayUserMap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/user-map/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pin one user to an incumbent user as a manual admin override.
+         * @description Writes match_source=manual — the escape hatch design.md §4.6 rule 4 defines for a reassigned or ambiguous email — and clears any auto-map block for the user. Requires the overlay_connection UPDATE grant.
+         */
+        put: operations["setOverlayUserMap"];
+        post?: never;
+        /**
+         * Unmap one user and stop automatic email matching from re-mapping them.
+         * @description Removes the mapping and its visibility grants, and records the decision so the reconcile sweep cannot re-create the mapping. Idempotent: an already-unmapped user still records the block. Requires the overlay_connection UPDATE grant.
+         */
+        delete: operations["deleteOverlayUserMap"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/owners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The connected incumbent's user directory, for the mapping picker.
+         * @description Requires the overlay_connection UPDATE grant — this is external directory PII (names and emails of the incumbent's users) that reaches no non-admin today. Capped: the Incumbent seam's Owners() is unpaginated, so `truncated` reports honestly when the directory exceeded the cap rather than implying completeness.
+         */
+        get: operations["listOverlayOwners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fx-rates": {
         parameters: {
             query?: never;
@@ -5219,6 +5286,46 @@ export interface components {
          * @enum {string}
          */
         OverlayBudgetBand: "ok" | "warn" | "shed";
+        OverlayUserMapEntry: {
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            name?: string;
+            /** @description Empty when the user is not mapped. */
+            incumbent_user_id?: string;
+            incumbent_user_name?: string;
+            incumbent_user_email?: string;
+            /**
+             * @description Absent when the user is not mapped.
+             * @enum {string}
+             */
+            match_source?: "email" | "manual";
+            /**
+             * @description Why this user has no mapping. `none` means they are mapped. `directory_unavailable` means the incumbent directory could not be read, so no reason could be derived — never a guessed diagnosis.
+             * @enum {string}
+             */
+            unmapped_reason: "none" | "no_email_match" | "ambiguous_email" | "blocked_by_admin" | "not_yet_synced" | "directory_unavailable";
+            /** @description A manual mapping pointing at an incumbent user absent from the current directory. Reported, never auto-revoked: the override stays sticky. */
+            stale_owner_ref?: boolean;
+        };
+        OverlayUserMapPage: {
+            incumbent: string;
+            entries: components["schemas"]["OverlayUserMapEntry"][];
+            next_cursor?: string;
+        };
+        OverlayOwner: {
+            incumbent_user_id: string;
+            name?: string;
+            email: string;
+        };
+        OverlayOwnerDirectory: {
+            incumbent: string;
+            owners: components["schemas"]["OverlayOwner"][];
+            truncated: boolean;
+        };
+        SetOverlayUserMapRequest: {
+            incumbent_user_id: string;
+        };
         /** @description RFC 7807 problem+json with a stable machine `code` and structured `details`. */
         Problem: {
             /**
@@ -18541,6 +18648,110 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listOverlayUserMap: {
+        parameters: {
+            query?: {
+                /**
+                 * @description Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
+                 *     effective `sort` of the originating request (field + direction) plus the last row's keyset
+                 *     (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
+                 *     under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
+                 *     together with a `sort` that differs from the one the cursor was minted under returns
+                 *     `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
+                 *     **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
+                 *     remaining pages see, so re-issue the query without the cursor when changing filters.
+                 */
+                cursor?: components["parameters"]["Cursor"];
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayUserMapPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setOverlayUserMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOverlayUserMapRequest"];
+            };
+        };
+        responses: {
+            /** @description Mapped */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteOverlayUserMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unmapped */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listOverlayOwners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayOwnerDirectory"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listFxRates: {
