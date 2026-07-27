@@ -118,7 +118,9 @@ func withValidatorFeedback(req model.Request, failedText string, cause error) mo
 	out := req
 	echo := func(s string) string { return s }
 	if fence, declared := feedbackFence(out); declared {
-		echo = fence.Wrap
+		// WrapAuthored, not Wrap: this text came from a model that was SHOWN the
+		// marker, so it is the one author who can close the span exactly.
+		echo = fence.WrapAuthored
 	}
 	out.Messages = append(
 		append([]model.Message{}, req.Messages...),
