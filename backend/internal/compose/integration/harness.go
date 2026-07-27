@@ -218,6 +218,19 @@ func (e *Env) AgentCtx() context.Context {
 	})
 }
 
+// AgentCtxWithPassport is AgentCtx carrying a passport id, which is what a
+// real agent principal always holds. The distinction matters wherever
+// provenance decides authority — a staging with a passport was minted by an
+// agent asserting one, not by a server-side proposal flow.
+func (e *Env) AgentCtxWithPassport() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:test", SeatType: principal.SeatFull,
+		PassportID: ids.NewV7(),
+	})
+}
+
 // personIDOf / orgIDOf / leadIDOf assert a harness-seeded untyped id as
 // the entity a people-store call targets — the suites' spelling of the
 // contracts-edge ids.From widening (the harness keeps its fixture ids

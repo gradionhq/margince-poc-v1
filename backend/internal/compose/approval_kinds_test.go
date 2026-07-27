@@ -100,3 +100,43 @@ func TestEveryRegisteredEffectKindHasADecisionGrantMapping(t *testing.T) {
 		}
 	}
 }
+
+// The kind string is not a namespace, and the two writers of it do not
+// coordinate: the REST admission gate stages under the operation's TOOL
+// name, while compose registers approved-effect executors under kinds its
+// own proposal flows mint. "enrich" is both — the scrape proposal's kind
+// and the tool behind coldStartReadback, deepReadCompany and scrapeCompany
+// — so an agent could mint a staging that a human's approve click would
+// feed to the compose enrichment executor.
+//
+// This test names the overlap rather than forbidding it, because forbidding
+// it would mean either renaming stored kinds or refusing three legitimate
+// confirm-first agent routes. What the system guarantees instead is that
+// provenance decides: an executor runs only for a staging with no passport.
+// The list below is the evidence that the guarantee is load-bearing — if it
+// ever empties, the collision is gone and this test should go with it.
+func TestCollidingEffectKindsAreCoveredByProvenance(t *testing.T) {
+	svc := approvalsServiceWithEffects(nil)
+	effects := map[string]bool{}
+	for _, kind := range svc.EffectKinds() {
+		effects[kind] = true
+	}
+	if len(effects) == 0 {
+		t.Fatal("no effect kinds registered — the scan found nothing to check, which means it is broken")
+	}
+
+	colliding := map[string]string{}
+	for route, pol := range agentPolicies {
+		if pol.Access == accessTool && effects[pol.Tool] {
+			colliding[pol.Tool] = route
+		}
+	}
+	if len(colliding) == 0 {
+		t.Log("no agent tool name collides with a registered effect kind — the provenance check now guards nothing")
+		return
+	}
+	for tool, route := range colliding {
+		t.Logf("agent route %s stages kind %q, which also has a server-side effect executor — "+
+			"only the no-passport check keeps a human's approve click from running it", route, tool)
+	}
+}
