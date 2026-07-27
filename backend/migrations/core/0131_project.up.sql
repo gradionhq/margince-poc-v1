@@ -162,9 +162,15 @@ BEGIN
   IF NEW.project_id IS NULL THEN
     RETURN NULL;
   END IF;
+  -- Scoped by workspace explicitly. The composite FK already forbids a
+  -- cross-workspace project_id, so this changes no outcome — but a trigger
+  -- that finds its row by id alone is correct only for as long as something
+  -- ELSE keeps the tenants apart, and a rule about tenant data should not
+  -- have to be read together with the RLS policy to be judged right.
   IF NOT EXISTS (
     SELECT 1 FROM project p
     WHERE p.id = NEW.project_id
+      AND p.workspace_id = NEW.workspace_id
       AND p.organization_id IS NOT DISTINCT FROM NEW.organization_id
   ) THEN
     RAISE EXCEPTION 'deal and project belong to different companies'

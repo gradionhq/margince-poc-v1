@@ -1,5 +1,25 @@
--- Reverses 0127. The vocabulary CHECKs narrow back first: they must stop
--- admitting 'project' before the rows referencing projects go away.
+-- Reverses 0131. The project-typed ROWS go first, then the vocabularies
+-- narrow back.
+--
+-- That order is forced: ADD CONSTRAINT ... CHECK validates the rows already
+-- in the table, so narrowing a vocabulary while a 'project' row still holds
+-- it aborts the whole rollback. On a fresh schema there is nothing to find
+-- and either order appears to work, which is exactly why this has to be
+-- stated rather than discovered on the one database that has data.
+--
+-- Deleting them is the honest reverse: the down migration drops the project
+-- table itself further below, so a row pointing at a project cannot outlive
+-- it either way.
+DELETE FROM custom_field       WHERE object      = 'project';
+DELETE FROM field_provenance   WHERE object_type = 'project';
+DELETE FROM embedding          WHERE entity_type = 'project';
+DELETE FROM attachment         WHERE entity_type = 'project';
+DELETE FROM record_grant       WHERE record_type = 'project';
+DELETE FROM taggable           WHERE entity_type = 'project';
+DELETE FROM list_member        WHERE entity_type = 'project';
+DELETE FROM list               WHERE entity_type = 'project';
+DELETE FROM activity_link      WHERE entity_type = 'project';
+DELETE FROM relationship       WHERE kind        = 'project_stakeholder';
 
 ALTER TABLE custom_field DROP CONSTRAINT custom_field_object_check;
 ALTER TABLE custom_field ADD CONSTRAINT custom_field_object_check

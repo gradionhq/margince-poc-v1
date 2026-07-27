@@ -45,6 +45,10 @@ var memberEntityTables = func() map[string]bool {
 	return m
 }()
 
+// entityTypeField names the input every polymorphic refusal on this surface
+// points at.
+const entityTypeField = "entity_type"
+
 // memberEntityVocabulary renders the accepted set for the refusal message.
 // Derived from the same map the check uses, because a message that restates
 // the vocabulary drifts from it silently — the caller is then told a record
@@ -152,7 +156,7 @@ func (s *Store) CreateList(ctx context.Context, in CreateListInput) (listRow, er
 		return listRow{}, err
 	}
 	if !memberEntityTables[in.EntityType] {
-		return listRow{}, &BadInputError{Field: "entity_type", Reason: "must be " + memberEntityVocabulary}
+		return listRow{}, &BadInputError{Field: entityTypeField, Reason: "must be " + memberEntityVocabulary}
 	}
 	if in.ListType == "" {
 		in.ListType = "static"
