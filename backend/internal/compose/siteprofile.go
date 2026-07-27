@@ -70,10 +70,10 @@ var hardGateProfileFields = map[string]bool{
 // profileReply is the profile call's JSON shape.
 type profileReply struct {
 	Fields []struct {
-		F string  `json:"f"`
-		V string  `json:"v"`
-		E string  `json:"e"`
-		C float32 `json:"c"`
+		F string            `json:"f"`
+		V string            `json:"v"`
+		E string            `json:"e"`
+		C schema.Confidence `json:"c"`
 	} `json:"fields"`
 }
 
@@ -247,7 +247,7 @@ func gateProfile(modelText string, idx snippetIndex) ([]evidencedField, []droppe
 			Value:           strings.TrimSpace(f.V),
 			EvidenceSnippet: evidence,
 			SourceURL:       ref.pageURL,
-			Confidence:      f.C,
+			Confidence:      float32(f.C),
 		})
 	}
 	return out, dropped

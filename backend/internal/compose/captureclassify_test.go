@@ -13,13 +13,14 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
 func TestClassifyPayloadFidelity(t *testing.T) {
 	a, b := ids.NewV7(), ids.NewV7()
 	batch := []unlabeledMessage{{ID: a}, {ID: b}}
 	ok := func(id ids.UUID, label string, conf float64) classifyResult {
-		return classifyResult{ID: id.String(), Label: label, Confidence: conf}
+		return classifyResult{ID: id.String(), Label: label, Confidence: schema.Confidence(conf)}
 	}
 
 	cases := map[string]struct {

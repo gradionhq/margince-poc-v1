@@ -44,8 +44,6 @@ expect:
                 verdict:
                   type: string
                   enum: [real, noise]
-                confidence:
-                  type: number
               required: [id, verdict, confidence]
         required: [results]
     - kind: contains

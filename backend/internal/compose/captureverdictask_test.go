@@ -10,6 +10,7 @@ package compose
 // a distinct way the one-sender contract can be broken.
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -98,5 +99,44 @@ func TestValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
 	}
 	if len(msg) > 500 {
 		t.Fatalf("the validation message is %d bytes — model-chosen text must be clamped before it reaches a log", len(msg))
+	}
+}
+
+// The bound model intermittently returns a confidence declared type: number as
+// a JSON string. A verdict is a single-answer decision — there is no partial
+// result to keep — so a reply that is right but quoted must be read, not
+// deferred.
+func TestVerdictPayloadReadsAQuotedConfidence(t *testing.T) {
+	const reply = `{"results":[{"id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61","verdict":"noise","confidence":"0.94"}]}`
+
+	var payload verdictPayload
+	if err := json.Unmarshal([]byte(reply), &payload); err != nil {
+		t.Fatalf("a quoted confidence failed to decode: %v", err)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("got %d results, want 1", len(payload.Results))
+	}
+	if got := float64(payload.Results[0].Confidence); got != 0.94 {
+		t.Errorf("Confidence = %v, want 0.94", got)
+	}
+}
+
+// Tolerating the wrapper must not tolerate the value. The range gate lives in
+// the validator, where the refusal can name what was wrong, so a quoted 1.4 is
+// read and then rejected rather than being read as a number the floor accepts.
+func TestVerdictPayloadStillRefusesAnOutOfRangeConfidence(t *testing.T) {
+	asked := capture.PendingCounterparty{ID: ids.NewV7()}
+	reply := `{"results":[{"id":"` + asked.ID.String() + `","verdict":"noise","confidence":"1.4"}]}`
+
+	var payload verdictPayload
+	if err := json.Unmarshal([]byte(reply), &payload); err != nil {
+		t.Fatalf("a quoted confidence failed to decode: %v", err)
+	}
+	msg := validateVerdictPayload(payload, asked)
+	if msg == "" {
+		t.Fatal("a confidence of 1.4 was accepted; want a refusal")
+	}
+	if !strings.Contains(msg, "outside [0,1]") {
+		t.Errorf("refusal %q does not say what was wrong with the value", msg)
 	}
 }

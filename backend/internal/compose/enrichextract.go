@@ -74,10 +74,10 @@ func (e *unreadableError) Unwrap() error { return e.cause }
 
 // extractedField is the JSON shape the extraction prompt demands.
 type extractedField struct {
-	Field           string  `json:"field"`
-	Value           string  `json:"value"`
-	EvidenceSnippet string  `json:"evidence_snippet"`
-	Confidence      float32 `json:"confidence"`
+	Field           string            `json:"field"`
+	Value           string            `json:"value"`
+	EvidenceSnippet string            `json:"evidence_snippet"`
+	Confidence      schema.Confidence `json:"confidence"`
 }
 
 // extractionFieldNames is the shared company-fact vocabulary. One source feeds
@@ -465,7 +465,7 @@ func gateEvidence(modelText, pageText, sourceURL string, accept func(string) boo
 				Value:           f.Value,
 				EvidenceSnippet: f.EvidenceSnippet,
 				SourceURL:       sourceURL,
-				Confidence:      f.Confidence,
+				Confidence:      float32(f.Confidence),
 			})
 		}
 	}

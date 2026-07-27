@@ -76,9 +76,9 @@ type unlabeledMessage = activities.UnlabeledEmail
 
 // classifyResult is one model verdict.
 type classifyResult struct {
-	ID         string  `json:"id"`
-	Label      string  `json:"label"`
-	Confidence float64 `json:"confidence"`
+	ID         string            `json:"id"`
+	Label      string            `json:"label"`
+	Confidence schema.Confidence `json:"confidence"`
 }
 
 type classifyPayload struct {
