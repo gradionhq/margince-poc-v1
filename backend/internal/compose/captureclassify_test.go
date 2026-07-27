@@ -9,6 +9,7 @@ package compose
 // surface, not the model.
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -54,6 +55,32 @@ func TestClassifyPayloadFidelity(t *testing.T) {
 			msg := validateClassifyPayload(classifyPayload{Results: tc.results}, batch)
 			if (msg != "") != tc.wantErr {
 				t.Fatalf("validation = %q, wantErr=%v", msg, tc.wantErr)
+			}
+		})
+	}
+}
+
+// Whatever the validator echoes back is MODEL output, which a sender who got the
+// model to obey can choose. It reaches the operator's log AND, on a §5.2 retry,
+// the next prompt — so it must be bounded at both exits.
+func TestClassifyValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
+	batch := []unlabeledMessage{{ID: ids.NewV7()}}
+	flood := strings.Repeat("A", 100_000)
+
+	for name, msg := range map[string]string{
+		"an unrequested id": validateClassifyPayload(classifyPayload{
+			Results: []classifyResult{{ID: flood, Label: "noise", Confidence: 0.9}},
+		}, batch),
+		"an out-of-vocabulary label": validateClassifyPayload(classifyPayload{
+			Results: []classifyResult{{ID: batch[0].ID.String(), Label: flood, Confidence: 0.9}},
+		}, batch),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if msg == "" {
+				t.Fatal("the payload was accepted")
+			}
+			if len(msg) > 500 {
+				t.Fatalf("the validation message is %d bytes — model-chosen text must be clamped before it reaches a log or the next prompt", len(msg))
 			}
 		})
 	}
