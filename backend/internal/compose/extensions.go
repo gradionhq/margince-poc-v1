@@ -24,11 +24,21 @@ func RegisterExtensions(exts []extension.Extension) error {
 	if err := validateExtensionSet(exts); err != nil {
 		return err
 	}
+	// Do every fallible step before applying anything, so the whole
+	// reconciliation stays validate-then-apply: adapting the handler-bearing
+	// tools to the core seam can (in principle — preflightTools already
+	// precludes it, but this stays fail-closed) fail, and it must not fail
+	// with a jurisdiction pack already half-applied.
+	tools, err := buildExtensionTools(exts)
+	if err != nil {
+		return err
+	}
 	for _, e := range exts {
 		for _, p := range e.Jurisdictions {
 			jurisdiction.Register(p)
 		}
 	}
+	setComposedTools(tools)
 	return nil
 }
 

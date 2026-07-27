@@ -4,9 +4,22 @@
 package extension
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 )
+
+// ToolHandler runs a governed tool after admission. It is the extension's
+// BEHAVIOR — the one part of a Tool that is not static declaration — so
+// the manifest generator skips it (behavior cannot be derived from the
+// AST, and the manifest records only the governed request). A tool
+// declared without a handler is inert: it appears in the manifest but the
+// boot registers only handler-bearing tools into the live surface. The
+// signature mirrors the core mcp.Tool.Handle the boot adapts it to;
+// arguments and result are the raw JSON the tool's own typed decode
+// validates.
+type ToolHandler func(ctx context.Context, in json.RawMessage) (json.RawMessage, error)
 
 // Tier is the risk tier an extension REQUESTS for a governed tool:
 // auto-execute runs without confirmation, confirmation-
@@ -74,13 +87,15 @@ var toolNameGrammar = regexp.MustCompile(`^[a-z][a-z0-9]*(_[a-z0-9]+)*$`)
 
 // Tool is a governed agent tool the unit contributes to the agent
 // surface: a named operation running at a requested risk Tier and
-// requiring Scopes. It is a GOVERNED capability — its tier and scopes are
-// requests an operator resolves, recorded in the unit manifest.
+// requiring a Scope, both recorded in the unit manifest.
 //
-// Declaring a tool records the request; SERVING it — registration into
-// the agent surface behind the operator-approval gate — arrives in a
-// later slice. Until then a declared tool is inert: present in the
-// manifest, not yet callable.
+// A handler-bearing tool is SERVED — registered into the same agent
+// registry and admission gate as the core tools, callable at its declared
+// tier. A handler-less tool is inert: it still appears in the manifest as
+// a governed request, but nothing runs. Resolving a requested tier against
+// a durable operator decision is a later governance step; today a composed
+// first-party unit serves at its declared tier, the way the jurisdiction
+// packs ship enabled.
 type Tool struct {
 	// Name is the tool verb, lower snake_case, unique within the unit.
 	Name string
@@ -95,11 +110,29 @@ type Tool struct {
 	// resolves into an effective grant, not a fact; once effective, a call
 	// admits only when the granting principal holds it.
 	RequestedScope Scope
+
+	// InputSchema and OutputSchema are the JSON Schema documents the served
+	// tool advertises through tools/list (mapped onto mcp.ToolSpec). They
+	// are client-facing DOCUMENTATION: the agent reads them to shape a
+	// call, but the tool's own typed decode — not a generic schema check —
+	// enforces its invariants. Optional, and both must be valid JSON when
+	// set. They are not part of the governance descriptor, so the
+	// manifest generator does not read them.
+	InputSchema  json.RawMessage
+	OutputSchema json.RawMessage
+
+	// Handle is the tool's behavior. It is optional: a nil Handle declares
+	// the tool (it still appears in the manifest as a governed request) but
+	// leaves it inert; boot serves only handler-bearing tools. The manifest
+	// generator does not read it — behavior is not a static declaration.
+	Handle ToolHandler
 }
 
-// Validate enforces the tool's grammar and vocabularies. Boot
-// registration refuses the composed set on a violation, and the manifest
-// generator raises the same error at gen time.
+// Validate enforces the tool's grammar and vocabularies. The name, tier,
+// and scope checks run at BOTH gen time (the manifest generator) and boot;
+// the schema checks run only at boot, because the manifest does not carry
+// the schemas (the generator never reads them). Boot registration refuses
+// the composed set on any violation.
 func (t Tool) Validate() error {
 	if !toolNameGrammar.MatchString(t.Name) {
 		return fmt.Errorf("tool name %q is not a valid verb (lower snake_case, e.g. qualify_lead)", t.Name)
@@ -112,6 +145,30 @@ func (t Tool) Validate() error {
 	}
 	if err := t.RequestedScope.Validate(); err != nil {
 		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	if err := validateSchemaObject("InputSchema", t.InputSchema); err != nil {
+		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	if err := validateSchemaObject("OutputSchema", t.OutputSchema); err != nil {
+		return fmt.Errorf("tool %q: %w", t.Name, err)
+	}
+	return nil
+}
+
+// validateSchemaObject checks a declared schema, when present, is a JSON
+// object rooted at `"type": "object"` — the shape MCP requires of a tool's
+// input/output schema in tools/list. Absent (nil) is allowed: the served
+// spec defaults a missing input schema to an empty object.
+func validateSchemaObject(field string, raw json.RawMessage) error {
+	if raw == nil {
+		return nil
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return fmt.Errorf("%s must be a JSON object", field)
+	}
+	if doc["type"] != "object" {
+		return fmt.Errorf(`%s must be a JSON Schema object rooted at "type":"object"`, field)
 	}
 	return nil
 }
