@@ -16,6 +16,7 @@ package approvals
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -122,6 +123,16 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Released whatever happens below. Every failure before the commit leaves this
+	// transaction holding a pooled connection, and the pool's own Close waits for
+	// it — so a test that means to fail loudly would instead hang until the
+	// package timeout kills it, reporting nothing about what went wrong.
+	t.Cleanup(func() {
+		err := blocker.Rollback(context.Background())
+		if err != nil && !errors.Is(err, pgx.ErrTxClosed) {
+			t.Errorf("releasing the competing transaction: %v", err)
+		}
+	})
 	if _, err := blocker.Exec(ctx, `SELECT set_config('app.workspace_id', $1, true)`, e.ws.String()); err != nil {
 		t.Fatal(err)
 	}
@@ -131,17 +142,19 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 
 	staged := make(chan bool, 1)
 	errs := make(chan error, 1)
+	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		_, ok, err := e.svc.StageUnlessDeclined(e.as(), in)
 		errs <- err
 		staged <- ok
 	}()
 
 	// Wait for the staging to be BLOCKED on that lock rather than merely slow.
-	// Busy-read of pg_locks: no clock, no sleep — the loop either observes the
-	// waiter or fails loudly, so a green run means the ordering really was
-	// exercised.
-	waitForLockWaiter(t, e)
+	// Busy-read of pg_locks: no clock, no sleep — and it gives up the moment the
+	// staging finishes, so a run that never blocked fails saying that rather than
+	// spinning. A green run means the ordering really was exercised.
+	waitForLockWaiter(t, e, done)
 
 	// Now the competing pass finishes: the offer exists and has been refused.
 	if _, err := blocker.Exec(ctx, `
@@ -174,25 +187,44 @@ func TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading(t *testing.T) {
 	}
 }
 
-// waitForLockWaiter blocks until some backend is WAITING on an advisory lock,
-// which is what proves the staging goroutine reached the lock and stopped there.
-// Bounded and loud: a run that never observes the waiter fails rather than
-// quietly testing a weaker ordering than the one it claims.
-func waitForLockWaiter(t *testing.T, e *stagingEnv) {
+// waitForLockWaiter returns once the staging goroutine is provably BLOCKED on an
+// advisory lock in this database. It is the step that makes the test mean what
+// its name says, so it has to fail fast and honestly in every way it can miss.
+//
+// It watches the goroutine as well as the lock. A staging that finishes without
+// ever blocking — an early error, a changed lock order — leaves the lock
+// condition unsatisfiable forever, and probing on regardless would burn a package
+// timeout that names nothing instead of reporting what went wrong. The moment the
+// goroutine is done, this stops and says so.
+//
+// The query is scoped to the CURRENT DATABASE, because pg_locks is cluster-wide
+// and the parallel lane runs a dozen packages against one server: an unrelated
+// package's waiter would otherwise satisfy this, and the run would sail past the
+// ordering it claims to exercise and pass having proved nothing.
+func waitForLockWaiter(t *testing.T, e *stagingEnv, done <-chan struct{}) {
 	t.Helper()
-	const maxProbes = 200_000
+	// Generous enough that a loaded machine cannot trip it, small enough that a
+	// genuine miss reports in seconds rather than minutes.
+	const maxProbes = 20_000
 	for probe := 0; probe < maxProbes; probe++ {
 		var waiting bool
 		if err := e.owner.QueryRow(context.Background(),
-			`SELECT EXISTS (SELECT 1 FROM pg_locks
-			   WHERE locktype = 'advisory' AND NOT granted)`).Scan(&waiting); err != nil {
+			`SELECT EXISTS (SELECT 1 FROM pg_locks l
+			   JOIN pg_database d ON d.oid = l.database
+			  WHERE l.locktype = 'advisory' AND NOT l.granted
+			    AND d.datname = current_database())`).Scan(&waiting); err != nil {
 			t.Fatal(err)
 		}
 		if waiting {
 			return
 		}
+		select {
+		case <-done:
+			t.Fatal("the staging finished without ever blocking on the identity lock — it read the world before the competing pass wrote to it, which is the defect this test exists to catch")
+		default:
+		}
 	}
-	t.Fatal("no backend ever waited on the advisory lock — the staging did not reach it, so this run proved nothing")
+	t.Fatalf("no backend waited on an advisory lock in this database within %d probes — the staging never reached the lock, so this run proved nothing", maxProbes)
 }
 
 // The refusal is narrow: only a REJECTED prior offer stops a staging. Everything
