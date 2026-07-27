@@ -351,7 +351,7 @@ export const de = {
 
   "overlay.userMap.title": "Nutzerzuordnung des Spiegels",
   "overlay.userMap.sub":
-    "Wer jede Person im Workspace in {principal} ist. Diese Zuordnung entscheidet allein darüber, was sie im Spiegel sieht.",
+    "Wer jede Person im Workspace als {principal}-Nutzer ist. Diese Zuordnung entscheidet allein darüber, was sie im Spiegel sieht.",
   "overlay.userMap.cost":
     "Wer nicht zugeordnet ist, sieht überhaupt keine gespiegelten Datensätze — alle Listen bleiben leer.",
   "overlay.userMap.loading": "Lade die Nutzerzuordnung…",

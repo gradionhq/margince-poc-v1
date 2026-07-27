@@ -343,7 +343,7 @@ export const en = {
 
   "overlay.userMap.title": "Mirror user mapping",
   "overlay.userMap.sub":
-    "Who each workspace user is in {principal}. This mapping is the whole of their mirror visibility.",
+    "Who each workspace user is as a {principal} user. This mapping is the whole of their mirror visibility.",
   "overlay.userMap.cost":
     "A user with no mapping sees no mirrored records at all — their lists come back empty.",
   "overlay.userMap.loading": "Loading the user mapping…",
