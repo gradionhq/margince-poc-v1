@@ -71,7 +71,7 @@ func TestRegistryRefusesAShippedSiteWithNoCase(t *testing.T) {
 	fx := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
 	r.Register(pricing)
 	r.Register(fx)
-	r.BindCase(stubCase{site: pricing})
+	r.BindCase(pricing, stubCase{site: pricing})
 
 	err := r.Validate()
 	if err == nil {
@@ -106,6 +106,49 @@ func TestRegistryDoesNotDemandACaseForASiteTheContractDeniesExists(t *testing.T)
 			}
 			if strings.Contains(err.Error(), "no certification case is bound") {
 				t.Errorf("the error asks for a case the site was never owed: %v", err)
+			}
+		})
+	}
+}
+
+// A case is bound on the same line that registers the site it serves, so the
+// two can only ever disagree by mistake — and the disagreement is invisible
+// where it matters most: the cert lane reads the site back off the FACTORY, so
+// a case claiming a kind the registration denies would have its record filed
+// under a scope this build never registered.
+func TestRegistryRefusesACaseThatClaimsAnotherSiteThanItIsBoundUnder(t *testing.T) {
+	pricing := aitasks.Site{Task: ai.TaskRateExtract, Variant: "pricing", Kind: ai.SiteKindOneShot}
+	fx := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
+
+	for _, tc := range []struct {
+		name    string
+		claimed aitasks.Site
+		want    string
+	}{
+		{
+			"another kind",
+			aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindMultiTurn},
+			`site rate_extract/fx (kind "one_shot") is bound to a certification case claiming site rate_extract/fx (kind "multi_turn")`,
+		},
+		{
+			"another variant",
+			pricing,
+			`site rate_extract/fx (kind "one_shot") is bound to a certification case claiming site rate_extract/pricing (kind "one_shot")`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := aitasks.NewRegistry()
+			r.Register(pricing)
+			r.Register(fx)
+			r.BindCase(pricing, stubCase{site: pricing})
+			r.BindCase(fx, stubCase{site: tc.claimed})
+
+			err := r.Validate()
+			if err == nil {
+				t.Fatal("a case bound under a site it does not claim validated")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("the error does not name the disagreement %q: %v", tc.want, err)
 			}
 		})
 	}

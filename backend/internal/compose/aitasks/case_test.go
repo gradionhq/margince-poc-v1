@@ -33,7 +33,7 @@ func TestCaseForFindsABoundCase(t *testing.T) {
 	r := aitasks.NewRegistry()
 	site := aitasks.Site{Task: ai.TaskRateExtract, Variant: "fx", Kind: ai.SiteKindOneShot}
 	r.Register(site)
-	r.BindCase(stubCase{site: site})
+	r.BindCase(site, stubCase{site: site})
 
 	got, ok := r.CaseFor(ai.TaskRateExtract, "fx")
 	if !ok {
@@ -51,7 +51,8 @@ func TestCaseForFindsABoundCase(t *testing.T) {
 // Validate is where wiring defects are named.
 func TestValidateRefusesACaseForAnUnregisteredSite(t *testing.T) {
 	r := aitasks.NewRegistry()
-	r.BindCase(stubCase{site: aitasks.Site{Task: ai.TaskRateExtract, Variant: "invented", Kind: ai.SiteKindOneShot}})
+	invented := aitasks.Site{Task: ai.TaskRateExtract, Variant: "invented", Kind: ai.SiteKindOneShot}
+	r.BindCase(invented, stubCase{site: invented})
 	err := r.Validate()
 	if err == nil {
 		t.Fatal("a case bound to an unregistered site validated")

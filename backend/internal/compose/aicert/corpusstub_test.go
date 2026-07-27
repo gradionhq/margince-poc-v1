@@ -80,7 +80,7 @@ func censusFor(t *testing.T, tasks ...ai.Task) *aitasks.Registry {
 	for _, task := range tasks {
 		site := aitasks.Site{Task: task, Variant: stubVariant, Kind: ai.SiteKindOneShot}
 		r.Register(site)
-		r.BindCase(stubCases{site: site})
+		r.BindCase(site, stubCases{site: site})
 	}
 	return r
 }

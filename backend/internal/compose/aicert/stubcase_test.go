@@ -101,6 +101,6 @@ func testCensus(t *testing.T) *aitasks.Registry {
 	t.Helper()
 	r := aitasks.NewRegistry()
 	r.Register(widgetSite())
-	r.BindCase(widgetCases{})
+	r.BindCase(widgetSite(), widgetCases{})
 	return r
 }

@@ -13,70 +13,53 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
-// NewTaskCensus registers this build's AI invocation sites and validates them
-// against the task contract. The error names every mismatch at once.
+// NewTaskCensus registers this build's AI invocation sites with the
+// certification case that serves each, and validates them against the task
+// contract. The error names every mismatch at once.
 //
 // The list is written out rather than derived from the contract on purpose: a
 // loop over ai.SitesFor would make Validate compare the contract to itself and
 // pass no matter what this build actually implements. Each line below is a
-// claim that a site exists here, and Validate is what holds those claims to
-// the contract. The trailing comment names where that site's prompt is built.
+// claim that a site exists here and that this case certifies it, and Validate
+// is what holds those claims to the contract — including that the case agrees
+// with the line it sits on. The case type is the navigable link to the code:
+// it is the site's only compiler-checked address.
 func NewTaskCensus() (*aitasks.Registry, error) {
 	r := aitasks.NewRegistry()
-	oneShot := func(task ai.Task, variant string) {
-		r.Register(aitasks.Site{Task: task, Variant: variant, Kind: ai.SiteKindOneShot})
+	register := func(kind string, task ai.Task, variant string, c aitasks.CaseFactory) {
+		site := aitasks.Site{Task: task, Variant: variant, Kind: kind}
+		r.Register(site)
+		r.BindCase(site, c)
 	}
-	multiTurn := func(task ai.Task, variant string) {
-		r.Register(aitasks.Site{Task: task, Variant: variant, Kind: ai.SiteKindMultiTurn})
+	oneShot := func(task ai.Task, variant string, c aitasks.CaseFactory) {
+		register(ai.SiteKindOneShot, task, variant, c)
 	}
-	agentLoop := func(task ai.Task, variant string) {
-		r.Register(aitasks.Site{Task: task, Variant: variant, Kind: ai.SiteKindAgentLoop})
+	multiTurn := func(task ai.Task, variant string, c aitasks.CaseFactory) {
+		register(ai.SiteKindMultiTurn, task, variant, c)
+	}
+	agentLoop := func(task ai.Task, variant string, c aitasks.CaseFactory) {
+		register(ai.SiteKindAgentLoop, task, variant, c)
 	}
 
-	oneShot(ai.TaskCaptureClassify, "classify")           // captureclassify.go
-	oneShot(ai.TaskCaptureCounterpartyVerdict, "verdict") // captureverdictask.go
-	oneShot(ai.TaskEnrich, "signature")                   // captureenrich.go
-	oneShot(ai.TaskDraftReply, "reply")                   // replydraft.go
-	oneShot(ai.TaskBriefRanking, "rank")                  // briefs/briefl2.go
-	oneShot(ai.TaskOfferDraft, "draft")                   // offerdraft.go
-	oneShot(ai.TaskSiteExtract, "profile")                // siteprofile.go
-	oneShot(ai.TaskSiteFactExtract, "page_facts")         // sitepagefacts.go
-	oneShot(ai.TaskCertJudge, "judge")                    // certjudge.go
-	oneShot(ai.TaskRateExtract, "pricing")                // modelraterefresh.go
-	oneShot(ai.TaskRateExtract, "fx")                     // fxrefresh.go
-	oneShot(ai.TaskVoiceBuild, "derive")                  // modules/ai/voicebuilder.go
-	oneShot(ai.TaskVoiceBuild, "eval_draft")              // voicebuildeval.go
-	oneShot(ai.TaskVoiceBuild, "eval_scores")             // voicebuildeval.go
-	oneShot(ai.TaskColdStart, "field_extract")            // enrichextract.go
-	multiTurn(ai.TaskColdStart, "company_message")        // onboardingcompanymessage.go
-	multiTurn(ai.TaskColdStart, "sitereadmessage")        // onboardingsitereadmessage.go
-	multiTurn(ai.TaskColdStart, "acts")                   // onboardingacts.go
-	agentLoop(ai.TaskAgentLoop, "loop")                   // modules/agents/runner
-
-	// The certification case each site is served by. Binding here rather than
-	// inside the case's own file keeps one place to read what this build can
-	// certify, and Validate holds the two lists to each other in both
-	// directions: no case for an unregistered site, and no shipped site
-	// without a case.
-	r.BindCase(captureClassifyCases{})
-	r.BindCase(counterpartyVerdictCases{})
-	r.BindCase(fieldExtractCases{})
-	r.BindCase(signatureEnrichCases{})
-	r.BindCase(siteProfileCases{})
-	r.BindCase(sitePageFactsCases{})
-	r.BindCase(onboardingActCases{})
-	r.BindCase(companyReadMessageCases{})
-	r.BindCase(onboardingCompanyMessageCases{})
-	r.BindCase(replyDraftCases{})
-	r.BindCase(offerDraftCases{})
-	r.BindCase(ratePricingCases{})
-	r.BindCase(rateFxCases{})
-	r.BindCase(voiceDeriveCases{})
-	r.BindCase(voiceEvalDraftCases{})
-	r.BindCase(voiceEvalScoresCases{})
-	r.BindCase(briefRankingCases{})
-	r.BindCase(agentLoopCases{})
-	r.BindCase(certJudgeCases{})
+	oneShot(ai.TaskCaptureClassify, "classify", captureClassifyCases{})
+	oneShot(ai.TaskCaptureCounterpartyVerdict, "verdict", counterpartyVerdictCases{})
+	oneShot(ai.TaskEnrich, "signature", signatureEnrichCases{})
+	oneShot(ai.TaskDraftReply, "reply", replyDraftCases{})
+	oneShot(ai.TaskBriefRanking, "rank", briefRankingCases{})
+	oneShot(ai.TaskOfferDraft, "draft", offerDraftCases{})
+	oneShot(ai.TaskSiteExtract, "profile", siteProfileCases{})
+	oneShot(ai.TaskSiteFactExtract, "page_facts", sitePageFactsCases{})
+	oneShot(ai.TaskCertJudge, "judge", certJudgeCases{})
+	oneShot(ai.TaskRateExtract, "pricing", ratePricingCases{})
+	oneShot(ai.TaskRateExtract, "fx", rateFxCases{})
+	oneShot(ai.TaskVoiceBuild, "derive", voiceDeriveCases{})
+	oneShot(ai.TaskVoiceBuild, "eval_draft", voiceEvalDraftCases{})
+	oneShot(ai.TaskVoiceBuild, "eval_scores", voiceEvalScoresCases{})
+	oneShot(ai.TaskColdStart, "field_extract", fieldExtractCases{})
+	multiTurn(ai.TaskColdStart, "company_message", onboardingCompanyMessageCases{})
+	multiTurn(ai.TaskColdStart, "sitereadmessage", companyReadMessageCases{})
+	multiTurn(ai.TaskColdStart, "acts", onboardingActCases{})
+	agentLoop(ai.TaskAgentLoop, "loop", agentLoopCases{})
 
 	return r, r.Validate()
 }

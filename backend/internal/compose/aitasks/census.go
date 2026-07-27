@@ -41,13 +41,22 @@ func (s Site) key() string { return string(s.Task) + "/" + s.Variant }
 // case each site is served by.
 type Registry struct {
 	sites map[string]Site
-	cases map[string]CaseFactory
+	cases map[string]binding
 	dupes []string
+}
+
+// binding is one certification case together with the site it was bound under.
+// Both are kept because they are separate claims: the composition says this
+// case serves that site, and the case says which site it serves. Validate is
+// what holds the two to each other.
+type binding struct {
+	site    Site
+	factory CaseFactory
 }
 
 // NewRegistry builds an empty registry.
 func NewRegistry() *Registry {
-	return &Registry{sites: map[string]Site{}, cases: map[string]CaseFactory{}}
+	return &Registry{sites: map[string]Site{}, cases: map[string]binding{}}
 }
 
 // Register adds one site. A duplicate key is recorded rather than overwritten
@@ -61,17 +70,21 @@ func (r *Registry) Register(s Site) {
 	r.sites[s.key()] = s
 }
 
-// BindCase attaches the certification case that serves one site. The binding
-// is keyed off the factory's own Site, so a case cannot be filed under a site
-// it does not claim.
-func (r *Registry) BindCase(c CaseFactory) { r.cases[c.Site().key()] = c }
+// BindCase attaches the certification case that serves one site. The site is
+// named here rather than taken from the factory so the composition's claim and
+// the case's own can differ — which is what makes a disagreement between them
+// reportable instead of silently deciding where the case lands.
+func (r *Registry) BindCase(s Site, c CaseFactory) { r.cases[s.key()] = binding{site: s, factory: c} }
 
 // CaseFor finds the case bound to one site.
 //
 //nolint:ireturn // CaseFactory IS the seam: one implementation per site behind the one interface the cert lane takes.
 func (r *Registry) CaseFor(task ai.Task, variant string) (CaseFactory, bool) {
-	c, ok := r.cases[string(task)+"/"+variant]
-	return c, ok
+	b, ok := r.cases[string(task)+"/"+variant]
+	if !ok {
+		return nil, false
+	}
+	return b.factory, true
 }
 
 // All returns every registered site, ordered by task then variant.
@@ -93,8 +106,9 @@ func (r *Registry) Lookup(task ai.Task, variant string) (Site, bool) {
 // Validate holds the registered set to the contract: no duplicates, every
 // registered site declared with the kind the contract gives it, every shipped
 // task's sites all present, no site on a planned task, no certification case
-// bound to a site nobody registered, and a case bound to every shipped site.
-// It reports every problem at once — a wiring fix wants the whole list.
+// bound to a site nobody registered, a case bound to every shipped site, and
+// no case whose own Site disagrees with the one it was bound under. It reports
+// every problem at once — a wiring fix wants the whole list.
 func (r *Registry) Validate() error {
 	var problems []string
 	for _, key := range r.dupes {
@@ -130,6 +144,7 @@ func (r *Registry) Validate() error {
 
 	problems = append(problems, r.statusProblems()...)
 	problems = append(problems, r.caseProblems()...)
+	problems = append(problems, r.bindingProblems()...)
 
 	if len(problems) > 0 {
 		sort.Strings(problems)
@@ -190,6 +205,26 @@ func (r *Registry) caseProblems() []string {
 					"site %s is registered but no certification case is bound (bind one in NewTaskCensus, or the site ships uncertifiable)", key))
 			}
 		}
+	}
+	return problems
+}
+
+// bindingProblems holds every case to the site it was bound under. The cert
+// lane reads a site back off the FACTORY — its kind decides the certified
+// scope a record claims — while the census is read as the composition's list
+// of what ships. A case that disagrees with the line it sits on makes those
+// two readings say different things, and neither one is checkable against the
+// contract on its own.
+func (r *Registry) bindingProblems() []string {
+	var problems []string
+	for _, b := range r.cases {
+		claimed := b.factory.Site()
+		if claimed == b.site {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf(
+			"site %s (kind %q) is bound to a certification case claiming site %s (kind %q) — bind each case under the site its own Site() names",
+			b.site.key(), b.site.Kind, claimed.key(), claimed.Kind))
 	}
 	return problems
 }
