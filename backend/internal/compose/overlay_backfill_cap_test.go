@@ -127,6 +127,66 @@ func TestCappedIncumbentOneRecordOverTheLimitIsTruncated(t *testing.T) {
 	}
 }
 
+// TestCappedIncumbentAtAPageBoundaryStopsAndFlagsTruncated proves the cap
+// gets the page-boundary case right: a limit that consumes a whole page
+// exactly leaves the incumbent handing out a NextCursor — its own signal
+// that the list has more. Reading that as the end of the portal would report
+// a declined class complete, so the cap must stop AND flag the run
+// Truncated. This is the path a cap set to a multiple of the incumbent's
+// page size always takes.
+func TestCappedIncumbentAtAPageBoundaryStopsAndFlagsTruncated(t *testing.T) {
+	f := fake.New()
+	seedContacts(f, 250)
+	got, truncated := drainBackfill(t, cappedIncumbent{Incumbent: f, limit: 100})
+	if got != 100 {
+		t.Fatalf("capped backfill saw %d records, want exactly 100 (one whole page)", got)
+	}
+	if !truncated {
+		t.Error("want Truncated=true — the incumbent's own cursor says 150 records remain, the cap declined them")
+	}
+}
+
+// TestCappedIncumbentResumedAtTheCapConvergesWithoutListing proves the
+// decorator is restart-safe on its own cursor: handed a cursor whose encoded
+// count has already reached the cap — what a sweep resuming a mid-flight
+// capped backfill presents — it converges immediately, reaching the
+// incumbent for nothing. Listing again would spend incumbent quota on
+// records the cap is going to decline anyway, and returning Truncated=false
+// here would report the declined class complete.
+func TestCappedIncumbentResumedAtTheCapConvergesWithoutListing(t *testing.T) {
+	f := fake.New()
+	seedContacts(f, 250)
+	spy := &listCountingIncumbent{Incumbent: f}
+
+	page, err := cappedIncumbent{Incumbent: spy, limit: 50}.
+		Backfill(context.Background(), overlay.IncumbentClassContacts, "50"+cappedCursorSep+"100")
+	if err != nil {
+		t.Fatalf("Backfill over a cursor resumed at the cap: %v", err)
+	}
+	if len(page.Records) != 0 || page.NextCursor != "" {
+		t.Fatalf("resumed at the cap = %d record(s), NextCursor %q; want an empty terminal page",
+			len(page.Records), page.NextCursor)
+	}
+	if !page.Truncated {
+		t.Error("want Truncated=true — the incumbent's list was never exhausted, only declined")
+	}
+	if spy.lists != 0 {
+		t.Errorf("a cursor already at the cap must not list the incumbent, got %d Backfill call(s)", spy.lists)
+	}
+}
+
+// listCountingIncumbent counts Backfill calls so a test can assert the cap
+// converged WITHOUT reaching the incumbent for another page.
+type listCountingIncumbent struct {
+	overlay.Incumbent
+	lists int
+}
+
+func (l *listCountingIncumbent) Backfill(ctx context.Context, objectClass, cursor string) (overlay.Page, error) {
+	l.lists++
+	return l.Incumbent.Backfill(ctx, objectClass, cursor)
+}
+
 // TestCappedIncumbentDoesNotCapModified proves continuous sync stays
 // uncapped: only Backfill is bounded, Modified passes straight through.
 func TestCappedIncumbentDoesNotCapModified(t *testing.T) {
