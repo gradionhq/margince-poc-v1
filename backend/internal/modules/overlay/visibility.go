@@ -12,7 +12,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -305,109 +304,122 @@ WHERE app_user_id = $1 AND incumbent = $2`
 // bypasses the email check entirely, because a human already vouched for
 // the mapping.
 func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, incumbent, incumbentUserID, source string) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return s.upsertUserMapTx(ctx, tx, appUser, incumbent, incumbentUserID, source)
+	})
+}
+
+// upsertUserMapTx is UpsertUserMap's body, taking the transaction rather than
+// opening one, so a caller that must decide something else about the same
+// mapping atomically with the write can — SetManualUserMap's grantable-target
+// gate (usermapadmin.go) is that caller, and a gate that committed separately
+// from the write it guards would be deciding about a seat the write could
+// then find in a different state. The Ingest/ingestTx pair splits for the
+// same reason.
+func (s *MirrorStore) upsertUserMapTx(ctx context.Context, tx pgx.Tx, appUser ids.UserID, incumbent, incumbentUserID, source string) error {
+	if err := validateUserMapArgs(incumbent, incumbentUserID, source); err != nil {
+		return err
+	}
+
+	// Resolve the email match BEFORE taking the visibility lock: the
+	// match may call the incumbent (OwnerEmailResolver → HubSpot), and a
+	// slow lookup must never be held under the workspace-wide lock where
+	// it would block every sibling remap.
+	if source == "email" {
+		if err := s.requireEmailMatch(ctx, tx, appUser, incumbentUserID); err != nil {
+			return err
+		}
+	}
+
+	// The disconnect-race fence, taken only for the sweep's store
+	// (WithFence/WithFenceIdentity) — after the email resolution above so
+	// a slow incumbent lookup is never held under a lock, before the
+	// write below so a mapping is never resurrected into a disconnected
+	// workspace (or, under the sweep's WithFenceIdentity, into a
+	// DIFFERENT connection than the one this call started under).
+	if err := s.assertFence(ctx, tx); err != nil {
+		return err
+	}
+
+	// Serialize the read-decide-upsert-recompute sequence against every
+	// other visibility mutation in this workspace (a sibling remap, an
+	// Ingest owner reassignment, the ambiguity revoke). Acquiring the
+	// per-workspace visibility lock here — before the prior-mapping read
+	// — is what makes the whole sequence atomic: without it two
+	// concurrent remaps could each read the prior mapping, then
+	// interleave their clear-then-grant recomputes and leave the user
+	// granted on both the old and new owners' records.
+	if err := lockWorkspaceVisibility(ctx, tx); err != nil {
+		return err
+	}
+
+	var prior userMapImage
+	err := tx.QueryRow(ctx, selectPriorMappingSQL, appUser, incumbent).
+		Scan(&prior.IncumbentUserID, &prior.MatchSource)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("overlay: reading %s's prior mapping for %s: %w", appUser, incumbent, err)
+	}
+	existed := err == nil
+	// A pgx.ErrNoRows prior mapping just means appUser had never
+	// mapped to this incumbent before — nothing to revoke.
+	remapped := existed && prior.IncumbentUserID != incumbentUserID
+
+	tag, err := tx.Exec(ctx, upsertUserMapSQL, appUser, incumbent, incumbentUserID, source)
+	if err != nil {
+		return fmt.Errorf("overlay: writing mirror_user_map for %s: %w", appUser, err)
+	}
+	if tag.RowsAffected() == 0 {
+		// An admin blocked automatic mapping for this user. Not an error:
+		// SeedUserMap walks every owner in the directory and one blocked
+		// user must not stop the rest from seeding. Nothing was written,
+		// so there is nothing to recompute either.
+		return nil
+	}
+
+	next := userMapImage{IncumbentUserID: incumbentUserID, MatchSource: source}
+	if err := auditUserMapChange(ctx, tx, appUser, prior, existed, next); err != nil {
+		return err
+	}
+
+	if err := recomputeForOwnerTx(ctx, tx, incumbentUserID); err != nil {
+		return err
+	}
+	if remapped {
+		if err := recomputeForOwnerTx(ctx, tx, prior.IncumbentUserID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateUserMapArgs rejects the two argument shapes mirror_user_map has no
+// representable row for: a zero-match incumbent user (design.md §4.6 rule 3's
+// fail-closed outcome) and a match_source outside the pinned pair.
+func validateUserMapArgs(incumbent, incumbentUserID, source string) error {
 	if incumbent == "" || incumbentUserID == "" {
 		return fmt.Errorf("overlay: no mirror_user_map row for a zero-match incumbent user (fail-closed, design.md §4.6 rule 3)")
 	}
 	switch source {
 	case "email", "manual":
+		return nil
 	default:
 		return fmt.Errorf("overlay: unknown mirror_user_map match_source %q", source)
 	}
+}
 
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// Resolve the email match BEFORE taking the visibility lock: the
-		// match may call the incumbent (OwnerEmailResolver → HubSpot), and a
-		// slow lookup must never be held under the workspace-wide lock where
-		// it would block every sibling remap.
-		if source == "email" {
-			matched, err := s.emailMatches(ctx, tx, appUser, incumbentUserID)
-			if err != nil {
-				return err
-			}
-			if !matched {
-				return fmt.Errorf("overlay: %s's email does not match incumbent user %s (fail-closed, design.md §4.6 rule 3, no row written)",
-					appUser, incumbentUserID)
-			}
-		}
-
-		// The disconnect-race fence, taken only for the sweep's store
-		// (WithFence/WithFenceIdentity) — after the email resolution above so
-		// a slow incumbent lookup is never held under a lock, before the
-		// write below so a mapping is never resurrected into a disconnected
-		// workspace (or, under the sweep's WithFenceIdentity, into a
-		// DIFFERENT connection than the one this call started under).
-		if err := s.assertFence(ctx, tx); err != nil {
-			return err
-		}
-
-		// Serialize the read-decide-upsert-recompute sequence against every
-		// other visibility mutation in this workspace (a sibling remap, an
-		// Ingest owner reassignment, the ambiguity revoke). Acquiring the
-		// per-workspace visibility lock here — before the prior-mapping read
-		// — is what makes the whole sequence atomic: without it two
-		// concurrent remaps could each read the prior mapping, then
-		// interleave their clear-then-grant recomputes and leave the user
-		// granted on both the old and new owners' records.
-		if err := lockWorkspaceVisibility(ctx, tx); err != nil {
-			return err
-		}
-
-		var priorIncumbentUserID, priorSource string
-		err := tx.QueryRow(ctx, selectPriorMappingSQL, appUser, incumbent).
-			Scan(&priorIncumbentUserID, &priorSource)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("overlay: reading %s's prior mapping for %s: %w", appUser, incumbent, err)
-		}
-		existed := err == nil
-		// A pgx.ErrNoRows prior mapping just means appUser had never
-		// mapped to this incumbent before — nothing to revoke.
-		remapped := existed && priorIncumbentUserID != incumbentUserID
-
-		tag, err := tx.Exec(ctx, upsertUserMapSQL, appUser, incumbent, incumbentUserID, source)
-		if err != nil {
-			return fmt.Errorf("overlay: writing mirror_user_map for %s: %w", appUser, err)
-		}
-		if tag.RowsAffected() == 0 {
-			// An admin blocked automatic mapping for this user. Not an error:
-			// SeedUserMap walks every owner in the directory and one blocked
-			// user must not stop the rest from seeding. Nothing was written,
-			// so there is nothing to recompute either.
-			return nil
-		}
-
-		// Audit at the single insert site, so the sweep's seeding and the
-		// admin's manual pin are both covered by construction rather than by
-		// remembering to call this from each caller. Only a REAL change is
-		// audited: the sweep re-seeds every tick, and auditing an unchanged
-		// row would write one line per owner per tick. The predicate compares
-		// match_source as well as the owner — an email->manual flip on the
-		// same owner makes the row immune to revalidation and to the sweep,
-		// which is a governance change even though the owner did not move.
-		changed := !existed || remapped || priorSource != source
-		if changed {
-			action := "update"
-			var before any
-			if !existed {
-				action = "create"
-			} else {
-				before = userMapImage{IncumbentUserID: priorIncumbentUserID, MatchSource: priorSource}
-			}
-			if _, err := storekit.Audit(ctx, tx, action, auditEntityUserMap, appUser.UUID,
-				before, userMapImage{IncumbentUserID: incumbentUserID, MatchSource: source}); err != nil {
-				return fmt.Errorf("overlay: auditing %s's mapping change: %w", appUser, err)
-			}
-		}
-
-		if err := recomputeForOwnerTx(ctx, tx, incumbentUserID); err != nil {
-			return err
-		}
-		if remapped {
-			if err := recomputeForOwnerTx(ctx, tx, priorIncumbentUserID); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+// requireEmailMatch enforces design.md §4.6 rule 3 for an email-sourced
+// write: the mapping stands only while the incumbent's own current owner
+// email still matches the app user's, and a mismatch writes no row at all.
+func (s *MirrorStore) requireEmailMatch(ctx context.Context, tx pgx.Tx, appUser ids.UserID, incumbentUserID string) error {
+	matched, err := s.emailMatches(ctx, tx, appUser, incumbentUserID)
+	if err != nil {
+		return err
+	}
+	if !matched {
+		return fmt.Errorf("overlay: %s's email does not match incumbent user %s (fail-closed, design.md §4.6 rule 3, no row written)",
+			appUser, incumbentUserID)
+	}
+	return nil
 }
 
 // emailMatches compares appUser's stored email against incumbentUserID's

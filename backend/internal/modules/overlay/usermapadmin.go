@@ -12,6 +12,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -49,6 +50,33 @@ func collectRevokedMapping(row pgx.CollectableRow) (revokedMapping, error) {
 		return revokedMapping{}, fmt.Errorf("overlay: scanning a revoked mirror_user_map row: %w", err)
 	}
 	return r, nil
+}
+
+// auditUserMapChange records a mapping write at the single insert site, so
+// the sweep's seeding and an admin's manual pin are both covered by
+// construction rather than by remembering to call this from each caller.
+//
+// Only a REAL change is audited: the sweep re-seeds every tick, and auditing
+// an unchanged row would write one line per owner per tick until the audit
+// log stops being readable evidence. The comparison covers match_source as
+// well as the owner — an email->manual flip on the same owner makes the row
+// immune to revalidation and to the sweep, which is a governance change even
+// though the owner did not move.
+func auditUserMapChange(ctx context.Context, tx pgx.Tx, appUser ids.UserID, prior userMapImage, existed bool, next userMapImage) error {
+	if existed && prior == next {
+		return nil
+	}
+	action := "update"
+	var before any
+	if !existed {
+		action = "create"
+	} else {
+		before = prior
+	}
+	if _, err := storekit.Audit(ctx, tx, action, auditEntityUserMap, appUser.UUID, before, next); err != nil {
+		return fmt.Errorf("overlay: auditing %s's mapping change: %w", appUser, err)
+	}
+	return nil
 }
 
 // UserMapEntry is one row of the admin mapping table: a workspace user, the
@@ -139,14 +167,59 @@ func (s *MirrorStore) ListUserMap(ctx context.Context, incumbent, cursor string,
 	return entries, next, nil
 }
 
+// selectUserMapTargetSQL reads what a user-map operation needs to know about
+// its target: that it exists at all, and whether it is a seat an admin may
+// GRANT a mapping to. The predicate is listUserMapSQL's own exclusion, spelled
+// once, so what the admin surface offers and what it accepts cannot drift.
+const selectUserMapTargetSQL = `
+SELECT NOT u.is_agent AND u.archived_at IS NULL
+FROM app_user u
+WHERE u.id = $1`
+
+// resolveUserMapTarget resolves appUser inside tx, reporting whether the seat
+// is grantable — a live human. An agent seat is a passport identity with no
+// incumbent counterpart, and an archived seat no longer logs in.
+//
+// A user this workspace does not have (including another tenant's, which RLS
+// makes indistinguishable from a nonexistent one) answers
+// apperrors.ErrNotFound: a row-scope miss is existence-hiding, never a 403 and
+// never the raw foreign-key violation the write would otherwise raise — that
+// reaches the client as an opaque 500, indistinguishable from an outage. The
+// composite FK stays underneath as the database-level backstop.
+func resolveUserMapTarget(ctx context.Context, tx pgx.Tx, appUser ids.UserID) (grantable bool, err error) {
+	err = tx.QueryRow(ctx, selectUserMapTargetSQL, appUser).Scan(&grantable)
+	switch {
+	case errors.Is(err, pgx.ErrNoRows):
+		return false, apperrors.ErrNotFound
+	case err != nil:
+		return false, fmt.Errorf("overlay: resolving the user-map target %s: %w", appUser, err)
+	}
+	return grantable, nil
+}
+
 // SetManualUserMap pins appUser to incumbentUserID as a human-vouched
-// override (design.md §4.6 rule 4). It is a thin wrapper over UpsertUserMap:
-// the "manual" source already skips the email verification, and
-// upsertUserMapSQL's own `cleared` CTE drops any auto-map block in the SAME
-// statement — so the mapping and the block clear cannot disagree, and no
-// transaction plumbing is needed here.
+// override (design.md §4.6 rule 4). The "manual" source skips the email
+// verification, and upsertUserMapSQL's own `cleared` CTE drops any auto-map
+// block in the SAME statement — so the mapping and the block clear cannot
+// disagree.
+//
+// This verb GRANTS mirror visibility, so its target must be a seat the admin
+// surface actually offers: an agent or archived user answers
+// apperrors.ErrNotFound, because ListUserMap does not list them and an
+// unaddressable target owes existence-hiding rather than a 403. The gate runs
+// in the SAME transaction as the write (upsertUserMapTx), so the seat cannot
+// change state between the decision and the row it authorizes.
 func (s *MirrorStore) SetManualUserMap(ctx context.Context, appUser ids.UserID, incumbent, incumbentUserID string) error {
-	return s.UpsertUserMap(ctx, appUser, incumbent, incumbentUserID, "manual")
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		grantable, err := resolveUserMapTarget(ctx, tx, appUser)
+		if err != nil {
+			return err
+		}
+		if !grantable {
+			return apperrors.ErrNotFound
+		}
+		return s.upsertUserMapTx(ctx, tx, appUser, incumbent, incumbentUserID, "manual")
+	})
 }
 
 const insertAutomapBlockSQL = `
@@ -181,6 +254,15 @@ func (s *MirrorStore) BlockAutoMap(ctx context.Context, appUser ids.UserID, incu
 		// and a doomed transaction never holds the workspace-wide lock while
 		// failing.
 		if err := s.assertFence(ctx, tx); err != nil {
+			return err
+		}
+		// Existence only — deliberately NOT the grantable check
+		// SetManualUserMap makes. This verb REMOVES access, and refusing to
+		// unmap an agent or archived seat is the fail-open direction: a user
+		// archived while mapped is precisely who an admin still has to be able
+		// to unmap. Resolved before the lock so a request naming a user this
+		// workspace does not have never holds the workspace-wide lock.
+		if _, err := resolveUserMapTarget(ctx, tx, appUser); err != nil {
 			return err
 		}
 		if err := lockWorkspaceVisibility(ctx, tx); err != nil {

@@ -250,6 +250,17 @@ func seedArchivedUser(t *testing.T, ws ids.UUID, email string) ids.UserID {
 	return user
 }
 
+// archiveUser archives an app_user that already exists — the "archived while
+// still mapped" state, which no seeder can produce up front because the
+// mapping has to be written by a live seat first.
+func archiveUser(t *testing.T, user ids.UserID) {
+	t.Helper()
+	if _, err := testOwnerConn(t).Exec(context.Background(),
+		`UPDATE app_user SET archived_at = now() WHERE id = $1`, user); err != nil {
+		t.Fatalf("archiving app_user %s: %v", user, err)
+	}
+}
+
 // seedUserInOtherWorkspace seeds a whole SECOND workspace holding one user —
 // the cross-tenant target the composite-FK test aims at. It has to be a user
 // that genuinely exists somewhere else: a merely invented uuid would be

@@ -237,7 +237,77 @@ func TestBlockAutoMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
 	store := NewMirrorStore(pool, noOwnerEmails{})
 	foreign := seedUserInOtherWorkspace(t, "elsewhere@other.test")
 
-	if err := store.BlockAutoMap(ctx, foreign, "hubspot"); err == nil {
-		t.Fatal("blocking a user from another workspace must be rejected by the database")
+	if err := store.BlockAutoMap(ctx, foreign, "hubspot"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("another workspace's user is a row-scope miss and must answer ErrNotFound, got: %v", err)
+	}
+}
+
+// A stale user id in an admin's open tab, or another tenant's, is a routine
+// row-scope miss on the GRANT path too — 404, not the 500 an unhandled
+// foreign-key violation would produce.
+func TestSetManualUserMapCannotTargetAnotherWorkspacesUser(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	foreign := seedUserInOtherWorkspace(t, "elsewhere-manual@other.test")
+
+	if err := store.SetManualUserMap(ctx, foreign, "hubspot", "owner-1"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("mapping another workspace's user must answer ErrNotFound, got: %v", err)
+	}
+}
+
+// ListUserMap hides agent and archived seats; the verb that GRANTS mirror
+// visibility has to agree, or the exclusion is cosmetic and an admin can map
+// exactly the identities the list refuses to offer.
+func TestSetManualUserMapRefusesAgentAndArchivedUsers(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	agent := seedAgentUser(t, ws, "agent@acme.test")
+	archived := seedArchivedUser(t, ws, "gone@acme.test")
+
+	if err := store.SetManualUserMap(ctx, agent, "hubspot", "owner-1"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("an agent seat has no incumbent counterpart and must answer ErrNotFound, got: %v", err)
+	}
+	if err := store.SetManualUserMap(ctx, archived, "hubspot", "owner-1"); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("an archived seat must answer ErrNotFound, got: %v", err)
+	}
+
+	var mapped int
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM mirror_user_map`).Scan(&mapped)
+	}); err != nil {
+		t.Fatalf("counting mappings: %v", err)
+	}
+	if mapped != 0 {
+		t.Fatalf("a refused grant must write no mapping row, got %d", mapped)
+	}
+}
+
+// The asymmetry with SetManualUserMap is deliberate: BlockAutoMap REMOVES
+// access, so an ineligible seat must not block it. A user archived while
+// mapped keeps their grants until someone unmaps them, and that someone must
+// not be turned away.
+func TestBlockAutoMapStillUnmapsAnArchivedUser(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
+	rep := ids.From[ids.UserKind](repRaw)
+
+	if err := store.UpsertUserMap(ctx, rep, "hubspot", "owner-1", "email"); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+	archiveUser(t, rep)
+
+	if err := store.BlockAutoMap(ctx, rep, "hubspot"); err != nil {
+		t.Fatalf("unmapping a user archived while mapped must succeed: %v", err)
+	}
+	var mapped int
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT count(*) FROM mirror_user_map WHERE app_user_id = $1`, rep).Scan(&mapped)
+	}); err != nil {
+		t.Fatalf("counting mappings: %v", err)
+	}
+	if mapped != 0 {
+		t.Fatalf("the archived user's mapping must be gone, got %d rows", mapped)
 	}
 }
