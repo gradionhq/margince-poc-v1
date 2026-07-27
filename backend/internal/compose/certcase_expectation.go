@@ -3,24 +3,42 @@
 
 package compose
 
-// The one comparison every field-grounding certification case makes: what its
-// gate let through, against what its scenario says the fixture grounds.
+// What every field-grounding certification case says about its gate: the one
+// comparison of what the gate let through against what the scenario says the
+// fixture grounds, and the one rendering of what the gate refused.
 //
-// It lives beside the cases rather than inside any one of them because three
-// sites ask the same question — the page extraction, the signature read and the
-// site profile all ground NAMED fields against evidence — and three copies of a
-// comparison drift. The copy that drifts is the one that stops failing, so the
-// site whose scenarios quietly went green is the site nobody looks at.
+// Both live beside the cases rather than inside any one of them because several
+// sites ask the same question — the page extraction, the signature read, the site
+// profile and the page facts all ground NAMED fields against evidence — and
+// copies of a shared answer drift. The copy that drifts is the one that stops
+// failing, so the site whose scenarios quietly went green is the site nobody
+// looks at. Shared machinery kept in the first site that needed it is the same
+// hazard wearing a filename: the second caller inherits an owner that has no
+// reason to keep the shape it depends on.
 //
-// The classify case deliberately does not use this: it answers about a position
-// in a batch rather than a named field, and folding a second question into this
-// one would make both harder to read than the duplication was.
+// The classify case deliberately does not use the comparison: it answers about a
+// position in a batch rather than a named field, and folding a second question
+// into this one would make both harder to read than the duplication was.
 
 import (
 	"fmt"
 	"maps"
 	"slices"
 )
+
+// gateRefusals renders the gate's own drops in the gate's own vocabulary. A
+// whole-reply refusal carries no field name, so it reads as one.
+func gateRefusals(dropped []droppedFinding) []string {
+	out := make([]string, 0, len(dropped))
+	for _, d := range dropped {
+		if d.Field == "" {
+			out = append(out, "the gate refused the whole reply: "+d.Reason)
+			continue
+		}
+		out = append(out, fmt.Sprintf("the gate dropped %s: %s", d.Field, d.Reason))
+	}
+	return out
+}
 
 // groundedValues keys a gate's surviving fields by name — the shape the
 // comparison asks about, since a scenario names a field and never a position.

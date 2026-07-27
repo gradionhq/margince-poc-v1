@@ -166,17 +166,3 @@ func (c *fieldExtractCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: strings.Join(detail, "; ")}
 }
-
-// gateRefusals renders the gate's own drops in the gate's own vocabulary. A
-// whole-reply refusal carries no field name, so it reads as one.
-func gateRefusals(dropped []droppedFinding) []string {
-	out := make([]string, 0, len(dropped))
-	for _, d := range dropped {
-		if d.Field == "" {
-			out = append(out, "the gate refused the whole reply: "+d.Reason)
-			continue
-		}
-		out = append(out, fmt.Sprintf("the gate dropped %s: %s", d.Field, d.Reason))
-	}
-	return out
-}

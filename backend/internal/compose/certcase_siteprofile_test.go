@@ -44,15 +44,14 @@ func siteProfileFixturePages() []siteProfilePage {
 	}
 }
 
-// siteProfileCompleterStub answers with a canned reply and keeps every request it
-// was handed, which is what the trace assertions read.
+// siteProfileCompleterStub answers with the canned reply a run is about. What
+// the model was asked reaches the assertions through the trace, which is where
+// the record and the canary gate read it from too.
 type siteProfileCompleterStub struct {
 	reply string
-	seen  []model.Request
 }
 
-func (s *siteProfileCompleterStub) Complete(_ context.Context, req model.Request) (model.Response, error) {
-	s.seen = append(s.seen, req)
+func (s *siteProfileCompleterStub) Complete(_ context.Context, _ model.Request) (model.Response, error) {
 	return model.Response{Text: s.reply}, nil
 }
 

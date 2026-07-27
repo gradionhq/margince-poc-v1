@@ -3,10 +3,12 @@
 
 package compose
 
-// Three sites' verdicts now rest on this one comparison, so it owes its own
-// proof: it is a subset claim, it names every disagreement rather than the
-// first, it forgives presentation and nothing else, and it says the same thing
-// in the same order on every run.
+// Several sites' verdicts rest on this file, so both halves owe their own proof.
+// The comparison: it is a subset claim, it names every disagreement rather than
+// the first, it forgives presentation and nothing else, and it says the same
+// thing in the same order on every run. The refusal rendering: every drop
+// reaches the reader, and a whole-reply refusal reads as one rather than as a
+// drop of the field named "".
 
 import (
 	"reflect"
@@ -141,5 +143,75 @@ func TestGroundedValuesOfNothingDisagreesWithEveryExpectation(t *testing.T) {
 		if !strings.HasPrefix(line, "no surviving ") {
 			t.Errorf("disagreement %q does not say the field never survived", line)
 		}
+	}
+}
+
+// A refusal names the field it refused, except when there is no field to name:
+// a reply the gate could not read at all is refused whole, and rendering that as
+// a drop of the field "" would read as a gate bug rather than a model one.
+func TestGateRefusalsSpeaksTheGatesOwnVocabulary(t *testing.T) {
+	cases := []struct {
+		name    string
+		dropped []droppedFinding
+		want    []string
+	}{
+		{
+			name:    "a field the gate would not ground",
+			dropped: []droppedFinding{{Lane: laneProfile, Field: "legal_name", Reason: dropEvidenceNotOnPage}},
+			want:    []string{"the gate dropped legal_name: evidence_not_on_page"},
+		},
+		{
+			name:    "a reply the gate could not read at all",
+			dropped: []droppedFinding{{Lane: laneProfile, Reason: dropUnparseableReply}},
+			want:    []string{"the gate refused the whole reply: unparseable_reply"},
+		},
+		{
+			name: "a refusal of the whole reply alongside a refusal of one field",
+			dropped: []droppedFinding{
+				{Lane: laneProfile, Field: "industry", Reason: dropUnknownField},
+				{Lane: laneProfile, Reason: dropUnparseableReply},
+			},
+			want: []string{
+				"the gate dropped industry: unknown_field",
+				"the gate refused the whole reply: unparseable_reply",
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := gateRefusals(tc.dropped); !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("refusals = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Every refusal reaches the reader, in the order the gate made them. A rendering
+// that summarised would hide the case the Detail exists for: a reply that
+// grounded what the scenario expects while fabricating evidence for three other
+// fields is not the clean run it would otherwise look like.
+func TestGateRefusalsRendersEveryDropInOrder(t *testing.T) {
+	dropped := []droppedFinding{
+		{Lane: laneProfile, Field: "industry", Reason: dropUnknownField},
+		{Lane: laneProfile, Field: "usp", Reason: dropEmptyValue},
+		{Lane: laneProfile, Field: "headcount", Reason: dropZeroedStat},
+	}
+
+	got := gateRefusals(dropped)
+	if len(got) != len(dropped) {
+		t.Fatalf("refusals = %q, want one line per drop (%d)", got, len(dropped))
+	}
+	for i, d := range dropped {
+		if !strings.Contains(got[i], d.Field) || !strings.Contains(got[i], d.Reason) {
+			t.Errorf("refusal %q does not name %s and %s", got[i], d.Field, d.Reason)
+		}
+	}
+}
+
+// A gate that refused nothing says nothing, so a clean run's Detail stays empty
+// rather than carrying a line announcing the absence of complaints.
+func TestGateRefusalsOfNothingSaysNothing(t *testing.T) {
+	if got := gateRefusals(nil); len(got) != 0 {
+		t.Errorf("refusals = %q, want none", got)
 	}
 }

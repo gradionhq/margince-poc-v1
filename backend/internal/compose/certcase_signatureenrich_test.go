@@ -38,15 +38,14 @@ const signatureEnrichMail = "Hi Alice,\n\n" +
 	"CTO, Acme Robotics GmbH\n" +
 	"+49 30 1234567\n"
 
-// signatureEnrichCompleterStub answers with a canned reply and keeps every
-// request it was handed, which is what the trace assertions read.
+// signatureEnrichCompleterStub answers with the canned reply a run is about.
+// What the model was asked reaches the assertions through the trace, which is
+// where the record and the canary gate read it from too.
 type signatureEnrichCompleterStub struct {
 	reply string
-	seen  []model.Request
 }
 
-func (s *signatureEnrichCompleterStub) Complete(_ context.Context, req model.Request) (model.Response, error) {
-	s.seen = append(s.seen, req)
+func (s *signatureEnrichCompleterStub) Complete(_ context.Context, _ model.Request) (model.Response, error) {
 	return model.Response{Text: s.reply}, nil
 }
 
