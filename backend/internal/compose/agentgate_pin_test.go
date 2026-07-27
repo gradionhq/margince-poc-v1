@@ -7,13 +7,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 // capturingApprovals records the StageRequest so a test can inspect what the
@@ -29,39 +30,95 @@ func (c *capturingApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ st
 	return nil
 }
 
-// fakeVersionReader returns a fixed current version, standing in for the
-// system-of-record provider's server-side read.
-type fakeVersionReader struct{ version int64 }
-
-func (f fakeVersionReader) Read(_ context.Context, _ datasource.EntityRef) (datasource.Record, error) {
-	return datasource.Record{Version: f.version}, nil
-}
-
-// A 🟡 REST mutation staged by an agent that sends NO If-Match must still
-// carry the target's CURRENT version, read server-side — otherwise the
-// redemption skew check short-circuits on a NULL pin and the approved
-// effect applies to a drifted row (F-006). The agent cannot opt out of the
-// version binding by omitting the header.
-func TestStageRefusalPinsTargetVersionServerSide(t *testing.T) {
-	staging := &capturingApprovals{}
-	reader := fakeVersionReader{version: 7}
+// The gate's half of the version binding: it names the concrete target and
+// hands NO pin of its own, so the approvals engine resolves the version
+// server-side inside the staging transaction. The gate has only one pin it
+// could offer — the caller's If-Match — and that is exactly the one an agent
+// can decline to send.
+func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
+	dealID := ids.NewV7()
 	pol := agentPolicy{Op: "archiveDeal", Access: "tool", Tool: "archive_record", RecordType: "deal"}
 
-	dealID := ids.NewV7()
-	req := httptest.NewRequest(http.MethodDelete, "/v1/deals/"+dealID.String(), nil) // no If-Match
-	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("id", dealID.String())
-	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	for _, tc := range []struct{ name, ifMatch string }{
+		{"no If-Match", ""},
+		{"If-Match sent anyway", "7"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			staging := &capturingApprovals{}
+			req := httptest.NewRequest(http.MethodDelete, "/v1/deals/"+dealID.String(), nil)
+			if tc.ifMatch != "" {
+				req.Header.Set("If-Match", tc.ifMatch)
+			}
+			rctx := chi.NewRouteContext()
+			rctx.URLParams.Add("id", dealID.String())
+			req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
-	stageRefusal(httptest.NewRecorder(), req, staging, reader, pol, nil)
+			stageRefusal(httptest.NewRecorder(), req, staging, pol, nil)
 
-	if staging.last.TargetVersion == nil {
-		t.Fatal("staged approval carries no target_version — omitting If-Match must not opt out of the skew check")
+			if staging.last.TargetType != "deal" || staging.last.TargetID != dealID {
+				t.Fatalf("staged target = (%s,%s), want (deal,%s) — the engine cannot pin a target it was not given",
+					staging.last.TargetType, staging.last.TargetID, dealID)
+			}
+			if staging.last.TargetVersion != nil {
+				t.Errorf("the gate supplied target_version %d — the pin must come from the row, not from the caller",
+					*staging.last.TargetVersion)
+			}
+		})
 	}
-	if *staging.last.TargetVersion != 7 {
-		t.Fatalf("target_version = %d, want the server-read 7", *staging.last.TargetVersion)
+}
+
+// unpinnableConfirmFirstTypes are the confirm-first target types with no
+// version column to pin, each with the rationale that ratified it. They fall
+// back to the diff_hash identical-call binding, which still refuses a
+// DIFFERENT call but not a drifted row, so every entry here is a known,
+// bounded residue rather than an oversight — and a NEW confirm-first record
+// type joins this list deliberately or fails the gate below.
+var unpinnableConfirmFirstTypes = map[string]string{
+	"custom_field":         "the field catalog is workspace-shared admin config with no version column; its DDL engine serializes on the catalog row itself",
+	"webhook_subscription": "subscription rows carry no version column; the staged change is the whole subscription body, which diff_hash binds verbatim",
+	"offer_template":       "template rows carry no version column; the staged change is the whole template body, which diff_hash binds verbatim",
+	"saved_view":           "saved views carry no version column and hold no money or consent state; diff_hash binds the whole definition",
+	"record_grant":         "a grant is created or revoked whole, never patched, so there is no prior version for a pin to bind",
+	"overlay_connection":   "connection rows carry no version column; connect/disconnect are whole-row transitions the diff_hash binds",
+}
+
+// Every confirm-first operation that names a concrete record type must have
+// a type the approvals engine can PIN — or sit in the ratified list above
+// with a reason. This is the read-side twin the pin was missing: the gate
+// used to take a server-side pin for exactly the five datasource-readable
+// types and fall back to the agent's own If-Match for the rest, so most
+// confirm-first routes carried a pin the agent could simply decline to
+// supply, and nothing said so.
+func TestConfirmFirstTargetsArePinnable(t *testing.T) {
+	for recordType, rationale := range unpinnableConfirmFirstTypes {
+		if strings.TrimSpace(rationale) == "" {
+			t.Errorf("unpinnableConfirmFirstTypes[%s] has no rationale — a waiver must say why no pin is possible", recordType)
+		}
 	}
-	if staging.last.TargetType != "deal" || staging.last.TargetID != dealID {
-		t.Fatalf("staged target = (%s,%s), want (deal,%s)", staging.last.TargetType, staging.last.TargetID, dealID)
+
+	used := map[string]bool{}
+	checked := 0
+	for route, pol := range agentPolicies {
+		if pol.Access != "tool" || pol.Tier == "auto_execute" || pol.RecordType == "" {
+			continue
+		}
+		checked++
+		if approvals.TargetVersionCheckable(pol.RecordType) {
+			continue
+		}
+		if _, ratified := unpinnableConfirmFirstTypes[pol.RecordType]; ratified {
+			used[pol.RecordType] = true
+			continue
+		}
+		t.Errorf("%s (%s) stages against %q, which carries no version pin — either give the table a version column "+
+			"or ratify the residue in unpinnableConfirmFirstTypes", route, pol.Op, pol.RecordType)
+	}
+	if checked == 0 {
+		t.Fatal("no confirm-first record-typed routes in the generated policy — the pin no longer covers anything")
+	}
+	for recordType := range unpinnableConfirmFirstTypes {
+		if !used[recordType] {
+			t.Errorf("unpinnableConfirmFirstTypes[%s] matches no confirm-first route — stale waiver, remove it", recordType)
+		}
 	}
 }

@@ -57,7 +57,7 @@ var actionShapedUpdateOps = map[string]bool{
 // so transport never changes what a human decision protects. An
 // X-Approval-Token redeems a prior staging: the approved retry carries
 // exactly the staged sub-patch, whose hash the staging was bound to.
-func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, reader recordVersionReader, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
+func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handler, staging agents.Approvals, ownership agents.FieldOwnership, pol agentPolicy, body []byte) {
 	ctx := r.Context()
 	if redeemIfPresented(w, r, next, staging, pol, body) {
 		return
@@ -95,7 +95,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		// Every touched field is human-owned: nothing applies, the whole
 		// request is the staged change — the approved retry is this exact
 		// request again.
-		stageRefusal(w, r, staging, reader, pol, body)
+		stageRefusal(w, r, staging, pol, body)
 		return
 	}
 	applyAutoExecuteAndStageResidue(w, r, next, staging, pol, targetID, split)
