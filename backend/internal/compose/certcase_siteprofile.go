@@ -211,36 +211,11 @@ func (c *siteProfileCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	if len(grounded) == 0 && len(dropped) > 0 {
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: strings.Join(detail, "; ")}
 	}
-	if disagreements := c.disagreements(grounded); len(disagreements) > 0 {
+	if disagreements := expectationDisagreements(c.expected, groundedValues(grounded)); len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, detail...), "; "),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: strings.Join(detail, "; ")}
-}
-
-// disagreements names every expected field the surviving profile does not carry.
-// All of them, not the first: a run that read the legal name right and the
-// positioning wrong is not the near miss one line would read as.
-//
-// Values compare under normalizeEvidence — the same presentation-only relaxation
-// the gate applies to a citation — so a scenario neither fails on a straightened
-// apostrophe nor passes on a reworded value.
-func (c *siteProfileCase) disagreements(grounded []evidencedField) []string {
-	byField := make(map[string]string, len(grounded))
-	for _, f := range grounded {
-		byField[f.Field] = f.Value
-	}
-	var out []string
-	for _, name := range slices.Sorted(maps.Keys(c.expected)) {
-		value, survived := byField[name]
-		switch {
-		case !survived:
-			out = append(out, fmt.Sprintf("no surviving %s, which the scenario expects", name))
-		case normalizeEvidence(value) != normalizeEvidence(c.expected[name]):
-			out = append(out, fmt.Sprintf("%s reads %q where the scenario expects %q", name, value, c.expected[name]))
-		}
-	}
-	return out
 }

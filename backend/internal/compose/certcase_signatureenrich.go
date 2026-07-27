@@ -163,7 +163,13 @@ func (c *signatureEnrichCase) Run(ctx context.Context, completer aitasks.Complet
 // The floor is applied, unlike the classify site's confidence, because it is the
 // §2.9 acceptance rule and not a routing decision: a hedged field is never
 // written, so a case that counted one would certify a fill the product does not
-// perform.
+// perform. That is why what is compared is the proposal rather than everything
+// the gate let through — a hedged field the pass would not write is not a field
+// to be right about.
+//
+// The comparison forgives presentation and nothing else, which for this site's
+// fields is the sharp part: a phone the model reformatted still disagrees,
+// because its digits and separators survive the normalization.
 func (c *signatureEnrichCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	gated, dropped := gateEvidence(trace.Output, c.lines, "activity:"+c.cand.ActivityID.String(),
 		func(name string) bool { return enrichFieldNames[name] })
@@ -183,33 +189,11 @@ func (c *signatureEnrichCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		}
 		proposed[f.Field] = f.Value
 	}
-	if disagreements := c.disagreements(proposed); len(disagreements) > 0 {
+	if disagreements := expectationDisagreements(c.expected, proposed); len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, detail...), "; "),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: strings.Join(detail, "; ")}
-}
-
-// disagreements names every expected field the proposal does not carry. All of
-// them, not the first: a run that read the title right and the phone wrong is not
-// the near miss one line would read as.
-//
-// Values compare under normalizeEvidence — the same presentation-only relaxation
-// the gate applies to evidence — so a scenario neither fails on a straightened
-// apostrophe nor passes on a reworded value. A phone the model reformatted still
-// disagrees: its digits and separators survive the normalization.
-func (c *signatureEnrichCase) disagreements(proposed map[string]string) []string {
-	var out []string
-	for _, name := range slices.Sorted(maps.Keys(c.expected)) {
-		value, survived := proposed[name]
-		switch {
-		case !survived:
-			out = append(out, fmt.Sprintf("no surviving %s, which the scenario expects", name))
-		case normalizeEvidence(value) != normalizeEvidence(c.expected[name]):
-			out = append(out, fmt.Sprintf("%s reads %q where the scenario expects %q", name, value, c.expected[name]))
-		}
-	}
-	return out
 }

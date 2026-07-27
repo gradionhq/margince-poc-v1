@@ -158,35 +158,13 @@ func (c *fieldExtractCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 		}
 		return aitasks.Outcome{Result: aitasks.OutcomeInvalid, Detail: strings.Join(detail, "; ")}
 	}
-	if disagreements := c.disagreements(fields); len(disagreements) > 0 {
+	if disagreements := expectationDisagreements(c.expected, groundedValues(fields)); len(disagreements) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
 			Detail: strings.Join(append(disagreements, detail...), "; "),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted, Detail: strings.Join(detail, "; ")}
-}
-
-// disagreements names every expected fact the surviving fields do not carry.
-// Values compare under normalizeEvidence — the same presentation-only relaxation
-// the gate applies to evidence — so a scenario neither fails on a straightened
-// apostrophe nor passes on a reworded value.
-func (c *fieldExtractCase) disagreements(fields []evidencedField) []string {
-	grounded := make(map[string]string, len(fields))
-	for _, f := range fields {
-		grounded[f.Field] = f.Value
-	}
-	var out []string
-	for _, name := range slices.Sorted(maps.Keys(c.expected)) {
-		value, survived := grounded[name]
-		switch {
-		case !survived:
-			out = append(out, fmt.Sprintf("no surviving %s, which the scenario expects", name))
-		case normalizeEvidence(value) != normalizeEvidence(c.expected[name]):
-			out = append(out, fmt.Sprintf("%s reads %q where the scenario expects %q", name, value, c.expected[name]))
-		}
-	}
-	return out
 }
 
 // gateRefusals renders the gate's own drops in the gate's own vocabulary. A
