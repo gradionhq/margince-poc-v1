@@ -1856,7 +1856,7 @@ paths:
               type: object
               required: [entity_type, entity_id]
               properties:
-                entity_type: { type: string, enum: [person, organization, deal, lead] }
+                entity_type: { type: string, enum: [person, organization, deal, lead, project] }
                 entity_id:   { type: string, format: uuid }
                 replace_existing_of_type:
                   type: boolean

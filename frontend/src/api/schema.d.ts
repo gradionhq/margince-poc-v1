@@ -12147,7 +12147,7 @@ export interface operations {
             content: {
                 "application/json": {
                     /** @enum {string} */
-                    entity_type: "person" | "organization" | "deal" | "lead";
+                    entity_type: "person" | "organization" | "deal" | "lead" | "project";
                     /** Format: uuid */
                     entity_id: string;
                     /**

@@ -5985,6 +5985,7 @@ const (
 	RelinkActivityJSONBodyEntityTypeLead         RelinkActivityJSONBodyEntityType = "lead"
 	RelinkActivityJSONBodyEntityTypeOrganization RelinkActivityJSONBodyEntityType = "organization"
 	RelinkActivityJSONBodyEntityTypePerson       RelinkActivityJSONBodyEntityType = "person"
+	RelinkActivityJSONBodyEntityTypeProject      RelinkActivityJSONBodyEntityType = "project"
 )
 
 // Valid indicates whether the value is a known member of the RelinkActivityJSONBodyEntityType enum.
@@ -5997,6 +5998,8 @@ func (e RelinkActivityJSONBodyEntityType) Valid() bool {
 	case RelinkActivityJSONBodyEntityTypeOrganization:
 		return true
 	case RelinkActivityJSONBodyEntityTypePerson:
+		return true
+	case RelinkActivityJSONBodyEntityTypeProject:
 		return true
 	default:
 		return false

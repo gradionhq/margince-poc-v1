@@ -26,13 +26,18 @@ import "./compose.css";
 
 type Activity = components["schemas"]["Activity"];
 
-// The four link targets a relink can point at (relinkActivity's entity_type
-// enum). Reused by ComposeModal and TimelineActions so the whole surface
-// speaks one vocabulary.
-export type RelinkKind = "person" | "organization" | "deal" | "lead";
+// The link targets a relink can point at (relinkActivity's entity_type enum,
+// minus `activity` — a relink never points at another activity). Reused by
+// ComposeModal and TimelineActions so the whole surface speaks one vocabulary.
+export type RelinkKind =
+  | "person"
+  | "organization"
+  | "deal"
+  | "lead"
+  | "project";
 
-// The relink target is chosen via cross-object search (/search covers all four
-// kinds; the per-entity list endpoints don't all expose `q`). Each candidate's
+// The relink target is chosen via cross-object search (/search covers every
+// kind; the per-entity list endpoints don't all expose `q`). Each candidate's
 // entity_type comes from its SearchResult.type, remembered here so the confirm
 // can recover it — RecordPickerCandidate itself only carries {id,name}.
 // Activity results are dropped: relink's target enum has no `activity`.
