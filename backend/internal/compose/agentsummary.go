@@ -78,6 +78,15 @@ func summaryFields(body []byte) []string {
 // summaryValue renders one JSON value for a human. Strings lose their quotes
 // (the reader wants the name, not its encoding) and everything is bounded.
 func summaryValue(raw json.RawMessage) string {
+	// null is recognized BEFORE the string probe, because unmarshaling null
+	// into a plain string SUCCEEDS and leaves it empty (encoding/json: null
+	// into a non-nullable type "has no effect and produces no error"). Left to
+	// the string branch, clearing a field would render exactly like setting it
+	// to "" — and clearing an owner or a close date is precisely the change the
+	// approving human most needs to see.
+	if strings.TrimSpace(string(raw)) == "null" {
+		return "null"
+	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return truncateValue(s)

@@ -12,6 +12,7 @@ package approvals
 import (
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 func TestSanitizeSummaryStripsWhatCanMisleadAReader(t *testing.T) {
@@ -47,22 +48,31 @@ func TestSanitizeSummaryStripsWhatCanMisleadAReader(t *testing.T) {
 // cheapest of these attacks and needs no special characters at all.
 func TestSanitizeSummaryBoundsALongPrefix(t *testing.T) {
 	got := sanitizeSummary(strings.Repeat("routine cleanup ", 200) + "and delete everything")
-	if len(got) > maxSummaryLen+len("…") {
-		t.Errorf("summary is %d bytes, want at most %d", len(got), maxSummaryLen)
+	if len(got) > maxSummaryLen {
+		t.Errorf("summary is %d bytes, want at most %d — the ellipsis is inside the budget", len(got), maxSummaryLen)
 	}
 	if !strings.HasSuffix(got, "…") {
 		t.Errorf("a truncated summary must say so, got %q", got[max(0, len(got)-40):])
 	}
 }
 
-// Bounding must not produce invalid UTF-8: the cut walks back to a rune
-// boundary rather than splitting a multi-byte character.
+// Bounding must not produce invalid UTF-8. The cut has to land INSIDE a
+// multi-byte rune for this to test anything: an ASCII run sized so that the
+// budget falls partway through the 日 that follows it puts the naive cut
+// between that rune's bytes, and only walking back to the rune start avoids
+// emitting half of it.
 func TestSanitizeSummaryCutsOnARuneBoundary(t *testing.T) {
-	for n := 1; n <= 12; n++ {
-		s := strings.Repeat("日", maxSummaryLen) + strings.Repeat("x", n)
-		got := sanitizeSummary(s)
+	for offset := 1; offset <= 4; offset++ {
+		prefix := strings.Repeat("x", maxSummaryLen-offset)
+		got := sanitizeSummary(prefix + strings.Repeat("日", 8))
 		if strings.ContainsRune(got, '�') {
-			t.Fatalf("bounding split a rune at n=%d: %q", n, got)
+			t.Errorf("bounding split a rune at offset=%d: %q", offset, got)
+		}
+		if !utf8.ValidString(got) {
+			t.Errorf("bounding produced invalid UTF-8 at offset=%d: %q", offset, got)
+		}
+		if len(got) > maxSummaryLen {
+			t.Errorf("bounded summary is %d bytes at offset=%d, want at most %d", len(got), offset, maxSummaryLen)
 		}
 	}
 }

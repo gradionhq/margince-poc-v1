@@ -85,3 +85,22 @@ func TestRestSummaryCountsNestedStructure(t *testing.T) {
 		t.Errorf("summary %q does not count the nested line items", got)
 	}
 }
+
+// Clearing a field and setting it empty are different changes, and the
+// approving human has to be able to tell them apart. Unmarshaling JSON null
+// into a plain string succeeds and leaves it empty, so a naive string probe
+// renders `owner_id=` for both — which reads like nothing is happening on the
+// one that hands the record to nobody.
+func TestRestSummaryDistinguishesNullFromEmpty(t *testing.T) {
+	cleared := restSummary("updateDeal", "PATCH", "/v1/deals/x", []byte(`{"owner_id":null}`))
+	if !strings.Contains(cleared, "owner_id=null") {
+		t.Errorf("summary %q does not show that owner_id is being CLEARED", cleared)
+	}
+	emptied := restSummary("updateDeal", "PATCH", "/v1/deals/x", []byte(`{"owner_id":""}`))
+	if strings.Contains(emptied, "owner_id=null") {
+		t.Errorf("summary %q reports an empty string as a clear", emptied)
+	}
+	if cleared == emptied {
+		t.Error("clearing a field and emptying it render identically")
+	}
+}

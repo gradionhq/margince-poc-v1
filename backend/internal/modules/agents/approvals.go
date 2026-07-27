@@ -27,9 +27,10 @@ var errInvalidApprovalID = errors.New("approval_id must be a UUID string")
 // depends on seams, never on sibling modules).
 type Approvals interface {
 	Stage(ctx context.Context, in StageRequest) (ids.ApprovalID, error)
-	// Redeem answers the version the approval was pinned to (nil when it
-	// carried none), so a transport that forwards the authorized call can
-	// bind its own write to it.
+	// Redeem answers the version the approval was pinned to, so a transport
+	// that forwards the authorized call can bind its own write to it. pinned
+	// is false when the approval carried none — a create, or a target type
+	// with no version column — and version is meaningless then.
 	Redeem(ctx context.Context, approvalID ids.ApprovalID, tool, diffHash string) (version int64, pinned bool, err error)
 }
 

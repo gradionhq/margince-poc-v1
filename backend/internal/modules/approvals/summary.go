@@ -63,15 +63,21 @@ func sanitizeSummary(s string) string {
 	return boundRunes(strings.TrimSpace(b.String()), maxSummaryLen)
 }
 
-// boundRunes truncates to n bytes without splitting a rune, marking that it
-// did so — a silently cut summary reads as a complete one.
+// boundRunes truncates so the RESULT is at most n bytes, marking that it did
+// so — a silently cut summary reads as a complete one. The ellipsis is part of
+// the budget, not added on top of it: a caller that passes a limit means the
+// output, and a bound that overshoots by three bytes is not a bound.
 func boundRunes(s string, n int) string {
 	if len(s) <= n {
 		return s
 	}
-	cut := n
+	const ellipsis = "…"
+	cut := n - len(ellipsis)
+	if cut < 0 {
+		cut = 0
+	}
 	for cut > 0 && !utf8.RuneStart(s[cut]) {
 		cut--
 	}
-	return strings.TrimSpace(s[:cut]) + "…"
+	return strings.TrimSpace(s[:cut]) + ellipsis
 }

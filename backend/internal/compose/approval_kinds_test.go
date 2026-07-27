@@ -132,8 +132,9 @@ func TestCollidingEffectKindsAreCoveredByProvenance(t *testing.T) {
 		}
 	}
 	if len(colliding) == 0 {
-		t.Log("no agent tool name collides with a registered effect kind — the provenance check now guards nothing")
-		return
+		t.Error("no agent tool name collides with a registered effect kind — the provenance check in " +
+			"approvals.decide now guards nothing, so delete it and delete this test rather than " +
+			"leaving a control nobody can see is dead")
 	}
 	for tool, route := range colliding {
 		t.Logf("agent route %s stages kind %q, which also has a server-side effect executor — "+
