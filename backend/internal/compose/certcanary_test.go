@@ -18,6 +18,15 @@ package compose_test
 // this repository, the site's real Prepare/Run is driven with it, and the
 // instruction channel of every request it issues must not contain that string.
 //
+// "Free text" is not read off the shape of the value. Prose announces itself by
+// carrying whitespace, but a subject line reading "Invoice", a display name and
+// a sender address are free text spelled exactly like the enums, locales and
+// hashes beside them — and those a stamp would break for reasons that have
+// nothing to do with the instruction channel. plantCanary tells the two apart
+// by asking the site: a single-word field is offered to the site's own Prepare
+// with the marker on it, and joins the run only if the site still accepts it,
+// because a closed vocabulary is precisely what refuses a value outside itself.
+//
 // The fixtures come from the committed corpus rather than being written here.
 // They are what production is actually handed — a hand-written per-site fixture
 // would be one more thing to keep true, and would drift toward whatever shape
@@ -33,6 +42,8 @@ package compose_test
 import (
 	"context"
 	"encoding/json"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,6 +63,23 @@ const canary = "qzvxCANARY7413zjw"
 // mostly refuse it, which costs this gate nothing: refusal happens after the
 // request was already issued, and the request is the whole subject here.
 const canaryReply = "{}"
+
+// codebaseOwnedFixtureKeys names, per site, the top-level fixture keys whose
+// content this build mints rather than receives, with the reason each one is
+// not a stranger's text. Those are left unstamped: the gate asks whether text
+// somebody else wrote reaches the instruction channel, and a value this
+// codebase chose is not that — stamping one would report the site's own
+// vocabulary as a leak.
+//
+// A key without a reason is itself a finding. This is the one place the gate
+// takes an answer on trust instead of deriving it, so growing it must cost an
+// argument about where the value comes from in PRODUCTION, never about what
+// made the test pass.
+var codebaseOwnedFixtureKeys = map[string]map[string]string{
+	"agent_loop/loop": {
+		"tools": "the loop names its callable tools and their schemas in the instruction channel by design (runner/window.go's systemPrompt), and that catalog is the governed MCP tool surface this build registers — a scenario carries one only because a loop cannot be seeded without it. The stranger-supplied halves of the same fixture, the goal and the grounding, are stamped and must stay out.",
+	},
+}
 
 func TestNoFixtureTextReachesASystemPrompt(t *testing.T) {
 	census, err := compose.NewTaskCensus()
@@ -78,8 +106,15 @@ func TestNoFixtureTextReachesASystemPrompt(t *testing.T) {
 			if len(owned) == 0 {
 				t.Fatalf("site %s has no corpus scenario, so its instruction channel is never exercised", key)
 			}
+			ours := map[string]bool{}
+			for field, reason := range codebaseOwnedFixtureKeys[key] {
+				if strings.TrimSpace(reason) == "" {
+					t.Errorf("site %s leaves fixture field %q unstamped with no reason — say where its content comes from in production, or drop the entry", key, field)
+				}
+				ours[field] = true
+			}
 			for _, sc := range owned {
-				assertNoCanaryInAnySystemPrompt(t, census, sc)
+				assertNoCanaryInAnySystemPrompt(t, census, sc, ours)
 			}
 		})
 	}
@@ -87,14 +122,25 @@ func TestNoFixtureTextReachesASystemPrompt(t *testing.T) {
 
 // assertNoCanaryInAnySystemPrompt drives one scenario's real case over a
 // canary-stamped copy of its fixture and reads every request the case issued.
-func assertNoCanaryInAnySystemPrompt(t *testing.T, census *aitasks.Registry, sc aicert.Scenario) {
+func assertNoCanaryInAnySystemPrompt(t *testing.T, census *aitasks.Registry, sc aicert.Scenario, codebaseOwned map[string]bool) {
 	t.Helper()
 
 	factory, bound := census.CaseFor(ai.Task(sc.Task), sc.Site)
 	if !bound {
 		t.Fatalf("scenario %s names site %s/%s, which no case is bound to", sc.Name, sc.Task, sc.Site)
 	}
-	stamped, planted, err := plantCanary(json.RawMessage(sc.Fixture))
+	accepts := func(candidate json.RawMessage) bool {
+		_, err := factory.Prepare(candidate, json.RawMessage(sc.Expect.Answer))
+		return err == nil
+	}
+	// The probe below reads a refusal as "this field is a closed vocabulary",
+	// so a site that refuses the fixture BEFORE anything is stamped would read
+	// every one of its fields that way and stamp none of them — the gate would
+	// pass by measuring nothing.
+	if !accepts(json.RawMessage(sc.Fixture)) {
+		t.Fatalf("scenario %s: the site refuses its own unstamped fixture, so nothing can be learned from what it refuses stamped", sc.Name)
+	}
+	stamped, planted, err := plantCanary(json.RawMessage(sc.Fixture), accepts, codebaseOwned)
 	if err != nil {
 		t.Fatalf("scenario %s: stamping the fixture: %v", sc.Name, err)
 	}
@@ -153,61 +199,147 @@ func (c *recordingCompleter) Complete(_ context.Context, req model.Request) (mod
 }
 
 // plantCanary returns a copy of a fixture with the canary appended to every
-// free-text field, and how many fields it stamped.
+// field whose text a stranger could write, and how many of those carried prose.
 //
-// Free text is taken to be a string carrying whitespace. That is what prose is,
-// and what the structured tokens beside it in a fixture — an enum, a URL, a
-// locale, a currency code, a hash, an id the expectation names — never are.
-// Stamping one of those would make Prepare refuse the fixture for a reason that
-// has nothing to do with the instruction channel, and the gate would measure
+// Two kinds of field get stamped, and they are separated because only one of
+// them can be recognised by looking at it:
+//
+// A field carrying WHITESPACE is prose, and prose is always stamped. That is
+// what a mail body, a crawled page or a chat turn looks like, and it is never
+// what an enum, a URL, a locale, a currency code or a hash looks like.
+//
+// A SINGLE-WORD field is the hard case, and it is the one a whitespace rule
+// alone lets through: a mail subject reading "Invoice", a display name, a
+// company name are all free text a stranger chose, and they sit in a fixture
+// spelled exactly like the closed-vocabulary tokens beside them. Stamping those
+// tokens is what the whitespace rule was avoiding — an enum or a locale with a
+// marker glued on makes Prepare refuse the fixture for a reason that has
+// nothing to do with the instruction channel, and the gate would then measure
 // the refusal instead of the prompt.
+//
+// So the two are told apart by asking the site rather than by guessing: each
+// single-word field is stamped ALONE and offered to the site's own Prepare, and
+// it joins the run only if the site still accepts it. A closed vocabulary is
+// exactly the thing that refuses a value outside it, and the site's validator
+// is the only authority on which of its fields those are.
+//
+// What this does NOT establish is that every stamped single-word field reached
+// the model at all. A field the site reads for its own purposes and never sends
+// — a lookup id, a flag — is stamped, refuses nothing, and shows up in no
+// request; the prose count returned here is what the caller's reachability
+// assertion rests on, because prose is the part whose arrival can be proved.
+// The gate over single-word fields is therefore one-sided: it can catch one
+// reaching the instruction channel, and it cannot certify that one which never
+// appears was truly never sent.
 //
 // The marker is APPENDED rather than substituted so the fixture still says what
 // it said: a site whose validator gates on evidence present in the source text
 // keeps finding it, and the scenario's expected answer stays reachable. It is
 // glued to the field's last word rather than added as a new one, so a fixture
 // that declares its own text's length still agrees with itself.
+func plantCanary(fixture json.RawMessage, accepts func(json.RawMessage) bool, codebaseOwned map[string]bool) (json.RawMessage, int, error) {
+	var leaves []fixtureLeaf
+	if _, err := stampStringLeaves(fixture, func(leaf fixtureLeaf) bool {
+		leaves = append(leaves, leaf)
+		return false
+	}); err != nil {
+		return nil, 0, err
+	}
+
+	prose := map[int]bool{}
+	var words []int
+	for i, leaf := range leaves {
+		switch {
+		case codebaseOwned[leaf.field], strings.TrimSpace(leaf.value) == "":
+		case strings.ContainsAny(leaf.value, " \t\n"):
+			prose[i] = true
+		default:
+			words = append(words, i)
+		}
+	}
+
+	freeWords := map[int]bool{}
+	for _, at := range words {
+		probe, err := stampStringLeaves(fixture, func(leaf fixtureLeaf) bool { return leaf.index == at })
+		if err != nil {
+			return nil, 0, err
+		}
+		if accepts(probe) {
+			freeWords[at] = true
+		}
+	}
+
+	stamped, err := stampStringLeaves(fixture, func(leaf fixtureLeaf) bool {
+		return prose[leaf.index] || freeWords[leaf.index]
+	})
+	if err != nil {
+		return nil, 0, err
+	}
+	return stamped, len(prose), nil
+}
+
+// fixtureLeaf is one string somewhere inside a fixture: its position in the
+// walk, the top-level field whose subtree it belongs to, and its text.
+type fixtureLeaf struct {
+	index int
+	field string
+	value string
+}
+
+// stampStringLeaves returns a copy of a fixture with the canary appended to
+// every string leaf keep selects. Leaves are visited in a fixed order — array
+// order, and map keys sorted — so one leaf's index means the same thing on the
+// probing pass and on the stamping pass that follows it.
 //
 // The walk goes through the empty interface because the shape belongs to the
 // site, not to this test — the same reason the corpus loader decodes a fixture
 // that way.
-func plantCanary(fixture json.RawMessage) (json.RawMessage, int, error) {
+func stampStringLeaves(fixture json.RawMessage, keep func(fixtureLeaf) bool) (json.RawMessage, error) {
 	var decoded any
 	if err := json.Unmarshal(fixture, &decoded); err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	planted := 0
-	var stamp func(any) any
-	stamp = func(v any) any {
+	index := 0
+	var stamp func(value any, field string) any
+	stamp = func(v any, field string) any {
 		switch typed := v.(type) {
 		case string:
-			if strings.ContainsAny(typed, " \t\n") && strings.TrimSpace(typed) != "" {
-				planted++
-				// Glued to the last word, inside whatever trailing whitespace
-				// the field already had: a fixture may declare its own text's
-				// word count, and a marker that arrived as a separate word
-				// would contradict it.
-				body := strings.TrimRight(typed, " \t\n")
-				return body + canary + typed[len(body):]
+			leaf := fixtureLeaf{index: index, field: field, value: typed}
+			index++
+			if !keep(leaf) || strings.TrimSpace(typed) == "" {
+				return typed
 			}
-			return typed
+			// Glued to the last word, inside whatever trailing whitespace
+			// the field already had: a fixture may declare its own text's
+			// word count, and a marker that arrived as a separate word
+			// would contradict it.
+			body := strings.TrimRight(typed, " \t\n")
+			return body + canary + typed[len(body):]
 		case []any:
 			for i, item := range typed {
-				typed[i] = stamp(item)
+				typed[i] = stamp(item, field)
 			}
 			return typed
 		case map[string]any:
-			for k, item := range typed {
-				typed[k] = stamp(item)
+			for _, key := range slices.Sorted(maps.Keys(typed)) {
+				// The field a leaf is attributed to is the OUTERMOST key it
+				// sits under, so naming one covers its whole subtree — a
+				// fixture's tool catalog is one field however deeply its
+				// schemas nest.
+				under := field
+				if under == "" {
+					under = key
+				}
+				typed[key] = stamp(typed[key], under)
 			}
 			return typed
 		default:
 			return v
 		}
 	}
-	stamped, err := json.Marshal(stamp(decoded))
+	stamped, err := json.Marshal(stamp(decoded, ""))
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	return stamped, planted, nil
+	return stamped, nil
 }
