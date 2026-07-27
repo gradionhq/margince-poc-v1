@@ -309,7 +309,7 @@ func TestBriefQueueGateBoundsTheL2Reorder(t *testing.T) {
 	}
 }
 
-// boundToCandidates is the deterministic guardrail: whatever the model
+// BoundToCandidates is the deterministic guardrail: whatever the model
 // returns, the result is exactly a permutation of the candidate set — a
 // hallucinated id is dropped, a duplicate counts once, and an omitted
 // candidate keeps its deterministic slot at the tail.
@@ -324,7 +324,7 @@ func TestBoundToCandidatesKeepsThePermutationHonest(t *testing.T) {
 	// mentions deal 2 — the bound result is [3, 1, 2]: 99 dropped, the
 	// duplicate ignored, and the omitted deal 2 kept at the tail.
 	model := []ids.UUID{uuidAt(3), uuidAt(99), uuidAt(1), uuidAt(1)}
-	got := boundToCandidates(model, candidates)
+	got := BoundToCandidates(model, candidates)
 	want := []ids.UUID{uuidAt(3), uuidAt(1), uuidAt(2)}
 	if diff := queueDeals(got); len(diff) != len(want) {
 		t.Fatalf("bound queue = %v, want %v", diff, want)
@@ -336,7 +336,7 @@ func TestBoundToCandidatesKeepsThePermutationHonest(t *testing.T) {
 	}
 
 	// An empty model response falls back to the deterministic order intact.
-	if fallback := boundToCandidates(nil, candidates); len(fallback) != len(candidates) ||
+	if fallback := BoundToCandidates(nil, candidates); len(fallback) != len(candidates) ||
 		fallback[0].DealID != candidates[0].DealID {
 		t.Fatalf("empty model order must fall back to the deterministic set, got %v", queueDeals(fallback))
 	}
