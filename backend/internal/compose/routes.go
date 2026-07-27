@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // contractAPI builds the generated contract router with the ADR-0055
@@ -48,7 +49,15 @@ func contractAPI(srv Server, pool *pgxpool.Pool, identitySvc *identity.Service) 
 		BaseURL: "/v1",
 		Middlewares: []crmcontracts.MiddlewareFunc{
 			agentGate(registry, staging, provider, fieldOwnership{pool: pool}, gate),
-			idempotency(pool),
+			idempotency(pool, map[string]replayProbe{
+				// A replay of an approval decision is a read of that approval,
+				// so it clears the same visibility rule the inbox does rather
+				// than a copy of it (API-CC-8).
+				probeApproval: func(ctx context.Context, id ids.UUID) error {
+					_, err := staging.svc.Get(ctx, ids.From[ids.ApprovalKind](id))
+					return err
+				},
+			}),
 			// Outermost: an overlay-mode SoR write is refused before it can
 			// be recorded under an idempotency key or staged as an agent
 			// approval — the honest unsupported_by_sor, for every principal.

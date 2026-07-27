@@ -34,7 +34,7 @@ import (
 // so the chi RoutePattern the map is keyed by is bound).
 func keyedQuotaRouter(e *integration.Env, handler http.HandlerFunc) chi.Router {
 	r := chi.NewRouter()
-	r.With(idempotency(e.Pool)).Post("/v1/quotas", handler)
+	r.With(idempotency(e.Pool, nil)).Post("/v1/quotas", handler)
 	return r
 }
 
@@ -110,7 +110,7 @@ func TestIdempotencyFailedAttemptRetryIsAFreshExecution(t *testing.T) {
 // replayScope probes, wired per-route so the chi RoutePattern binds.
 func keyedPersonRouter(e *integration.Env, handler http.HandlerFunc) chi.Router {
 	r := chi.NewRouter()
-	r.With(idempotency(e.Pool)).Patch("/v1/people/{id}", handler)
+	r.With(idempotency(e.Pool, nil)).Patch("/v1/people/{id}", handler)
 	return r
 }
 

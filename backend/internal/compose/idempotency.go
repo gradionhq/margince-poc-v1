@@ -48,7 +48,7 @@ const (
 // idempotency is a contract-router middleware; it rides inside the
 // session middleware, so workspace and principal are bound (the claim
 // table is RLS-guarded and scoped per principal).
-func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
+func idempotency(pool *pgxpool.Pool, probes map[string]replayProbe) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			key := r.Header.Get(idempotencyKeyHeader)
@@ -91,7 +91,7 @@ func idempotency(pool *pgxpool.Pool) func(http.Handler) http.Handler {
 			case claimReplay:
 				// A replay is a read (API-CC-8): the recorded body only goes
 				// back if the caller can still see the record it carries.
-				if err := ensureReplayVisible(r.Context(), pool, route, stored.body); err != nil {
+				if err := ensureReplayVisible(r.Context(), pool, probes, route, stored.body); err != nil {
 					httperr.Write(w, r, err)
 					return
 				}

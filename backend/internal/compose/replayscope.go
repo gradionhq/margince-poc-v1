@@ -45,13 +45,14 @@ import (
 // Guessing it turns legitimate retries into 403s, which is a worse failure
 // than the gap. STATUS.md carries what closing it needs.
 type replayTarget struct {
-	object     string // RBAC object governing the body (recorded, not yet re-checked)
-	objectNote string // …or why no object grant governs it
-	table      string // row-scoped table the body's record lives in
-	tableField string // …or the body field naming that table, for a polymorphic reference
-	idPath     string // dotted path to the record id inside the recorded body
-	pathParam  string // …or the route parameter naming its parent record, for a projection whose body omits it
-	rowNote    string // why the body carries no row-scoped record
+	object      string // RBAC object governing the body (recorded, not yet re-checked)
+	objectNote  string // …or why no object grant governs it
+	table       string // row-scoped table the body's record lives in
+	tableField  string // …or the body field naming that table, for a polymorphic reference
+	moduleProbe string // …or the key of a module-owned visibility probe, where the scope rule lives inside a module
+	idPath      string // dotted path to the record id inside the recorded body
+	pathParam   string // …or the route parameter naming its parent record, for a projection whose body omits it
+	rowNote     string // why the body carries no row-scoped record
 }
 
 // The row-scoped tables, and the RBAC objects that mirror them word for word.
@@ -65,6 +66,9 @@ const (
 	tableActivity     = "activity"
 	tableVoiceProfile = "voice_profile"
 	tableSignal       = "signal"
+
+	// probeApproval keys the approvals-owned visibility probe compose injects.
+	probeApproval = "approval"
 
 	// The field an offer names its deal by.
 	offerDealField = "deal_id"
@@ -174,28 +178,31 @@ var replayableOperations = map[string]replayTarget{
 	"PATCH /v1/custom-fields/{id}":         {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	"PATCH /v1/custom-fields/{id}/options": {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
 	"POST /v1/custom-fields/{id}/retire":   {objectNote: fieldCatalogGate, rowNote: noOwnerCatalog},
-	// KNOWN GAP, deliberately left open rather than closed the wrong way. An
-	// approval IS row-scoped — through its TARGET (approvals.decidable =
-	// decision grants AND targetVisible) — so replaying returns
-	// proposed_change, evidence and the ADR-0036 token for a target the caller
-	// may since have lost. The probe lives inside approvals, where this
-	// package cannot reach it, and withdrawing the promise instead is WORSE:
+	// An approval is row-scoped through its TARGET (approvals.decidable =
+	// decision grants AND targetVisible), and that rule lives inside the
+	// approvals module — so the probe is borrowed rather than reimplemented
+	// here, where a second copy would drift from the one decide.go enforces.
+	// Withdrawing the promise instead is not the alternative it looks like:
 	// the first attempt decides the approval and mints a single-use token, so
-	// a retry re-executes, fails as already-decided, and the token is lost for
-	// good — a 🟡 action nobody can redeem, on any dropped response. Closing it
-	// needs an approvals-owned visibility probe injected here, the way compose
-	// already injects the approvals adapter. STATUS.md carries it.
-	"POST /v1/approvals/{id}/approve": {objectNote: "the approval row IS the authority object (ADR-0036); the approvals engine gates it", rowNote: "row-scoped through its target, but the probe is not reachable from this package — see the note above"},
+	// a retry would re-execute, fail as already-decided, and lose the token
+	// for good.
+	"POST /v1/approvals/{id}/approve": {objectNote: "the approval row IS the authority object (ADR-0036); the approvals engine gates it", moduleProbe: probeApproval, pathParam: "id"},
 	"POST /v1/data-subject-requests":  {objectNote: "DSR intake is gated by the privacy module's own case rules", rowNote: "a DSR case row, not a domain record"},
 	"PUT /v1/onboarding/state":        {objectNote: "per-workspace onboarding progress, gated by session membership in identity", rowNote: "workspace progress, not a record"},
 }
+
+// replayProbe answers whether the caller may still see one record, for the
+// bodies whose scope rule lives inside a module rather than in a row-scoped
+// table. Compose injects them at the composition root, so this package borrows
+// the module's own rule instead of keeping a second copy that could drift.
+type replayProbe func(ctx context.Context, id ids.UUID) error
 
 // ensureReplayVisible re-runs, against the caller as they are NOW, whichever
 // gates govern the body about to be replayed. Anything it cannot resolve fails
 // CLOSED: the middleware cannot show the caller may still see what it is
 // handing back, and serving it on the strength of a parse failure is the one
 // outcome this exists to prevent.
-func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, route, body string) error {
+func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[string]replayProbe, route, body string) error {
 	target, replayable := replayableOperations[route]
 	if !replayable {
 		// The middleware only claims keys for routes in this table, so this
@@ -204,8 +211,22 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, route, body st
 		return apperrors.ErrNotFound
 	}
 
-	if target.table == "" && target.tableField == "" {
+	if target.table == "" && target.tableField == "" && target.moduleProbe == "" {
 		return nil
+	}
+
+	if target.moduleProbe != "" {
+		probe, wired := probes[target.moduleProbe]
+		if !wired {
+			// An unwired probe cannot show the caller may still see this, and
+			// the composition root is the only place that could have wired it.
+			return apperrors.ErrNotFound
+		}
+		id, err := replayRecordID(ctx, target, body)
+		if err != nil {
+			return err
+		}
+		return probe(ctx, id)
 	}
 
 	table := target.table

@@ -59,7 +59,10 @@ var rowScopedResponses = map[string]expectedTarget{
 	"Offer": {table: "deal", idPath: "deal_id"},
 	// No owner column, scoped through its subject entity instead
 	// (auth.EnsureSignalVisible) — "no owner_id" is not a reason to skip.
-	"Signal":      {table: "signal", idPath: "id"},
+	"Signal": {table: "signal", idPath: "id"},
+	// Row-scoped through its TARGET, by a rule that lives inside the approvals
+	// module; compose borrows that rule rather than keeping a second copy.
+	"Approval":    {moduleProbe: "approval", pathParam: "id"},
 	"RecordGrant": {tableField: "record_type", idPath: "record_id"},
 	// Projections that name their parent nowhere in the body — the route
 	// parameter is the only handle on the record whose scope governs them.
@@ -74,7 +77,9 @@ var rowScopedResponses = map[string]expectedTarget{
 }
 
 // expectedTarget mirrors compose's replayTarget for comparison.
-type expectedTarget struct{ object, objectNote, table, tableField, idPath, pathParam, rowNote string }
+type expectedTarget struct {
+	object, objectNote, table, tableField, moduleProbe, idPath, pathParam, rowNote string
+}
 
 const replayScopeSource = "internal/compose/replayscope.go"
 
@@ -108,7 +113,7 @@ func TestReplayScopeCoversEveryIdempotentOperation(t *testing.T) {
 			continue
 		}
 		want, carriesRecord := rowScopedResponses[schema]
-		probesRow := got.table != "" || got.tableField != ""
+		probesRow := got.table != "" || got.tableField != "" || got.moduleProbe != ""
 
 		switch {
 		case carriesRecord && !probesRow:
@@ -117,6 +122,7 @@ func TestReplayScopeCoversEveryIdempotentOperation(t *testing.T) {
 			t.Errorf("%s answers %s, which is not a row-scoped record shape, yet a row scope is probed — either the schema belongs in rowScopedResponses or the entry is wrong", route, schema)
 		case carriesRecord && probesRow:
 			if got.table != want.table || got.tableField != want.tableField ||
+				got.moduleProbe != want.moduleProbe ||
 				got.idPath != want.idPath || got.pathParam != want.pathParam {
 				t.Errorf("%s answers %s: probes %+v, contract says %+v", route, schema, got, want)
 			}
@@ -228,6 +234,8 @@ func mappedReplayScope(t *testing.T) map[string]expectedTarget {
 				entry.idPath = text
 			case name.Name == "pathParam":
 				entry.pathParam = text
+			case name.Name == "moduleProbe":
+				entry.moduleProbe = text
 			case name.Name == "objectNote":
 				entry.objectNote = text
 			case name.Name == "rowNote":
