@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -272,13 +273,13 @@ SELECT NULLIF(current_setting('app.workspace_id',true),'')::uuid, $1, $2, $3, $4
 ON CONFLICT (workspace_id, app_user_id, incumbent) DO UPDATE
    SET incumbent_user_id = EXCLUDED.incumbent_user_id, match_source = EXCLUDED.match_source`
 
-// selectPriorIncumbentUserIDSQL reads the (workspace, appUser, incumbent)
-// mapping's CURRENT incumbent_user_id, before UpsertUserMap's own upsert
-// overwrites it — the only way to learn who the OLD owner was, since
-// upsertUserMapSQL's ON CONFLICT clobbers incumbent_user_id in place
-// rather than versioning it.
-const selectPriorIncumbentUserIDSQL = `
-SELECT incumbent_user_id FROM mirror_user_map
+// selectPriorMappingSQL reads the (workspace, appUser, incumbent) mapping's
+// CURRENT owner AND match_source before the upsert overwrites them — the only
+// way to learn both who the OLD owner was (for the remap revoke) and whether
+// anything actually changed (for the audit). upsertUserMapSQL's ON CONFLICT
+// clobbers both in place rather than versioning them.
+const selectPriorMappingSQL = `
+SELECT incumbent_user_id, match_source FROM mirror_user_map
 WHERE app_user_id = $1 AND incumbent = $2`
 
 // UpsertUserMap writes one mirror_user_map row and, in the SAME
@@ -351,14 +352,16 @@ func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, inc
 			return err
 		}
 
-		var priorIncumbentUserID string
-		err := tx.QueryRow(ctx, selectPriorIncumbentUserIDSQL, appUser, incumbent).Scan(&priorIncumbentUserID)
+		var priorIncumbentUserID, priorSource string
+		err := tx.QueryRow(ctx, selectPriorMappingSQL, appUser, incumbent).
+			Scan(&priorIncumbentUserID, &priorSource)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("overlay: reading %s's prior mapping for %s: %w", appUser, incumbent, err)
 		}
+		existed := err == nil
 		// A pgx.ErrNoRows prior mapping just means appUser had never
 		// mapped to this incumbent before — nothing to revoke.
-		remapped := err == nil && priorIncumbentUserID != incumbentUserID
+		remapped := existed && priorIncumbentUserID != incumbentUserID
 
 		tag, err := tx.Exec(ctx, upsertUserMapSQL, appUser, incumbent, incumbentUserID, source)
 		if err != nil {
@@ -370,6 +373,29 @@ func (s *MirrorStore) UpsertUserMap(ctx context.Context, appUser ids.UserID, inc
 			// user must not stop the rest from seeding. Nothing was written,
 			// so there is nothing to recompute either.
 			return nil
+		}
+
+		// Audit at the single insert site, so the sweep's seeding and the
+		// admin's manual pin are both covered by construction rather than by
+		// remembering to call this from each caller. Only a REAL change is
+		// audited: the sweep re-seeds every tick, and auditing an unchanged
+		// row would write one line per owner per tick. The predicate compares
+		// match_source as well as the owner — an email->manual flip on the
+		// same owner makes the row immune to revalidation and to the sweep,
+		// which is a governance change even though the owner did not move.
+		changed := !existed || remapped || priorSource != source
+		if changed {
+			action := "update"
+			var before any
+			if !existed {
+				action = "create"
+			} else {
+				before = userMapImage{IncumbentUserID: priorIncumbentUserID, MatchSource: priorSource}
+			}
+			if _, err := storekit.Audit(ctx, tx, action, auditEntityUserMap, appUser.UUID,
+				before, userMapImage{IncumbentUserID: incumbentUserID, MatchSource: source}); err != nil {
+				return fmt.Errorf("overlay: auditing %s's mapping change: %w", appUser, err)
+			}
 		}
 
 		if err := recomputeForOwnerTx(ctx, tx, incumbentUserID); err != nil {
