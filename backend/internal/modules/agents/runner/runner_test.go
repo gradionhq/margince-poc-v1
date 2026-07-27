@@ -621,3 +621,34 @@ func TestResumeRefusesATranscriptWrittenBeforeObservationsWereNeutralised(t *tes
 		t.Fatalf("the refusal does not say what to do instead: %v", err)
 	}
 }
+
+// The round trip the version gate must not break: a run this build suspends is
+// one this build can resume. Asserting the refusal alone would leave a suspend
+// that forgot to stamp the version indistinguishable from a stale transcript —
+// every approval in flight would be refused, and no test would say so.
+func TestARunSuspendedByThisBuildResumes(t *testing.T) {
+	approvalID := ids.New[ids.ApprovalKind]()
+	staging := &fakeSurface{errs: map[string]error{
+		"send_email": &workflow.StagedApprovalError{ApprovalID: approvalID},
+	}}
+	suspended, err := New(staging, &scriptedBrain{
+		texts: []string{`{"tool":"send_email","args":{"to":"a@b.c"}}`},
+	}).Run(context.Background(), Job{Goal: "follow up"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if suspended.Pending == nil {
+		t.Fatalf("expected a suspension: %+v", suspended)
+	}
+
+	// Resume the snapshot the runner itself produced, not one written by hand.
+	redeeming := &fakeSurface{results: map[string]json.RawMessage{"send_email": json.RawMessage(`{"sent":true}`)}}
+	res, err := New(redeeming, &scriptedBrain{texts: []string{`{"final":{"summary":"sent"}}`}}).Resume(
+		context.Background(), Job{Goal: "follow up"}, Decision{Pending: *suspended.Pending, Approved: true})
+	if err != nil {
+		t.Fatalf("a run this build suspended could not be resumed: %v", err)
+	}
+	if res.Outcome != OutcomeCompleted {
+		t.Fatalf("resume did not complete: %+v", res)
+	}
+}
