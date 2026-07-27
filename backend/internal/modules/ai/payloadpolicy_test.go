@@ -5,62 +5,58 @@ package ai
 
 // The no-payload-capture policy is a property of the TASK CONTRACT
 // (api/ai-tasks.yaml), not of this package: a task pinned there must be
-// refused capture here. Holding the Go set against the contract file keeps the
-// two from drifting silently — the failure mode being a task that is declared
-// no-payload upstream and quietly captured downstream, which no test of either
-// side alone would notice.
+// refused capture here. Holding the runtime decision against the contract file
+// keeps the two from drifting silently — the failure mode being a task that is
+// declared no-payload upstream and quietly captured downstream, which no test
+// of either side alone would notice.
 
 import (
 	"os"
-	"regexp"
-	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
-// noPayloadMarker is the phrase the task contract uses to pin the prohibition.
-// It lives in each task's `doc:` string because the contract's structured
-// fields (ladder, execution_mode, on_budget_exhausted) are a closed vocabulary
-// this repo mirrors verbatim from the spec and may not unilaterally extend.
-const noPayloadMarker = "No-payload capture policy"
-
-// taskEntry matches one task's contract block: its name, then everything up to
-// the next task key at the same indentation.
-var taskEntry = regexp.MustCompile(`(?m)^  ([a-z_]+):\s*\{`)
-
+// The payload prohibition is a parsed contract field, not a phrase inside a
+// doc: string. This reads the contract the generator compiled and holds the
+// runtime decision to it, so a task pinned no-payload upstream can never be
+// served with capture on.
 func TestNoPayloadTasksMatchTheTaskContract(t *testing.T) {
-	contract, err := os.ReadFile("../../../api/ai-tasks.yaml")
+	raw, err := os.ReadFile("../../../api/ai-tasks.yaml")
 	if err != nil {
 		t.Fatalf("reading the task contract: %v", err)
 	}
-	body := string(contract)
-
-	declared := map[string]bool{}
-	matches := taskEntry.FindAllStringSubmatchIndex(body, -1)
-	if len(matches) == 0 {
-		t.Fatal("no task entries parsed out of ai-tasks.yaml — the scan is broken, not the contract")
+	var contract struct {
+		Tasks map[string]struct {
+			NoPayload bool `yaml:"no_payload"`
+		} `yaml:"tasks"`
 	}
-	for i, m := range matches {
-		end := len(body)
-		if i+1 < len(matches) {
-			end = matches[i+1][0]
-		}
-		if strings.Contains(body[m[0]:end], noPayloadMarker) {
-			declared[body[m[2]:m[3]]] = true
-		}
+	if err := yaml.Unmarshal(raw, &contract); err != nil {
+		t.Fatalf("parsing the task contract: %v", err)
 	}
-	if len(declared) == 0 {
-		t.Fatalf("no task in the contract carries %q — either the marker changed or the pin was dropped upstream", noPayloadMarker)
+	if len(contract.Tasks) == 0 {
+		t.Fatal("no tasks parsed out of ai-tasks.yaml — the scan is broken, not the contract")
 	}
 
-	for name := range declared {
-		if !payloadCaptureForbidden[Task(name)] {
-			t.Errorf("task %q is pinned no-payload in ai-tasks.yaml but payloadCaptureForbidden would let its content reach ai_call_payload", name)
+	declared := 0
+	for name, def := range contract.Tasks {
+		if def.NoPayload {
+			declared++
+		}
+		if got := NoPayload(Task(name)); got != def.NoPayload {
+			t.Errorf("task %q: contract no_payload=%t, runtime NoPayload=%t", name, def.NoPayload, got)
 		}
 	}
-	for task := range payloadCaptureForbidden {
-		if !declared[string(task)] {
-			t.Errorf("task %q is refused capture here but the task contract does not pin it — add the pin upstream or drop the entry", task)
-		}
+	if declared == 0 {
+		t.Fatal("no task in the contract declares no_payload — either the field was dropped upstream or the pin was lost")
+	}
+
+	// The prohibition outranks the deployment posture, which is the whole
+	// point: an operator's choice about their own data cannot license
+	// retaining a stranger's.
+	r := &Router{capturePayloads: true}
+	if r.CapturesPayload(TaskCaptureCounterpartyVerdict) {
+		t.Error("a capture-on router would retain verdict content despite the contract pin")
 	}
 }
 
