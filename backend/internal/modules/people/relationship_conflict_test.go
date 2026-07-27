@@ -7,17 +7,19 @@ package people
 // both: the SENTINEL, so the transport answers 409, and the CONSTRAINT, so a
 // caller that races itself can tell which rule refused it and recover.
 //
-// Wrapping only the sentinel drops the pg error out of the chain and makes the
-// second fact unreachable — which silently disables every recovery path built
-// on it, with nothing failing to say so.
+// It must carry them WITHOUT the driver error. A *pgconn.PgError anywhere in
+// the chain makes httperr read the refusal as an infrastructure fault — the
+// client's detail is blanked and every ordinary duplicate logs at ERROR — and
+// the agent runner echoes err.Error() into its transcript, which would put
+// SQLSTATE text into a model prompt.
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -34,12 +36,22 @@ func TestRelationshipUniquenessRefusalKeepsBothTheSentinelAndTheConstraint(t *te
 			if !errors.Is(mapped, apperrors.ErrConflict) {
 				t.Fatalf("mapped error %v does not carry ErrConflict — the transport would not answer 409", mapped)
 			}
-			got, ok := storekit.UniqueViolation(mapped)
-			if !ok {
-				t.Fatal("the pg error was dropped from the chain — a caller cannot tell which constraint refused it")
+			var conflict *RelationshipConflictError
+			if !errors.As(mapped, &conflict) {
+				t.Fatal("the constraint was dropped — a caller cannot tell which rule refused it, so no recovery path can fire")
 			}
-			if got != constraint {
-				t.Fatalf("constraint = %q, want %q", got, constraint)
+			if conflict.Constraint != constraint {
+				t.Fatalf("constraint = %q, want %q", conflict.Constraint, constraint)
+			}
+			// The driver error must NOT survive: httperr reads a PgError in the
+			// chain as an infrastructure fault, and the agent runner would echo
+			// its SQLSTATE text into a model prompt.
+			var pgErr *pgconn.PgError
+			if errors.As(mapped, &pgErr) {
+				t.Fatalf("the driver error rode along: %v", mapped)
+			}
+			if strings.Contains(mapped.Error(), "SQLSTATE") || strings.Contains(mapped.Error(), "23505") {
+				t.Fatalf("the message carries Postgres internals: %q", mapped.Error())
 			}
 		})
 	}

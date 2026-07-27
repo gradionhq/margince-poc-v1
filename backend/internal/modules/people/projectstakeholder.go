@@ -71,7 +71,8 @@ func (s *Store) SetProjectStakeholder(ctx context.Context, in SetProjectStakehol
 		// captured_by is stamped from the principal by the write shape.
 		Source: projectStakeholderSource,
 	})
-	if constraint, ok := storekit.UniqueViolation(err); ok && constraint == "uq_rel_project_stakeholder" {
+	var conflict *RelationshipConflictError
+	if errors.As(err, &conflict) && conflict.Constraint == "uq_rel_project_stakeholder" {
 		// Someone attached the same person between our read and our write.
 		// That is the state this call wanted, so adopt their edge and apply
 		// the role rather than failing a request that asked for exactly this.

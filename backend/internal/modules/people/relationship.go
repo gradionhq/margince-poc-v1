@@ -30,6 +30,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// RelationshipConflictError names the uniqueness rule that refused an edge.
+//
+// It carries the constraint so a caller racing ITSELF — an idempotent attach
+// whose insert lost to a concurrent one — can tell which rule fired and
+// recover by adopting the winner. Wrapping the driver error would say the same
+// thing and cost too much: a *pgconn.PgError anywhere in the chain makes
+// httperr treat the refusal as an infrastructure fault (blanking the client's
+// detail and logging at ERROR), and the agent runner echoes err.Error() into
+// its transcript, which would put SQLSTATE text in a model prompt.
+type RelationshipConflictError struct{ Constraint string }
+
+func (e *RelationshipConflictError) Error() string {
+	return "relationship " + e.Constraint + ": conflict"
+}
+
+// Is reports this as the conflict sentinel, so every transport that maps
+// ErrConflict to 409 keeps doing so without knowing this type exists.
+func (e *RelationshipConflictError) Is(target error) bool { return target == apperrors.ErrConflict }
+
 // relationshipAnchor names the endpoint whose lifecycle a kind
 // annotates — the entity whose .updated event a mutation emits and
 // whose RBAC object gates it.
@@ -225,12 +244,7 @@ func mapRelationshipConstraint(err error, kind string) error {
 	if constraint, ok := storekit.UniqueViolation(err); ok {
 		switch constraint {
 		case "uq_rel_current_primary_employer", "uq_rel_deal_person_role", "uq_rel_project_stakeholder":
-			// The cause rides along beside the sentinel. Wrapping only
-			// ErrConflict drops the pg error out of the chain, and a caller
-			// that wants to recover from ITS OWN uniqueness race — an
-			// idempotent attach re-reading the edge that won — can then no
-			// longer tell which constraint refused it.
-			return fmt.Errorf("relationship %s: %w: %w", constraint, apperrors.ErrConflict, err)
+			return &RelationshipConflictError{Constraint: constraint}
 		}
 	}
 	return err
