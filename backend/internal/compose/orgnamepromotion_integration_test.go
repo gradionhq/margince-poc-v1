@@ -252,6 +252,11 @@ func TestOrgNamePromotionDoesNotReofferADeclinedRename(t *testing.T) {
 	if err := promoter.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
+	// Twice, because the refusal has to hold on every later pass rather than
+	// only the one that immediately follows the decline.
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM approval
 		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org); n != 1 {

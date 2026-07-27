@@ -438,23 +438,61 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 	return true, nil
 }
 
-// WasDeclined reports whether a human has already REJECTED this exact proposal —
-// same kind, same target, same proposed change.
+// StageUnlessDeclined stages in — unless a human has already REJECTED this exact
+// proposal (same kind, same target, same proposed change). It reports whether
+// anything was staged.
 //
-// HasPendingFor answers the question for an offer still in the inbox; this one
-// answers it for an offer already refused, which a nightly stager needs just as
-// much. Without it a sweep that re-derives the same proposal every pass re-offers
-// what was declined: JoinPending only joins a PENDING row, so the moment a human
-// says no the next pass finds nothing to join and stages a fresh copy. The human
-// then declines the same thing nightly, and their "no" means nothing.
-func (s *Service) WasDeclined(ctx context.Context, kind string, targetID ids.UUID, diffHash string) (bool, error) {
-	var exists bool
+// It exists because a nightly stager re-derives the same proposal every pass, and
+// JoinPending joins only a PENDING row: the moment a human says no, the next pass
+// finds nothing to join and stages a fresh copy of what was just refused. Their
+// "no" would mean nothing.
+//
+// Checking first and staging afterwards is not enough, and the gap is small but
+// real: a decision landing between the two leaves the check reading "not
+// declined" and the staging finding no pending row to join, so the refused offer
+// is recreated anyway. The row lock closes it — the same
+// `SELECT ... FOR UPDATE` decideInTx takes, so the two are ordered rather than
+// interleaved. Whoever gets there first wins cleanly: the decision blocks until
+// this commits and then decides the offer this joined, or this reads the row as
+// already rejected and stages nothing.
+func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.ApprovalID, bool, error) {
+	var id ids.ApprovalID
+	staged := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM approval
-			  WHERE kind = $1 AND target_entity_id = $2 AND diff_hash = $3
-			    AND status = 'rejected')`,
-			kind, targetID, diffHash).Scan(&exists)
+		wsID, ok := principal.WorkspaceID(ctx)
+		if !ok {
+			return errors.New("crmapprovals: no workspace bound to context")
+		}
+		// Locks every row this exact proposal has ever produced, decided or not.
+		// A first-ever staging locks nothing, which is correct: there is no
+		// decision to be ordered against something that does not exist yet.
+		rows, err := tx.Query(ctx, `
+			SELECT status FROM approval
+			 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
+			 ORDER BY created_at
+			 FOR UPDATE`, wsID, in.Kind, in.TargetID, in.DiffHash)
+		if err != nil {
+			return fmt.Errorf("lock the prior offers for this proposal: %w", err)
+		}
+		statuses, err := pgx.CollectRows(rows, pgx.RowTo[string])
+		if err != nil {
+			return fmt.Errorf("read the prior offers for this proposal: %w", err)
+		}
+		for _, status := range statuses {
+			if status == approvalStatusRejected {
+				return nil
+			}
+		}
+		if in.JoinPending {
+			id, err = s.stageOrJoinPendingInTx(ctx, tx, in)
+		} else {
+			id, err = s.StageInTx(ctx, tx, in)
+		}
+		if err != nil {
+			return err
+		}
+		staged = true
+		return nil
 	})
-	return exists, err
+	return id, staged, err
 }

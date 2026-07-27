@@ -177,22 +177,15 @@ func (p *OrgNamePromoter) stageOrgNameReview(ctx context.Context, cand people.Or
 		return fmt.Errorf("compose: encoding the org-name proposal: %w", err)
 	}
 	digest := sha256.Sum256(body)
-	diffHash := hex.EncodeToString(digest[:])
-	// A human who declined this rename declined it for good. JoinPending below
-	// only joins a PENDING offer, so without this check the next pass would find
-	// nothing to join and stage a fresh copy of the offer they just refused —
-	// nightly, forever, because the evidence that produced it never goes away.
-	declined, err := p.approvals.WasDeclined(ctx, orgNameProposalKind, cand.OrganizationID.UUID, diffHash)
-	if err != nil {
-		return err
-	}
-	if declined {
-		return nil
-	}
-	_, err = p.approvals.Stage(ctx, approvals.StageInput{
+	// A human who declined this rename declined it for good. StageUnlessDeclined
+	// checks and stages in ONE transaction under the approval row lock: checking
+	// first and staging afterwards would let a decision land in between, and the
+	// refused offer would be recreated anyway — nightly, because the signature
+	// that produced it never goes away.
+	_, _, err = p.approvals.StageUnlessDeclined(ctx, approvals.StageInput{
 		Kind:           orgNameProposalKind,
 		ProposedChange: body,
-		DiffHash:       diffHash,
+		DiffHash:       hex.EncodeToString(digest[:]),
 		TargetType:     orgNameTargetType,
 		TargetID:       cand.OrganizationID.UUID,
 		Summary:        "Rename " + cand.DisplayName + " to " + verdict.Name + "?",

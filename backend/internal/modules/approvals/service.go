@@ -44,6 +44,7 @@ type Service struct {
 
 const (
 	approvalStatusApproved = "approved"
+	approvalStatusRejected = "rejected"
 	approvalKeyKind        = "kind"
 )
 
