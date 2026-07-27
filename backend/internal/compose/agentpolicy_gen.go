@@ -2,16 +2,75 @@
 
 package compose
 
-// agentPolicy is one mutating contract operation's admission class for
-// AGENT (Passport) principals (ADR-0055): either the MCP tool verb whose
-// tier governs it on every transport, or an x-agent-access marker. The
-// gate default-denies any mutating route absent from this table.
+// agentAccess is an operation's admission class for an AGENT principal.
+//
+// Values are the closed set declared by components.schemas.AgentAdmissionPolicy in
+// api/crm.yaml; a value outside it fails generation.
+type agentAccess string
+
+const (
+	accessTool          agentAccess = "tool"
+	accessHumanOnly     agentAccess = "human-only"
+	accessAuthBootstrap agentAccess = "auth-bootstrap"
+)
+
+// agentTier is the autonomy tier the gate admits against, identical on REST and MCP.
+//
+// Values are the closed set declared by components.schemas.AgentAdmissionPolicy in
+// api/crm.yaml; a value outside it fails generation.
+type agentTier string
+
+const (
+	tierAutoExecute          agentTier = "auto_execute"
+	tierConfirmationRequired agentTier = "confirmation_required"
+	tierDynamic              agentTier = "dynamic"
+)
+
+// agentRecordType is the record an operation targets; the zero value means it declares none.
+//
+// Values are the closed set declared by components.schemas.AgentAdmissionPolicy in
+// api/crm.yaml; a value outside it fails generation.
+type agentRecordType string
+
+const (
+	recordTypeActivity            agentRecordType = "activity"
+	recordTypeAppUser             agentRecordType = "app_user"
+	recordTypeCustomField         agentRecordType = "custom_field"
+	recordTypeDataSubjectRequest  agentRecordType = "data_subject_request"
+	recordTypeDeal                agentRecordType = "deal"
+	recordTypeLead                agentRecordType = "lead"
+	recordTypeList                agentRecordType = "list"
+	recordTypeOffer               agentRecordType = "offer"
+	recordTypeOfferTemplate       agentRecordType = "offer_template"
+	recordTypeOrganization        agentRecordType = "organization"
+	recordTypeOverlayConnection   agentRecordType = "overlay_connection"
+	recordTypePartner             agentRecordType = "partner"
+	recordTypePerson              agentRecordType = "person"
+	recordTypeProduct             agentRecordType = "product"
+	recordTypeQuota               agentRecordType = "quota"
+	recordTypeRecordGrant         agentRecordType = "record_grant"
+	recordTypeRelationship        agentRecordType = "relationship"
+	recordTypeSavedView           agentRecordType = "saved_view"
+	recordTypeTag                 agentRecordType = "tag"
+	recordTypeTeam                agentRecordType = "team"
+	recordTypeWebhookSubscription agentRecordType = "webhook_subscription"
+)
+
+// agentPolicy is one contract operation's admission class for AGENT
+// (Passport) principals (ADR-0055): either the MCP tool verb whose tier
+// governs it on every transport, or an x-agent-access marker. The gate
+// default-denies any MUTATING route absent from this table, and admits a
+// read absent from it — the contract annotates the exceptions to agent
+// readability, not the rule.
+//
+// The three vocabulary fields are typed, so a comparison against a value the
+// contract does not declare fails to compile rather than never matching.
 type agentPolicy struct {
-	Op         string // crm.yaml operationId
-	Access     string // "tool" | "human-only" | "auth-bootstrap"
-	Tool       string // backing MCP tool verb (Access == "tool")
-	RecordType string // the record type the operation targets
-	Tier       string // contract-declared tier: auto_execute | confirmation_required | dynamic
+	Op         string          // crm.yaml operationId
+	Access     agentAccess     // how an agent principal is admitted at all
+	Tool       string          // backing MCP tool verb (Access == accessTool)
+	RecordType agentRecordType // the record the operation targets; zero when it declares none
+	Tier       agentTier       // contract-declared autonomy tier; zero when it declares none
 }
 
 // agentPolicies is keyed by "METHOD <chi route pattern>" as the generated

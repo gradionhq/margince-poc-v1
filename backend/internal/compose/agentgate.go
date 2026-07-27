@@ -32,7 +32,6 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -44,14 +43,6 @@ import (
 )
 
 const approvalTokenHeader = "X-Approval-Token"
-
-// The wire tier values an agentPolicy carries (agentPolicy.Tier is the
-// generated string, not the typed enum), pinned to the contract enum so a
-// rename of the tier spelling follows the contract rather than drifting.
-const (
-	tierWireDynamic              = string(crmcontracts.AgentToolTierDynamic)
-	tierWireConfirmationRequired = string(crmcontracts.AgentToolTierConfirmationRequired)
-)
 
 // maxGatedBody bounds what the gate buffers to hash and stage a proposed
 // mutation; anything larger is not a plausible contract payload.
@@ -296,7 +287,7 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     pol.RecordType,
+		TargetType:     string(pol.RecordType),
 		TargetID:       targetID,
 		Summary:        restSummary(pol.Op, r.Method, r.URL.Path, body),
 	})
@@ -319,19 +310,19 @@ func stageRefusal(w http.ResponseWriter, r *http.Request, staging agents.Approva
 func operationSpec(pol agentPolicy, reg *agents.Registry) (mcp.ToolSpec, bool) {
 	spec, registered := reg.Spec(pol.Tool)
 	if !registered {
-		if pol.Tier == tierWireDynamic {
+		if pol.Tier == tierDynamic {
 			return mcp.ToolSpec{}, false
 		}
 		tier := mcp.TierAutoExecute
-		if pol.Tier == tierWireConfirmationRequired {
+		if pol.Tier == tierConfirmationRequired {
 			tier = mcp.TierConfirmationRequired
 		}
 		return mcp.ToolSpec{Name: pol.Tool, RequiredScope: principal.ScopeWrite, Tier: tier}, true
 	}
-	if pol.Tier == tierWireDynamic && spec.Tier != mcp.TierDynamic {
+	if pol.Tier == tierDynamic && spec.Tier != mcp.TierDynamic {
 		return mcp.ToolSpec{}, false
 	}
-	if pol.Tier == tierWireConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
+	if pol.Tier == tierConfirmationRequired && spec.Tier != mcp.TierConfirmationRequired {
 		spec.Tier, spec.TierResolver = mcp.TierConfirmationRequired, nil
 	}
 	return spec, true

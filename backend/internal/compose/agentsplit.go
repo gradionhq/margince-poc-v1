@@ -77,7 +77,7 @@ func splitOrRedeemUpdate(w http.ResponseWriter, r *http.Request, next http.Handl
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}
-	split, err := agents.SplitHumanOwned(ctx, ownership, pol.RecordType, targetID, body)
+	split, err := agents.SplitHumanOwned(ctx, ownership, string(pol.RecordType), targetID, body)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -140,7 +140,7 @@ func applyAutoExecuteAndStageResidue(w http.ResponseWriter, r *http.Request, nex
 		Tool:           pol.Tool,
 		ProposedChange: canonical,
 		DiffHash:       diffHash,
-		TargetType:     pol.RecordType,
+		TargetType:     string(pol.RecordType),
 		TargetID:       targetID,
 		TargetVersion:  recordVersion(record),
 		// The staged sub-patch is what the approval binds to, so the summary

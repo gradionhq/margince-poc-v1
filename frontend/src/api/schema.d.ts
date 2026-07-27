@@ -7266,6 +7266,50 @@ export interface components {
             data: components["schemas"]["AgentTool"][];
         };
         /**
+         * @description One operation's agent-admission policy: the shape `tools/gen-agentpolicy`
+         *     derives from this file's `x-agent-access` / `x-mcp-tool` annotations and the
+         *     ADR-0055 gate enforces at runtime.
+         *
+         *     It is declared as a schema so these closed vocabularies live in the contract
+         *     rather than in prose, and so the generator can emit Go TYPES for them instead
+         *     of bare strings. That moves two classes of mistake from runtime to build time:
+         *     an annotation carrying a value outside these enums fails GENERATION instead of
+         *     landing in the table as an unrecognized string the gate silently reads as "not
+         *     a tool" or "no tier", and Go comparing against a misspelled constant fails to
+         *     COMPILE instead of never matching. As extensions add operations, those two
+         *     gates are what keep their annotations honest.
+         *
+         *     This schema describes no response body, and is deliberately not referenced by
+         *     any operation — the code generator prunes it from the wire types, which is
+         *     correct. Its consumer is `tools/gen-agentpolicy`, which reads these enums out
+         *     of this file directly. Do not "fix" the pruning by wiring it into an endpoint.
+         *
+         *     Absent is distinct from invalid: `tier` and `record_type` are empty for
+         *     operations that declare none (a human-only op has no tier; an untyped
+         *     operation targets no record), and only NON-empty values are checked.
+         */
+        AgentAdmissionPolicy: {
+            /** @description The operationId this policy governs. */
+            operation: string;
+            /**
+             * @description tool — governed by the tier below. human-only — an agent principal is refused outright, on reads as well as writes. auth-bootstrap — the session machinery itself, not tier-gated and not an agent tool.
+             * @enum {string}
+             */
+            access: "tool" | "human-only" | "auth-bootstrap";
+            /** @description The MCP tool verb backing this operation (access = tool). */
+            tool?: string;
+            /**
+             * @description The record the operation targets. A confirm-first operation that resolves a concrete {id} must name one, or the approval it stages cannot be row-scoped.
+             * @enum {string}
+             */
+            record_type?: "activity" | "app_user" | "custom_field" | "data_subject_request" | "deal" | "lead" | "list" | "offer" | "offer_template" | "organization" | "overlay_connection" | "partner" | "person" | "product" | "quota" | "record_grant" | "relationship" | "saved_view" | "tag" | "team" | "webhook_subscription";
+            /**
+             * @description The autonomy tier, identical on REST and MCP (ADR-0055).
+             * @enum {string}
+             */
+            tier?: "auto_execute" | "confirmation_required" | "dynamic";
+        };
+        /**
          * @description EXACTLY ONE input source (B-E01.2b/.13): `url` (fetch+parse a website, ADR-0006), `text` (the
          *     manual paste-text fallback — a robots-disallowed / unreadable site degrades to "paste the text",
          *     never an error wall), or `self_description` (the user's own dictated/typed description of their

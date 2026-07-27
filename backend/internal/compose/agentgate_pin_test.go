@@ -37,7 +37,7 @@ func (c *capturingApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ st
 // can decline to send.
 func TestStageRefusalNamesTheTargetAndSuppliesNoClientPin(t *testing.T) {
 	dealID := ids.NewV7()
-	pol := agentPolicy{Op: "archiveDeal", Access: accessTool, Tool: "archive_record", RecordType: "deal"}
+	pol := agentPolicy{Op: "archiveDeal", Access: accessTool, Tool: "archive_record", RecordType: recordTypeDeal}
 
 	for _, tc := range []struct{ name, ifMatch string }{
 		{"no If-Match", ""},
@@ -99,15 +99,15 @@ func TestConfirmFirstTargetsArePinnable(t *testing.T) {
 	used := map[string]bool{}
 	checked := 0
 	for route, pol := range agentPolicies {
-		if pol.Access != accessTool || pol.Tier == "auto_execute" || pol.RecordType == "" {
+		if pol.Access != accessTool || pol.Tier == tierAutoExecute || pol.RecordType == "" {
 			continue
 		}
 		checked++
-		if approvals.TargetVersionCheckable(pol.RecordType) {
+		if approvals.TargetVersionCheckable(string(pol.RecordType)) {
 			continue
 		}
-		if _, ratified := unpinnableConfirmFirstTypes[pol.RecordType]; ratified {
-			used[pol.RecordType] = true
+		if _, ratified := unpinnableConfirmFirstTypes[string(pol.RecordType)]; ratified {
+			used[string(pol.RecordType)] = true
 			continue
 		}
 		t.Errorf("%s (%s) stages against %q, which carries no version pin — either give the table a version column "+
@@ -143,7 +143,7 @@ func (p pinningApprovals) Redeem(_ context.Context, _ ids.ApprovalID, _, _ strin
 // otherwise control from both ends.
 func TestRedemptionCarriesThePinOntoTheForwardedRequest(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
-	pol := agentPolicy{Op: "sendOffer", Access: accessTool, Tool: "send_offer", RecordType: "offer"}
+	pol := agentPolicy{Op: "sendOffer", Access: accessTool, Tool: "send_offer", RecordType: recordTypeOffer}
 
 	var forwarded string
 	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
@@ -165,7 +165,7 @@ func TestRedemptionCarriesThePinOntoTheForwardedRequest(t *testing.T) {
 // to, and inventing a version would refuse a legitimate redemption.
 func TestRedemptionWithoutAPinLeavesIfMatchAlone(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
-	pol := agentPolicy{Op: "createCustomField", Access: accessTool, Tool: "create_record", RecordType: "custom_field"}
+	pol := agentPolicy{Op: "createCustomField", Access: accessTool, Tool: "create_record", RecordType: recordTypeCustomField}
 
 	var forwarded string
 	next := http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {

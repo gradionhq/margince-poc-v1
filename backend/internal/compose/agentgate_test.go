@@ -22,7 +22,7 @@ func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
 	for route, pol := range agentPolicies {
-		if pol.Access != "tool" {
+		if pol.Access != accessTool {
 			continue
 		}
 		spec, registered := registry.Spec(pol.Tool)
@@ -31,11 +31,11 @@ func TestContractTierNeverBelowRegistryTier(t *testing.T) {
 		}
 		switch spec.Tier {
 		case mcp.TierConfirmationRequired:
-			if pol.Tier != "confirmation_required" {
+			if pol.Tier != tierConfirmationRequired {
 				t.Errorf("%s (%s): tool %s is 🟡 but the contract annotates %q", route, pol.Op, pol.Tool, pol.Tier)
 			}
 		case mcp.TierDynamic:
-			if pol.Tier != "dynamic" && pol.Tier != "confirmation_required" {
+			if pol.Tier != tierDynamic && pol.Tier != tierConfirmationRequired {
 				t.Errorf("%s (%s): tool %s is dynamic but the contract annotates %q — the resolver would never run", route, pol.Op, pol.Tool, pol.Tier)
 			}
 		}
@@ -64,7 +64,7 @@ func TestUpdateRecordIsAutoExecuteOnBothArtifacts(t *testing.T) {
 		seen++
 		// DELETE-shaped rides may tighten to confirmation_required (archive semantics);
 		// a field-patch op must be auto_execute and none may say dynamic.
-		if pol.Tier != "auto_execute" && pol.Tier != "confirmation_required" {
+		if pol.Tier != tierAutoExecute && pol.Tier != tierConfirmationRequired {
 			t.Errorf("%s (%s): update_record annotated %q — the per-field split runs inside the auto-execute path", route, pol.Op, pol.Tier)
 		}
 	}
@@ -91,7 +91,7 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 	for route, pol := range agentPolicies {
 		if humanOnly[pol.Op] {
 			seen[pol.Op] = true
-			if pol.Access != "human-only" {
+			if pol.Access != accessHumanOnly {
 				t.Errorf("%s (%s) must be human-only, contract says %q", route, pol.Op, pol.Access)
 			}
 		}
@@ -111,16 +111,16 @@ func TestOperationSpecTightenOnly(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 	agents.RegisterCoreTools(registry, nil, nil, nil, nil)
 
-	spec, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: "tool", Tool: "update_record", Tier: "confirmation_required"}, registry)
+	spec, ok := operationSpec(agentPolicy{Op: "archivePerson", Access: accessTool, Tool: "update_record", Tier: tierConfirmationRequired}, registry)
 	if !ok || spec.Tier != mcp.TierConfirmationRequired {
 		t.Fatalf("🟡 annotation over a 🟢 verb → tier %v ok=%v, want TierConfirmationRequired (tighten-only)", spec.Tier, ok)
 	}
 
-	if _, ok := operationSpec(agentPolicy{Op: "phantom", Access: "tool", Tool: "no_such_tool", Tier: "dynamic"}, registry); ok {
+	if _, ok := operationSpec(agentPolicy{Op: "phantom", Access: accessTool, Tool: "no_such_tool", Tier: tierDynamic}, registry); ok {
 		t.Fatal("dynamic annotation without a registered dynamic tool must fail closed")
 	}
 
-	spec, ok = operationSpec(agentPolicy{Op: "sendEmail", Access: "tool", Tool: "send_email", Tier: "confirmation_required"}, registry)
+	spec, ok = operationSpec(agentPolicy{Op: "sendEmail", Access: accessTool, Tool: "send_email", Tier: tierConfirmationRequired}, registry)
 	if !ok || spec.Tier != mcp.TierConfirmationRequired {
 		t.Fatalf("unregistered verb admits at the annotation tier, got %v ok=%v", spec.Tier, ok)
 	}
@@ -164,7 +164,7 @@ func TestCanonicalRESTCallHashesContent(t *testing.T) {
 func TestConfirmFirstIdRoutesDeclareARecordType(t *testing.T) {
 	seen := 0
 	for route, pol := range agentPolicies {
-		if pol.Access != "tool" || pol.Tier == "auto_execute" || !strings.Contains(route, "{id}") {
+		if pol.Access != accessTool || pol.Tier == tierAutoExecute || !strings.Contains(route, "{id}") {
 			continue
 		}
 		seen++

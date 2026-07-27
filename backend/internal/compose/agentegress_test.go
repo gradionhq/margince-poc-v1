@@ -20,7 +20,6 @@ package compose
 // is covered the day it is written.
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/getkin/kin-openapi/openapi3"
@@ -85,7 +84,7 @@ func TestUrlTakingOperationsAreNeverAutoExecuteForAgents(t *testing.T) {
 		if pol.Access != accessTool {
 			continue // human-only: an agent principal is rejected before the handler
 		}
-		if pol.Tier == "auto_execute" {
+		if pol.Tier == tierAutoExecute {
 			t.Errorf("%s (%s) lets an agent name the URL the server fetches and is annotated auto_execute — "+
 				"an unapproved outbound request to a destination the product did not choose", route, op)
 		}
@@ -105,7 +104,7 @@ func TestUnregisteredVerbCarriesTheAnnotatedTier(t *testing.T) {
 	registry := agents.NewRegistry(stubApprovals{}, nil)
 
 	spec, ok := operationSpec(agentPolicy{
-		Op: "coldStartPreview", Access: accessTool, Tool: "enrich", Tier: tierWireConfirmationRequired,
+		Op: "coldStartPreview", Access: accessTool, Tool: "enrich", Tier: tierConfirmationRequired,
 	}, registry)
 	if !ok {
 		t.Fatal("an unregistered verb at a static tier must resolve, not fail closed")
@@ -133,7 +132,7 @@ func TestColdStartPreviewMatchesItsSiblingsTier(t *testing.T) {
 		t.Errorf("coldStartPreview is %q while coldStartReadback is %q — they issue the SAME outbound fetch",
 			preview.Tier, readback.Tier)
 	}
-	if strings.Contains(preview.Tier, "auto") {
+	if preview.Tier == tierAutoExecute {
 		t.Errorf("coldStartPreview is %q: an agent-chosen URL is fetched with no human in the loop", preview.Tier)
 	}
 }
@@ -172,7 +171,7 @@ func TestEveryHumanOnlyReadReachesTheGate(t *testing.T) {
 					"the gate cannot refuse what the generator dropped", route, op.OperationID, access)
 				continue
 			}
-			if pol.Access != access {
+			if string(pol.Access) != access {
 				t.Errorf("%s (%s): contract says %q, generated table says %q", route, op.OperationID, access, pol.Access)
 			}
 		}
