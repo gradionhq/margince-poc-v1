@@ -6,12 +6,12 @@ package aicert_test
 // The shipped corpus's own self-test: no e2e_llm build tag, no network, no
 // model call — LoadCorpus is a pure parse over the committed corpus/ tree
 // (aicert.LoadCorpus's own doc: "no time.Now, no network, no database").
-// This is what keeps "every AI task has at least one certifiable scenario"
-// an enforced invariant rather than a one-time authoring claim: a task
-// added to ai-tasks.yaml (and so to ai.AllTasks()) without a matching
-// corpus/<task>/ scenario fails this test, the same way arch_test.go's
-// fitness tests derive their obligations from the tree rather than a
-// maintained list.
+// The obligation follows the contract's status, in both directions: a
+// shipped task without a corpus/<task>/ scenario has nothing to certify,
+// and a planned task WITH one scores a prompt that does not ship — which
+// reads as coverage it has not earned. Both are derived from
+// ai-tasks.yaml rather than a maintained list, the same way arch_test.go's
+// fitness tests derive their obligations from the tree.
 
 import (
 	"testing"
@@ -35,12 +35,23 @@ func TestLoadCorpusCoversEveryTask(t *testing.T) {
 	}
 
 	var missing []ai.Task
+	var unexpected []ai.Task
 	for _, task := range ai.AllTasks() {
-		if seen[task] == 0 {
-			missing = append(missing, task)
+		switch ai.Status(task) {
+		case ai.StatusShipped:
+			if seen[task] == 0 {
+				missing = append(missing, task)
+			}
+		case ai.StatusPlanned:
+			if seen[task] > 0 {
+				unexpected = append(unexpected, task)
+			}
 		}
 	}
 	if len(missing) > 0 {
-		t.Fatalf("tasks with no corpus scenario: %v (every ai.AllTasks() entry must have >= 1 scenario under corpus/<task>/)", missing)
+		t.Errorf("shipped tasks with no corpus scenario: %v", missing)
+	}
+	if len(unexpected) > 0 {
+		t.Errorf("planned tasks carry corpus scenarios: %v — a task nobody built cannot be certified, and its scenario reads as coverage", unexpected)
 	}
 }
