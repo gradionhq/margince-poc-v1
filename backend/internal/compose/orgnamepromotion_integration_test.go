@@ -188,3 +188,76 @@ func TestOrgNamePromotionCorroboratedByTheDossier(t *testing.T) {
 		t.Fatalf("organization = %q/%q, want the site-corroborated signature name applied", name, source)
 	}
 }
+
+// The sweep must reach EVERY candidate, not the first page of them.
+//
+// Most candidates reach a verdict that changes nothing — their one proposed name
+// is uncorroborated and waits on a human — and those rows stay candidates
+// indefinitely. A pass that read a fixed prefix of a fixed ordering would spend
+// every night on the same unresolvable rows, and an organization behind them
+// whose corroborated name is ready to apply would never be reached at all.
+func TestOrgNamePromotionReachesCandidatesBeyondTheFirstPage(t *testing.T) {
+	e := integration.Setup(t)
+
+	// Fill more than one page with organizations that can never resolve: one
+	// signature each, so every pass stages an offer and moves nothing.
+	for i := 0; i < orgNamePromotionPageSize; i++ {
+		stuck := seedProvisionalOrg(t, e, "Stuck", "domain")
+		seedSigningEmployee(t, e, stuck, "Lone Signer", "Stuck Holdings")
+	}
+	// And behind them, one organization whose name IS corroborated and should be
+	// applied today. Seeded last, so it sorts after the whole first page.
+	ready := seedProvisionalOrg(t, e, "Ready", "domain")
+	seedSigningEmployee(t, e, ready, "Alice Signer", "Ready Global")
+	seedSigningEmployee(t, e, ready, "Bob Signer", "Ready Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	name, source := orgNameAndSource(t, e, ready)
+	if name != "Ready Global" || source != "signature" {
+		t.Fatalf("the organization behind a full page of unresolvable ones is %q/%q — it was never reached", name, source)
+	}
+}
+
+// A human's "no" has to mean something. JoinPending only joins a PENDING offer,
+// so once a rename is declined the next pass finds nothing to join — and without
+// a decided-offer check it stages a fresh copy of what was just refused, every
+// night, because the signature that produced it never goes away.
+func TestOrgNamePromotionDoesNotReofferADeclinedRename(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	svc := approvalsServiceWithEffects(e.Pool)
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var approvalID ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT id FROM approval WHERE kind = 'org_name_promotion' AND target_entity_id = $1`,
+			org).Scan(&approvalID)
+	}); err != nil {
+		t.Fatalf("reading the staged offer: %v", err)
+	}
+	if _, err := svc.Decide(e.As(e.Rep1, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](approvalID), false, nil); err != nil {
+		t.Fatalf("declining the rename: %v", err)
+	}
+
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org); n != 1 {
+		t.Fatalf("%d offers after a decline, want the one that was declined — a refused rename must not come back", n)
+	}
+	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
+		t.Fatalf("organization = %q/%q — a declined rename must change nothing", name, source)
+	}
+}

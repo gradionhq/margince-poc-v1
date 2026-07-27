@@ -1226,6 +1226,22 @@ Open work, roughly in priority order:
   rename the organization back and forth. Runs as its own daily River job
   (`org_name_promotion`), registered unconditionally — it weighs rows the
   enrich pass already wrote and asks no model.
+  **Two defects found by the stop-time review and fixed before the arc closed
+  (#284), both about the sweep repeating itself forever.** The pass read the
+  first 200 candidates by age and stopped. Most candidates reach a verdict that
+  changes nothing — their signatures restate the name already on the record, or
+  the one name proposed is uncorroborated and waits on a human — and those rows
+  stay candidates indefinitely, so a fixed prefix of a fixed ordering fills with
+  rows that never resolve and every organization behind them is never reached
+  again, including ones whose corroborated name could be applied today. The pass
+  now pages to exhaustion on a keyset cursor (`OrgNameCandidates(after, limit)`);
+  the page size is a memory bound, not a work bound, and the runaway backstop
+  logs when it is hit rather than trimming silently. Second: `JoinPending` joins
+  only a PENDING offer, so once a human declined a rename the next pass found
+  nothing to join and staged a fresh copy of what was just refused — nightly,
+  because the signature behind it never goes away. A new
+  `approvals.Service.WasDeclined` (kind + target + diff hash, the already-refused
+  half of `HasPendingFor`) is checked before staging, so a "no" holds.
   The §2.9 amendment landed with it: `SignatureCandidates` no longer retires a
   person the moment ANY profile-field row exists (one accepted title used to
   silence the company name their signature also states) — the predicate is now
