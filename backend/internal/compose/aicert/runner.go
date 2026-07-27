@@ -4,7 +4,7 @@
 package aicert
 
 // The runner: the one part of this package that actually drives model
-// calls. Everything else (scenario.go, checks.go, score.go, record.go)
+// calls. Everything else (scenario.go, promptversion.go, score.go, record.go)
 // is a pure library callable without a network or a database; this file
 // wires that library to TWO DB-less ai.Router instances, assembled via
 // compose.NewLocalRouterForCert (ai.NewLocalRouter over a CallRecorder
@@ -18,14 +18,10 @@ package aicert
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -210,7 +206,7 @@ func certifyTask(ctx context.Context, task ai.Task, scenarios []Scenario, census
 	}
 
 	reliability := float64(acc.passed) / float64(len(acc.allResults))
-	return buildRecord(task, taskVerdict, reliability, acc.allResults, acc.latencies,
+	return buildRecord(task, taskVerdict, acc.certifiedScope, reliability, acc.allResults, acc.latencies,
 		acc.tokensInTotal, acc.tokensOutTotal, acc.cachedTokensTotal, acc.cacheWriteTokensTotal,
 		acc.provider, acc.servedModel, acc.identitySource, acc.judgeServedModel, acc.selfJudgedEveryRun,
 		baseCfg, PromptVersion(scenarios)), nil
@@ -238,6 +234,11 @@ type taskAccumulation struct {
 	provider, servedModel, identitySource, judgeServedModel string
 	selfJudgedEveryRun                                      bool
 	identitySet                                             bool
+	// certifiedScope is the narrowest scope any run's site covered. A task is
+	// one record but not always one site — cold_start ships a one-shot
+	// extraction beside three multi-turn conversations — so the record may
+	// claim only what its weakest site proved.
+	certifiedScope string
 }
 
 // addRun folds one scored run into acc, first checking outcome's candidate
@@ -259,6 +260,7 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 	acc.provider, acc.servedModel, acc.identitySource = outcome.Provider, outcome.ServedModel, outcome.ServedIdentitySource
 	acc.identitySet = true
 	acc.judgeServedModel = outcome.JudgeServedModel
+	acc.certifiedScope = narrowerScope(acc.certifiedScope, outcome.CertifiedScope)
 	if !selfJudged(outcome.ServedModel, outcome.JudgeServedModel) {
 		acc.selfJudgedEveryRun = false
 	}
@@ -266,6 +268,20 @@ func (acc *taskAccumulation) addRun(task ai.Task, sc Scenario, runIndex int, out
 		acc.passed++
 	}
 	return nil
+}
+
+// narrowerScope folds two certified scopes to the less complete of the two, so
+// a pooled record claims only what every run it pooled actually proved. The
+// zero value carries no claim at all and yields to whatever the first run
+// covered.
+func narrowerScope(a, b string) string {
+	if a == "" {
+		return b // the accumulator's zero value carries no claim to fold yet.
+	}
+	if a == aitasks.ScopeSingleTurn || b == aitasks.ScopeSingleTurn {
+		return aitasks.ScopeSingleTurn
+	}
+	return a
 }
 
 // runScenario drives repeats runs of one scenario, folding each into acc,
@@ -307,9 +323,13 @@ func runScenario(ctx context.Context, task ai.Task, sc Scenario, census *aitasks
 // runner-agnostic shape). JudgeDegraded mirrors RunResult.Degraded's
 // candidate-side signal for the judge's own trace — certifyTask checks
 // both before ever trusting an outcome.
+// CertifiedScope is read off the case's OWN site rather than the scenario's
+// name for it, because the site is what says how much of the invocation the
+// case actually drives.
 type runOutcome struct {
 	RunResult
 	Provider, ServedModel, ServedIdentitySource, JudgeServedModel string
+	CertifiedScope                                                string
 	JudgeDegraded                                                 bool
 }
 
@@ -352,6 +372,11 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 	// measurement, so a refused reply and a wrong answer stay distinguishable
 	// instead of collapsing into one failed run.
 	evaluated := prepared.Evaluate(caseTrace)
+	if !aitasks.KnownOutcome(evaluated.Result) {
+		return runOutcome{}, fmt.Errorf(
+			"the case for site %s/%s evaluated to %q, which is not one of the outcomes a reply can have — a run counted under no outcome would leave the record's own totals unable to add up",
+			task, sc.Site, evaluated.Result)
+	}
 	capsOK, capFailures := checkCaps(sc.Expect.Caps, term)
 	// A run passes when what happened is what the scenario said should happen.
 	// Comparing against a fixed "accepted" instead would make expect.outcome a
@@ -381,6 +406,7 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 	return runOutcome{
 		RunResult: RunResult{
 			Output:           output,
+			Outcome:          evaluated.Result,
 			LatencyMS:        term.LatencyMS,
 			TokensIn:         term.TokensIn,
 			TokensOut:        term.TokensOut,
@@ -392,6 +418,7 @@ func runOnce(ctx context.Context, candidate *ai.Router, candidateRec *traceRecor
 		Provider:             term.Provider,
 		ServedModel:          term.ServedModel,
 		ServedIdentitySource: term.ServedIdentitySource,
+		CertifiedScope:       factory.Site().CertifiedScope(),
 		JudgeServedModel:     judgeServedModel,
 		JudgeDegraded:        judgeDegraded,
 	}, nil
@@ -459,41 +486,3 @@ func worstVerdict(a, b string) string {
 // Record type they build — that file already owns "the on-disk Record
 // shape," so folding pooled run stats into one is that same concern, not
 // this file's own "drive the routers" one.
-
-// PromptVersion is a task's certification stamp: a digest of the exact
-// SCENARIOS a run was scored against.
-//
-// It used to be the constant "v1", which meant a record could never stop being a
-// proof — edit a scenario and the committed record went on claiming "certified"
-// for text that no longer existed. Deriving it from content makes staleness
-// visible instead: a record whose stamp is not the one this corpus computes was
-// scored against something else, and says so.
-//
-// The WHOLE scenario is digested, not just its fixture. The rubric is read to
-// the grader, the expected answer decides what "right" means, and the caps and
-// bands decide what passes — each of them changes what a score means, so each of
-// them has to move the stamp. Nothing is canonicalised out: no per-call data
-// boundary appears in a scenario at all now, because the product mints every
-// fence itself when the case builds the request.
-//
-// What it does NOT cover: the product's own code. A scenario is the data a site
-// is given; the request built from it is a pure function of that data and the
-// code that ships, and that code is covered by the commit that changes it.
-func PromptVersion(scenarios []Scenario) string {
-	ordered := make([]string, 0, len(scenarios))
-	for _, sc := range scenarios {
-		// Hash each scenario on its own, then order the digests: joining raw
-		// fields would let text shift across a separator and collide.
-		encoded, err := json.Marshal(sc)
-		if err != nil {
-			// Scenario is a plain data struct loaded from YAML; a value that
-			// cannot be marshalled is a programming error, not input.
-			panic(fmt.Sprintf("aicert: scenario %q cannot be digested: %v", sc.Name, err))
-		}
-		sum := sha256.Sum256(encoded)
-		ordered = append(ordered, hex.EncodeToString(sum[:]))
-	}
-	sort.Strings(ordered)
-	sum := sha256.Sum256([]byte(strings.Join(ordered, "")))
-	return "p" + hex.EncodeToString(sum[:16])
-}

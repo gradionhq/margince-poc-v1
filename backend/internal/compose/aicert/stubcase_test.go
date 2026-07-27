@@ -41,10 +41,12 @@ func widgetSite() aitasks.Site {
 
 // widgetCases is a certification case in miniature, with the two properties
 // the runner actually depends on: it issues its own request from the fixture,
-// and its validator tells an unusable reply apart from a wrong one.
-type widgetCases struct{}
+// and its validator tells an unusable reply apart from a wrong one. It carries
+// the site it serves so a test can bind the same behaviour under a site of
+// another KIND — which is what decides the scope a record may claim.
+type widgetCases struct{ site aitasks.Site }
 
-func (widgetCases) Site() aitasks.Site { return widgetSite() }
+func (c widgetCases) Site() aitasks.Site { return c.site }
 
 func (widgetCases) Prepare(fixture, expected json.RawMessage) (aitasks.PreparedCase, error) {
 	var f struct {
@@ -99,8 +101,17 @@ func (c widgetCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 // through: one registered site, one bound case.
 func testCensus(t *testing.T) *aitasks.Registry {
 	t.Helper()
+	return censusOfSites(t, widgetSite())
+}
+
+// censusOfSites registers each site with the widget case bound to it, so a
+// test can build a task whose sites differ in kind.
+func censusOfSites(t *testing.T, sites ...aitasks.Site) *aitasks.Registry {
+	t.Helper()
 	r := aitasks.NewRegistry()
-	r.Register(widgetSite())
-	r.BindCase(widgetSite(), widgetCases{})
+	for _, s := range sites {
+		r.Register(s)
+		r.BindCase(s, widgetCases{site: s})
+	}
 	return r
 }

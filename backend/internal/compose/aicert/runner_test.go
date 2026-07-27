@@ -26,10 +26,17 @@ func quietLogger() *slog.Logger {
 // always passed to certifyTask directly; sc.Task here is just the
 // corpus record's own descriptive field, never consulted for routing).
 func testScenario(name string, bands Bands) Scenario {
+	return testScenarioOnSite(name, widgetVariant, bands)
+}
+
+// testScenarioOnSite is testScenario for a named site, which is what a task
+// whose sites differ in kind needs: the record's certified scope is read off
+// the site each scenario names.
+func testScenarioOnSite(name, variant string, bands Bands) Scenario {
 	return Scenario{
 		Name:        name,
 		Task:        string(ai.TaskSummarize),
-		Site:        widgetVariant,
+		Site:        variant,
 		Source:      sourceHandAuthored,
 		SanitizedBy: "tester",
 		Fixture:     JSONValue(`{"subject":"a widget"}`),
@@ -458,6 +465,81 @@ func TestCertifyTaskVoidsARecordWhenALaterRunIsServedByADifferentModel(t *testin
 	}
 	if !strings.Contains(err.Error(), "model-a") || !strings.Contains(err.Error(), "model-b") {
 		t.Fatalf("error should name both identities, got %v", err)
+	}
+}
+
+// TestCertifyTaskRecordsTheOutcomeEachRunProduced proves the record reports
+// the validators' own verdicts rather than a re-derivation of them. The three
+// runs below share one pass/fail column — two failed, one passed — and differ
+// in what actually happened: an accepted answer, a wrong one, and an
+// abstention. A record that inferred its counts from HardPass could not name
+// any of the three.
+func TestCertifyTaskRecordsTheOutcomeEachRunProduced(t *testing.T) {
+	candidateFake := ai.NewFakeClient().Script(
+		"the widget is blue and durable", // accepted
+		"off topic, no keyword here",     // wrong answer
+		widgetAbstention,                 // abstained
+	)
+	judgeFake := ai.NewFakeClient().Script(scoreJSON(90), scoreJSON(90), scoreJSON(90))
+
+	rec, err := certifyTask(wsContext(t), ai.TaskSummarize, []Scenario{testScenario("basic", wideBands)},
+		testCensus(t), ai.FakeRoutingConfig(), "", 3, quietLogger(), &certifyHooks{
+			candidateOpts: []ai.LocalOption{ai.WithFakeClient(candidateFake)},
+			judgeOpts:     []ai.LocalOption{ai.WithFakeClient(judgeFake)},
+		})
+	if err != nil {
+		t.Fatalf("certifyTask: %v", err)
+	}
+	if rec.Accepted != 1 || rec.WrongAnswer != 1 || rec.Invalid != 0 || rec.Abstained != 1 {
+		t.Fatalf("outcome counts = accepted=%d wrong_answer=%d invalid=%d abstained=%d, want 1/1/0/1 (record: %+v)",
+			rec.Accepted, rec.WrongAnswer, rec.Invalid, rec.Abstained, rec)
+	}
+	if got := rec.Reliability; got < 0.33 || got > 0.34 {
+		t.Fatalf("reliability = %v, want ~1/3 — only the accepted run matched the scenario's expected outcome", got)
+	}
+	if rec.ContextApplied {
+		t.Fatal("context_applied is true, but no run here read a company context the product's own path would have applied")
+	}
+}
+
+// TestCertifyTaskRecordsTheNarrowestScopeItsSitesCover: a task is one record
+// but not always one site — cold_start ships a one-shot extraction beside
+// three multi-turn conversations — and a scenario on a multi-turn site seeds
+// the window and grades a single reply. A record pooling that with a one-shot
+// site and still saying "full_invocation" would claim the conversation was
+// exercised.
+func TestCertifyTaskRecordsTheNarrowestScopeItsSitesCover(t *testing.T) {
+	conversation := aitasks.Site{Task: ai.TaskSummarize, Variant: "widget_conversation", Kind: ai.SiteKindMultiTurn}
+	cases := []struct {
+		name  string
+		sites []aitasks.Site
+		want  string
+	}{
+		{"every site is one-shot", []aitasks.Site{widgetSite()}, aitasks.ScopeFullInvocation},
+		{"one site is multi-turn", []aitasks.Site{widgetSite(), conversation}, aitasks.ScopeSingleTurn},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			scenarios := make([]Scenario, 0, len(tc.sites))
+			replies := make([]string, 0, len(tc.sites))
+			scores := make([]string, 0, len(tc.sites))
+			for _, s := range tc.sites {
+				scenarios = append(scenarios, testScenarioOnSite(s.Variant, s.Variant, wideBands))
+				replies = append(replies, "the widget is blue and durable")
+				scores = append(scores, scoreJSON(90))
+			}
+			rec, err := certifyTask(wsContext(t), ai.TaskSummarize, scenarios, censusOfSites(t, tc.sites...),
+				ai.FakeRoutingConfig(), "", 1, quietLogger(), &certifyHooks{
+					candidateOpts: []ai.LocalOption{ai.WithFakeClient(ai.NewFakeClient().Script(replies...))},
+					judgeOpts:     []ai.LocalOption{ai.WithFakeClient(ai.NewFakeClient().Script(scores...))},
+				})
+			if err != nil {
+				t.Fatalf("certifyTask: %v", err)
+			}
+			if rec.CertifiedScope != tc.want {
+				t.Fatalf("certified_scope = %q, want %q (record: %+v)", rec.CertifiedScope, tc.want, rec)
+			}
+		})
 	}
 }
 

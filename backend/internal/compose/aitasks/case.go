@@ -108,3 +108,15 @@ type Outcome struct {
 	Result string
 	Detail string
 }
+
+// KnownOutcome reports whether result is one of the four things a certified
+// reply can be. The vocabulary is closed on purpose: a corpus expecting a fifth
+// word asserts something no Evaluate can report, and a record tallying one
+// would leave a run counted nowhere.
+func KnownOutcome(result string) bool {
+	switch result {
+	case OutcomeAccepted, OutcomeWrongAnswer, OutcomeInvalid, OutcomeAbstained:
+		return true
+	}
+	return false
+}

@@ -236,8 +236,7 @@ func validateScenario(sc Scenario, path string, census *aitasks.Registry) error 
 // scenario expecting a fifth word would assert something no Evaluate can ever
 // report, and would read as an unmet expectation forever.
 func validateOutcome(outcome, path string) error {
-	switch outcome {
-	case aitasks.OutcomeAccepted, aitasks.OutcomeWrongAnswer, aitasks.OutcomeInvalid, aitasks.OutcomeAbstained:
+	if aitasks.KnownOutcome(outcome) {
 		return nil
 	}
 	return fmt.Errorf("aicert: %s: expect.outcome is %q, want one of %s|%s|%s|%s",
