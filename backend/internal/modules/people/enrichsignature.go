@@ -164,8 +164,32 @@ func revokeSignatureEvidence(ctx context.Context, tx pgx.Tx, personID ids.Person
 	return nil
 }
 
+// MarkSignatureRead records that the pass has read THIS mail's signature for
+// this person, whatever it yielded. It is what stops a person whose signature
+// states nothing the pass wants from being re-read — and re-billed — every
+// night: they return as a candidate only when newer mail arrives.
+//
+// Idempotent, and deliberately not part of the apply transaction: losing the
+// cursor after a successful apply costs one repeated read whose evidence rows
+// are all first-verdict-wins inserts, so the repeat changes nothing.
+func (s *Store) MarkSignatureRead(ctx context.Context, personID ids.PersonID, activityID ids.UUID) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO person_signature_enrich_state (workspace_id, person_id, activity_id)
+			VALUES ($1, $2, $3)
+			ON CONFLICT (person_id) DO UPDATE
+			SET activity_id = EXCLUDED.activity_id, attempted_at = now()`,
+			workspaceID(ctx), personID, activityID)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("people: recording the signature read: %w", err)
+	}
+	return nil
+}
+
 // SignatureCandidate is one person the enrich pass should look at: a
-// connector-created person still missing title AND phone, with the mail to
+// connector-created person with an unanswered signature field, and the mail to
 // read the signature from.
 type SignatureCandidate struct {
 	PersonID   ids.PersonID
@@ -175,9 +199,21 @@ type SignatureCandidate struct {
 	Body       string // the latest inbound email's stored body
 }
 
-// SignatureCandidates lists connector-created people still missing BOTH
-// title and phone, each with their most recent inbound linked email — the
-// §2.9 candidate set, bounded for one pass.
+// SignatureCandidates lists connector-created people whose signature still
+// has something to say, each with their most recent inbound linked email —
+// the §2.9 candidate set, bounded for one pass.
+//
+// "Something to say" is per FIELD, not per person (the PO-F-2a amendment): a
+// person is a candidate while they lack a title AND a phone, OR while they
+// lack the `org_name` evidence the name-promotion rule reads. The predicate
+// used to retire a person the moment ANY profile-field row existed, so one
+// accepted title permanently silenced the company name their signature also
+// states.
+//
+// Asking is bounded by person_signature_enrich_state: the pass records which
+// mail it read, and a person returns as a candidate only when newer mail
+// arrives. Without that a person whose signature simply never states a company
+// would be re-read every night forever, paying a model call each time.
 func (s *Store) SignatureCandidates(ctx context.Context, limit int) ([]SignatureCandidate, error) {
 	var out []SignatureCandidate
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -194,10 +230,17 @@ func (s *Store) SignatureCandidates(ctx context.Context, limit int) ([]Signature
 				ORDER BY a.occurred_at DESC
 				LIMIT 1
 			) a ON true
+			LEFT JOIN person_signature_enrich_state st ON st.person_id = p.id
 			WHERE p.captured_by LIKE 'connector:%' AND p.archived_at IS NULL AND p.merged_into_id IS NULL
-			  AND p.title IS NULL
-			  AND NOT EXISTS (SELECT 1 FROM person_phone ph WHERE ph.person_id = p.id AND ph.archived_at IS NULL)
-			  AND NOT EXISTS (SELECT 1 FROM person_profile_field f WHERE f.person_id = p.id)
+			  AND (
+				(p.title IS NULL
+				  AND NOT EXISTS (SELECT 1 FROM person_phone ph WHERE ph.person_id = p.id AND ph.archived_at IS NULL)
+				  AND NOT EXISTS (SELECT 1 FROM person_profile_field f
+				                  WHERE f.person_id = p.id AND f.field IN ('title', 'phone')))
+				OR NOT EXISTS (SELECT 1 FROM person_profile_field f
+				               WHERE f.person_id = p.id AND f.field = 'org_name')
+			  )
+			  AND st.activity_id IS DISTINCT FROM a.id
 			ORDER BY p.created_at
 			LIMIT $1`, limit)
 		if err != nil {

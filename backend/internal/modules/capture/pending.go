@@ -93,6 +93,20 @@ const NoiseUndoWindow = 7 * 24 * time.Hour
 // a backlog of unanswered questions is recoverable, junk records are not.
 const PendingDeferralCap = 500
 
+// PendingDeferralDomainCap bounds how many of those open questions may come from
+// a SINGLE sender domain. Without it the workspace ceiling is a weapon rather
+// than a guardrail: one throwaway domain fills all 500 slots and every genuine
+// new sender afterwards goes unjudged. A domain at its share stops queueing;
+// every other domain is unaffected.
+const PendingDeferralDomainCap = 50
+
+// Which ceiling turned a message away — recorded on the operator breadcrumb so
+// "the queue is full" and "one domain is flooding it" are never the same event.
+const (
+	CapReasonWorkspace = "workspace_ceiling"
+	CapReasonDomain    = "domain_ceiling"
+)
+
 // PendingCounterparty is one deferred disposition as the verdict engine reads
 // it: the identity to judge and the message that raised the question.
 type PendingCounterparty struct {
@@ -120,14 +134,14 @@ type PendingCounterparty struct {
 // reason and retires immediately (no next_attempt_at), while a T4 ambiguous
 // sender stays due for the verdict engine.
 //
-// It reports whether the workspace's deferral cap refused the row, which the
+// It reports which deferral ceiling refused the row (empty for none), which the
 // caller records as its own breadcrumb: a capture that asks no question is a
 // different event from one that joins an existing one, and only the first means
 // the workspace is being flooded.
-func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool, error) {
+func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (string, error) {
 	email := normalizeEmail(in.Email)
 	if email == "" {
-		return false, errors.New("capture: a disposition needs a normalized counterparty address")
+		return "", errors.New("capture: a disposition needs a normalized counterparty address")
 	}
 	// Deletion sticks, at the WRITE and not only in the erasure sweep. An erased
 	// subject's address must not re-materialize here — a fresh ledger row would
@@ -138,10 +152,10 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 	// same invariant, not a new rule.
 	suppressed, err := storekit.EmailSuppressed(ctx, tx, email)
 	if err != nil {
-		return false, fmt.Errorf("capture: checking the suppression list: %w", err)
+		return "", fmt.Errorf("capture: checking the suppression list: %w", err)
 	}
 	if suppressed {
-		return false, nil
+		return "", nil
 	}
 
 	due := in.Status == PendingStatusPending
@@ -157,12 +171,12 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 		// otherwise be reported as capped-and-unjudged, when its question is in
 		// fact open and will be answered — a breadcrumb that misdescribes the
 		// system is worse than none.
-		capped, err := capRefusesNewQuestion(ctx, tx, email)
+		capped, err := capRefusesNewQuestion(ctx, tx, email, in.Domain)
 		if err != nil {
-			return false, err
+			return "", err
 		}
-		if capped {
-			return true, nil
+		if capped != "" {
+			return capped, nil
 		}
 	}
 	// One disposition per address per state, whichever index arbitrates it: a
@@ -189,20 +203,38 @@ func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (bool,
 		email, strings.ToLower(strings.TrimSpace(in.Domain)), in.DisplayName,
 		in.ActivityID, in.OwnerID, in.Status, in.Reason, due)
 	if err != nil {
-		return false, fmt.Errorf("capture: recording the counterparty disposition: %w", err)
+		return "", fmt.Errorf("capture: recording the counterparty disposition: %w", err)
 	}
-	return false, nil
+	return "", nil
 }
 
 // capRefusesNewQuestion reports whether the ceiling turns this message away. The
 // ceiling applies to NEW questions only: a further message from an
 // already-deferred sender joins the open question and adds nothing to the count.
-func capRefusesNewQuestion(ctx context.Context, tx pgx.Tx, email string) (bool, error) {
+// It answers WHICH ceiling refused, because the two mean different things to an
+// operator: the workspace ceiling says the whole queue is full, the domain
+// ceiling says one sender's domain is flooding it and everyone else still gets
+// through. Empty string means nothing refused.
+func capRefusesNewQuestion(ctx context.Context, tx pgx.Tx, email, domain string) (string, error) {
 	open, err := hasOpenQuestion(ctx, tx, email)
 	if err != nil || open {
-		return false, err
+		return "", err
 	}
-	return atDeferralCap(ctx, tx)
+	full, err := atDeferralCap(ctx, tx)
+	if err != nil {
+		return "", err
+	}
+	if full {
+		return CapReasonWorkspace, nil
+	}
+	flooded, err := atDomainDeferralCap(ctx, tx, domain)
+	if err != nil {
+		return "", err
+	}
+	if flooded {
+		return CapReasonDomain, nil
+	}
+	return "", nil
 }
 
 // hasOpenQuestion reports whether this address already has a live disposition,
@@ -232,6 +264,33 @@ func atDeferralCap(ctx context.Context, tx pgx.Tx) (bool, error) {
 		return false, fmt.Errorf("capture: counting open dispositions: %w", err)
 	}
 	return live >= PendingDeferralCap, nil
+}
+
+// atDomainDeferralCap reports whether ONE sender domain already holds its share
+// of the workspace's open questions.
+//
+// The workspace ceiling alone fails in a way an outsider can steer: mailing from
+// 500 fresh addresses at one throwaway domain fills the whole queue, and from
+// then on no NEW corporate-domain sender is deferred at all. Nothing is hidden or
+// destroyed by that — the mail still lands — but the flood is self-sustaining and
+// costs the workspace its deferral machinery until someone clears the ledger by
+// hand. Capping per domain means a flood can only ever consume its own share.
+//
+// An address with no domain is not subject to it: there is nothing to count by,
+// and the workspace ceiling still bounds those rows.
+func atDomainDeferralCap(ctx context.Context, tx pgx.Tx, domain string) (bool, error) {
+	domain = strings.ToLower(strings.TrimSpace(domain))
+	if domain == "" {
+		return false, nil
+	}
+	var live int
+	err := tx.QueryRow(ctx, `
+		SELECT count(*) FROM capture_pending_counterparty
+		 WHERE domain = $1 AND status IN ('pending', 'unsure')`, domain).Scan(&live)
+	if err != nil {
+		return false, fmt.Errorf("capture: counting open dispositions for a domain: %w", err)
+	}
+	return live >= PendingDeferralDomainCap, nil
 }
 
 // dispositionRow names one ledger write.

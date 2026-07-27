@@ -46,6 +46,7 @@ func approvalsServiceWithEffects(pool *pgxpool.Pool) *approvals.Service {
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, store))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(pool, CaptureConfig{})))
 	svc.WithEffect(counterpartyProposalKind, counterpartyAcceptEffect(svc, store, activities.NewStore(pool), capture.NewPendingStore(pool)))
+	svc.WithEffect(orgNameProposalKind, orgNameAcceptEffect(svc, store))
 	svc.WithEffect(deals.CloseDateCorrectionKind, closeDateConfirmEffect(svc, deals.NewStore(pool)))
 	svc.WithEffect(deals.FollowUpReconcileKind, followUpConfirmEffect(svc, activities.NewStore(pool)))
 	svc.WithEffect(fxRateProposalKind, fxRateAcceptEffect(svc, deals.NewStore(pool)))

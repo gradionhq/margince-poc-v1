@@ -388,3 +388,39 @@ func (s *Service) HasPendingKind(ctx context.Context, kind string, targetID ids.
 	})
 	return exists, err
 }
+
+// WithdrawInTx takes one live proposal off the inbox on the caller's
+// transaction: forced expiry, audited with the reason, deliberately event-free.
+//
+// The mechanism is supersession's — backdate expires_at a full day, so the row
+// reads expired under both the database clock and the service clock that
+// effectiveStatus judges with. Withdrawal is not a new status: the CHECK and the
+// public ApprovalStatus enum stay closed, and expiry is already invisible on the
+// bus (no subscriber can observe a TTL lapse either), so nothing a consumer
+// relies on changes.
+//
+// It exists so an owner of the underlying question can retract it when the
+// question stops being one — the capture ledger ageing out an unanswered review
+// is the first caller. Withdrawing an already-decided approval does nothing:
+// what a human answered is not the caller's to take back.
+func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, reason string) error {
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return errors.New("crmapprovals: no actor bound to context")
+	}
+	tag, err := tx.Exec(ctx, `
+		UPDATE approval SET expires_at = now() - interval '1 day'
+		 WHERE id = $1 AND status = 'pending' AND expires_at > now()`, id)
+	if err != nil {
+		return fmt.Errorf("withdraw approval: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	if _, err := s.audit(ctx, tx, p, "update", id.UUID, map[string]any{
+		"withdrawn": true, "reason": reason,
+	}); err != nil {
+		return fmt.Errorf("audit withdrawn approval: %w", err)
+	}
+	return nil
+}

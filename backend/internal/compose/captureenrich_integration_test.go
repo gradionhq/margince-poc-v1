@@ -123,13 +123,44 @@ func TestSignatureEnrichPass(t *testing.T) {
 		t.Fatal("a fabricated snippet must never produce an evidence row")
 	}
 
-	t.Run("an enriched person leaves the candidate set", func(t *testing.T) {
+	t.Run("the same mail is never read twice", func(t *testing.T) {
+		// The read cursor, not the field set, is what retires a person: this
+		// person still has no org_name evidence, so the field predicate would
+		// select them again — and asking would show the model the identical
+		// window and get the identical answer, nightly, forever.
 		before := brain.calls
 		if err := enricher.Run(context.Background()); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
 		if brain.calls != before {
-			t.Fatal("an already-enriched person must not be re-asked")
+			t.Fatal("a person whose latest mail was already read must not be re-asked")
+		}
+	})
+
+	t.Run("newer mail reopens the person", func(t *testing.T) {
+		newer := ids.NewV7()
+		err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+			ctx := context.Background()
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO activity (id, workspace_id, kind, subject, body, direction, occurred_at, source_system, source_id, source, captured_by)
+				VALUES ($1, $2, 'email', 'again', $3, 'inbound', now() + interval '1 hour', 'gmail', $4, 'gmail:seed', 'connector:gmail')`,
+				newer, e.WS, "Hi again,\n\nBob Person\nCTO\nAcme Holding GmbH", newer.String()); err != nil {
+				return err
+			}
+			_, err := tx.Exec(ctx, `
+				INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
+				VALUES ($1, $2, 'person', $3)`, e.WS, newer, person)
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		before := brain.calls
+		if err := enricher.Run(context.Background()); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		if brain.calls == before {
+			t.Fatal("a person who has written again must be read again — the new signature may state what the old one did not")
 		}
 	})
 
@@ -144,14 +175,11 @@ func TestSignatureEnrichPass(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Occupied title exits the candidate set entirely (title IS NULL is
-		// part of the candidacy predicate) — the pass reads nothing for her.
-		before := brain.calls
+		// She is still a candidate — the org_name her signature may state is
+		// unanswered — so the pass reads her mail and the model returns the
+		// same title it returns for everyone. The human's answer survives it.
 		if err := enricher.Run(context.Background()); err != nil {
 			t.Fatalf("Run: %v", err)
-		}
-		if brain.calls != before {
-			t.Fatal("a person with a human-set title must not be a candidate")
 		}
 		var title string
 		err = database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {

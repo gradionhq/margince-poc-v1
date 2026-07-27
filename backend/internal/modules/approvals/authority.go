@@ -70,6 +70,10 @@ var decisionGrants = map[string][]struct {
 	// the domain is free-mail, the organization behind them — so deciding it
 	// needs both create grants, exactly as if the approver had typed them in.
 	"capture_counterparty": {{"person", principal.ActionCreate}, {"organization", principal.ActionCreate}},
+	// Accepting an org_name_promotion proposal (PO-F-2a: one employee's
+	// signature naming their company, with nothing corroborating it) renames
+	// the organization — the same update authority the name editor needs.
+	"org_name_promotion": {{"organization", principal.ActionUpdate}},
 	// Confirming a nightly close-date correction (formulas §11 🟡 tier)
 	// releases an expected_close_date write onto the deal.
 	"close_date_correction": {{"deal", principal.ActionUpdate}},

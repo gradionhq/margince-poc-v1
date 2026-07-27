@@ -105,14 +105,27 @@ func (e *CaptureEnricher) Run(ctx context.Context) error {
 
 func isBudgetStop(err error) bool { return errors.Is(err, ai.ErrBudgetDeferred) }
 
+// unparseableReply reports the one drop reason that means the model failed
+// rather than the signature being silent — the distinction the read cursor
+// turns on.
+func unparseableReply(dropped []droppedFinding) bool {
+	for _, d := range dropped {
+		if d.Reason == dropUnparseableReply {
+			return true
+		}
+	}
+	return false
+}
+
 // enrichOne reads one candidate's signature block, gates the model's
 // fields against it, and applies the survivors fill-only-empty.
 func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCandidate) error {
 	lines := signatureBlock(cand.Body)
 	if lines == "" {
-		// Nothing to read — mark nothing; the person simply has no
-		// signature to learn from yet.
-		return nil
+		// Nothing to read in this mail. The read still counts: without the
+		// cursor a person whose latest mail has no signature block would be
+		// selected again every night for the same empty window.
+		return e.store.MarkSignatureRead(ctx, cand.PersonID, cand.ActivityID)
 	}
 	req := signatureEnrichRequest(cand, lines)
 	var resp model.Response
@@ -130,6 +143,12 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 	// the model was shown, then the confidence floor.
 	gated, dropped := gateEvidence(resp.Text, lines, "activity:"+cand.ActivityID.String(),
 		func(name string) bool { return enrichFieldNames[name] })
+	if unparseableReply(dropped) {
+		// A reply no reader can parse is a fault in the ANSWER, not evidence
+		// that the signature states nothing — so the read goes unrecorded and
+		// this person is asked again next pass.
+		return fmt.Errorf("compose: unparseable signature reply for person %s", cand.PersonID)
+	}
 	if len(dropped) > 0 {
 		e.log.DebugContext(ctx, "signature enrich: fields dropped by the evidence gate",
 			"person", cand.PersonID.String(), "dropped", len(dropped))
@@ -144,10 +163,16 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 		})
 	}
 	if len(fields) == 0 {
-		return nil
+		// The model answered and nothing survived the gate — an answer, and
+		// the same answer next time unless this person writes again.
+		return e.store.MarkSignatureRead(ctx, cand.PersonID, cand.ActivityID)
 	}
-	_, err = e.store.ApplySignatureFields(ctx, cand.PersonID, cand.ActivityID, fields)
-	return err
+	if _, err := e.store.ApplySignatureFields(ctx, cand.PersonID, cand.ActivityID, fields); err != nil {
+		return err
+	}
+	// A model error above returns before this point on purpose: an
+	// unanswered call is a call still owed, so the person stays a candidate.
+	return e.store.MarkSignatureRead(ctx, cand.PersonID, cand.ActivityID)
 }
 
 // signatureEnrichRequest builds the ONE model call that reads one candidate's

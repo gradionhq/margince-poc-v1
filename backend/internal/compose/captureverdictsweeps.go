@@ -92,6 +92,53 @@ func (e *CounterpartyVerdictEngine) StageReviews(ctx context.Context, maxRows in
 	return nil
 }
 
+// staleReviewBatch bounds one age-out pass. The backlog is a query, so what a
+// pass leaves behind the next tick takes.
+const staleReviewBatch = 200
+
+// AgeOutStaleReviews closes the questions nobody answered. An `unsure` row waits
+// UnsureReviewWindow for a human; past that the ledger stops asking, and the
+// offer standing in the review queue is withdrawn with it.
+//
+// Without this the queue only ever grows. A staged offer expires after a day and
+// StageReviews honestly re-offers the row, so an unanswered question cycles
+// forever — holding a slot against the deferral ceiling and against its sender's
+// address the whole time. That is the tail an outsider can lean on: mail from
+// enough fresh addresses and the workspace never defers anyone new again.
+//
+// Closing as `rejected` creates nothing and touches no mail, and the sender is
+// not shut out: the live-unique index covers only `pending` and `unsure`, so
+// their next message opens a fresh row and gets a fresh verdict.
+//
+// The withdrawal and the ledger write share one transaction, so the inbox can
+// never hold an offer whose accept would resolve nothing.
+func (e *CounterpartyVerdictEngine) AgeOutStaleReviews(ctx context.Context, window time.Duration) error {
+	return e.eachWorkspace(ctx, func(wsCtx context.Context, ws ids.UUID) error {
+		stale, err := e.pending.StaleReviews(wsCtx, window, staleReviewBatch)
+		if err != nil {
+			return err
+		}
+		for _, row := range stale {
+			if err := database.WithWorkspaceTx(wsCtx, e.pool, func(tx pgx.Tx) error {
+				if row.ProposalID != nil {
+					if err := e.approvals.WithdrawInTx(wsCtx, tx, ids.From[ids.ApprovalKind](*row.ProposalID),
+						"no decision within the review window"); err != nil {
+						return err
+					}
+				}
+				return e.pending.AgeOutReviewTx(wsCtx, tx, row.ID)
+			}); err != nil {
+				return fmt.Errorf("verdict: ageing out an unanswered review: %w", err)
+			}
+		}
+		if len(stale) > 0 {
+			e.log.InfoContext(ctx, "counterparty verdict: closed unanswered review questions",
+				"workspace", ws.String(), "count", len(stale))
+		}
+		return nil
+	})
+}
+
 // HideNoiseStragglers archives captured mail from judged-noise senders that is
 // still visible — the messages that arrived after their verdict, and any the
 // verdict transaction did not reach.

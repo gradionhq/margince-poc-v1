@@ -1,0 +1,1 @@
+DROP TABLE person_signature_enrich_state;

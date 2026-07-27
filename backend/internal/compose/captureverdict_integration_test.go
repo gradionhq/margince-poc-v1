@@ -896,3 +896,65 @@ func suppressAddress(t *testing.T, e *integration.Env, email string) {
 		t.Fatalf("suppressing the address: %v", err)
 	}
 }
+
+// A question nobody ever answers must stop being asked. A staged offer expires
+// after a day and StageReviews honestly re-offers the row, so without an age-out
+// an unanswered `unsure` cycles forever — holding a slot against the deferral
+// ceiling and against its sender's address the whole time. That tail is what
+// makes filling the ceiling worth an outsider's while.
+func TestAnUnansweredReviewAgesOutAndTakesItsOfferWithIt(t *testing.T) {
+	e := integration.Setup(t)
+	activityID := seedCapturedMail(t, e, "ignored@maybe.example", "hi")
+	dispositionID := seedPendingDisposition(t, e, "ignored@maybe.example", "maybe.example", activityID)
+	retireToUnsure(t, e, dispositionID)
+
+	engine := NewCounterpartyVerdictEngine(e.Pool, &scriptedVerdictBrain{}, slog.Default())
+	if err := engine.StageReviews(context.Background(), 0); err != nil {
+		t.Fatalf("staging reviews: %v", err)
+	}
+	approvalID := stagedProposalID(t, e, dispositionID)
+
+	// A window still open changes nothing: the question is young, and a
+	// workspace that took a weekend off must not lose it.
+	if err := engine.AgeOutStaleReviews(context.Background(), capture.UnsureReviewWindow); err != nil {
+		t.Fatalf("ageing out reviews: %v", err)
+	}
+	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusUnsure {
+		t.Fatalf("disposition = %q inside its window, want it still waiting for a human", got)
+	}
+
+	// Now close the window by backdating when the row became `unsure`.
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			UPDATE capture_pending_counterparty
+			   SET resolved_at = now() - interval '31 days' WHERE id = $1`, dispositionID)
+		return err
+	}); err != nil {
+		t.Fatalf("backdating the review: %v", err)
+	}
+	if err := engine.AgeOutStaleReviews(context.Background(), capture.UnsureReviewWindow); err != nil {
+		t.Fatalf("ageing out reviews: %v", err)
+	}
+
+	if got := dispositionStatus(t, e, dispositionID); got != capture.PendingStatusRejected {
+		t.Fatalf("aged-out disposition = %q, want rejected — the ledger must stop asking", got)
+	}
+	// The offer goes with it. Leaving it in the inbox would mean an accept whose
+	// records land while the ledger says the question was closed unanswered.
+	if n := countIn(t, e, `
+		SELECT count(*) FROM approval
+		 WHERE id = $1 AND status = 'pending' AND expires_at > now()`, approvalID); n != 0 {
+		t.Fatal("the aged-out question left a live offer standing in the review queue")
+	}
+	// Nothing was created and no mail was touched: ageing out is the same
+	// non-destructive close a human's decline is.
+	if n := countIn(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		 WHERE pe.email = 'ignored@maybe.example'`); n != 0 {
+		t.Fatal("ageing out a question created the person it stopped asking about")
+	}
+	if n := countIn(t, e, `
+		SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NULL`, activityID); n != 1 {
+		t.Fatal("ageing out a question touched the message that raised it")
+	}
+}
