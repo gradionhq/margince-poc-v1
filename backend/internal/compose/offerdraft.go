@@ -111,13 +111,23 @@ type offerLineCandidate struct {
 // after the model call returns, exactly like extractionShapeValid vs
 // gateEvidence in enrichextract.go.
 func offerDraftShapeValid(text string) error {
+	_, err := parseOfferDraftLines(text)
+	return err
+}
+
+// parseOfferDraftLines reads the drafting reply's demanded envelope. It
+// is the ONE reading of that envelope: the retry pipeline's shape check
+// and the orchestrator's own read ask the same question of the same
+// bytes, and two spellings of it could disagree about which replies are
+// usable.
+func parseOfferDraftLines(text string) ([]offerLineCandidate, error) {
 	var parsed struct {
 		Lines []offerLineCandidate `json:"lines"`
 	}
 	if err := json.Unmarshal([]byte(ai.Unfence(text)), &parsed); err != nil {
-		return fmt.Errorf(`output must be {"lines":[...]}: %w`, err)
+		return nil, fmt.Errorf(`output must be {"lines":[...]}: %w`, err)
 	}
-	return nil
+	return parsed.Lines, nil
 }
 
 // dealContextItem is one piece of the deal's captured context, reduced
@@ -129,12 +139,14 @@ type dealContextItem struct {
 }
 
 // offerDrafter is the orchestrator: a model lane, the deals store (offer
-// reads + the staged-line write + the rate-card lookup), and the
+// reads + the staged-line write + the rate-card excerpt), the one-method
+// lookup the price ladder re-verifies a cited product through, and the
 // retrieval seam that serves the deal's captured context.
 type offerDrafter struct {
-	brain   completer
-	deals   *deals.Store
-	context retrieval.Retriever
+	brain    completer
+	deals    *deals.Store
+	rateCard rateCardLookup
+	context  retrieval.Retriever
 }
 
 // WithOfferDraft enables AI-drafted offer regeneration (arc 4b) over the
@@ -143,7 +155,8 @@ type offerDrafter struct {
 // path, this option only adds the evidence-gated staged lines on top.
 func WithOfferDraft(brain completer, retriever retrieval.Retriever) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		s.offerDrafter = &offerDrafter{brain: brain, deals: deals.NewStore(pool), context: retriever}
+		store := deals.NewStore(pool)
+		s.offerDrafter = &offerDrafter{brain: brain, deals: store, rateCard: store, context: retriever}
 	}
 }
 
@@ -167,7 +180,12 @@ func (d offerDrafter) DraftOfferLines(ctx context.Context, offerID ids.OfferID) 
 		return DraftResult{}, err
 	}
 
-	candidates, err := d.draftCandidates(ctx, dealContext)
+	catalog, err := d.rateCardCatalog(ctx)
+	if err != nil {
+		return DraftResult{}, err
+	}
+
+	candidates, err := d.draftCandidates(ctx, dealContext, catalog)
 	if err != nil {
 		return DraftResult{}, err
 	}
@@ -246,23 +264,23 @@ func (d offerDrafter) gatherDealContext(ctx context.Context, dealID ids.DealID) 
 	return items, nil
 }
 
-// draftCandidates asks the model for offer-line candidates over the
-// gathered context plus a bounded rate-card excerpt, secret-stripped like
-// every other outbound model payload (ai.NewSecretStripper — the same
-// call enrichextract.go makes; the fake test brain never defaults one on
-// its own, unlike the routed one, so setting it here is load-bearing, not
-// belt-and-braces).
-func (d offerDrafter) draftCandidates(ctx context.Context, dealContext []dealContextItem) ([]offerLineCandidate, error) {
-	catalog, err := d.rateCardCatalog(ctx)
-	if err != nil {
-		return nil, err
-	}
+// offerDraftRequest is the one call this site sends: the deal's gathered
+// context and the bounded rate-card excerpt a line may be matched
+// against, secret-stripped like every other outbound model payload
+// (ai.NewSecretStripper — the same call enrichextract.go makes; the fake
+// test brain never defaults one on its own, unlike the routed one, so
+// setting it here is load-bearing, not belt-and-braces).
+//
+// It is a function of what it is handed, so the prompt this site sends
+// can be built — and certified — from either read's own data, while the
+// reads themselves stay where the orchestrator makes every other read.
+func offerDraftRequest(dealContext []dealContextItem, catalog []crmcontracts.Product) model.Request {
 	// The deal context is captured counterparty text — the customer wrote it —
 	// so the span it sits in has to be one the customer cannot close. Both
 	// blocks go inside the same span: separately wrapped, the seam between them
 	// is a boundary two halves of a marker could be assembled across.
 	fence := promptfence.New()
-	req := model.Request{
+	return model.Request{
 		System: offerDraftSystemFor(fence),
 		Messages: []model.Message{{
 			Role:    "user",
@@ -271,8 +289,17 @@ func (d offerDrafter) draftCandidates(ctx context.Context, dealContext []dealCon
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
 	}
+}
 
-	var resp model.Response
+// draftCandidates asks the model for offer-line candidates over the
+// gathered context and the rate card the caller read for it.
+func (d offerDrafter) draftCandidates(ctx context.Context, dealContext []dealContextItem, catalog []crmcontracts.Product) ([]offerLineCandidate, error) {
+	req := offerDraftRequest(dealContext, catalog)
+
+	var (
+		resp model.Response
+		err  error
+	)
 	if structured, ok := d.brain.(validatedBrain); ok {
 		resp, err = structured.CompleteValidated(ctx, req, offerDraftShapeValid)
 	} else {
@@ -282,13 +309,11 @@ func (d offerDrafter) draftCandidates(ctx context.Context, dealContext []dealCon
 		return nil, err
 	}
 
-	var parsed struct {
-		Lines []offerLineCandidate `json:"lines"`
+	lines, err := parseOfferDraftLines(resp.Text)
+	if err != nil {
+		return nil, fmt.Errorf("compose: offer draft: %w", err)
 	}
-	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &parsed); err != nil {
-		return nil, fmt.Errorf(`compose: offer draft response must be {"lines":[...]}: %w`, err)
-	}
-	return parsed.Lines, nil
+	return lines, nil
 }
 
 // rateCardCatalog reads a bounded page of the workspace's active products
