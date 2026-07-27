@@ -113,19 +113,33 @@ func (r *Router) forgetCached(ctx context.Context, task Task, req model.Request)
 // A prompt that declares NO boundary was shown no untrusted data, so its failed
 // output is not attacker-steered and goes back plainly. The quarantine is for
 // the prompts that named a fence, which are exactly the ones that read captured
-// text.
+// text. A prompt that declares a boundary this package could not have minted is
+// neither of those: it claims to carry untrusted data behind a marker nothing
+// guarantees, so the echo is dropped rather than sent under a false protection.
 func withValidatorFeedback(req model.Request, failedText string, cause error) model.Request {
 	out := req
-	echo := func(s string) string { return s }
-	if fence, declared := feedbackFence(out); declared {
+	fence, boundary := feedbackFence(out)
+	switch boundary {
+	case boundaryMalformed:
+		// Fail closed: the retry keeps the instruction and loses the detail,
+		// which costs a correction and risks nothing.
+		out.Messages = append(append([]model.Message{}, req.Messages...),
+			model.Message{Role: roleUser, Content: retryInstruction})
+		return out
+	case boundaryNone:
+		return appendFeedback(out, req, failedText, cause, func(s string) string { return s })
+	default:
 		// WrapAuthored, not Wrap: this text came from a model that was SHOWN the
 		// marker, so it is the one author who can close the span exactly.
-		echo = fence.WrapAuthored
+		return appendFeedback(out, req, failedText, cause, fence.WrapAuthored)
 	}
+}
+
+func appendFeedback(out, req model.Request, failedText string, cause error, echo func(string) string) model.Request {
 	out.Messages = append(
 		append([]model.Message{}, req.Messages...),
-		model.Message{Role: "assistant", Content: echo(failedText)},
-		model.Message{Role: "user", Content: "That output failed validation: " +
+		model.Message{Role: roleAssistant, Content: echo(failedText)},
+		model.Message{Role: roleUser, Content: "That output failed validation: " +
 			echo(cause.Error()) + "\n" + retryInstruction},
 	)
 	return out
@@ -135,16 +149,29 @@ func withValidatorFeedback(req model.Request, failedText string, cause error) mo
 // codebase, and therefore the only part that carries authority.
 const retryInstruction = "Return ONLY the corrected output in the required format."
 
+// boundaryState is what a prompt says about its own data boundary. The three
+// cases need three different answers, and collapsing "malformed" into "none" is
+// the one combination that fails OPEN.
+type boundaryState int
+
+const (
+	boundaryNone boundaryState = iota
+	boundaryDeclared
+	boundaryMalformed
+)
+
 // feedbackFence resolves the boundary the echoed turns belong in: the one the
-// prompt already declared, never a second one beside it. A marker this package
-// could not have minted is not a boundary, and borrowing it would claim a
-// protection the span does not have.
-func feedbackFence(req model.Request) (promptfence.Fence, bool) {
+// prompt already declared, never a second one beside it.
+func feedbackFence(req model.Request) (promptfence.Fence, boundaryState) {
 	marker, declared := promptfence.MarkerIn(req.System)
 	if !declared {
-		return promptfence.Fence{}, false
+		return promptfence.Fence{}, boundaryNone
 	}
-	return promptfence.FromMarker(marker)
+	fence, ok := promptfence.FromMarker(marker)
+	if !ok {
+		return promptfence.Fence{}, boundaryMalformed
+	}
+	return fence, boundaryDeclared
 }
 
 // completeEscalated serves one attempt from the task's ladder with the
