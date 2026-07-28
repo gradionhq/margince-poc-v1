@@ -130,6 +130,13 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		// where a park would otherwise be. Spending that rung would leave the
 		// row pending with nothing left to deliver it — exactly the state the
 		// exhaustion guard exists to prevent.
+		//
+		// A postponement carries no error either — the same guard the terminal
+		// branch keeps, and for the same reason: snoozing on one would bury a
+		// fault under a delay nobody reads as a failure.
+		if err != nil {
+			return fmt.Errorf("comms_send_email: delivery %s postponed with an error: %w", job.Args.DeliveryID, err)
+		}
 		return river.JobSnooze(max(wait, minSendSnooze))
 	case comms.OutcomeRetry:
 		if err == nil {

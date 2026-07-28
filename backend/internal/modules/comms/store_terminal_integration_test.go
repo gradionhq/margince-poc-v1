@@ -16,9 +16,8 @@ import (
 	"testing"
 )
 
-// A stale second RecordSent (the crash class R3 already assumes possible —
-// a network partition or GC pause outliving a redelivered attempt) must not
-// clobber the first attempt's real receipt.
+// A stale second RecordSent (a network partition or GC pause outliving a
+// redelivered attempt) must not clobber the first attempt's real receipt.
 func TestRecordSentOnAnAlreadySentDeliveryIsABenignNoOp(t *testing.T) {
 	e := setupStore(t)
 	id := e.stage(t, e.baseInput(e.activity, "msg-sent-twice@example.com"))

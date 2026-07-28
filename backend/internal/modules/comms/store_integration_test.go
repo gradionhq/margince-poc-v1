@@ -184,7 +184,7 @@ func TestStageThenLoadRoundTripsEveryFieldAndCountsTheAttempt(t *testing.T) {
 }
 
 // A second Load on the same still-pending delivery counts a second attempt
-// — the redelivery-without-a-claim case R3 accepts by design.
+// — the redelivery-without-a-claim case this store accepts by design.
 func TestLoadCountsEveryAttemptWhileStillPending(t *testing.T) {
 	e := setupStore(t)
 	id := e.stage(t, e.baseInput(e.activity, "msg-retry@example.com"))

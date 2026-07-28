@@ -2,11 +2,20 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package ratelimit is a small in-process fixed-window limiter for the
-// unauthenticated auth endpoints: login brute-force is expensive to serve
-// (Argon2id ≈ 19 MiB per attempt) and bootstrap mints whole tenants, so
-// both need a throttle in front of them. In-process is the honest scope
-// for a single-binary PoC; a multi-replica deployment moves the same keys
-// into Redis without changing callers.
+// callers that must bound how often something happens per key.
+//
+// Two shapes of caller, and the API serves both. Allow counts an ATTEMPT and
+// decides in one step — the unauthenticated auth endpoints take this one, since
+// login brute-force is expensive to serve (Argon2id ≈ 19 MiB per attempt) and
+// bootstrap mints whole tenants. Blocked and Record split the two halves for a
+// caller that meters an OUTCOME instead: Blocked peeks without spending a slot,
+// and Record spends one only once the metered thing actually happened. Outbound
+// send pacing (comms.MailboxRatePolicy) takes that pair, because merely asking
+// whether a mailbox may send must not consume its quota.
+//
+// In-process is the honest scope for a single-binary PoC — a multi-replica
+// deployment paces each replica's own view — and moving the same keys into
+// Redis would not change callers.
 package ratelimit
 
 import (

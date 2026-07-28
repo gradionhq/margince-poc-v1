@@ -122,7 +122,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		}
 		// The vectors go with the text they were built from. purgeDerivedTraces
 		// reaches embeddings through activity_link, which by construction cannot
-		// see the unlinked captured mail redactSubjectTimeline now covers — and
+		// see the unlinked mail redactSubjectTimeline now covers — and
 		// an embedding of erased text is the erased text in another shape, which
 		// a similarity probe can still reach.
 		if len(activitiesRedacted) > 0 {

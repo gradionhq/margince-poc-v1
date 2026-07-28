@@ -42,7 +42,7 @@ import (
 // the nightly evaluator refuses to touch.
 //
 // recipients/cc/subject/body are NOT NULL, so they are emptied rather than
-// nulled. Three more columns go with them:
+// nulled. Two more columns go with them:
 //
 //   - list_unsubscribe carries a per-recipient one-click token — a live
 //     identifier for the subject, and the same link the body footer this scrub

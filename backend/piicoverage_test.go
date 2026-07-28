@@ -92,10 +92,10 @@ func sqlLiterals(t *testing.T, path string) []string {
 }
 
 // erasureCascadeFiles are the sources that make up the Art. 17 cascade — the
-// files ErasePerson's own transaction executes SQL from. It is a LIST rather
-// than the filename it used to be because the cascade outgrew one file, and a
-// gate pinned to a single path silently stops covering a table the moment its
-// scrub is extracted to a neighbour. It is deliberately NOT the whole privacy
+// files ErasePerson's own transaction executes SQL from. It is a LIST because
+// the cascade spans more than one file, and a gate pinned to a single path
+// silently stops covering a table the moment its scrub is extracted to a
+// neighbour. It is deliberately NOT the whole privacy
 // package: retention.go also writes subject tables, and letting a retention
 // sweep satisfy "Art. 17 reaches this table" is exactly the confusion this test
 // exists to prevent.
