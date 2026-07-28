@@ -18,7 +18,7 @@ The common case. `enrich` already has a ladder, a budget posture and a lane; you
 are adding one more place that calls it.
 
 ```bash
-# 1. name the site in the contract, under the task's sites:
+# 1. name the site in the contract — upstream first, then mirrored here:
 #      sites: [signature, letterhead]        # backend/api/ai-tasks.yaml
 make gen                                   # compiles it into tasks_gen.go
 
@@ -65,8 +65,18 @@ and it caps how much of the site one certification run can cover:
 
 ## Steps
 
-1. **Declare it** in `backend/api/ai-tasks.yaml`. The contract is the authority,
-   so this is where the work starts — never in code:
+1. **Declare it in the contract — upstream first, then mirrored here.** The
+   normative AI task contract is maintained upstream of this repository;
+   `backend/api/ai-tasks.yaml` is its mirror and must match it verbatim. Land the
+   declaration upstream, then copy it down.
+
+   > **No gate here can catch the wrong order.** Every check in this build
+   > compares the code against *this repo's copy* of the contract, so a task
+   > declared here first passes all of them and is still a contract violation.
+   > The build cannot tell you about a step it cannot see — which is exactly why
+   > it is written down here.
+
+   The declaration itself:
 
    ```yaml
    tasks:
@@ -172,8 +182,9 @@ and it caps how much of the site one certification run can cover:
   prompt in the abstract. Editing the prompt, the request builder or the grader
   re-stamps the version and marks the record **stale** — re-certify rather than
   hand-editing a record.
-- **Renaming** a task or site is a contract change first, then the census line,
-  the case's `Site()`, the corpus `site:` field, the record directory, and any
-  exemption entry keyed by the old name.
+- **Renaming** a task or site starts upstream like any other contract change,
+  then lands here as the mirrored declaration, the census line, the case's
+  `Site()`, the corpus `site:` field, the record directory, and any exemption
+  entry keyed by the old name.
 - **Retiring a site** means deleting its scenarios and its record too. A record
   left behind asserts a band for a prompt that no longer ships.
