@@ -146,14 +146,16 @@ func TestCapturedByKindNarrowsRowScopeAndNeverWidensIt(t *testing.T) {
 	}
 }
 
-// seatOrgCapturedBy plants one organization with an explicit creator.
-func seatOrgCapturedBy(t *testing.T, e *integration.Env, name, capturedBy, nameSource string) ids.UUID {
+// seatConnectorOrg plants one organization the Gmail CONNECTOR created — the
+// only creator these cases need, because the whole point is that an AI wrote
+// into a record it did not create.
+func seatConnectorOrg(t *testing.T, e *integration.Env, name, nameSource string) ids.UUID {
 	t.Helper()
 	id := ids.NewV7()
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization (id, workspace_id, owner_id, display_name, name_source, source, captured_by)
-			VALUES ($1, $2, $3, $4, $5, 'test', $6)`, id, e.WS, e.Rep1, name, nameSource, capturedBy)
+			VALUES ($1, $2, $3, $4, $5, 'test', 'connector:gmail')`, id, e.WS, e.Rep1, name, nameSource)
 		return err
 	}); err != nil {
 		t.Fatalf("seeding %s: %v", name, err)
@@ -171,7 +173,7 @@ func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 	store := people.NewStore(e.Pool)
 
-	filled := seatOrgCapturedBy(t, e, "Acme Filled", "connector:gmail", "domain")
+	filled := seatConnectorOrg(t, e, "Acme Filled", "domain")
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO organization_profile_field
@@ -184,9 +186,9 @@ func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	}
 	// Renamed by the AI from an email signature: the value is on the record
 	// itself, not in a child row.
-	seatOrgCapturedBy(t, e, "Beta Robotics GmbH", "connector:gmail", "signature")
+	seatConnectorOrg(t, e, "Beta Robotics GmbH", "signature")
 	// Neither: connector-made, connector-named, no AI anywhere near it.
-	seatOrgCapturedBy(t, e, "Gamma Untouched", "connector:gmail", "domain")
+	seatConnectorOrg(t, e, "Gamma Untouched", "domain")
 
 	names := func(ai *bool) []string {
 		t.Helper()
@@ -233,5 +235,47 @@ func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	if got, _, err := store.ListOrganizations(ctx,
 		people.ListOrganizationsInput{CapturedByKind: &agent}); err != nil || len(got) != 0 {
 		t.Fatalf("captured_by_kind=agent returned %d orgs (err %v), want 0 — the connector created every one of these", len(got), err)
+	}
+}
+
+// The general case, and the one a hand-picked list of evidence tables misses:
+// an agent updates an ORDINARY column. Nothing about which column or which
+// agent is known here — only that the write stamped field_provenance, which
+// storekit.StampFields is the one way to do. A new agent write site is
+// therefore covered the day it lands, without this filter being told about it.
+func TestAiWrittenCatchesAnAgentUpdatingAnOrdinaryColumn(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	store := people.NewStore(e.Pool)
+
+	org := seatConnectorOrg(t, e, "Delta Industries", "domain")
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		// An agent writes a plain column and records that it did — no profile
+		// field, no fact, no rename.
+		if _, err := tx.Exec(context.Background(),
+			`UPDATE organization SET industry = 'Robotics' WHERE id = $1`, org); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO field_provenance (workspace_id, object_type, object_id, field_name, source, captured_by)
+			VALUES ($1, 'organization', $2, 'industry', 'site_read', 'agent:deepread')`, e.WS, org)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the agent column write: %v", err)
+	}
+
+	yes := true
+	got, _, err := store.ListOrganizations(ctx, people.ListOrganizationsInput{AiWritten: &yes})
+	if err != nil {
+		t.Fatalf("ListOrganizations: %v", err)
+	}
+	found := false
+	for _, o := range got {
+		if o.DisplayName == "Delta Industries" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ai_written=true returned %v, missing the org whose ordinary column an agent wrote — a review list that only knows about evidence tables is not a review list", got)
 	}
 }

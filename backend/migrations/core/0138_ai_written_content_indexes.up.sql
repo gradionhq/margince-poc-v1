@@ -28,3 +28,11 @@ CREATE INDEX idx_organization_fact_agent_written
 CREATE INDEX idx_person_profile_field_agent_written
   ON person_profile_field (workspace_id, person_id)
   WHERE captured_by LIKE 'agent:%';
+
+-- The general one, and the one that carries the most weight: field_provenance
+-- holds a row per (object, field) written, for every record type, so an agent
+-- updating an ordinary column is found here without the query knowing which
+-- column. Same partial shape — only agent-written rows.
+CREATE INDEX idx_field_provenance_agent_written
+  ON field_provenance (workspace_id, object_type, object_id)
+  WHERE captured_by LIKE 'agent:%';

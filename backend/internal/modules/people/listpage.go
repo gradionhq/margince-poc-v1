@@ -210,21 +210,37 @@ const (
 // and the web dossier writes its profile fields and facts. Asking who created
 // it misses exactly the records worth reviewing.
 //
-// So the predicate is about CONTENT, and it is DERIVED rather than stored: an
-// EXISTS over the child rows that carry the AI's own provenance. A denormalised
-// flag would be a second copy of a truth those rows already hold, and a stale
+// So the predicate is about CONTENT, and it is DERIVED rather than stored: a
+// union over every row-set that records who-wrote-what. A denormalised flag
+// would be a second copy of a truth those rows already hold, and a stale
 // `false` would hide the very records this exists to surface.
 //
-// childTables are the (table, parent column) pairs whose rows carry per-value
-// provenance for this record type; extraOwn is any column on the record itself
-// that records an AI-written value (the organization's promoted name). A type
-// with neither — a lead — falls back to "was it agent-created", which is the
-// honest answer for a record that holds no AI-written values.
+// `field_provenance` is the GENERAL one and carries the most weight: it holds
+// one row per (object, field) written, for every record type, so an agent that
+// updates an ordinary column is caught here without this predicate having to
+// know which column or which agent. That matters more than the specific tables
+// below — a new agent write site is covered the moment it stamps provenance,
+// which storekit.StampFields is the one way to do.
+//
+// childTables are the per-value evidence tables that carry their own
+// captured_by WITHOUT stamping field_provenance (the dossier's organization
+// profile fields and facts); extraOwn is any column on the record itself that
+// records an AI-written value (the organization's promoted display name, whose
+// only marker is name_source). Both exist because those writers predate or sit
+// beside the general table — they are schema facts, not a design choice.
 func aiWrittenClause(want *bool, entity string, childTables [][2]string, extraOwn string, arg func(any) int) string {
 	if want == nil {
 		return ""
 	}
-	touched := []string{storekit.SQLf("%s.captured_by LIKE $%d", entity, arg(agentPrefix))}
+	touched := []string{
+		// Created by an agent.
+		storekit.SQLf("%s.captured_by LIKE $%d", entity, arg(agentPrefix)),
+		// Any column of it written by an agent, whichever column, whichever agent.
+		storekit.SQLf(`EXISTS (SELECT 1 FROM field_provenance fp
+			 WHERE fp.workspace_id = %s.workspace_id AND fp.object_type = $%d
+			   AND fp.object_id = %s.id AND fp.captured_by LIKE $%d)`,
+			entity, arg(entity), entity, arg(agentPrefix)),
+	}
 	for _, child := range childTables {
 		touched = append(touched, storekit.SQLf(
 			`EXISTS (SELECT 1 FROM %s c WHERE c.workspace_id = %s.workspace_id

@@ -305,8 +305,9 @@ type ListLeadsInput struct {
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
 	// AiWritten filters on whether an AI wrote into the record (§3a). A lead
-	// holds no profile-field or fact rows, so for leads it can only mean
-	// agent-created — which aiWrittenClause answers with no child tables.
+	// holds no per-value evidence tables of its own, so it passes no child
+	// tables — but `lead` IS a field_provenance object_type, so an agent that
+	// writes a lead column is still caught by the general predicate.
 	AiWritten *bool
 }
 
