@@ -5,12 +5,11 @@
 
 package comms
 
-// Finding 3 (security round 1): RLS, not application logic, is what keeps
-// one workspace from ever touching another's delivery — a bare id is the
-// entire argument to Load/RecordSent/Park/RecordFailure, so this is the
-// one thing standing between a wrong id and another tenant's recipients,
-// subject and body. Shares storeEnv/setupStore/stage/baseInput with
-// store_integration_test.go.
+// RLS, not application logic, is what keeps one workspace from ever touching
+// another's delivery — a bare id is the entire argument to
+// Load/RecordSent/Park/RecordFailure, so this is the one thing standing
+// between a wrong id and another tenant's recipients, subject and body.
+// Shares storeEnv/setupStore/stage/baseInput with store_integration_test.go.
 
 import (
 	"context"

@@ -37,60 +37,6 @@ const (
 	OutcomeRetry Outcome = "retry"
 )
 
-// deliveryStore is the persistence the dispatcher needs: one load that counts
-// the attempt, and the four transitions that close or defer a delivery. It is
-// private because Store is the only implementation the product ships — the
-// interface exists so the dispatcher's branch table can be proven without a
-// database, not to invite a second store.
-type deliveryStore interface {
-	Load(ctx context.Context, id ids.UUID) (Delivery, error)
-	RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error
-	Park(ctx context.Context, id ids.UUID, reason string) error
-	RecordFailure(ctx context.Context, id ids.UUID, reason string) error
-	RecordDeferral(ctx context.Context, id ids.UUID, reason string) error
-}
-
-var _ deliveryStore = (*Store)(nil)
-
-// ConsentGate answers whether these recipients may still be mailed for this
-// purpose. It is default-deny: a recipient who never granted the purpose, and
-// one who withdrew it, are refused alike.
-//
-// The dispatcher's call is THE AUTHORITATIVE CHECK. Consent is also verified
-// when the send is requested, but transmission happens later and a recipient
-// can withdraw in between; transmitting after a withdrawal is exactly the
-// failure a default-deny gate exists to prevent. The request-time check exists
-// to fail fast and keep the response ordering honest, not to stand in for this
-// one.
-//
-// It must distinguish an ANSWER from a FAULT: apperrors.ErrConsentNotGranted
-// says consent is absent, and every other error says the question could not be
-// asked. The dispatcher parks on the first and retries on the second.
-type ConsentGate interface {
-	RequireGrantedForEmails(ctx context.Context, recipients []string, purposeKey string) error
-}
-
-// ErrNoMailbox marks a user with no connection to the provider a delivery is
-// staged against. There is nothing to retry against, so it parks.
-var ErrNoMailbox = errors.New("comms: no mailbox is connected for this provider")
-
-// ErrCannotSend marks a connected provider whose connector cannot transmit —
-// it implements capture only. No retry turns a capture-only connector into a
-// sender, so this parks too.
-var ErrCannotSend = errors.New("comms: this connector cannot transmit messages")
-
-// ConnectionResolver resolves the transmitting mailbox: the connector's send
-// seam, its unsealed credential, and the scopes the provider says the grant
-// actually holds.
-//
-// ErrNoMailbox and ErrCannotSend are the only facts about the deployment;
-// EVERY OTHER ERROR IS TRANSIENT. A keyvault blip or a database timeout here
-// is a failure to get an answer, and parking on one would permanently destroy
-// a legitimate send that nothing is wrong with.
-type ConnectionResolver interface {
-	Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error)
-}
-
 // Dispatcher runs one delivery attempt: the fixed gates that can refuse it, the
 // configurable policy chain that can postpone it, and the transmission itself.
 //
@@ -102,6 +48,7 @@ type ConnectionResolver interface {
 type Dispatcher struct {
 	store       deliveryStore
 	resolver    ConnectionResolver
+	seats       SeatAuthority
 	consent     ConsentGate
 	policies    []SendPolicy
 	now         func() time.Time
@@ -120,17 +67,27 @@ type Dispatcher struct {
 // runner's ladder — a caller that knows its own should pass it.
 const defaultMaxAttempts = 25
 
+// minMaxAttempts is the floor a configured ladder length is raised to. One
+// rung is arithmetically positive and survives the default above, but Load
+// counts an attempt BEFORE the exhaustion guard reads the counter, so a bound
+// of one would meet `Attempts >= maxAttempts` on the very first dispatch and
+// park every delivery without ever asking a provider. Two rungs is the
+// smallest bound under which the guard bounds a ladder rather than replacing
+// it.
+const minMaxAttempts = 2
+
 // NewDispatcher builds the dispatcher. maxAge bounds how long a delivery may
 // be postponed before it parks instead, and maxAttempts is the caller's retry
 // ladder length — the dispatcher parks on the last rung rather than leaving a
 // row the runner will never deliver again looking pending forever.
 //
-// A nil clock and a non-positive maxAttempts both DEFAULT rather than
+// A nil clock and a maxAttempts below the floor both DEFAULT rather than
 // disabling the behaviour they configure: a caller that forgets one gets the
 // conservative version of the rule, never the absence of it.
 func NewDispatcher(
 	store deliveryStore,
 	resolver ConnectionResolver,
+	seats SeatAuthority,
 	consent ConsentGate,
 	policies []SendPolicy,
 	now func() time.Time,
@@ -143,8 +100,11 @@ func NewDispatcher(
 	if maxAttempts <= 0 {
 		maxAttempts = defaultMaxAttempts
 	}
+	if maxAttempts < minMaxAttempts {
+		maxAttempts = minMaxAttempts
+	}
 	return &Dispatcher{
-		store: store, resolver: resolver, consent: consent, policies: policies,
+		store: store, resolver: resolver, seats: seats, consent: consent, policies: policies,
 		now: now, maxAge: maxAge, maxAttempts: maxAttempts,
 	}
 }
@@ -195,26 +155,20 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 		return d.park(ctx, del.ID, "this mailbox connection was not granted the send scope; reconnect it to enable sending")
 	}
 
+	// Gate: the sender's seat, which is authority-class and therefore belongs
+	// here rather than after consent. The mailbox grant above is the
+	// PROVIDER's answer about a credential; this is THIS installation's answer
+	// about the human it was lent by, and deactivating them touches neither
+	// the connection nor the grant.
+	if outcome, wait, err := d.gateSeat(ctx, del); outcome != outcomeUndecided {
+		return outcome, wait, err
+	}
+
 	// Gate: suppression and consent, which are one step — one-click
 	// unsubscribe writes a per-purpose consent withdrawal, so this gate IS
 	// the suppression mechanism.
-	if d.consent == nil {
-		// A send path with no consent authority wired is a deployment
-		// defect. Retrying would hide the misconfiguration behind a delivery
-		// that quietly never goes out.
-		return d.park(ctx, del.ID, "no consent authority is configured on this send path")
-	}
-	switch err := d.consent.RequireGrantedForEmails(ctx, del.Recipients, del.ConsentPurpose); {
-	case errors.Is(err, apperrors.ErrConsentNotGranted):
-		// An answer: consent is absent, and no amount of waiting brings it
-		// back.
-		return d.park(ctx, del.ID, fmt.Sprintf(
-			"consent for purpose %q is not granted for these recipients", del.ConsentPurpose))
-	case err != nil:
-		// NOT an answer. A consent service that is merely down must not
-		// permanently destroy a consented send — getting this branch
-		// backwards silently kills legitimate mail.
-		return d.retry(ctx, del.ID, err)
+	if outcome, wait, err := d.gateConsent(ctx, del); outcome != outcomeUndecided {
+		return outcome, wait, err
 	}
 
 	// Policies postpone; they never refuse. They run after both gates, so a
@@ -225,8 +179,9 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Ladder exhaustion. Once the runner stops delivering this job nothing
 	// else would ever move the row off pending, and it would look live
-	// forever. The bound is always positive — NewDispatcher defaults it — so
-	// this can never park a delivery on its first attempt.
+	// forever. NewDispatcher floors the bound at minMaxAttempts, which is what
+	// keeps this from parking a delivery on its first attempt — Load counts
+	// the attempt before the comparison reads it.
 	if del.Attempts >= d.maxAttempts {
 		return d.park(ctx, del.ID, fmt.Sprintf("the retry ladder is exhausted after %d attempts", del.Attempts))
 	}
@@ -237,6 +192,60 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 // outcomeUndecided is the zero Outcome: a step that reached no verdict and
 // leaves the delivery to the next one. It never leaves this package.
 const outcomeUndecided Outcome = ""
+
+// gateSeat refuses a delivery whose sender is no longer a live seat, and
+// returns outcomeUndecided when they are.
+//
+// It PARKS rather than retries, because a deactivation is an answer: the
+// account is off-boarded or compromised, and no amount of waiting restores the
+// authority that staged this message. Retrying would keep the batch alive for
+// the whole maximum age, which is the exposure this gate closes. A seat
+// authority that could not ANSWER is the opposite case and retries, so an
+// identity-store outage does not destroy every send in flight.
+func (d *Dispatcher) gateSeat(ctx context.Context, del Delivery) (Outcome, time.Duration, error) {
+	if d.seats == nil {
+		// A send path with no seat authority wired is a deployment defect, and
+		// this lane reaches a real external mailbox. Fail closed, exactly as
+		// the missing consent authority below does.
+		return d.park(ctx, del.ID, "no seat authority is configured on this send path")
+	}
+	active, err := d.seats.ActiveSeat(ctx, del.UserID)
+	if err != nil {
+		return d.retry(ctx, del.ID, err)
+	}
+	if !active {
+		return d.park(ctx, del.ID,
+			"the sender's account is no longer active; a deactivated user's mailbox may not transmit staged messages")
+	}
+	return outcomeUndecided, 0, nil
+}
+
+// gateConsent asks the authoritative suppression question and returns
+// outcomeUndecided when every addressee may still be mailed.
+func (d *Dispatcher) gateConsent(ctx context.Context, del Delivery) (Outcome, time.Duration, error) {
+	if d.consent == nil {
+		// A send path with no consent authority wired is a deployment defect.
+		// Retrying would hide the misconfiguration behind a delivery that
+		// quietly never goes out.
+		return d.park(ctx, del.ID, "no consent authority is configured on this send path")
+	}
+	// EVERY addressee is asked about, not just the To line: a Cc'd person is
+	// owed the same suppression, and this call is the only one that runs after
+	// they could have withdrawn.
+	switch err := d.consent.RequireGrantedForEmails(ctx, addressees(del), del.ConsentPurpose); {
+	case errors.Is(err, apperrors.ErrConsentNotGranted):
+		// An answer: consent is absent, and no amount of waiting brings it
+		// back.
+		return d.park(ctx, del.ID, fmt.Sprintf(
+			"consent for purpose %q is not granted for these recipients", del.ConsentPurpose))
+	case err != nil:
+		// NOT an answer. A consent service that is merely down must not
+		// permanently destroy a consented send — getting this branch backwards
+		// silently kills legitimate mail.
+		return d.retry(ctx, del.ID, err)
+	}
+	return outcomeUndecided, 0, nil
+}
 
 // pace applies the policy chain. The chain is ordered and the first non-zero
 // wait wins, so adding a policy is a registration rather than a change to the
@@ -449,31 +458,4 @@ func (d *Dispatcher) postpone(ctx context.Context, id ids.UUID, reason string, w
 		return OutcomeRetry, 0, fmt.Errorf("comms: recording the deferral: %w", err)
 	}
 	return OutcomePostponed, wait, nil
-}
-
-// SendScopeFor names the OAuth scope a provider's grant must hold to transmit,
-// and reports false for a provider that cannot send at all. One if rather than
-// a registry: Gmail is the only sending provider today, and a registry with a
-// single entry is an abstraction with no second caller.
-//
-// It is exported so the request-time pre-flight — which refuses a send this
-// installation already knows cannot leave — asks the SAME question as the gate
-// below. Two spellings of "may this grant send" could disagree, and a
-// pre-flight that accepted what the gate then parks is worse than none.
-func SendScopeFor(provider string) (string, bool) {
-	if provider == "gmail" {
-		return "https://www.googleapis.com/auth/gmail.send", true
-	}
-	return "", false
-}
-
-// rfc8058Post derives the List-Unsubscribe-Post header from its partner. RFC
-// 8058 fixes the value, so it is derived rather than stored and the pair
-// cannot drift apart — a Post header without a target instructs a mail client
-// to POST nowhere.
-func rfc8058Post(listUnsubscribe string) string {
-	if listUnsubscribe == "" {
-		return ""
-	}
-	return "List-Unsubscribe=One-Click"
 }

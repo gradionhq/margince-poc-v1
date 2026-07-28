@@ -6,6 +6,8 @@ package comms
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,9 +95,32 @@ func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.Se
 	return f.sender, connector.Auth("cred"), f.granted, f.err
 }
 
-type stubConsent struct{ err error }
+// stubConsent records WHO it was asked about, not only what it answered. The
+// recipient list is the gate's whole subject: a gate handed the wrong
+// addressees answers correctly about the wrong people, which is
+// indistinguishable from a pass unless the argument itself is asserted.
+type stubConsent struct {
+	err   error
+	asked []string
+}
 
-func (s stubConsent) RequireGrantedForEmails(context.Context, []string, string) error { return s.err }
+func (s *stubConsent) RequireGrantedForEmails(_ context.Context, recipients []string, _ string) error {
+	s.asked = recipients
+	return s.err
+}
+
+// stubSeats answers the live-seat gate. The zero value is a deactivated
+// sender, so a test that means "still employed" has to say so.
+type stubSeats struct {
+	active bool
+	err    error
+}
+
+func (s stubSeats) ActiveSeat(context.Context, ids.UserID) (bool, error) { return s.active, s.err }
+
+// liveSeat is the ordinary case every test that is not ABOUT the seat gate
+// wants: the sender is still a permitted human.
+func liveSeat() stubSeats { return stubSeats{active: true} }
 
 const sendScope = "https://www.googleapis.com/auth/gmail.send"
 
@@ -118,7 +143,14 @@ func liveDelivery() Delivery {
 }
 
 func newTestDispatcher(store deliveryStore, res ConnectionResolver, consent ConsentGate, policies ...SendPolicy) *Dispatcher {
-	return NewDispatcher(store, res, consent, policies, func() time.Time { return testNow }, time.Hour, testMaxAttempts)
+	return newSeatedDispatcher(store, res, liveSeat(), consent, policies...)
+}
+
+// newSeatedDispatcher is newTestDispatcher with the seat authority spelled
+// out, for the cases that are about the seat rather than about what comes
+// after it.
+func newSeatedDispatcher(store deliveryStore, res ConnectionResolver, seats SeatAuthority, consent ConsentGate, policies ...SendPolicy) *Dispatcher {
+	return NewDispatcher(store, res, seats, consent, policies, func() time.Time { return testNow }, time.Hour, testMaxAttempts)
 }
 
 // dispatch runs one attempt and drops the postponement interval, which most
@@ -135,7 +167,7 @@ func dispatch(ctx context.Context, d *Dispatcher, id ids.UUID) (Outcome, error) 
 func TestDispatchOnATerminalDeliveryTransmitsNothing(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{loadErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, ids.NewV7())
 	if err != nil {
@@ -151,7 +183,7 @@ func TestDispatchOnATerminalDeliveryTransmitsNothing(t *testing.T) {
 func TestDispatchRetriesWhenTheDeliveryCannotBeLoaded(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{loadErr: errors.New("database timeout")}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, ids.NewV7())
 	if got != OutcomeRetry || err == nil {
@@ -165,7 +197,7 @@ func TestDispatchRetriesWhenTheDeliveryCannotBeLoaded(t *testing.T) {
 // A keyvault or database blip must not permanently kill a good send.
 func TestDispatchRetriesOnATransientResolveFailure(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{err: errors.New("keyvault timeout")}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{err: errors.New("keyvault timeout")}, &stubConsent{})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeRetry {
@@ -178,7 +210,7 @@ func TestDispatchRetriesOnATransientResolveFailure(t *testing.T) {
 
 func TestDispatchParksWhenTheUserHasNoMailbox(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{err: ErrNoMailbox}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{err: ErrNoMailbox}, &stubConsent{})
 
 	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked — there is nothing to retry against", got)
@@ -190,7 +222,7 @@ func TestDispatchParksWhenTheUserHasNoMailbox(t *testing.T) {
 // sender.
 func TestDispatchParksWhenTheConnectorCannotSend(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{err: ErrCannotSend}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{err: ErrCannotSend}, &stubConsent{})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked {
@@ -204,7 +236,7 @@ func TestDispatchParksWhenTheConnectorCannotSend(t *testing.T) {
 func TestDispatchParksWhenTheGrantLacksSendScope(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{"readonly"}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{"readonly"}}, &stubConsent{})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
@@ -221,7 +253,7 @@ func TestDispatchParksWhenTheProviderCannotSendAtAll(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	store.delivery.Provider = "imap"
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
@@ -238,7 +270,7 @@ func TestDispatchParksWhenConsentWasWithdrawnAfterStaging(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-		stubConsent{err: apperrors.ErrConsentNotGranted})
+		&stubConsent{err: apperrors.ErrConsentNotGranted})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
@@ -252,7 +284,7 @@ func TestDispatchRetriesWhenTheConsentCheckFailsTransiently(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-		stubConsent{err: errors.New("consent store timeout")})
+		&stubConsent{err: errors.New("consent store timeout")})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeRetry {
@@ -299,4 +331,125 @@ type consentFunc func(context.Context, []string, string) error
 
 func (f consentFunc) RequireGrantedForEmails(ctx context.Context, r []string, p string) error {
 	return f(ctx, r, p)
+}
+
+// THE Cc one: a delivery stores its To and Cc apart because the wire needs
+// them apart, and the authoritative gate is owed EVERY addressee. Asking about
+// the To list alone leaves a cc'd person with no suppression at all — their
+// one-click unsubscribe lands in the hours a paced batch sits staged and
+// changes nothing about the message they receive.
+func TestDispatchAsksConsentAboutEveryAddresseeIncludingCc(t *testing.T) {
+	consent := &stubConsent{}
+	store := &fakeStore{delivery: liveDelivery()}
+	store.delivery.Recipients = []string{"buyer@example.com", "second@example.com"}
+	store.delivery.Cc = []string{"cc@example.com", " Buyer@Example.com "}
+	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, consent)
+
+	if got, err := dispatch(context.Background(), d, store.delivery.ID); err != nil || got != OutcomeSent {
+		t.Fatalf("outcome=%v err=%v, want OutcomeSent", got, err)
+	}
+	// The cc'd address is the assertion; the duplicate proves an addressee
+	// listed twice is asked about once, the way a mail server reads it.
+	want := []string{"buyer@example.com", "second@example.com", "cc@example.com"}
+	if !slices.Equal(consent.asked, want) {
+		t.Errorf("consent was asked about %v, want every addressee %v", consent.asked, want)
+	}
+}
+
+// A cc'd recipient who withdrew after staging stops the whole message: one
+// rendered message reaches every addressee, so it cannot go to some of them.
+func TestDispatchParksWhenOnlyACcRecipientWithdrewConsent(t *testing.T) {
+	sender := &fakeSender{}
+	store := &fakeStore{delivery: liveDelivery()}
+	// The gate refuses the list it is handed; handing it the To line alone
+	// would never surface the cc'd withdrawal at all.
+	consent := &stubConsent{err: apperrors.ErrConsentNotGranted}
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, consent)
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeParked || sender.calls != 0 {
+		t.Errorf("outcome=%v calls=%d — a withdrawn cc recipient must stop the send", got, sender.calls)
+	}
+	if !slices.Contains(consent.asked, "cc@example.com") {
+		t.Errorf("consent was asked about %v — the cc'd addressee was never put to the gate", consent.asked)
+	}
+}
+
+// Deactivation binds mid-flight. A staged batch survives its sender being
+// off-boarded or compromised for as long as the maximum age allows, and the
+// mailbox connection the provider still honours says nothing about whether
+// this installation still permits the human it was lent by.
+func TestDispatchParksWhenTheSenderIsNoLongerALiveSeat(t *testing.T) {
+	sender := &fakeSender{}
+	consent := &stubConsent{}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newSeatedDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
+		stubSeats{active: false}, consent)
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if got != OutcomeParked || sender.calls != 0 {
+		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0 — a deactivated sender may not transmit", got, sender.calls)
+	}
+	if !strings.Contains(store.parked, "no longer active") {
+		t.Errorf("parked reason = %q; an operator must be able to read WHY the batch stopped", store.parked)
+	}
+	// Authority-class, so it refuses before consent answers — the same
+	// ordering the mailbox grant keeps.
+	if consent.asked != nil {
+		t.Errorf("consent was consulted about %v despite a dead seat", consent.asked)
+	}
+}
+
+// An identity store that is merely DOWN must not destroy every send in
+// flight. Parking on a failure to get an answer would do exactly that.
+func TestDispatchRetriesWhenTheSeatCheckFailsTransiently(t *testing.T) {
+	sender := &fakeSender{}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newSeatedDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
+		stubSeats{err: errors.New("identity store timeout")}, &stubConsent{})
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeRetry {
+		t.Errorf("outcome = %v, want OutcomeRetry — an outage is not a deactivation", got)
+	}
+	if store.parked != "" {
+		t.Errorf("parked on a transient seat fault: %q", store.parked)
+	}
+	if sender.calls != 0 {
+		t.Errorf("transmitted %d times without a seat answer", sender.calls)
+	}
+}
+
+// A send path with no seat authority wired is a deployment defect on the one
+// lane that reaches a real external mailbox, so it fails closed.
+func TestDispatchParksWhenNoSeatAuthorityIsWired(t *testing.T) {
+	sender := &fakeSender{}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newSeatedDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, nil, &stubConsent{})
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeParked || sender.calls != 0 {
+		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0", got, sender.calls)
+	}
+}
+
+// A one-rung ladder is arithmetically positive and survives the default, but
+// Load counts the attempt before the exhaustion guard reads it — so without a
+// floor the guard would park every delivery before it ever asked a provider.
+func TestADispatcherConfiguredWithOneRungStillTransmitsOnce(t *testing.T) {
+	sender := &fakeSender{}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
+		liveSeat(), &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 1)
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if got != OutcomeSent || sender.calls != 1 {
+		t.Errorf("outcome=%v calls=%d, want OutcomeSent/1 — the first attempt must reach the provider", got, sender.calls)
+	}
 }

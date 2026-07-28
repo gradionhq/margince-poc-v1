@@ -39,6 +39,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
@@ -159,8 +160,25 @@ func (p *preflightEnv) deliveryFor(t *testing.T, activityID ids.UUID) (ids.UUID,
 // transmit drives ONE real dispatch of a staged delivery against a stub Gmail
 // and returns the RFC822 the connector produced, together with the connector
 // itself — the echo test derives the captured message's source_system from its
-// descriptor rather than restating the send path's own constant.
+// descriptor rather than restating the send path's own constant. It insists on
+// a completed send, so a case ABOUT a refusal calls dispatchOnce instead.
 func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) ([]byte, *gmail.Connector) {
+	t.Helper()
+	outcome, captured, gmailConnector := p.dispatchOnce(t, deliveryID)
+	if outcome != comms.OutcomeSent {
+		t.Fatalf("dispatch outcome = %q, want sent", outcome)
+	}
+	rfc822, err := base64.URLEncoding.DecodeString(captured.raw)
+	if err != nil {
+		t.Fatalf("the connector did not hand Gmail base64url: %v", err)
+	}
+	return rfc822, gmailConnector
+}
+
+// dispatchOnce runs one real dispatch and reports its verdict plus whatever
+// reached the stub provider — which is how a refusal is proven to have
+// transmitted NOTHING rather than merely to have been recorded.
+func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID) (comms.Outcome, sentMail, *gmail.Connector) {
 	t.Helper()
 	var captured sentMail
 	stub := gmailSendStub(t, &captured)
@@ -193,6 +211,7 @@ func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) ([]byte, *gma
 	dispatcher := comms.NewDispatcher(
 		comms.NewStore(p.pool, time.Now),
 		stubMailbox{sender: gmailConnector, auth: auth},
+		compose.NewSendSeatAuthority(p.pool),
 		consent.NewGate(consent.NewStore(p.pool)),
 		nil, time.Now, 24*time.Hour, 10,
 	)
@@ -203,14 +222,7 @@ func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) ([]byte, *gma
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
-	if outcome != comms.OutcomeSent {
-		t.Fatalf("dispatch outcome = %q, want sent", outcome)
-	}
-	rfc822, err := base64.URLEncoding.DecodeString(captured.raw)
-	if err != nil {
-		t.Fatalf("the connector did not hand Gmail base64url: %v", err)
-	}
-	return rfc822, gmailConnector
+	return outcome, captured, gmailConnector
 }
 
 // connectorCtx is the principal the capture registry builds for a sync: the
@@ -360,4 +372,60 @@ func (p *preflightEnv) grantMarketingConsent(t *testing.T) {
 	}, nil, nil); status != http.StatusOK {
 		t.Fatalf("confirm the marketing grant → %d", status)
 	}
+}
+
+// Revocation binds mid-flight on the one lane that reaches a real external
+// mailbox. Deactivating a user revokes their sessions and passports but leaves
+// the mailbox connection standing, and a delivery staged before that moment
+// carries no session of its own — so without a transmit-time seat check an
+// off-boarded or compromised account keeps sending for the whole maximum age.
+func TestDeactivatingTheSenderParksAStagedDelivery(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	sentActivity := p.sendExpectingAcceptance(t, "transactional", "Re: Inbound question", "As discussed.")
+	deliveryID, _ := p.deliveryFor(t, sentActivity)
+	p.deactivateSender(t)
+
+	outcome, captured, _ := p.dispatchOnce(t, deliveryID)
+
+	if outcome != comms.OutcomeParked {
+		t.Fatalf("dispatch after the sender was deactivated → %q, want parked", outcome)
+	}
+	if captured.raw != "" {
+		t.Error("a deactivated sender's staged message still reached the provider")
+	}
+	if reason := p.deliveryReason(t, deliveryID); !strings.Contains(reason, "no longer active") {
+		t.Errorf("parked reason = %q; an operator must be able to read why the batch stopped", reason)
+	}
+}
+
+// deactivateSender flips the acting human's seat the way identity's
+// DeactivateUser does. Written directly because the subject is what the SEND
+// path reads out of the row, not how the admin endpoint puts it there.
+func (p *preflightEnv) deactivateSender(t *testing.T) {
+	t.Helper()
+	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, p.user)
+		return err
+	}); err != nil {
+		t.Fatalf("deactivating the sender: %v", err)
+	}
+}
+
+// deliveryReason reads the operator sentence a terminal transition left behind.
+func (p *preflightEnv) deliveryReason(t *testing.T, deliveryID ids.UUID) string {
+	t.Helper()
+	var reason *string
+	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT reason FROM comms_outbound WHERE id = $1`, deliveryID).Scan(&reason)
+	}); err != nil {
+		t.Fatalf("reading the delivery reason: %v", err)
+	}
+	if reason == nil {
+		return ""
+	}
+	return *reason
 }

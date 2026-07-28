@@ -48,7 +48,7 @@ func (p *recordingPolicy) Recorded(Delivery)                            { p.reco
 func TestDispatchTransmitsAndRecordsTheReceipt(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestDispatchTransmitsAndRecordsTheReceipt(t *testing.T) {
 func TestDispatchSnoozesWhenAPolicyAsksToWait(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{},
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{},
 		waitPolicy{d: 90 * time.Second})
 
 	got, wait, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
@@ -88,7 +88,7 @@ func TestDispatchSnoozesWhenAPolicyAsksToWait(t *testing.T) {
 func TestDispatchParksADeliveryThatHasAgedOutWhileWaiting(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	store.delivery.CreatedAt = testNow.Add(-2 * time.Hour)
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, stubConsent{},
+	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{},
 		waitPolicy{d: time.Minute})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
@@ -110,7 +110,7 @@ func TestDispatchTransmitsAnAgedDeliveryThatNoPolicyIsDeferring(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	store.delivery.CreatedAt = testNow.Add(-2 * time.Hour)
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestDispatchTransmitsAnAgedDeliveryThatNoPolicyIsDeferring(t *testing.T) {
 func TestDispatchParksOnARejectedGrant(t *testing.T) {
 	sender := &fakeSender{err: connector.ErrAuthRejected}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked — a dead grant is not retryable", got)
@@ -134,7 +134,7 @@ func TestDispatchParksOnARejectedGrant(t *testing.T) {
 func TestDispatchRetriesWhenTheProviderIsUnreachable(t *testing.T) {
 	sender := &fakeSender{err: connector.ErrUnreachable}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeRetry {
 		t.Errorf("outcome = %v, want OutcomeRetry", got)
@@ -154,7 +154,7 @@ func TestDispatchPostponesForTheProviderStatedRetryAfterAndKeepsItsRung(t *testi
 	sender := &fakeSender{err: &connector.RateLimitedError{RetryAfter: 42 * time.Second}}
 	store := &fakeStore{delivery: liveDelivery()}
 	before := store.delivery.Attempts
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, wait, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
 	if err != nil {
@@ -181,7 +181,7 @@ func TestDispatchParksOnAThrottleThatExhaustsTheLadder(t *testing.T) {
 	sender := &fakeSender{err: &connector.RateLimitedError{RetryAfter: 42 * time.Second}}
 	store := &fakeStore{delivery: liveDelivery()}
 	store.delivery.Attempts = testMaxAttempts - 1
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, wait, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
 	if err != nil {
@@ -202,7 +202,7 @@ func TestDispatchParksOnAThrottleThatExhaustsTheLadder(t *testing.T) {
 func TestDispatchRetriesOnARateLimitWithNoStatedInterval(t *testing.T) {
 	sender := &fakeSender{err: &connector.RateLimitedError{}}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, wait, _ := d.DispatchWithWait(context.Background(), store.delivery.ID)
 	if got != OutcomeRetry || wait != 0 {
@@ -230,7 +230,7 @@ func TestDispatchPassesTheRetryCountToTheSender(t *testing.T) {
 			sender := &fakeSender{}
 			store := &fakeStore{delivery: liveDelivery()}
 			store.delivery.Attempts = tc.attempts
-			d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+			d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 			if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
 				t.Fatalf("Dispatch: %v", err)
@@ -248,7 +248,7 @@ func TestDispatchPassesTheRetryCountToTheSender(t *testing.T) {
 func TestDispatchTransmitsEveryStagedFieldOnTheWire(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
@@ -290,7 +290,7 @@ func TestDispatchDerivesNoUnsubscribePostWhenThereIsNothingToUnsubscribeFrom(t *
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	store.delivery.ListUnsubscribe = ""
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
@@ -306,7 +306,7 @@ func TestDispatchParksOnTheFinalAttemptRatherThanLeavingItPending(t *testing.T) 
 	sender := &fakeSender{}
 	store := &fakeStore{delivery: liveDelivery()}
 	store.delivery.Attempts = testMaxAttempts
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
 
 	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
@@ -338,8 +338,8 @@ func TestDispatchDefaultsAnUnconfiguredLadderBound(t *testing.T) {
 			sender := &fakeSender{}
 			store := &fakeStore{delivery: liveDelivery()}
 			store.delivery.Attempts = tc.attempts
-			d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{},
-				nil, func() time.Time { return testNow }, time.Hour, 0)
+			d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
+				liveSeat(), &stubConsent{}, nil, func() time.Time { return testNow }, time.Hour, 0)
 
 			got, err := dispatch(context.Background(), d, store.delivery.ID)
 			if err != nil {
@@ -358,7 +358,7 @@ func TestDispatchDefaultsAnUnconfiguredLadderBound(t *testing.T) {
 func TestDispatchCountsASuccessfulSendAgainstEveryMeteringPolicy(t *testing.T) {
 	meter := &recordingPolicy{}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, stubConsent{},
+	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{},
 		waitPolicy{}, meter)
 
 	if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
@@ -375,7 +375,7 @@ func TestDispatchCountsASuccessfulSendAgainstEveryMeteringPolicy(t *testing.T) {
 func TestDispatchCountsNothingAgainstAPolicyWhenTheSendIsPostponed(t *testing.T) {
 	meter := &recordingPolicy{}
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, stubConsent{},
+	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{},
 		waitPolicy{d: 90 * time.Second}, meter)
 
 	got, _, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
@@ -398,7 +398,7 @@ func TestDispatchCountsNothingAgainstAPolicyWhenTheSendIsPostponed(t *testing.T)
 
 func TestDispatchTreatsATerminalRecordSentAsAlreadyHandled(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery(), sentErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -411,7 +411,7 @@ func TestDispatchTreatsATerminalRecordSentAsAlreadyHandled(t *testing.T) {
 
 func TestDispatchTreatsATerminalParkAsAlreadyHandled(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery(), parkErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{err: ErrNoMailbox}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{err: ErrNoMailbox}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -424,7 +424,7 @@ func TestDispatchTreatsATerminalParkAsAlreadyHandled(t *testing.T) {
 
 func TestDispatchTreatsATerminalFailureNoteAsAlreadyHandled(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery(), failedErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{err: connector.ErrUnreachable}, granted: []string{sendScope}}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{err: connector.ErrUnreachable}, granted: []string{sendScope}}, &stubConsent{})
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -454,7 +454,7 @@ func TestDispatchRetriesWhenATransitionFailsForANonTerminalReason(t *testing.T) 
 		{"send receipt", &fakeStore{delivery: liveDelivery(), sentErr: dbDown}, sendingResolver(), nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := newTestDispatcher(tc.store, tc.resolver, stubConsent{}, tc.policies...)
+			d := newTestDispatcher(tc.store, tc.resolver, &stubConsent{}, tc.policies...)
 
 			got, err := dispatch(context.Background(), d, tc.store.delivery.ID)
 			if got != OutcomeRetry {
@@ -474,7 +474,7 @@ func TestDispatchRetriesWhenATransitionFailsForANonTerminalReason(t *testing.T) 
 // reads ends in mojibake.
 func TestDispatchBoundsAFaultBeforeWritingItToTheDeliveryReason(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{err: errors.New(strings.Repeat("é", 500))}, stubConsent{})
+	d := newTestDispatcher(store, fakeResolver{err: errors.New(strings.Repeat("é", 500))}, &stubConsent{})
 
 	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeRetry {
 		t.Fatalf("outcome = %v, want OutcomeRetry", got)

@@ -25,7 +25,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -189,6 +191,53 @@ func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider 
 	return sender, auth, granted, nil
 }
 
+// seatResolver is the live-seat half of the authority the dispatcher re-reads
+// at transmit time — the shared authz seam identity implements, narrowed here
+// to the one question comms asks. *identity.Service is the only implementation
+// the product ships.
+type seatResolver interface {
+	SeatType(ctx context.Context, workspaceID, humanID ids.UUID) (principal.SeatType, error)
+}
+
+var _ seatResolver = (*identity.Service)(nil)
+
+// commsSeats answers whether a staged delivery's sender is still a live seat,
+// over the SAME resolver the request-time gate reads — so a user deactivated
+// after staging loses the mailbox the same instant they lose the session.
+//
+// The translation mirrors commsResolver's: ErrNotFound is the ANSWER
+// ("this human is no longer a live seat in this workspace" — identity's
+// authority read filters on status and archived_at together), and everything
+// else is a failure to get one, which must not permanently destroy mail.
+type commsSeats struct{ authority seatResolver }
+
+var _ comms.SeatAuthority = commsSeats{}
+
+// NewSendSeatAuthority builds the live-seat gate the dispatcher re-reads at
+// transmit time. Exported for the reason NewDeliveryStager is: the seam is
+// assembled here, and a caller that rebuilt it from its own parts would be
+// testing a translation the product does not ship.
+//
+//nolint:ireturn // returns the comms.SeatAuthority seam by design: the concrete type is unexported and every caller holds the interface
+func NewSendSeatAuthority(pool *pgxpool.Pool) comms.SeatAuthority {
+	return commsSeats{authority: identity.NewService(pool)}
+}
+
+func (s commsSeats) ActiveSeat(ctx context.Context, userID ids.UserID) (bool, error) {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return false, errors.New("comms: resolving a delivery's sender outside workspace context")
+	}
+	_, err := s.authority.SeatType(ctx, ws, userID.UUID)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("comms: reading the sender's seat: %w", err)
+	}
+	return true, nil
+}
+
 // mailboxGrants is the scopes-only half of the same capture lookup. The
 // pre-flight deliberately does NOT take mailboxSenders: resolving the
 // credential would unseal a secret to answer a question about scopes, spending
@@ -333,6 +382,7 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 	return &commsSendWorker{dispatcher: comms.NewDispatcher(
 		comms.NewStore(pool, time.Now),
 		commsResolver{registry: registry},
+		NewSendSeatAuthority(pool),
 		consent.NewGate(consent.NewStore(pool)),
 		[]comms.SendPolicy{comms.NewMailboxRatePolicy(p.Limit, p.Window, time.Now)},
 		time.Now,
