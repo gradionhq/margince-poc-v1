@@ -1294,9 +1294,20 @@ Open work, roughly in priority order:
   would resolve nothing. The sender is not shut out: the live-unique index
   covers only `pending` and `unsure`, so their next message opens a fresh row
   and gets a fresh verdict.
-  **Still open in this arc:** the upstream ADR raises listed throughout this
-  entry — `PendingDeferralCap`/`PendingDeferralDomainCap`/`UnsureReviewWindow`
-  all want CAP-PARAM entries, and none of the three values is founder-confirmed.
+  **Ratified upstream (foundation #1198, 2026-07-28).** The three bounds are no
+  longer build-side constants nobody signed off:
+  `PendingDeferralCap` = 500, `PendingDeferralDomainCap` = 50 and
+  `UnsureReviewWindow` = 30 days are pinned as **CAP-PARAM-8** in
+  `specs/subsystems/capture.md` and in ADR-0072 §5, with DECISIONS A118 carrying
+  an *Amended 2026-07-28* block. They stay SOURCE CONSTANTS rather than runtime
+  config, by the same reasoning that pins the dedupe thresholds (PO-PARAM-1): a
+  workspace tuning its own ceiling makes "an outsider cannot set our AI spend"
+  unauditable across installations.
+  The same amendment settles `capture_auto_enrich`: **default ON is the shipping
+  default**, not the testing posture, and the ADR's "GA default is its own later
+  decision" caveat is withdrawn.
+  **Still open in this arc:** the other upstream raises listed throughout this
+  entry (the §1 ladder wording), and the synchronous enrich-on-capture trigger.
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
