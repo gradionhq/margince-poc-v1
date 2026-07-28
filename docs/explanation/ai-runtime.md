@@ -49,10 +49,18 @@ the model runtime itself.
 ## The task contract
 
 A **task** is a named AI workload — `cold_start`, `site_extract`,
-`capture_classify`, `agent_loop`, and 11 more (15 in all, including the
+`capture_classify`, `agent_loop`, and 13 more (17 in all, including the
 deep-read `site_fact_extract`, the Voice-DNA `voice_build`, and the
 certification `cert_judge`). Code never picks a model; it names a task, and the
 Router resolves the rest.
+
+**A task is not one prompt.** The contract also names each task's **invocation
+sites** — the places this build actually calls the model — and whether the task
+ships at all: 13 shipped tasks carry **19 sites**
+(`cold_start` alone has four), and 4 tasks are declared `planned`, with no site,
+no scenario and no certification record. The site is the unit everything
+downstream counts in, because a task-level number lets one certified prompt stand
+for another that was never measured.
 
 Each task declares a **ladder** — an ordered list of capability **tiers** — an
 **execution mode**, and a **budget posture**:
@@ -85,9 +93,20 @@ tasks:
   `ai_call` row exists**, so a deferral costs nothing and traces nothing. A
   premium-only task like `site_extract` has no cheaper rung — it queues.
 
+Four more fields make the declaration something the build can hold code to:
+**`status`** (`shipped` | `planned`), **`sites`** (the named invocation sites,
+each with a `kind` — `one_shot`, `multi_turn`, `agent_loop`),
+**`company_context`** (`none`, or scopes + a token budget; absent is a *build*
+error, never a runtime default), **`no_payload`** (content that must never reach
+`ai_call_payload`, whatever the deployment's capture posture says — a parsed
+field, so a data-protection control is not load-bearing prose), and
+**`cost_unit`** (the pre-flight estimator's unit rule by name, which lets the
+build prove that mapping is total).
+
 `make gen` compiles this into `tasks_gen.go` (and `config/ai-routing.schema.json`);
 the drift gate fails the build if the generated files don't match, so the contract
-can't silently rot.
+can't silently rot. Adding a task or a site is a checklist of its own:
+[how-to/add-an-ai-task.md](../how-to/add-an-ai-task.md).
 
 ## The routing config
 
@@ -244,21 +263,44 @@ model-call hot path.
 
 Because a task names a contract and the model behind it is swappable, you can
 **certify a model against a task before you trust it**. The cert lane
-(`compose/aicert`) runs a hand-authored scenario corpus through a candidate
-model, scores each answer with a fixed rubric judge on its *own* `cert_judge`
-binding (never the candidate's), and folds several cache-off runs into one
-verdict — `certified` / `supported_degraded` / `not_supported` — saved as JSON.
-That's how you compare, say, gemini-2.5-flash against a cheaper swap on the same
-rubric *before* editing the routing file. To debug a verdict, the lane can dump
-every candidate and judge call to a local JSONL trace — the *same* secret-stripped
-`ai_call_payload` shape (on by default, gitignored). Full walkthrough:
-[how-to/certify-an-ai-model.md](../how-to/certify-an-ai-model.md).
+(`compose/aicert`) folds several cache-off runs into one verdict —
+`certified` / `supported_degraded` / `not_supported` — saved as a committed JSON
+record. That's how you compare a cheaper candidate against the model you run
+today *before* editing the routing file.
+
+What it measures is the part worth knowing. The corpus holds
+**fixtures, not prompts**: a scenario carries the input a site is given, and the
+site's own certification case builds the request with the **production** builder
+and judges the reply with the **production** validator. A corpus of prompts would
+certify a copy, and a copy stays green through the change that breaks the
+original. On top of that deterministic pass, a pinned rubric judge on its *own*
+`cert_judge` binding (never the candidate's) scores quality 0–100.
+
+Each run therefore reports one of four outcomes — `accepted`, `wrong_answer`,
+`invalid`, `abstained` — kept distinct because a validator refusing a
+fabrication and a model declining to fabricate look identical once collapsed into
+a single number. A record also names the **scope** it covers
+(`full_invocation` > `single_turn` > `single_call`), so a site whose product
+answer is assembled from calls the run never made cannot read as fully certified.
+
+Nothing about this gates a merge: the lane is paid and BYOK-gated, so
+`make e2e-ai-report` *reports* readiness per shipped site — band, counts, scope,
+binding, and whether the record is **current**, **stale** or **absent** (stale and
+absent render distinctly: staleness is a lie, absence is honest). The
+deterministic gates are what block — the census refuses a shipped task whose site
+nobody wrote, a site the contract never declared, a planned task someone quietly
+implemented, and a site with no certification case. To debug a verdict, the lane
+dumps every candidate and judge call to a local JSONL trace — the *same*
+secret-stripped `ai_call_payload` shape (on by default, gitignored). Full
+walkthrough: [how-to/certify-an-ai-model.md](../how-to/certify-an-ai-model.md);
+adding a task or site: [how-to/add-an-ai-task.md](../how-to/add-an-ai-task.md).
 
 ## Reference
 
 | Concern | Where |
 |---|---|
-| Task contract (tasks, tiers, ladders, budget posture) | `backend/api/ai-tasks.yaml` → `tasks_gen.go` (via `tools/gen-aitasks`, `make gen`) |
+| Task contract (tasks, tiers, ladders, budget posture, status/sites/context/cost unit) | `backend/api/ai-tasks.yaml` → `tasks_gen.go` (via `tools/gen-aitasks`, `make gen`) |
+| Invocation-site census (which sites this build ships, and the case certifying each) | `internal/compose/aitaskregistry.go` (`NewTaskCensus`) · `internal/compose/aitasks` |
 | Runtime binding (tier → provider/model, profile) | `config/ai-routing.yaml` (schema: `config/ai-routing.schema.json`) |
 | BYOK keys | environment only (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_COMPATIBLE_API_KEY`) |
 | The gate | `internal/modules/ai` — `ai.Router` / `ai.NewLocalRouter`; `--ai-fake` flag |
@@ -277,4 +319,5 @@ every candidate and judge call to a local JSONL trace — the *same* secret-stri
 [how-to/connect-a-cloud-model-provider.md](../how-to/connect-a-cloud-model-provider.md) ·
 [how-to/enrich-with-a-local-llm.md](../how-to/enrich-with-a-local-llm.md) ·
 [how-to/certify-an-ai-model.md](../how-to/certify-an-ai-model.md) ·
+[how-to/add-an-ai-task.md](../how-to/add-an-ai-task.md) ·
 [reference/configuration.md](../reference/configuration.md).

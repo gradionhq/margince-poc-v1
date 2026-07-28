@@ -2,16 +2,19 @@
 
 Prove a model is good enough for a Margince AI task **before** you bind it in
 production — and benchmark a candidate swap against the one you run today. The
-certification lane (`compose/aicert`) drives a hand-authored scenario corpus
-through a real model, scores each answer with a pinned rubric judge, folds the
-runs into a `certified` / `supported_degraded` / `not_supported` verdict, and
-commits the result as a JSON record.
+certification lane (`compose/aicert`) drives a hand-authored **fixture** corpus
+through a real model — each site's own production request builder and production
+validator, never a copy of either — scores each answer with a pinned rubric
+judge, folds the runs into a `certified` / `supported_degraded` /
+`not_supported` verdict, and commits the result as a JSON record.
 
 This is the **paid, opt-in** lane: it makes real provider calls over the
 network and spends your BYOK budget. It is a developer/CI tool, never part of a
 request path. For how the model runtime itself works see
-[explanation/agent-surface.md](../explanation/agent-surface.md); for binding a
-provider see [connect-a-cloud-model-provider.md](connect-a-cloud-model-provider.md).
+[explanation/ai-runtime.md](../explanation/ai-runtime.md); for binding a
+provider see [connect-a-cloud-model-provider.md](connect-a-cloud-model-provider.md);
+to add a task or a site rather than certify one that exists, see
+[add-an-ai-task.md](add-an-ai-task.md).
 
 ## Prerequisites
 
