@@ -4,11 +4,15 @@
 package gmail
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime"
+	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 
@@ -116,4 +120,83 @@ func writeHeader(b *strings.Builder, name, value string) {
 	b.WriteString(": ")
 	b.WriteString(clean)
 	b.WriteString("\r\n")
+}
+
+// Send transmits one already-encoded RFC822 message via messages.send.
+// threadID files it under an existing Gmail conversation; empty starts a new
+// one — omitempty on the wire because Gmail treats an empty threadId
+// differently from an absent one.
+func (a *httpAPI) Send(ctx context.Context, accessToken, rawBase64URL, threadID string) (string, string, error) {
+	payload := struct {
+		Raw      string `json:"raw"`
+		ThreadID string `json:"threadId,omitempty"` //nolint:tagliatelle // Google's wire format
+	}{Raw: rawBase64URL, ThreadID: threadID}
+	var out struct {
+		ID       string `json:"id"`
+		ThreadID string `json:"threadId"` //nolint:tagliatelle // Google's wire format
+	}
+	if err := a.postJSON(ctx, accessToken, "/messages/send", payload, &out); err != nil {
+		return "", "", err
+	}
+	return out.ID, out.ThreadID, nil
+}
+
+// FindByMessageID looks a message up by its RFC822 identity via Gmail's
+// rfc822msgid: search operator — the retransmission guard's only tool for
+// telling "already sent" from "never sent" on a retry.
+func (a *httpAPI) FindByMessageID(ctx context.Context, accessToken, id string) (string, string, bool, error) {
+	var out struct {
+		Messages []struct {
+			ID       string `json:"id"`
+			ThreadID string `json:"threadId"` //nolint:tagliatelle // Google's wire format
+		} `json:"messages"`
+	}
+	q := url.Values{"q": {"rfc822msgid:" + id}}
+	if _, err := a.get(ctx, accessToken, "/messages", q, &out, maxJSONResponseBytes); err != nil {
+		return "", "", false, err
+	}
+	if len(out.Messages) == 0 {
+		return "", "", false, nil
+	}
+	return out.Messages[0].ID, out.Messages[0].ThreadID, true, nil
+}
+
+// postJSON performs an authorized POST with a JSON body and JSON-decodes the
+// response into out — the same bounded client, bearer header, status
+// classification, and bounded read as get, so a POST call is diagnosable
+// exactly like a GET call rather than forking a second error-mapping path.
+//
+//craft:ignore naked-any payload/out are the caller-supplied JSON encode/decode values — the concrete type varies per endpoint
+func (a *httpAPI) postJSON(ctx context.Context, accessToken, path string, payload, out any) error {
+	reqBody, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("gmail: encoding %s request: %w", path, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.base+path, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("gmail: building request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("gmail: %s: %w", path, ErrUnreachable)
+	}
+	//craft:ignore swallowed-errors best-effort close of the response body — the decoded result/status is what matters
+	defer func() { _ = resp.Body.Close() }()
+	// A read fault mid-body is a real reachability failure, distinct from the
+	// size cap (LimitReader signals the cap with EOF, not an error). Surface it
+	// as such rather than letting a truncated body fail the decode with a
+	// misleading "decoding" error.
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxJSONResponseBytes))
+	if err != nil {
+		return fmt.Errorf("gmail: reading %s: %w", path, ErrUnreachable)
+	}
+	if err := classifyStatus(resp, path, body); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("gmail: decoding %s: %w", path, ErrUnreachable)
+	}
+	return nil
 }
