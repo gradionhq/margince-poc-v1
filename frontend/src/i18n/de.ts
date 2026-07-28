@@ -284,7 +284,7 @@ export const de = {
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
   "overlay.chipLabel": "Liest aus HubSpot",
   "overlay.chipAria":
-    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Overlay, um die Verbindung zu verwalten.",
   "overlay.refused":
     "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
   "overlay.filterUnsupported":

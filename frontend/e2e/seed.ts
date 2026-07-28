@@ -339,6 +339,38 @@ export const overlayBudget = {
   },
 };
 
+// The mirror user mapping, on the same tab as the connection: the seed's own
+// admin holds a matched HubSpot seat, so the overlay tab renders its settled
+// state rather than an empty table nobody would ship with.
+export const overlayOwners = {
+  incumbent: "hubspot",
+  owners: [
+    {
+      incumbent_user_id: "hs-7",
+      name: "Lars Brandt",
+      email: "lars@brandt.example",
+    },
+  ],
+  truncated: false,
+};
+
+export const overlayUserMap = {
+  incumbent: "hubspot",
+  entries: [
+    {
+      user_id: "u1",
+      name: "Lars Brandt",
+      email: "lars@brandt.example",
+      incumbent_user_id: "hs-7",
+      incumbent_user_name: "Lars Brandt",
+      incumbent_user_email: "lars@brandt.example",
+      match_source: "email",
+      unmapped_reason: "none",
+    },
+  ],
+  next_cursor: null,
+};
+
 function unsupportedBySor(detail: string) {
   return { title: "Unprocessable Entity", detail, code: "unsupported_by_sor" };
 }
@@ -445,6 +477,12 @@ export async function mockApi(
     }
     if (path === "/overlay/budget") {
       return json(overlayBudget);
+    }
+    if (path === "/overlay/user-map" && method === "GET") {
+      return json(overlayUserMap);
+    }
+    if (path === "/overlay/owners") {
+      return json(overlayOwners);
     }
     if (path === "/overlay/reconcile" && method === "POST") {
       // Queues a sweep for the worker's next tick — never runs it in-request,

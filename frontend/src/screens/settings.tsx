@@ -199,6 +199,16 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
     if (entry.id === "integrations") {
       return true;
     }
+    // Overlay is exempt for the same reason, plus one of its own: the
+    // system-of-record chip in the topbar is deliberately shown to EVERY
+    // seat and points here, so hiding the tab would strand any non-admin
+    // who follows it on the Account fallback. Hiding buys no security
+    // either — the server 403s the privileged reads regardless, and both
+    // cards on the tab already gate themselves on canManageOverlay, so a
+    // rep gets the honest read-only view instead of a dead link.
+    if (entry.id === "overlay") {
+      return true;
+    }
     if (entry.group === "org" && !isOrgAdmin) {
       return false;
     }

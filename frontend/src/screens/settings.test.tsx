@@ -526,25 +526,50 @@ describe("SettingsScreen overlay tab", () => {
     ).toBeNull();
   });
 
-  // The mapping card carries every user's email and the incumbent's external
-  // directory, and the API 403s a non-admin anyway — the tab must inherit
-  // the org-admin nav filter rather than the Integrations exemption (every
-  // role holds webhook_subscription read, but no role but admin/ops holds
-  // the overlay user-map read).
-  it("hides the Overlay tab from a non-admin rep", async () => {
-    vi.stubGlobal(
-      "fetch",
-      overlaySettingsBackend({ roles: ["rep"], sorMode: "native" }),
-    );
+  // The system-of-record chip is shown to every seat and links here, so a
+  // rep who follows it must land on the tab, not on the Account fallback.
+  // Tab-level hiding would buy no confidentiality either: the mapping
+  // card's reads are admin/ops-only on the server, and the card keeps them
+  // unsent for anyone else — so a rep sees the connection card's read-only
+  // state and the mapping card's admin-only notice, never the directory.
+  it("shows the Overlay tab to a non-admin rep with both cards in their read-only state", async () => {
+    const fetchMock = overlaySettingsBackend({
+      roles: ["rep"],
+      sorMode: "native",
+    });
+    vi.stubGlobal("fetch", fetchMock);
     render(<SettingsScreen tab="overlay" />);
-    // A stale/forbidden deep link falls back to the first visible (personal)
-    // tab rather than a blank screen — the same fallback the layout suite
-    // already covers for an unknown id.
-    await waitFor(() => expect(screen.getByText("ada@acme.test")).toBeTruthy());
-    expect(screen.queryByRole("link", { name: /overlay/i })).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("link", { name: /overlay/i })
+          .getAttribute("aria-current"),
+      ).toBe("page"),
+    );
     expect(
-      screen.queryByRole("heading", { name: "HubSpot mirror" }),
-    ).toBeNull();
+      await screen.findByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Ask an admin or ops teammate to connect or disconnect HubSpot.",
+      ),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Ask an admin or ops teammate to review who is mapped.",
+      ),
+    ).toBeTruthy();
+    // No mapping table, no grouping toggle, and — the point of the card's
+    // own gate — no request that could only have come back 403.
+    expect(screen.queryByRole("group", { name: "Grouping" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "By user" })).toBeNull();
+    const requested = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(
+      requested.some((url) => url.includes("/overlay/user-map")),
+    ).toBeFalsy();
+    expect(
+      requested.some((url) => url.includes("/overlay/owners")),
+    ).toBeFalsy();
   });
 });
 

@@ -278,7 +278,7 @@ export const en = {
     "Not available while reading from HubSpot — open it in HubSpot",
   "overlay.chipLabel": "Reading from HubSpot",
   "overlay.chipAria":
-    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Overlay to manage the connection.",
   "overlay.refused":
     "Not available while reading from HubSpot — the mirror can't serve this write.",
   "overlay.filterUnsupported":

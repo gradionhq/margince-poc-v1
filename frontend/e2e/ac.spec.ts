@@ -334,18 +334,18 @@ test.describe("B-EP09.23: overlay mode", () => {
     await mockApi(page, { sor: "overlay" });
     await page.reload();
     const chip = page.getByRole("link", {
-      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Overlay, um die Verbindung zu verwalten.",
     });
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText("Liest aus HubSpot");
-    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
+    await expect(chip).toHaveAttribute("href", "#/settings/overlay");
   });
 
   test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/integrations");
+    await page.goto("/#/settings/overlay");
     await expect(page.getByText("Verbunden", { exact: true })).toBeVisible();
     await expect(page.getByText(/eu1/)).toBeVisible();
     // Per-object sync rows: person + organization landed fresh; deal is still
@@ -467,7 +467,7 @@ test.describe("B-EP09.23: overlay mode", () => {
 
   test("AC-overlay-5: sync now reports a queued sweep", async ({ page }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/integrations");
+    await page.goto("/#/settings/overlay");
     await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
     await expect(page.getByText(/Abgleich eingereiht/)).toBeVisible();
     // Distinct from the per-object "Backfill abgeschlossen" copy already on
@@ -480,8 +480,12 @@ test.describe("B-EP09.23: overlay mode", () => {
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/integrations");
-    await expect(page.locator(".badge-accent")).toBeVisible();
+    await page.goto("/#/settings/overlay");
+    // The chip is the only accent badge that is a link; the mapping card on
+    // this tab wears the same badge on the row for the signed-in user, so an
+    // unqualified `.badge-accent` would be counting two different things.
+    const chip = page.locator("a.badge-accent");
+    await expect(chip).toBeVisible();
     await page.getByRole("button", { name: "Trennen" }).click();
     await expect(
       page.getByText(
@@ -496,7 +500,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     await confirms.last().click();
     // The whole cache is invalidated on success (/me included) — the chip
     // (driven purely off /me) disappears once the app re-reads native.
-    await expect(page.locator(".badge-accent")).toHaveCount(0);
+    await expect(chip).toHaveCount(0);
     // The connection row survives disconnect (revoked, never deleted —
     // backend/internal/modules/overlay/teardown.go's revokeConnection), so
     // the card's own re-read must show that, not vanish or revert to
