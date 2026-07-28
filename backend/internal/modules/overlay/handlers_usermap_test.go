@@ -142,19 +142,37 @@ func TestABlockedUserReportsTheBlockEvenWhenAnOwnerMatchesTheirEmail(t *testing.
 	}
 }
 
-// Without the directory, "no owner carries this email" and "we could not look"
-// are indistinguishable. Reporting the first would hand the admin a fabricated
-// diagnosis they would then act on.
-func TestAnUnreadableDirectoryReportsItselfRatherThanGuessingAReason(t *testing.T) {
-	views := userMapViews([]UserMapEntry{
-		entry("solo@acme.test", "", "", false),
-		entry("blocked@acme.test", "", "", true),
-	}, nil, false)
+// Without the whole directory, "no owner carries this email" and "we could not
+// look" are indistinguishable. Reporting the first would hand the admin a
+// fabricated diagnosis they would then act on. An admin's block is not such a
+// diagnosis — it is read out of this installation's own tables — so it survives
+// an incomplete directory in both the shapes one comes in: unreadable (no list
+// at all) and truncated (a list the cap cut off).
+func TestAnIncompleteDirectoryWithholdsOnlyTheAbsenceBasedReasons(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		owners []OwnerRef
+	}{
+		{"unreadable", nil},
+		// A cut-off list, and one that even carries the blocked user's email:
+		// nothing in it may override the admin's own decision.
+		{"truncated", []OwnerRef{{ExternalID: "owner-1", Email: "blocked@acme.test"}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			views := userMapViews([]UserMapEntry{
+				entry("blocked@acme.test", "", "", true),
+				entry("solo@acme.test", "", "", false),
+			}, tc.owners, false)
 
-	for _, v := range views {
-		if v.UnmappedReason != reasonNoDirectory {
-			t.Errorf("%s reason = %q, want %q", v.Email, v.UnmappedReason, reasonNoDirectory)
-		}
+			if views[0].UnmappedReason != reasonBlocked {
+				t.Errorf("blocked user reason = %q, want %q — the block is our own record, not a reading of the directory",
+					views[0].UnmappedReason, reasonBlocked)
+			}
+			if views[1].UnmappedReason != reasonNoDirectory {
+				t.Errorf("unmatched user reason = %q, want %q — absence from an incomplete directory proves nothing",
+					views[1].UnmappedReason, reasonNoDirectory)
+			}
+		})
 	}
 }
 

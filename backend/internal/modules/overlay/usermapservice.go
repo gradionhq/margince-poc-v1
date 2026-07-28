@@ -87,9 +87,9 @@ func requireUserMapAdmin(ctx context.Context) error {
 //
 // A directory read failure degrades the page rather than failing it (design.md
 // §8): the mapping table is still the admin's only view of who is mapped, and
-// the derived reasons go to directory_unavailable so nothing on the page is a
-// guess. The failure is logged with its cause — a warning the admin's UI
-// surfaces inline is not a substitute for the operator seeing why.
+// the reasons that needed the directory go to directory_unavailable so nothing
+// on the page is a guess. The failure is logged with its cause — a warning the
+// admin's UI surfaces inline is not a substitute for the operator seeing why.
 //
 // A disconnect is NOT such a failure and is not degraded: the connection
 // vanishing between the mode gate and the directory read leaves this workspace
@@ -117,14 +117,14 @@ func (s *Service) UserMap(ctx context.Context, cursor string, limit int) (UserMa
 		s.log.WarnContext(ctx, "overlay user-map: reading the owners directory failed; owner identities and unmapped reasons are not derivable",
 			"incumbent", incumbent, "err", dirErr)
 	}
-	// A TRUNCATED directory is as unusable for these derivations as an
-	// unreadable one, and for the same reason: every remaining diagnosis is an
-	// argument from absence — "no owner carries this email", "no owner holds
-	// this id" — and absence from a list that was cut off is not absence from
-	// the incumbent. Deriving from it would fabricate exactly the diagnoses
-	// directory_unavailable exists to prevent, so the cut-off list is admitted
-	// only for the facts it can carry positively: an owner that IS in it names
-	// a real owner, and userMapView reads identities from it regardless.
+	// A TRUNCATED directory is as unusable for the absence-based derivations as
+	// an unreadable one, and for the same reason: "no owner carries this email"
+	// and "no owner holds this id" argue from absence, and absence from a list
+	// that was cut off is not absence from the incumbent. Deriving those from it
+	// would fabricate exactly the diagnoses directory_unavailable exists to
+	// prevent, so the cut-off list is admitted only for the facts it can carry
+	// positively: an owner that IS in it names a real owner, and userMapView
+	// reads identities from it regardless.
 	return UserMapPage{
 		Incumbent:  incumbent,
 		Entries:    userMapViews(entries, directory.Owners, dirErr == nil && !directory.Truncated),
@@ -189,15 +189,19 @@ func userMapView(e UserMapEntry, byID map[string]OwnerRef, ownersByEmail map[str
 		return v
 	}
 	switch {
-	case !directoryComplete:
-		// Without the whole directory, "no owner carries this email" and "we
-		// could not look at every owner" are indistinguishable — so say which
-		// one it is rather than hand the admin a diagnosis they would act on.
-		v.UnmappedReason = reasonNoDirectory
 	case e.Blocked:
-		// An admin's own decision outranks whatever the email matching would
-		// have said: it is the fact they have to undo to change the outcome.
+		// A reason read out of this installation's own tables stands on its own:
+		// the block comes from mirror_user_automap_block, so it is true whether
+		// or not the incumbent's directory could be read, and it is the fact an
+		// admin has to undo to change the outcome — it outranks both the email
+		// matching and the completeness question below.
 		v.UnmappedReason = reasonBlocked
+	case !directoryComplete:
+		// Every reason past this point argues from absence, and absence from a
+		// directory we did not see whole is not absence at the incumbent — so
+		// say "we could not look" rather than hand the admin a diagnosis they
+		// would act on.
+		v.UnmappedReason = reasonNoDirectory
 	case len(ownersByEmail[normalizeEmail(e.Email)]) > 1:
 		v.UnmappedReason = reasonAmbiguous
 	case len(ownersByEmail[normalizeEmail(e.Email)]) == 1:

@@ -679,8 +679,9 @@ export function MirrorUserMapCard() {
   });
 
   // A directory read failure degrades the picker; it never fails the page.
-  // The server already downgrades every derived reason to
-  // `directory_unavailable` in that case, so the rows stay honest — the
+  // The server already downgrades every reason that needed the directory to
+  // `directory_unavailable` in that case — the ones it holds locally, such as
+  // an admin's block, still say what they are — so the rows stay honest and the
   // picker just has nothing truthful to offer, and says so.
   const owners = useMemo(
     () => directoryQuery.data?.owners ?? [],

@@ -243,6 +243,11 @@ func TestUserMapDegradesHonestlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 	})
 	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
 	rep := ids.From[ids.UserKind](repRaw)
+	_, blockedRaw := testWorkspaceCtxAsUser(t, ws, "blocked@acme.test")
+	blocked := ids.From[ids.UserKind](blockedRaw)
+	if err := svc.UnmapUser(ctx, blocked); err != nil {
+		t.Fatalf("recording the admin's block: %v", err)
+	}
 
 	page, err := svc.UserMap(ctx, "", 50)
 	if err != nil {
@@ -254,6 +259,16 @@ func TestUserMapDegradesHonestlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 	}
 	if view.UnmappedReason != reasonNoDirectory {
 		t.Errorf("reason = %q, want %q — no reason is derivable without the directory", view.UnmappedReason, reasonNoDirectory)
+	}
+	// The block is this installation's own row, not a reading of the incumbent,
+	// so an unreadable directory must not turn "you unmapped this person" into
+	// "we could not look".
+	blockedView, found := viewFor(page, blocked)
+	if !found {
+		t.Fatal("the blocked user must appear on the page")
+	}
+	if blockedView.UnmappedReason != reasonBlocked {
+		t.Errorf("blocked user reason = %q, want %q", blockedView.UnmappedReason, reasonBlocked)
 	}
 
 	// Owners itself has nothing to degrade to: the picker would render an
@@ -282,9 +297,10 @@ func TestUserMapAnswers404WhenTheConnectionVanishesBeforeTheDirectoryRead(t *tes
 	}
 }
 
-// A directory the cap cut off is as unusable for these derivations as one that
-// could not be read: every remaining diagnosis argues from absence, and absence
-// from a list that stops at 500 is not absence from the incumbent.
+// A directory the cap cut off is as unusable for the absence-based diagnoses as
+// one that could not be read: absence from a list that stops at 500 is not
+// absence from the incumbent. A block is not one of them — it is read out of
+// our own tables — so it is still reported.
 func TestUserMapDerivesNoAbsenceBasedReasonFromATruncatedDirectory(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
 	oversized := make([]OwnerRef, 0, ownerDirectoryCap+1)
@@ -299,6 +315,13 @@ func TestUserMapDerivesNoAbsenceBasedReasonFromATruncatedDirectory(t *testing.T)
 	unmatched := ids.From[ids.UserKind](unmatchedRaw)
 	_, pinnedRaw := testWorkspaceCtxAsUser(t, ws, "pinned@acme.test")
 	pinned := ids.From[ids.UserKind](pinnedRaw)
+	// owner-0 is inside the cut-off, so this user's email DOES match a listed
+	// owner: neither the match nor the truncation may displace the block.
+	_, blockedRaw := testWorkspaceCtxAsUser(t, ws, "owner-0@acme.test")
+	blocked := ids.From[ids.UserKind](blockedRaw)
+	if err := svc.UnmapUser(ctx, blocked); err != nil {
+		t.Fatalf("recording the admin's block: %v", err)
+	}
 
 	// Past the cut-off, so the loaded slice does not list this owner — which
 	// says nothing about whether the incumbent still does.
@@ -324,6 +347,14 @@ func TestUserMapDerivesNoAbsenceBasedReasonFromATruncatedDirectory(t *testing.T)
 	}
 	if pinnedView.StaleOwnerRef {
 		t.Error("an owner past the cut-off must not be reported as gone from the incumbent's directory")
+	}
+	blockedView, found := viewFor(page, blocked)
+	if !found {
+		t.Fatal("the blocked user must appear on the page")
+	}
+	if blockedView.UnmappedReason != reasonBlocked {
+		t.Errorf("blocked user reason = %q, want %q — a truncated directory does not unmake the admin's own decision",
+			blockedView.UnmappedReason, reasonBlocked)
 	}
 }
 
