@@ -46,12 +46,18 @@ func (s *Service) Decide(ctx context.Context, id ids.ApprovalID, approve bool, r
 // DecideEdited is the ADR-0036 §4 modify-then-approve arm: the human's
 // edited payload replaces the staged change under a freshly computed
 // diff_hash, and the decision's audit row carries BOTH the original
-// agent proposal and the human's version. The edited effect re-enters
-// admission from scratch by construction: a kind effect executes under
-// the APPROVER's principal against the stores' own RBAC gates, and an
-// agent redemption only fits the new hash if it re-presents the edited
-// call — which the gate re-tiers and re-admits like any other call. The
-// old hash, and any token bound to it, no longer opens anything.
+// agent proposal and the human's version. An agent redemption only fits
+// the new hash if it re-presents the edited call — which the gate
+// re-tiers and re-admits like any other call. The old hash, and any
+// token bound to it, no longer opens anything.
+//
+// What an edit may touch is bounded: the staged payload's entity
+// references are pinned (assertSameEntityRefs), so the edit corrects the
+// action but cannot re-aim it at another record. That bound is the
+// admission control on this arm — a server-proposed effect resolves its
+// target from the payload and may run under a system principal, so the
+// stores' own RBAC and row-scope gates cannot be relied on to re-check
+// what the human wrote.
 func (s *Service) DecideEdited(ctx context.Context, id ids.ApprovalID, edited json.RawMessage) (row, error) {
 	if len(edited) == 0 {
 		return row{}, &InvalidEditError{Cause: errors.New("empty payload")}
@@ -183,6 +189,13 @@ func applyEditedPayload(ctx context.Context, tx pgx.Tx, id ids.ApprovalID, edite
 	canonical, editedHash, hashErr := diffhash.Canonical(edited)
 	if hashErr != nil {
 		return &InvalidEditError{Cause: hashErr}
+	}
+	// The edit may correct the action, never re-aim it: the row-scope probe
+	// and the version pin above were both evaluated against the records the
+	// STAGED payload named, and the effect resolves what it writes from the
+	// payload rather than from the approval's target. See editscope.go.
+	if err := assertSameEntityRefs(a.ProposedChange, canonical); err != nil {
+		return err
 	}
 	if _, err := tx.Exec(ctx,
 		`UPDATE approval SET proposed_change = $2, diff_hash = $3 WHERE id = $1`,

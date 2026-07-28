@@ -85,11 +85,11 @@ func TestNormalizeOrgNameStripsTrailingLegalSuffixes(t *testing.T) {
 	// "acme" and meet at name_sim = 1.0 → 🟡 review, because different
 	// legal entities are a human's call.
 	for _, spelling := range []string{"Acme Inc", "Acme GmbH", "Acme, Inc.", "ACME AG"} {
-		if got := normalizeOrgName(spelling); got != "acme" {
-			t.Fatalf("normalizeOrgName(%q) = %q, want %q", spelling, got, "acme")
+		if got := NormalizeOrgName(spelling); got != "acme" {
+			t.Fatalf("NormalizeOrgName(%q) = %q, want %q", spelling, got, "acme")
 		}
 	}
-	if got := nameSimilarity(normalizeOrgName("Acme Inc"), normalizeOrgName("Acme GmbH")); got != 1 {
+	if got := nameSimilarity(NormalizeOrgName("Acme Inc"), NormalizeOrgName("Acme GmbH")); got != 1 {
 		t.Fatalf("Acme Inc vs Acme GmbH scored %.4f, spec pins an exact 1.0", got)
 	}
 }
@@ -98,10 +98,10 @@ func TestNormalizeOrgNameKeepsASuffixThatIsTheName(t *testing.T) {
 	// Stripping every occurrence rather than the trailing token would
 	// erase the company: a firm called "Co" or "AG Systems" is not a
 	// suffix.
-	if got := normalizeOrgName("AG Systems"); got != "ag systems" {
-		t.Fatalf("normalizeOrgName(AG Systems) = %q, want %q", got, "ag systems")
+	if got := NormalizeOrgName("AG Systems"); got != "ag systems" {
+		t.Fatalf("NormalizeOrgName(AG Systems) = %q, want %q", got, "ag systems")
 	}
-	if got := normalizeOrgName("Co"); got != "co" {
+	if got := NormalizeOrgName("Co"); got != "co" {
 		t.Fatalf("a lone suffix-shaped name was stripped to %q, want %q", got, "co")
 	}
 }

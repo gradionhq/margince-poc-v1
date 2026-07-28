@@ -5,9 +5,10 @@
 
 package compose
 
-// The org-name promotion sweep over a real Postgres (PO-F-2a): two agreeing
-// signatures rename a provisionally-named organization, one signature alone
-// only asks, and a name a human or a dossier already set is untouchable.
+// The org-name promotion sweep over a real Postgres (PO-F-2a): the site dossier
+// renames a provisionally-named organization, signatures only ever ask —
+// however many agree, they are one sender-chosen mail domain — and a name a
+// human or a dossier already set is untouchable.
 
 import (
 	"context"
@@ -67,6 +68,17 @@ func seedSigningEmployee(t *testing.T, e *integration.Env, org ids.UUID, fullNam
 	}
 }
 
+// seedDossierName plants the company's own site-stated name — the one source an
+// external sender cannot author, and therefore the only one that renames
+// without asking.
+func seedDossierName(t *testing.T, e *integration.Env, org ids.UUID, legalName string) {
+	t.Helper()
+	e.WsExec(t, `
+		INSERT INTO organization_profile_field (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+		VALUES ($1, $2, 'legal_name', $3, $3, 'https://gitex.example', 0.9, 'site_read', 'agent:siteread')`,
+		e.WS, org, legalName)
+}
+
 func orgNameAndSource(t *testing.T, e *integration.Env, org ids.UUID) (string, string) {
 	t.Helper()
 	var name, source string
@@ -80,7 +92,12 @@ func orgNameAndSource(t *testing.T, e *integration.Env, org ids.UUID) (string, s
 	return name, source
 }
 
-func TestOrgNamePromotionCorroboratedBySecondSignature(t *testing.T) {
+// Agreeing signatures are NOT an independent second source: everyone at one
+// organization shares one mail domain, the capture path authenticates no From
+// header, and the signature block is the sender's own text. So an actor who can
+// forge two addresses at the target's domain must not be able to write the name
+// — the sweep asks a human instead.
+func TestOrgNamePromotionAgreeingSignaturesStillAskAHuman(t *testing.T) {
 	e := integration.Setup(t)
 	org := seedProvisionalOrg(t, e, "Gitex", "domain")
 	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
@@ -92,26 +109,21 @@ func TestOrgNamePromotionCorroboratedBySecondSignature(t *testing.T) {
 	}
 
 	name, source := orgNameAndSource(t, e, org)
-	if name != "Gitex Global" {
-		t.Fatalf("display_name = %q, want the corroborated signature name", name)
+	if name != "Gitex" || source != "domain" {
+		t.Fatalf("organization became %q/%q — two signatures on one mail domain must not rename anything unattended", name, source)
 	}
-	if source != "signature" {
-		t.Fatalf("name_source = %q, want 'signature' — the provenance must record who named it", source)
-	}
-	if got := e.WsCount(t, `SELECT count(*) FROM audit_log WHERE entity_type = 'organization' AND entity_id = $1`, org); got == 0 {
-		t.Fatal("a rename with no audit row is a rename nobody can explain")
-	}
-	if got := e.WsCount(t, `SELECT count(*) FROM approval WHERE target_entity_id = $1`, org); got != 0 {
-		t.Fatalf("%d approvals staged — a corroborated name is applied, not asked about", got)
+	staged := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org)
+	if staged != 1 {
+		t.Fatalf("%d staged proposals, want exactly one question for a human", staged)
 	}
 
-	t.Run("a second pass changes nothing", func(t *testing.T) {
+	t.Run("a second pass joins the pending offer instead of stacking another", func(t *testing.T) {
 		if err := promoter.Run(context.Background()); err != nil {
 			t.Fatalf("Run: %v", err)
 		}
-		name, source := orgNameAndSource(t, e, org)
-		if name != "Gitex Global" || source != "signature" {
-			t.Fatalf("second pass moved the name to %q/%q", name, source)
+		staged := e.WsCount(t, `SELECT count(*) FROM approval WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org)
+		if staged != 1 {
+			t.Fatalf("%d staged proposals after a second pass, want the same one", staged)
 		}
 	})
 }
@@ -173,10 +185,7 @@ func TestOrgNamePromotionCorroboratedByTheDossier(t *testing.T) {
 	e := integration.Setup(t)
 	org := seedProvisionalOrg(t, e, "Gitex", "domain")
 	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
-	e.WsExec(t, `
-		INSERT INTO organization_profile_field (workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-		VALUES ($1, $2, 'legal_name', 'Gitex Global GmbH', 'Gitex Global GmbH', 'https://gitex.example', 0.9, 'site_read', 'agent:siteread')`,
-		e.WS, org)
+	seedDossierName(t, e, org, "Gitex Global GmbH")
 
 	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
 	if err := promoter.Run(context.Background()); err != nil {
@@ -209,7 +218,7 @@ func TestOrgNamePromotionReachesCandidatesBeyondTheFirstPage(t *testing.T) {
 	// applied today. Seeded last, so it sorts after the whole first page.
 	ready := seedProvisionalOrg(t, e, "Ready", "domain")
 	seedSigningEmployee(t, e, ready, "Alice Signer", "Ready Global")
-	seedSigningEmployee(t, e, ready, "Bob Signer", "Ready Global")
+	seedDossierName(t, e, ready, "Ready Global")
 
 	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
 	if err := promoter.Run(context.Background()); err != nil {
@@ -264,5 +273,178 @@ func TestOrgNamePromotionDoesNotReofferADeclinedRename(t *testing.T) {
 	}
 	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
 		t.Fatalf("organization = %q/%q — a declined rename must change nothing", name, source)
+	}
+}
+
+// declineTheStagedRename runs one sweep, declines the offer it stages, and
+// returns — the setup both tests below start from.
+func declineTheStagedRename(t *testing.T, e *integration.Env, promoter *OrgNamePromoter, org ids.UUID) {
+	t.Helper()
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var approvalID ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT id FROM approval WHERE kind = 'org_name_promotion' AND target_entity_id = $1`,
+			org).Scan(&approvalID)
+	}); err != nil {
+		t.Fatalf("reading the staged offer: %v", err)
+	}
+	if _, err := approvalsServiceWithEffects(e.Pool).Decide(e.As(e.Rep1, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](approvalID), false, nil); err != nil {
+		t.Fatalf("declining the rename: %v", err)
+	}
+}
+
+// The refusal must survive the EVIDENCE moving. The offer's payload carries the
+// corroborating persons and the record's current name, so a memory keyed on a
+// hash of that payload is forgotten the moment a second person signs — and the
+// rename a human refused is offered again, every night, until someone clicks
+// approve. The identity of the decision is the record and the proposed name;
+// nothing else.
+func TestOrgNamePromotionRemembersADeclineAfterTheEvidenceMoves(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	declineTheStagedRename(t, e, promoter, org)
+
+	// A second sender signs with the same company name: a different persons
+	// list, so a different payload and a different diff hash — the same
+	// question.
+	seedSigningEmployee(t, e, org, "Bob Signer", "Gitex Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org); n != 1 {
+		t.Fatalf("%d offers after a decline plus a new signer, want only the declined one — a refusal keyed on the payload forgets itself whenever the evidence moves", n)
+	}
+	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
+		t.Fatalf("organization = %q/%q — a declined rename must change nothing", name, source)
+	}
+}
+
+// Evidence moving while an offer is STILL PENDING must refresh the question,
+// not duplicate it. The offer's payload carries the corroborating persons, so a
+// new signer changes the diff hash and JoinPending — which joins on that hash —
+// finds nothing to join. Only the staging Identity collapses the two: the
+// fresher offer supersedes the stale one instead of competing with it in the
+// inbox. Without it a human is asked the same question once per signer.
+func TestOrgNamePromotionSupersedesAStalePendingOffer(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// A second signer for the same claim: same normalized name, different
+	// evidence, so a different payload and a different diff hash.
+	seedSigningEmployee(t, e, org, "Bob Signer", "Gitex Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	live := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1
+		   AND status = 'pending' AND expires_at > now()`, org)
+	if live != 1 {
+		t.Fatalf("%d live offers after the evidence moved, want exactly 1 — a human must be asked this question once, not once per signer", live)
+	}
+	// The survivor is the FRESH one: it cites both signers.
+	var persons int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT jsonb_array_length(proposed_change -> 'persons') FROM approval
+			 WHERE kind = 'org_name_promotion' AND target_entity_id = $1
+			   AND status = 'pending' AND expires_at > now()`, org).Scan(&persons)
+	}); err != nil {
+		t.Fatalf("reading the surviving offer: %v", err)
+	}
+	if persons != 2 {
+		t.Errorf("the surviving offer cites %d signer(s), want the fresher 2 — the stale offer outlived the fresh one", persons)
+	}
+}
+
+// A refusal recorded BEFORE proposed_name_key existed must still be
+// remembered, INCLUDING when the spelling has since moved. Those payloads
+// carry only the raw name, and the raw name is dominantSpelling's pick — it
+// changes as signatures accumulate. Matching on it would forget the refusal
+// exactly when a second signer arrives, which is also when the claim becomes
+// corroborated enough to apply without asking.
+func TestOrgNamePromotionRemembersADeclineRecordedBeforeTheIdentityField(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	declineTheStagedRename(t, e, promoter, org)
+
+	// Age the refusal into a pre-upgrade one by dropping the field that
+	// version of the code never wrote.
+	e.WsExec(t, `
+		UPDATE approval SET proposed_change = proposed_change - 'proposed_name_key'
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org)
+
+	// A second signer spells the SAME company differently, which moves the
+	// dominant spelling off the one the refusal recorded, and the dossier now
+	// agrees — the combination that normally writes without asking.
+	seedSigningEmployee(t, e, org, "Bob Signer", "GITEX GLOBAL")
+	seedDossierName(t, e, org, "Gitex Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
+		t.Fatalf("organization = %q/%q — a pre-upgrade refusal must bind even after the spelling moved", name, source)
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org); n != 1 {
+		t.Fatalf("%d offers, want only the declined one — the legacy refusal must also stop re-staging", n)
+	}
+}
+
+// The refusal must bind the AUTO-APPLY path too. Declining leaves name_source
+// at 'domain' by design, so the promotion CAS still admits the write: a later
+// corroboration that never consults the approval simply performs the rename the
+// human refused, with no offer, no inbox row and nothing to notice.
+func TestOrgNamePromotionDoesNotAutoApplyADeclinedRename(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	declineTheStagedRename(t, e, promoter, org)
+
+	// The dossier now agrees — the one corroboration that normally writes
+	// without asking.
+	seedDossierName(t, e, org, "Gitex Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
+		t.Fatalf("organization = %q/%q — corroboration arriving later must not execute a rename a human already refused", name, source)
+	}
+
+	// The positive control: the same corroboration on an organization nobody
+	// refused IS applied, so this test cannot pass by promotion being broken.
+	fresh := seedProvisionalOrg(t, e, "Acme", "domain")
+	seedSigningEmployee(t, e, fresh, "Carol Signer", "Acme Global")
+	seedDossierName(t, e, fresh, "Acme Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if name, source := orgNameAndSource(t, e, fresh); name != "Acme Global" || source != "signature" {
+		t.Fatalf("un-refused organization = %q/%q, want the dossier-corroborated name applied", name, source)
 	}
 }
