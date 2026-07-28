@@ -25,6 +25,7 @@ import (
 	"context"
 	"log/slog"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -87,24 +88,27 @@ func TestEnrichOnCaptureLeavesTheOrgToTheSweepAtTheDailyCap(t *testing.T) {
 	setAutoEnrich(t, e, true)
 	org := insertDomainOrg(t, e, "capped.example")
 
-	// Spend the day's reads through the same reservation the sweep uses, so the
-	// trigger meets a genuinely exhausted budget rather than a mocked one.
+	// A cap of its own, not the shipped 500: filling the real one costs 500
+	// round trips to demonstrate a bound that behaves identically at three, and
+	// the number under test is "the cap", not its value.
+	const testCap = 3
 	store := capture.NewAutoEnrichStore(e.Pool)
-	for i := 0; i < autoEnrichDailyCap; i++ {
-		reserved, err := store.ReserveBudget(e.Admin(), autoEnrichDailyCap)
+	for i := 0; i < testCap; i++ {
+		slot, err := store.ReserveBudget(e.Admin(), testCap)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reserved {
+		if !slot.Reserved {
 			t.Fatalf("reservation %d refused before the cap", i)
 		}
 	}
 
 	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	trigger.dailyCap = testCap
 	trigger.organizationCaptured(e.Admin(), org, "capped.example")
 
-	if n := budgetSpent(t, e); n != autoEnrichDailyCap {
-		t.Fatalf("budget spent = %d, want the cap %d — the trigger must not spend past it", n, autoEnrichDailyCap)
+	if n := budgetSpent(t, e); n != testCap {
+		t.Fatalf("budget spent = %d, want the cap %d — the trigger must not spend past it", n, testCap)
 	}
 	if !stillDue(t, e, org) {
 		t.Fatal("a capped trigger retired the organization — it must stay due for a later sweep")
@@ -159,30 +163,33 @@ func TestAutoEnrichBudgetSlotIsReturnedWhenItBoughtNothing(t *testing.T) {
 	e := integration.Setup(t)
 	store := capture.NewAutoEnrichStore(e.Pool)
 
-	for i := 0; i < autoEnrichDailyCap; i++ {
-		reserved, err := store.ReserveBudget(e.Admin(), autoEnrichDailyCap)
+	const testCap = 3
+	var last capture.BudgetSlot
+	for i := 0; i < testCap; i++ {
+		slot, err := store.ReserveBudget(e.Admin(), testCap)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reserved {
+		if !slot.Reserved {
 			t.Fatalf("setup reservation %d refused before the cap", i)
 		}
+		last = slot
 	}
-	if reserved, err := store.ReserveBudget(e.Admin(), autoEnrichDailyCap); err != nil || reserved {
-		t.Fatalf("reservation past the cap: reserved=%v err=%v", reserved, err)
+	if slot, err := store.ReserveBudget(e.Admin(), testCap); err != nil || slot.Reserved {
+		t.Fatalf("reservation past the cap: reserved=%v err=%v", slot.Reserved, err)
 	}
 
-	if err := store.ReleaseBudget(e.Admin()); err != nil {
+	if err := store.ReleaseBudget(e.Admin(), last); err != nil {
 		t.Fatalf("ReleaseBudget: %v", err)
 	}
-	if n := budgetSpent(t, e); n != autoEnrichDailyCap-1 {
-		t.Fatalf("budget spent = %d after a refund, want %d", n, autoEnrichDailyCap-1)
+	if n := budgetSpent(t, e); n != testCap-1 {
+		t.Fatalf("budget spent = %d after a refund, want %d", n, testCap-1)
 	}
-	reserved, err := store.ReserveBudget(e.Admin(), autoEnrichDailyCap)
+	slot, err := store.ReserveBudget(e.Admin(), testCap)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reserved {
+	if !slot.Reserved {
 		t.Fatal("the returned slot was not reusable — a refund that frees nothing is not a refund")
 	}
 }
@@ -194,8 +201,10 @@ func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 	e := integration.Setup(t)
 	store := capture.NewAutoEnrichStore(e.Pool)
 
-	for i := 0; i < 3; i++ {
-		if err := store.ReleaseBudget(e.Admin()); err != nil {
+	const testCap = 3
+	today := capture.BudgetSlot{Day: time.Now().UTC().Truncate(24 * time.Hour), Reserved: true}
+	for i := 0; i < testCap; i++ {
+		if err := store.ReleaseBudget(e.Admin(), today); err != nil {
 			t.Fatalf("ReleaseBudget on an unspent day: %v", err)
 		}
 	}
@@ -203,13 +212,45 @@ func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 		t.Fatalf("budget spent = %d after refunds with nothing reserved, want 0", n)
 	}
 	// And the day still gives its full allowance.
-	for i := 0; i < autoEnrichDailyCap; i++ {
-		reserved, err := store.ReserveBudget(e.Admin(), autoEnrichDailyCap)
+	for i := 0; i < testCap; i++ {
+		slot, err := store.ReserveBudget(e.Admin(), testCap)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !reserved {
+		if !slot.Reserved {
 			t.Fatalf("reservation %d refused — a refund below zero stole from the day", i)
 		}
+	}
+}
+
+// The refund names the day the slot was taken on, not today. A read that starts
+// at 23:59:59 and joins after midnight would otherwise decrement the NEW day's
+// row — freeing a slot nobody took, and letting that day start one read past its
+// cap.
+func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
+	e := integration.Setup(t)
+	store := capture.NewAutoEnrichStore(e.Pool)
+
+	// Yesterday's spent slot, as the reservation would have recorded it.
+	yesterday := capture.BudgetSlot{
+		Day:      time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour),
+		Reserved: true,
+	}
+	e.WsExec(t, `
+		INSERT INTO capture_auto_enrich_budget (workspace_id, budget_date, enqueued)
+		VALUES ($1, $2, 1)`, e.WS, yesterday.Day)
+
+	// Today has a reservation of its own — the slot that must survive.
+	if _, err := store.ReserveBudget(e.Admin(), 3); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := store.ReleaseBudget(e.Admin(), yesterday); err != nil {
+		t.Fatalf("ReleaseBudget: %v", err)
+	}
+	if n := e.WsCount(t, `
+		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget
+		 WHERE budget_date = (now() AT TIME ZONE 'UTC')::date`); n != 1 {
+		t.Fatalf("today's counter = %d, want 1 — a refund for yesterday must not free today's slot", n)
 	}
 }

@@ -103,11 +103,11 @@ func (t *autoEnrichTrigger) queueRead(ctx context.Context, orgID ids.Organizatio
 	// The same atomically-reserved daily cap the sweep spends from — one budget,
 	// whichever path spends it, or the trigger would be a way around the ADR-0020
 	// guardrail rather than a faster route through it.
-	reserved, err := t.autoEnrich.ReserveBudget(enrichCtx, t.dailyCap)
+	slot, err := t.autoEnrich.ReserveBudget(enrichCtx, t.dailyCap)
 	if err != nil {
 		return err
 	}
-	if !reserved {
+	if !slot.Reserved {
 		// Debug, not warn: on a backfill that mints hundreds of companies this is
 		// the NORMAL state after the first ten, and a warning per company would
 		// bury the faults that matter.
@@ -127,5 +127,5 @@ func (t *autoEnrichTrigger) queueRead(ctx context.Context, orgID ids.Organizatio
 	// A read for this organization was already in flight — the sweep and this
 	// capture found it in the same moment, and the uniqueness index arbitrated.
 	// The slot goes back: one crawl must not cost the day two of its ten reads.
-	return t.autoEnrich.ReleaseBudget(enrichCtx)
+	return t.autoEnrich.ReleaseBudget(enrichCtx, slot)
 }

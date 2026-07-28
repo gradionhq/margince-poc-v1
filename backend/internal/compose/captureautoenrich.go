@@ -136,15 +136,15 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 		return err
 	}
 	for _, org := range due {
-		reserved, err := w.autoEnrich.ReserveBudget(wsCtx, w.dailyCap)
+		slot, err := w.autoEnrich.ReserveBudget(wsCtx, w.dailyCap)
 		if err != nil {
 			return err
 		}
-		if !reserved {
+		if !slot.Reserved {
 			// The day's cap is spent — stop; the rest wait for tomorrow's pass.
 			return nil
 		}
-		if err := w.triggerEnrich(wsCtx, org); err != nil {
+		if err := w.triggerEnrich(wsCtx, org, slot); err != nil {
 			// A single org's trigger fault must not consume the pass; log it
 			// and move on. The cursor stays due (nothing was queued), so the
 			// next pass retries — but the reserved budget slot is spent, a
@@ -159,13 +159,13 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 
 // triggerEnrich starts a system-requested deep read for one org and arms its
 // cursor.
-func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org capture.DueOrg) error {
+func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org capture.DueOrg, slot capture.BudgetSlot) error {
 	started, err := startAutoEnrichRead(ctx, w.people, w.autoEnrich, org.OrganizationID, org.Domain)
 	if err != nil {
 		return err
 	}
 	if !started {
-		return w.autoEnrich.ReleaseBudget(ctx)
+		return w.autoEnrich.ReleaseBudget(ctx, slot)
 	}
 	return nil
 }
