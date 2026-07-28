@@ -17,8 +17,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
@@ -124,13 +126,138 @@ type listFilters struct {
 	Query           *string
 	Cursor          *string
 	CustomFilters   map[string]string
+	// CapturedByKind filters on WHO created the row, matched against the
+	// captured_by prefix. `agent` is the review list for the records an AI
+	// created (ADR-0075/A121 §3a). capturedByKindClause checks it against the
+	// generated enum, after authorization — declaring the enum in the contract
+	// does not enforce it on the wire.
+	CapturedByKind *string
+	// AiWritten asks whether an AI wrote INTO the record — a different question
+	// from who created it (ADR-0075/A121 §3a). aiWrittenClause spells it.
+	AiWritten *bool
+	// entity is the record's table name, used to qualify the predicate above.
+	entity string
 	// nameColumn is the quick-find target — the record's display column.
 	nameColumn string
 }
 
+// capturedByKindClause is the ONE spelling of the provenance filter
+// (ADR-0075/A121 §3a): it refuses a kind outside the contract's enum and, for
+// an accepted one, builds the clause. It lives outside listFilters because the
+// lead list builds its own WHERE chain rather than using that struct, and two
+// copies of "which prefix counts as an AI" is exactly how the person list and
+// the lead list end up disagreeing about what the review list contains.
+//
+// The check is HERE, in the store, rather than at the handler, because the
+// store is where authorization runs. Both list paths call auth.Require before
+// they assemble any clause, so an unauthorized caller gets the authorization
+// answer whatever they typed. Validating at the handler inverts that: a caller
+// with no read on this object learns their enum value was wrong — which is a
+// probing oracle, and the opposite of the order the overlay shadows document
+// ("Object RBAC before any parameter shaping").
+//
+// The vocabulary is the GENERATED one, so the accepted values cannot drift from
+// the contract that publishes them.
+//
+// The whole LIKE pattern is ONE bound argument, never concatenated into the
+// SQL. The enum values are plain ASCII words carrying no LIKE metacharacter
+// today; binding the pattern is what keeps that true of a value the enum gains
+// later.
+func capturedByKindClause(kind *string, arg func(any) int) (string, bool, error) {
+	// ABSENT is the only thing that means "no filter". An empty value is a
+	// value, and it is not in the enum: reading it as absent hands an
+	// unfiltered list to a caller who did ask to filter — the same
+	// confident-wrong-answer failure as an unknown kind, so it gets the same
+	// refusal. (The quick-find `q` above may legitimately be empty; a blank
+	// search is no search. An enum has no such reading.)
+	if kind == nil {
+		return "", false, nil
+	}
+	if !crmcontracts.CapturedByKind(*kind).Valid() {
+		return "", false, httperr.Validation("captured_by_kind", "invalid",
+			"must be one of human, agent, connector, system")
+	}
+	return storekit.SQLf("captured_by LIKE $%d", arg(likePrefix(*kind+":"))), true, nil
+}
+
+// agentPrefix matches the captured_by grammar's AI namespace. Shared by every
+// predicate below so "which prefix counts as an AI" has one answer, and it is
+// the same one the partial indexes in migration 0138 are built on — a mismatch
+// there silently costs the index rather than the result.
+const agentPrefix = "agent:" + likeWildcard
+
+// likeWildcard is the LIKE "any suffix" metacharacter, named so the prefix
+// builder below reads as intent rather than as punctuation.
+const likeWildcard = "%"
+
+// likePrefix builds a LIKE pattern matching everything that starts with lit,
+// escaping the metacharacters lit may contain. Binding a pattern as a parameter
+// stops it being SQL, not being a PATTERN — a value carrying % or _ would still
+// match beyond itself. The captured_by vocabulary is plain words today; this is
+// what keeps that from being load-bearing.
+func likePrefix(lit string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(lit) + likeWildcard
+}
+
+// aiWrittenClause answers "did an AI write into this record?" for one record
+// type, or "" when the caller did not ask.
+//
+// This is deliberately NOT the same question as capturedByKindClause.
+// `captured_by` names who CREATED the row and is never restamped. In the
+// connector path the AI does not create the record, it FILLS one: Gmail capture
+// mints the organization as `connector:gmail`, and then the AI renames it and
+// writes its profile. Asking who created it misses exactly the records worth
+// reviewing.
+//
+// The predicate is the AUDIT LOG, because that is the only source that is
+// complete by construction. Every mutation in this system commits its domain
+// row, its audit row and its outbox row in ONE transaction — the write shape is
+// non-negotiable and enforced at the one store chokepoint — so no agent write
+// can reach a record without leaving an audit row naming who made it. Anything
+// narrower is a list someone has to maintain: an earlier cut of this predicate
+// enumerated the two dossier evidence tables and the promoted-name column, and
+// silently missed an agent updating an ordinary column, which is the plainest
+// case there is.
+//
+// It matches on `actor_id`, not `actor_type`. The two are different axes:
+// `actor_type` is the principal MECHANISM (a background job runs as `system`)
+// while `actor_id` carries the `<kind>:<id>` identity that `captured_by` uses
+// everywhere else. The deep-read worker is a system principal whose identity is
+// `agent:deepread`, so typing on the mechanism would miss every AI enrichment
+// this filter exists to surface.
+//
+// The record's own `captured_by` is kept as a second arm. It is subsumed by the
+// audit row for the create, and it is on the row itself — so it still answers
+// after audit retention has pruned old rows, which is this predicate's one real
+// limit and is stated rather than papered over.
+//
+// No partial index backs this. `idx_audit_entity` (workspace_id, entity_type,
+// entity_id) already serves the lookup; a partial index on the agent prefix
+// could not be used anyway, because the prefix arrives as a bind parameter and
+// the planner cannot prove a bound value implies the index predicate. Building
+// one on `audit_log` would also hold a write-blocking lock for the length of
+// the build, and this repo has no non-transactional migration path.
+func aiWrittenClause(want *bool, entity string, arg func(any) int) string {
+	if want == nil {
+		return ""
+	}
+	clause := "(" + strings.Join([]string{
+		storekit.SQLf("%s.captured_by LIKE $%d", entity, arg(agentPrefix)),
+		storekit.SQLf(`EXISTS (SELECT 1 FROM audit_log al
+			 WHERE al.workspace_id = %s.workspace_id AND al.entity_type = $%d
+			   AND al.entity_id = %s.id AND al.actor_id LIKE $%d)`,
+			entity, arg(entity), entity, arg(agentPrefix)),
+	}, " OR ") + ")"
+	if !*want {
+		return "NOT " + clause
+	}
+	return clause
+}
+
 // clauses translates the filters into WHERE clauses, appending their
-// arguments through arg — archived visibility, owner, quick-find,
-// custom-field equality, and the keyset cursor.
+// arguments through arg — archived visibility, owner, provenance,
+// quick-find, custom-field equality, and the keyset cursor.
 func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.ListSort, arg func(any) int) ([]string, error) {
 	var where []string
 	if !f.IncludeArchived {
@@ -138,6 +265,16 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	}
 	if f.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*f.OwnerID)))
+	}
+	clause, ok, err := capturedByKindClause(f.CapturedByKind, arg)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		where = append(where, clause)
+	}
+	if ai := aiWrittenClause(f.AiWritten, f.entity, arg); ai != "" {
+		where = append(where, ai)
 	}
 	if f.Query != nil && *f.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*f.Query), f.nameColumn))
@@ -155,4 +292,14 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 		where = append(where, clause)
 	}
 	return where, nil
+}
+
+// capturedByKindArg maps the optional provenance parameter onto the store
+// input. The value is checked in capturedByKindClause, after authorization.
+func capturedByKindArg[T ~string](v *T) *string {
+	if v == nil {
+		return nil
+	}
+	s := string(*v)
+	return &s
 }

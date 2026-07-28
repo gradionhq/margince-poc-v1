@@ -18,6 +18,8 @@ func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmco
 		Limit:           params.Limit,
 		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		CapturedByKind:  capturedByKindArg(params.CapturedByKind),
+		AiWritten:       params.AiWritten,
 	}
 	if params.Status != nil {
 		s := string(*params.Status)

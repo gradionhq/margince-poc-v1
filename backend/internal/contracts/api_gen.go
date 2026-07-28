@@ -5976,6 +5976,30 @@ func (e CaptureProvider) Valid() bool {
 	}
 }
 
+// Defines values for CapturedByKind.
+const (
+	CapturedByKindAgent     CapturedByKind = "agent"
+	CapturedByKindConnector CapturedByKind = "connector"
+	CapturedByKindHuman     CapturedByKind = "human"
+	CapturedByKindSystem    CapturedByKind = "system"
+)
+
+// Valid indicates whether the value is a known member of the CapturedByKind enum.
+func (e CapturedByKind) Valid() bool {
+	switch e {
+	case CapturedByKindAgent:
+		return true
+	case CapturedByKindConnector:
+		return true
+	case CapturedByKindHuman:
+		return true
+	case CapturedByKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListActivitiesParamsKind.
 const (
 	Call     ListActivitiesParamsKind = "call"
@@ -6399,6 +6423,30 @@ func (e GetFieldHistoryParamsActorType) Valid() bool {
 	}
 }
 
+// Defines values for ListLeadsParamsCapturedByKind.
+const (
+	ListLeadsParamsCapturedByKindAgent     ListLeadsParamsCapturedByKind = "agent"
+	ListLeadsParamsCapturedByKindConnector ListLeadsParamsCapturedByKind = "connector"
+	ListLeadsParamsCapturedByKindHuman     ListLeadsParamsCapturedByKind = "human"
+	ListLeadsParamsCapturedByKindSystem    ListLeadsParamsCapturedByKind = "system"
+)
+
+// Valid indicates whether the value is a known member of the ListLeadsParamsCapturedByKind enum.
+func (e ListLeadsParamsCapturedByKind) Valid() bool {
+	switch e {
+	case ListLeadsParamsCapturedByKindAgent:
+		return true
+	case ListLeadsParamsCapturedByKindConnector:
+		return true
+	case ListLeadsParamsCapturedByKindHuman:
+		return true
+	case ListLeadsParamsCapturedByKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListLeadsParamsStatus.
 const (
 	ListLeadsParamsStatusDisqualified ListLeadsParamsStatus = "disqualified"
@@ -6465,6 +6513,30 @@ func (e GetOnboardingCompanyProposalParamsLocale) Valid() bool {
 	}
 }
 
+// Defines values for ListOrganizationsParamsCapturedByKind.
+const (
+	ListOrganizationsParamsCapturedByKindAgent     ListOrganizationsParamsCapturedByKind = "agent"
+	ListOrganizationsParamsCapturedByKindConnector ListOrganizationsParamsCapturedByKind = "connector"
+	ListOrganizationsParamsCapturedByKindHuman     ListOrganizationsParamsCapturedByKind = "human"
+	ListOrganizationsParamsCapturedByKindSystem    ListOrganizationsParamsCapturedByKind = "system"
+)
+
+// Valid indicates whether the value is a known member of the ListOrganizationsParamsCapturedByKind enum.
+func (e ListOrganizationsParamsCapturedByKind) Valid() bool {
+	switch e {
+	case ListOrganizationsParamsCapturedByKindAgent:
+		return true
+	case ListOrganizationsParamsCapturedByKindConnector:
+		return true
+	case ListOrganizationsParamsCapturedByKindHuman:
+		return true
+	case ListOrganizationsParamsCapturedByKindSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for GetOrganizationHierarchyRollupParamsScope.
 const (
 	GetOrganizationHierarchyRollupParamsScopeSelf GetOrganizationHierarchyRollupParamsScope = "self"
@@ -6519,6 +6591,30 @@ func (e ListPartnersParamsCertStatus) Valid() bool {
 	case Certified:
 		return true
 	case Suspended:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ListPeopleParamsCapturedByKind.
+const (
+	ListPeopleParamsCapturedByKindAgent     ListPeopleParamsCapturedByKind = "agent"
+	ListPeopleParamsCapturedByKindConnector ListPeopleParamsCapturedByKind = "connector"
+	ListPeopleParamsCapturedByKindHuman     ListPeopleParamsCapturedByKind = "human"
+	ListPeopleParamsCapturedByKindSystem    ListPeopleParamsCapturedByKind = "system"
+)
+
+// Valid indicates whether the value is a known member of the ListPeopleParamsCapturedByKind enum.
+func (e ListPeopleParamsCapturedByKind) Valid() bool {
+	switch e {
+	case ListPeopleParamsCapturedByKindAgent:
+		return true
+	case ListPeopleParamsCapturedByKindConnector:
+		return true
+	case ListPeopleParamsCapturedByKindHuman:
+		return true
+	case ListPeopleParamsCapturedByKindSystem:
 		return true
 	default:
 		return false
@@ -11999,11 +12095,17 @@ type WebhookSubscriptionListResponse struct {
 	Page            PageInfo `json:"page"`
 }
 
+// AiWritten defines model for AiWritten.
+type AiWritten = bool
+
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
 
 // CaptureProvider defines model for CaptureProvider.
 type CaptureProvider string
+
+// CapturedByKind defines model for CapturedByKind.
+type CapturedByKind string
 
 // Cursor defines model for Cursor.
 type Cursor = string
@@ -12978,14 +13080,71 @@ type ListLeadsParams struct {
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
-	IncludeArchived *IncludeArchived       `form:"include_archived,omitempty" json:"include_archived,omitempty"`
-	Status          *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
-	OwnerId         *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
+	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// CapturedByKind Filter by WHO created the record, matched on the `captured_by` prefix
+	// (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+	//
+	// `captured_by_kind=agent` is the **review list for records an AI created**
+	// (ADR-0075/A121). Every record already carries its creator — the field is
+	// server-stamped from the authenticated principal and read-only on every
+	// response — but until this parameter there was no way to *ask* for them,
+	// so "which of these did a model decide existed?" had no answer short of
+	// exporting the table.
+	//
+	// Deliberately a filter on the existing lists rather than a queue object: a
+	// durable `reviewed` state is a separate decision, and nothing here needs
+	// one to make the records findable.
+	//
+	// The four values are the whole vocabulary the write paths stamp. That is a
+	// convention rather than a database constraint, so a row whose prefix
+	// matches none of them is returned by no value of this parameter — the
+	// UNFILTERED list stays the complete one. An out-of-vocabulary value
+	// returns `422 code: validation_error`.
+	CapturedByKind *ListLeadsParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
+
+	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
+	// did not touch. Omit for both.
+	//
+	// This is the review list for AI-generated content (ADR-0075/A121 §3a),
+	// and it is deliberately a different question from `captured_by_kind`.
+	// `captured_by` names who CREATED the row and is never restamped. In the
+	// connector path the AI does not create the record — Gmail capture mints
+	// the organization as `connector:gmail`, and then the AI renames it from a
+	// signature and writes its profile. Asking "who created it" therefore
+	// misses exactly the records worth reviewing.
+	//
+	// Answered from the **audit log**, which is complete by construction: every
+	// mutation commits its domain row and its audit row in one transaction, so
+	// no agent write reaches a record without leaving one. A record matches
+	// when an agent identity (`actor_id` beginning `agent:`) appears in its
+	// history, or when the record itself was agent-created. Nothing narrower
+	// would do — a list of enrichment tables misses an agent updating an
+	// ordinary column, which is the plainest case there is.
+	//
+	// Matching is on the actor's IDENTITY, not the principal mechanism: AI
+	// tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+	//
+	// Each value's own provenance — the agent that wrote it, the verbatim
+	// evidence, the source URL, the confidence — is on the per-record
+	// profile-field and fact reads; this filter is how you find the records to
+	// open.
+	//
+	// One limit, stated rather than implied: it can only see as far back as
+	// audit retention keeps. A record whose only AI write has aged out of the
+	// audit log is still matched if the AI CREATED it (that is on the row
+	// itself), and not otherwise.
+	AiWritten *AiWritten             `form:"ai_written,omitempty" json:"ai_written,omitempty"`
+	Status    *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	OwnerId   *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
 	// MinScore Triage by score.
 	MinScore *int    `form:"min_score,omitempty" json:"min_score,omitempty"`
 	Q        *string `form:"q,omitempty" json:"q,omitempty"`
 }
+
+// ListLeadsParamsCapturedByKind defines parameters for ListLeads.
+type ListLeadsParamsCapturedByKind string
 
 // ListLeadsParamsStatus defines parameters for ListLeads.
 type ListLeadsParamsStatus string
@@ -13324,13 +13483,70 @@ type ListOrganizationsParams struct {
 	Sort *Sort `form:"sort,omitempty" json:"sort,omitempty"`
 
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
-	IncludeArchived *IncludeArchived    `form:"include_archived,omitempty" json:"include_archived,omitempty"`
-	OwnerId         *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
+	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
+
+	// CapturedByKind Filter by WHO created the record, matched on the `captured_by` prefix
+	// (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+	//
+	// `captured_by_kind=agent` is the **review list for records an AI created**
+	// (ADR-0075/A121). Every record already carries its creator — the field is
+	// server-stamped from the authenticated principal and read-only on every
+	// response — but until this parameter there was no way to *ask* for them,
+	// so "which of these did a model decide existed?" had no answer short of
+	// exporting the table.
+	//
+	// Deliberately a filter on the existing lists rather than a queue object: a
+	// durable `reviewed` state is a separate decision, and nothing here needs
+	// one to make the records findable.
+	//
+	// The four values are the whole vocabulary the write paths stamp. That is a
+	// convention rather than a database constraint, so a row whose prefix
+	// matches none of them is returned by no value of this parameter — the
+	// UNFILTERED list stays the complete one. An out-of-vocabulary value
+	// returns `422 code: validation_error`.
+	CapturedByKind *ListOrganizationsParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
+
+	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
+	// did not touch. Omit for both.
+	//
+	// This is the review list for AI-generated content (ADR-0075/A121 §3a),
+	// and it is deliberately a different question from `captured_by_kind`.
+	// `captured_by` names who CREATED the row and is never restamped. In the
+	// connector path the AI does not create the record — Gmail capture mints
+	// the organization as `connector:gmail`, and then the AI renames it from a
+	// signature and writes its profile. Asking "who created it" therefore
+	// misses exactly the records worth reviewing.
+	//
+	// Answered from the **audit log**, which is complete by construction: every
+	// mutation commits its domain row and its audit row in one transaction, so
+	// no agent write reaches a record without leaving one. A record matches
+	// when an agent identity (`actor_id` beginning `agent:`) appears in its
+	// history, or when the record itself was agent-created. Nothing narrower
+	// would do — a list of enrichment tables misses an agent updating an
+	// ordinary column, which is the plainest case there is.
+	//
+	// Matching is on the actor's IDENTITY, not the principal mechanism: AI
+	// tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+	//
+	// Each value's own provenance — the agent that wrote it, the verbatim
+	// evidence, the source URL, the confidence — is on the per-record
+	// profile-field and fact reads; this filter is how you find the records to
+	// open.
+	//
+	// One limit, stated rather than implied: it can only see as far back as
+	// audit retention keeps. A record whose only AI write has aged out of the
+	// audit log is still matched if the AI CREATED it (that is on the row
+	// itself), and not otherwise.
+	AiWritten *AiWritten          `form:"ai_written,omitempty" json:"ai_written,omitempty"`
+	OwnerId   *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
 	// Domain Lookup by normalized domain (the employer-inference index).
 	Domain *string `form:"domain,omitempty" json:"domain,omitempty"`
 	Q      *string `form:"q,omitempty" json:"q,omitempty"`
 }
+
+// ListOrganizationsParamsCapturedByKind defines parameters for ListOrganizations.
+type ListOrganizationsParamsCapturedByKind string
 
 // CreateOrganizationParams defines parameters for CreateOrganization.
 type CreateOrganizationParams struct {
@@ -13508,6 +13724,60 @@ type ListPeopleParams struct {
 	// IncludeArchived Include soft-deleted (archived) rows. Default false.
 	IncludeArchived *IncludeArchived `form:"include_archived,omitempty" json:"include_archived,omitempty"`
 
+	// CapturedByKind Filter by WHO created the record, matched on the `captured_by` prefix
+	// (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+	//
+	// `captured_by_kind=agent` is the **review list for records an AI created**
+	// (ADR-0075/A121). Every record already carries its creator — the field is
+	// server-stamped from the authenticated principal and read-only on every
+	// response — but until this parameter there was no way to *ask* for them,
+	// so "which of these did a model decide existed?" had no answer short of
+	// exporting the table.
+	//
+	// Deliberately a filter on the existing lists rather than a queue object: a
+	// durable `reviewed` state is a separate decision, and nothing here needs
+	// one to make the records findable.
+	//
+	// The four values are the whole vocabulary the write paths stamp. That is a
+	// convention rather than a database constraint, so a row whose prefix
+	// matches none of them is returned by no value of this parameter — the
+	// UNFILTERED list stays the complete one. An out-of-vocabulary value
+	// returns `422 code: validation_error`.
+	CapturedByKind *ListPeopleParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
+
+	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
+	// did not touch. Omit for both.
+	//
+	// This is the review list for AI-generated content (ADR-0075/A121 §3a),
+	// and it is deliberately a different question from `captured_by_kind`.
+	// `captured_by` names who CREATED the row and is never restamped. In the
+	// connector path the AI does not create the record — Gmail capture mints
+	// the organization as `connector:gmail`, and then the AI renames it from a
+	// signature and writes its profile. Asking "who created it" therefore
+	// misses exactly the records worth reviewing.
+	//
+	// Answered from the **audit log**, which is complete by construction: every
+	// mutation commits its domain row and its audit row in one transaction, so
+	// no agent write reaches a record without leaving one. A record matches
+	// when an agent identity (`actor_id` beginning `agent:`) appears in its
+	// history, or when the record itself was agent-created. Nothing narrower
+	// would do — a list of enrichment tables misses an agent updating an
+	// ordinary column, which is the plainest case there is.
+	//
+	// Matching is on the actor's IDENTITY, not the principal mechanism: AI
+	// tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+	//
+	// Each value's own provenance — the agent that wrote it, the verbatim
+	// evidence, the source URL, the confidence — is on the per-record
+	// profile-field and fact reads; this filter is how you find the records to
+	// open.
+	//
+	// One limit, stated rather than implied: it can only see as far back as
+	// audit retention keeps. A record whose only AI write has aged out of the
+	// audit log is still matched if the AI CREATED it (that is on the row
+	// itself), and not otherwise.
+	AiWritten *AiWritten `form:"ai_written,omitempty" json:"ai_written,omitempty"`
+
 	// OwnerId Filter to a single owner.
 	OwnerId *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
@@ -13517,6 +13787,9 @@ type ListPeopleParams struct {
 	// Tag Filter by tag name.
 	Tag *string `form:"tag,omitempty" json:"tag,omitempty"`
 }
+
+// ListPeopleParamsCapturedByKind defines parameters for ListPeople.
+type ListPeopleParamsCapturedByKind string
 
 // CreatePersonParams defines parameters for CreatePerson.
 type CreatePersonParams struct {
@@ -27742,6 +28015,32 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "captured_by_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "captured_by_kind", r.URL.Query(), &params.CapturedByKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "captured_by_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "captured_by_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ai_written" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ai_written", r.URL.Query(), &params.AiWritten, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ai_written"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ai_written", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "status" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -29423,6 +29722,32 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "captured_by_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "captured_by_kind", r.URL.Query(), &params.CapturedByKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "captured_by_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "captured_by_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ai_written" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ai_written", r.URL.Query(), &params.AiWritten, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ai_written"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ai_written", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "owner_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner_id", r.URL.Query(), &params.OwnerId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
@@ -30660,6 +30985,32 @@ func (siw *ServerInterfaceWrapper) ListPeople(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "include_archived"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "include_archived", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "captured_by_kind" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "captured_by_kind", r.URL.Query(), &params.CapturedByKind, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "captured_by_kind"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "captured_by_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ai_written" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ai_written", r.URL.Query(), &params.AiWritten, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ai_written"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ai_written", Err: err})
 		}
 		return
 	}
