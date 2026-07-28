@@ -112,7 +112,8 @@ single family stream to ride.
 
 ## How record stores see `cf_*` columns
 
-A record store **never imports this module** — that would be the sibling edge ADR-0054 §3 forbids.
+A record store **never imports this module** — that would be the sibling edge
+the module DAG forbids.
 It depends on `ports/fieldcatalog.Reader`, a one-method seam answering *which `cf_*` columns are
 active on this object, and of what type*. Compose injects the concrete service; a nil Reader is the
 zero-cost pass-through for tests and deployments that never mounted the module.

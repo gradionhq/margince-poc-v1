@@ -1,6 +1,6 @@
 # Capture connectors — the inbound integration seam & the mail pipeline
 
-`internal/modules/capture` (interfaces.md §1, ADR-0063, capture.md CAP-*) is Margince's **inbound**
+`internal/modules/capture` (interfaces.md §1, capture.md CAP-*) is Margince's **inbound**
 integration surface: a *connector* talks to an external provider (Gmail, an IMAP mailbox, Microsoft
 365 / Outlook via Graph, Google Calendar), normalizes each provider record onto the clean relational
 core, and hands it to the **one** `connector.Sink` the capture module owns. It is the mirror image of
@@ -98,7 +98,7 @@ just the row. The worker migrates any legacy `auth`-bytea rows onto the vault at
 
 A connector's records reach the CRM through one of three paths, all converging on the same Sink:
 
-1. **Bounded backfill — preview before spend (ADR-0063/ADR-0020).** On connect, a `Backfiller` fills the
+1. **Bounded backfill — preview before spend.** On connect, a `Backfiller` fills the
    CRM *backward* over a chosen window. The connector's `EstimateBackfill` returns only the provider-side
    message count; the `/backfill/preview` endpoint pairs that count with an estimated AI cost it derives
    separately — together the consent surface, shown *before* anything runs. `StartBackfill` enqueues a job the
@@ -217,7 +217,7 @@ the three onboarding chips); the roster manages an existing connection.
 
 ## Where each piece runs
 
-Capture spans both process roles ([ADR-0054's four `cmd/<role>` binaries](architecture.md)):
+Capture spans both process roles ([the four `cmd/<role>` binaries](architecture.md)):
 
 - **`api`** serves the *interactive* surface: `connect` (OAuth and IMAP alike), `callback`,
   `disconnect`, `list`, backfill `preview`/`start`(enqueue)/`status`/`cancel`, the Gmail push webhook,

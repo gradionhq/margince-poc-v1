@@ -39,7 +39,7 @@ the model runtime itself.
    `ai.Router`. There is no second path: `--ai-fake` rides the same metered,
    traced Router (fake provider only), and two arch fitness tests fail the build
    if a model client is constructed outside it.
-3. **BYOK, egress-honest.** Margince runs no inference of its own (ADR-0020). The
+3. **BYOK, egress-honest.** Margince runs no inference of its own. The
    key, the endpoint, and the DPA are the customer's; the `profile` names where
    inference is allowed to happen.
 4. **Honest tracing.** One `ai_call` row per *attempt* — retries, degrades, and
@@ -221,11 +221,11 @@ trace is as tenant-isolated as any domain row. See
 
 ## Cost — the meter collects tokens, a rate table prices them
 
-Inference is the customer's own provider bill (ADR-0020), so cost is **transparency,
+Inference is the customer's own provider bill, so cost is **transparency,
 never a gate** — it is a labeled number shown *about* their spend, and the budget
 guardrail above stays token-denominated. The write path reflects that: the meter and
 `ai_call` collect **tokens only** and know nothing about money. Price is a *read-side*
-computation (ADR-0067), so a corrected rate heals every figure and nothing rides the
+computation, so a corrected rate heals every figure and nothing rides the
 model-call hot path.
 
 ```
@@ -348,9 +348,9 @@ writing the case that certifies one:
 | The gate | `internal/modules/ai` — `ai.Router` / `ai.NewLocalRouter`; `--ai-fake` flag |
 | Providers | `anthropic`, `openai`, `gemini` (native) · `ollama`, `vllm`, `openai_compatible` · `fake` |
 | Tracing | `ai_call` / `ai_call_payload` / `ai_call_config` (migrations `0088`, `0089`, `0100`, `0102`) |
-| Cost rates | `ai_model_rate` (per provider/model, effective-dated, micro-USD; ADR-0067) · seeded by `SeedModelRates` |
+| Cost rates | `ai_model_rate` (per provider/model, effective-dated, micro-USD) · seeded by `SeedModelRates` |
 | Pricer (actuals) | `PriceCall` + `RateStore` (`internal/modules/ai`) → `/ai/usage` `cost_est_minor` |
-| Pre-flight estimate | `internal/compose/costestimate` (backfill preview `estimated_cost_minor` + `estimate_quality`; ADR-0068) |
+| Pre-flight estimate | `internal/compose/costestimate` (backfill preview `estimated_cost_minor` + `estimate_quality`) |
 | Budget deferral | `BudgetDeferralError` / `ErrBudgetDeferred` (`internal/modules/ai/budget.go`) |
 | Company context | `companycontextprompt.go` (compose) · rollout switch `company_context.rollout` (`margince.yaml`, `platform/deployconfig`, migration `0105`) |
 | Boot/ops surface | `/readyz` AI state; per-task unbound-ladder boot warnings |

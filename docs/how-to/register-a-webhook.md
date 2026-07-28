@@ -17,7 +17,7 @@ contract-generated** payload (`backend/api/public-events.yaml` → `internal/con
 scheme — the same convention used by Anthropic, OpenAI, Stripe, and Svix — so any off-the-shelf SW
 verifier library works unmodified.
 
-> **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
+> **Single-organization installation.** One installation serves one organization; the
 > server resolves its singleton organization itself, so no request selects a tenant — there is no
 > `X-Workspace-Slug` header. The `curl`s below carry only the session cookie. ("Workspace" still names
 > the internal RLS tenant these tables are scoped by.)
