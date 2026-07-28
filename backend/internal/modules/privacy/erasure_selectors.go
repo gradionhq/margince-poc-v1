@@ -87,9 +87,27 @@ var subjectOnlyDestroyable = `
 // non-null value already means "this activity is a message", and no manually
 // logged call or note can be caught by it.
 //
+// It does not, however, name everyone a message reached. A send stores only
+// the FIRST addressee in counterparty_email while comms_outbound keeps the
+// whole `recipients` and `cc` lists, so a subject who was a second recipient
+// or a Cc is invisible to the activity column alone — and their address, the
+// subject line and the body would survive the erase in the delivery row. The
+// delivery arm below closes that: the address lists are unnested and matched
+// exactly as the Art. 15 assembly matches them (sar.go), because both answer
+// the same question about the same two columns and two spellings of it would
+// drift apart. The existence of a comms_outbound row is itself proof the
+// activity is a message, so the arm is at least as narrow as the column one.
+//
+// Widening what SELECTS the ids — rather than reaching deliveries by address
+// directly — is what keeps both exclusions binding on the new arm: the ids
+// still flow through the shared legal-hold expression below and through the
+// correspondence floor the caller applies, so a delivery can never be scrubbed
+// while the activity it belongs to is shielded.
+//
 // Mail also linked to someone else belongs to that person's record too, and
 // redacting it would erase a different subject's history.
-// $1 is the person; $2 the subject's addresses. The `m` alias keeps this
+// $1 is the person; $2 the subject's addresses, already lowercased by the
+// person_email normalization CHECK. The `m` alias keeps this
 // selector distinct from the `a`-aliased activity the correspondence floor
 // filters when redactSubjectTimeline wraps both id sets in one UPDATE — so
 // commercial correspondence younger than the statutory floor is shielded here
@@ -101,7 +119,13 @@ var subjectOnlyDestroyable = `
 // all — precisely the position a litigation hold protects.
 var unlinkedSubjectMail = `
 	SELECT m.id FROM activity m
-	WHERE m.counterparty_email = ANY($2)
+	WHERE (m.counterparty_email = ANY($2)
+	       OR EXISTS (
+	         SELECT 1 FROM comms_outbound d
+	         WHERE d.activity_id = m.id
+	           AND EXISTS (
+	             SELECT 1 FROM jsonb_array_elements_text(d.recipients || d.cc) AS addr
+	             WHERE lower(addr) = ANY($2))))
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity_link o
 	    WHERE o.activity_id = m.id

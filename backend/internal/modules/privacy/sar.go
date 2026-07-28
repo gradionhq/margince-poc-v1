@@ -172,13 +172,24 @@ func sarSections(pkg *SARPackage) []sarSection {
 		//
 		// The two arms err in OPPOSITE directions and both are deliberate.
 		// Reaching by address alone would miss the timeline; reaching by link
-		// alone hands the subject the recipient addresses of messages that went
-		// to other people on threads filed under their record — an
-		// over-inclusion this shares with the Activities and Attachments
-		// sections above, and one Art. 15 tolerates where the erasure cascade's
-		// equivalent reach could not, because disclosing to an admin-mediated
-		// export is recoverable and destroying another subject's evidence is
-		// not.
+		// alone would miss the unlinked send.
+		//
+		// The PROJECTION is deliberate too: recipients and cc are returned
+		// whole, so a message the subject shared with other people hands the
+		// export those people's addresses as well — whichever arm matched the
+		// row. Narrowing the arrays to the subject's own address would be the
+		// safer default in a self-serve export, and it is rejected here for two
+		// reasons. An address list is part of what the message WAS, and Art. 15
+		// owes the subject the data held about them rather than a redraft of
+		// it. And this assembly is admin-mediated (AssembleSAR demands the
+		// person.delete grant and an unbounded scope, above), so the disclosure
+		// is a human handing a package to a subject, not an endpoint answering
+		// one — the same posture, and the same tolerated over-inclusion, as the
+		// Activities and Attachments sections, whose free text and filenames
+		// name third parties for exactly the same reason. It is what separates
+		// this from the erasure cascade, which must refuse the equivalent
+		// reach: a disclosure to an admin-mediated export is recoverable, and
+		// destroying another subject's evidence is not.
 		{&pkg.SentMessages, `SELECT o.subject, o.body, o.recipients, o.cc, o.consent_purpose,
 		      o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
