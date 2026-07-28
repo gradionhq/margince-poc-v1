@@ -362,9 +362,10 @@ func (d *Dispatcher) throttled(ctx context.Context, del Delivery, retryAfter tim
 }
 
 // park ends a delivery no retry repairs, recording why in words an operator
-// can act on. The returned wait is always zero — parking asks for nothing to
-// be tried again — and all four dispositions share that shape so their call
-// sites stay one line each.
+// can act on. THIS disposition's wait is always zero, because parking asks for
+// nothing to be tried again; postpone and throttled return a real interval.
+// What all four share is the return SIGNATURE, which is what keeps their call
+// sites one line each.
 //
 // ErrTerminal from the transition means a newer attempt already closed this
 // row: a benign no-op, so this attempt reports that it did nothing rather than

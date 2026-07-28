@@ -51,9 +51,9 @@ var subjectOnlyDestroyable = `
 	WHERE a.id IN (` + subjectOnlyActivities + `)
 	  ` + correspondenceFloorPredicate(2, 3)
 
-// unlinkedCapturedMail selects captured mail that is ABOUT the subject by
-// address and linked to no OTHER person — the class the link-walk above cannot
-// see, under the same exclusion it uses.
+// unlinkedSubjectMail selects mail that is ABOUT the subject by address and
+// linked to no OTHER person — the class the link-walk above cannot see, under
+// the same exclusion it uses.
 //
 // It exists because ADR-0072 stopped creating a counterparty for every captured
 // message. Under ADR-0063 every mail ensured a person, so a link always
@@ -62,15 +62,29 @@ var subjectOnlyDestroyable = `
 // that only walks links would leave that mail — the address, the subject line
 // and the body — sitting in the timeline after the subject exercised Art. 17.
 //
+// It reaches mail in BOTH directions, and the symmetry is the point. Outbound
+// mail this installation SENT reaches the subject the same way: the send path
+// gives its activity only the links the anchor already had, so a reply anchored
+// on an organization- or deal-linked thread — or on one with no person link at
+// all — records the recipient's address and the whole message body while being
+// linked to nobody. A direction test would have left exactly the mail we wrote
+// to the subject behind, along with the delivery row behind it.
+//
+// counterparty_email is what makes this selector safe to state that broadly:
+// only two paths ever write it — the capture sink and the send path — so a
+// non-null value already means "this activity is a message", and no manually
+// logged call or note can be caught by it.
+//
 // Mail also linked to someone else belongs to that person's record too, and
 // redacting it would erase a different subject's history.
 // $1 is the person; $2 the subject's addresses. The `m` alias keeps this
 // selector distinct from the `a`-aliased activity the correspondence floor
-// filters when redactSubjectTimeline wraps both id sets in one UPDATE.
-const unlinkedCapturedMail = `
+// filters when redactSubjectTimeline wraps both id sets in one UPDATE — so
+// commercial correspondence younger than the statutory floor is shielded here
+// exactly as it is on the link-walk arm.
+const unlinkedSubjectMail = `
 	SELECT m.id FROM activity m
 	WHERE m.counterparty_email = ANY($2)
-	  AND m.captured_by LIKE 'connector:%'
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity_link o
 	    WHERE o.activity_id = m.id

@@ -164,12 +164,21 @@ func sarSections(pkg *SARPackage) []sarSection {
 		{&pkg.CaptureDispositions, `SELECT p.email, p.display_name, p.status, p.disposition_reason, p.created_at, p.resolved_at
 		   FROM capture_pending_counterparty p
 		   WHERE p.email IN (SELECT email FROM person_email WHERE person_id = $1)`},
-		// The messages this installation sent TO the subject. Reached BOTH
-		// ways on purpose, unlike the erasure cascade: a send whose activity
-		// was never linked to the subject's record still went to their
-		// address, and Art. 15 owes them everything held — over-including a
-		// message they received costs nothing, where the erasure cascade's
-		// equivalent reach would destroy another subject's evidence.
+		// The governed outbound messages this installation sent about or to the
+		// subject. Reached BOTH ways on purpose, unlike the erasure cascade: a
+		// send whose activity was never linked to their record still went to
+		// their address, and one addressed to a third party but filed on their
+		// timeline is still a message about them.
+		//
+		// The two arms err in OPPOSITE directions and both are deliberate.
+		// Reaching by address alone would miss the timeline; reaching by link
+		// alone hands the subject the recipient addresses of messages that went
+		// to other people on threads filed under their record — an
+		// over-inclusion this shares with the Activities and Attachments
+		// sections above, and one Art. 15 tolerates where the erasure cascade's
+		// equivalent reach could not, because disclosing to an admin-mediated
+		// export is recoverable and destroying another subject's evidence is
+		// not.
 		{&pkg.SentMessages, `SELECT o.subject, o.body, o.recipients, o.cc, o.consent_purpose,
 		      o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o

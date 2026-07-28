@@ -58,6 +58,10 @@ var piiTables = map[string]piiHandling{
 	// The capture disposition ledger keys on the subject's own address and
 	// keeps the display name their mail arrived with (CAP-DDL-8).
 	"capture_pending_counterparty": {erasureWrite: true, sarRead: true},
+	// The send log keeps a second copy of an outbound message's recipient
+	// addresses, subject line and body, scrubbed with the activity it
+	// transmitted and exported alongside it.
+	"comms_outbound": {erasureWrite: true, sarRead: true},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are
@@ -87,11 +91,26 @@ func sqlLiterals(t *testing.T, path string) []string {
 	return out
 }
 
+// erasureCascadeFiles are the sources that make up the Art. 17 cascade — the
+// files ErasePerson's own transaction executes SQL from. It is a LIST rather
+// than the filename it used to be because the cascade outgrew one file, and a
+// gate pinned to a single path silently stops covering a table the moment its
+// scrub is extracted to a neighbour. It is deliberately NOT the whole privacy
+// package: retention.go also writes subject tables, and letting a retention
+// sweep satisfy "Art. 17 reaches this table" is exactly the confusion this test
+// exists to prevent.
+var erasureCascadeFiles = []string{
+	"internal/modules/privacy/erasure.go",
+	"internal/modules/privacy/deliveries.go",
+}
+
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 	writes := map[string]bool{}
-	for _, lit := range sqlLiterals(t, "internal/modules/privacy/erasure.go") {
-		for _, table := range sqlWriteTargets(lit) {
-			writes[table] = true
+	for _, path := range erasureCascadeFiles {
+		for _, lit := range sqlLiterals(t, path) {
+			for _, table := range sqlWriteTargets(lit) {
+				writes[table] = true
+			}
 		}
 	}
 	reads := map[string]bool{}

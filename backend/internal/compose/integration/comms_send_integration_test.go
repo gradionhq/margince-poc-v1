@@ -65,8 +65,10 @@ func gmailSendStub(t *testing.T, captured *sentMail) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		//craft:ignore swallowed-errors test stub; ParseForm on the recorded request cannot fail
-		_ = r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("decoding the token request form: %v", err)
+			return
+		}
 		body := map[string]any{"access_token": "access-tok", "expires_in": 3599}
 		if r.Form.Get("grant_type") == "authorization_code" {
 			body["refresh_token"] = "refresh-tok"
@@ -118,9 +120,9 @@ func (p *preflightEnv) workspaceID(t *testing.T) ids.UUID {
 	return ws
 }
 
-// requestSend issues the authenticated send and returns the accepted
+// sendExpectingAcceptance issues the authenticated send and returns the accepted
 // activity's id — the timeline row the delivery reports on.
-func (p *preflightEnv) requestSend(t *testing.T, purpose, subject, body string) ids.UUID {
+func (p *preflightEnv) sendExpectingAcceptance(t *testing.T, purpose, subject, body string) ids.UUID {
 	t.Helper()
 	var sent struct {
 		ID string `json:"id"`
@@ -139,9 +141,9 @@ func (p *preflightEnv) requestSend(t *testing.T, purpose, subject, body string) 
 	return id
 }
 
-// stagedDelivery reads what the accepted send staged: the delivery to
+// deliveryFor reads what the accepted send staged: the delivery to
 // transmit, and the message identity both it and the activity are keyed on.
-func (p *preflightEnv) stagedDelivery(t *testing.T, activityID ids.UUID) (ids.UUID, string) {
+func (p *preflightEnv) deliveryFor(t *testing.T, activityID ids.UUID) (ids.UUID, string) {
 	t.Helper()
 	var id ids.UUID
 	var messageID string
@@ -155,8 +157,10 @@ func (p *preflightEnv) stagedDelivery(t *testing.T, activityID ids.UUID) (ids.UU
 }
 
 // transmit drives ONE real dispatch of a staged delivery against a stub Gmail
-// and returns the RFC822 the connector produced.
-func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) []byte {
+// and returns the RFC822 the connector produced, together with the connector
+// itself — the echo test derives the captured message's source_system from its
+// descriptor rather than restating the send path's own constant.
+func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) ([]byte, *gmail.Connector) {
 	t.Helper()
 	var captured sentMail
 	stub := gmailSendStub(t, &captured)
@@ -178,6 +182,14 @@ func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) []byte {
 		t.Fatalf("Authenticate: %v", err)
 	}
 
+	// The dispatcher is assembled here rather than taken from the composition
+	// because compose exposes no inline-dispatch seam: newSendWorker is
+	// unexported and reachable only through a River worker, and driving one
+	// would mean waiting on a queue in a lane that may not sleep. The store,
+	// the gate and the connector are the production objects; what this
+	// restates is the WIRING — so a send policy added to the composed chain
+	// would not be exercised by these tests, and the pacing knobs below are
+	// deliberately inert (no policies, a bound nothing here reaches).
 	dispatcher := comms.NewDispatcher(
 		comms.NewStore(p.pool, time.Now),
 		stubMailbox{sender: gmailConnector, auth: auth},
@@ -198,7 +210,7 @@ func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) []byte {
 	if err != nil {
 		t.Fatalf("the connector did not hand Gmail base64url: %v", err)
 	}
-	return rfc822
+	return rfc822, gmailConnector
 }
 
 // connectorCtx is the principal the capture registry builds for a sync: the
@@ -223,9 +235,17 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 	p := setupPreflight(t)
 	p.connect(t, gmailReadonlyScope, gmailSendScope)
 
-	sentActivity := p.requestSend(t, "transactional", "Re: Inbound question", "As discussed.")
-	deliveryID, messageID := p.stagedDelivery(t, sentActivity)
-	rfc822 := p.transmit(t, deliveryID)
+	sentActivity := p.sendExpectingAcceptance(t, "transactional", "Re: Inbound question", "As discussed.")
+	deliveryID, messageID := p.deliveryFor(t, sentActivity)
+	rfc822, capturingConnector := p.transmit(t, deliveryID)
+
+	// BOTH halves of the natural key come from the capture side, never from the
+	// send side. source_system is the connector's own declared name — two
+	// independent constants (gmail.connectorName and activities.SendProvider)
+	// spell it today, and nothing but this comparison holds them equal. Feeding
+	// the send-side literal in here would assert the assumption and stay green
+	// while every outbound email landed twice.
+	sourceSystem := capturingConnector.Descriptor().Name
 
 	// The key comes out of the bytes, through the connector's own mapping —
 	// mailmap.Parse + ToRecord is precisely what the Gmail connector runs on
@@ -234,7 +254,11 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the message the connector produced does not parse:\n%s\n%v", rfc822, err)
 	}
-	echo := msg.AttestSentByOwner(true).ToRecord(activities.SendProvider, rfc822)
+	echo := msg.AttestSentByOwner(true).ToRecord(sourceSystem, rfc822)
+	if echo.NaturalKey.SourceSystem != activities.SendProvider {
+		t.Fatalf("capture keys this message under source_system %q but the send path writes %q — the two constants have drifted apart",
+			echo.NaturalKey.SourceSystem, activities.SendProvider)
+	}
 	if echo.NaturalKey.SourceID != messageID {
 		t.Fatalf("the captured copy keys on %q but the send wrote %q — every outbound email would land twice",
 			echo.NaturalKey.SourceID, messageID)
@@ -248,7 +272,7 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT count(*) FROM activity WHERE source_system = $1 AND source_id = $2`,
-			activities.SendProvider, messageID).Scan(&rows)
+			sourceSystem, messageID).Scan(&rows)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -264,7 +288,7 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
 			`SELECT id, thread_key FROM activity WHERE source_system = $1 AND source_id = $2`,
-			activities.SendProvider, messageID).Scan(&id, &threadKey)
+			sourceSystem, messageID).Scan(&id, &threadKey)
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -285,11 +309,12 @@ func TestAMarketingSendRendersBothOneClickUnsubscribeHeaders(t *testing.T) {
 	p.connect(t, gmailReadonlyScope, gmailSendScope)
 	p.grantMarketingConsent(t)
 
-	sentActivity := p.requestSend(t, "marketing_email", "Spring pricing", "Here is what changed.")
-	deliveryID, _ := p.stagedDelivery(t, sentActivity)
-	mime := string(p.transmit(t, deliveryID))
+	sentActivity := p.sendExpectingAcceptance(t, "marketing_email", "Spring pricing", "Here is what changed.")
+	deliveryID, _ := p.deliveryFor(t, sentActivity)
+	rfc822, _ := p.transmit(t, deliveryID)
+	mime := string(rfc822)
 
-	if !strings.Contains(mime, "List-Unsubscribe: <https://mail.example.test/") {
+	if !strings.Contains(mime, "List-Unsubscribe: <"+preflightBaseURL+"/") {
 		t.Fatalf("a marketing send left without a one-click unsubscribe target:\n%s", mime)
 	}
 	if !strings.Contains(mime, "List-Unsubscribe-Post: List-Unsubscribe=One-Click") {

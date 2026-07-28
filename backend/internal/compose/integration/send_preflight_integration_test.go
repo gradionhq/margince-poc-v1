@@ -38,6 +38,11 @@ import (
 const (
 	gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
 	gmailSendScope     = "https://www.googleapis.com/auth/gmail.send"
+	// preflightBaseURL is this fixture's ONE public base: the composition is
+	// booted with it, and the wire assertion on a marketing send's
+	// List-Unsubscribe target reads it back. Two literals could drift, leaving
+	// that assertion passing against the wrong host.
+	preflightBaseURL = "https://mail.example.test"
 )
 
 type preflightEnv struct {
@@ -106,14 +111,14 @@ func setupPreflight(t *testing.T) *preflightEnv {
 	}
 	gmailCfg := compose.GmailConfig{
 		ClientID: "preflight-id", ClientSecret: "preflight-secret",
-		StateKey: "0123456789abcdef0123456789abcdef", PublicBaseURL: "https://mail.example.test",
+		StateKey: "0123456789abcdef0123456789abcdef", PublicBaseURL: preflightBaseURL,
 	}
 	e := setupWithOptions(t, compose.WithKeyvault(vault),
 		compose.WithGmailCapture(gmailCfg, compose.CaptureConfig{}),
 		// A marketing send derives a one-click unsubscribe link and refuses
 		// without a boot-configured base to build it from, so the fixture
 		// carries one — an install that can send at all has one.
-		compose.WithPublicBaseURL("https://mail.example.test"))
+		compose.WithPublicBaseURL(preflightBaseURL))
 	e.slug = "preflight-e2e"
 	bootstrapWorkspaceSession(t, e, "Preflight E2E", "sender@fable.test", "Admin")
 

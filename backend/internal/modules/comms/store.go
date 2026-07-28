@@ -214,12 +214,13 @@ func (s *Store) Park(ctx context.Context, id ids.UUID, reason string) error {
 }
 
 // RecordFailure notes a transient fault and leaves the delivery pending for
-// something else to bring it back. WHAT brings it back differs by caller: a
-// retry hands the fault to the runner's backoff ladder and spends a rung on
-// it, while a provider throttle asks for a snooze that restores the attempt
-// instead — same row state, two different returns. Same race as
-// RecordSent/Park: a delivery a newer attempt already closed reports
-// ErrTerminal rather than being silently reopened or dropped.
+// something else to bring it back. WHAT brings it back differs by caller, and
+// the difference is in the RUNNER's ladder, never in this row: a retry returns
+// the fault and spends a rung of it, while a provider throttle returns a
+// snooze, which the runner honours by restoring the job attempt instead. This
+// row's own `attempts` is kept either way — only RecordDeferral gives that one
+// back. Same race as RecordSent/Park: a delivery a newer attempt already closed
+// reports ErrTerminal rather than being silently reopened or dropped.
 func (s *Store) RecordFailure(ctx context.Context, id ids.UUID, reason string) error {
 	return s.update(ctx, `UPDATE comms_outbound SET reason = $2 WHERE id = $1 AND status = 'pending'`, id, reason)
 }

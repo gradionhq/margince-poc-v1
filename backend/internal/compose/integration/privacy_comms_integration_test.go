@@ -28,6 +28,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -36,22 +37,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// commsSubjectEmail is the erased subject's address — the one that must not
-// survive in a delivery row the engines were supposed to reach.
-const commsSubjectEmail = "erika.recipient@example.test"
+// mailRecipientEmail is the erased subject's address — the one that must not
+// survive in a delivery row the engines were supposed to reach. Named apart
+// from erasure_integration_test.go's subjectEmail because the two suites seed
+// different fixtures and a mixed-up constant would still compile.
+const mailRecipientEmail = "erika.recipient@example.test"
 
 // delivered is one seeded outbound message: the person it was sent to, the
-// timeline row that records it, the delivery row that transmitted it, and the
-// subject line both carried before any engine touched them.
+// timeline row that records it, the delivery row that carried it, and the
+// subject line and terminal status both held before any engine touched them.
 type delivered struct {
 	person   ids.UUID
 	activity ids.UUID
 	delivery ids.UUID
 	subject  string
+	status   string
 }
 
-// seedSubjectPerson plants the data subject with one email channel.
-func seedSubjectPerson(t *testing.T, e *Env, email string) ids.UUID {
+// seedMailRecipient plants the data subject with one email channel.
+func seedMailRecipient(t *testing.T, e *Env, email string) ids.UUID {
 	t.Helper()
 	personID := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -74,15 +78,24 @@ func seedSubjectPerson(t *testing.T, e *Env, email string) ids.UUID {
 }
 
 // seedDelivery plants an outbound email activity and the comms_outbound row
-// that transmitted it, addressed to commsSubjectEmail. age is how long ago the
+// that transmitted it, addressed to mailRecipientEmail. age is how long ago the
 // message occurred, as a Postgres interval literal — the correspondence floor
 // reads it, so it decides whether a destructive engine may touch the row at
-// all. linkTo, when non-zero, links the activity to that person; a zero value
-// leaves the activity unlinked, which is how the recipient-address reach is
-// told apart from the link-walk reach.
-func seedDelivery(t *testing.T, e *Env, age, subject, body string, linkTo ids.UUID) delivered {
+// all. recipient is the address on the message; linkTo, when non-zero, links
+// the activity to that person. The two are independent on purpose — a delivery
+// addressed to a third party but linked to the subject's timeline, and one
+// addressed to the subject with no link at all, are what tell the SAR's two
+// reach arms apart.
+//
+// status decides which of the columns a scrub must PRESERVE are populated, and
+// the two shapes are genuinely different rows: a sent delivery carries its
+// receipt and no reason (RecordSent nulls it), while a parked one carries the
+// operator sentence that ended it — which is where a provider's own words
+// about the recipient land, and therefore the only place `reason` can hold the
+// subject's address.
+func seedDelivery(t *testing.T, e *Env, age, subject, body, status, recipient string, linkTo ids.UUID) delivered {
 	t.Helper()
-	out := delivered{person: linkTo, activity: ids.NewV7(), delivery: ids.NewV7(), subject: subject}
+	out := delivered{person: linkTo, activity: ids.NewV7(), delivery: ids.NewV7(), subject: subject, status: status}
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		wsClause := `NULLIF(current_setting('app.workspace_id', true), '')::uuid`
@@ -91,7 +104,7 @@ func seedDelivery(t *testing.T, e *Env, age, subject, body string, linkTo ids.UU
 			                      source, captured_by, source_system, source_id, counterparty_email)
 			VALUES ($1, `+wsClause+`, 'email', $2, $3, 'outbound', now() - $4::interval,
 			        'manual', 'human:x', 'gmail', $5, $6)`,
-			out.activity, subject, body, age, out.delivery.String()+"@margince.test", commsSubjectEmail); err != nil {
+			out.activity, subject, body, age, out.delivery.String()+"@margince.test", recipient); err != nil {
 			return err
 		}
 		if !linkTo.IsZero() {
@@ -104,12 +117,15 @@ func seedDelivery(t *testing.T, e *Env, age, subject, body string, linkTo ids.UU
 		_, err := tx.Exec(ctx, `
 			INSERT INTO comms_outbound (id, workspace_id, activity_id, user_id, provider, message_id,
 			                            recipients, cc, subject, body, consent_purpose,
-			                            list_unsubscribe, status, sent_at)
+			                            list_unsubscribe, status, sent_at, provider_message_id, reason)
 			VALUES ($1, `+wsClause+`, $2, $3, 'gmail', $4,
 			        jsonb_build_array($5::text), jsonb_build_array('cc.'||$5::text), $6, $7, 'transactional',
-			        '<https://app.test/v1/public/preferences/tok-erika/unsubscribe?purpose=marketing>', 'sent', now())`,
+			        '<https://app.test/v1/public/preferences/tok-erika/unsubscribe?purpose=marketing>', $8,
+			        CASE WHEN $8 = 'sent' THEN now() END,
+			        CASE WHEN $8 = 'sent' THEN 'provider-receipt-' || $4 END,
+			        CASE WHEN $8 = 'parked' THEN 'the provider refused the recipient ' || $5 END)`,
 			out.delivery, out.activity, e.Rep1, out.delivery.String()+"@margince.test",
-			commsSubjectEmail, subject, body)
+			recipient, subject, body, status)
 		return err
 	})
 	if err != nil {
@@ -118,21 +134,27 @@ func seedDelivery(t *testing.T, e *Env, age, subject, body string, linkTo ids.UU
 	return out
 }
 
-// deliveryRow is one comms_outbound row as the assertions read it.
+// deliveryRow is one comms_outbound row as the assertions read it: the columns
+// a scrub must empty, and the ones it must leave alone.
 type deliveryRow struct {
 	recipients, cc, subject, body string
-	listUnsubscribe               *string
+	listUnsubscribe, reason       *string
+	status                        string
+	sentAt                        *time.Time
+	providerMessageID             *string
 }
 
-// readDelivery reads back the PII columns of one delivery.
+// readDelivery reads back one delivery, both halves.
 func readDelivery(t *testing.T, e *Env, id ids.UUID) deliveryRow {
 	t.Helper()
 	var row deliveryRow
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `
-			SELECT recipients::text, cc::text, subject, body, list_unsubscribe
+			SELECT recipients::text, cc::text, subject, body, list_unsubscribe, reason,
+			       status, sent_at, provider_message_id
 			FROM comms_outbound WHERE id = $1`, id).
-			Scan(&row.recipients, &row.cc, &row.subject, &row.body, &row.listUnsubscribe)
+			Scan(&row.recipients, &row.cc, &row.subject, &row.body, &row.listUnsubscribe,
+				&row.reason, &row.status, &row.sentAt, &row.providerMessageID)
 	})
 	if err != nil {
 		t.Fatalf("reading delivery %s: %v", id, err)
@@ -149,7 +171,7 @@ func readDelivery(t *testing.T, e *Env, id ids.UUID) deliveryRow {
 func assertDeliveryRedacted(t *testing.T, e *Env, d delivered) {
 	t.Helper()
 	row := readDelivery(t, e, d.delivery)
-	if strings.Contains(row.recipients, commsSubjectEmail) || strings.Contains(row.cc, commsSubjectEmail) {
+	if strings.Contains(row.recipients, mailRecipientEmail) || strings.Contains(row.cc, mailRecipientEmail) {
 		t.Errorf("the erased address still sits in the delivery: recipients=%s cc=%s", row.recipients, row.cc)
 	}
 	if row.body != "" {
@@ -157,6 +179,20 @@ func assertDeliveryRedacted(t *testing.T, e *Env, d delivered) {
 	}
 	if row.listUnsubscribe != nil {
 		t.Errorf("the recipient's unsubscribe token survived the erasure: %q", *row.listUnsubscribe)
+	}
+	if row.reason != nil {
+		t.Errorf("the delivery reason survived the erasure: %q — it can quote the provider quoting the address", *row.reason)
+	}
+	// The other half of the posture, and the reason this is a scrub rather than
+	// a delete: the proof that a message left — or was tried and stopped — must
+	// outlive the loss of what it said, or erasure has destroyed the send record
+	// instead of redacting it.
+	if row.status != d.status {
+		t.Errorf("the scrub moved the delivery's status from %q to %q", d.status, row.status)
+	}
+	if d.status == "sent" && (row.sentAt == nil || row.providerMessageID == nil) {
+		t.Errorf("the scrub destroyed the receipt proving the message left: sent_at=%v provider_message_id=%v",
+			row.sentAt, row.providerMessageID)
 	}
 	var activitySubject *string
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
@@ -181,15 +217,27 @@ func assertDeliveryRedacted(t *testing.T, e *Env, d delivered) {
 // to touch.
 func TestErasureRedactsTheDeliveryBehindARedactedActivity(t *testing.T) {
 	e := Setup(t)
-	person := seedSubjectPerson(t, e, commsSubjectEmail)
-	aged := seedDelivery(t, e, "9 years", "Old order confirmation", "the agreed price was 4200 EUR", person)
-	shielded := seedDelivery(t, e, "30 days", "Recent order confirmation", "the agreed price was 900 EUR", person)
+	person := seedMailRecipient(t, e, mailRecipientEmail)
+	// Both terminal shapes, because the scrub has to clear a different column
+	// on each: a sent delivery's receipt must survive, a parked one's operator
+	// reason quotes the address and must not.
+	aged := seedDelivery(t, e, "9 years", "Old order confirmation", "the agreed price was 4200 EUR", "sent", mailRecipientEmail, person)
+	agedParked := seedDelivery(t, e, "9 years", "Old quote", "the quote nobody could deliver", "parked", mailRecipientEmail, person)
+	shielded := seedDelivery(t, e, "30 days", "Recent order confirmation", "the agreed price was 900 EUR", "sent", mailRecipientEmail, person)
+	// The class the link-walk cannot see: a message this installation SENT to
+	// the subject whose activity inherited no person link (its anchor had
+	// none, or was linked to an organization or deal instead). Nothing links
+	// it to the subject, and its captured_by is a human — so both halves of
+	// the timeline selector miss it unless erasure reaches mail by address.
+	unlinked := seedDelivery(t, e, "9 years", "Sent with no timeline link", "the unlinked quote", "sent", mailRecipientEmail, ids.UUID{})
 
 	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
 		t.Fatalf("ErasePerson: %v", err)
 	}
 
 	assertDeliveryRedacted(t, e, aged)
+	assertDeliveryRedacted(t, e, agedParked)
+	assertDeliveryRedacted(t, e, unlinked)
 
 	// The floor-shielded message keeps its activity, so its delivery keeps its
 	// copy: the two must agree, always.
@@ -213,9 +261,15 @@ func TestErasureRedactsTheDeliveryBehindARedactedActivity(t *testing.T) {
 // a message the send path never linked to a record is still data about them.
 func TestSARIncludesTheSubjectsSentMessages(t *testing.T) {
 	e := Setup(t)
-	person := seedSubjectPerson(t, e, commsSubjectEmail)
-	linked := seedDelivery(t, e, "10 days", "Linked to the record", "quoted terms", person)
-	unlinked := seedDelivery(t, e, "11 days", "Addressed but unlinked", "second quote", ids.UUID{})
+	person := seedMailRecipient(t, e, mailRecipientEmail)
+	// One fixture per arm, and neither can satisfy the other: the linked
+	// message went to somebody ELSE (only the timeline link ties it to the
+	// subject), and the addressed one carries no link at all. Sharing an
+	// address between them would let either clause alone keep this green.
+	linked := seedDelivery(t, e, "10 days", "Linked to the record", "quoted terms",
+		"sent", "third.party@example.test", person)
+	unlinked := seedDelivery(t, e, "11 days", "Addressed but unlinked", "second quote",
+		"sent", mailRecipientEmail, ids.UUID{})
 
 	pkg, err := privacy.AssembleSAR(e.Admin(), e.Pool, ids.From[ids.PersonKind](person))
 	if err != nil {
@@ -255,8 +309,8 @@ func TestRetentionRedactsTheDeliveryOfAnAgedOutActivity(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	aged := seedDelivery(t, e, "9 years", "Ancient campaign", "the words the policy ages out", ids.UUID{})
-	fresh := seedDelivery(t, e, "10 days", "This week's message", "still within the window", ids.UUID{})
+	aged := seedDelivery(t, e, "9 years", "Ancient campaign", "the words the policy ages out", "sent", mailRecipientEmail, ids.UUID{})
+	fresh := seedDelivery(t, e, "10 days", "This week's message", "still within the window", "sent", mailRecipientEmail, ids.UUID{})
 
 	svc := privacy.NewRetentionService(e.Pool, nil, slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	if err := svc.Evaluate(context.Background()); err != nil {
