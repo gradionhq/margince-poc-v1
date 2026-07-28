@@ -194,15 +194,15 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 // leaves the delivery to the next one. It never leaves this package.
 const outcomeUndecided Outcome = ""
 
-// gateSeat refuses a delivery whose sender is no longer a live seat, and
-// returns outcomeUndecided when they are.
+// gateSeat refuses a delivery whose sender is no longer a live,
+// mutation-capable seat, and returns outcomeUndecided when they are.
 //
-// It PARKS rather than retries, because a deactivation is an answer: the
-// account is off-boarded or compromised, and no amount of waiting restores the
-// authority that staged this message. Retrying would keep the batch alive for
-// the whole maximum age, which is the exposure this gate closes. A seat
-// authority that could not ANSWER is the opposite case and retries, so an
-// identity-store outage does not destroy every send in flight.
+// It PARKS rather than retries, because both an off-boarding and a downgrade
+// to a read seat are answers: the authority that staged this message is gone
+// either way, and no amount of waiting restores it. Retrying would keep the
+// batch alive for the whole maximum age, which is the exposure this gate
+// closes. A seat authority that could not ANSWER is the opposite case and
+// retries, so an identity-store outage does not destroy every send in flight.
 func (d *Dispatcher) gateSeat(ctx context.Context, del Delivery) (Outcome, time.Duration, error) {
 	if d.seats == nil {
 		// A send path with no seat authority wired is a deployment defect, and
@@ -210,13 +210,12 @@ func (d *Dispatcher) gateSeat(ctx context.Context, del Delivery) (Outcome, time.
 		// the missing consent authority below does.
 		return d.park(ctx, del.ID, "no seat authority is configured on this send path")
 	}
-	active, err := d.seats.ActiveSeat(ctx, del.UserID)
+	active, reason, err := d.seats.ActiveSeat(ctx, del.UserID)
 	if err != nil {
 		return d.retry(ctx, del.ID, err)
 	}
 	if !active {
-		return d.park(ctx, del.ID,
-			"the sender's account is no longer active; a deactivated user's mailbox may not transmit staged messages")
+		return d.park(ctx, del.ID, reason)
 	}
 	return outcomeUndecided, 0, nil
 }
@@ -238,7 +237,8 @@ func (d *Dispatcher) gateConsent(ctx context.Context, del Delivery) (Outcome, ti
 		// An answer: consent is absent, and no amount of waiting brings it
 		// back.
 		return d.park(ctx, del.ID, fmt.Sprintf(
-			"consent for purpose %q is not granted for these recipients", del.ConsentPurpose))
+			"consent for purpose %q is not granted for these recipients", del.ConsentPurpose,
+		))
 	case err != nil:
 		// NOT an answer. A consent service that is merely down must not
 		// permanently destroy a consented send — getting this branch backwards
@@ -264,7 +264,8 @@ func (d *Dispatcher) pace(ctx context.Context, del Delivery) (Outcome, time.Dura
 		if age := d.now().Sub(del.CreatedAt); age > d.maxAge {
 			return d.park(ctx, del.ID, fmt.Sprintf(
 				"policy %q deferred this delivery for %s, past the %s maximum age",
-				policy.Name(), age.Round(time.Second), d.maxAge))
+				policy.Name(), age.Round(time.Second), d.maxAge,
+			))
 		}
 		return d.postpone(ctx, del.ID, "waiting: "+policy.Name(), wait)
 	}
@@ -360,7 +361,8 @@ func (d *Dispatcher) throttled(ctx context.Context, del Delivery, retryAfter tim
 	// this is the last rung exactly when no further one remains.
 	if del.Attempts >= d.maxAttempts-1 {
 		return d.park(ctx, del.ID, fmt.Sprintf(
-			"the provider is rate limiting this mailbox and the retry ladder is exhausted after %d attempts", del.Attempts))
+			"the provider is rate limiting this mailbox and the retry ladder is exhausted after %d attempts", del.Attempts,
+		))
 	}
 	if err := d.store.RecordFailure(ctx, del.ID, "waiting: the provider is rate limiting this mailbox"); err != nil {
 		if errors.Is(err, ErrTerminal) {

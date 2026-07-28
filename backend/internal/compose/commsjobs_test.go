@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -286,6 +288,90 @@ type stubSender struct{}
 
 func (stubSender) Send(context.Context, connector.Auth, connector.OutboundMessage) (connector.SendReceipt, error) {
 	return connector.SendReceipt{}, nil
+}
+
+// stubSeatType is identity's authority seam, faked so the transmit-time seat
+// translation is proven without a database.
+type stubSeatType struct {
+	seat principal.SeatType
+	err  error
+}
+
+func (s stubSeatType) SeatType(context.Context, ids.UUID, ids.UUID) (principal.SeatType, error) {
+	return s.seat, s.err
+}
+
+// commsSeats.ActiveSeat is the transmit-time licensing gate: a read seat is a
+// live row, not a permitted sender, and the two must not collapse into one
+// answer. If this test is reverted to asking only "did the lookup return a
+// row" (dropping the CanMutate check), a live read seat comes back active and
+// this fails.
+func TestCommsSeatsActiveSeatChecksMutationCapabilityNotMereRowExistence(t *testing.T) {
+	ctx := principal.WithWorkspaceID(context.Background(), ids.NewV7())
+	lookupDown := errors.New("identity store timeout")
+
+	for _, tc := range []struct {
+		name       string
+		authority  stubSeatType
+		wantActive bool
+		wantReason string
+		wantErr    error
+	}{
+		{"a full seat may send", stubSeatType{seat: principal.SeatFull}, true, "", nil},
+		{
+			"a live read seat parks, not sends — a row existing is not the same fact as a permitted sender",
+			stubSeatType{seat: principal.SeatRead},
+			false, "read-only seat", nil,
+		},
+		{
+			"a missing row parks as deactivated, not as read-only",
+			stubSeatType{err: apperrors.ErrNotFound},
+			false, "no longer active", nil,
+		},
+		{
+			"a lookup that cannot answer must not answer — an outage is not a licensing decision",
+			stubSeatType{err: lookupDown},
+			false, "", lookupDown,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := commsSeats{authority: tc.authority}
+
+			active, reason, err := s.ActiveSeat(ctx, ids.New[ids.UserKind]())
+
+			if active != tc.wantActive {
+				t.Fatalf("ActiveSeat active = %v, want %v", active, tc.wantActive)
+			}
+			if active && reason != "" {
+				t.Fatalf("ActiveSeat reason = %q, want empty for a permitted sender", reason)
+			}
+			if tc.wantReason != "" && !strings.Contains(reason, tc.wantReason) {
+				t.Fatalf("ActiveSeat reason = %q, want it to mention %q so an operator can tell the two park causes apart", reason, tc.wantReason)
+			}
+			switch {
+			case tc.wantErr != nil && !errors.Is(err, tc.wantErr):
+				t.Fatalf("ActiveSeat error = %v, want it to match %v", err, tc.wantErr)
+			case tc.wantErr == nil && err != nil:
+				t.Fatalf("ActiveSeat error = %v, want nil", err)
+			}
+		})
+	}
+}
+
+// ActiveSeat must not be asked outside a bound workspace: it would otherwise
+// read identity's authority against no tenant at all, which the RLS GUC
+// contract has no answer for.
+func TestCommsSeatsActiveSeatRefusesWithNoWorkspaceBound(t *testing.T) {
+	s := commsSeats{authority: stubSeatType{seat: principal.SeatFull}}
+
+	active, _, err := s.ActiveSeat(context.Background(), ids.New[ids.UserKind]())
+
+	if err == nil {
+		t.Fatal("ActiveSeat with no workspace on the context returned nil error")
+	}
+	if active {
+		t.Fatal("ActiveSeat reported an active seat with no workspace bound to check it against")
+	}
 }
 
 // The pre-flight's four branches. Two of them decide whether a user is handed

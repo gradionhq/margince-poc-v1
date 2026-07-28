@@ -113,10 +113,13 @@ func (s *stubConsent) RequireGrantedForEmails(_ context.Context, recipients []st
 // sender, so a test that means "still employed" has to say so.
 type stubSeats struct {
 	active bool
+	reason string
 	err    error
 }
 
-func (s stubSeats) ActiveSeat(context.Context, ids.UserID) (bool, error) { return s.active, s.err }
+func (s stubSeats) ActiveSeat(context.Context, ids.UserID) (bool, string, error) {
+	return s.active, s.reason, s.err
+}
 
 // liveSeat is the ordinary case every test that is not ABOUT the seat gate
 // wants: the sender is still a permitted human.
@@ -384,7 +387,7 @@ func TestDispatchParksWhenTheSenderIsNoLongerALiveSeat(t *testing.T) {
 	consent := &stubConsent{}
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newSeatedDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
-		stubSeats{active: false}, consent)
+		stubSeats{active: false, reason: "the sender's account is no longer active; a deactivated user's mailbox may not transmit staged messages"}, consent)
 
 	got, err := dispatch(context.Background(), d, store.delivery.ID)
 	if err != nil {
@@ -400,6 +403,30 @@ func TestDispatchParksWhenTheSenderIsNoLongerALiveSeat(t *testing.T) {
 	// ordering the mailbox grant keeps.
 	if consent.asked != nil {
 		t.Errorf("consent was consulted about %v despite a dead seat", consent.asked)
+	}
+}
+
+// A downgrade binds mid-flight the same way a deactivation does, and it must
+// not be reported as one: a live read seat is not off-boarded, so the parked
+// row has to carry the authority's OWN reason rather than the gate's hardcoded
+// deactivation sentence — an operator reading the park record needs to tell
+// the two apart.
+func TestDispatchParksOnTheSeatAuthoritysOwnReasonRatherThanAHardcodedOne(t *testing.T) {
+	sender := &fakeSender{}
+	consent := &stubConsent{}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newSeatedDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
+		stubSeats{active: false, reason: "the sender holds a read-only seat; a read seat may not transmit staged messages"}, consent)
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if got != OutcomeParked || sender.calls != 0 {
+		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0 — a read-only seat may not transmit", got, sender.calls)
+	}
+	if !strings.Contains(store.parked, "read-only seat") || strings.Contains(store.parked, "no longer active") {
+		t.Errorf("parked reason = %q; a live read seat must not be reported as a deactivated account", store.parked)
 	}
 }
 

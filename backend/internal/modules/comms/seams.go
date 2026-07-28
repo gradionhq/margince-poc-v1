@@ -51,19 +51,29 @@ type ConsentGate interface {
 }
 
 // SeatAuthority answers whether the human whose mailbox is about to transmit
-// is still a live, permitted seat. Deactivating a user revokes their sessions
-// and passports, but a delivery staged before that moment carries no session
-// of its own — so without this the off-boarded account's staged batch keeps
-// leaving their mailbox for as long as the maximum age allows.
+// is still a live, mutation-capable seat, and if not, why. Deactivating a
+// user revokes their sessions and passports, but a delivery staged before
+// that moment carries no session of its own — so without this the off-boarded
+// account's staged batch keeps leaving their mailbox for as long as the
+// maximum age allows. A DOWNGRADE binds the same way: seat_type is the
+// A62/ADR-0047 licensing ceiling every other seam enforces before it lets a
+// principal mutate, and a delivery staged under a full seat must not outrun a
+// downgrade to read that lands before it transmits — a read seat may read but
+// never send, whatever staged it.
 //
-// It reports an ANSWER as a bool and a FAULT as an error, the same split the
-// consent gate makes and for the same reason: a deactivation is a decision the
-// dispatcher must honour by parking, while a database timeout is a failure to
-// learn the decision and must not destroy a legitimate send.
+// It reports an ANSWER as (false, reason) and a FAULT as an error, the same
+// split the consent gate makes and for the same reason: a deactivation or a
+// downgrade is a decision the dispatcher must honour by parking with the
+// reason named, while a database timeout is a failure to learn the decision
+// and must not destroy a legitimate send.
 type SeatAuthority interface {
-	// ActiveSeat reports whether userID is a live, permitted seat in the
-	// workspace bound on ctx.
-	ActiveSeat(ctx context.Context, userID ids.UserID) (bool, error)
+	// ActiveSeat reports whether userID is a live, mutation-capable seat in
+	// the workspace bound on ctx. reason is empty exactly when active is
+	// true; when active is false, reason is the sentence the delivery parks
+	// with, and it must say WHICH answer this is — an operator reading the
+	// park record needs to tell a deactivated account from a live seat this
+	// installation never let send.
+	ActiveSeat(ctx context.Context, userID ids.UserID) (active bool, reason string, err error)
 }
 
 // ErrNoMailbox marks a user with no connection to the provider a delivery is

@@ -218,7 +218,8 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID) (comms.Ou
 	// A job carries no session, only the workspace — the same context the
 	// send worker builds.
 	outcome, _, err := dispatcher.DispatchWithWait(
-		principal.WithWorkspaceID(context.Background(), p.workspaceID(t)), deliveryID)
+		principal.WithWorkspaceID(context.Background(), p.workspaceID(t)), deliveryID,
+	)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
 	}
@@ -400,6 +401,38 @@ func TestDeactivatingTheSenderParksAStagedDelivery(t *testing.T) {
 	}
 }
 
+// A downgrade binds mid-flight the same way a deactivation does: seat_type is
+// the A62/ADR-0047 licensing ceiling, and nothing today mutates it after
+// creation — but the transmit-time gate re-reads the live row rather than
+// trusting whatever seat staged the delivery, exactly as it re-reads status.
+// A sender still live but holding a read seat must park, not transmit, and
+// the reason must say so rather than reporting an account that is not in
+// fact deactivated.
+func TestASenderDowngradedToAReadSeatParksAStagedDelivery(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	sentActivity := p.sendExpectingAcceptance(t, "transactional", "Re: Inbound question", "As discussed.")
+	deliveryID, _ := p.deliveryFor(t, sentActivity)
+	p.downgradeSenderToReadSeat(t)
+
+	outcome, captured, _ := p.dispatchOnce(t, deliveryID)
+
+	if outcome != comms.OutcomeParked {
+		t.Fatalf("dispatch after the sender was downgraded to a read seat → %q, want parked", outcome)
+	}
+	if captured.raw != "" {
+		t.Error("a read-seat sender's staged message still reached the provider")
+	}
+	reason := p.deliveryReason(t, deliveryID)
+	if !strings.Contains(reason, "read-only seat") {
+		t.Errorf("parked reason = %q; an operator must be able to read WHY the batch stopped", reason)
+	}
+	if strings.Contains(reason, "no longer active") {
+		t.Errorf("parked reason = %q; a live read seat must not be reported as a deactivated account", reason)
+	}
+}
+
 // deactivateSender flips the acting human's seat the way identity's
 // DeactivateUser does. Written directly because the subject is what the SEND
 // path reads out of the row, not how the admin endpoint puts it there.
@@ -411,6 +444,21 @@ func (p *preflightEnv) deactivateSender(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatalf("deactivating the sender: %v", err)
+	}
+}
+
+// downgradeSenderToReadSeat flips the acting human's seat_type the way a
+// licensing downgrade would, leaving status untouched — the sender is still a
+// live, logged-in-capable account, just no longer a permitted one to send
+// from.
+func (p *preflightEnv) downgradeSenderToReadSeat(t *testing.T) {
+	t.Helper()
+	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE app_user SET seat_type = 'read' WHERE id = $1`, p.user)
+		return err
+	}); err != nil {
+		t.Fatalf("downgrading the sender's seat: %v", err)
 	}
 }
 

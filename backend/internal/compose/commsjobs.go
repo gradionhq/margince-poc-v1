@@ -212,14 +212,21 @@ type seatResolver interface {
 
 var _ seatResolver = (*identity.Service)(nil)
 
-// commsSeats answers whether a staged delivery's sender is still a live seat,
-// over the SAME resolver the request-time gate reads — so a user deactivated
-// after staging loses the mailbox the same instant they lose the session.
+// commsSeats answers whether a staged delivery's sender is still a live,
+// mutation-capable seat, over the SAME resolver the request-time gate reads
+// — so a user deactivated or downgraded after staging loses the mailbox the
+// same instant they lose the session.
 //
-// The translation mirrors commsResolver's: ErrNotFound is the ANSWER
-// ("this human is no longer a live seat in this workspace" — identity's
-// authority read filters on status and archived_at together), and everything
-// else is a failure to get one, which must not permanently destroy mail.
+// The translation mirrors commsResolver's: ErrNotFound is one ANSWER ("this
+// human is no longer a live seat in this workspace" — identity's authority
+// read filters on status and archived_at together), a live row whose seat
+// cannot mutate is the other, and everything else is a failure to get an
+// answer, which must not permanently destroy mail. The two answers are kept
+// apart in the reason each returns: CanMutate is the SAME predicate
+// platform/auth's Admit and automation's gate check before letting a
+// principal mutate (A62/ADR-0047) — reading the seat and then sending anyway
+// would make this the one gate on the licensing ceiling that does not enforce
+// it.
 type commsSeats struct{ authority seatResolver }
 
 var _ comms.SeatAuthority = commsSeats{}
@@ -234,19 +241,22 @@ func NewSendSeatAuthority(pool *pgxpool.Pool) comms.SeatAuthority {
 	return commsSeats{authority: identity.NewService(pool)}
 }
 
-func (s commsSeats) ActiveSeat(ctx context.Context, userID ids.UserID) (bool, error) {
+func (s commsSeats) ActiveSeat(ctx context.Context, userID ids.UserID) (bool, string, error) {
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return false, errors.New("comms: resolving a delivery's sender outside workspace context")
+		return false, "", errors.New("comms: resolving a delivery's sender outside workspace context")
 	}
-	_, err := s.authority.SeatType(ctx, ws, userID.UUID)
+	seat, err := s.authority.SeatType(ctx, ws, userID.UUID)
 	if errors.Is(err, apperrors.ErrNotFound) {
-		return false, nil
+		return false, "the sender's account is no longer active; a deactivated user's mailbox may not transmit staged messages", nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("comms: reading the sender's seat: %w", err)
+		return false, "", fmt.Errorf("comms: reading the sender's seat: %w", err)
 	}
-	return true, nil
+	if !seat.CanMutate() {
+		return false, "the sender holds a read-only seat; a read seat may not transmit staged messages", nil
+	}
+	return true, "", nil
 }
 
 // mailboxGrants is the scopes-only half of the same capture lookup. The
