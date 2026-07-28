@@ -74,6 +74,11 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	listen := fs.String("listen", "", "serve the hosted A2 transport on this address instead of stdio")
 	logLevel := fs.String("log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "diagnostic verbosity: debug|info|warn|error")
 	logFormat := fs.String("log-format", envOr("MARGINCE_LOG_FORMAT", "text"), "diagnostic encoding: text|json")
+	// The same canonical origin the api serves. The send_email tool builds the
+	// recipient's tokenized unsubscribe link from it; without one a marketing
+	// send through this surface refuses rather than go out unlinkable.
+	publicBaseURL := fs.String("public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"),
+		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -113,7 +118,10 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	registry := compose.NewRegistryWithIncumbent(pool, compose.OverlayIncumbentResolver(pool, vault))
+	// The delivery machinery is not wired in this role yet, so a send through
+	// the tool surface refuses rather than record one nothing will carry.
+	registry := compose.NewRegistryWithIncumbent(pool, compose.OverlayIncumbentResolver(pool, vault),
+		compose.SendPath{PublicBaseURL: *publicBaseURL})
 
 	// Bind the singleton organization before serving anything: an MCP
 	// process against a pre-bootstrap database is an operator error, not

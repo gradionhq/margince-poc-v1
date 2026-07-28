@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -177,8 +178,37 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 // unsubscribe token. Without it a marketing send refuses rather than emit
 // a forgeable link.
 func WithPublicBaseURL(base string) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.send.PublicBaseURL = base
 		s.activitiesHandlers = s.WithPublicBaseURL(base)
+		// The MCP tool surface enters the same send path, so it is rebuilt
+		// over the same configuration — a base URL the HTTP transport has and
+		// the tool surface does not is how the two forked.
+		s.rebuildToolRegistry(pool)
+	}
+}
+
+// WithDelivery wires the machinery an accepted send is staged for
+// transmission with, onto EVERY send transport this role serves: the HTTP
+// handler, the MCP send_email tool, and (through the same store) the
+// automation send action. Without it a send refuses rather than log an
+// activity claiming a message went out.
+func WithDelivery(stager activities.DeliveryStager) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.send.Delivery = stager
+		s.activitiesHandlers = s.WithDelivery(stager)
+		s.rebuildToolRegistry(pool)
+	}
+}
+
+// WithMailbox wires the send-grant pre-flight onto the same transports, so a
+// user with no send-capable mailbox is told to reconnect it instead of being
+// handed a 202 for a message that can only park.
+func WithMailbox(authority activities.MailboxAuthority) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.send.Mailbox = authority
+		s.activitiesHandlers = s.WithMailbox(authority)
+		s.rebuildToolRegistry(pool)
 	}
 }
 

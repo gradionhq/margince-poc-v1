@@ -22,6 +22,7 @@ import (
 type workerConfig struct {
 	dsn                  string
 	configPath           string
+	publicBaseURL        string
 	captureConfig        compose.CaptureConfig
 	ratesFx              string
 	ratesCurrencies      []string
@@ -61,6 +62,11 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	var cfg workerConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	// The same canonical origin the api serves: an automation-triggered
+	// marketing send builds the recipient's tokenized unsubscribe link from
+	// it, and without one that send refuses rather than go out unlinkable.
+	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"),
+		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required for an automation-triggered marketing send")
 	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
@@ -226,4 +232,13 @@ func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("worker: %s=%q is not a duration: %w", key, v, err)
 	}
 	return parsed, nil
+}
+
+// sendPath is the worker's outbound-send configuration, shared by every lane
+// that can send: the Surface-B agent runner, the event-driven workflow engine,
+// and the clock-trigger scanner. The delivery machinery is not wired in this
+// role yet, so a send from any of them refuses rather than record one that
+// nothing will carry.
+func sendPath(cfg workerConfig) compose.SendPath {
+	return compose.SendPath{PublicBaseURL: cfg.publicBaseURL}
 }

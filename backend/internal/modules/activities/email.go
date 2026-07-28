@@ -103,11 +103,11 @@ type DeliveryRequest struct {
 }
 
 // MailboxAuthority answers whether the acting user can actually send today.
-// It is a pre-flight, not a guarantee: the grant can be withdrawn between
-// this answer and transmission, which is why the delivery path re-checks.
-// What it converts is the common, already-knowable failure — every mailbox
-// connected before the send grant existed holds read-only access — from a
-// 202 followed by a silently parked delivery into an honest refusal.
+// Authority over transmission stays with the delivery path, which re-checks
+// the grant at the moment it sends; this answers the same question earlier,
+// so the common already-knowable failure — every mailbox connected before the
+// send grant existed holds read-only access — becomes a refusal the user can
+// act on instead of a 202 followed by a silently parked delivery.
 type MailboxAuthority interface {
 	// SendCapable reports whether the acting user holds a connected mailbox
 	// whose grant includes sending, not merely reading.
@@ -124,9 +124,10 @@ func (e *MailboxNotSendCapableError) Error() string {
 }
 
 // WithMailbox returns a store whose send path pre-flights the sender's
-// mailbox grant. A store composed without one simply skips the pre-flight —
-// the delivery path's own authority check still refuses at transmission, so
-// the gap costs an honest error message, never an ungoverned send.
+// mailbox grant. The invariant: the pre-flight is advisory, and the delivery
+// path's authority check at transmission is what refuses. A store composed
+// without a mailbox authority therefore runs no pre-flight and accepts the
+// send, which is the correct reading of an advisory check that is absent.
 func (s *Store) WithMailbox(authority MailboxAuthority) *Store {
 	clone := *s
 	clone.mailbox = authority
@@ -182,9 +183,14 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 	}
 	messageID := MintMessageID(s.messageIDDomain())
 
-	links := inheritedLinks(anchor)
-	direction := "outbound"
-	sourceSystem := sendProvider
+	message := outboundMessage{
+		in:              in,
+		messageID:       messageID,
+		body:            body,
+		listUnsubscribe: listUnsubscribe,
+		to:              toRecipients(in.Recipients, in.Cc),
+		links:           inheritedLinks(anchor),
+	}
 
 	var sent crmcontracts.Activity
 	err = s.tx(ctx, func(tx pgx.Tx) error {
@@ -192,39 +198,72 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 		if err != nil {
 			return err
 		}
-		sent, _, err = logActivityInTx(ctx, tx, LogActivityInput{
-			Kind:         "email",
-			Subject:      &in.Subject,
-			Body:         &body,
-			Direction:    &direction,
-			Links:        links,
-			Source:       "manual",
-			SourceSystem: &sourceSystem,
-			SourceID:     &messageID,
-			ThreadKey:    chain.threadKey,
-		})
+		sent, _, err = logActivityInTx(ctx, tx, message.activity(chain))
 		if err != nil {
 			return err
 		}
-		return stager.StageTx(ctx, tx, DeliveryRequest{
-			ActivityID:      ids.From[ids.ActivityKind](ids.UUID(sent.Id)),
-			Provider:        sendProvider,
-			MessageID:       messageID,
-			Recipients:      toRecipients(in.Recipients, in.Cc),
-			Cc:              in.Cc,
-			Subject:         in.Subject,
-			Body:            body,
-			ConsentPurpose:  in.ConsentPurpose,
-			InReplyTo:       chain.inReplyTo,
-			References:      chain.references,
-			ThreadKey:       chain.threadKey,
-			ListUnsubscribe: listUnsubscribe,
-		})
+		return stager.StageTx(ctx, tx, message.delivery(ids.UUID(sent.Id), chain))
 	})
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	return sent, nil
+}
+
+// outboundMessage is one send's derived facts, computed before the
+// transaction opens so the transaction holds writes only. The timeline row and
+// the delivery are two renderings of THIS value, which is why they are built
+// side by side: a field that disagreed between them would be a message whose
+// record and whose transmission say different things.
+type outboundMessage struct {
+	in              SendEmailInput
+	messageID       string
+	body            string
+	listUnsubscribe string
+	to              []string
+	links           []ActivityLinkInput
+}
+
+// activity is the timeline row the send commits.
+func (m outboundMessage) activity(chain threading) LogActivityInput {
+	direction, sourceSystem := "outbound", sendProvider
+	return LogActivityInput{
+		Kind:         "email",
+		Subject:      &m.in.Subject,
+		Body:         &m.body,
+		Direction:    &direction,
+		Links:        m.links,
+		Source:       "manual",
+		SourceSystem: &sourceSystem,
+		SourceID:     &m.messageID,
+		ThreadKey:    chain.threadKey,
+		// This row IS the sent copy — its natural key is the one the provider's
+		// echo carries, so the echo's upsert will find it and write nothing.
+		// The correspondence evidence the echo used to bring therefore has to
+		// be written here or it is never written at all (ADR-0072 §1: an
+		// outbound activity to an address is what makes it
+		// correspondence-positive).
+		CounterpartyEmail:            primaryCounterparty(m.to, m.in.Recipients),
+		CounterpartyOutboundAttested: true,
+	}
+}
+
+// delivery is the same message as the delivery machinery receives it.
+func (m outboundMessage) delivery(activityID ids.UUID, chain threading) DeliveryRequest {
+	return DeliveryRequest{
+		ActivityID:      ids.From[ids.ActivityKind](activityID),
+		Provider:        sendProvider,
+		MessageID:       m.messageID,
+		Recipients:      m.to,
+		Cc:              m.in.Cc,
+		Subject:         m.in.Subject,
+		Body:            m.body,
+		ConsentPurpose:  m.in.ConsentPurpose,
+		InReplyTo:       chain.inReplyTo,
+		References:      chain.references,
+		ThreadKey:       chain.threadKey,
+		ListUnsubscribe: m.listUnsubscribe,
+	}
 }
 
 // inheritedLinks carries the anchor's own links onto the reply, so the sent
@@ -246,6 +285,11 @@ func inheritedLinks(anchor crmcontracts.Activity) []ActivityLinkInput {
 // It lives on the send path rather than in a transport because the MCP tool
 // surface reaches this method directly: a check in one handler is a check
 // half the callers skip.
+//
+// It is advisory by contract, not fail-closed like the two guards above:
+// authority over transmission belongs to the delivery path, which re-checks
+// the grant at the moment it sends. This answers earlier and in words the
+// user can act on; it never decides whether a message may go.
 func (s *Store) ensureMailboxCanSend(ctx context.Context) error {
 	if s.mailbox == nil {
 		return nil
@@ -301,6 +345,20 @@ func toRecipients(recipients, cc []string) []string {
 
 func normalizeAddress(addr string) string {
 	return strings.ToLower(strings.TrimSpace(addr))
+}
+
+// primaryCounterparty picks the one address `activity.counterparty_email`
+// records for an outbound message: the first To, else the first addressee of
+// any kind. One column holds one address, and this is the same choice the
+// captured copy of this message would make — mailmap takes the first non-owner
+// recipient — so a send and its echo name the same counterparty.
+func primaryCounterparty(to, recipients []string) string {
+	for _, addr := range append(append([]string{}, to...), recipients...) {
+		if normalized := normalizeAddress(addr); normalized != "" {
+			return normalized
+		}
+	}
+	return ""
 }
 
 // threading is the RFC 5322 conversation chain one outbound message

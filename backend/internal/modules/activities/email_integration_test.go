@@ -13,7 +13,6 @@ package activities
 
 import (
 	"context"
-	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -22,7 +21,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -53,26 +51,6 @@ func (r *recordingStager) only(t *testing.T) DeliveryRequest {
 	}
 	return r.staged[0]
 }
-
-// stubUnsubscribeLinker stands in for the consent module's preference-token
-// mint: ok=false is how a locked (transactional) purpose answers.
-type stubUnsubscribeLinker struct {
-	token string
-	ok    bool
-	err   error
-}
-
-func (l stubUnsubscribeLinker) UnsubscribeToken(context.Context, string, string) (string, bool, error) {
-	return l.token, l.ok, l.err
-}
-
-// stubMailbox stands in for the connection registry's send-grant answer.
-type stubMailbox struct {
-	capable bool
-	err     error
-}
-
-func (m stubMailbox) SendCapable(context.Context) (bool, error) { return m.capable, m.err }
 
 type sendEnv struct {
 	owner *pgx.Conn
@@ -204,6 +182,18 @@ func (e *sendEnv) storedThreadKey(t *testing.T, id ids.UUID) string {
 	return key
 }
 
+func (e *sendEnv) storedCounterparty(t *testing.T, id ids.UUID) (string, bool) {
+	t.Helper()
+	var email string
+	var attested bool
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT coalesce(counterparty_email, ''), counterparty_outbound_attested FROM activity WHERE id = $1`,
+		id).Scan(&email, &attested); err != nil {
+		t.Fatalf("reading the stored counterparty: %v", err)
+	}
+	return email, attested
+}
+
 func sendInput(purpose string) SendEmailInput {
 	return SendEmailInput{
 		Recipients:     []string{"buyer@example.test", "boss@example.test"},
@@ -292,6 +282,63 @@ func TestSendEmailStampsTheThreadKeyFromTheAnchor(t *testing.T) {
 	}
 }
 
+// An anchor filed into a conversation but carrying no message identity of its
+// own — a CRM-side row, not a captured message — still roots the chain at the
+// conversation, and sends no In-Reply-To because there is no single message it
+// answers. The recipient's reply then keys the same conversation, which is all
+// the join needs.
+func TestSendEmailThreadsAnAnchorThatHasAKeyButNoMessageIdentity(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "root@buyer.test")
+	stager := &recordingStager{}
+
+	if _, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager); err != nil {
+		t.Fatalf("SendEmail: %v", err)
+	}
+
+	staged := stager.only(t)
+	if staged.InReplyTo != "" {
+		t.Fatalf("In-Reply-To = %q, want empty — the anchor names no message to reply to", staged.InReplyTo)
+	}
+	if len(staged.References) != 1 || staged.References[0] != "root@buyer.test" {
+		t.Fatalf("References = %v, want the conversation root alone", staged.References)
+	}
+	if staged.ThreadKey != "root@buyer.test" {
+		t.Fatalf("thread key = %q, want the anchor's conversation", staged.ThreadKey)
+	}
+}
+
+// A send composed in the CRM is the ONLY record that this workspace wrote to
+// this address: the provider's echo of the same message collides with this row
+// and writes nothing. Capture's correspondence-positive gate reads exactly
+// these two columns, so a send that leaves them unset makes a prospect the CRM
+// emailed a stranger when they reply.
+func TestSendEmailRecordsTheOutboundCorrespondenceEvidence(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+
+	in := sendInput("transactional")
+	in.Recipients = []string{"Buyer@Example.test", "boss@example.test"}
+	in.Cc = []string{"boss@example.test"}
+	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, in, stubConsentGate{}, stager)
+	if err != nil {
+		t.Fatalf("SendEmail: %v", err)
+	}
+
+	email, attested := e.storedCounterparty(t, ids.UUID(sent.Id))
+	// Normalized on the way in, like capture's own write: the same address in
+	// different casing is the same correspondence.
+	if email != "buyer@example.test" {
+		t.Fatalf("counterparty_email = %q, want the normalized primary recipient", email)
+	}
+	if !attested {
+		t.Fatal("a send the workspace composed did not attest its own outbound correspondence")
+	}
+}
+
 // A send with no conversation behind it starts one: no In-Reply-To, no
 // References, and the message is its own thread root — which is exactly the
 // key mailmap derives for a root message read back from the mailbox.
@@ -315,159 +362,5 @@ func TestSendEmailWithoutAnchorContextRootsANewThread(t *testing.T) {
 	}
 	if got := e.storedThreadKey(t, ids.UUID(sent.Id)); got != staged.MessageID {
 		t.Fatalf("stored thread_key = %q, want %q", got, staged.MessageID)
-	}
-}
-
-// RFC 8058 deliverability is derived on the send path itself, not in one
-// transport: the MCP send_email tool reaches this store method directly, and
-// marketing mail without a List-Unsubscribe header is what gets a domain
-// filtered.
-func TestSendEmailDerivesUnsubscribeHeadersForAMarketingPurpose(t *testing.T) {
-	e := setupSend(t)
-	anchor := e.seedAnchor(t, "", "")
-	stager := &recordingStager{}
-	linker := stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true}
-
-	sent, err := e.store(linker).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("marketing_email"), stubConsentGate{}, stager)
-	if err != nil {
-		t.Fatalf("SendEmail: %v", err)
-	}
-
-	wantURL := testBaseURL + "/v1/public/preferences/" + testUnsubscribeTok + "/unsubscribe?purpose=marketing_email"
-	staged := stager.only(t)
-	if staged.ListUnsubscribe != "<"+wantURL+">" {
-		t.Fatalf("staged List-Unsubscribe = %q, want the bracketed one-click URL <%s>", staged.ListUnsubscribe, wantURL)
-	}
-	// Header and footer derive from the SAME token and URL, so a recipient's
-	// visible link can never point somewhere the machine header does not.
-	if !strings.Contains(staged.Body, wantURL) {
-		t.Fatalf("staged body carries no visible unsubscribe link:\n%s", staged.Body)
-	}
-	if !strings.Contains(staged.Body, testBaseURL+"/v1/public/preferences/"+testUnsubscribeTok+"\n") &&
-		!strings.HasSuffix(staged.Body, testBaseURL+"/v1/public/preferences/"+testUnsubscribeTok) {
-		t.Fatalf("staged body carries no manage-preferences link:\n%s", staged.Body)
-	}
-	// The timeline records what actually went out, footer included.
-	if sent.Body == nil || !strings.Contains(*sent.Body, wantURL) {
-		t.Fatalf("logged activity body does not match the transmitted body: %v", sent.Body)
-	}
-}
-
-// A transactional message has nothing to unsubscribe from — the linker
-// declines to mint a token for a locked purpose — so it carries no header and
-// its body is left exactly as the sender wrote it.
-func TestSendEmailDerivesNoUnsubscribeHeadersForATransactionalPurpose(t *testing.T) {
-	e := setupSend(t)
-	anchor := e.seedAnchor(t, "", "")
-	stager := &recordingStager{}
-	linker := stubUnsubscribeLinker{token: testUnsubscribeTok, ok: false}
-
-	if _, err := e.store(linker).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager); err != nil {
-		t.Fatalf("SendEmail: %v", err)
-	}
-
-	staged := stager.only(t)
-	if staged.ListUnsubscribe != "" {
-		t.Fatalf("transactional send carries List-Unsubscribe %q, want none", staged.ListUnsubscribe)
-	}
-	if staged.Body != "As discussed." {
-		t.Fatalf("transactional body = %q, want the sender's text untouched", staged.Body)
-	}
-}
-
-// The activity and its delivery are one fact. A staging failure that still
-// left the activity behind would promise the user a send that was never
-// queued, on a timeline they have no way to correct.
-func TestSendEmailCommitsNoActivityWhenStagingFails(t *testing.T) {
-	e := setupSend(t)
-	anchor := e.seedAnchor(t, "", "")
-	stager := &recordingStager{err: errors.New("delivery table unavailable")}
-
-	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
-	if err == nil {
-		t.Fatal("SendEmail reported success though staging refused")
-	}
-	if n := e.outboundCount(t); n != 0 {
-		t.Fatalf("%d outbound activities survived a failed staging, want 0 (one transaction, one fact)", n)
-	}
-}
-
-// Accepting mail we already know cannot leave hands the user a 202 and a
-// silently parked delivery they cannot see. Every mailbox connected before
-// the send grant existed holds read-only access, so the check must ask about
-// the GRANT — "is something connected?" would pass all of them.
-func TestSendEmailRefusesWhenTheMailboxHoldsNoSendGrant(t *testing.T) {
-	e := setupSend(t)
-	anchor := e.seedAnchor(t, "", "")
-	stager := &recordingStager{}
-	store := e.store(stubUnsubscribeLinker{}).WithMailbox(stubMailbox{capable: false})
-
-	_, err := store.SendEmail(e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
-	var refusal *MailboxNotSendCapableError
-	if !errors.As(err, &refusal) {
-		t.Fatalf("send with no send-capable mailbox → %v, want a MailboxNotSendCapableError", err)
-	}
-	if !strings.Contains(refusal.Error(), "reconnect") {
-		t.Fatalf("refusal %q does not tell the user what to do about it", refusal.Error())
-	}
-	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
-		t.Fatal("a refused send still staged a delivery or logged an activity")
-	}
-}
-
-// The staged delivery names the anchor, and naming a record is a read: an
-// anchor outside the caller's row scope refuses with the same answer a
-// missing one gives, before anything is staged.
-func TestSendEmailRefusesAnAnchorOutsideTheCallersRowScope(t *testing.T) {
-	e := setupSend(t)
-	anchor := e.seedAnchor(t, "", "")
-	e.linkToPersonOwnedBy(t, anchor, e.other)
-	stager := &recordingStager{}
-
-	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
-		e.as(principal.RowScopeOwn), anchor, sendInput("transactional"), stubConsentGate{}, stager)
-	if !errors.Is(err, apperrors.ErrNotFound) {
-		t.Fatalf("send anchored to another rep's activity → %v, want ErrNotFound (existence-hiding)", err)
-	}
-	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
-		t.Fatal("a send refused at the row-scope gate still staged a delivery or logged an activity")
-	}
-}
-
-// Send and capture key the same column. The send writes thread_key at write
-// time; capture's echo of the same natural key is an ON CONFLICT DO NOTHING
-// upsert, which the log path answers by returning the existing row untouched
-// — so neither leg can overwrite the other's value.
-func TestReplayingASourceKeyLeavesTheStoredThreadKeyUntouched(t *testing.T) {
-	e := setupSend(t)
-	ctx := e.as(principal.RowScopeAll)
-	store := NewStore(e.pool)
-	system, sourceID := "gmail", "replayed@buyer.test"
-
-	first, created, err := store.LogActivity(ctx, LogActivityInput{
-		Kind: "email", Source: "manual", SourceSystem: &system, SourceID: &sourceID,
-		ThreadKey: "root@buyer.test",
-	})
-	if err != nil || !created {
-		t.Fatalf("first log: %v (created=%v)", err, created)
-	}
-	second, created, err := store.LogActivity(ctx, LogActivityInput{
-		Kind: "email", Source: "gmail", SourceSystem: &system, SourceID: &sourceID,
-		ThreadKey: "someone-elses-root@buyer.test",
-	})
-	if err != nil {
-		t.Fatalf("replayed log: %v", err)
-	}
-	if created {
-		t.Fatal("replaying a source key created a second activity")
-	}
-	if second.Id != first.Id {
-		t.Fatalf("replay returned activity %s, want the existing %s", second.Id, first.Id)
-	}
-	if got := e.storedThreadKey(t, ids.UUID(first.Id)); got != "root@buyer.test" {
-		t.Fatalf("stored thread_key = %q after a replay, want the value the first write set", got)
 	}
 }

@@ -385,7 +385,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 	}
 	t.Cleanup(pool.Close)
 	authSvc := identity.NewService(pool)
-	registry := compose.NewRegistry(pool)
+	registry := compose.NewRegistry(pool, compose.SendPath{})
 	authenticate := func(r *http.Request) (context.Context, error) {
 		wsID, err := authSvc.InstallationWorkspace(r.Context())
 		if err != nil {

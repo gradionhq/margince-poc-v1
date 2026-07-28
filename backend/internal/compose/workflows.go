@@ -16,7 +16,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
-	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -32,21 +31,21 @@ import (
 // creates a task) — while the lead-score recompute is a formula
 // obligation (formulas-and-rules §3 — "recomputed on each captured
 // signal") and fires always.
-func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
-	return workflowEngineWithDrafter(pool, nil)
+func NewWorkflowEngine(pool *pgxpool.Pool, send SendPath) *automation.WorkflowEngine {
+	return workflowEngineWithDrafter(pool, nil, send)
 }
 
 // NewWorkflowEngineWithReplyDraft adds the routed reply lane to draft_email
 // actions while preserving NewWorkflowEngine's deterministic default.
-func NewWorkflowEngineWithReplyDraft(pool *pgxpool.Pool, brain completer) *automation.WorkflowEngine {
+func NewWorkflowEngineWithReplyDraft(pool *pgxpool.Pool, brain completer, send SendPath) *automation.WorkflowEngine {
 	if brain == nil {
-		return NewWorkflowEngine(pool)
+		return NewWorkflowEngine(pool, send)
 	}
 	drafter := newReplyDrafter(pool, brain, nil)
-	return workflowEngineWithDrafter(pool, drafter)
+	return workflowEngineWithDrafter(pool, drafter, send)
 }
 
-func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDrafter) *automation.WorkflowEngine {
+func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) *automation.WorkflowEngine {
 	// identity.Service implements shared/ports/authz.Resolver — the
 	// match-time owner-permission gate's (gate.go) authority source. The
 	// engine depends only on the port; this is the one place a concrete
@@ -64,11 +63,7 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
-		Comms: commsAdapter{
-			store: activities.NewStore(pool),
-			gate:  consent.NewGate(consent.NewStore(pool)),
-			draft: drafter,
-		},
+		Comms:     newCommsAdapter(pool, drafter, send),
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a
 		// notify firing surfaces as a visible 'skipped' run instead

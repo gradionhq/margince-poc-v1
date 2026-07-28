@@ -58,7 +58,7 @@ func TestLeadScoreOverrideColumnsAndRLS(t *testing.T) {
 
 func TestLeadScoreOverrideIsSticky(t *testing.T) {
 	e := setupSearch(t)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
 	ctx := e.asFullUser()
 	store := people.NewStore(e.Pool)
 	activityStore := activities.NewStore(e.Pool)

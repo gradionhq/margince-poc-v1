@@ -37,6 +37,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
@@ -141,6 +142,13 @@ type Server struct {
 	// the response is written — a separate instance from dealsHandlers'
 	// own store, the same split offerDrafter itself already uses.
 	dealsStore *deals.Store
+	// send is the outbound-send deployment configuration (public base URL,
+	// delivery machinery, mailbox pre-flight) every send transport shares.
+	// The options that set it rebuild BOTH the activities handlers and the
+	// tool registry, so the HTTP surface and the MCP surface can never be
+	// configured differently.
+	send SendPath
+
 	// replyDrafter is the shared HTTP/REST-agent reply path. Nil preserves
 	// the activities module's deterministic floor.
 	replyDrafter activities.EmailDrafter
@@ -319,12 +327,24 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// (Create/Update/Archive) actually reaches HubSpot from the agent surface.
 	// The closure captures srv and reads srv.vault LAZILY at request time, so
 	// building it here (before WithKeyvault installs the vault) is fine.
-	srv.toolRegistry = NewRegistryWithIncumbent(pool, srv.resolveOverlayIncumbent(pool))
+	srv.rebuildToolRegistry(pool)
 	// /me reports the workspace's system-of-record mode so the client can
 	// gate its list UI (an overlay mirror refuses sort/filter dials). The
 	// dispatch owns mode resolution; identity never imports overlay.
 	srv.authHandlers = srv.WithSorMode(srv.sorDispatch.isOverlay)
 	return srv
+}
+
+// rebuildToolRegistry rebuilds the agent tool surface from the server's
+// CURRENT state. Every option that changes what the registry composes over —
+// the reply drafter, the send configuration — calls this rather than building
+// its own registry, so applying two such options in either order lands on the
+// same surface instead of the later one dropping the earlier one's wiring.
+func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
+	// The closure captures s and reads s.vault LAZILY at request time, so
+	// rebuilding before WithKeyvault installs the vault is fine.
+	s.toolRegistry = registryWithGate(pool, auth.NewGate(identity.NewService(pool)),
+		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
 }
 
 // resolveOverlayIncumbent builds the per-request live-incumbent resolver

@@ -140,7 +140,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if rverr != nil {
 			return rverr
 		}
-		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault))
+		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), sendPath(cfg))
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
 		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
@@ -172,7 +172,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer stopJobs()
 
-	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
+	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply, sendPath(cfg))
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 
@@ -277,6 +277,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	}
 
 	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		Send:              sendPath(cfg),
 		CloseDateInterval: cfg.closeDateInterval,
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,

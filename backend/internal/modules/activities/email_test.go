@@ -24,6 +24,26 @@ func (g stubConsentGate) RequireGrantedForEmails(context.Context, []string, stri
 	return g.err
 }
 
+// stubUnsubscribeLinker stands in for the consent module's preference-token
+// mint: ok=false is how a locked (transactional) purpose answers.
+type stubUnsubscribeLinker struct {
+	token string
+	ok    bool
+	err   error
+}
+
+func (l stubUnsubscribeLinker) UnsubscribeToken(context.Context, string, string) (string, bool, error) {
+	return l.token, l.ok, l.err
+}
+
+// stubMailbox stands in for the connection registry's send-grant answer.
+type stubMailbox struct {
+	capable bool
+	err     error
+}
+
+func (m stubMailbox) SendCapable(context.Context) (bool, error) { return m.capable, m.err }
+
 // A send surface wired without its delivery machinery refuses, mirroring the
 // nil-consent guard: absence of a seam is a wiring defect, never an implicit
 // "send it anyway". The store here holds a nil pool, so a guard that answered
@@ -76,5 +96,28 @@ func TestDeliveryToRecipientsExcludeTheCcAddresses(t *testing.T) {
 	)
 	if len(to) != 1 || to[0] != "buyer@example.test" {
 		t.Fatalf("To: = %v, want only the non-cc'd recipient (case and padding are not a different address)", to)
+	}
+}
+
+// The send path's configuration is spread across several With… options, each
+// returning a COPY of the store. They have to accumulate on one store or the
+// last option silently drops the earlier ones — and a store that kept the base
+// URL but lost the token linker looks configured while deriving nothing.
+func TestSendPathOptionsAccumulateOnOneStore(t *testing.T) {
+	handlers := NewHandlers(nil).
+		WithUnsubscribe(stubUnsubscribeLinker{token: "tok", ok: true}).
+		WithPublicBaseURL(" https://mail.example.test/ ").
+		WithMailbox(stubMailbox{capable: true})
+
+	if handlers.store.unsubscribe == nil {
+		t.Fatal("the unsubscribe linker did not survive the later options")
+	}
+	if handlers.store.mailbox == nil {
+		t.Fatal("the mailbox pre-flight did not survive the option chain")
+	}
+	// Trimmed of whitespace and of the trailing slash, so the links built from
+	// it never carry a doubled separator.
+	if handlers.store.publicBaseURL != "https://mail.example.test" {
+		t.Fatalf("public base URL = %q, want it normalized onto the same store", handlers.store.publicBaseURL)
 	}
 }

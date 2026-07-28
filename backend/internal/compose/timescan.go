@@ -51,14 +51,14 @@ func (a activityScanAdapter) LastTouchBefore(ctx context.Context, cutoff time.Ti
 // NewWorkflowEngine builds (so no_activity_reminder's Apply drives
 // through the identical Executors every other starter uses), over the
 // activities-sourced ActivityScan seam.
-func NewTimeScanner(pool *pgxpool.Pool, log *slog.Logger) *automation.TimeScanner {
-	return NewTimeScannerWithClock(pool, time.Now, log)
+func NewTimeScanner(pool *pgxpool.Pool, log *slog.Logger, send SendPath) *automation.TimeScanner {
+	return NewTimeScannerWithClock(pool, time.Now, log, send)
 }
 
 // NewTimeScannerWithClock is NewTimeScanner with an explicit clock — the
 // integration proof pins it so a scan pass evaluates "no activity for N
 // days" against seeded timestamps, never the wall clock.
-func NewTimeScannerWithClock(pool *pgxpool.Pool, now func() time.Time, log *slog.Logger) *automation.TimeScanner {
-	engine := NewWorkflowEngine(pool)
+func NewTimeScannerWithClock(pool *pgxpool.Pool, now func() time.Time, log *slog.Logger, send SendPath) *automation.TimeScanner {
+	engine := NewWorkflowEngine(pool, send)
 	return automation.NewTimeScannerWithClock(engine, activityScanAdapter{store: activities.NewStore(pool)}, now, log)
 }

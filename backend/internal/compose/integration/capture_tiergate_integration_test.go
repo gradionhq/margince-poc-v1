@@ -16,7 +16,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // The suppressing tiers, each on its own: a free-mail domain is a person and
@@ -233,5 +235,79 @@ func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ag
 	})
 	if err != nil {
 		t.Fatalf("aging the disposition: %v", err)
+	}
+}
+
+// grantedSendGate lets the send through the consent seam: this suite is about
+// the correspondence evidence a send records, not about suppression, which the
+// consent suites prove on the same store method.
+type grantedSendGate struct{}
+
+func (grantedSendGate) RequireGrantedForEmails(context.Context, []string, string) error { return nil }
+
+// discardSendStager accepts the delivery so the send commits. Transmission is
+// not what this suite proves; what the send WROTE is.
+type discardSendStager struct{}
+
+func (discardSendStager) StageTx(context.Context, pgx.Tx, activities.DeliveryRequest) error {
+	return nil
+}
+
+// A send composed in the CRM is correspondence, and after ADR-0072's natural
+// key collapse it is the ONLY record of it: the activity this send writes
+// carries the key the provider's echo of the same message carries, so that
+// echo's ON CONFLICT DO NOTHING upsert finds the row and writes nothing. The
+// evidence the echo used to bring — who the message was with, and that the
+// workspace sent it — therefore has to be written by the send itself, or a
+// prospect the CRM emailed first is a stranger when they reply.
+func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+	ctx := e.asFullUser()
+
+	anchorID := ids.NewV7()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        'email', 'Intro', now(), 'manual', 'human:x')`, anchorID)
+		return err
+	}); err != nil {
+		t.Fatalf("seed anchor: %v", err)
+	}
+
+	if _, err := activities.NewStore(e.Pool).SendEmail(ctx, ids.From[ids.ActivityKind](anchorID),
+		activities.SendEmailInput{
+			Recipients:     []string{"Team@News.Prospect.Example"},
+			Subject:        "Following up",
+			Body:           "Good to meet you.",
+			ConsentPurpose: "transactional",
+		}, grantedSendGate{}, discardSendStager{}); err != nil {
+		t.Fatalf("CRM-originated send: %v", err)
+	}
+
+	// The evidence both readers of this column consult: the T1
+	// correspondence-positive gate, and the noise sweep's escape hatch that
+	// stops a wrongly-suppressed sender's reply from being hidden. It is
+	// stored normalized, so the recipient's header casing cannot hide it.
+	if n := countRows(t, e, `
+		SELECT count(*) FROM activity
+		WHERE counterparty_email = 'team@news.prospect.example'
+		  AND direction = 'outbound' AND counterparty_outbound_attested`); n != 1 {
+		t.Fatalf("%d attested outbound activities after a CRM send, want 1 — the echo will not record it later", n)
+	}
+
+	// Their reply arrives on a prefix subdomain WITH a List-Unsubscribe header
+	// — the exact shape T2 suppresses for an unknown sender. Because the
+	// workspace wrote to them first, T1 spares it.
+	sync(t, emailWithListUnsub("team@news.prospect.example", "Prospect", captureOwner, "pr1@news.prospect.example"))
+	if n := countRows(t, e, `
+		SELECT count(*) FROM person p JOIN person_email pe ON pe.person_id = p.id
+		WHERE pe.email = 'team@news.prospect.example'`); n != 1 {
+		t.Fatalf("%d persons for a sender the CRM had written to, want 1 — a CRM send must count as correspondence", n)
+	}
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty WHERE email = 'team@news.prospect.example'`); n != 0 {
+		t.Fatalf("%d ledger rows for a corresponded-with sender, want 0 — T1 decides, nothing defers", n)
 	}
 }

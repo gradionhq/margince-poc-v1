@@ -45,29 +45,30 @@ func (b integrationReplyBrain) Complete(context.Context, model.Request) (model.R
 	return model.Response{Text: b.response}, b.err
 }
 
-// countingStager stands in for the delivery machinery so these suites can
-// assert what the GOVERNED decision did: a send only reaches staging once
-// the gates have let it through, and the count is how that is proven.
-type countingStager struct{ staged int }
+// recordingStager stands in for the delivery machinery so these suites can
+// assert what the GOVERNED decision did: a send only reaches staging once the
+// gates have let it through, and what it hands over is what would be
+// transmitted.
+type recordingStager struct{ staged []activities.DeliveryRequest }
 
-func (s *countingStager) StageTx(context.Context, pgx.Tx, activities.DeliveryRequest) error {
-	s.staged++
+func (s *recordingStager) StageTx(_ context.Context, _ pgx.Tx, in activities.DeliveryRequest) error {
+	s.staged = append(s.staged, in)
 	return nil
 }
 
 // assertStaged pins how many deliveries reached the machinery — the only
 // way to tell "the gate refused" from "the gate let it through and the send
 // went nowhere".
-func assertStaged(t *testing.T, stager *countingStager, want int, when string) {
+func assertStaged(t *testing.T, stager *recordingStager, want int, when string) {
 	t.Helper()
-	if stager.staged != want {
-		t.Fatalf("%s staged %d deliveries, want %d", when, stager.staged, want)
+	if len(stager.staged) != want {
+		t.Fatalf("%s staged %d deliveries, want %d", when, len(stager.staged), want)
 	}
 }
 
 func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	e := integration.Setup(t)
-	stager := &countingStager{}
+	stager := &recordingStager{}
 	adapter := commsAdapter{
 		store:  activities.NewStore(e.Pool),
 		gate:   consent.NewGate(consent.NewStore(e.Pool)),

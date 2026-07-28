@@ -53,11 +53,11 @@ type RunnerService struct {
 // Surface-B run's agent tool writes a record; the worker passes a FromEnv
 // vault-backed resolver, and nil degrades write-back to errNoWriteIncumbent
 // (reads and non-SoR tools are unaffected).
-func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *RunnerService {
+func NewRunnerService(pool *pgxpool.Pool, brain runner.Brain, draftBrain completer, retriever retrieval.Retriever, log *slog.Logger, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *RunnerService {
 	return &RunnerService{
 		pool:      pool,
 		store:     runner.NewStore(pool),
-		runner:    runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent), brain),
+		runner:    runner.New(registryWithDraftBrain(pool, draftBrain, resolveIncumbent, send), brain),
 		identity:  identity.NewService(pool),
 		retriever: retriever,
 		log:       log,

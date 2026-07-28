@@ -70,7 +70,7 @@ func TestNotifyFiringWithNoTransportLandsAVisibleSkippedRun(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Notify Probe Deal", pipeline, open, nil)
 
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
 	engine.RegisterSystemWorkflow(notifyNoTransportProbe{})
 
 	ctx := context.Background()
@@ -169,7 +169,7 @@ func TestAddToListFiringAddsARealListMember(t *testing.T) {
 		t.Fatalf("seeding the probe list: %v", err)
 	}
 
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
 	engine.RegisterSystemWorkflow(addToListProbe{listID: list.ID, lists: testListsAdapter{store: listsStore}})
 
 	ctx := context.Background()
@@ -258,7 +258,7 @@ func TestDraftEmailFiringLandsTheComposedDraftOnTheRunRecord(t *testing.T) {
 	pipeline, open, _ := DealFixture(t, e)
 	dealID := e.SeedDeal(t, "Draft Email Probe Deal", pipeline, open, nil)
 
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
 	engine.RegisterSystemWorkflow(draftEmailProbe{comms: draftingComms{subject: "Re: next step", body: "Following up on our last conversation."}})
 
 	ctx := context.Background()

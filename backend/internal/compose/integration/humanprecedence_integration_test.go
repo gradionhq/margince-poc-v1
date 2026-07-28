@@ -184,7 +184,7 @@ func mcpAgentInvoker(t *testing.T, e *env, agentToken string) func(tool, args st
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	registry := compose.NewRegistry(pool)
+	registry := compose.NewRegistry(pool, compose.SendPath{})
 	authSvc := identity.NewService(pool)
 	return func(tool, args string) (json.RawMessage, error) {
 		wsID, err := authSvc.InstallationWorkspace(context.Background())

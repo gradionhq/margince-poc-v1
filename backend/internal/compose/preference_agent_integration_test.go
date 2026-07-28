@@ -33,7 +33,7 @@ import (
 func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 	e := integration.Setup(t)
 	consentStore := consent.NewStore(e.Pool)
-	stager := &countingStager{}
+	stager := &recordingStager{}
 	adapter := commsAdapter{store: activities.NewStore(e.Pool), gate: consent.NewGate(consentStore), stager: stager}
 
 	admin := e.Admin()

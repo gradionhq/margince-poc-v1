@@ -43,7 +43,7 @@ func (e *searchEnv) asFullUser() context.Context {
 
 func TestLeadScoreRecomputesFromLinkedActivities(t *testing.T) {
 	e := setupSearch(t)
-	engine := compose.NewWorkflowEngine(e.Pool)
+	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
 	ctx := e.asFullUser()
 
 	// A working lead with a decision-maker title from a high-intent

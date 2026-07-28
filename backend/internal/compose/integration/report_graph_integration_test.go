@@ -168,7 +168,7 @@ func TestPrebuiltReportOverHTTPAndVocabulary(t *testing.T) {
 func TestRunReportToolThroughGovernedRegistry(t *testing.T) {
 	e := setupSearch(t)
 	e.seedDealFixtures(t, 2, nil)
-	registry := compose.NewRegistry(e.Pool)
+	registry := compose.NewRegistry(e.Pool, compose.SendPath{})
 	out, err := registry.Invoke(e.Admin(), "run_report", []byte(`{"report":"deals-by-stage"}`))
 	if err != nil {
 		t.Fatal(err)
