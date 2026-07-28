@@ -76,7 +76,7 @@ func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatalf("migrating schema: %v", err)
 	}
-	if err := testdb.Truncate(ctx, owner); err != nil {
+	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatalf("resetting database: %v", err)
 	}
 

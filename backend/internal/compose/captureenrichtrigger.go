@@ -57,13 +57,12 @@ func newAutoEnrichTrigger(pool *pgxpool.Pool, log *slog.Logger) *autoEnrichTrigg
 // a capture. The message and its records are already committed by the time this
 // runs; the worst outcome is a company whose dossier waits for the sweep.
 func (t *autoEnrichTrigger) organizationCaptured(ctx context.Context, orgID ids.OrganizationID, domain string) {
-	// Nothing to read without a domain, and that is the only gate cheap enough
-	// to run before the setting: whether this process can enqueue at all is
-	// answered by startAutoEnrichRead, deliberately at the END rather than up
-	// front. Asking it first would be marginally cheaper and would make the
-	// whole trigger invisible to any test process, which has no ambient River
-	// client — a gate that hides the feature from its own tests is worth more
-	// than three round trips per captured company.
+	// Nothing to read without a domain. Whether this process can enqueue at all
+	// is answered later, by startAutoEnrichRead — asking it up front would save
+	// three round trips per captured company and cost the ability to observe the
+	// trigger in any test, since no test process binds a River client. Every
+	// production capture runs inside a River job, so the early exit would save
+	// nothing where it matters.
 	if domain == "" {
 		return
 	}
@@ -108,24 +107,15 @@ func (t *autoEnrichTrigger) queueRead(ctx context.Context, orgID ids.Organizatio
 		return err
 	}
 	if !slot.Reserved {
-		// Debug, not warn: on a backfill that mints hundreds of companies this is
-		// the NORMAL state after the first ten, and a warning per company would
-		// bury the faults that matter.
+		// Debug, not warn: on a backfill big enough to exhaust the day this is the
+		// NORMAL state for every company after the cap, and a warning apiece
+		// would bury the faults that matter.
 		t.log.DebugContext(ctx, "capture auto-enrich: daily cap reached, the sweep takes this org",
 			"org", orgID.String())
 		return nil
 	}
-	started, err := startAutoEnrichRead(enrichCtx, t.people, t.autoEnrich, orgID, domain)
-	if err != nil {
-		// The reserved slot is spent with no read to show for it — a conservative
-		// under-spend, and the org stays due for the sweep.
-		return err
-	}
-	if started {
-		return nil
-	}
-	// A read for this organization was already in flight — the sweep and this
-	// capture found it in the same moment, and the uniqueness index arbitrated.
-	// The slot goes back: one crawl must not cost the day two of its ten reads.
-	return t.autoEnrich.ReleaseBudget(enrichCtx, slot)
+	// One rule for a reserved slot, shared with the sweep: it buys a read or it
+	// goes back, and the refund survives the cancellation that may have caused
+	// the failure it compensates for.
+	return startEnrichOrRefund(enrichCtx, t.people, t.autoEnrich, orgID, domain, slot)
 }
