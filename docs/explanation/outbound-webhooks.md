@@ -78,7 +78,7 @@ stops at archive.
 
 **Agent access is 🟡.** A human on a session registers directly. An *agent* principal's create/update
 is a 🟡 governed tool (`x-mcp-tool` tier confirmation_required) — registering or widening outbound egress is staged
-for human approval (ADR-0036, UC-E10-04 E4) and redeemed with an `X-Approval-Token`. Rotate, replay,
+for human approval (UC-E10-04 E4) and redeemed with an `X-Approval-Token`. Rotate, replay,
 and all reads are human-only.
 
 ## 2. The signing secret — sealed at rest, shown once
@@ -306,7 +306,7 @@ collide with a row-scoped entity name below), then by entity type:
 | `person`, `organization`, `deal`, `lead`, `voice_profile` | admitted only with the owner's live **object read grant AND row scope** (`auth.Require` + `auth.EnsureVisible`) — the exact two-halves the record read path enforces, so a lingering row scope with no current read grant no longer leaks the payload |
 | `activity`, `signal` | same object-read grant, then their bespoke link-walk / resolver row-scope gates |
 | `offer` | `offer.read` grant, then it inherits its **parent deal's** row scope (an offer carries no owner of its own) |
-| `approval` (and the `coldstart.*` echoes, entity `approval`) | **target-visibility gated** (`approvalVisibleTo`), NOT ownerless: the envelope leaks staged-change detail, so it delivers only to an owner who can see the approval's TARGET record under that record's row scope — mirroring the approvals inbox (`approvals.targetVisible`, C3/ADR-0036). Target types `person`/`organization`/`deal`/`lead`/`offer`/`signal`/`activity` scope by row; the workspace-shared `product`/`custom_field` config scope by existence; a **target-less** approval is fail-closed (not delivered) |
+| `approval` (and the `coldstart.*` echoes, entity `approval`) | **target-visibility gated** (`approvalVisibleTo`), NOT ownerless: the envelope leaks staged-change detail, so it delivers only to an owner who can see the approval's TARGET record under that record's row scope — mirroring the approvals inbox (`approvals.targetVisible`, C3). Target types `person`/`organization`/`deal`/`lead`/`offer`/`signal`/`activity` scope by row; the workspace-shared `product`/`custom_field` config scope by existence; a **target-less** approval is fail-closed (not delivered) |
 | `pipeline`, `stage`, `audit`, `user`, `passport`, `onboarding_wizard_state`, `incumbent_connection` | genuinely ownerless workspace/admin-level facts (`workspaceLevelEntities`) — a bare entity ref the receiver re-reads under its own scope, so it delivers to any live owner. `role.changed` and the `user.*` lifecycle both name entity `user`; there is no separate `role`, `coldstart`, or `mirror` key. |
 | a ratified **deferred-delivery** subject (below) | ratified **not delivered** — an explicit decision, distinct from the fail-closed default |
 | **anything else** | **DENIED** (the `default` branch) — fail-closed |

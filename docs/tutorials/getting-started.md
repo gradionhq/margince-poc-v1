@@ -46,7 +46,7 @@ the outbox relay runs inline in the api process, so this one command is a
 complete install; it returns when ready and the servers run in the
 background — stop them with `make dev-stop`.
 
-One installation serves one organization (A107/ADR-0061): on its first boot
+One installation serves one organization: on its first boot
 against the empty database, the api bootstraps the organization and admin
 user from the deployment config `config/margince.yaml`. `make dev` seeds
 that file (and the admin password file) from

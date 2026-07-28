@@ -1,7 +1,7 @@
 # Apply migrations
 
-Schema changes ship as embedded SQL migrations in two namespaces
-(ADR-0017): `backend/migrations/core/` (upstream-owned) and
+Schema changes ship as embedded SQL migrations in two namespaces:
+`backend/migrations/core/` (upstream-owned) and
 `backend/migrations/custom/` (fork-owned — upstream never writes there).
 `cmd/migrate` applies both, in order, with the **owner-role** DSN; the
 runtime app role never owns schema.
