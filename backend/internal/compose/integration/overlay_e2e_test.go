@@ -292,6 +292,22 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 	if code := e.call(t, "GET", "/v1/people?sort=-created_at", nil, nil, nil); code != http.StatusUnprocessableEntity {
 		t.Fatalf("overlay-mode sorted people list = %d, want 422 unsupported_in_overlay_mode", code)
 	}
+	// captured_by_kind is the same rule and matters more, because being ignored
+	// would not look like an error: captured_by is OUR provenance column, mirror
+	// rows are the incumbent's records, and answering the whole mirror would
+	// hand back an unfiltered list as the AI-review list.
+	for _, path := range []string{
+		"/v1/people?captured_by_kind=agent",
+		"/v1/organizations?captured_by_kind=agent",
+		"/v1/leads?captured_by_kind=agent",
+		"/v1/people?ai_written=true",
+		"/v1/organizations?ai_written=true",
+		"/v1/leads?ai_written=true",
+	} {
+		if code := e.call(t, "GET", path, nil, nil, nil); code != http.StatusUnprocessableEntity {
+			t.Errorf("overlay-mode %s = %d, want 422 — a provenance filter the mirror cannot answer must be refused, never ignored", path, code)
+		}
+	}
 
 	// --- bullet 3: an UNMAPPED user sees ZERO rows (fail-closed
 	// visibility — MirrorStore.List answers apperrors.ErrNotFound for a
