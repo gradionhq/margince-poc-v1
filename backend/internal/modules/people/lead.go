@@ -337,8 +337,12 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	if in.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
 	}
-	if clause, ok := capturedByKindClause(in.CapturedByKind, arg); ok {
-		where = append(where, clause)
+	kindClause, ok, err := capturedByKindClause(in.CapturedByKind, arg)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	if ok {
+		where = append(where, kindClause)
 	}
 	if in.Query != nil && *in.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*in.Query), "coalesce(full_name,'') || ' ' || coalesce(company_name,'')"))

@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -127,29 +128,45 @@ type listFilters struct {
 	CustomFilters   map[string]string
 	// CapturedByKind filters on WHO created the row, matched against the
 	// captured_by prefix. `agent` is the review list for the records an AI
-	// created (ADR-0075/A121 §3a). The value is checked against the closed enum
-	// by capturedByKindArg at the handler — declaring it in the contract does
-	// not enforce it on the wire.
+	// created (ADR-0075/A121 §3a). capturedByKindClause checks it against the
+	// generated enum, after authorization — declaring the enum in the contract
+	// does not enforce it on the wire.
 	CapturedByKind *string
 	// nameColumn is the quick-find target — the record's display column.
 	nameColumn string
 }
 
 // capturedByKindClause is the ONE spelling of the provenance filter
-// (ADR-0075/A121 §3a). It lives outside listFilters because the lead list
-// builds its own WHERE chain rather than using that struct, and two copies of
-// "which prefix counts as an AI" is exactly how the person list and the lead
-// list end up disagreeing about what the review list contains.
+// (ADR-0075/A121 §3a): it refuses a kind outside the contract's enum and, for
+// an accepted one, builds the clause. It lives outside listFilters because the
+// lead list builds its own WHERE chain rather than using that struct, and two
+// copies of "which prefix counts as an AI" is exactly how the person list and
+// the lead list end up disagreeing about what the review list contains.
+//
+// The check is HERE, in the store, rather than at the handler, because the
+// store is where authorization runs. Both list paths call auth.Require before
+// they assemble any clause, so an unauthorized caller gets the authorization
+// answer whatever they typed. Validating at the handler inverts that: a caller
+// with no read on this object learns their enum value was wrong — which is a
+// probing oracle, and the opposite of the order the overlay shadows document
+// ("Object RBAC before any parameter shaping").
+//
+// The vocabulary is the GENERATED one, so the accepted values cannot drift from
+// the contract that publishes them.
 //
 // The whole LIKE pattern is ONE bound argument, never concatenated into the
-// SQL. The contract's enum values are plain ASCII words carrying no LIKE
-// metacharacter today; binding the pattern is what keeps that true of a value
-// the enum gains later.
-func capturedByKindClause(kind *string, arg func(any) int) (string, bool) {
+// SQL. The enum values are plain ASCII words carrying no LIKE metacharacter
+// today; binding the pattern is what keeps that true of a value the enum gains
+// later.
+func capturedByKindClause(kind *string, arg func(any) int) (string, bool, error) {
 	if kind == nil || *kind == "" {
-		return "", false
+		return "", false, nil
 	}
-	return storekit.SQLf("captured_by LIKE $%d", arg(*kind+":%")), true
+	if !crmcontracts.CapturedByKind(*kind).Valid() {
+		return "", false, httperr.Validation("captured_by_kind", "invalid",
+			"must be one of human, agent, connector, system")
+	}
+	return storekit.SQLf("captured_by LIKE $%d", arg(*kind+":%")), true, nil
 }
 
 // clauses translates the filters into WHERE clauses, appending their
@@ -163,7 +180,11 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	if f.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*f.OwnerID)))
 	}
-	if clause, ok := capturedByKindClause(f.CapturedByKind, arg); ok {
+	clause, ok, err := capturedByKindClause(f.CapturedByKind, arg)
+	if err != nil {
+		return nil, err
+	}
+	if ok {
 		where = append(where, clause)
 	}
 	if f.Query != nil && *f.Query != "" {
@@ -184,28 +205,8 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	return where, nil
 }
 
-// capturedByKindValid refuses a provenance kind outside the contract's enum.
-//
-// This is NOT belt-and-braces over the transport. Binding a query parameter
-// whose schema is a string enum only checks that it is a string — nothing at
-// the wire layer rejects an unknown value. Without this check a typo like
-// `captured_by_kind=ai` builds the clause `captured_by LIKE 'ai:%'`, matches
-// nothing, and answers 200 with an empty page, which reads exactly like "no AI
-// created anything here". A filter whose failure mode is a confident wrong
-// answer is worse than no filter.
-//
-// Each list operation generates its own string kind for the parameter, so the
-// check is generic over the kind and closes over that type's own Valid().
-func capturedByKindValid[T ~string](v *T, valid func(T) bool) error {
-	if v == nil || valid(*v) {
-		return nil
-	}
-	return httperr.Validation("captured_by_kind", "invalid",
-		"must be one of human, agent, connector, system")
-}
-
 // capturedByKindArg maps the optional provenance parameter onto the store
-// input, once capturedByKindValid has accepted it.
+// input. The value is checked in capturedByKindClause, after authorization.
 func capturedByKindArg[T ~string](v *T) *string {
 	if v == nil {
 		return nil

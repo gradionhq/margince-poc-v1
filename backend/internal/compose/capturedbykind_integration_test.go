@@ -12,6 +12,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -83,6 +85,34 @@ func TestCapturedByKindSelectsWhoCreatedTheRecord(t *testing.T) {
 	// from BOTH views would hide records nobody could then find.
 	if got := names(nil); len(got) != 5 {
 		t.Fatalf("the unfiltered list returned %d rows, want all 5 including the unclassified one: %v", len(got), got)
+	}
+}
+
+// Authorization outranks the parameter check. A caller who may not read this
+// object must get the authorization answer whatever they typed — if a bad enum
+// value answered first, the endpoint would tell an unauthorized caller which
+// values it accepts, and confirm the object exists while doing it.
+func TestCapturedByKindIsRefusedOnlyAfterAuthorization(t *testing.T) {
+	e := integration.Setup(t)
+	store := people.NewStore(e.Pool)
+
+	// A rep may read people but NOT organizations, so the organization list is
+	// the natural unauthorized caller here.
+	bogus := "not-a-kind"
+	_, _, err := store.ListOrganizations(e.As(e.Rep1, nil, integration.RepPerms),
+		people.ListOrganizationsInput{CapturedByKind: &bogus})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("ListOrganizations err = %v, want the permission denial — the enum check must not answer before authorization", err)
+	}
+
+	// With the read granted, the same value is refused on its own merits.
+	_, _, err = store.ListOrganizations(e.As(e.Rep1, nil, integration.AdminPerms),
+		people.ListOrganizationsInput{CapturedByKind: &bogus})
+	if err == nil {
+		t.Fatal("an unknown provenance kind was accepted once the caller could read")
+	}
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("ListOrganizations err = %v, want the validation refusal for an authorized caller", err)
 	}
 }
 

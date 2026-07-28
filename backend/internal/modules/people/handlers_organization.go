@@ -30,11 +30,6 @@ func (h Handlers) MergeOrganization(w http.ResponseWriter, r *http.Request, id c
 }
 
 func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, params crmcontracts.ListOrganizationsParams) {
-	if err := capturedByKindValid(params.CapturedByKind,
-		func(v crmcontracts.ListOrganizationsParamsCapturedByKind) bool { return v.Valid() }); err != nil {
-		writeStoreErr(w, r, err)
-		return
-	}
 	in := ListOrganizationsInput{
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,
