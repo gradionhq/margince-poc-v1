@@ -44,10 +44,10 @@ type Env struct {
 
 // Setup gives each test a clean, migrated database and seeds the
 // workspace/user/team fixture, returning the ready Env. The schema is migrated
-// once per test process (testdb.EnsureSchema); every later test resets via a
-// fast TRUNCATE (testdb.Truncate) instead of remigrating — see package testdb
-// for why that dominated the lane. Integration tests fail loudly without a
-// database — they never skip.
+// once per test process (testdb.EnsureSchema); every later test resets the data
+// only (testdb.Reset) — nothing here remigrates, and nothing truncates the whole
+// schema; see package testdb for what each of those costs.
+// Integration tests fail loudly without a database — they never skip.
 func Setup(t *testing.T) *Env {
 	t.Helper()
 	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
@@ -69,7 +69,7 @@ func Setup(t *testing.T) *Env {
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := testdb.Truncate(ctx, owner); err != nil {
+	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
 

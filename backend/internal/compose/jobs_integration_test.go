@@ -84,7 +84,7 @@ func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
 
 // riverSchemaOnce guards the River migration per test-binary process, the
 // same contract as testdb.EnsureSchema: the schema survives the per-test
-// Truncate, but the truncate DOES empty river_migration's applied-version
+// reset, but the reset DOES empty river_migration's applied-version
 // ledger — so a second in-process migrate would re-run River's first
 // migration against tables that still exist and fail on CREATE TABLE.
 // jobs.Migrate is not idempotent (a second call fails "river_migration

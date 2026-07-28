@@ -10,7 +10,7 @@
 # This runner removes the shared-state constraint instead of the serialization.
 # Each package gets private throwaway state, so concurrent packages share nothing:
 #   Postgres — its own empty clone db (the Go harness migrates it once, then
-#              TRUNCATEs between tests — see internal/platform/testdb).
+#              resets the data between tests — see internal/platform/testdb).
 #   MinIO    — a private bucket (MARGINCE_TEST_BLOBSTORE_BUCKET=<base>-p<idx>),
 #              auto-created by the blobstore store.
 #   Redis    — the one shared instance, but each package gets its own logical

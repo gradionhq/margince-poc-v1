@@ -26,7 +26,7 @@ import (
 )
 
 // meterFreshDatabase resets the data to a clean slate and ensures the schema is
-// migrated (once per process, then a fast TRUNCATE — see package testdb),
+// migrated (once per process, then a fast data-only reset — see package testdb),
 // returning the owner connection and the RLS-bound app DSN.
 func meterFreshDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, string) {
 	t.Helper()
@@ -47,7 +47,7 @@ func meterFreshDatabase(t *testing.T, ctx context.Context) (*pgx.Conn, string) {
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatalf("migrating schema: %v", err)
 	}
-	if err := testdb.Truncate(ctx, owner); err != nil {
+	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatalf("resetting database: %v", err)
 	}
 	return owner, appDSN
