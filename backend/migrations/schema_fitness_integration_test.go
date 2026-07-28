@@ -264,7 +264,17 @@ var rowScopedFKDecisions = map[string]string{
 	"lead.project_id":               "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
-	"activity_link.activity_id":           "child row: written only inside LogActivity for the new activity",
+	"activity_link.activity_id": "child row: written only inside LogActivity for the new activity",
+	// comms_outbound is delivery machinery for one activity, not a
+	// standalone record (comms/doc.go): StageTx is written only inside the
+	// caller's own transaction, alongside the activity write it reports on
+	// (comms/store.go's StageInput doc). No handler exists yet (this ships
+	// in a later task) — comms.Store itself carries no RBAC gate of its own
+	// (see the internal/modules/comms waivers in rbacgate_test.go) because
+	// the send action is admitted at that shared-transaction activity
+	// write, not inside comms; the future orchestrator must pass the id it
+	// just created, never an externally-supplied reference.
+	"comms_outbound.activity_id":          "child row: written only inside the caller's own transaction, alongside the activity write it reports on",
 	"consent_event.person_id":             "child row: written through the person's own gated paths",
 	"organization_domain.organization_id": "child row: written through the organization's own gated paths",
 	"person_email.person_id":              "child row: written through the person's own gated paths",

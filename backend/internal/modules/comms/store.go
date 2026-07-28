@@ -14,7 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -54,9 +54,16 @@ func NewStore(pool *pgxpool.Pool, now func() time.Time) *Store {
 
 // StageInput is one message staged for transmission, written in the caller's
 // transaction so the delivery and the activity it belongs to commit together.
+//
+// There is deliberately no UserID field: the sending identity — whose Gmail
+// credential eventually transmits the message — is stamped by StageTx from
+// the authenticated principal, never taken from a caller-supplied value.
+// This matches storekit.CapturedBy's provenance rule ("stamped from the
+// authenticated principal, never from the request body"): a caller that
+// could name an arbitrary user_id could stage a delivery that later sends
+// through someone else's mailbox.
 type StageInput struct {
 	ActivityID      ids.ActivityID
-	UserID          ids.UserID
 	Provider        string
 	MessageID       string // unbracketed
 	Recipients      []string
@@ -90,8 +97,22 @@ type Delivery struct {
 	CreatedAt       time.Time
 }
 
-// StageTx records one delivery inside the caller's transaction.
+// StageTx records one delivery inside the caller's transaction. user_id —
+// whose mailbox eventually transmits the message — is derived from the
+// authenticated principal on ctx, exactly as storekit.CapturedBy stamps
+// captured_by everywhere else; no caller input can put a different user's
+// id in that column. A principal with no app_user identity (system,
+// connector) cannot stage a delivery at all: sending is a human act.
 func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID, error) {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return ids.UUID{}, err
+	}
+	if actor.UserID.IsZero() {
+		return ids.UUID{}, fmt.Errorf("comms: staging a delivery requires an authenticated app_user identity, got principal type %q", actor.Type)
+	}
+	userID := ids.From[ids.UserKind](actor.UserID)
+
 	recipients, err := json.Marshal(in.Recipients)
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding recipients: %w", err)
@@ -113,7 +134,7 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5,
 		        $6, $7, $8, $9, $10, NULLIF($11,''), $12, NULLIF($13,''),
 		        NULLIF($14,''), 'pending', $15)`,
-		id, in.ActivityID, in.UserID, in.Provider, in.MessageID,
+		id, in.ActivityID, userID, in.Provider, in.MessageID,
 		recipients, cc, in.Subject, in.Body, in.ConsentPurpose,
 		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC()); err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: staging delivery: %w", err)
@@ -159,26 +180,43 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	return d, nil
 }
 
-// RecordSent closes a delivery against the provider's receipt.
+// RecordSent closes a delivery against the provider's receipt. Guarded on
+// status = 'pending': a stale attempt (network partition, GC pause — the
+// crash class R3 already assumes possible) can lose a race against a newer
+// attempt that already closed the same row. Rather than clobber a 'sent' or
+// 'parked' row — a real receipt overwritten, or worse, un-sent by a stale
+// park — a delivery that is no longer pending reports ErrTerminal. That is
+// a benign no-op, the same fact Load already reports the same way: Task 6's
+// dispatcher must treat it as "already handled," never as retryable.
 func (s *Store) RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error {
 	return s.update(ctx, `
 		UPDATE comms_outbound
 		   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL
-		 WHERE id = $1`, id, providerMessageID, s.now().UTC())
+		 WHERE id = $1 AND status = 'pending'`, id, providerMessageID, s.now().UTC())
 }
 
-// Park ends a delivery that no retry repairs, recording why in words an operator
-// can act on.
+// Park ends a delivery that no retry repairs, recording why in words an
+// operator can act on. Guarded on status = 'pending' for the same reason as
+// RecordSent — a stale attempt losing a race against a newer one that
+// already closed the row reports ErrTerminal, a benign no-op the dispatcher
+// must not treat as retryable.
 func (s *Store) Park(ctx context.Context, id ids.UUID, reason string) error {
-	return s.update(ctx, `UPDATE comms_outbound SET status = 'parked', reason = $2 WHERE id = $1`, id, reason)
+	return s.update(ctx, `UPDATE comms_outbound SET status = 'parked', reason = $2 WHERE id = $1 AND status = 'pending'`, id, reason)
 }
 
 // RecordFailure notes a transient fault and leaves the delivery pending so
-// River's ladder brings it back.
+// River's ladder brings it back. Same race as RecordSent/Park: a delivery
+// a newer attempt already closed reports ErrTerminal rather than being
+// silently reopened or dropped.
 func (s *Store) RecordFailure(ctx context.Context, id ids.UUID, reason string) error {
 	return s.update(ctx, `UPDATE comms_outbound SET reason = $2 WHERE id = $1 AND status = 'pending'`, id, reason)
 }
 
+// update runs a status-guarded transition and reports ErrTerminal — never
+// apperrors.ErrNotFound — when it touches zero rows. Every caller's SQL
+// already scopes to `status = 'pending'`, so zero rows means either the
+// delivery does not exist in this workspace or it is already closed; Load
+// answers both the same way, and these transitions do too.
 func (s *Store) update(ctx context.Context, sql string, args ...any) error {
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, sql, args...)
@@ -186,7 +224,7 @@ func (s *Store) update(ctx context.Context, sql string, args ...any) error {
 			return fmt.Errorf("comms: updating delivery: %w", err)
 		}
 		if tag.RowsAffected() == 0 {
-			return apperrors.ErrNotFound
+			return ErrTerminal
 		}
 		return nil
 	})

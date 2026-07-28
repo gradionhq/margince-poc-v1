@@ -37,6 +37,17 @@ var _ connector.Sender = (*Connector)(nil)
 // Job delivery is at-least-once and Gmail does not deduplicate on Message-ID, so
 // without that lookup a crash between a successful transmission and its recorded
 // outcome mails the recipient twice.
+//
+// The lookup narrows that window; it does not close it. FindByMessageID reads
+// Gmail's search index, which is eventually consistent with a just-completed
+// send — a retry landing before the index catches up gets a false negative and
+// still mails twice. Nor does anything here serialize concurrent attempts at
+// the same delivery: that guarantee lives entirely outside this package, in
+// River delivering one job per delivery. comms.Store deliberately carries no
+// in-flight status and no claim (R3), so two concurrent attempts on the same
+// delivery would both observe it pending and both call Send here — the
+// one-job-per-delivery assumption, not this lookup, is what keeps that from
+// happening in practice.
 func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector.OutboundMessage) (connector.SendReceipt, error) {
 	var st authState
 	if err := json.Unmarshal(auth, &st); err != nil {
@@ -143,7 +154,11 @@ func (a *httpAPI) Send(ctx context.Context, accessToken, rawBase64URL, threadID 
 
 // FindByMessageID looks a message up by its RFC822 identity via Gmail's
 // rfc822msgid: search operator — the retransmission guard's only tool for
-// telling "already sent" from "never sent" on a retry.
+// telling "already sent" from "never sent" on a retry. The operator reads a
+// search index, not a strongly consistent store: it is eventually consistent
+// with a just-completed send, so a lookup landing before the index catches up
+// returns a false negative — "never sent" — rather than proof the message was
+// never sent.
 func (a *httpAPI) FindByMessageID(ctx context.Context, accessToken, id string) (string, string, bool, error) {
 	var out struct {
 		Messages []struct {

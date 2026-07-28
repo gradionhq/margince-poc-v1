@@ -130,13 +130,19 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	// comms: delivery machinery, not the message. StageTx runs inside the
 	// caller's own transaction, alongside the activity write that already
 	// passed the gated activity:create check — the outbound send itself was
-	// admitted there, and comms only records the plumbing needed to get it
-	// out. Load/RecordSent/Park/RecordFailure are the dispatcher's own
-	// state-machine steps, driven by the outbox/River worker under the
-	// system principal with no human principal in the call at all; nothing
-	// here discloses a record to anyone — RecordFailure/Park's reason is an
-	// operator-facing transport diagnosis, not tenant data.
-	"internal/modules/comms:StageTx":       "written inside the caller's own transaction alongside the already-gated activity write (activity:create) that authorized this send; comms records only the delivery plumbing for it",
+	// admitted there. But activity:create alone would only prove the actor
+	// may create an activity, not that the delivery may send through THEIR
+	// mailbox — the security-relevant fact this store owns — so StageTx
+	// itself derives user_id from the authenticated principal on ctx
+	// (storekit.Actor) and fails closed when none resolves to an app_user;
+	// no caller input can name a different sender. Object-RBAC has nothing
+	// left to narrow once that derivation stands. Load/RecordSent/Park/
+	// RecordFailure are the dispatcher's own state-machine steps, driven by
+	// the outbox/River worker under the system principal with no human
+	// principal in the call at all; nothing here discloses a record to
+	// anyone — RecordFailure/Park's reason is an operator-facing transport
+	// diagnosis, not tenant data.
+	"internal/modules/comms:StageTx":       "derives user_id from the authenticated principal (storekit.Actor) and fails closed with no caller-suppliable override; the activity:create check on the shared transaction admits the send action itself, but the sending IDENTITY is enforced here, in the store, not inherited from that check",
 	"internal/modules/comms:Load":          "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
 	"internal/modules/comms:RecordSent":    "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",
 	"internal/modules/comms:Park":          "worker-loop terminal transition on an unretryable provider failure, system principal, same posture as Load",
