@@ -250,9 +250,18 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[str
 			// entity; "no owner_id" is never on its own a reason to skip.
 			return auth.EnsureSignalVisible(ctx, tx, id)
 		}
+		// LIVE, not merely visible. The recorded body is a frozen snapshot the
+		// store itself would no longer serve: Art. 17 erasure anonymizes the
+		// person row in place, stamps archived_at and leaves owner_id alone, so
+		// a plain visibility probe still answers "yours" and the middleware
+		// would hand back the pre-erasure names, e-mails and phone numbers that
+		// every live read path now refuses. EnsureVisibleLive also declines to
+		// skip the existence half for an unbounded actor, which is the same
+		// hole one role wider.
+		//
 		// auth rejects any name outside its closed row-scoped set, so an
 		// unexpected value refuses the replay rather than reaching SQL.
-		return auth.EnsureVisible(ctx, tx, table, id)
+		return auth.EnsureVisibleLive(ctx, tx, table, id)
 	})
 }
 

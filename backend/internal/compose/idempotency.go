@@ -23,6 +23,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
@@ -34,6 +35,13 @@ import (
 )
 
 const idempotencyKeyHeader = "Idempotency-Key"
+
+// replayWindow is how long a settled claim stays replayable — the contract's
+// 24h. Spelled once: claimKey re-claims a row past it, and the retention sweep
+// (idempotencyretention.go) deletes one past it, and those two must be talking
+// about the same moment or the sweep would delete rows a replay could still
+// legitimately serve.
+const replayWindow = 24 * time.Hour
 
 // claimOutcome is what the claim transaction decided.
 type claimOutcome int
@@ -168,11 +176,12 @@ func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, d
 		var respBody *string
 		var expired bool
 		if err := tx.QueryRow(r.Context(), `
-			SELECT request_digest, response_status, response_body, response_content_type, created_at < now() - interval '24 hours'
+			SELECT request_digest, response_status, response_body, response_content_type,
+			       created_at < now() - make_interval(secs => $4)
 			FROM idempotency_key
 			WHERE principal_id = $1 AND key = $2 AND endpoint = $3
 			FOR UPDATE`,
-			principalID, key, endpoint).Scan(&storedDigest, &status, &respBody, &contentType, &expired); err != nil {
+			principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &expired); err != nil {
 			return err
 		}
 		if expired {

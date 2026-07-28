@@ -183,13 +183,19 @@ func ScopeClauseFor(ctx context.Context, table, alias string, arg func(any) int)
 	return VisiblePredicate(p, table, arg)(alias), nil
 }
 
-// EnsureLinkTarget verifies an activity link's target row exists AND is
-// visible to the caller — an explicit RLS-scoped probe, because the FK
-// that would otherwise catch a bad id is checked as the table owner and
-// so bypasses RLS: without this, a guessed foreign UUID would persist a
-// cross-tenant link. Unlike EnsureVisible, unbounded actors do not skip
-// the existence half.
-func EnsureLinkTarget(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
+// EnsureVisibleLive is the strict row probe: the row must EXIST, be LIVE
+// (archived_at IS NULL) and pass the caller's row scope. It differs from
+// EnsureVisible in both halves that matter to a caller handing data back —
+// an unbounded actor does not skip the existence check, and a soft-deleted
+// row never passes.
+//
+// Both differences are load-bearing where a record is served or referenced
+// outside the store that owns it. Art. 17 erasure anonymizes a person in
+// place and stamps archived_at while LEAVING owner_id alone, so the
+// tombstone still satisfies the original owner's predicate: a probe without
+// the live filter answers "yes, still yours" for a record every live read
+// path now refuses.
+func EnsureVisibleLive(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	idPos := arg(id)
@@ -212,6 +218,16 @@ func EnsureLinkTarget(ctx context.Context, tx pgx.Tx, table string, id ids.UUID)
 		return apperrors.ErrNotFound
 	}
 	return nil
+}
+
+// EnsureLinkTarget verifies an activity link's target row exists AND is
+// visible to the caller — an explicit RLS-scoped probe, because the FK
+// that would otherwise catch a bad id is checked as the table owner and
+// so bypasses RLS: without this, a guessed foreign UUID would persist a
+// cross-tenant link. A link to an archived record is equally refused: the
+// link would outlive the row it names.
+func EnsureLinkTarget(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) error {
+	return EnsureVisibleLive(ctx, tx, table, id)
 }
 
 // VisibleTo probes whether one row passes the caller's row scope WITHOUT
