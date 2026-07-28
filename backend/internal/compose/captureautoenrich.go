@@ -15,6 +15,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -44,11 +45,12 @@ import (
 //     or already has a person for. A stranger's mail defers to the ledger and
 //     mints nothing, so an outsider cannot aim this at a domain of their choosing.
 //
-// What is left for this counter is PACING, and 10/day paced the one case that
-// matters most against the product: a first backfill mints hundreds of companies
-// at once, and the promise being demonstrated is that the CRM fills itself
-// (P5). Watching ten of two hundred fill, then waiting weeks, teaches the
-// opposite. Raised to 500 by founder decision (2026-07-28).
+// What is left for this counter is PACING, and 500 is sized for the moment that
+// decides whether the product is believed: a first backfill mints hundreds of
+// companies at once, and what it is demonstrating is that the CRM fills itself
+// (P5). A ceiling below that arrival rate turns the demonstration into a trickle
+// and teaches the opposite, while a ceiling above it buys nothing the three
+// bounds above do not already give.
 const autoEnrichDailyCap = 500
 
 // autoEnrichRetryBackoff is how long a triggered read's cursor is armed before
@@ -147,8 +149,7 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 		if err := w.triggerEnrich(wsCtx, org, slot); err != nil {
 			// A single org's trigger fault must not consume the pass; log it
 			// and move on. The cursor stays due (nothing was queued), so the
-			// next pass retries — but the reserved budget slot is spent, a
-			// conservative under-spend, never an over-spend.
+			// next pass retries, and the slot it reserved has already gone back.
 			w.log.WarnContext(wsCtx, "capture auto-enrich: trigger failed",
 				"org", org.OrganizationID.String(), "err", err)
 			continue
@@ -158,16 +159,43 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 }
 
 // triggerEnrich starts a system-requested deep read for one org and arms its
-// cursor.
+// cursor, returning the reserved slot when no read came of it.
 func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org capture.DueOrg, slot capture.BudgetSlot) error {
-	started, err := startAutoEnrichRead(ctx, w.people, w.autoEnrich, org.OrganizationID, org.Domain)
-	if err != nil {
+	return startEnrichOrRefund(ctx, w.people, w.autoEnrich, org.OrganizationID, org.Domain, slot)
+}
+
+// refundTimeout bounds the compensating write. Short: it is one indexed UPDATE,
+// and a refund that hangs would hold the pass or the capture it runs on.
+const refundTimeout = 5 * time.Second
+
+// startEnrichOrRefund is the whole rule about a reserved slot, in one place
+// because both callers own the same invariant: a slot buys a read or it goes
+// back.
+//
+// The ordering is load-bearing. `started` is checked BEFORE `err`, because
+// startAutoEnrichRead reports (true, err) for a read that was queued and whose
+// cursor could not then be armed — refunding there would pay for that crawl
+// twice, returning the slot to the day while the read still runs.
+//
+// The refund detaches from the caller's context, for the case that matters most:
+// when the start failed BECAUSE that context was cancelled, the refund is owed
+// and the context it would run on is already dead. Compensating on the dying
+// context leaks the slot exactly when it is most likely to leak. Same
+// detach-and-deadline shape the connector teardown and the AI tracer use.
+func startEnrichOrRefund(ctx context.Context, peopleStore *people.Store,
+	autoEnrich *capture.AutoEnrichStore, orgID ids.OrganizationID, domain string, slot capture.BudgetSlot,
+) error {
+	started, err := startAutoEnrichRead(ctx, peopleStore, autoEnrich, orgID, domain)
+	if started {
 		return err
 	}
-	if !started {
-		return w.autoEnrich.ReleaseBudget(ctx, slot)
+	refundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refundTimeout)
+	defer cancel()
+	refundErr := autoEnrich.ReleaseBudget(refundCtx, slot)
+	if err != nil {
+		return errors.Join(err, refundErr)
 	}
-	return nil
+	return refundErr
 }
 
 // startAutoEnrichRead queues ONE governed deep read for one organization and
@@ -187,8 +215,8 @@ func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org ca
 // It reports whether a read was actually STARTED, as opposed to joined onto one
 // already in flight. Both callers reserve a budget slot before calling, and a
 // join means that slot bought nothing: without the distinction, a sweep and a
-// capture racing on one organization spend two of the day's ten reads on a
-// single crawl and charge that organization two of its bounded attempts. The
+// capture racing on one organization spend two of the day's reads on a single
+// crawl and charge that organization two of its bounded attempts. The
 // cursor is armed only by the caller that started something, for the same
 // reason.
 func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,

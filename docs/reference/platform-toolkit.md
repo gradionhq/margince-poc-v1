@@ -114,8 +114,8 @@ robots-aware, paced, byte/time-bounded. No extraction, no discovery policy — t
 - **Reach for it when:** fetching a tenant-supplied URL — never hand-roll an `http.Client` for one.
 
 ### `platform/testdb` — test database harness
-Migrate-once schema setup + fast `TRUNCATE` reset for the integration lanes (`EnsureSchema`,
-`Truncate`); the `integrationmigrateonce_test.go` gate enforces its use.
+Migrate-once schema setup + fast data-only reset for the integration lanes (`EnsureSchema`,
+`Reset`); the `integrationmigrateonce_test.go` gate enforces its use.
 - **Reach for it when:** writing a real-Postgres test setup.
 
 ---
