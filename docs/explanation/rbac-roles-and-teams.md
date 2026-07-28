@@ -111,7 +111,7 @@ the dev seed's second user before it assigned `rep`; see `scripts/seed-dev.sql`.
 
 ## Record sharing — a per-record grant on top of scope
 
-Row scope is coarse (own / team / all). **Record sharing** (A52/ADR-0039) is the fine-grained layer:
+Row scope is coarse (own / team / all). **Record sharing** is the fine-grained layer:
 grant **one specific record** to **one person or team**, at **read or write**, optionally expiring,
 with a reason. This is the Share screen (`frontend/src/screens/share.tsx`, `#/share/<type>/<id>`) and
 the `record_grant` table / `/v1/record-grants` API.

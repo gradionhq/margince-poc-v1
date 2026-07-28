@@ -11,7 +11,7 @@ alongside Gmail from the same Settings surface (Path D). For the mental model �
 one Sink, the three ingestion modes, credential custody — read
 [explanation/capture-connectors.md](../explanation/capture-connectors.md) first.
 
-> **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
+> **Single-organization installation.** One installation serves one organization; the
 > server resolves it itself, so no request selects a tenant — the `curl`s below carry only the session
 > cookie. ("Workspace" still names the internal RLS tenant these tables are scoped by.)
 

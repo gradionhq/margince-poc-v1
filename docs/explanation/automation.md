@@ -1,6 +1,6 @@
 # Automation — the closed catalog & its trigger runtime
 
-`internal/modules/automation` (`ADR-0035`) lets a workspace turn on and parameterize a **fixed** set
+`internal/modules/automation` lets a workspace turn on and parameterize a **fixed** set
 of "when X happens, do Y" templates. There is no rule builder, no expression language, and no
 user-defined trigger or action — the vocabulary is seven triggers × seven actions, closed, and adding
 to it is a code-and-test change, never data. This document is the deep reference: the catalog, the one
@@ -66,7 +66,7 @@ stages for a human approval, `dynamic` resolves 🟢/🟡 from the firing's own 
 | `add_to_list` | 🟢 | add the record to a static list |
 | `draft_email` | 🟢 | compose a draft email (records the draft; **never sends**) |
 | `notify` | 🟢 | notify a user (no transport wired here → honest `skipped`, §9) |
-| `assign_owner` | `dynamic` | set/reassign the owner — 🟢 single-entity, 🟡 at scale (ADR-0026 §3) |
+| `assign_owner` | `dynamic` | set/reassign the owner — 🟢 single-entity, 🟡 at scale |
 | `request_approval` | 🟡 | stage a human approval — confirm-first by its very nature |
 
 Adding an eighth member of either set moves three things together — a new constant, its `triggerDefs`
@@ -84,12 +84,12 @@ drift to "clean up"):
 
 | Term | Layer | Where it lives |
 |---|---|---|
-| **automation** | the **product** — what a user creates and sees | ADR-0035; the `/automations` API + `AutomationCatalogEntry`; the `automation` table; this module's name |
+| **automation** | the **product** — what a user creates and sees | the `/automations` API + `AutomationCatalogEntry`; the `automation` table; this module's name |
 | **workflow** | the **engine** — how that automation executes | the frozen `shared/ports/workflow` seam (`Handler`, `Effect`, `ActionKind`); the `WorkflowEngine`; the `workflow_run` table + `/workflow-runs`; the `cg:workflows` dispatch group |
 
 The rule of thumb: **product/user-facing code says _automation_; the executor seam and runtime say
 _workflow_.** So a user enables an *automation*, and the system records its *workflow-runs*. Don't try
-to collapse the two — `ports/workflow` is a frozen additive-only seam (ADR-0017 §1) and `workflow_run`
+to collapse the two — `ports/workflow` is a frozen additive-only seam and `workflow_run`
 / `/workflow-runs` are shipped contract surface, so renaming either would break the seam rule and the
 contract gate; a genuine merge would be an upstream spec change (P3), not a local rename.
 
