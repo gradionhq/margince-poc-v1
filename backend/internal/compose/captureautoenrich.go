@@ -143,7 +143,14 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 // triggerEnrich starts a system-requested deep read for one org and arms its
 // cursor.
 func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org capture.DueOrg) error {
-	return startAutoEnrichRead(ctx, w.people, w.autoEnrich, org.OrganizationID, org.Domain)
+	started, err := startAutoEnrichRead(ctx, w.people, w.autoEnrich, org.OrganizationID, org.Domain)
+	if err != nil {
+		return err
+	}
+	if !started {
+		return w.autoEnrich.ReleaseBudget(ctx)
+	}
+	return nil
 }
 
 // startAutoEnrichRead queues ONE governed deep read for one organization and
@@ -159,15 +166,23 @@ func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org ca
 //
 // It does NOT crawl. This queues work and returns — the pages are fetched and
 // the model is called in the deep-read worker, on its own job.
+//
+// It reports whether a read was actually STARTED, as opposed to joined onto one
+// already in flight. Both callers reserve a budget slot before calling, and a
+// join means that slot bought nothing: without the distinction, a sweep and a
+// capture racing on one organization spend two of the day's ten reads on a
+// single crawl and charge that organization two of its bounded attempts. The
+// cursor is armed only by the caller that started something, for the same
+// reason.
 func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,
 	autoEnrich *capture.AutoEnrichStore, orgID ids.OrganizationID, domain string,
-) error {
+) (bool, error) {
 	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
 	if err != nil {
-		return err
+		return false, err
 	}
 	seedURL := "https://" + domain
-	_, _, err = peopleStore.StartSiteReadQueued(ctx, orgID, seedURL, systemAutoEnrichActor,
+	_, joined, err := peopleStore.StartSiteReadQueued(ctx, orgID, seedURL, systemAutoEnrichActor,
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			_, insErr := client.InsertTx(ctx, tx, SiteDeepReadArgs{
 				WorkspaceID:    storekit.MustWorkspace(ctx),
@@ -183,9 +198,15 @@ func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,
 			return insErr
 		})
 	if err != nil {
-		return err
+		return false, err
 	}
-	return autoEnrich.MarkQueued(ctx, orgID, autoEnrichRetryBackoff)
+	if joined {
+		// Someone else's read is already in flight for this organization; the
+		// uniqueness index arbitrated it. Arming the cursor again would charge a
+		// second attempt for one crawl.
+		return false, nil
+	}
+	return true, autoEnrich.MarkQueued(ctx, orgID, autoEnrichRetryBackoff)
 }
 
 // workspaceCtx binds the sweep's system principal on the given workspace. A

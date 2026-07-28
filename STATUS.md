@@ -984,7 +984,19 @@ Open work, roughly in priority order:
   neither the contact nor the backfill page waits for a website to answer.
   Deliberately best-effort in one direction only: no ambient River client, the
   day's cap spent, or any fault leaves the organization exactly as the sweep
-  finds it, and every give-up says so in the log. The sweep is unchanged and
+  finds it, and every give-up says so in the log. The queue check runs FIRST
+  because it is the only gate that costs nothing to ask and the only one that
+  makes every later step pointless — a process that composes a Sink without a
+  queue would otherwise pay three round trips per captured company to learn it
+  could never have started a read. It is an injected probe (`queueReady`) rather
+  than a direct River call: the client is AMBIENT, and a gate reading ambient
+  state is one no test can put on either side of.
+  A sweep and a capture racing on one organization used to spend TWO of the
+  day's ten reads and charge that organization two of its bounded attempts,
+  while the in-flight uniqueness index let only one read exist.
+  `startAutoEnrichRead` now reports whether it started or merely joined; the
+  cursor is armed only by the starter, and the joiner returns its slot
+  (`AutoEnrichStore.ReleaseBudget`, guarded at zero). The sweep is unchanged and
   remains the reconciler — which is what lets the trigger be quick rather than
   careful. Both paths spend the SAME atomically-reserved daily cap
   (`autoEnrichDailyCap` = 10/workspace/UTC-day), so the trigger is a faster route

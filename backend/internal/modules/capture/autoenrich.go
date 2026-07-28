@@ -147,6 +147,34 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (bool
 	return reserved, nil
 }
 
+// ReleaseBudget returns one reserved slot to the day, for a reservation that
+// bought nothing.
+//
+// The pattern is reserve-before-spend, which means the caller sometimes holds a
+// slot it turns out not to need: two paths racing on one organization both
+// reserve, and the uniqueness index lets only one of them start a read. Without
+// the refund the day's ten reads would deliver nine, and the shortfall would
+// grow with exactly the concurrency the cap is meant to be indifferent to.
+//
+// Guarded at zero rather than trusted: a decrement that could run below zero
+// would hand out free reads on the next reservation, which is the failure this
+// counter exists to prevent.
+func (s *AutoEnrichStore) ReleaseBudget(ctx context.Context) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_auto_enrich_budget
+			   SET enqueued = enqueued - 1
+			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND budget_date = (now() AT TIME ZONE 'utc')::date
+			   AND enqueued > 0`)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("capture: releasing an auto-enrich budget slot: %w", err)
+	}
+	return nil
+}
+
 // MarkQueued records that the sweep enqueued a deep-read for orgID: it counts
 // the attempt and arms next_attempt_at at the failure backoff, so a job that
 // never completes is re-driven after the backoff, up to the attempt bound. A

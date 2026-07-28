@@ -23,7 +23,9 @@ import (
 	"context"
 	"log/slog"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -38,6 +40,11 @@ type autoEnrichTrigger struct {
 	autoEnrich *capture.AutoEnrichStore
 	dailyCap   int
 	log        *slog.Logger
+	// queueReady answers whether this process can enqueue at all. It is a field
+	// rather than a direct call because the River client is AMBIENT — it arrives
+	// on the context — and a gate that reads ambient state is one no test can put
+	// on either side of. The same reason the clock is injected elsewhere.
+	queueReady func(context.Context) bool
 }
 
 func newAutoEnrichTrigger(pool *pgxpool.Pool, log *slog.Logger) *autoEnrichTrigger {
@@ -47,7 +54,15 @@ func newAutoEnrichTrigger(pool *pgxpool.Pool, log *slog.Logger) *autoEnrichTrigg
 		autoEnrich: capture.NewAutoEnrichStore(pool),
 		dailyCap:   autoEnrichDailyCap,
 		log:        log,
+		queueReady: riverQueueReady,
 	}
+}
+
+// riverQueueReady reports whether an ambient River client is bound — the
+// production answer to "can this process enqueue".
+func riverQueueReady(ctx context.Context) bool {
+	_, err := river.ClientFromContextSafely[pgx.Tx](ctx)
+	return err == nil
 }
 
 // organizationCaptured queues the read for a freshly created company.
@@ -60,6 +75,17 @@ func newAutoEnrichTrigger(pool *pgxpool.Pool, log *slog.Logger) *autoEnrichTrigg
 // indistinguishable from one that ran.
 func (t *autoEnrichTrigger) organizationCaptured(ctx context.Context, orgID ids.OrganizationID, domain string) {
 	if domain == "" {
+		return
+	}
+	// The queue first, because it is the only gate that costs nothing to ask and
+	// the only one that can make every later step pointless. A process with no
+	// ambient River client cannot start a read however the setting reads and
+	// however much budget is left, so asking the database three questions before
+	// discovering that is pure cost on the hot capture path — and it is the
+	// normal state in any process that composes a Sink without a queue.
+	if !t.queueReady(ctx) {
+		t.log.DebugContext(ctx, "capture auto-enrich: no queue in this process, the sweep takes this org",
+			"org", orgID.String())
 		return
 	}
 	// The read is the system's, not the connector's: it is attributed to
@@ -97,10 +123,22 @@ func (t *autoEnrichTrigger) organizationCaptured(ctx context.Context, orgID ids.
 			"org", orgID.String())
 		return
 	}
-	if err := startAutoEnrichRead(enrichCtx, t.people, t.autoEnrich, orgID, domain); err != nil {
+	started, err := startAutoEnrichRead(enrichCtx, t.people, t.autoEnrich, orgID, domain)
+	if err != nil {
 		// The reserved slot is spent without a read to show for it — a
 		// conservative under-spend, and the org stays due for the sweep.
 		t.log.WarnContext(ctx, "capture auto-enrich: on-capture trigger failed, leaving the org to the sweep",
+			"org", orgID.String(), "err", err)
+		return
+	}
+	if started {
+		return
+	}
+	// A read for this organization was already in flight — the sweep and this
+	// capture found it in the same moment, and the uniqueness index arbitrated.
+	// The slot goes back: one crawl must not cost the day two of its ten reads.
+	if err := t.autoEnrich.ReleaseBudget(enrichCtx); err != nil {
+		t.log.WarnContext(ctx, "capture auto-enrich: returning the unused budget slot failed",
 			"org", orgID.String(), "err", err)
 	}
 }
