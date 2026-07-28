@@ -64,6 +64,29 @@ func (s *Store) WithPublicBaseURL(base string) *Store {
 	return &clone
 }
 
+// SharedUnsubscribeTokenError refuses a send that would put ONE recipient's
+// preference token in front of the others.
+//
+// The token is a bearer credential over that person's consent record: it reads
+// their per-purpose state, withdraws, and GRANTS — a forged grant re-opens
+// mail to someone who never consented, with a proof row attributing the
+// decision to them. One rendered message carries one token, so a message with
+// a second addressee hands the first recipient's credential to a third party.
+//
+// V1 refuses rather than rendering per addressee, because one token per
+// recipient means one message per recipient and that is a different delivery
+// model. Nothing legitimate is lost: a transactional send carries no token and
+// is unaffected, and a marketing blast addressed To+Cc behind a shared
+// unsubscribe link is not a shape this product supports.
+//
+// It maps to 422 with the fix in the message: the caller re-issues one send
+// per recipient.
+type SharedUnsubscribeTokenError struct{}
+
+func (e *SharedUnsubscribeTokenError) Error() string {
+	return "a send that carries an unsubscribe link reaches one addressee at a time — re-issue it once per recipient, with no cc"
+}
+
 // deliverability derives what a send must carry for a mailbox provider to
 // accept it as bulk mail: the RFC 8058 List-Unsubscribe header value and the
 // human-visible footer, both built from ONE token so they cannot diverge.
@@ -73,6 +96,10 @@ func (s *Store) WithPublicBaseURL(base string) *Store {
 // (transactional) purpose, or an address no person holds — in which case a
 // transactional message has nothing to unsubscribe from and an address the
 // consent gate would refuse discloses nothing.
+//
+// recipients is the MERGED addressee list, every To and Cc address, because
+// the refusal above counts who RECEIVES the rendered message rather than how
+// they were addressed.
 func (s *Store) deliverability(ctx context.Context, body string, recipients []string, purposeKey string) (listUnsubscribe, outBody string, err error) {
 	if s.unsubscribe == nil || len(recipients) == 0 {
 		return "", body, nil
@@ -84,6 +111,13 @@ func (s *Store) deliverability(ctx context.Context, body string, recipients []st
 	if !ok {
 		return "", body, nil
 	}
+	// The refusal is tested HERE, after the linker has answered, because that
+	// answer is what says this purpose carries an unsubscribe surface at all —
+	// a multi-recipient transactional send reached the branch above and left
+	// already, carrying no token to leak.
+	if len(distinctAddresses(recipients)) > 1 {
+		return "", "", &SharedUnsubscribeTokenError{}
+	}
 	if s.publicBaseURL == "" {
 		// Fail loudly rather than derive the base from the request: the link
 		// carries the recipient's unsubscribe token, and a marketing send
@@ -93,6 +127,24 @@ func (s *Store) deliverability(ctx context.Context, body string, recipients []st
 	}
 	unsubURL := unsubscribeURL(s.publicBaseURL, token, purposeKey)
 	return listUnsubscribeHeader(unsubURL), appendUnsubscribeFooter(body, s.publicBaseURL, token, unsubURL), nil
+}
+
+// distinctAddresses counts who a rendered message actually reaches. Addresses
+// are compared case- and space-insensitively, the way a mail server treats
+// them, so the same person listed twice — once in To and once in Cc, or with
+// different capitalisation — is one addressee and not a refusal.
+func distinctAddresses(recipients []string) []string {
+	seen := make(map[string]bool, len(recipients))
+	distinct := make([]string, 0, len(recipients))
+	for _, addr := range recipients {
+		key := normalizeAddress(addr)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		distinct = append(distinct, addr)
+	}
+	return distinct
 }
 
 // unsubscribeURL is the ONE spelling of the public one-click endpoint the

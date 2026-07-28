@@ -204,6 +204,16 @@ func sendInput(purpose string) SendEmailInput {
 	}
 }
 
+// soloSendInput is the same message to ONE addressee. A send that carries an
+// unsubscribe surface must have exactly one, because the token in the header
+// and the footer belongs to a single person — so every case about what such a
+// send derives has to be addressed this way to reach the derivation at all.
+func soloSendInput(purpose string) SendEmailInput {
+	in := sendInput(purpose)
+	in.Recipients, in.Cc = []string{"buyer@example.test"}, nil
+	return in
+}
+
 // The key the send writes IS the key capture derives from the provider's own
 // copy of the sent message. Bracketed, or filed under a different system, the
 // two never collide and every outbound email lands on the timeline twice.

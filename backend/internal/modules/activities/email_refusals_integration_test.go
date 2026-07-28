@@ -31,7 +31,7 @@ func TestSendEmailDerivesUnsubscribeHeadersForAMarketingPurpose(t *testing.T) {
 	linker := stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true}
 
 	sent, err := e.store(linker).SendEmail(
-		e.as(principal.RowScopeAll), anchor, sendInput("marketing_email"), stubConsentGate{}, stager)
+		e.as(principal.RowScopeAll), anchor, soloSendInput("marketing_email"), stubConsentGate{}, stager)
 	if err != nil {
 		t.Fatalf("SendEmail: %v", err)
 	}
@@ -76,6 +76,54 @@ func TestSendEmailDerivesNoUnsubscribeHeadersForATransactionalPurpose(t *testing
 	}
 	if staged.Body != "As discussed." {
 		t.Fatalf("transactional body = %q, want the sender's text untouched", staged.Body)
+	}
+}
+
+// A preference token is a bearer credential over ONE person's consent record —
+// it reads their state, withdraws, and grants — and a single rendered message
+// carries a single token to every addressee. Sending that message to a second
+// person hands them the first recipient's credential, so the send is refused
+// before anything is staged.
+func TestSendEmailRefusesAMultiAddresseeSendThatCarriesAnUnsubscribeToken(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	linker := stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true}
+
+	// sendInput addresses buyer@ and cc's boss@ — two people, one token.
+	_, err := e.store(linker).SendEmail(
+		e.as(principal.RowScopeAll), anchor, sendInput("marketing_email"), stubConsentGate{}, stager)
+	var refusal *SharedUnsubscribeTokenError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("multi-addressee marketing send → %v, want a SharedUnsubscribeTokenError", err)
+	}
+	if !strings.Contains(refusal.Error(), "once per recipient") {
+		t.Fatalf("refusal %q does not tell the user what to do about it", refusal.Error())
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Fatal("a refused send still staged a delivery or logged an activity")
+	}
+}
+
+// …and the refusal is about the TOKEN, not about the recipient count: a
+// transactional send mints none, so it reaches as many addressees as the caller
+// listed. Refusing those too would break every ordinary reply-all.
+func TestSendEmailAcceptsAMultiAddresseeSendThatCarriesNoUnsubscribeToken(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	linker := stubUnsubscribeLinker{token: testUnsubscribeTok, ok: false}
+
+	if _, err := e.store(linker).SendEmail(
+		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager); err != nil {
+		t.Fatalf("multi-addressee transactional send → %v, want acceptance", err)
+	}
+	staged := stager.only(t)
+	if staged.ListUnsubscribe != "" {
+		t.Fatalf("a transactional send carries List-Unsubscribe %q — then it should have been refused", staged.ListUnsubscribe)
+	}
+	if len(staged.Cc) != 1 {
+		t.Fatalf("staged cc = %v, want the addressee the caller listed", staged.Cc)
 	}
 }
 

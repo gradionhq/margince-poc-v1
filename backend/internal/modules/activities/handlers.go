@@ -82,6 +82,14 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation("from", "mailbox_not_send_capable", mailbox.Error()))
 		return
 	}
+	// One rendered message carries one recipient's preference token, so a
+	// second addressee would receive a bearer credential over the first
+	// recipient's consent record. 422 naming the fix: one send per recipient.
+	var shared *SharedUnsubscribeTokenError
+	if errors.As(err, &shared) {
+		httperr.Write(w, r, httperr.Validation("recipients", "shared_unsubscribe_token", shared.Error()))
+		return
+	}
 	// An activity carries at most one project link (PROJ-AC-15), enforced by
 	// a PARTIAL unique index on activity_id alone — which relink's ON CONFLICT
 	// target cannot see, so a second project raises 23505 instead of being
