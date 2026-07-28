@@ -218,16 +218,20 @@ func (s *Store) RecordFailure(ctx context.Context, id ids.UUID, reason string) e
 }
 
 // RecordDeferral notes why a delivery is being held back AND gives back the
-// attempt Load counted, in one statement.
+// attempt Load counted, in one statement. It is for the PACING deferral only —
+// the case where one of this installation's own policies held the message back
+// and nothing was handed to a provider. A provider throttle is a different
+// fact: the message reached the provider, so it keeps its rung and takes
+// RecordFailure.
 //
 // attempts means TRANSMISSION attempts — both readers depend on it meaning
 // that. The exhaustion guard parks a delivery whose ladder is spent, and the
 // connector's prior-send lookup fires on a non-zero count precisely because a
-// previous attempt may already have put the message on the wire. A dispatch
-// that ends in a deferral put nothing on the wire: it reached no provider, so
-// it must consume no rung. Leaving the increment in place would park a paced
-// delivery as "ladder exhausted" after N windows without it ever having tried
-// to send, and would make the maximum-age bound unreachable.
+// previous attempt may already have put the message on the wire. A pacing
+// deferral put nothing on the wire: it never reached a provider, so it must
+// consume no rung. Leaving the increment in place would park a paced delivery
+// as "ladder exhausted" after N windows without it ever having tried to send,
+// and would make the maximum-age bound unreachable.
 //
 // The restore is deliberately the ONLY way the counter goes down, and it is
 // safe in the crash direction: Load's increment is already durable before

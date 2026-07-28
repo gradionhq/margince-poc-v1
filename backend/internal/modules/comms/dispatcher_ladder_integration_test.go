@@ -10,11 +10,20 @@ package comms
 // Two readers depend on that meaning: the exhaustion guard, which parks a
 // delivery whose ladder is spent, and the connector's prior-send lookup, which
 // fires on a non-zero count because a previous attempt may already have put
-// the message on the wire. A dispatch that ends in a deferral reached no
-// provider, so it must consume no rung — otherwise a merely BUSY mailbox
-// parks legitimate mail as "ladder exhausted" after N pacing windows, without
-// the message ever having been attempted, and the maximum-age bound the
-// deployment configures becomes unreachable.
+// the message on the wire. The line between the two deferrals is therefore
+// whether the message reached a provider at all:
+//
+//   - a PACING deferral never handed anything to a provider, so it must consume
+//     no rung — otherwise a merely BUSY mailbox parks legitimate mail as "ladder
+//     exhausted" after N windows without ever having been attempted, and the
+//     configured maximum-age bound becomes unreachable;
+//   - a PROVIDER THROTTLE did reach the provider — a 429 is its answer — so it
+//     keeps its rung. Restoring it there would leave the delivery snoozing
+//     forever: the rate policy meters only successful sends, so its own age
+//     park is never reached, and the caller's ladder is restored by the snooze.
+//
+// Both halves are pinned here, because either one read the other's way is a row
+// that never resolves or mail that dies for being popular.
 //
 // The fixture (setupStore/stage/baseInput) lives in store_integration_test.go;
 // the fake sender/resolver/consent in dispatcher_test.go.
@@ -29,6 +38,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // deliveryRow is what an operator (and the exhaustion guard) actually sees.
@@ -141,5 +151,67 @@ func TestATransmittingAttemptStillSpendsARung(t *testing.T) {
 	}
 	if sender.seen.Attempt != 0 {
 		t.Fatalf("the first transmission reported Attempt = %d, want 0 — a first send must not run the prior-send lookup", sender.seen.Attempt)
+	}
+}
+
+// A provider throttle is an answer FROM the provider, so it spends a rung and
+// the ladder bounds it. Without that, sustained 429s snooze forever: the rate
+// policy meters only successful sends, so pace never reaches its age park, and
+// the snooze restores the caller's own attempt. The row would look live
+// indefinitely — the exact state the exhaustion bound exists to prevent.
+func TestProviderThrottlingPastTheLadderParksNamingTheThrottle(t *testing.T) {
+	e := setupStore(t)
+	id := e.stage(t, e.baseInput(e.activity, "msg-throttled@example.com"))
+
+	const (
+		ladder     = 4
+		retryAfter = 30 * time.Second
+	)
+	// The provider refuses every attempt and states when to come back.
+	sender := &fakeSender{err: &connector.RateLimitedError{RetryAfter: retryAfter}}
+	d := NewDispatcher(e.store,
+		fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{},
+		nil, func() time.Time { return e.clockValue }, time.Hour, ladder)
+
+	// Every throttle before the last rung defers — and keeps its rung, so the
+	// counter climbs and the ladder can actually run out.
+	for attempt := 1; attempt < ladder-1; attempt++ {
+		outcome, wait, err := d.DispatchWithWait(e.ctx, id)
+		if err != nil {
+			t.Fatalf("throttle %d: %v", attempt, err)
+		}
+		if outcome != OutcomePostponed || wait != retryAfter {
+			t.Fatalf("throttle %d → %v/%v, want OutcomePostponed/%s (the interval the provider stated)", attempt, outcome, wait, retryAfter)
+		}
+		status, attempts, _ := e.deliveryRow(t, id)
+		if status != StatusPending {
+			t.Fatalf("throttle %d closed the delivery (%q) too early", attempt, status)
+		}
+		if attempts != attempt {
+			t.Fatalf("after %d throttle(s) attempts = %d, want %d: a message the provider answered spent a rung", attempt, attempts, attempt)
+		}
+	}
+
+	// The last rung: there is no further attempt to honour the interval on, so
+	// it parks now rather than asking to be retried on a rung that is gone.
+	outcome, _, err := d.DispatchWithWait(e.ctx, id)
+	if err != nil {
+		t.Fatalf("the throttle on the last rung: %v", err)
+	}
+	if outcome != OutcomeParked {
+		t.Fatalf("the throttle on the last rung → %v, want OutcomeParked — a throttled delivery must not snooze forever", outcome)
+	}
+	status, _, reason := e.deliveryRow(t, id)
+	if status != StatusParked {
+		t.Fatalf("status = %q, want parked", status)
+	}
+	// Which side stopped the message is the whole value of the row an operator
+	// reads: "the provider throttled us" and "our own limiter held it back" are
+	// different problems with different fixes.
+	if !strings.Contains(reason, "rate limiting") {
+		t.Fatalf("park reason %q does not name the provider throttle that actually stopped the message", reason)
+	}
+	if strings.Contains(reason, "waiting:") || strings.Contains(reason, "maximum age") {
+		t.Fatalf("park reason %q reads as a local pacing deferral; the provider refused this, we did not", reason)
 	}
 }

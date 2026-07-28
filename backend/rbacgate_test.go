@@ -140,11 +140,11 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	// (storekit.Actor) and fails closed when none resolves to an app_user;
 	// no caller input can name a different sender. Object-RBAC has nothing
 	// left to narrow once that derivation stands. Load/RecordSent/Park/
-	// RecordFailure are the dispatcher's own state-machine steps, driven by
-	// the outbox/River worker under the system principal with no human
-	// principal in the call at all; nothing here discloses a record to
-	// anyone — RecordFailure/Park's reason is an operator-facing transport
-	// diagnosis, not tenant data.
+	// RecordFailure/RecordDeferral are the dispatcher's own state-machine
+	// steps, driven by the outbox/River worker under the system principal
+	// with no human principal in the call at all; nothing here discloses a
+	// record to anyone — the reason each of them writes is an operator-facing
+	// transport diagnosis, not tenant data.
 	"internal/modules/comms:StageTx":        "derives user_id from the authenticated principal (storekit.Actor) and fails closed with no caller-suppliable override; the activity:create check on the shared transaction admits the send action itself, but the sending IDENTITY is enforced here, in the store, not inherited from that check",
 	"internal/modules/comms:Load":           "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
 	"internal/modules/comms:RecordSent":     "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",

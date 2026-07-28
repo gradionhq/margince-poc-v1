@@ -143,9 +143,17 @@ func TestDispatchRetriesWhenTheProviderIsUnreachable(t *testing.T) {
 
 // Reachable via the provider's dedicated throttling case; honour the interval
 // it stated rather than guessing a shorter one and earning another throttle.
-func TestDispatchPostponesForTheProviderStatedRetryAfter(t *testing.T) {
+//
+// It KEEPS its rung, unlike a pacing deferral: the message reached the provider
+// and a 429 is the provider's answer, so it is a transmission attempt and the
+// ladder has to bound it. Restoring the rung here would leave a throttled
+// delivery snoozing forever — the rate policy meters only successful sends, so
+// pace never reaches its own age park, and the caller's ladder is restored by
+// the snooze this very call asks for.
+func TestDispatchPostponesForTheProviderStatedRetryAfterAndKeepsItsRung(t *testing.T) {
 	sender := &fakeSender{err: &connector.RateLimitedError{RetryAfter: 42 * time.Second}}
 	store := &fakeStore{delivery: liveDelivery()}
+	before := store.delivery.Attempts
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
 
 	got, wait, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
@@ -154,6 +162,36 @@ func TestDispatchPostponesForTheProviderStatedRetryAfter(t *testing.T) {
 	}
 	if got != OutcomePostponed || wait != 42*time.Second {
 		t.Errorf("outcome=%v wait=%v, want OutcomePostponed/42s", got, wait)
+	}
+	if store.deferred != "" {
+		t.Errorf("a provider throttle was recorded as a pacing deferral (%q), which gives back a rung the message already spent at the provider", store.deferred)
+	}
+	if store.delivery.Attempts != before {
+		t.Errorf("attempts went %d → %d on a provider throttle; the rung must stand", before, store.delivery.Attempts)
+	}
+	if !strings.Contains(store.failed, "rate limiting") {
+		t.Errorf("reason %q does not tell an operator the PROVIDER throttled us rather than our own limiter", store.failed)
+	}
+}
+
+// On the last rung there is no further attempt to honour the provider's
+// interval on, so the delivery parks THERE — naming the throttle — rather than
+// asking to be retried against a ladder that is already spent.
+func TestDispatchParksOnAThrottleThatExhaustsTheLadder(t *testing.T) {
+	sender := &fakeSender{err: &connector.RateLimitedError{RetryAfter: 42 * time.Second}}
+	store := &fakeStore{delivery: liveDelivery()}
+	store.delivery.Attempts = testMaxAttempts - 1
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+
+	got, wait, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
+	if err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	if got != OutcomeParked || wait != 0 {
+		t.Fatalf("outcome=%v wait=%v on the last rung, want OutcomeParked/0", got, wait)
+	}
+	if !strings.Contains(store.parked, "rate limiting") {
+		t.Errorf("park reason %q does not name the provider throttle that stopped the message", store.parked)
 	}
 }
 

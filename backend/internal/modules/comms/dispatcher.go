@@ -322,9 +322,43 @@ func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err 
 	// honour, so it falls through to the retry ladder rather than asking the
 	// caller to re-run immediately against a provider already throttling us.
 	if limited, throttled := errors.AsType[*connector.RateLimitedError](err); throttled && limited.RetryAfter > 0 {
-		return d.postpone(ctx, del.ID, "waiting: the provider is rate limiting this mailbox", limited.RetryAfter)
+		return d.throttled(ctx, del, limited.RetryAfter)
 	}
 	return d.retry(ctx, del.ID, err)
+}
+
+// throttled defers a delivery the PROVIDER refused for now, honouring the
+// interval it stated.
+//
+// It KEEPS the attempt, unlike the pacing deferral below, and the difference is
+// not stylistic: the message reached the provider — a 429 is an answer from it,
+// not a failure to ask — so this was a transmission attempt to both readers of
+// the counter, and it must be bounded like one. Giving the rung back here would
+// leave a throttled delivery snoozing forever: MailboxRatePolicy meters only
+// successful sends, so the policy chain keeps saying "go now" and never reaches
+// its own maximum-age park, and the caller's ladder is restored by the very
+// snooze this asks for. Nothing else would ever move the row.
+//
+// The ladder end is checked HERE rather than left to the guard in
+// DispatchWithWait for two reasons. That guard runs before transmit, so it
+// would only fire one dispatch later — asking the provider to be re-tried on a
+// rung that no longer exists. And it parks under a reason that names no cause,
+// where an operator reading this row should learn which side stopped the
+// message.
+func (d *Dispatcher) throttled(ctx context.Context, del Delivery, retryAfter time.Duration) (Outcome, time.Duration, error) {
+	// del.Attempts counts this attempt, and the guard above admitted it, so
+	// this is the last rung exactly when no further one remains.
+	if del.Attempts >= d.maxAttempts-1 {
+		return d.park(ctx, del.ID, fmt.Sprintf(
+			"the provider is rate limiting this mailbox and the retry ladder is exhausted after %d attempts", del.Attempts))
+	}
+	if err := d.store.RecordFailure(ctx, del.ID, "waiting: the provider is rate limiting this mailbox"); err != nil {
+		if errors.Is(err, ErrTerminal) {
+			return OutcomeSkipped, 0, nil
+		}
+		return OutcomeRetry, 0, fmt.Errorf("comms: recording the provider throttle: %w", err)
+	}
+	return OutcomePostponed, retryAfter, nil
 }
 
 // park ends a delivery no retry repairs, recording why in words an operator
@@ -387,14 +421,16 @@ func (d *Dispatcher) retry(ctx context.Context, id ids.UUID, cause error) (Outco
 	return OutcomeRetry, 0, cause
 }
 
-// postpone records which rule is holding the delivery back and asks the caller
-// to try again after wait, so an operator seeing a deferred message knows what
-// deferred it. It also hands back the attempt Load counted, because this
-// dispatch transmitted nothing.
+// postpone is the PACING deferral, and pace is its only caller: OUR OWN rule
+// held the message back and nothing was ever handed to a provider. It records
+// which rule, so an operator seeing a deferred message knows what deferred it,
+// and hands back the attempt Load counted, because this dispatch transmitted
+// nothing. A provider throttle is a different fact and takes the different path
+// above (throttled), which keeps its rung.
 //
-// A postponement must not consume a rung of the retry ladder, on EITHER side of
-// the seam. The row's own counter is restored here (RecordDeferral); the
-// caller's must be restored too — the exhaustion guard runs AFTER the policy
+// A pacing postponement must not consume a rung of the retry ladder, on EITHER
+// side of the seam. The row's own counter is restored here (RecordDeferral);
+// the caller's must be restored too — the exhaustion guard runs AFTER the policy
 // chain, so on the last rung a deferral is returned where a park would
 // otherwise be, and a caller that implements the wait by burning an attempt
 // leaves that row pending with no attempts left and nothing that would ever
