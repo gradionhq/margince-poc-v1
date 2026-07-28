@@ -124,13 +124,35 @@ type listFilters struct {
 	Query           *string
 	Cursor          *string
 	CustomFilters   map[string]string
+	// CapturedByKind filters on WHO created the row, matched against the
+	// captured_by prefix. `agent` is the review list for the records an AI
+	// created (ADR-0075/A121 §3a). The contract validates the value against a
+	// closed enum before it reaches here.
+	CapturedByKind *string
 	// nameColumn is the quick-find target — the record's display column.
 	nameColumn string
 }
 
+// capturedByKindClause is the ONE spelling of the provenance filter
+// (ADR-0075/A121 §3a). It lives outside listFilters because the lead list
+// builds its own WHERE chain rather than using that struct, and two copies of
+// "which prefix counts as an AI" is exactly how the person list and the lead
+// list end up disagreeing about what the review list contains.
+//
+// The whole LIKE pattern is ONE bound argument, never concatenated into the
+// SQL. The contract's enum values are plain ASCII words carrying no LIKE
+// metacharacter today; binding the pattern is what keeps that true of a value
+// the enum gains later.
+func capturedByKindClause(kind *string, arg func(any) int) (string, bool) {
+	if kind == nil || *kind == "" {
+		return "", false
+	}
+	return storekit.SQLf("captured_by LIKE $%d", arg(*kind+":%")), true
+}
+
 // clauses translates the filters into WHERE clauses, appending their
-// arguments through arg — archived visibility, owner, quick-find,
-// custom-field equality, and the keyset cursor.
+// arguments through arg — archived visibility, owner, provenance,
+// quick-find, custom-field equality, and the keyset cursor.
 func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.ListSort, arg func(any) int) ([]string, error) {
 	var where []string
 	if !f.IncludeArchived {
@@ -138,6 +160,9 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	}
 	if f.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*f.OwnerID)))
+	}
+	if clause, ok := capturedByKindClause(f.CapturedByKind, arg); ok {
+		where = append(where, clause)
 	}
 	if f.Query != nil && *f.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*f.Query), f.nameColumn))
@@ -155,4 +180,15 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 		where = append(where, clause)
 	}
 	return where, nil
+}
+
+// capturedByKindArg maps the contract's validated provenance enum onto the
+// store input. The generated type is a distinct string kind, so the conversion
+// is where the wire vocabulary meets the store's.
+func capturedByKindArg[T ~string](v *T) *string {
+	if v == nil {
+		return nil
+	}
+	s := string(*v)
+	return &s
 }

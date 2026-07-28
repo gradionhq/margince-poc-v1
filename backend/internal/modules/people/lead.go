@@ -302,6 +302,8 @@ type ListLeadsInput struct {
 	OwnerID         *ids.UserID
 	Query           *string
 	IncludeArchived bool
+	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
+	CapturedByKind *string
 }
 
 func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontracts.Lead, storekit.Page, error) {
@@ -334,6 +336,9 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	}
 	if in.OwnerID != nil {
 		where = append(where, storekit.SQLf("owner_id = $%d", arg(*in.OwnerID)))
+	}
+	if clause, ok := capturedByKindClause(in.CapturedByKind, arg); ok {
+		where = append(where, clause)
 	}
 	if in.Query != nil && *in.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*in.Query), "coalesce(full_name,'') || ' ' || coalesce(company_name,'')"))

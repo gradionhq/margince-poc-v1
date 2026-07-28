@@ -35,6 +35,7 @@ func (h Handlers) ListOrganizations(w http.ResponseWriter, r *http.Request, para
 		Limit:           params.Limit,
 		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
+		CapturedByKind:  capturedByKindArg(params.CapturedByKind),
 		Sort:            params.Sort,
 		CustomFilters:   httperr.CustomFieldFilters(r),
 	}
