@@ -220,8 +220,8 @@ and it caps how much of the site one certification run can cover:
 
    `TASK=` takes the name you declared in step 1. A name with no scenarios behind
    it — a typo, or a task nobody has written a corpus for — stops the run with
-   `task "…" has no scenarios under …` **before** anything is sent, so a mistake
-   here costs a message rather than a call.
+   `task "…" has no scenarios under …` **before any provider request is made**, so
+   getting it wrong costs you nothing.
 
    Commit the record under `internal/compose/aicert/records/<task>/`.
 

@@ -41,7 +41,7 @@ to add a task or a site rather than certify one that exists, see
 
 ## 1. Certify the task you run today
 
-```
+```bash
 make e2e-ai TASK=cold_start
 ```
 
@@ -50,7 +50,7 @@ every scenario in the task's corpus `N` times (an odd number, with response
 caching off so every run is a fresh model call), judges each answer, and prints
 the verdict:
 
-```
+```text
 cold_start: certified (reliability=1.00 score_p50=100 self_judged=false)
 ```
 
@@ -88,7 +88,7 @@ a task's result back down per site.
 Certify a *different* model against the same corpus, without editing your
 routing config:
 
-```
+```bash
 make e2e-ai TASK=cold_start MODEL=gemini:gemini-3.1-flash-lite
 ```
 
@@ -102,7 +102,7 @@ routing file).
 
 ## 3. Read the readiness report
 
-```
+```bash
 make e2e-ai-report
 ```
 
@@ -111,7 +111,7 @@ and prints one row per shipped invocation site — including the sites nothing h
 ever certified, which is the whole reason it enumerates the census rather than
 the records:
 
-```
+```text
 AI certification readiness: 1 of 19 shipped sites carry a current record.
 
 SITE                  SCOPE            STATUS  BAND       PROVIDER  MODEL             ENV   RUNS  PASSED  RELIABILITY  ACCEPTED  WRONG_ANSWER  INVALID  ABSTAINED
@@ -169,14 +169,14 @@ When a task lands `not_supported` or `supported_degraded`, the verdict alone
 doesn't tell you *why*. Turn on the payload trace to read exactly what each
 model saw and said:
 
-```
+```bash
 make e2e-ai TASK=enrich          # trace is ON by default
 ```
 
 Every candidate **and** judge call is dumped to a JSONL file under the
 repo-root `.tmp/aicert/` (gitignored), and the path is printed to stdout:
 
-```
+```text
 aicert: payload trace → /…/margince-next/.tmp/aicert/aicert-trace-20260719T054005Z.jsonl
 ```
 

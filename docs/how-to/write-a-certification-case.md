@@ -12,7 +12,7 @@ that copy keeps passing, because it was never exercising the thing that broke.
 
 Two files per site:
 
-```
+```text
 internal/compose/certcase_<site>.go              the case
 internal/compose/aicert/corpus/<task>/*.yaml     one or more scenarios
 ```
@@ -22,7 +22,7 @@ SPDX header every hand-written Go file in this repo carries — see
 [AGENTS.md § License headers](../../AGENTS.md); `make check` fails a file that
 skips it.
 
-### What a reply can be — the four outcomes
+## What a reply can be — the four outcomes
 
 Read this first: everything below is written in these four words. `Evaluate`
 returns exactly one of them, and they stay distinct because they fail for
