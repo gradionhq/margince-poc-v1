@@ -60,7 +60,7 @@ func setupSearch(t *testing.T) *searchEnv {
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
-	if err := testdb.Truncate(ctx, owner); err != nil {
+	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatal(err)
 	}
 

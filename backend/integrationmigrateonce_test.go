@@ -6,7 +6,7 @@ package backendarch
 // Migrate-once discipline for the compose/integration suites as a fitness
 // function. The package migrates the schema exactly once per test process
 // (internal/platform/testdb.EnsureSchema) and resets between tests with a fast
-// TRUNCATE (testdb.Truncate); a suite that instead runs its own DROP SCHEMA +
+// data-only reset (testdb.Reset); a suite that instead runs its own DROP SCHEMA +
 // dbmigrate.Up on every setup silently reintroduces the ~0.8s-per-test migrate
 // that once dominated the lane. The obligation is derived from the tree — any
 // new *_test.go in the package that calls dbmigrate.Up is caught here — so the
@@ -14,7 +14,7 @@ package backendarch
 //
 // perfbench is the one sanctioned exception: it seeds a large volume and asserts
 // query-latency SLOs, so it wants pristine physical tables (no bloat or stale
-// planner stats from prior TRUNCATE cycles) and pays a genuine fresh migrate. It
+// planner stats from prior reset cycles) and pays a genuine fresh migrate. It
 // runs once, so the cost it opts back into is negligible.
 
 import (
@@ -55,7 +55,7 @@ func TestComposeIntegrationSuitesMigrateOncePerProcess(t *testing.T) {
 	}
 	if len(offenders) > 0 {
 		t.Errorf("%d compose/integration suite(s) migrate inline instead of riding testdb.EnsureSchema — "+
-			"replace the DROP SCHEMA + dbmigrate.Up block with testdb.EnsureSchema + testdb.Truncate (see harness.go):\n\t%s",
+			"replace the DROP SCHEMA + dbmigrate.Up block with testdb.EnsureSchema + testdb.Reset (see harness.go):\n\t%s",
 			len(offenders), strings.Join(offenders, "\n\t"))
 	}
 
