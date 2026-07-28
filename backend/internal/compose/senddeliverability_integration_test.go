@@ -6,12 +6,11 @@
 package compose
 
 // Deliverability is a property of the COMPOSITION, not of one transport. The
-// MCP send_email tool and the automation send action both receive the comms
-// seam newCommsAdapter builds — the same function registry.go and workflows.go
-// call — so this suite drives that seam and asserts a marketing send leaves it
-// carrying the RFC 8058 header and the visible footer. A suite that only drove
-// the HTTP handlers' store would pass while the tool surface transmitted bulk
-// mail with no unsubscribe surface at all.
+// MCP send_email tool sends through the comms seam newCommsAdapter builds, so
+// this suite drives that seam and asserts a marketing send leaves it carrying
+// the RFC 8058 header and the visible footer. A suite that only drove the HTTP
+// handlers' store would pass while the tool surface transmitted bulk mail with
+// no unsubscribe surface at all.
 
 import (
 	"context"
@@ -62,8 +61,8 @@ func TestToolSurfaceSendCarriesTheUnsubscribeSurface(t *testing.T) {
 	}
 
 	stager := &recordingStager{}
-	// The SAME constructor the MCP registry and the automation executors use,
-	// with the SAME configuration the api role supplies.
+	// The SAME constructor registry.go builds the tool surface's seam with,
+	// carrying the SAME configuration the api role supplies.
 	adapter := newCommsAdapter(e.Pool, nil, SendPath{
 		PublicBaseURL: toolSurfaceBaseURL,
 		Delivery:      stager,

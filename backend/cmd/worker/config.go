@@ -66,11 +66,12 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	var cfg workerConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
-	// The same canonical origin the api serves: an automation-triggered
-	// marketing send builds the recipient's tokenized unsubscribe link from
-	// it, and without one that send refuses rather than go out unlinkable.
+	// The same canonical origin the api serves: a marketing send from this
+	// role's Surface-B agent run builds the recipient's tokenized unsubscribe
+	// link from it, and without one that send refuses rather than go out
+	// unlinkable.
 	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"),
-		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required for an automation-triggered marketing send")
+		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required for a marketing send from the Surface-B agent run")
 	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
@@ -249,11 +250,16 @@ func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
 	return parsed, nil
 }
 
-// sendPath is the worker's outbound-send configuration, shared by every lane
-// that can send: the Surface-B agent runner, the event-driven workflow engine,
-// and the clock-trigger scanner. All three stage through the same delivery
-// machinery the api does — a lane that could accept a send but never queue one
-// is a silent hole, and this role is the one that transmits.
+// sendPath is the worker's outbound-send configuration. The Surface-B agent
+// runner is this role's one sending lane — its governed tool surface carries
+// send_email — and it stages through the same delivery machinery the api does:
+// a lane that could accept a send but never queue one is a silent hole, and
+// this role is the one that transmits.
+//
+// The deterministic automation lanes take none of it. A send_email action
+// stages an approval rather than transmitting, and the automation module's
+// Comms seam declares DraftEmail alone, so there is no send to configure for
+// the workflow engine or the clock-trigger scanner.
 //
 // No mailbox pre-flight: that check is advisory and needs the connect
 // registry, which only the api role builds. The transmit-time authority gate

@@ -70,7 +70,7 @@ const (
 func TestWorkflowTriggerToDispatchP95HoldsOnTheSeededDataset(t *testing.T) {
 	e := Setup(t)
 	seedAllStarterAutomations(t, e)
-	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
+	engine := compose.NewWorkflowEngine(e.Pool)
 
 	// Warmup: discarded, per the file doc comment's fixed-cost note.
 	for _, leadID := range seedTriggerLeads(t, e, dispatchWarmupSamples) {

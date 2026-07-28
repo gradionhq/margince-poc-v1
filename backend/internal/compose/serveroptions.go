@@ -191,10 +191,9 @@ func WithPublicBaseURL(base string) Option {
 }
 
 // WithDelivery wires the machinery an accepted send is staged for
-// transmission with, onto EVERY send transport this role serves: the HTTP
-// handler, the MCP send_email tool, and (through the same store) the
-// automation send action. Without it a send refuses rather than log an
-// activity claiming a message went out.
+// transmission with, onto BOTH send transports this role serves: the HTTP
+// handler and the MCP send_email tool. Without it a send refuses rather than
+// log an activity claiming a message went out.
 func WithDelivery(stager activities.DeliveryStager) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.Delivery = stager

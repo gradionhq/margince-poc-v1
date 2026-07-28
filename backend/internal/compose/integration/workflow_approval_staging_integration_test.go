@@ -101,7 +101,7 @@ func TestConfirmationRequiredActionStagesARealApprovalAndRejectionBlocksTheRun(t
 	dealID := e.SeedDeal(t, "Confirmation-Required Probe Deal", pipeline, open, nil)
 
 	svc := approvals.NewService(e.Pool)
-	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
+	engine := compose.NewWorkflowEngine(e.Pool)
 	engine.RegisterSystemWorkflow(confirmationRequiredStagingProbe{
 		approvals: testApprovalsAdapter{svc: svc},
 		toStage:   won.UUID,

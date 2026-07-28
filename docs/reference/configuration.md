@@ -50,9 +50,8 @@ Operational endpoints (served next to `/v1`):
 ## cmd/worker — the background process role
 
 **Outbound mail does not leave without this process.** Every role that accepts
-a send stages it — the api's HTTP handler, the MCP `send_email` tool, the
-automation send action — but only `cmd/worker` registers the worker that
-transmits (`comms_send_email`). In an api-only deployment an accepted send is
+a send stages it — the api's HTTP handler and the MCP `send_email` tool — but
+only `cmd/worker` registers the worker that transmits (`comms_send_email`). In an api-only deployment an accepted send is
 recorded on the timeline, answers `202`, and then sits `pending` in
 `comms_outbound` indefinitely with no reason string, because nothing has yet
 tried and failed. Run a worker, or accept that mail is queued and not sent.
@@ -60,6 +59,7 @@ tried and failed. Run a worker, or accept that mail is queued and not sent.
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send originated by this role's Surface-B agent run — without it that send refuses rather than emit a forgeable link |
 | `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file; the worker reads it for the `ai.capture_payloads` posture the Surface-B runner honors (capture applies to **both** the api and worker roles — the worker runs the richest content source, the agent runs). A missing file boots with capture off |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
@@ -202,6 +202,7 @@ probe.
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send through the `send_email` tool — without it that send refuses rather than emit a forgeable link |
 | `--listen` | — | — | serve the hosted A2 transport on this address instead of stdio |
 
 The stdio transport additionally requires the env var

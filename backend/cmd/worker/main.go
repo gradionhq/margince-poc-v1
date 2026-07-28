@@ -126,12 +126,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	// Every lane in this role that can send stages through ONE delivery
-	// machinery, built before the lanes so none of them can be composed
-	// without it. Insert-only, like the api's: the staged job is worked by
-	// this role's own River runner (startJobRunner below), and a lane that
-	// staged onto the runner it is itself being wired into would need the
-	// runner to exist before the lanes do.
+	// The Surface-B runner is this role's sending lane, and it stages through
+	// the SAME delivery machinery the api does — built before the lane so it
+	// cannot be composed without one. Insert-only, like the api's: the staged
+	// job is worked by this role's own River runner (startJobRunner below), and
+	// a lane that staged onto the runner it is itself being wired into would
+	// need the runner to exist before the lanes do.
 	sendInserter, err := jobs.NewInserter(pool, logger)
 	if err != nil {
 		return err
@@ -179,13 +179,13 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, send, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, stdout)
 	if err != nil {
 		return err
 	}
 	defer stopJobs()
 
-	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply, send)
+	workflows := compose.NewWorkflowEngineWithReplyDraft(pool, modelPath.DraftReply)
 	_, _ = fmt.Fprintln(stdout, "worker dispatching workflows (cg:workflows)")
 	background.Go(func() { runSubscriber(ctx, rdb, "cg:workflows", workflows.HandleEvent, logger, 0) })
 
@@ -259,7 +259,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, send compose.SendPath, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -289,7 +289,6 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	}
 
 	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
-		Send: send,
 		// The registry that resolves a staged delivery's mailbox: the SAME
 		// sweep registry the capture polls use, so the connector set that
 		// syncs a mailbox is the one that transmits from it.

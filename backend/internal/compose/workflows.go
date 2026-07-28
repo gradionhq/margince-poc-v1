@@ -31,21 +31,21 @@ import (
 // creates a task) — while the lead-score recompute is a formula
 // obligation (formulas-and-rules §3 — "recomputed on each captured
 // signal") and fires always.
-func NewWorkflowEngine(pool *pgxpool.Pool, send SendPath) *automation.WorkflowEngine {
-	return workflowEngineWithDrafter(pool, nil, send)
+func NewWorkflowEngine(pool *pgxpool.Pool) *automation.WorkflowEngine {
+	return workflowEngineWithDrafter(pool, nil)
 }
 
 // NewWorkflowEngineWithReplyDraft adds the routed reply lane to draft_email
 // actions while preserving NewWorkflowEngine's deterministic default.
-func NewWorkflowEngineWithReplyDraft(pool *pgxpool.Pool, brain completer, send SendPath) *automation.WorkflowEngine {
+func NewWorkflowEngineWithReplyDraft(pool *pgxpool.Pool, brain completer) *automation.WorkflowEngine {
 	if brain == nil {
-		return NewWorkflowEngine(pool, send)
+		return NewWorkflowEngine(pool)
 	}
 	drafter := newReplyDrafter(pool, brain, nil)
-	return workflowEngineWithDrafter(pool, drafter, send)
+	return workflowEngineWithDrafter(pool, drafter)
 }
 
-func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) *automation.WorkflowEngine {
+func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDrafter) *automation.WorkflowEngine {
 	// identity.Service implements shared/ports/authz.Resolver — the
 	// match-time owner-permission gate's (gate.go) authority source. The
 	// engine depends only on the port; this is the one place a concrete
@@ -63,7 +63,11 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
-		Comms:     newCommsAdapter(pool, drafter, send),
+		// The zero SendPath is the honest one here: a send_email action
+		// stages an approval instead of sending, and automation.Comms
+		// declares DraftEmail alone, so no send is reachable from this
+		// surface to configure.
+		Comms: newCommsAdapter(pool, drafter, SendPath{}),
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a
 		// notify firing surfaces as a visible 'skipped' run instead

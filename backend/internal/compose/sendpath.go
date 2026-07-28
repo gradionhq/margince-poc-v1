@@ -3,15 +3,17 @@
 
 package compose
 
-// The outbound-send composition. Three transports enter the send path — the
-// HTTP handler, the MCP send_email tool, and the automation send action — and
-// all three call activities.Store.SendEmail, so everything that governs a send
-// hangs off the STORE.
+// The outbound-send composition. Two transports enter the send path — the
+// HTTP handler and the MCP send_email tool — and both call
+// activities.Store.SendEmail, so everything that governs a send hangs off the
+// STORE. (A deterministic automation cannot send: its send_email action stages
+// an approval, and the automation module's own Comms seam declares DraftEmail
+// alone — automation/seams.go.)
 //
 // There are TWO stores, not one, and no single constructor can build both: the
 // HTTP handlers carry their own (server.go's activities.NewHandlers, which
 // also wires the public-booking seams no tool surface has), while sendStore
-// below builds the one the tool and automation surfaces share.
+// below builds the one the tool surface sends through.
 //
 // SendPath is what keeps them from forking. It is the ONE record of how this
 // role sends: every option writes only to it, sendStore reads only from it,
@@ -75,6 +77,10 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 // automation executors receive. Both call THIS: a second construction site
 // with its own store would let the tool surface transmit marketing mail with
 // no List-Unsubscribe header while the HTTP transport carried one.
+//
+// The automation executors pass a zero SendPath, which is a statement rather
+// than an omission: only DraftEmail is reachable through automation.Comms, so
+// that surface has no send to configure.
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
 		store:  sendStore(pool, send),

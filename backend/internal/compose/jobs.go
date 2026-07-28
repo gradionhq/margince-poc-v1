@@ -116,11 +116,6 @@ func sweepInsertOpts() *river.InsertOpts {
 // GmailWatch.Topic is set), and the optional overlay reconcile poller
 // (added only when OverlayVault is non-nil).
 type JobRunnerConfig struct {
-	// Send is the outbound-send configuration the clock-trigger lane's
-	// automation executors compose their send path over. Zero value means a
-	// clock-triggered send derives no unsubscribe link and refuses a
-	// marketing purpose, rather than transmitting bulk mail without one.
-	Send SendPath
 	// SendPacing bounds how fast one mailbox transmits and how long a
 	// delivery may be deferred before it parks; the zero value takes the
 	// documented defaults (SendPacing.withDefaults).
@@ -243,7 +238,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &voiceBuildRetryWorker{store: ai.NewVoiceStore(pool), log: log})
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
-	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log, cfg.Send)})
+	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
 	// The embed-reindex job is not periodic — the api enqueues one job per
 	// confirmed reindex (embedreindextransport.go); the worker role only
 	// needs the worker registered, same posture as the deep-read worker

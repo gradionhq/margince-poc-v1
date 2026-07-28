@@ -94,7 +94,7 @@ func TestWorkflowRunReplaysFromItsPersistedTrace(t *testing.T) {
 	// Dispatch: engine.HandleEvent is the synchronous cg:workflows
 	// consumer call — see the file doc comment for why no bus rides
 	// under this test.
-	engine := compose.NewWorkflowEngine(e.Pool, compose.SendPath{})
+	engine := compose.NewWorkflowEngine(e.Pool)
 	if err := engine.HandleEvent(context.Background(), trigger); err != nil {
 		t.Fatalf("dispatching the trigger lead's lead.created: %v", err)
 	}
