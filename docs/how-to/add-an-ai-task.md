@@ -10,32 +10,47 @@ For *why* it works this way see
 certification case — has its own guide:
 [write-a-certification-case.md](write-a-certification-case.md). To certify a
 model **binding** that already exists (a swap, a cheaper candidate), you want
-[certify-an-ai-model.md](certify-an-ai-model.md) instead.
+[certify-an-ai-model.md](certify-an-ai-model.md) instead. For the branch,
+sign-off and PR mechanics every change goes through, see
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
+
+> **Everything here is free except one step.** Steps 1–7 need no model, no key
+> and no network. Only step 8 (`make e2e-ai`) calls a real provider, and it bills
+> **your own API key** — Margince runs no inference of its own. Nothing forces
+> you to run it: a site that has never been certified is reported honestly as
+> `absent`, and that is a legitimate state to open a PR in.
 
 ## Quick start — a second prompt on a task that already exists
 
-The common case. `enrich` already has a ladder, a budget posture and a lane; you
-are adding one more place that calls it.
+The common case, and the cheapest way to see the whole loop. `enrich` already has
+a ladder, a budget posture and a **lane** (the field on `compose.ModelPath` that
+hands a task to the process running it), so all you add is one more place that
+calls it.
 
 ```bash
-# 1. name the site in the contract — upstream first, then mirrored here:
+# 1. name the new site in the contract, under the task's sites:
 #      sites: [signature, letterhead]        # backend/api/ai-tasks.yaml
 make gen                                   # compiles it into tasks_gen.go
 
-# 2. write the call site, then register it + bind its case (one line each):
+# 2. write the call site in internal/compose/, then register it +
+#    bind its certification case (one line, in NewTaskCensus):
 #      oneShot(ai.TaskEnrich, "letterhead", letterheadCases{})
 #                                            internal/compose/aitaskregistry.go
 
 # 3. write internal/compose/certcase_letterhead.go
 #    and  internal/compose/aicert/corpus/enrich/letterhead_01.yaml
 
-make check                                 # every gate names the next thing to do
-make e2e-ai TASK=enrich                    # paid: certify it for real
-make e2e-ai-report                         # free: read the band
+make check                                 # free: every gate names what is missing
+make e2e-ai-report                         # free: your site now shows as `absent`
 ```
 
-If you get lost, run `make check` and follow the red test — the gates are written
-to name the file you have not written yet, in the order you need them.
+**Run `make check` early and often — it is the whole feedback loop.** The gates
+are written to name the file you have not written yet, in the order you need
+them, so a red test is the guide continuing rather than a failure. You do not
+need a working AI setup for any of it.
+
+When you are ready to spend, `make e2e-ai TASK=enrich` certifies for real
+(step 8) and `make e2e-ai-report` then shows a band instead of `absent`.
 
 ## Task, or site?
 
@@ -50,9 +65,10 @@ carry 19 sites between them — `cold_start` has four, `voice_build` three,
 | Another prompt for the same workload — a second pass, an evaluation call, a fan-out lane | a **site**: one name in the task's `sites[]`, then steps 3–9 |
 | A workload that deserves its own ladder, budget posture or cost line | a **task**: all nine steps |
 
-Borrowing an existing task's label for an unrelated workload is the mistake worth
-naming: routing, budget deferral, tracing and the certification record are all
-*per task*, so a borrowed label merges two workloads' spend and certifies neither.
+**Do not reuse an existing task's name for a different workload** just because it
+is convenient. Routing, budget limits, tracing and the certification record are
+all tracked per task name, so two workloads sharing one name have their spend
+merged in reporting — and certifying that name then proves neither of them works.
 
 Every site declares a **kind**, which is a claim about how the model is invoked —
 and it caps how much of the site one certification run can cover:
@@ -65,18 +81,29 @@ and it caps how much of the site one certification run can cover:
 
 ## Steps
 
-1. **Declare it in the contract — upstream first, then mirrored here.** The
-   normative AI task contract is maintained upstream of this repository;
-   `backend/api/ai-tasks.yaml` is its mirror and must match it verbatim. Land the
-   declaration upstream, then copy it down.
+1. **Get the declaration into the contract.** `backend/api/ai-tasks.yaml` is a
+   **mirror**: the normative AI task contract is maintained in a specification
+   repository the maintainers own, and this file must match it verbatim. So the
+   declaration is agreed there first, and lands here as a copy.
+
+   What that means for you depends on where you are:
+
+   - **Maintainer, or working with spec access** — land the declaration in the
+     specification repo, then copy it down into `ai-tasks.yaml` unchanged.
+   - **Outside contributor** — **open an issue** proposing the task or site, with
+     the YAML block below filled in and a sentence on what calls it. A maintainer
+     lands it upstream; your PR then carries the mirrored copy and everything from
+     step 2 on. Do not skip ahead and hand-edit `ai-tasks.yaml` on its own: a
+     mirror with no upstream declaration behind it cannot be merged, however green
+     the build is.
 
    > **No gate here can catch the wrong order.** Every check in this build
    > compares the code against *this repo's copy* of the contract, so a task
-   > declared here first passes all of them and is still a contract violation.
-   > The build cannot tell you about a step it cannot see — which is exactly why
-   > it is written down here.
+   > declared here first passes all of them and is still out of order. The build
+   > cannot warn you about a step it cannot see — which is exactly why it is
+   > written down rather than left to a test.
 
-   The declaration itself:
+   The declaration itself — the shape to put in that issue, and to mirror here:
 
    ```yaml
    tasks:
@@ -115,22 +142,35 @@ and it caps how much of the site one certification run can cover:
    the contract in one commit, or the drift gate fails.
 
 3. **Give the task a lane, and wire it into a process role** *(new task only)*.
-   Add the field to `compose.ModelPath` (`internal/compose/brain.go`), named for
-   the task it serves, and hand it to the role that runs the workload
-   (`cmd/api`, `cmd/worker`). A censused site whose task owns no lane, or whose
-   lane no `cmd/` role passes anywhere, fails
-   `TestEveryCensusedSiteRidesALaneAProcessRoleWires` — a site can otherwise be
+   A **lane** is how a task reaches a running process, and it takes three edits,
+   not one — the first two both in `internal/compose/brain.go`:
+
+   1. **Declare it** — a field on `compose.ModelPath`, named for the task it
+      serves.
+   2. **Bind it** — in `modelPathForRouter`, or the field stays nil and the task
+      never reaches the Router: `MeetingNotes: brain(ai.TaskMeetingNotes),`.
+   3. **Hand it to a role** — an `Option` in the compose package (the
+      `WithColdStart` / `WithOfferDraft` pattern), passed by the process that
+      runs the workload: `cmd/api` for an `interactive` task, `cmd/worker` for a
+      `background` one.
+
+   Two gates read this. `TestEveryModelLaneIsWiredToTheTaskItIsNamedFor` names
+   the missing bind for you; `TestEveryCensusedSiteRidesALaneAProcessRoleWires`
+   fails when no `cmd/` role passes the lane anywhere — without it a site can be
    registered, scored and recorded while no binary ever reaches it.
 
-4. **Write the call site.** The request builder and the reply validator live with
-   the code that owns the workload — a module, or `internal/compose` when the
-   prompt needs more than one module's data. Every call goes through the Router
-   via the lane; `TestNoModelClientOutsideTheGate` fails a model client built
-   anywhere else. Keep the builder and the validator **reachable**: the
+4. **Write the call site** in `internal/compose/`. That is not a style
+   preference: the import DAG lets only `compose` and `cmd` depend on the `ai`
+   module, so a request builder inside `internal/modules/<name>/` fails
+   `arch-lint` before any test runs. Every call goes through the Router via the
+   lane, and `TestNoModelClientOutsideTheGate` fails a model client built
+   anywhere else. Keep the builder and the validator **reachable** — the
    certification case must call the same two functions, and a copy is not one.
 
-5. **Register the site and bind its case** — one line in `compose.NewTaskCensus`
-   (`internal/compose/aitaskregistry.go`):
+5. **Register the site and bind its case** — one line in the **census**
+   (`compose.NewTaskCensus`, `internal/compose/aitaskregistry.go`): the list of
+   every invocation site this build ships, checked against the contract on every
+   boot and in every test run.
 
    ```go
    oneShot(ai.TaskMeetingNotes, "summarise", meetingNotesCases{})
@@ -157,24 +197,32 @@ and it caps how much of the site one certification run can cover:
    | a registered site with no case | `TestTaskCensusBindsACaseToEverySite` |
    | a case claiming more than its kind allows | `…claims more than its kind's "…" — a case may only narrow` |
    | a shipped site with no scenario | `shipped sites with no corpus scenario: […] — each is a prompt that ships uncertified` |
-   | a `planned` task carrying a scenario or a record | `…a task nobody built cannot be certified` |
+   | a `planned` task carrying a corpus scenario | `planned tasks carry corpus scenarios: […] — a task nobody built cannot be certified` |
+   | a `planned` task carrying a certification record | `planned tasks carry certification records: […] — the record claims a band for a prompt that does not ship` |
    | a fixture that is not the shape its site takes | `TestEveryCorpusScenarioPreparesAgainstItsSite` |
    | a task with no lane, or a lane no role wires | `TestEveryCensusedSiteRidesALaneAProcessRoleWires` |
    | a new `.go` file with no SPDX header | `TestEveryHandWrittenGoFileCarriesTheLicenseHeader` |
 
-8. **Certify it** — the paid lane, once the gates are green:
+8. **Certify it** — the one step that costs money, once the gates are green.
+   It needs two things this guide has not asked for until now: a provider key in
+   your environment (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`, …) and a
+   `config/ai-routing.yaml` binding your task's tiers to a real model. Both are
+   set up in
+   [certify-an-ai-model.md § Prerequisites](certify-an-ai-model.md#prerequisites)
+   — read that first, or the run fails on a missing key.
 
    ```
-   make e2e-ai TASK=meeting_notes    # real provider calls, spends BYOK budget
+   make e2e-ai TASK=meeting_notes    # real calls, billed to YOUR api key
    make e2e-ai-report                # free: band, scope, binding, counts
    ```
 
    Commit the record under `internal/compose/aicert/records/<task>/`.
 
 9. **Ship it** — contract, generated files, site, census line, case, scenario and
-   record in the PR. Until step 8 runs, the readiness report reads **`absent`**
-   for your site, which is honest and a legitimate state to merge in: the lane is
-   paid, so it reports readiness and never gates the merge.
+   record in the PR ([CONTRIBUTING.md](../../CONTRIBUTING.md) has the branch,
+   sign-off and gate rules). Skipping step 8 is allowed: the report then reads
+   **`absent`** for your site, which is honest, and the paid lane never gates a
+   merge.
 
 ## Notes
 

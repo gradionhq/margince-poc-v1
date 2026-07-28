@@ -6,8 +6,9 @@ production code that serves it, so a certification run measures the request the
 product actually sends, judged by the validator the product actually applies.
 
 The rule under everything here: **call production, never re-create it.** A case
-that rebuilds the request or re-implements the validator measures a copy — and a
-copy stays green through the change that breaks the original.
+that rebuilds the request or re-implements the validator is testing a copy rather
+than the real code — and when someone later breaks the real builder or validator,
+that copy keeps passing, because it was never exercising the thing that broke.
 
 Two files per site:
 
@@ -15,6 +16,31 @@ Two files per site:
 internal/compose/certcase_<site>.go              the case
 internal/compose/aicert/corpus/<task>/*.yaml     one or more scenarios
 ```
+
+Both `.go` files you add here (the case and its test) need the two-line BUSL-1.1
+SPDX header every hand-written Go file in this repo carries — see
+[AGENTS.md § License headers](../../AGENTS.md); `make check` fails a file that
+skips it.
+
+### What a reply can be — the four outcomes
+
+Read this first: everything below is written in these four words. `Evaluate`
+returns exactly one of them, and they stay distinct because they fail for
+different reasons and want different fixes:
+
+| Outcome | Means |
+|---|---|
+| `accepted` | the production validator accepted the reply **and** it is the answer the fixture expects |
+| `wrong_answer` | a well-formed reply the validator accepted, saying something else — a measurement of the model, not a defect |
+| `invalid` | the production validator **refused** the reply: the deterministic signal that the model produced something unusable |
+| `abstained` | the reply survived the validator and carries nothing, **and** the site treats that as completed work |
+
+`invalid` and `abstained` are the pair worth getting right. A validator that
+refused everything a reply claimed and a reply that claimed nothing both leave
+zero rows — and they are opposite events: the first is a model fabricating past a
+gate, the second is a model declining to fabricate. Where an empty result *is* the
+failure — cold-start field extraction turns one into the unreadable-source message
+a human is shown — report `invalid` instead.
 
 ## The loop: scenario first, then the case, then spend
 
@@ -84,25 +110,6 @@ Two rules that pay for themselves:
   reply. Folding them into one blob lets any gate that rewrites a fixture rewrite
   an assertion by accident.
 
-### The four outcomes
-
-`Evaluate` returns one of four words, and they stay distinct because they fail
-for different reasons and want different fixes:
-
-| Outcome | Means |
-|---|---|
-| `accepted` | the production validator accepted the reply **and** it is the answer the fixture expects |
-| `wrong_answer` | a well-formed reply the validator accepted, saying something else — a measurement of the model, not a defect |
-| `invalid` | the production validator **refused** the reply: the deterministic signal that the model produced something unusable |
-| `abstained` | the reply survived the validator and carries nothing, **and** the site treats that as completed work |
-
-`invalid` and `abstained` are the pair worth getting right. A validator that
-refused everything a reply claimed and a reply that claimed nothing both leave
-zero rows — and they are opposite events: the first is a model fabricating past a
-gate, the second is a model declining to fabricate. Where an empty result *is*
-the failure — cold-start field extraction turns one into the unreadable-source
-message a human is shown — report `invalid` instead.
-
 ## By kind
 
 The kind the contract declares decides what `Run` can honestly do.
@@ -148,8 +155,9 @@ req, err := onboardingCompanyAnswerRequest(c.message, c.history, c.conversation,
 The surrounding conversation is *supplied, not exercised*, which is exactly what
 `single_turn` scope says. Derive the validator's gate in `Prepare` from the same
 message/history/context the request is built from — that is the whole reason
-`Prepare` exists: a validator that cannot see the fixture is strictly weaker than
-the one it claims to stand for. Reference: `certcase_companymessage.go`, whose
+`Prepare` exists. If your validator cannot see the same data the fixture supplies,
+it is a looser check than the real one — it will pass replies production would
+reject, while still claiming to stand for it. Reference: `certcase_companymessage.go`, whose
 scenario turns on `next_required_field` — the same bare reply in a conversation
 that asked nothing would be a change nobody requested.
 
@@ -162,8 +170,13 @@ it took:
 
 ```go
 recorder := &agentLoopRecorder{completer: completer}
+job := c.job
+job.Budget = agentLoopTurnBudget()          // one turn, so the run stays measurable
 _, err := runner.New(agentLoopToolSurface{specs: c.specs}, recorder).Run(ctx, job)
-trace := aitasks.Trace{Requests: recorder.requests, Output: recorder.reply}
+trace := aitasks.Trace{Requests: recorder.requests}
+// … recorder.failed (the call never completed) and err (the run never reached a
+// reply) are distinct failures and reported separately …
+trace.Output = recorder.reply
 ```
 
 The expectation is the step the turn should take, and `Prepare` refuses one no
@@ -177,7 +190,7 @@ tool in the fixture's surface could produce. Reference: `certcase_agentloop.go`.
 name: meeting_request_from_reply
 task: capture_classify
 site: classify                     # which registered site is under certification
-source: hand_authored              # LoadCorpus refuses anything else
+source: hand_authored              # must be this — `extracted:` is refused
 sanitized_by: hand_authored/<who>  # who reviewed it for sensitive content
 fixture:                           # the DATA production is given — never a prompt
   - subject: 'Re: pricing walkthrough'
@@ -188,12 +201,23 @@ expect:
   answer: [meeting]                # in the SITE's vocabulary — read its Prepare
   rubric: >
     What the grader is told to score, and why it matters to the product.
-  bands: {certified_min: 70, degraded_min: 50, floor: 40}
+  bands: {certified_min: 70, degraded_min: 50, floor: 40}   # required
+  caps: {max_tokens: 400, p95_latency_ms: 6000}             # optional ceilings
 ```
 
+Field-by-field reference, including what each one is validated against:
+[explanation/ai-runtime.md § Every field in a scenario file](../explanation/ai-runtime.md#every-field-in-a-scenario-file).
+The rules that decide whether a scenario is worth having:
+
 - **A scenario holds the input, not the prompt.** The site's case builds the
-  request. A scenario carrying a prompt certifies a copy — and could not spell
-  the per-call fence marker the product mints anyway.
+  request. A scenario carrying a prompt certifies a copy — and could not
+  reproduce the request anyway: the product mints a fresh, unguessable marker per
+  call to fence untrusted data, so no fixed text can stand in for a real prompt.
+- **`expect.caps` is a real gate, not documentation.** Breaching one fails the
+  run exactly like a bad reply. `max_tokens` budgets the model's **answer**
+  alone — not your fixture's input, which the model cannot shrink — so a
+  rich-input scenario with a tight cap tests drafting within budget rather than
+  prompt size.
 - **`expect.answer` has no common shape.** A bare token, a list, a map, a
   `{min,max}` band: each site owns its vocabulary, because what separates a right
   answer from a wrong one differs per site. Read that site's `Prepare` before
@@ -253,13 +277,14 @@ The run knobs (`MODEL=`, `RUNS=`, `MARGINCE_AI_ROUTING=`, `TRACE=`), the verdict
 math, and how to read a record are all in
 [certify-an-ai-model.md](certify-an-ai-model.md).
 
-## The gates that read what you wrote
+## The two gates unique to what you wrote here
+
+Everything a case or scenario can get wrong is caught by
+[add-an-ai-task.md § step 7](add-an-ai-task.md#steps), which lists the full
+checklist. Two are worth knowing by name while authoring, because they read the
+*content* of a scenario rather than its presence:
 
 | Gate | Refuses |
 |---|---|
-| `TestTaskCensusMatchesTheContract` | a site the contract never declared, a shipped task's missing site, a kind that disagrees |
-| `TestTaskCensusBindsACaseToEverySite` | a registered site nothing certifies |
-| `TestOnlyTheCasesThatMeasureLessNarrowWhatTheyCertify` | a case claiming more than its kind allows |
-| `TestLoadCorpusCoversEveryShippedSite` | a shipped site with no scenario; a `planned` task carrying one |
-| `TestEveryCorpusScenarioPreparesAgainstItsSite` | a fixture of the wrong shape, or an unsatisfiable expectation |
-| `TestEachAbstentionScenarioCatchesTheFabricationItTargets` | an abstention scenario that passes whatever the model does |
+| `TestEveryCorpusScenarioPreparesAgainstItsSite` | a fixture that is not the shape the site takes, or an expectation its validator could never satisfy — caught without a model, before a paid run |
+| `TestEachAbstentionScenarioCatchesTheFabricationItTargets` | an abstention scenario that grades the right answer and the fabrication it exists to catch the same way, and so would pass whatever the model did |

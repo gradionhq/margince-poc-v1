@@ -8,9 +8,18 @@ validator, never a copy of either — scores each answer with a pinned rubric
 judge, folds the runs into a `certified` / `supported_degraded` /
 `not_supported` verdict, and commits the result as a JSON record.
 
-This is the **paid, opt-in** lane: it makes real provider calls over the
-network and spends your BYOK budget. It is a developer/CI tool, never part of a
-request path. For how the model runtime itself works see
+This is the **paid, opt-in** lane: it makes real provider calls over the network,
+billed to your own **BYOK** (bring-your-own-key) budget — real money on the API
+key you supply, since Margince runs no inference of its own. It is a developer/CI
+tool, never part of a request path.
+
+> **Start free.** `make e2e-ai-report` ([§3](#3-read-the-readiness-report)) needs
+> no key, no network and no database: it prints what every shipped site's record
+> already says, including the ones nothing has ever certified. Read that before
+> you spend anything — it tells you whether the run you are about to pay for is
+> the one that is actually missing.
+
+For how the model runtime itself works see
 [explanation/ai-runtime.md](../explanation/ai-runtime.md); for binding a
 provider see [connect-a-cloud-model-provider.md](connect-a-cloud-model-provider.md);
 to add a task or a site rather than certify one that exists, see
@@ -37,12 +46,20 @@ make e2e-ai TASK=cold_start
 ```
 
 This certifies **the task's current binding** in your routing config. It runs
-every scenario in the task's corpus `N` times (odd, cache off), judges each
-answer, and prints the verdict:
+every scenario in the task's corpus `N` times (an odd number, with response
+caching off so every run is a fresh model call), judges each answer, and prints
+the verdict:
 
 ```
 cold_start: certified (reliability=1.00 score_p50=100 self_judged=false)
 ```
+
+`self_judged` is `true` when the candidate and the judge resolved to the **same
+served model** on every run — the model graded its own answers. It is not a
+failure and does not change the verdict, but it weakens the *score*: read a
+`self_judged=true` band as the deterministic pass (what the production validator
+accepted) plus an opinion the candidate has an interest in. To remove the doubt,
+certify against a candidate the `cert_judge` binding does not also serve.
 
 A passing run writes/refreshes a record under
 `backend/internal/compose/aicert/records/<task>/<provider>_<model>_<env>.json`.
