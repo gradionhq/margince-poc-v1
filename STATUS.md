@@ -500,7 +500,8 @@ ratified.
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:
-`backend/api/ai-tasks.yaml` (15 tasks, 4 tiers, execution modes, ladders + budget
+`backend/api/ai-tasks.yaml` (17 tasks — 13 shipped, 4 planned — 4 tiers,
+execution modes, ladders + budget
 posture) generates `tasks_gen.go` and `config/ai-routing.schema.json`
 via `tools/gen-aitasks` (drift-gated, like `crm.yaml`) — editing routing
 POLICY is a rebuild; binding a tier to a provider/model stays runtime

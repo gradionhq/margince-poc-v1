@@ -96,14 +96,14 @@ Hand-rolled runner for the ownership namespaces (core, custom, packs), each with
 - **Reach for it when:** applying/rolling back migrations in tooling (usually you just run `cmd/migrate`).
 
 ### `platform/deployconfig` — the installation config (`margince.yaml`)
-Loads the operator's deployment file (A107/ADR-0061): the singleton organization, the bootstrap admin,
+Loads the operator's deployment file: the singleton organization, the bootstrap admin,
 auth/email/AI/capture posture, and the ordered `company_context.rollout` capability
 (`off < read < tasks < onboarding`; empty resolves to `onboarding`).
 - `Load(path)`, the typed `Config` tree, `EffectiveRollout()`.
 - **Reach for it when:** a behavior is an operator deployment choice, not workspace data — it belongs in this file, not a new flag.
 
 ### `platform/mailer` — transactional email
-The ONE outbound channel for product-originated mail (A74/ADR-0056), operator-configured SMTP; first
+The ONE outbound channel for product-originated mail, operator-configured SMTP; first
 consumer is password-reset delivery. Consent's marketing lanes are a separate, gated concern.
 - **Reach for it when:** the product itself must send a mail (never for tenant marketing sends).
 
@@ -163,7 +163,7 @@ seam where input enters a store; a malformed value is unrepresentable downstream
 - **Reach for it when:** accepting an email/phone/domain/money/… input — parse it here, don't validate ad hoc.
 
 ### `shared/kernel/diffhash` — the one diff-hash canonicalization
-The ONE spelling of a `diff_hash` (ADR-0036): decode to maps, re-marshal (sorting keys at every
+The ONE spelling of a `diff_hash`: decode to maps, re-marshal (sorting keys at every
 depth), hash. Staging, redemption, and modify-then-approve all hash through here — "identical call"
 is a property of content, never whitespace or key order.
 - **Reach for it when:** comparing or binding a staged payload by content.
