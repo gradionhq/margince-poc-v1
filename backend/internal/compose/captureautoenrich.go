@@ -29,10 +29,27 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// autoEnrichDailyCap is the per-workspace ceiling on auto deep reads the sweep
-// starts in one UTC day (ADR-0072: N=10) — the ADR-0020 budget guardrail for
-// the fan-out. Reserved atomically so two replicas never both slip past it.
-const autoEnrichDailyCap = 10
+// autoEnrichDailyCap is the per-workspace ceiling on auto deep reads started in
+// one UTC day. Reserved atomically, so two replicas never both slip past it.
+//
+// It is the THIRD bound on this fan-out, not the only one, and knowing what the
+// other two already do is what sets the number:
+//
+//   - Concurrency is bounded by deepReadMaxWorkers (2): a burst never occupies
+//     more than two workers however long the queue is.
+//   - Money is bounded by the ADR-0020 AI budget: background model calls defer
+//     to the next window at the monthly cap, whatever this counter says.
+//   - And a read only ever happens for a company the workspace CREATED, which
+//     the tiered gate allows only for an address the owner has corresponded with
+//     or already has a person for. A stranger's mail defers to the ledger and
+//     mints nothing, so an outsider cannot aim this at a domain of their choosing.
+//
+// What is left for this counter is PACING, and 10/day paced the one case that
+// matters most against the product: a first backfill mints hundreds of companies
+// at once, and the promise being demonstrated is that the CRM fills itself
+// (P5). Watching ten of two hundred fill, then waiting weeks, teaches the
+// opposite. Raised to 500 by founder decision (2026-07-28).
+const autoEnrichDailyCap = 500
 
 // autoEnrichRetryBackoff is how long a triggered read's cursor is armed before
 // the sweep may reconsider the org: long enough that an in-flight or

@@ -165,7 +165,7 @@ func (s *AutoEnrichStore) ReleaseBudget(ctx context.Context) error {
 			UPDATE capture_auto_enrich_budget
 			   SET enqueued = enqueued - 1
 			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			   AND budget_date = (now() AT TIME ZONE 'utc')::date
+			   AND budget_date = (now() AT TIME ZONE 'UTC')::date
 			   AND enqueued > 0`)
 		return err
 	})

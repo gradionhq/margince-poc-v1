@@ -23,9 +23,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -40,11 +38,6 @@ type autoEnrichTrigger struct {
 	autoEnrich *capture.AutoEnrichStore
 	dailyCap   int
 	log        *slog.Logger
-	// queueReady answers whether this process can enqueue at all. It is a field
-	// rather than a direct call because the River client is AMBIENT — it arrives
-	// on the context — and a gate that reads ambient state is one no test can put
-	// on either side of. The same reason the clock is injected elsewhere.
-	queueReady func(context.Context) bool
 }
 
 func newAutoEnrichTrigger(pool *pgxpool.Pool, log *slog.Logger) *autoEnrichTrigger {
@@ -54,15 +47,7 @@ func newAutoEnrichTrigger(pool *pgxpool.Pool, log *slog.Logger) *autoEnrichTrigg
 		autoEnrich: capture.NewAutoEnrichStore(pool),
 		dailyCap:   autoEnrichDailyCap,
 		log:        log,
-		queueReady: riverQueueReady,
 	}
-}
-
-// riverQueueReady reports whether an ambient River client is bound — the
-// production answer to "can this process enqueue".
-func riverQueueReady(ctx context.Context) bool {
-	_, err := river.ClientFromContextSafely[pgx.Tx](ctx)
-	return err == nil
 }
 
 // organizationCaptured queues the read for a freshly created company.
@@ -72,18 +57,24 @@ func riverQueueReady(ctx context.Context) bool {
 // a capture. The message and its records are already committed by the time this
 // runs; the worst outcome is a company whose dossier waits for the sweep.
 func (t *autoEnrichTrigger) organizationCaptured(ctx context.Context, orgID ids.OrganizationID, domain string) {
-	// The two free gates first. Nothing to read without a domain, and a process
-	// with no ambient queue cannot start a read however the setting reads and
-	// however much budget is left — asking the database three questions before
-	// discovering that is pure cost on the capture hot path.
-	if domain == "" || !t.queueReady(ctx) {
+	// Nothing to read without a domain, and that is the only gate cheap enough
+	// to run before the setting: whether this process can enqueue at all is
+	// answered by startAutoEnrichRead, deliberately at the END rather than up
+	// front. Asking it first would be marginally cheaper and would make the
+	// whole trigger invisible to any test process, which has no ambient River
+	// client — a gate that hides the feature from its own tests is worth more
+	// than three round trips per captured company.
+	if domain == "" {
 		return
 	}
 	if err := t.queueRead(ctx, orgID, domain); err != nil {
-		// One place to report from, because every fault here has the same
-		// consequence and the same remedy: nothing was queued, and the sweep
-		// finds this organization exactly as it would have anyway.
-		t.log.WarnContext(ctx, "capture auto-enrich: on-capture trigger gave up, the sweep takes this org",
+		// One place to report from — but it deliberately does NOT promise the
+		// sweep will take this organization. Most of these faults leave nothing
+		// queued, and the sweep does take it; a MarkQueued that fails after the
+		// read started leaves a live site_read, which ListDueOrgs excludes. An
+		// operator told "the sweep has it" would stop looking in exactly the case
+		// where nothing is coming.
+		t.log.WarnContext(ctx, "capture auto-enrich: on-capture trigger failed",
 			"org", orgID.String(), "err", err)
 	}
 }
@@ -97,8 +88,8 @@ func (t *autoEnrichTrigger) queueRead(ctx context.Context, orgID ids.Organizatio
 	// The read is the system's, not the connector's: attributed to
 	// `system:capture_auto_enrich` exactly as the sweep's is, so the dossier's
 	// provenance says what caused it rather than who happened to be syncing. The
-	// correlation id is deliberately NOT re-minted — keeping the capture's ties
-	// this dossier to the message that asked for it.
+	// correlation id is deliberately NOT re-minted: keeping the capture's ties
+	// this dossier back to the message that asked for it.
 	enrichCtx := principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: systemAutoEnrichActor,
 	})

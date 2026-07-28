@@ -1001,9 +1001,15 @@ Open work, roughly in priority order:
   careful. Both paths spend the SAME atomically-reserved daily cap
   (`autoEnrichDailyCap` = 10/workspace/UTC-day), so the trigger is a faster route
   through the ADR-0020 guardrail, never a way around it.
-  **Practical consequence worth knowing before a test run:** a cold-start
-  backfill that mints 200 companies enriches the first 10 today; the rest arrive
-  10 a day via the sweep. The cap, not the trigger, is what paces a bulk import.
+  **The daily cap went 10 → 500 with it** (founder, 2026-07-28; foundation
+  #1200). N=10 throttled exactly the case the feature exists to demonstrate: a
+  first backfill mints hundreds of companies, and watching ten of them fill
+  teaches the opposite of "the CRM fills itself" (P5). It is safe because the cap
+  was never the money bound — concurrency is capped by the deep-read worker pool
+  (`deepReadMaxWorkers` = 2), spend by the ADR-0020 budget window, and reach by
+  the §1 ladder, which only lets a company be created for an address the owner
+  corresponded with or already has a person for. What the counter actually paces
+  is how fast a workspace fills.
   The 12-page auto-read ceiling this list also named turned out to be built
   already (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
   **Phase 2a (build, landed):** the counterparty-identity column

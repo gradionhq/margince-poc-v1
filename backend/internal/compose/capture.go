@@ -45,8 +45,9 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 // CaptureConfig is the deployment's capture list-config, threaded from
 // margince.yaml's `capture:` block into the Sink's suppression gates: the
 // CAP-PARAM-5 free-mail additions and the CAP-PARAM-6 transactional/ESP
-// additions plus its allowlist (ADR-0072). The zero value is the pinned
-// baselines with no deployment additions.
+// additions plus its allowlist (ADR-0072) — plus the process logger the Sink's
+// post-commit steps report through. The zero value is the pinned baselines with
+// no deployment additions and the default logger.
 type CaptureConfig struct {
 	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5)
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
@@ -91,7 +92,8 @@ func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureCo
 // their compiled-in connectors on it and drive SyncOnce. The vault seals and
 // resolves each connection's credential (nil is valid for a role that only
 // runs the transient one-shot pull, which persists no credential). cfg carries
-// the deployment's suppression-list additions; the zero value is the baselines.
+// the deployment's suppression-list additions and the logger; the zero value is
+// the baselines and the default logger.
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
 	r := capture.NewRegistry(pool, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
 	// The standing IMAP connector needs no deployment config — credentials
@@ -157,7 +159,7 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 	// that already existed has either been enriched or been deliberately left
 	// alone, and re-asking on every message from it would spend the day's cap on
 	// companies nobody learned anything new about.
-	if res.OrgCreated && res.OrganizationID != nil && p.enrich != nil {
+	if res.OrgCreated && res.OrganizationID != nil {
 		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
 	}
 	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
