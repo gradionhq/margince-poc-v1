@@ -25,7 +25,6 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -130,11 +129,11 @@ func TestEnrichOnCaptureLeavesTheOrgToTheSweepWhenTheReadCannotStart(t *testing.
 	if !stillDue(t, e, org) {
 		t.Fatal("a trigger that could not start the read retired the organization anyway")
 	}
-	// The reserved slot is spent with no read to show for it. That is the
-	// deliberate direction: under-spending the day's budget costs a dossier a
-	// few hours, over-spending it costs money the cap exists to bound.
-	if n := budgetSpent(t, e); n != 1 {
-		t.Fatalf("budget spent = %d, want 1 — the reservation precedes the start and is not returned", n)
+	// And the slot it reserved goes back. Reserving before starting is what makes
+	// the cap a cap; refunding what did not start is what stops the day's
+	// allowance eroding a slot at a time on a path that never reads anything.
+	if n := budgetSpent(t, e); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — a slot that bought no read must be returned", n)
 	}
 }
 
@@ -157,7 +156,7 @@ func TestEnrichOnCaptureIgnoresAnEmptyDomain(t *testing.T) {
 // Reserve-before-spend means a caller sometimes holds a slot it turns out not to
 // need — two paths racing on one organization both reserve, and the in-flight
 // uniqueness index lets only one of them start a read. The refund is what keeps
-// the day's ten reads from delivering nine, with the shortfall growing with
+// the day's allowance eroding a slot at a time, with the shortfall growing with
 // exactly the concurrency the cap is meant to be indifferent to.
 func TestAutoEnrichBudgetSlotIsReturnedWhenItBoughtNothing(t *testing.T) {
 	e := integration.Setup(t)
@@ -202,14 +201,23 @@ func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 	store := capture.NewAutoEnrichStore(e.Pool)
 
 	const testCap = 3
-	today := capture.BudgetSlot{Day: time.Now().UTC().Truncate(24 * time.Hour), Reserved: true}
+	// The day comes from a real reservation rather than Go's clock: the counter
+	// is keyed on the DATABASE's UTC day, and a test that builds its own would
+	// disagree with it across a midnight or any clock offset.
+	today, err := store.ReserveBudget(e.Admin(), testCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !today.Reserved {
+		t.Fatal("setup reservation refused — the guard below would pass without ever running")
+	}
 	for i := 0; i < testCap; i++ {
 		if err := store.ReleaseBudget(e.Admin(), today); err != nil {
 			t.Fatalf("ReleaseBudget on an unspent day: %v", err)
 		}
 	}
 	if n := budgetSpent(t, e); n != 0 {
-		t.Fatalf("budget spent = %d after refunds with nothing reserved, want 0", n)
+		t.Fatalf("budget spent = %d after more refunds than reservations, want 0", n)
 	}
 	// And the day still gives its full allowance.
 	for i := 0; i < testCap; i++ {
@@ -231,11 +239,19 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 	e := integration.Setup(t)
 	store := capture.NewAutoEnrichStore(e.Pool)
 
-	// Yesterday's spent slot, as the reservation would have recorded it.
-	yesterday := capture.BudgetSlot{
-		Day:      time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour),
-		Reserved: true,
+	// Yesterday relative to the DATABASE's day, taken from a real reservation —
+	// the counter is keyed on that day, not on the test process's clock.
+	todaySlot, err := store.ReserveBudget(e.Admin(), 3)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if !todaySlot.Reserved {
+		t.Fatal("setup reservation refused — yesterday's day would be the zero time")
+	}
+	if err := store.ReleaseBudget(e.Admin(), todaySlot); err != nil {
+		t.Fatal(err)
+	}
+	yesterday := capture.BudgetSlot{Day: todaySlot.Day.AddDate(0, 0, -1), Reserved: true}
 	e.WsExec(t, `
 		INSERT INTO capture_auto_enrich_budget (workspace_id, budget_date, enqueued)
 		VALUES ($1, $2, 1)`, e.WS, yesterday.Day)
@@ -252,5 +268,39 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget
 		 WHERE budget_date = (now() AT TIME ZONE 'UTC')::date`); n != 1 {
 		t.Fatalf("today's counter = %d, want 1 — a refund for yesterday must not free today's slot", n)
+	}
+}
+
+// The refund has to survive the cancellation that can cause the failure it is
+// compensating for. A capture cancelled mid-start owes a slot back and, without
+// the detach, would try to return it on a context that is already dead —
+// leaking the slot in precisely the case it was written to handle.
+func TestAutoEnrichRefundSurvivesACancelledCaptureContext(t *testing.T) {
+	e := integration.Setup(t)
+	store := capture.NewAutoEnrichStore(e.Pool)
+	slot, err := store.ReserveBudget(e.Admin(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slot.Reserved {
+		t.Fatal("setup reservation refused")
+	}
+
+	// The capture's context, already cancelled — what the trigger holds when a
+	// sync is torn down mid-flight.
+	cancelled, cancel := context.WithCancel(e.Admin())
+	cancel()
+
+	// Through the shared rule both the trigger and the sweep use. With no River
+	// client the read cannot start, so this is the refund path — on a context
+	// that is already dead.
+	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	err = startEnrichOrRefund(cancelled, trigger.people, trigger.autoEnrich,
+		insertDomainOrg(t, e, "cancelled.example"), "cancelled.example", slot)
+	if err == nil {
+		t.Fatal("expected the start to fail on a cancelled context")
+	}
+	if n := budgetSpent(t, e); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — the slot must come back even when the capture was cancelled", n)
 	}
 }
