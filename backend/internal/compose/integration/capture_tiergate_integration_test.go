@@ -235,3 +235,43 @@ func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ag
 		t.Fatalf("aging the disposition: %v", err)
 	}
 }
+
+// The enrich-on-capture condition itself (ADR-0072/A118 §9): a NEW company
+// queues a dossier, and every later message from that company queues nothing.
+//
+// The second half is the one worth holding. Mail from a company the workspace
+// already knows is most mail, and re-asking on each message would spend the
+// day's ten reads on companies nobody learned anything new about — so the
+// trigger keys on the ensure having CREATED the organization, not on a message
+// having arrived from one.
+func TestCaptureQueuesEnrichmentOnlyForACompanyItJustCreated(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
+
+	// T1 correspondence-positive is what lets a first inbound message create
+	// records at all: the owner wrote to them first, attested by the provider.
+	syncSent(t, map[string]bool{"out1@myco.example": true},
+		email(captureOwner, "", "cto@newco.example", "out1@myco.example", ""))
+	sync(t, email("cto@newco.example", "CTO", captureOwner, "in1@newco.example", ""))
+
+	if n := countRows(t, e, `
+		SELECT count(*) FROM organization o
+		JOIN organization_domain d ON d.organization_id = o.id
+		WHERE d.domain = 'newco.example'`); n != 1 {
+		t.Fatalf("%d organizations for the corresponded-with company, want 1", n)
+	}
+	spentAfterCreate := countRows(t, e, `
+		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget`)
+	if spentAfterCreate != 1 {
+		t.Fatalf("budget spent = %d after a company was created, want 1 — the capture must queue its dossier", spentAfterCreate)
+	}
+
+	// A second message from the same company. It resolves onto the existing
+	// organization, so nothing new was learned and nothing may be spent.
+	sync(t, email("sales@newco.example", "Sales", captureOwner, "in2@newco.example", ""))
+	if n := countRows(t, e, `
+		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget`); n != spentAfterCreate {
+		t.Fatalf("budget spent = %d after mail from a company we already had, want it unchanged at %d",
+			n, spentAfterCreate)
+	}
+}

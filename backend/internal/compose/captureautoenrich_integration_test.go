@@ -125,11 +125,11 @@ func TestAutoEnrichStoreEligibilityAndCap(t *testing.T) {
 	// succeed and the third is refused.
 	got := []bool{}
 	for range 3 {
-		reserved, err := store.ReserveBudget(ctx, 2)
+		slot, err := store.ReserveBudget(ctx, 2)
 		if err != nil {
 			t.Fatalf("ReserveBudget: %v", err)
 		}
-		got = append(got, reserved)
+		got = append(got, slot.Reserved)
 	}
 	if got[0] != true || got[1] != true || got[2] != false {
 		t.Fatalf("reservations = %v, want [true true false] at cap 2", got)
