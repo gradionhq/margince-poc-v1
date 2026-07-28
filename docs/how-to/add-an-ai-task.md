@@ -110,10 +110,12 @@ and it caps how much of the site one certification run can cover:
      meeting_notes:                       # illustrative — not a shipped task
        ladder: [cheap_cloud, premium]     # ordered capability tiers, not models
        execution_mode: interactive        # interactive | background
-       on_budget_exhausted: degrade       # closed pairing: interactive↔degrade,
-       status: shipped                    #                 background↔queue
-       sites: [summarise]                 # bare name = kind one_shot;
-       company_context: none              #   {name: chat, kind: multi_turn} otherwise
+       on_budget_exhausted: degrade       # pairs with execution_mode, always:
+       status: shipped                    #   interactive↔degrade, background↔queue
+       # a bare name is a site of kind one_shot; write
+       # {name: chat, kind: multi_turn} for any other kind
+       sites: [summarise]
+       company_context: none              # or {scopes: [...], token_budget: N}
        # no_payload: true                 # content that must never be captured
        # cost_unit: per_message           # only if the estimator prices it
        doc: "one line on what this task is for"
@@ -212,9 +214,14 @@ and it caps how much of the site one certification run can cover:
    — read that first, or the run fails on a missing key.
 
    ```
-   make e2e-ai TASK=meeting_notes    # real calls, billed to YOUR api key
+   make e2e-ai TASK=<your task>      # real calls, billed to YOUR api key
    make e2e-ai-report                # free: band, scope, binding, counts
    ```
+
+   `TASK=` takes the name you declared in step 1. A name with no scenarios behind
+   it — a typo, or a task nobody has written a corpus for — stops the run with
+   `task "…" has no scenarios under …` **before** anything is sent, so a mistake
+   here costs a message rather than a call.
 
    Commit the record under `internal/compose/aicert/records/<task>/`.
 
