@@ -81,9 +81,10 @@ const minMaxAttempts = 2
 // ladder length — the dispatcher parks on the last rung rather than leaving a
 // row the runner will never deliver again looking pending forever.
 //
-// A nil clock and a maxAttempts below the floor both DEFAULT rather than
-// disabling the behaviour they configure: a caller that forgets one gets the
-// conservative version of the rule, never the absence of it.
+// Neither knob can be set to the absence of the behaviour it configures: a nil
+// clock DEFAULTS to time.Now, and maxAttempts defaults to defaultMaxAttempts
+// when unset and is floored at minMaxAttempts when below it. A caller that
+// forgets one gets the conservative version of the rule, never no rule.
 func NewDispatcher(
 	store deliveryStore,
 	resolver ConnectionResolver,

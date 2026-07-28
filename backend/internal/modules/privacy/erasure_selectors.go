@@ -7,8 +7,7 @@ package privacy
 // timeline rows are the subject's alone, which of those a person-erase may
 // actually destroy (the statutory floor shields the rest), and the unlinked
 // mail — captured and sent alike — the link-walk cannot see. Kept in one file
-// so the three
-// selectors read as one concept.
+// so the selectors read as one concept.
 
 // notTransitivelyHeld excludes an activity frozen by a legal hold reached
 // through its own links — the same transitive freeze the retention engine

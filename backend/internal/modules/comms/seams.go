@@ -98,19 +98,21 @@ type ConnectionResolver interface {
 // between staging and transmit and change nothing about the message they
 // receive.
 //
-// It allocates a new slice rather than appending onto the delivery's own,
-// because the wire rendering downstream reads Recipients and Cc as the
-// separate lists they are.
+// It fills a slice of its own and never appends onto the delivery's, because
+// the wire rendering downstream reads Recipients and Cc as the separate lists
+// they are.
 func addressees(del Delivery) []string {
 	all := make([]string, 0, len(del.Recipients)+len(del.Cc))
 	seen := make(map[string]bool, len(del.Recipients)+len(del.Cc))
-	for _, addr := range append(append([]string{}, del.Recipients...), del.Cc...) {
-		key := strings.ToLower(strings.TrimSpace(addr))
-		if key == "" || seen[key] {
-			continue
+	for _, list := range [][]string{del.Recipients, del.Cc} {
+		for _, addr := range list {
+			key := strings.ToLower(strings.TrimSpace(addr))
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			all = append(all, addr)
 		}
-		seen[key] = true
-		all = append(all, addr)
 	}
 	return all
 }
@@ -125,11 +127,13 @@ func addressees(del Delivery) []string {
 // authority gate. Two spellings of "may this grant send" could disagree, and a
 // pre-flight that accepted what the gate then parks is worse than none.
 //
-// The literal below is a THIRD spelling of a string the OAuth consent requests
-// and the Gmail connector re-checks, and it has to be: this module must not
-// import a capture provider. compose imports both and holds them against each
-// other (compose/sendscope_test.go), because drift here is silent — every send
-// parks as ungranted, which reads as a user who declined consent.
+// The literal below is the SECOND spelling of a string the Gmail connector
+// already declares — the OAuth consent requests that same constant rather than
+// a copy, so consent and connector are one literal by construction — and it has
+// to be: this module must not import a capture provider. compose imports both
+// and holds them against each other (compose/sendscope_test.go), because drift
+// here is silent — every send parks as ungranted, which reads as a user who
+// declined consent.
 func SendScopeFor(provider string) (string, bool) {
 	if provider == "gmail" {
 		return "https://www.googleapis.com/auth/gmail.send", true

@@ -13,10 +13,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"maps"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -68,25 +66,27 @@ func TestStatusConstantsMatchTheSchemaCheck(t *testing.T) {
 // new status cannot be reached by a crashed attempt, widen the comms_outbound
 // CHECK constraint, and only then name it here.
 func TestNoStatusIsAnInFlightClaim(t *testing.T) {
-	declared := declaredStatusConstants(t)
+	got := declaredStatusConstants(t)
 	want := []string{"StatusParked", "StatusPending", "StatusSent"}
-	if got := slices.Sorted(maps.Keys(declared)); !slices.Equal(got, want) {
+	if !slices.Equal(got, want) {
 		t.Fatalf("declared status constants = %v, want exactly %v — a status outside that set is a claim on a delivery in flight until proven otherwise", got, want)
 	}
 }
 
 // declaredStatusConstants parses this package's own non-test sources and
-// returns every exported Status* string constant it declares, keyed by name.
-// Deriving the set is the whole point: a list maintained inside the test can
-// only ever describe the statuses its author already knew about.
-func declaredStatusConstants(t *testing.T) map[string]string {
+// returns the sorted NAMES of every Status* string constant it declares. Names
+// alone, because the invariant is how many statuses exist rather than what they
+// spell — comms_outbound's CHECK constraint pins the spellings. Deriving the
+// set is the whole point: a list maintained inside the test can only ever
+// describe the statuses its author already knew about.
+func declaredStatusConstants(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("reading the comms package directory: %v", err)
 	}
 	fset := token.NewFileSet()
-	declared := map[string]string{}
+	var declared []string
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
@@ -96,19 +96,21 @@ func declaredStatusConstants(t *testing.T) map[string]string {
 		if err != nil {
 			t.Fatalf("parsing %s: %v", name, err)
 		}
-		collectStatusConstants(t, file, declared)
+		declared = append(declared, statusConstantNames(t, file)...)
 	}
 	if len(declared) == 0 {
 		t.Fatal("no Status* constant found in the comms sources; the scan is broken, not the invariant")
 	}
+	slices.Sort(declared)
 	return declared
 }
 
-// collectStatusConstants records every `Status… = "literal"` const spec in one
+// statusConstantNames names every `Status… = "literal"` const spec in one
 // parsed file. A Status* constant that is not a plain string literal is a
 // failure rather than a skip: the scan must never silently stop seeing one.
-func collectStatusConstants(t *testing.T, file *ast.File, into map[string]string) {
+func statusConstantNames(t *testing.T, file *ast.File) []string {
 	t.Helper()
+	var names []string
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.CONST {
@@ -130,12 +132,9 @@ func collectStatusConstants(t *testing.T, file *ast.File, into map[string]string
 				if !ok || lit.Kind != token.STRING {
 					t.Fatalf("%s is not a string literal; this scan reads explicit literals only", ident.Name)
 				}
-				unquoted, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					t.Fatalf("unquoting %s = %s: %v", ident.Name, lit.Value, err)
-				}
-				into[ident.Name] = unquoted
+				names = append(names, ident.Name)
 			}
 		}
 	}
+	return names
 }

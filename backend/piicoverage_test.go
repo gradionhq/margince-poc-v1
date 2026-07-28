@@ -7,11 +7,12 @@ package backendarch
 // only writes tables it owns; it says NOTHING about whether Art. 17 erasure
 // reaches every table that holds a data subject. Without that guarantee the
 // activity timeline and attachments survive an erasure verbatim, still
-// full-text searchable. This test closes it: piiTables is the explicit registry of PII-bearing
-// tables, and every entry must be a WRITE target of privacy/erasure.go (so
-// erasure reaches it) and — unless it is an opaque derived artifact — a READ
-// target of privacy/sar.go (so an Art. 15 SAR discloses it). A new PII table
-// that skips erasure or SAR fails here instead of shipping a silent leak.
+// full-text searchable. This test closes it: piiTables is the explicit
+// registry of PII-bearing tables, and every entry must be a WRITE target of
+// privacy/erasure.go (so erasure reaches it) and — unless it is an opaque
+// derived artifact — a READ target of privacy/sar.go (so an Art. 15 SAR
+// discloses it). A new PII table that skips erasure or SAR fails here instead
+// of shipping a silent leak.
 
 import (
 	"go/ast"

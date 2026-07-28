@@ -115,7 +115,7 @@ func (s *Store) deliverability(ctx context.Context, body string, recipients []st
 	// answer is what says this purpose carries an unsubscribe surface at all —
 	// a multi-recipient transactional send reached the branch above and left
 	// already, carrying no token to leak.
-	if len(distinctAddresses(recipients)) > 1 {
+	if distinctAddresses(recipients) > 1 {
 		return "", "", &SharedUnsubscribeTokenError{}
 	}
 	if s.publicBaseURL == "" {
@@ -133,18 +133,16 @@ func (s *Store) deliverability(ctx context.Context, body string, recipients []st
 // are compared case- and space-insensitively, the way a mail server treats
 // them, so the same person listed twice — once in To and once in Cc, or with
 // different capitalisation — is one addressee and not a refusal.
-func distinctAddresses(recipients []string) []string {
+func distinctAddresses(recipients []string) int {
 	seen := make(map[string]bool, len(recipients))
-	distinct := make([]string, 0, len(recipients))
 	for _, addr := range recipients {
 		key := normalizeAddress(addr)
-		if key == "" || seen[key] {
+		if key == "" {
 			continue
 		}
 		seen[key] = true
-		distinct = append(distinct, addr)
 	}
-	return distinct
+	return len(seen)
 }
 
 // unsubscribeURL is the ONE spelling of the public one-click endpoint the

@@ -5,13 +5,12 @@
 
 package comms
 
-// Finding 1 (security round 1): user_id is derived from the authenticated
-// principal, never taken from caller input, and staging fails closed with
-// no principal to derive it from. StageInput carries no UserID field at
-// all, so there is no code path for a caller to name a different sender,
-// forged or otherwise — these tests prove the derivation always tracks the
-// true caller. Shares storeEnv/setupStore/actorCtx/stage/baseInput with
-// store_integration_test.go.
+// user_id is derived from the authenticated principal, never taken from caller
+// input, and staging fails closed with no principal to derive it from.
+// StageInput carries no UserID field at all, so there is no code path for a
+// caller to name a different sender, forged or otherwise — these tests prove
+// the derivation always tracks the true caller. Shares
+// storeEnv/setupStore/actorCtx/stage/baseInput with store_integration_test.go.
 
 import (
 	"context"

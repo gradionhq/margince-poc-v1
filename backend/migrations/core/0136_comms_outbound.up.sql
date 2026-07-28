@@ -36,9 +36,10 @@ CREATE TABLE comms_outbound (
   in_reply_to         text NULL,
   references_chain    jsonb NOT NULL DEFAULT '[]'::jsonb,
   -- thread_key is the RFC822 conversation identity (the References root),
-  -- carried here so the send log records which conversation the message joined
-  -- even after the activity's own copy is scrubbed. The dispatcher never reads
-  -- it: threading rides the message's own In-Reply-To/References headers.
+  -- carried here so the send log holds its own record of which conversation
+  -- the message joined, independently of the activity this row reports on.
+  -- Nothing reads it today: threading rides the message's own
+  -- In-Reply-To/References headers, so the dispatcher needs none of it.
   thread_key          text NULL,
   -- list_unsubscribe alone: RFC 8058 fixes List-Unsubscribe-Post at the literal
   -- "List-Unsubscribe=One-Click", so the connector derives it whenever this is

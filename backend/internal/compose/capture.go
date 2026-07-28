@@ -44,7 +44,7 @@ import (
 //
 // The send entry is the connector's OWN constant, not a copy of its text: what
 // the consent requests and what the connector re-checks are then one string by
-// construction. The third spelling — the scope comms demands at the authority
+// construction. The second literal — the scope comms demands at the authority
 // gate — cannot be imported by either (comms must not reach into a capture
 // provider), so a fitness test binds it here instead: sendscope_test.go.
 var gmailScopes = []string{

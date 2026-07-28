@@ -6,18 +6,20 @@
 package comms
 
 // The store's core behaviour over a migrated Postgres: staging inside a
-// caller-opened transaction, Load counting the attempt while it reads, the
-// three RecordSent/Park/RecordFailure transitions doing what their names
-// say, the caller's transaction owning commit/rollback, and the
-// (workspace_id, message_id) idempotency key. This file also carries the
-// shared fixture (storeEnv/setupStore/actorCtx/stage/baseInput) the other
+// caller-opened transaction, Load counting the attempt while it reads,
+// RecordSent/Park/RecordFailure doing what their names say — RecordDeferral,
+// the fourth status-guarded transition, is driven where the pacing policy
+// reaches it (dispatcher_transmit_test.go) — the caller's transaction owning
+// commit/rollback, and the (workspace_id, message_id) idempotency key. This
+// file also carries the shared fixture
+// (storeEnv/setupStore/actorCtx/stage/baseInput) the other
 // store_*_integration_test.go files in this package ride:
-// store_identity_integration_test.go (Finding 1: user_id is derived from
-// the authenticated principal, never caller input),
-// store_terminal_integration_test.go (Finding 2: a stale transition on an
+// store_identity_integration_test.go (user_id is derived from the
+// authenticated principal, never caller input),
+// store_terminal_integration_test.go (a stale transition on an
 // already-terminal row is a benign no-op, never a silent overwrite), and
-// store_isolation_integration_test.go (Finding 3: RLS holds a delivery
-// invisible and unmutable from any other workspace).
+// store_isolation_integration_test.go (RLS holds a delivery invisible and
+// unmutable from any other workspace).
 
 import (
 	"context"
@@ -104,7 +106,7 @@ func setupStore(t *testing.T) *storeEnv {
 
 // actorCtx binds a workspace and an authenticated human actor — the shape
 // StageTx requires to derive user_id, since sending is a human act with no
-// caller-suppliable identity (Finding 1).
+// caller-suppliable identity.
 func actorCtx(ws ids.UUID, user ids.UserID) context.Context {
 	ctx := principal.WithWorkspaceID(context.Background(), ws)
 	return principal.WithActor(ctx, principal.Principal{

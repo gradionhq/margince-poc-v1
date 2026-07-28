@@ -147,10 +147,12 @@ type NormalizedRecord struct {
 	// resolver never runs for those.
 	Counterparty Counterparty
 
-	// ThreadKey is the provider's conversation identity (Gmail threadId /
-	// Graph conversationId / RFC822 References root) — the CAP-FORMULA-1
-	// reply-detection join key and activity.thread_key's source. Empty when
-	// the provider knows no thread.
+	// ThreadKey is the RFC822 conversation identity: a MESSAGE id — the
+	// References root, else In-Reply-To, else the message's own id — never a
+	// provider's private conversation id, which lives in a different namespace
+	// and joins nothing here (see SendReceipt). It is the CAP-FORMULA-1
+	// reply-detection join key and activity.thread_key's source. Empty when the
+	// record carries no reply headers to derive one from.
 	ThreadKey string
 }
 

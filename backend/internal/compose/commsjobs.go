@@ -131,9 +131,13 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		// row pending with nothing left to deliver it — exactly the state the
 		// exhaustion guard exists to prevent.
 		//
-		// A postponement carries no error either — the same guard the terminal
-		// branch keeps, and for the same reason: snoozing on one would bury a
-		// fault under a delay nobody reads as a failure.
+		// A postponement carries no error either. That is a guard on the
+		// deliveryDispatcher SEAM, not on a state *comms.Dispatcher can reach:
+		// its postpone returns OutcomePostponed only alongside a nil error. The
+		// seam is what this worker is written against, so an implementation
+		// that returned both must not have its error snoozed away — a fault
+		// buried under a delay nobody reads as a failure is the one shape this
+		// translation may never take.
 		if err != nil {
 			return fmt.Errorf("comms_send_email: delivery %s postponed with an error: %w", job.Args.DeliveryID, err)
 		}

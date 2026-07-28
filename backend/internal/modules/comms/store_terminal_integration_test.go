@@ -5,11 +5,13 @@
 
 package comms
 
-// Finding 2 (security round 1): RecordSent/Park/RecordFailure are
-// status-guarded, and a stale transition on an already-terminal row is a
-// benign no-op reported as ErrTerminal, never a silent overwrite of a
-// newer attempt's outcome. Shares storeEnv/setupStore/stage/baseInput with
-// store_integration_test.go.
+// All four transitions that close or defer a delivery — RecordSent, Park,
+// RecordFailure and RecordDeferral — are guarded on status = 'pending', so a
+// stale transition on an already-terminal row is a benign no-op reported as
+// ErrTerminal, never a silent overwrite of a newer attempt's outcome. The
+// cases here drive that guard over real rows; the dispatcher's routing of
+// ErrTerminal is proven per transition in dispatcher_transmit_test.go. Shares
+// storeEnv/setupStore/stage/baseInput with store_integration_test.go.
 
 import (
 	"context"

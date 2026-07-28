@@ -63,9 +63,10 @@ func (s *Server) applySendPath() {
 		WithMailbox(s.send.Mailbox)
 }
 
-// sendStore builds the activities store every send transport shares. The
-// unsubscribe linker needs nothing but the pool, so it is wired here rather
-// than carried in SendPath: a deployment cannot forget to pass it.
+// sendStore builds the activities store the tool surface sends through — one
+// of the two the file comment names, not a shared one. The unsubscribe linker
+// needs nothing but the pool, so it is wired here rather than carried in
+// SendPath: a deployment cannot forget to pass it.
 func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 	return activities.NewStore(pool).
 		WithUnsubscribe(preferenceLinkAdapter{store: consent.NewStore(pool)}).

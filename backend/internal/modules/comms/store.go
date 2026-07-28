@@ -74,11 +74,11 @@ type StageInput struct {
 	InReplyTo      string   // unbracketed; empty starts a thread
 	References     []string // unbracketed ancestry, oldest first
 	// ThreadKey is the RFC822 conversation identity this message joins. It is
-	// written and never loaded back: the wire carries threading in the
-	// In-Reply-To/References headers above, so the dispatcher needs none of it.
-	// The column exists because capture keys reply detection on the same
-	// identity, and the send log must still name the conversation after the
-	// activity's copy is erased.
+	// written and never loaded back — not here and nowhere else in the tree:
+	// the wire carries threading in the In-Reply-To/References headers above,
+	// so the dispatcher needs none of it. It is stored because the delivery
+	// row is the send log's own record of which conversation the message
+	// joined, held independently of the activity this delivery reports on.
 	ThreadKey       string
 	ListUnsubscribe string // the Post header is derived from this, never stored
 }
@@ -197,11 +197,12 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 
 // RecordSent closes a delivery against the provider's receipt. Guarded on
 // status = 'pending': a stale attempt (network partition, GC pause) can lose
-// a race against a newer attempt that already closed the same row. Rather than clobber a 'sent' or
-// 'parked' row — a real receipt overwritten, or worse, un-sent by a stale
-// park — a delivery that is no longer pending reports ErrTerminal. That is
-// a benign no-op, the same fact Load already reports the same way: the
-// dispatcher must treat it as "already handled," never as retryable.
+// a race against a newer attempt that already closed the same row. Rather
+// than clobber a 'sent' or 'parked' row — a real receipt overwritten, or
+// worse, un-sent by a stale park — a delivery that is no longer pending
+// reports ErrTerminal. That is a benign no-op, the same fact Load already
+// reports the same way: the dispatcher must treat it as "already handled,"
+// never as retryable.
 func (s *Store) RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error {
 	return s.update(ctx, `
 		UPDATE comms_outbound
