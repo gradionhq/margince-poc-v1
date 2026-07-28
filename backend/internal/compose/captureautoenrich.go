@@ -141,20 +141,37 @@ func (w *captureAutoEnrichSweepWorker) sweepWorkspace(ctx context.Context, ws id
 }
 
 // triggerEnrich starts a system-requested deep read for one org and arms its
-// cursor. The dossier and the River job are one transaction (StartSiteReadQueued
-// + InsertTx), so a crash can never leave a dossier without its job; the
-// in-flight uniqueness index dedupes a concurrent start.
+// cursor.
 func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org capture.DueOrg) error {
+	return startAutoEnrichRead(ctx, w.people, w.autoEnrich, org.OrganizationID, org.Domain)
+}
+
+// startAutoEnrichRead queues ONE governed deep read for one organization and
+// arms its sweep cursor. Shared by the periodic sweep and the on-capture
+// trigger, because they differ only in what made the organization interesting —
+// the read they ask for, the ceiling it runs under, the principal it is
+// attributed to, and the cursor that stops it being asked for twice must all be
+// the one spelling.
+//
+// The dossier and the River job are one transaction (StartSiteReadQueued +
+// InsertTx), so a crash can never leave a dossier without its job; the in-flight
+// uniqueness index dedupes a concurrent start.
+//
+// It does NOT crawl. This queues work and returns — the pages are fetched and
+// the model is called in the deep-read worker, on its own job.
+func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,
+	autoEnrich *capture.AutoEnrichStore, orgID ids.OrganizationID, domain string,
+) error {
 	client, err := river.ClientFromContextSafely[pgx.Tx](ctx)
 	if err != nil {
 		return err
 	}
-	seedURL := "https://" + org.Domain
-	_, _, err = w.people.StartSiteReadQueued(ctx, org.OrganizationID, seedURL, systemAutoEnrichActor,
+	seedURL := "https://" + domain
+	_, _, err = peopleStore.StartSiteReadQueued(ctx, orgID, seedURL, systemAutoEnrichActor,
 		func(ctx context.Context, tx pgx.Tx, read people.SiteRead) error {
 			_, insErr := client.InsertTx(ctx, tx, SiteDeepReadArgs{
 				WorkspaceID:    storekit.MustWorkspace(ctx),
-				OrganizationID: org.OrganizationID.UUID,
+				OrganizationID: orgID.UUID,
 				SiteReadID:     read.ID,
 				SeedURL:        read.SeedURL,
 				RequestedBy:    read.RequestedBy,
@@ -168,7 +185,7 @@ func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org ca
 	if err != nil {
 		return err
 	}
-	return w.autoEnrich.MarkQueued(ctx, org.OrganizationID, autoEnrichRetryBackoff)
+	return autoEnrich.MarkQueued(ctx, orgID, autoEnrichRetryBackoff)
 }
 
 // workspaceCtx binds the sweep's system principal on the given workspace. A
