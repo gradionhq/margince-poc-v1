@@ -20,7 +20,15 @@ CREATE TABLE mirror_user_automap_block (
   -- visibility (the same pattern mirror_user_map's own FK uses).
   CONSTRAINT mirror_user_automap_block_app_user_id_fkey
     FOREIGN KEY (workspace_id, app_user_id)
-    REFERENCES app_user (workspace_id, id) ON DELETE CASCADE
+    REFERENCES app_user (workspace_id, id) ON DELETE CASCADE,
+  -- ON DELETE RESTRICT, not CASCADE: blocked_by is the accountability half of
+  -- the row — the admin who decided this user must stay unmapped. Removing
+  -- that admin must not silently erase the decision (nor the record of who
+  -- made it), which is the same posture passport.granted_by and
+  -- record_grant.granted_by take for their NOT NULL actor columns.
+  CONSTRAINT mirror_user_automap_block_blocked_by_fkey
+    FOREIGN KEY (workspace_id, blocked_by)
+    REFERENCES app_user (workspace_id, id) ON DELETE RESTRICT
 );
 
 ALTER TABLE mirror_user_automap_block ENABLE ROW LEVEL SECURITY;

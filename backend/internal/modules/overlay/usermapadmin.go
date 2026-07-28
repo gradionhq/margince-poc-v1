@@ -64,7 +64,7 @@ type revokedMapping struct {
 func collectRevokedMapping(row pgx.CollectableRow) (revokedMapping, error) {
 	var r revokedMapping
 	if err := row.Scan(&r.appUser, &r.image.IncumbentUserID, &r.image.MatchSource); err != nil {
-		return revokedMapping{}, fmt.Errorf("overlay: scanning a revoked mirror_user_map row: %w", err)
+		return revokedMapping{}, fmt.Errorf("overlay: scanning a revoked user mapping: %w", err)
 	}
 	return r, nil
 }

@@ -366,7 +366,7 @@ func (s *MirrorStore) upsertUserMapTx(ctx context.Context, tx pgx.Tx, appUser id
 
 	tag, err := tx.Exec(ctx, upsertUserMapSQL, appUser, incumbent, incumbentUserID, source)
 	if err != nil {
-		return fmt.Errorf("overlay: writing mirror_user_map for %s: %w", appUser, err)
+		return fmt.Errorf("overlay: writing the user mapping for %s: %w", appUser, err)
 	}
 	if tag.RowsAffected() == 0 {
 		// An admin blocked automatic mapping for this user. Not an error:
@@ -392,18 +392,20 @@ func (s *MirrorStore) upsertUserMapTx(ctx context.Context, tx pgx.Tx, appUser id
 	return nil
 }
 
-// validateUserMapArgs rejects the two argument shapes mirror_user_map has no
-// representable row for: a zero-match incumbent user (design.md §4.6 rule 3's
-// fail-closed outcome) and a match_source outside the pinned pair.
+// validateUserMapArgs rejects the two argument shapes the mapping has no
+// representable form for: a zero-match incumbent user (design.md §4.6 rule 3's
+// fail-closed outcome) and a match source outside the pinned pair. The
+// refusals name the domain condition, never the storage that enforces it —
+// physical schema is an operator's concern, not a caller's.
 func validateUserMapArgs(incumbent, incumbentUserID, source string) error {
 	if incumbent == "" || incumbentUserID == "" {
-		return fmt.Errorf("overlay: no mirror_user_map row for a zero-match incumbent user (fail-closed, design.md §4.6 rule 3)")
+		return fmt.Errorf("overlay: refusing to map a user to a zero-match incumbent user (fail-closed, design.md §4.6 rule 3)")
 	}
 	switch source {
 	case "email", "manual":
 		return nil
 	default:
-		return fmt.Errorf("overlay: unknown mirror_user_map match_source %q", source)
+		return fmt.Errorf("overlay: unknown user-mapping match source %q", source)
 	}
 }
 

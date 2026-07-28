@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -309,5 +310,36 @@ func TestBlockAutoMapStillUnmapsAnArchivedUser(t *testing.T) {
 	}
 	if mapped != 0 {
 		t.Fatalf("the archived user's mapping must be gone, got %d rows", mapped)
+	}
+}
+
+// blocked_by is the accountability half of the row — the admin whose decision
+// the table exists to record — so it carries the same tenant-local composite
+// FK app_user_id does. The database is the only thing that can enforce it: the
+// admin path stamps blocked_by from the authenticated principal, so no
+// application check stands between a bad value and the column, and an
+// unconstrained uuid would let the row credit a decision to someone who does
+// not exist in this workspace. The insert therefore goes in directly, the way
+// a future writer that forgot the invariant would.
+func TestAutoMapBlockCannotCreditAnotherWorkspacesAdmin(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
+	rep := ids.From[ids.UserKind](repRaw)
+	foreignAdmin := seedUserInOtherWorkspace(t, "admin@other.test")
+
+	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(ctx, `
+			INSERT INTO mirror_user_automap_block (workspace_id, app_user_id, incumbent, blocked_by)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'hubspot', $2)`,
+			rep, foreignAdmin)
+		return execErr
+	})
+
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.Code != "23503" {
+		t.Fatalf("crediting another workspace's admin must be a foreign-key violation, got: %v", err)
+	}
+	if pgErr.ConstraintName != "mirror_user_automap_block_blocked_by_fkey" {
+		t.Fatalf("the blocked_by FK must be what rejects it, got constraint %q", pgErr.ConstraintName)
 	}
 }
