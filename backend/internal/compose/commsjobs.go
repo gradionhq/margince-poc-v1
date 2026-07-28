@@ -52,6 +52,13 @@ func (SendEmailArgs) Kind() string { return "comms_send_email" }
 // seconds) ten attempts span roughly five hours, which is long enough to ride
 // out a provider outage and short enough that a message nobody can send stops
 // being "on its way" the same day.
+//
+// Ten RUNGS, nine transmissions. Load counts the attempt before the dispatcher
+// reaches its exhaustion guard, so the tenth dispatch arrives with Attempts
+// already at ten, meets `Attempts >= maxAttempts`, and parks without asking
+// the provider. That is the intended reading: the number names the ladder
+// River is given, and the last rung is spent proving the delivery is done
+// rather than trying once more.
 const sendMaxAttempts = 10
 
 // minSendSnooze floors a postponement. A policy that asks to wait for no time

@@ -38,7 +38,7 @@ const (
 )
 
 // deliveryStore is the persistence the dispatcher needs: one load that counts
-// the attempt, and the three transitions that close or defer a delivery. It is
+// the attempt, and the four transitions that close or defer a delivery. It is
 // private because Store is the only implementation the product ships — the
 // interface exists so the dispatcher's branch table can be proven without a
 // database, not to invite a second store.
@@ -363,7 +363,7 @@ func (d *Dispatcher) throttled(ctx context.Context, del Delivery, retryAfter tim
 
 // park ends a delivery no retry repairs, recording why in words an operator
 // can act on. The returned wait is always zero — parking asks for nothing to
-// be tried again — and the three dispositions share that shape so their call
+// be tried again — and all four dispositions share that shape so their call
 // sites stay one line each.
 //
 // ErrTerminal from the transition means a newer attempt already closed this

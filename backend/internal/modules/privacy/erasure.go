@@ -135,6 +135,12 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
 			return err
 		}
+		// The transmitted copy of every activity just redacted. Without this
+		// the timeline row is a tombstone while the send log still holds the
+		// address, the subject line and the body of the same message.
+		if err := redactDeliveries(ctx, tx, activitiesRedacted, erasedName); err != nil {
+			return err
+		}
 		// Purge the subject's attachment bytes and rows together, inside the
 		// transaction (objects first). A failure here — including a
 		// misconfigured store — rolls the whole erasure back, so it stays
@@ -362,6 +368,46 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 		return nil, err
 	}
 	return redacted, nil
+}
+
+// redactDeliveries scrubs the outbound deliveries behind the activities the
+// caller just destroyed the content of. comms_outbound is the delivery
+// machinery behind an outbound activity, and it stores the recipient
+// addresses, the subject line and the body a second time — so an activity
+// whose text is gone while its delivery still carries all three has not been
+// erased at all.
+//
+// The posture is the ACTIVITY's: scrub in place, never delete. The row's
+// status, receipt and timestamps are the record that a message left, and that
+// fact survives the loss of what the message said — exactly as the timeline
+// row survives the loss of its body.
+//
+// The selection is deliberately the caller's activity ids and nothing else,
+// even though the eraser holds the subject's addresses and could match on
+// them. Keying off the activity means a delivery inherits every shield the
+// activity engine already applies — the statutory correspondence floor and the
+// subject-only test — so the two rows can never disagree about the same
+// message; an address match would scrub the delivery copy of a Handelsbrief
+// the nightly evaluator refuses to touch.
+//
+// recipients/cc/subject/body are NOT NULL, so they are emptied rather than
+// nulled. list_unsubscribe goes too: it carries a per-recipient one-click
+// token, which is a live identifier for the subject and appears in the body
+// footer this scrub is clearing anyway. The threading columns stay, like the
+// activity's own thread_key — they are message identities, not the subject's
+// data.
+func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, tombstone string) error {
+	if len(activityIDs) == 0 {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE comms_outbound
+		   SET recipients = '[]'::jsonb, cc = '[]'::jsonb, subject = $2,
+		       body = '', list_unsubscribe = NULL
+		 WHERE activity_id = ANY($1)`, activityIDs, tombstone); err != nil {
+		return fmt.Errorf("redacting the deliveries of scrubbed activities: %w", err)
+	}
+	return nil
 }
 
 // purgeDerivedTraces removes what the system DERIVED from the subject

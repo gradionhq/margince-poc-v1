@@ -35,7 +35,7 @@ const (
 var ErrTerminal = errors.New("comms: delivery is already terminal")
 
 // Store is the comms_outbound seam: staging, loading with attempt-counting,
-// and the three terminal/retry transitions. It carries no RBAC gate of its
+// and the four terminal/retry transitions. It carries no RBAC gate of its
 // own — see the internal/modules/comms waivers in backend/rbacgate_test.go
 // for why.
 type Store struct {
@@ -145,8 +145,12 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 // Load reads one delivery and counts the attempt about to be made — durably,
 // before anything can reach the provider, so a crash mid-send can never leave
 // the retry looking like a first send. A dispatch that turns out to transmit
-// nothing gives the rung back (RecordDeferral); counting first and restoring
-// is what keeps the failure direction conservative.
+// nothing usually keeps the rung anyway: the restore is the PACING deferral's
+// alone (RecordDeferral), because only there did one of this installation's
+// own rules hold the message with no provider ever asked. A park, and a fault
+// raised before the send call, both spend theirs — so the count errs HIGH,
+// which is the conservative direction: an early park, never a retry that skips
+// its prior-send lookup and mails a real recipient twice.
 //
 // It returns ErrTerminal for a delivery that already finished — or was never
 // staged in this workspace — which is how a redelivered job stops without
@@ -209,10 +213,13 @@ func (s *Store) Park(ctx context.Context, id ids.UUID, reason string) error {
 	return s.update(ctx, `UPDATE comms_outbound SET status = 'parked', reason = $2 WHERE id = $1 AND status = 'pending'`, id, reason)
 }
 
-// RecordFailure notes a transient fault and leaves the delivery pending so
-// River's ladder brings it back. Same race as RecordSent/Park: a delivery
-// a newer attempt already closed reports ErrTerminal rather than being
-// silently reopened or dropped.
+// RecordFailure notes a transient fault and leaves the delivery pending for
+// something else to bring it back. WHAT brings it back differs by caller: a
+// retry hands the fault to the runner's backoff ladder and spends a rung on
+// it, while a provider throttle asks for a snooze that restores the attempt
+// instead — same row state, two different returns. Same race as
+// RecordSent/Park: a delivery a newer attempt already closed reports
+// ErrTerminal rather than being silently reopened or dropped.
 func (s *Store) RecordFailure(ctx context.Context, id ids.UUID, reason string) error {
 	return s.update(ctx, `UPDATE comms_outbound SET reason = $2 WHERE id = $1 AND status = 'pending'`, id, reason)
 }

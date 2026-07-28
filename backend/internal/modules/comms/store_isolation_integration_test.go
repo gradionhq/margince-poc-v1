@@ -51,6 +51,12 @@ func TestDeliveryIsInvisibleAndUnmutableFromAnotherWorkspace(t *testing.T) {
 	if err := e.store.RecordFailure(other, id, "stolen-failure"); err != ErrTerminal {
 		t.Fatalf("RecordFailure from another workspace: got %v, want ErrTerminal", err)
 	}
+	// The deferral is the one transition that also moves the attempt counter,
+	// so a cross-workspace call reaching it would not merely write a foreign
+	// row — it would hand another tenant's delivery a free rung of its ladder.
+	if err := e.store.RecordDeferral(other, id, "stolen-deferral"); err != ErrTerminal {
+		t.Fatalf("RecordDeferral from another workspace: got %v, want ErrTerminal", err)
+	}
 
 	// Sanity: the row is untouched and still loadable from its OWN
 	// workspace — proves the isolation above is RLS actually working, not a

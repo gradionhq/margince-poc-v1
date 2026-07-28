@@ -43,6 +43,7 @@ const (
 type preflightEnv struct {
 	*env
 	activityID string
+	personID   string
 	ws, user   string
 }
 
@@ -107,7 +108,12 @@ func setupPreflight(t *testing.T) *preflightEnv {
 		ClientID: "preflight-id", ClientSecret: "preflight-secret",
 		StateKey: "0123456789abcdef0123456789abcdef", PublicBaseURL: "https://mail.example.test",
 	}
-	e := setupWithOptions(t, compose.WithKeyvault(vault), compose.WithGmailCapture(gmailCfg, compose.CaptureConfig{}))
+	e := setupWithOptions(t, compose.WithKeyvault(vault),
+		compose.WithGmailCapture(gmailCfg, compose.CaptureConfig{}),
+		// A marketing send derives a one-click unsubscribe link and refuses
+		// without a boot-configured base to build it from, so the fixture
+		// carries one — an install that can send at all has one.
+		compose.WithPublicBaseURL("https://mail.example.test"))
 	e.slug = "preflight-e2e"
 	bootstrapWorkspaceSession(t, e, "Preflight E2E", "sender@fable.test", "Admin")
 
@@ -163,7 +169,7 @@ func setupPreflight(t *testing.T) *preflightEnv {
 	}); err != nil {
 		t.Fatalf("resolving the acting human: %v", err)
 	}
-	return &preflightEnv{env: e, activityID: activity.ID, ws: ws, user: user}
+	return &preflightEnv{env: e, activityID: activity.ID, personID: person.ID, ws: ws, user: user}
 }
 
 // send issues the authenticated send and returns the status plus the
