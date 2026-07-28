@@ -1,0 +1,22 @@
+-- Drop the index 0137 created on `activity`.
+--
+-- It should never have shipped in that form. A plain CREATE INDEX holds a
+-- write-blocking lock for the whole build, and on a real installation
+-- `activity` is the largest and hottest table there is — applying 0137 pauses
+-- mail capture until the build finishes. CREATE INDEX CONCURRENTLY cannot run
+-- inside a transaction, and this repo's migration runner wraps every migration
+-- in one (dbmigrate.Up), so there is no concurrent path to have used instead.
+--
+-- Dropping is safe and cheap: the lock DROP INDEX takes is held for the drop,
+-- not for a build over every row. What it costs is the redaction sweep's index,
+-- and that sweep is a daily background job with a LIMIT, reached through the
+-- noise senders' own ledger rows — it is not the query that needed the help.
+--
+-- IF EXISTS because an installation that has not yet applied 0137 will apply
+-- both in the same run, and one that applied 0137 before this landed has the
+-- index to drop. Both end in the same place.
+--
+-- If the sweep ever does need an index here, it belongs behind a
+-- non-transactional migration path built for concurrent builds. That path does
+-- not exist yet, and inventing it inside a migration is how this happened.
+DROP INDEX IF EXISTS idx_activity_bulk_mail_attested;
