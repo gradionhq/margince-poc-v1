@@ -30,10 +30,18 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// gmailReadonlyScope is the single Google scope the read-only Gmail capture
-// connector requests (mail read; no send, no modify). The calendar connector
-// owns its own calendar-read scope inside the gcal package.
-const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
+// gmailScopes are the Google scopes a Gmail connection requests: mail read for
+// capture, and send for the governed outbound path. They ride ONE consent
+// because Google will not add a scope to an existing refresh token — a second
+// grant would mean a second connection for the same mailbox.
+//
+// gmail.send permits transmission only; it cannot read, modify, or delete. The
+// pair is still least-privilege: no gmail.modify, no settings, no delete. The
+// calendar connector owns its own calendar-read scope inside the gcal package.
+var gmailScopes = []string{
+	"https://www.googleapis.com/auth/gmail.readonly",
+	"https://www.googleapis.com/auth/gmail.send",
+}
 
 // graphScopes are the Microsoft identity platform scopes the read-only Graph
 // capture connector requests: mail read + the signed-in user's profile (the
@@ -180,7 +188,7 @@ func newGmailOAuth(c GmailConfig) gmail.OAuth {
 	return gmail.NewOAuth(gmail.OAuthConfig{
 		ClientID:     c.ClientID,
 		ClientSecret: c.ClientSecret,
-		Scopes:       []string{gmailReadonlyScope},
+		Scopes:       gmailScopes,
 	})
 }
 
