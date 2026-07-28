@@ -70,12 +70,12 @@ func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, e
 	return "1", time.Time{}, nil
 }
 
-func (stubGmailAPI) Send(context.Context, string, string, string) (string, string, error) {
-	return "", "", nil
+func (stubGmailAPI) Send(context.Context, string, string) (string, error) {
+	return "", nil
 }
 
-func (stubGmailAPI) FindByMessageID(context.Context, string, string) (string, string, bool, error) {
-	return "", "", false, nil
+func (stubGmailAPI) FindByMessageID(context.Context, string, string) (string, bool, error) {
+	return "", false, nil
 }
 
 // The account-linking-CSRF defence: the callback must have the provider's

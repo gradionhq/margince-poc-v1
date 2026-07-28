@@ -55,7 +55,7 @@ func decodeMIME(t *testing.T, raw string) string {
 	return string(b)
 }
 
-// R1: the port carries the identity unbracketed; the HEADER must carry it
+// The port carries the identity unbracketed; the HEADER must carry it
 // bracketed, or the message is not valid RFC 5322.
 func TestSendRendersTheMessageIDWithBracketsFromAnUnbracketedInput(t *testing.T) {
 	var raw string
@@ -63,7 +63,7 @@ func TestSendRendersTheMessageIDWithBracketsFromAnUnbracketedInput(t *testing.T)
 	defer srv.Close()
 
 	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
-	got, err := c.Send(context.Background(), authFixture(t, gmailSendScope), connector.OutboundMessage{
+	got, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
 		To: []string{"buyer@example.com"}, Cc: []string{"cc@example.com"},
 		Subject: "Re: pricing", Body: "As discussed.",
 		MessageID:           "abc@margince.test",
@@ -75,8 +75,8 @@ func TestSendRendersTheMessageIDWithBracketsFromAnUnbracketedInput(t *testing.T)
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if got.ProviderMessageID != "gmsg1" || got.ThreadKey != "gthread1" {
-		t.Errorf("receipt = %+v, want gmsg1/gthread1", got)
+	if got.ProviderMessageID != "gmsg1" {
+		t.Errorf("receipt = %+v, want gmsg1", got)
 	}
 	mime := decodeMIME(t, raw)
 	for _, want := range []string{
@@ -107,7 +107,7 @@ func TestSendOmitsUnsubscribeHeadersForATransactionalPurpose(t *testing.T) {
 	defer srv.Close()
 
 	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
-	if _, err := c.Send(context.Background(), authFixture(t, gmailSendScope), connector.OutboundMessage{
+	if _, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
 		To: []string{"buyer@example.com"}, Subject: "Invoice", Body: "Attached.",
 		MessageID: "inv@margince.test",
 	}); err != nil {
@@ -131,7 +131,7 @@ func TestSendStripsCRLFFromHeaderValues(t *testing.T) {
 	defer srv.Close()
 
 	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
-	if _, err := c.Send(context.Background(), authFixture(t, gmailSendScope), connector.OutboundMessage{
+	if _, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
 		To: []string{"b@example.com"}, Body: "hi", MessageID: "x@t",
 		Subject: "ok\r\nBcc: attacker@evil.test",
 	}); err != nil {
@@ -169,7 +169,7 @@ func TestSendOnARetryReturnsThePriorReceiptWithoutTransmitting(t *testing.T) {
 	defer srv.Close()
 
 	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
-	got, err := c.Send(context.Background(), authFixture(t, gmailSendScope), connector.OutboundMessage{
+	got, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
 		To: []string{"buyer@example.com"}, Subject: "Re: pricing", Body: "As discussed.",
 		MessageID: "abc@margince.test", Attempt: 1,
 	})
@@ -197,7 +197,7 @@ func TestSendOnTheFirstAttemptDoesNotLookUp(t *testing.T) {
 	defer srv.Close()
 
 	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
-	if _, err := c.Send(context.Background(), authFixture(t, gmailSendScope), connector.OutboundMessage{
+	if _, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
 		To: []string{"b@example.com"}, Subject: "s", Body: "b",
 		MessageID: "first@margince.test", Attempt: 0,
 	}); err != nil {
@@ -234,7 +234,7 @@ func TestTheMessageIDSurvivesARoundTripThroughMailmap(t *testing.T) {
 
 	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
 	const want = "abc@margince.test"
-	if _, err := c.Send(context.Background(), authFixture(t, gmailSendScope), connector.OutboundMessage{
+	if _, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
 		To: []string{"buyer@example.com"}, Subject: "Re: pricing",
 		Body: "As discussed.", MessageID: want,
 	}); err != nil {

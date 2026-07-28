@@ -36,12 +36,19 @@ import (
 // because Google will not add a scope to an existing refresh token — a second
 // grant would mean a second connection for the same mailbox.
 //
-// gmail.send permits transmission only; it cannot read, modify, or delete. The
-// pair is still least-privilege: no gmail.modify, no settings, no delete. The
-// calendar connector owns its own calendar-read scope inside the gcal package.
+// The send scope permits transmission only; it cannot read, modify, or delete.
+// The pair is still least-privilege: no gmail.modify, no settings, no delete.
+// The calendar connector owns its own calendar-read scope inside the gcal
+// package.
+//
+// The send entry is the connector's OWN constant, not a copy of its text: what
+// the consent requests and what the connector re-checks are then one string by
+// construction. The third spelling — the scope comms demands at the authority
+// gate — cannot be imported by either (comms must not reach into a capture
+// provider), so a fitness test binds it here instead: sendscope_test.go.
 var gmailScopes = []string{
 	"https://www.googleapis.com/auth/gmail.readonly",
-	"https://www.googleapis.com/auth/gmail.send",
+	gmail.SendScope,
 }
 
 // graphScopes are the Microsoft identity platform scopes the read-only Graph

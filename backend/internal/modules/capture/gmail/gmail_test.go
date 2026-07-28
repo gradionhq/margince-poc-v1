@@ -101,12 +101,12 @@ func (f *fakeAPI) GetRaw(_ context.Context, _, id string) (Message, error) {
 // The send seam's stubs: the sync/backfill tests that embed fakeAPI never
 // call these — send.go's own tests build their own API over an httptest
 // server instead — but fakeAPI must still satisfy the API interface.
-func (f *fakeAPI) Send(context.Context, string, string, string) (string, string, error) {
-	return "", "", nil
+func (f *fakeAPI) Send(context.Context, string, string) (string, error) {
+	return "", nil
 }
 
-func (f *fakeAPI) FindByMessageID(context.Context, string, string) (string, string, bool, error) {
-	return "", "", false, nil
+func (f *fakeAPI) FindByMessageID(context.Context, string, string) (string, bool, error) {
+	return "", false, nil
 }
 
 type recordingSink struct{ recs []connector.NormalizedRecord }

@@ -63,16 +63,22 @@ func NewStore(pool *pgxpool.Pool, now func() time.Time) *Store {
 // could name an arbitrary user_id could stage a delivery that later sends
 // through someone else's mailbox.
 type StageInput struct {
-	ActivityID      ids.ActivityID
-	Provider        string
-	MessageID       string // unbracketed
-	Recipients      []string
-	Cc              []string
-	Subject         string
-	Body            string // unsubscribe footer already applied
-	ConsentPurpose  string
-	InReplyTo       string   // unbracketed; empty starts a thread
-	References      []string // unbracketed ancestry, oldest first
+	ActivityID     ids.ActivityID
+	Provider       string
+	MessageID      string // unbracketed
+	Recipients     []string
+	Cc             []string
+	Subject        string
+	Body           string // unsubscribe footer already applied
+	ConsentPurpose string
+	InReplyTo      string   // unbracketed; empty starts a thread
+	References     []string // unbracketed ancestry, oldest first
+	// ThreadKey is the RFC822 conversation identity this message joins. It is
+	// written and never loaded back: the wire carries threading in the
+	// In-Reply-To/References headers above, so the dispatcher needs none of it.
+	// The column exists because capture keys reply detection on the same
+	// identity, and the send log must still name the conversation after the
+	// activity's copy is erased.
 	ThreadKey       string
 	ListUnsubscribe string // the Post header is derived from this, never stored
 }
@@ -190,12 +196,11 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 }
 
 // RecordSent closes a delivery against the provider's receipt. Guarded on
-// status = 'pending': a stale attempt (network partition, GC pause — the
-// crash class R3 already assumes possible) can lose a race against a newer
-// attempt that already closed the same row. Rather than clobber a 'sent' or
+// status = 'pending': a stale attempt (network partition, GC pause) can lose
+// a race against a newer attempt that already closed the same row. Rather than clobber a 'sent' or
 // 'parked' row — a real receipt overwritten, or worse, un-sent by a stale
 // park — a delivery that is no longer pending reports ErrTerminal. That is
-// a benign no-op, the same fact Load already reports the same way: Task 6's
+// a benign no-op, the same fact Load already reports the same way: the
 // dispatcher must treat it as "already handled," never as retryable.
 func (s *Store) RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error {
 	return s.update(ctx, `

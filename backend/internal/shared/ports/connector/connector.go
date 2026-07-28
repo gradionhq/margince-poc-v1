@@ -323,9 +323,14 @@ type OutboundMessage struct {
 	Attempt int
 }
 
-// SendReceipt is what the provider confirmed: its own message identity, and the
-// conversation it filed the message under.
+// SendReceipt is what the provider confirmed: its own message identity.
+//
+// The provider's CONVERSATION id is deliberately absent. This system threads on
+// the RFC822 message identity — comms_outbound.thread_key and activity.thread_key
+// both hold a Message-ID derived from References/In-Reply-To, which is what
+// capture keys reply detection on. A provider's own conversation id (Gmail's
+// threadId) lives in a different namespace, joins nothing here, and carrying it
+// would invite a reader to key on a value no query reads.
 type SendReceipt struct {
 	ProviderMessageID string
-	ThreadKey         string
 }

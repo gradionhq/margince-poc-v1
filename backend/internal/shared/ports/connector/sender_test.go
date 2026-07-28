@@ -14,7 +14,7 @@ type stubSender struct{ got connector.OutboundMessage }
 
 func (s *stubSender) Send(_ context.Context, _ connector.Auth, msg connector.OutboundMessage) (connector.SendReceipt, error) {
 	s.got = msg
-	return connector.SendReceipt{ProviderMessageID: "m1", ThreadKey: "t1"}, nil
+	return connector.SendReceipt{ProviderMessageID: "m1"}, nil
 }
 
 func TestSenderIsSatisfiedIndependentlyOfConnector(t *testing.T) {
@@ -26,8 +26,8 @@ func TestSenderIsSatisfiedIndependentlyOfConnector(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if got.ProviderMessageID != "m1" || got.ThreadKey != "t1" {
-		t.Errorf("receipt = %+v, want m1/t1", got)
+	if got.ProviderMessageID != "m1" {
+		t.Errorf("receipt = %+v, want m1", got)
 	}
 }
 

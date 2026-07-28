@@ -7,7 +7,7 @@
 -- also the activity's source_id, which is how the provider's own copy of this
 -- message collapses onto the same activity when capture re-ingests it.
 --
--- There is deliberately no 'sending' status (R3): a crash between transmit and
+-- There is deliberately no 'sending' status: a crash between transmit and
 -- record would strand a row in it forever, and a guard keyed on that status
 -- would then turn River's redelivery into a silent skip — disabling the
 -- connector's retransmission guard in exactly the crash it exists for. The
@@ -35,6 +35,10 @@ CREATE TABLE comms_outbound (
   consent_purpose     text NOT NULL,
   in_reply_to         text NULL,
   references_chain    jsonb NOT NULL DEFAULT '[]'::jsonb,
+  -- thread_key is the RFC822 conversation identity (the References root),
+  -- carried here so the send log records which conversation the message joined
+  -- even after the activity's own copy is scrubbed. The dispatcher never reads
+  -- it: threading rides the message's own In-Reply-To/References headers.
   thread_key          text NULL,
   -- list_unsubscribe alone: RFC 8058 fixes List-Unsubscribe-Post at the literal
   -- "List-Unsubscribe=One-Click", so the connector derives it whenever this is

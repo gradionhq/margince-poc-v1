@@ -19,10 +19,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// gmailSendScope permits transmission only — it cannot read, modify, or delete,
+// SendScope permits transmission only — it cannot read, modify, or delete,
 // which is why it rides alongside the read-only capture scope rather than
 // replacing it.
-const gmailSendScope = "https://www.googleapis.com/auth/gmail.send"
+//
+// Exported so the OAuth consent that REQUESTS it names the same string this
+// connector RE-CHECKS. A send whose consent asked for a scope the connector
+// then does not find parks every message with "not granted the send scope",
+// and nothing at compile time would say why.
+const SendScope = "https://www.googleapis.com/auth/gmail.send"
 
 // ErrSendScopeMissing marks a connection whose Google grant does not include the
 // send scope: the user connected for capture and declined (or predates) sending.
@@ -43,9 +48,9 @@ var _ connector.Sender = (*Connector)(nil)
 // send — a retry landing before the index catches up gets a false negative and
 // still mails twice. Nor does anything here serialize concurrent attempts at
 // the same delivery: that guarantee lives entirely outside this package, in
-// River delivering one job per delivery. comms.Store deliberately carries no
-// in-flight status and no claim (R3), so two concurrent attempts on the same
-// delivery would both observe it pending and both call Send here — the
+// River delivering one job per delivery. The delivery store deliberately
+// carries no in-flight status and no claim, so two concurrent attempts on the
+// same delivery would both observe it pending and both call Send here — the
 // one-job-per-delivery assumption, not this lookup, is what keeps that from
 // happening in practice.
 func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector.OutboundMessage) (connector.SendReceipt, error) {
@@ -53,7 +58,7 @@ func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return connector.SendReceipt{}, fmt.Errorf("gmail: malformed auth bundle: %w", err)
 	}
-	if !slices.Contains(st.Granted, gmailSendScope) {
+	if !slices.Contains(st.Granted, SendScope) {
 		return connector.SendReceipt{}, ErrSendScopeMissing
 	}
 	access, err := c.oauth.AccessToken(ctx, st.RefreshToken)
@@ -61,20 +66,20 @@ func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector
 		return connector.SendReceipt{}, err
 	}
 	if msg.Attempt > 0 {
-		id, thread, found, findErr := c.api.FindByMessageID(ctx, access, msg.MessageID)
+		id, found, findErr := c.api.FindByMessageID(ctx, access, msg.MessageID)
 		if findErr != nil {
 			return connector.SendReceipt{}, findErr
 		}
 		if found {
-			return connector.SendReceipt{ProviderMessageID: id, ThreadKey: thread}, nil
+			return connector.SendReceipt{ProviderMessageID: id}, nil
 		}
 	}
 	raw := base64.URLEncoding.EncodeToString([]byte(buildRFC822(st.Owner, msg)))
-	id, thread, err := c.api.Send(ctx, access, raw, "")
+	id, err := c.api.Send(ctx, access, raw)
 	if err != nil {
 		return connector.SendReceipt{}, err
 	}
-	return connector.SendReceipt{ProviderMessageID: id, ThreadKey: thread}, nil
+	return connector.SendReceipt{ProviderMessageID: id}, nil
 }
 
 // bracket renders a message identity as RFC 5322 requires it on the wire. The
@@ -133,23 +138,21 @@ func writeHeader(b *strings.Builder, name, value string) {
 	b.WriteString("\r\n")
 }
 
-// Send transmits one already-encoded RFC822 message via messages.send.
-// threadID files it under an existing Gmail conversation; empty starts a new
-// one — omitempty on the wire because Gmail treats an empty threadId
-// differently from an absent one.
-func (a *httpAPI) Send(ctx context.Context, accessToken, rawBase64URL, threadID string) (string, string, error) {
+// Send transmits one already-encoded RFC822 message via messages.send. No
+// threadId is sent: the message carries its own In-Reply-To/References chain,
+// which is the threading this system reads, and Gmail files a reply under the
+// right conversation from those headers.
+func (a *httpAPI) Send(ctx context.Context, accessToken, rawBase64URL string) (string, error) {
 	payload := struct {
-		Raw      string `json:"raw"`
-		ThreadID string `json:"threadId,omitempty"` //nolint:tagliatelle // Google's wire format
-	}{Raw: rawBase64URL, ThreadID: threadID}
+		Raw string `json:"raw"`
+	}{Raw: rawBase64URL}
 	var out struct {
-		ID       string `json:"id"`
-		ThreadID string `json:"threadId"` //nolint:tagliatelle // Google's wire format
+		ID string `json:"id"`
 	}
 	if err := a.postJSON(ctx, accessToken, "/messages/send", payload, &out); err != nil {
-		return "", "", err
+		return "", err
 	}
-	return out.ID, out.ThreadID, nil
+	return out.ID, nil
 }
 
 // FindByMessageID looks a message up by its RFC822 identity via Gmail's
@@ -159,21 +162,20 @@ func (a *httpAPI) Send(ctx context.Context, accessToken, rawBase64URL, threadID 
 // with a just-completed send, so a lookup landing before the index catches up
 // returns a false negative — "never sent" — rather than proof the message was
 // never sent.
-func (a *httpAPI) FindByMessageID(ctx context.Context, accessToken, id string) (string, string, bool, error) {
+func (a *httpAPI) FindByMessageID(ctx context.Context, accessToken, id string) (string, bool, error) {
 	var out struct {
 		Messages []struct {
-			ID       string `json:"id"`
-			ThreadID string `json:"threadId"` //nolint:tagliatelle // Google's wire format
+			ID string `json:"id"`
 		} `json:"messages"`
 	}
 	q := url.Values{"q": {"rfc822msgid:" + id}}
 	if _, err := a.get(ctx, accessToken, "/messages", q, &out, maxJSONResponseBytes); err != nil {
-		return "", "", false, err
+		return "", false, err
 	}
 	if len(out.Messages) == 0 {
-		return "", "", false, nil
+		return "", false, nil
 	}
-	return out.Messages[0].ID, out.Messages[0].ThreadID, true, nil
+	return out.Messages[0].ID, true, nil
 }
 
 // postJSON performs an authorized POST with a JSON body and JSON-decodes the

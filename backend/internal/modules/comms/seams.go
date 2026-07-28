@@ -124,6 +124,12 @@ func addressees(del Delivery) []string {
 // installation already knows cannot leave — asks the SAME question as the
 // authority gate. Two spellings of "may this grant send" could disagree, and a
 // pre-flight that accepted what the gate then parks is worse than none.
+//
+// The literal below is a THIRD spelling of a string the OAuth consent requests
+// and the Gmail connector re-checks, and it has to be: this module must not
+// import a capture provider. compose imports both and holds them against each
+// other (compose/sendscope_test.go), because drift here is silent — every send
+// parks as ungranted, which reads as a user who declined consent.
 func SendScopeFor(provider string) (string, bool) {
 	if provider == "gmail" {
 		return "https://www.googleapis.com/auth/gmail.send", true
