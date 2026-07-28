@@ -7661,6 +7661,92 @@ paths:
       responses:
         '202': { description: Migration queued }
 
+  /overlay/user-map:
+    get:
+      tags: [Overlay]
+      operationId: listOverlayUserMap
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: The workspace users' incumbent-user mapping, with unmapped users flagged.
+      description: >-
+        Admin-managed per RC-15/ADR-0057 — this IS the overlay-connection settings
+        surface the spec names, not a general CRUD endpoint. Requires the
+        overlay_connection UPDATE grant (admin/ops), NOT its read grant: every role
+        holds the read so a rep can see whether overlay mode is live, and this
+        payload carries every user's email plus their incumbent mapping, which no
+        non-admin sees today.
+      parameters:
+        # Its own cursor, not the shared components/parameters/Cursor: this page
+        # is keyed on the app_user id alone and has no `sort` dial, so the shared
+        # token's contract — minted from `page.next_cursor`, fingerprinting the
+        # request's sort, rejectable as cursor_param_mismatch — describes
+        # something this endpoint neither issues nor accepts.
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: >-
+            Opaque keyset cursor from a prior response's root-level `next_cursor`.
+            It encodes the last row's app_user id and nothing else; there is no
+            sort to disagree with. A token this endpoint did not mint returns
+            `422 code: malformed_cursor` — re-issue the request without it.
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayUserMapPage' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+        '422': { $ref: '#/components/responses/ValidationError' }   # malformed_cursor
+
+  /overlay/user-map/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    put:
+      tags: [Overlay]
+      operationId: setOverlayUserMap
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Pin one user to an incumbent user as a manual admin override.
+      description: >-
+        Writes match_source=manual — the escape hatch design.md §4.6 rule 4 defines
+        for a reassigned or ambiguous email — and clears any auto-map block for the
+        user. Requires the overlay_connection UPDATE grant.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/SetOverlayUserMapRequest' } } }
+      responses:
+        '204': { description: Mapped }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay, unknown user
+        '422': { $ref: '#/components/responses/ValidationError' }   # missing or malformed body
+    delete:
+      tags: [Overlay]
+      operationId: deleteOverlayUserMap
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Unmap one user and stop automatic email matching from re-mapping them.
+      description: >-
+        Removes the mapping and its visibility grants, and records the decision so
+        the reconcile sweep cannot re-create the mapping. Idempotent: an
+        already-unmapped user still records the block. Requires the
+        overlay_connection UPDATE grant.
+      responses:
+        '204': { description: Unmapped }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+
+  /overlay/owners:
+    get:
+      tags: [Overlay]
+      operationId: listOverlayOwners
+      security: [ { cookieAuth: [] } ]   # human session only — rejects agent bearer/Passport (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: The connected incumbent's user directory, for the mapping picker.
+      description: >-
+        Requires the overlay_connection UPDATE grant — this is external directory
+        PII (names and emails of the incumbent's users) that reaches no non-admin
+        today. Capped: the Incumbent seam's Owners() is unpaginated, so `truncated`
+        reports honestly when the directory exceeded the cap rather than implying
+        completeness.
+      responses:
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayOwnerDirectory' } } } }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+
   # DEFERRED — stubs only (data-model.md §12). Intentionally NOT specified:
   #   /sequences, /sequences/{id}/steps, /enrollments   (outbound cadences; sends gated)
   #   /calls, /telephony/*                               (telephony / click-to-call)
@@ -8676,6 +8762,61 @@ components:
         The degradation band of a budget window — healthy (`ok`), approaching the
         cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST
         and Search windows so both read the one band vocabulary.
+
+    OverlayUserMapEntry:
+      type: object
+      required: [user_id, email, unmapped_reason]
+      properties:
+        user_id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        incumbent_user_id:
+          type: string
+          description: Empty when the user is not mapped.
+        incumbent_user_name: { type: string }
+        incumbent_user_email: { type: string }
+        match_source:
+          type: string
+          enum: [email, manual]
+          description: Absent when the user is not mapped.
+        unmapped_reason:
+          type: string
+          enum: [none, no_email_match, ambiguous_email, blocked_by_admin, not_yet_synced, directory_unavailable]
+          description: >-
+            Why this user has no mapping. `none` means they are mapped.
+            `directory_unavailable` means the incumbent directory could not be
+            read, so no reason could be derived — never a guessed diagnosis.
+        stale_owner_ref:
+          type: boolean
+          description: >-
+            A manual mapping pointing at an incumbent user absent from the current
+            directory. Reported, never auto-revoked: the override stays sticky.
+    OverlayUserMapPage:
+      type: object
+      required: [incumbent, entries]
+      properties:
+        incumbent: { type: string }
+        entries: { type: array, items: { $ref: '#/components/schemas/OverlayUserMapEntry' } }
+        next_cursor: { type: string }
+    OverlayOwner:
+      type: object
+      required: [incumbent_user_id, email]
+      properties:
+        incumbent_user_id: { type: string }
+        name: { type: string }
+        email: { type: string }
+    OverlayOwnerDirectory:
+      type: object
+      required: [incumbent, owners, truncated]
+      properties:
+        incumbent: { type: string }
+        owners: { type: array, items: { $ref: '#/components/schemas/OverlayOwner' } }
+        truncated: { type: boolean }
+    SetOverlayUserMapRequest:
+      type: object
+      required: [incumbent_user_id]
+      properties:
+        incumbent_user_id: { type: string, minLength: 1 }
 
     # ---- error (RFC 7807) ----
     Problem:

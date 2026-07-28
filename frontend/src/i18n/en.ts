@@ -278,7 +278,7 @@ export const en = {
     "Not available while reading from HubSpot — open it in HubSpot",
   "overlay.chipLabel": "Reading from HubSpot",
   "overlay.chipAria":
-    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Integrations to manage the connection.",
+    "This installation reads records from a HubSpot mirror instead of native tables. Open Settings → Overlay to manage the connection.",
   "overlay.refused":
     "Not available while reading from HubSpot — the mirror can't serve this write.",
   "overlay.filterUnsupported":
@@ -341,6 +341,71 @@ export const en = {
   "overlay.disconnectTitle": "Disconnect HubSpot?",
   "overlay.disconnectBody":
     "This purges the mirrored data and switches the workspace back to native records. The audit trail is kept.",
+
+  "overlay.userMap.title": "Mirror user mapping",
+  "overlay.userMap.sub":
+    "Who each workspace user is as a {principal} user. This mapping is the whole of their mirror visibility.",
+  "overlay.userMap.cost":
+    "A user with no mapping sees no mirrored records at all — their lists come back empty.",
+  "overlay.userMap.loading": "Loading the user mapping…",
+  "overlay.userMap.loadFailed": "Couldn't load the user mapping.",
+  "overlay.userMap.adminOnly":
+    "Ask an admin or ops teammate to review who is mapped.",
+  "overlay.userMap.notOverlay":
+    "This workspace reads from native tables, so there is nothing to map.",
+  "overlay.userMap.notConfigured":
+    "Overlay mode isn't configured in this deployment.",
+  "overlay.userMap.empty": "This workspace has no users to map.",
+  "overlay.userMap.view": "Grouping",
+  "overlay.userMap.viewByUser": "By user",
+  "overlay.userMap.viewByOwner": "By {principal} user",
+  "overlay.userMap.principal.hubspot": "HubSpot",
+  "overlay.userMap.principal.generic": "connected CRM",
+  "overlay.userMap.you": "You",
+  "overlay.userMap.matchEmail": "Matched by email",
+  "overlay.userMap.matchManual": "Manual override",
+  "overlay.userMap.map": "Map…",
+  "overlay.userMap.change": "Change…",
+  "overlay.userMap.unmap": "Unmap",
+  "overlay.userMap.cancel": "Cancel",
+  "overlay.userMap.pickerLabel": "Search {principal} users",
+  "overlay.userMap.truncated":
+    "The {principal} directory is longer than this list — someone you can't find here may be past the cut-off.",
+  "overlay.userMap.directoryFailed":
+    "Couldn't read the {principal} directory, so nobody can be picked right now.",
+  "overlay.userMap.notMapped": "Not mapped",
+  "overlay.userMap.chip.noEmailMatch": "No email match",
+  "overlay.userMap.chip.ambiguousEmail": "Ambiguous email",
+  "overlay.userMap.chip.blockedByAdmin": "Unmapped by an admin",
+  "overlay.userMap.chip.notYetSynced": "Not synced yet",
+  "overlay.userMap.chip.directoryUnavailable": "Reason unknown",
+  "overlay.userMap.reason.noEmailMatch":
+    "No {principal} user has this email address.",
+  "overlay.userMap.reason.ambiguousEmail":
+    "Two or more {principal} users share this email address, so no automatic match is safe.",
+  "overlay.userMap.reason.blockedByAdmin":
+    "An admin unmapped this user, and automatic matching will not map them again.",
+  "overlay.userMap.reason.notYetSynced":
+    "The {principal} directory hasn't listed this user yet.",
+  "overlay.userMap.reason.directoryUnavailable":
+    "Couldn't read the whole {principal} directory, so no reason can be derived.",
+  "overlay.userMap.staleChip": "No longer in the {principal} directory",
+  "overlay.userMap.staleNote":
+    "This manual mapping grants no visibility. It is reported, never withdrawn automatically — the decision stays yours.",
+  "overlay.userMap.unmapTitle": "Unmap this user?",
+  "overlay.userMap.unmapSelfTitle": "Unmap yourself?",
+  "overlay.userMap.unmapBody":
+    "{user} will stop seeing every mirrored record until they are mapped again.",
+  "overlay.userMap.unmapSelfBody":
+    "You will stop seeing every mirrored record until you are mapped again. This tab stays reachable, so you can undo it here.",
+  "overlay.userMap.sharedSeat": "Shared seat — {count} users",
+  "overlay.userMap.ownerEmpty": "Nobody is mapped to a {principal} user yet.",
+  "overlay.userMap.unmappedCountOne":
+    "1 user is not mapped and isn't shown here — switch to By user to fix that.",
+  "overlay.userMap.unmappedCount":
+    "{count} users are not mapped and aren't shown here — switch to By user to fix that.",
+  "overlay.userMap.partialView":
+    "This grouping and count cover the users loaded so far. Load more to see the rest.",
 
   "people.name": "Name",
   "people.email": "Email",
@@ -1854,6 +1919,7 @@ export const en = {
   "settings.tab.audit": "Audit log",
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrations",
+  "settings.tab.overlay": "Overlay",
   "settings.group.you": "Your settings",
   "settings.group.org": "Organization",
   "settings.rates.fxTitle": "Currency rates",
