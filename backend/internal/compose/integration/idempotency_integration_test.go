@@ -72,6 +72,57 @@ func TestIdempotencyKeyReplay(t *testing.T) {
 	}
 }
 
+// A replay is a read, and the recorded body is a frozen copy of the record.
+// Once the record is gone the copy must go with it: Art. 17 erasure anonymizes
+// the row in place, stamps archived_at and leaves owner_id alone, so a probe
+// that only asks "is this still yours" answers yes for a tombstone and the
+// middleware hands back the pre-erasure snapshot every live read path now
+// refuses. The replay probe is live-only for exactly that reason.
+func TestIdempotencyReplayRefusesAnArchivedRecord(t *testing.T) {
+	e := setup(t)
+
+	bootstrapWorkspaceSession(t, e, "Idem Erase", "admin@idemerase.test", "Admin")
+	e.slug = "idem-erase"
+
+	keyed := map[string]string{"Idempotency-Key": "lead-erase-1"}
+	leadReq := anyMap{
+		"full_name":    "Erasable Prospect",
+		"email":        "erasable@example.org",
+		"company_name": "Erasable AG",
+		"source":       "import:idem",
+	}
+
+	var first anyMap
+	if status := e.call(t, "POST", "/v1/leads", leadReq, keyed, &first); status != http.StatusCreated {
+		t.Fatalf("keyed create lead = %d %v", status, first)
+	}
+	leadID, _ := first["id"].(string)
+	if leadID == "" {
+		t.Fatalf("created lead carries no id: %v", first)
+	}
+
+	// The positive control, BEFORE the record goes: the replay works, so a
+	// later refusal is the archive doing it and not the mechanism being broken.
+	var live anyMap
+	if status := e.call(t, "POST", "/v1/leads", leadReq, keyed, &live); status != http.StatusCreated {
+		t.Fatalf("replay while the record is live = %d %v, want the original 201", status, live)
+	}
+
+	if status := e.call(t, "DELETE", "/v1/leads/"+leadID, nil, nil, nil); status != http.StatusOK {
+		t.Fatalf("archiving the lead = %d, want 200", status)
+	}
+
+	var problem anyMap
+	status := e.call(t, "POST", "/v1/leads", leadReq, keyed, &problem)
+	if status != http.StatusNotFound {
+		t.Fatalf("replay after the record was archived = %d %v, want 404 — the recorded body is a snapshot of a record that no longer exists",
+			status, problem)
+	}
+	if problem["full_name"] != nil || problem["email"] != nil {
+		t.Errorf("the refused replay leaked the recorded record body: %v", problem)
+	}
+}
+
 // TestIdempotencyKeyReplay_createQuota proves the promise for an
 // operation with no natural-key dedupe behind it: without transport
 // idempotency a retried createQuota lands a second, identical target.

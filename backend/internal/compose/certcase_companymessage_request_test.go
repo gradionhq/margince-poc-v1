@@ -163,10 +163,18 @@ func TestCompanyMessageCaseSpeaksTheClickedOptionAsAnAdministratorStatement(t *t
 	if spoken.Role != chatRoleUser {
 		t.Errorf("the click is spoken as %q, want an administrator turn", spoken.Role)
 	}
-	for _, want := range []string{`"Acme Robotics GmbH"`, fieldLegalName} {
-		if !strings.Contains(spoken.Content, want) {
-			t.Errorf("the spoken click does not carry %s: %q", want, spoken.Content)
-		}
+	if !strings.Contains(spoken.Content, fieldLegalName) {
+		t.Errorf("the spoken click does not name its field: %q", spoken.Content)
+	}
+	// The value is carried, and carried as DATA: an option's value is whatever
+	// the crawled page said, so it belongs inside this call's declared boundary
+	// rather than in the prompt's own voice.
+	marker, ok := promptfence.MarkerIn(trace.Requests[0].System)
+	if !ok {
+		t.Fatal("the system prompt declares no boundary")
+	}
+	if !strings.Contains(spoken.Content, "<"+marker+">Acme Robotics GmbH</"+marker+">") {
+		t.Errorf("the clicked value is not inside this call's boundary: %q", spoken.Content)
 	}
 	if last := messages[len(messages)-1]; last.Content != fixture.Message {
 		t.Errorf("the current message is not the last turn: %+v", last)

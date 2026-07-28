@@ -23,7 +23,7 @@ import (
 )
 
 // freshlyMigratedOwner connects as owner and returns a clean, migrated schema
-// (migrated once per process, then reset with a fast TRUNCATE — see package
+// (migrated once per process, then a fast data-only reset — see package
 // testdb) — the schema-derivation arrange step, needing only the owner DSN (no
 // app pool is involved in a coverage sweep).
 func freshlyMigratedOwner(t *testing.T) *pgx.Conn {
@@ -45,7 +45,7 @@ func freshlyMigratedOwner(t *testing.T) *pgx.Conn {
 	if err := testdb.EnsureSchema(ctx, owner); err != nil {
 		t.Fatalf("migrating schema: %v", err)
 	}
-	if err := testdb.Truncate(ctx, owner); err != nil {
+	if err := testdb.Reset(ctx, owner); err != nil {
 		t.Fatalf("resetting database: %v", err)
 	}
 	return owner

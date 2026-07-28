@@ -20,7 +20,7 @@ export function SorModeChip() {
   }
   return (
     <a
-      href="#/settings/integrations"
+      href="#/settings/overlay"
       className="badge badge-accent"
       title={t("overlay.chipAria")}
       aria-label={t("overlay.chipAria")}

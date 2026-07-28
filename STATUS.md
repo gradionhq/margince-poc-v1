@@ -971,10 +971,48 @@ Open work, roughly in priority order:
   written is fill-only-empty with a `person_profile_field` evidence row
   (first-verdict-wins, so a signature or a human already there is untouchable),
   one audit row and one `person.updated`.
-  **Deferred follow-up still open:** the synchronous enrich-on-capture trigger
-  (the sweep already self-heals, so it is a latency optimization). The 12-page
-  auto-read ceiling this list also named turned out to be built already
-  (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
+  **Enrich-on-capture landed (founder call, 2026-07-28: enrich immediately, at
+  least while testing).** A capture that MINTS a new company now queues its
+  dossier there and then instead of waiting for the next daily sweep. The hook
+  is `compose.peopleEnsurer` — already the composition-side adapter, so capture
+  still knows nothing about website reads — and it fires only on
+  `OrgCreated`, because mail from a company that already exists teaches nothing
+  a fresh crawl would add.
+  It queues; it does not crawl. Reserve a budget slot, write the dossier row,
+  insert the River job, arm the cursor — a handful of statements, no network and
+  no model call, on the post-commit step that already may not fail a capture. The
+  pages and the extraction happen in the deep-read worker on its own job, so
+  neither the contact nor the backfill page waits for a website to answer.
+  Deliberately best-effort in one direction only: no ambient River client, the
+  day's cap spent, or any fault leaves the organization exactly as the sweep
+  finds it, and every give-up says so in the log. The queue check runs FIRST
+  because it is the only gate that costs nothing to ask and the only one that
+  makes every later step pointless — a process that composes a Sink without a
+  queue would otherwise pay three round trips per captured company to learn it
+  could never have started a read. It is an injected probe (`queueReady`) rather
+  than a direct River call: the client is AMBIENT, and a gate reading ambient
+  state is one no test can put on either side of.
+  A sweep and a capture racing on one organization used to spend TWO of the
+  day's ten reads and charge that organization two of its bounded attempts,
+  while the in-flight uniqueness index let only one read exist.
+  `startAutoEnrichRead` now reports whether it started or merely joined; the
+  cursor is armed only by the starter, and the joiner returns its slot
+  (`AutoEnrichStore.ReleaseBudget`, guarded at zero). The sweep is unchanged and
+  remains the reconciler — which is what lets the trigger be quick rather than
+  careful. Both paths spend the SAME atomically-reserved daily cap
+  (`autoEnrichDailyCap` = 10/workspace/UTC-day), so the trigger is a faster route
+  through the ADR-0020 guardrail, never a way around it.
+  **The daily cap went 10 → 500 with it** (founder, 2026-07-28; foundation
+  #1200). N=10 throttled exactly the case the feature exists to demonstrate: a
+  first backfill mints hundreds of companies, and watching ten of them fill
+  teaches the opposite of "the CRM fills itself" (P5). It is safe because the cap
+  was never the money bound — concurrency is capped by the deep-read worker pool
+  (`deepReadMaxWorkers` = 2), spend by the ADR-0020 budget window, and reach by
+  the §1 ladder, which only lets a company be created for an address the owner
+  corresponded with or already has a person for. What the counter actually paces
+  is how fast a workspace fills.
+  The 12-page auto-read ceiling this list also named turned out to be built
+  already (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
   **Phase 2a (build, landed):** the counterparty-identity column
   (`activity.counterparty_email`, migration 0123, partial index) stamped
   (lowercased) at capture — captured from now so the phase-2b correspondence
@@ -1056,8 +1094,9 @@ Open work, roughly in priority order:
   person+org capture withheld, on the SAME transaction that resolves the ledger
   row (a new `people.EnsureCounterpartyTx`, shared with the review-queue accept);
   `noise` archives the message immediately and redacts subject/body/raw in place
-  only after a 7-day undo window, keeping the row and its natural key as the
-  replay tombstone; `unsure` — including every answer below the 0.7 floor —
+  only after a 7-day undo window **and only with independent corroboration that
+  the message is bulk** (see the next paragraph), keeping the row and its natural
+  key as the replay tombstone; `unsure` — including every answer below the 0.7 floor —
   creates nothing, hides nothing, and stages a 🟡 proposal whose accept ADDS and
   whose reject does nothing (which is what keeps approvals approve-only-effects).
   `unsure` is deliberately absent from the vocabulary the model may answer with:
@@ -1067,6 +1106,25 @@ Open work, roughly in priority order:
   prohibition outranks the operator's `ai.capture_payloads` posture, held to the
   task contract by a fitness test. Ships two aicert scenarios including the
   release-blocking false-noise case.
+  **Redaction needs corroboration the model did not supply (landed).** Hiding
+  and destroying were firing on identical evidence — a `noise` verdict above the
+  floor, plus seven days of nobody objecting. Hiding is reversible (reply and the
+  sweep lets go); redaction is not. Silence is weak evidence for destroying
+  correspondence, and it is the forged-bulk attack's whole mechanism: a message
+  written as an address the workspace never corresponded with, shaped to read as
+  marketing, puts a `noise` verdict on the ADDRESS, and the real owner's later
+  mail is hidden within the hour and destroyed a week later without a human ever
+  seeing it — so "reply to recover" is unreachable exactly when it is needed.
+  Migration 0137 adds `activity.bulk_mail_attested`, stamped per message from its
+  own RFC 2369 List-Unsubscribe header (the corroboration CAP-PARAM-6's prefix
+  rules already accept). `NoiseMailToRedact` requires it; `NoiseMailToHide` does
+  not, so the reversible half is unchanged. The header is sender-written, and the
+  asymmetry is what makes it usable: a sender can put it on their OWN mail and
+  consent to its destruction, but a forger cannot put it on their victim's — and
+  the victim's mail is the target. Per message, never per sender: a blast is
+  destroyed while a personal note from the same address is only ever hidden. Rows
+  captured before the migration are un-attested, so the failure direction is
+  retention.
   Three defects fixed there are worth naming because the pattern recurs:
   `next_attempt_at` was stamped from the app clock and compared against Postgres
   `now()` (a cross-clock comparison — the local PG container runs ~13ms behind its

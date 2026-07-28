@@ -14,6 +14,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"log/slog"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -60,12 +61,26 @@ var graphScopes = []string{"offline_access", "User.Read", "Mail.Read"}
 // CaptureConfig is the deployment's capture list-config, threaded from
 // margince.yaml's `capture:` block into the Sink's suppression gates: the
 // CAP-PARAM-5 free-mail additions and the CAP-PARAM-6 transactional/ESP
-// additions plus its allowlist (ADR-0072). The zero value is the pinned
-// baselines with no deployment additions.
+// additions plus its allowlist (ADR-0072) — plus the process logger the Sink's
+// post-commit steps report through. The zero value is the pinned baselines with
+// no deployment additions and the default logger.
 type CaptureConfig struct {
 	FreemailExtra      []string // capture.freemail_extra (CAP-PARAM-5)
 	TransactionalExtra []string // capture.transactional_extra (CAP-PARAM-6 infra eSLDs)
 	TransactionalNever []string // capture.transactional_never (CAP-PARAM-6 allowlist)
+	// Logger carries the process logger to the post-commit steps the Sink
+	// drives, where a fault is reported rather than returned (nothing may fail
+	// a capture). Nil falls back to the default logger — the site_lead accept
+	// path composes a Sink without a deployment config at all.
+	Logger *slog.Logger
+}
+
+// logger is the configured logger, or the process default.
+func (c CaptureConfig) logger() *slog.Logger {
+	if c.Logger != nil {
+		return c.Logger
+	}
+	return slog.Default()
 }
 
 // WithCaptureConfig records the deployment's capture suppression-list config on
@@ -80,11 +95,12 @@ func WithCaptureConfig(cfg CaptureConfig) Option {
 
 // CaptureConfigFromDeploy maps the deployment's `capture:` block onto the
 // compose suppression config the Sink gates read (CAP-PARAM-5/6, ADR-0072).
-func CaptureConfigFromDeploy(c deployconfig.Capture) CaptureConfig {
+func CaptureConfigFromDeploy(c deployconfig.Capture, log *slog.Logger) CaptureConfig {
 	return CaptureConfig{
 		FreemailExtra:      c.FreemailExtra,
 		TransactionalExtra: c.TransactionalExtra,
 		TransactionalNever: c.TransactionalNever,
+		Logger:             log,
 	}
 }
 
@@ -92,7 +108,8 @@ func CaptureConfigFromDeploy(c deployconfig.Capture) CaptureConfig {
 // their compiled-in connectors on it and drive SyncOnce. The vault seals and
 // resolves each connection's credential (nil is valid for a role that only
 // runs the transient one-shot pull, which persists no credential). cfg carries
-// the deployment's suppression-list additions; the zero value is the baselines.
+// the deployment's suppression-list additions and the logger; the zero value is
+// the baselines and the default logger.
 func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureConfig) *capture.Registry {
 	r := capture.NewRegistry(pool, newCaptureSink(pool, cfg), identity.NewService(pool), vault)
 	// The standing IMAP connector needs no deployment config — credentials
@@ -119,7 +136,7 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// chokepoint — composed here so capture never imports people. The
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
-		WithEnsurer(peopleEnsurer{store: people.NewStore(pool)},
+		WithEnsurer(peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger())},
 			capture.NewFreemailList(cfg.FreemailExtra),
 			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever))
 }
@@ -128,6 +145,11 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 // capture's resolver seam.
 type peopleEnsurer struct {
 	store *people.Store
+	// enrich queues the web dossier for a company this ensure just minted. It
+	// lives HERE rather than in capture because capture must not know that
+	// website reads exist — the seam it owns says "make the counterparty real",
+	// and what a new company is then worth is the composition's business.
+	enrich *autoEnrichTrigger
 }
 
 func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) (capture.EnsureOutcome, error) {
@@ -148,6 +170,13 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 	}
 	if err != nil {
 		return capture.EnsureOutcome{}, err
+	}
+	// A NEW company is the trigger, not every captured mail: an organization
+	// that already existed has either been enriched or been deliberately left
+	// alone, and re-asking on every message from it would spend the day's cap on
+	// companies nobody learned anything new about.
+	if res.OrgCreated && res.OrganizationID != nil {
+		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
 	}
 	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
 }

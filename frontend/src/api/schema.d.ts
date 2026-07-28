@@ -4574,6 +4574,73 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/overlay/user-map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The workspace users' incumbent-user mapping, with unmapped users flagged.
+         * @description Admin-managed per RC-15/ADR-0057 — this IS the overlay-connection settings surface the spec names, not a general CRUD endpoint. Requires the overlay_connection UPDATE grant (admin/ops), NOT its read grant: every role holds the read so a rep can see whether overlay mode is live, and this payload carries every user's email plus their incumbent mapping, which no non-admin sees today.
+         */
+        get: operations["listOverlayUserMap"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/user-map/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Pin one user to an incumbent user as a manual admin override.
+         * @description Writes match_source=manual — the escape hatch design.md §4.6 rule 4 defines for a reassigned or ambiguous email — and clears any auto-map block for the user. Requires the overlay_connection UPDATE grant.
+         */
+        put: operations["setOverlayUserMap"];
+        post?: never;
+        /**
+         * Unmap one user and stop automatic email matching from re-mapping them.
+         * @description Removes the mapping and its visibility grants, and records the decision so the reconcile sweep cannot re-create the mapping. Idempotent: an already-unmapped user still records the block. Requires the overlay_connection UPDATE grant.
+         */
+        delete: operations["deleteOverlayUserMap"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/overlay/owners": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The connected incumbent's user directory, for the mapping picker.
+         * @description Requires the overlay_connection UPDATE grant — this is external directory PII (names and emails of the incumbent's users) that reaches no non-admin today. Capped: the Incumbent seam's Owners() is unpaginated, so `truncated` reports honestly when the directory exceeded the cap rather than implying completeness.
+         */
+        get: operations["listOverlayOwners"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/fx-rates": {
         parameters: {
             query?: never;
@@ -5350,6 +5417,46 @@ export interface components {
          * @enum {string}
          */
         OverlayBudgetBand: "ok" | "warn" | "shed";
+        OverlayUserMapEntry: {
+            /** Format: uuid */
+            user_id: string;
+            email: string;
+            name?: string;
+            /** @description Empty when the user is not mapped. */
+            incumbent_user_id?: string;
+            incumbent_user_name?: string;
+            incumbent_user_email?: string;
+            /**
+             * @description Absent when the user is not mapped.
+             * @enum {string}
+             */
+            match_source?: "email" | "manual";
+            /**
+             * @description Why this user has no mapping. `none` means they are mapped. `directory_unavailable` means the incumbent directory could not be read, so no reason could be derived — never a guessed diagnosis.
+             * @enum {string}
+             */
+            unmapped_reason: "none" | "no_email_match" | "ambiguous_email" | "blocked_by_admin" | "not_yet_synced" | "directory_unavailable";
+            /** @description A manual mapping pointing at an incumbent user absent from the current directory. Reported, never auto-revoked: the override stays sticky. */
+            stale_owner_ref?: boolean;
+        };
+        OverlayUserMapPage: {
+            incumbent: string;
+            entries: components["schemas"]["OverlayUserMapEntry"][];
+            next_cursor?: string;
+        };
+        OverlayOwner: {
+            incumbent_user_id: string;
+            name?: string;
+            email: string;
+        };
+        OverlayOwnerDirectory: {
+            incumbent: string;
+            owners: components["schemas"]["OverlayOwner"][];
+            truncated: boolean;
+        };
+        SetOverlayUserMapRequest: {
+            incumbent_user_id: string;
+        };
         /** @description RFC 7807 problem+json with a stable machine `code` and structured `details`. */
         Problem: {
             /**
@@ -9817,6 +9924,62 @@ export interface components {
         /** @description Include soft-deleted (archived) rows. Default false. */
         IncludeArchived: boolean;
         /**
+         * @description Filter by WHO created the record, matched on the `captured_by` prefix
+         *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+         *
+         *     `captured_by_kind=agent` is the **review list for records an AI created**
+         *     (ADR-0075/A121). Every record already carries its creator — the field is
+         *     server-stamped from the authenticated principal and read-only on every
+         *     response — but until this parameter there was no way to *ask* for them,
+         *     so "which of these did a model decide existed?" had no answer short of
+         *     exporting the table.
+         *
+         *     Deliberately a filter on the existing lists rather than a queue object: a
+         *     durable `reviewed` state is a separate decision, and nothing here needs
+         *     one to make the records findable.
+         *
+         *     The four values are the whole vocabulary the write paths stamp. That is a
+         *     convention rather than a database constraint, so a row whose prefix
+         *     matches none of them is returned by no value of this parameter — the
+         *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+         *     returns `422 code: validation_error`.
+         */
+        CapturedByKind: "human" | "agent" | "connector" | "system";
+        /**
+         * @description `true` returns only records an AI **wrote into**; `false` only records it
+         *     did not touch. Omit for both.
+         *
+         *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+         *     and it is deliberately a different question from `captured_by_kind`.
+         *     `captured_by` names who CREATED the row and is never restamped. In the
+         *     connector path the AI does not create the record — Gmail capture mints
+         *     the organization as `connector:gmail`, and then the AI renames it from a
+         *     signature and writes its profile. Asking "who created it" therefore
+         *     misses exactly the records worth reviewing.
+         *
+         *     Answered from the **audit log**, which is complete by construction: every
+         *     mutation commits its domain row and its audit row in one transaction, so
+         *     no agent write reaches a record without leaving one. A record matches
+         *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+         *     history, or when the record itself was agent-created. Nothing narrower
+         *     would do — a list of enrichment tables misses an agent updating an
+         *     ordinary column, which is the plainest case there is.
+         *
+         *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+         *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+         *
+         *     Each value's own provenance — the agent that wrote it, the verbatim
+         *     evidence, the source URL, the confidence — is on the per-record
+         *     profile-field and fact reads; this filter is how you find the records to
+         *     open.
+         *
+         *     One limit, stated rather than implied: it can only see as far back as
+         *     audit retention keeps. A record whose only AI write has aged out of the
+         *     audit log is still matched if the AI CREATED it (that is on the row
+         *     itself), and not otherwise.
+         */
+        AiWritten: boolean;
+        /**
          * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
          *     create (API-CC-6). **Scope:** the key is unique within
          *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
@@ -10156,6 +10319,62 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Filter by WHO created the record, matched on the `captured_by` prefix
+                 *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+                 *
+                 *     `captured_by_kind=agent` is the **review list for records an AI created**
+                 *     (ADR-0075/A121). Every record already carries its creator — the field is
+                 *     server-stamped from the authenticated principal and read-only on every
+                 *     response — but until this parameter there was no way to *ask* for them,
+                 *     so "which of these did a model decide existed?" had no answer short of
+                 *     exporting the table.
+                 *
+                 *     Deliberately a filter on the existing lists rather than a queue object: a
+                 *     durable `reviewed` state is a separate decision, and nothing here needs
+                 *     one to make the records findable.
+                 *
+                 *     The four values are the whole vocabulary the write paths stamp. That is a
+                 *     convention rather than a database constraint, so a row whose prefix
+                 *     matches none of them is returned by no value of this parameter — the
+                 *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+                 *     returns `422 code: validation_error`.
+                 */
+                captured_by_kind?: components["parameters"]["CapturedByKind"];
+                /**
+                 * @description `true` returns only records an AI **wrote into**; `false` only records it
+                 *     did not touch. Omit for both.
+                 *
+                 *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+                 *     and it is deliberately a different question from `captured_by_kind`.
+                 *     `captured_by` names who CREATED the row and is never restamped. In the
+                 *     connector path the AI does not create the record — Gmail capture mints
+                 *     the organization as `connector:gmail`, and then the AI renames it from a
+                 *     signature and writes its profile. Asking "who created it" therefore
+                 *     misses exactly the records worth reviewing.
+                 *
+                 *     Answered from the **audit log**, which is complete by construction: every
+                 *     mutation commits its domain row and its audit row in one transaction, so
+                 *     no agent write reaches a record without leaving one. A record matches
+                 *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+                 *     history, or when the record itself was agent-created. Nothing narrower
+                 *     would do — a list of enrichment tables misses an agent updating an
+                 *     ordinary column, which is the plainest case there is.
+                 *
+                 *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+                 *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+                 *
+                 *     Each value's own provenance — the agent that wrote it, the verbatim
+                 *     evidence, the source URL, the confidence — is on the per-record
+                 *     profile-field and fact reads; this filter is how you find the records to
+                 *     open.
+                 *
+                 *     One limit, stated rather than implied: it can only see as far back as
+                 *     audit retention keeps. A record whose only AI write has aged out of the
+                 *     audit log is still matched if the AI CREATED it (that is on the row
+                 *     itself), and not otherwise.
+                 */
+                ai_written?: components["parameters"]["AiWritten"];
                 /** @description Filter to a single owner. */
                 owner_id?: string;
                 /** @description Full-text query over name/title (tsvector). */
@@ -10467,6 +10686,62 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Filter by WHO created the record, matched on the `captured_by` prefix
+                 *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+                 *
+                 *     `captured_by_kind=agent` is the **review list for records an AI created**
+                 *     (ADR-0075/A121). Every record already carries its creator — the field is
+                 *     server-stamped from the authenticated principal and read-only on every
+                 *     response — but until this parameter there was no way to *ask* for them,
+                 *     so "which of these did a model decide existed?" had no answer short of
+                 *     exporting the table.
+                 *
+                 *     Deliberately a filter on the existing lists rather than a queue object: a
+                 *     durable `reviewed` state is a separate decision, and nothing here needs
+                 *     one to make the records findable.
+                 *
+                 *     The four values are the whole vocabulary the write paths stamp. That is a
+                 *     convention rather than a database constraint, so a row whose prefix
+                 *     matches none of them is returned by no value of this parameter — the
+                 *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+                 *     returns `422 code: validation_error`.
+                 */
+                captured_by_kind?: components["parameters"]["CapturedByKind"];
+                /**
+                 * @description `true` returns only records an AI **wrote into**; `false` only records it
+                 *     did not touch. Omit for both.
+                 *
+                 *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+                 *     and it is deliberately a different question from `captured_by_kind`.
+                 *     `captured_by` names who CREATED the row and is never restamped. In the
+                 *     connector path the AI does not create the record — Gmail capture mints
+                 *     the organization as `connector:gmail`, and then the AI renames it from a
+                 *     signature and writes its profile. Asking "who created it" therefore
+                 *     misses exactly the records worth reviewing.
+                 *
+                 *     Answered from the **audit log**, which is complete by construction: every
+                 *     mutation commits its domain row and its audit row in one transaction, so
+                 *     no agent write reaches a record without leaving one. A record matches
+                 *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+                 *     history, or when the record itself was agent-created. Nothing narrower
+                 *     would do — a list of enrichment tables misses an agent updating an
+                 *     ordinary column, which is the plainest case there is.
+                 *
+                 *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+                 *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+                 *
+                 *     Each value's own provenance — the agent that wrote it, the verbatim
+                 *     evidence, the source URL, the confidence — is on the per-record
+                 *     profile-field and fact reads; this filter is how you find the records to
+                 *     open.
+                 *
+                 *     One limit, stated rather than implied: it can only see as far back as
+                 *     audit retention keeps. A record whose only AI write has aged out of the
+                 *     audit log is still matched if the AI CREATED it (that is on the row
+                 *     itself), and not otherwise.
+                 */
+                ai_written?: components["parameters"]["AiWritten"];
                 owner_id?: string;
                 /** @description Lookup by normalized domain (the employer-inference index). */
                 domain?: string;
@@ -10489,6 +10764,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     createOrganization: {
@@ -13068,6 +13344,62 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Filter by WHO created the record, matched on the `captured_by` prefix
+                 *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+                 *
+                 *     `captured_by_kind=agent` is the **review list for records an AI created**
+                 *     (ADR-0075/A121). Every record already carries its creator — the field is
+                 *     server-stamped from the authenticated principal and read-only on every
+                 *     response — but until this parameter there was no way to *ask* for them,
+                 *     so "which of these did a model decide existed?" had no answer short of
+                 *     exporting the table.
+                 *
+                 *     Deliberately a filter on the existing lists rather than a queue object: a
+                 *     durable `reviewed` state is a separate decision, and nothing here needs
+                 *     one to make the records findable.
+                 *
+                 *     The four values are the whole vocabulary the write paths stamp. That is a
+                 *     convention rather than a database constraint, so a row whose prefix
+                 *     matches none of them is returned by no value of this parameter — the
+                 *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+                 *     returns `422 code: validation_error`.
+                 */
+                captured_by_kind?: components["parameters"]["CapturedByKind"];
+                /**
+                 * @description `true` returns only records an AI **wrote into**; `false` only records it
+                 *     did not touch. Omit for both.
+                 *
+                 *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+                 *     and it is deliberately a different question from `captured_by_kind`.
+                 *     `captured_by` names who CREATED the row and is never restamped. In the
+                 *     connector path the AI does not create the record — Gmail capture mints
+                 *     the organization as `connector:gmail`, and then the AI renames it from a
+                 *     signature and writes its profile. Asking "who created it" therefore
+                 *     misses exactly the records worth reviewing.
+                 *
+                 *     Answered from the **audit log**, which is complete by construction: every
+                 *     mutation commits its domain row and its audit row in one transaction, so
+                 *     no agent write reaches a record without leaving one. A record matches
+                 *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+                 *     history, or when the record itself was agent-created. Nothing narrower
+                 *     would do — a list of enrichment tables misses an agent updating an
+                 *     ordinary column, which is the plainest case there is.
+                 *
+                 *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+                 *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+                 *
+                 *     Each value's own provenance — the agent that wrote it, the verbatim
+                 *     evidence, the source URL, the confidence — is on the per-record
+                 *     profile-field and fact reads; this filter is how you find the records to
+                 *     open.
+                 *
+                 *     One limit, stated rather than implied: it can only see as far back as
+                 *     audit retention keeps. A record whose only AI write has aged out of the
+                 *     audit log is still matched if the AI CREATED it (that is on the row
+                 *     itself), and not otherwise.
+                 */
+                ai_written?: components["parameters"]["AiWritten"];
                 status?: "new" | "working" | "promoted" | "disqualified";
                 owner_id?: string;
                 /** @description Triage by score. */
@@ -13091,6 +13423,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     createLead: {
@@ -19680,6 +20013,103 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listOverlayUserMap: {
+        parameters: {
+            query?: {
+                /** @description Opaque keyset cursor from a prior response's root-level `next_cursor`. It encodes the last row's app_user id and nothing else; there is no sort to disagree with. A token this endpoint did not mint returns `422 code: malformed_cursor` — re-issue the request without it. */
+                cursor?: string;
+                /** @description Max items in the page. */
+                limit?: components["parameters"]["Limit"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayUserMapPage"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    setOverlayUserMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetOverlayUserMapRequest"];
+            };
+        };
+        responses: {
+            /** @description Mapped */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteOverlayUserMap: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unmapped */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listOverlayOwners: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverlayOwnerDirectory"];
+                };
+            };
+            404: components["responses"]["NotFound"];
         };
     };
     listFxRates: {

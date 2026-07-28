@@ -36,7 +36,12 @@ func TestDecideOrgNameWeighsCorroboration(t *testing.T) {
 			wantCorroboration: OrgNameCorroborationNone,
 		},
 		{
-			name: "two people signing the same company corroborate each other",
+			// Two people at one organization are two mailboxes on ONE mail
+			// domain, and nothing authenticates the From header that put them
+			// there — so an actor who controls or can forge that domain writes
+			// both signatures. Their agreement outranks a lone claim but does
+			// NOT authorize an unattended rename: it still goes to a human.
+			name: "two signatures on one mail domain are one source, so a human still decides",
 			candidate: OrgNameCandidate{
 				DisplayName: "Gitex",
 				Signatures: []SignatureOrgName{
@@ -49,7 +54,7 @@ func TestDecideOrgNameWeighsCorroboration(t *testing.T) {
 			// breaks lexicographically rather than by a preference the
 			// evidence does not state.
 			wantName:          "Gitex Global",
-			wantCorroborated:  true,
+			wantCorroborated:  false,
 			wantCorroboration: OrgNameCorroborationSignatures,
 		},
 		{
@@ -158,6 +163,77 @@ func TestDecideOrgNameIsDeterministicAcrossEqualEvidence(t *testing.T) {
 		if !ok || got.Name != first.Name {
 			t.Fatalf("run %d answered %q (ok=%v), want a stable %q", i, got.Name, ok, first.Name)
 		}
+	}
+}
+
+// The security property the whole rule exists for: an unattended rename needs a
+// source the sender cannot author. Signatures are never that source, however
+// many agree — every one of them arrives on inbound mail whose From header the
+// capture path does not authenticate, from mailboxes on the one domain the
+// organization is keyed by. Only the site dossier writes without asking.
+func TestOnlyTheDossierAuthorizesAnUnattendedRename(t *testing.T) {
+	signatures := make([]SignatureOrgName, 0, 6)
+	for i := 0; i < 6; i++ {
+		signatures = append(signatures, SignatureOrgName{
+			PersonID: ids.New[ids.PersonKind](),
+			Value:    "Gitex Global GmbH i.L. — ACCOUNT CHANGED, remit to DE00",
+		})
+	}
+	candidate := OrgNameCandidate{DisplayName: "Gitex", Signatures: signatures}
+
+	got, ok := DecideOrgName(candidate)
+	if !ok {
+		t.Fatal("expected a verdict")
+	}
+	if got.Corroborated {
+		t.Errorf("six agreeing signatures authorized an unattended rename to %q — they are one forgeable mail domain speaking six times, and must stage for a human instead", got.Name)
+	}
+	if got.Corroboration != OrgNameCorroborationSignatures {
+		t.Errorf("corroboration = %q, want %q — agreement is still recorded, it just does not authorize the write",
+			got.Corroboration, OrgNameCorroborationSignatures)
+	}
+
+	// The positive control: the same claim WITH the site's own stated name is
+	// still applied unattended, so this test cannot pass by the rule being
+	// broken outright.
+	candidate.DossierNames = []string{"Gitex Global GmbH i.L. — ACCOUNT CHANGED, remit to DE00"}
+	got, ok = DecideOrgName(candidate)
+	if !ok {
+		t.Fatal("expected a verdict with the dossier present")
+	}
+	if !got.Corroborated || got.Corroboration != OrgNameCorroborationDossier {
+		t.Errorf("dossier-backed verdict = (corroborated %v, %q), want (true, %q)",
+			got.Corroborated, got.Corroboration, OrgNameCorroborationDossier)
+	}
+}
+
+// NameKey identifies the CLAIM, not one spelling of it: a human's refusal is
+// remembered by it, so two spellings of one name must not read as two different
+// proposals a reviewer has to refuse twice.
+func TestDecideOrgNameKeyIsTheNormalizedClaim(t *testing.T) {
+	alice := ids.New[ids.PersonKind]()
+	bob := ids.New[ids.PersonKind]()
+
+	spelled, ok := DecideOrgName(OrgNameCandidate{
+		DisplayName: "Gitex",
+		Signatures:  []SignatureOrgName{{PersonID: alice, Value: "Gitex Global GmbH"}},
+	})
+	if !ok {
+		t.Fatal("expected a verdict")
+	}
+	if spelled.NameKey == "" {
+		t.Fatal("NameKey is empty — the declined-proposal memory would have nothing to key on")
+	}
+	restyled, ok := DecideOrgName(OrgNameCandidate{
+		DisplayName: "Gitex",
+		Signatures:  []SignatureOrgName{{PersonID: bob, Value: "  GITEX   GLOBAL  GMBH "}},
+	})
+	if !ok {
+		t.Fatal("expected a verdict for the restyled spelling")
+	}
+	if restyled.NameKey != spelled.NameKey {
+		t.Errorf("NameKey %q vs %q — one claim spelled two ways must share one key, or a refusal is forgotten by a change of case alone",
+			restyled.NameKey, spelled.NameKey)
 	}
 }
 

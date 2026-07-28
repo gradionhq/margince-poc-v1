@@ -166,6 +166,7 @@ var tableOwners = map[string]string{
 	"overlay_mirror":              "internal/modules/overlay",
 	"overlay_association":         "internal/modules/overlay",
 	"mirror_user_map":             "internal/modules/overlay",
+	"mirror_user_automap_block":   "internal/modules/overlay",
 	"mirror_visibility":           "internal/modules/overlay",
 	"overlay_write_ledger":        "internal/modules/overlay",
 	"overlay_mirror_halt":         "internal/modules/overlay",

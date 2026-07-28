@@ -1,127 +1,46 @@
 # yaml-language-server: $schema=./ai-routing.schema.json
-# ai-routing.example.yaml — documented example of the per-deployment
-# tier→model binding (ai-operational-spec §1.4). Copy, adapt, then point the
-# binaries at it: `api --ai-routing <path>` / `worker --ai-routing <path>`
-# (env fallback MARGINCE_AI_ROUTING). Unset, the AI lanes simply do not
-# start; core CRUD and auth work normally.
+# ai-routing.example.yaml — the per-deployment tier→model binding
+# (ai-operational-spec §1.4) and the ONLY place vendor names appear. Point a
+# binary at it with `api --ai-routing <path>` / `worker --ai-routing <path>`
+# (env fallback MARGINCE_AI_ROUTING); unset, the AI lanes simply do not start
+# and core CRUD works normally. `make install` / `make dev` copy this template
+# to a gitignored config/ai-routing.yaml — edit that local copy; delete it and
+# re-run either target to reset. Field-level docs live in the sibling
+# ai-routing.schema.json; the parser rejects unknown keys and unknown tier
+# names at STARTUP, never on the first model call.
 #
-# `make install` / `make dev` copy this template to a gitignored
-# config/ai-routing.yaml — each engineer edits that local copy to bind their own
-# models. This file is the committed annotated reference and the copy source; to
-# reset a local config, delete config/ai-routing.yaml and re-run either target.
-# The parser (modules/ai/routing.go) rejects
-# unknown keys and unknown tier names — a typo fails at STARTUP, never on the
-# first model call.
+# provider — fake | anthropic | ollama | vllm | openai_compatible | openai | gemini
 #
-# This file is the ONLY place vendor names appear. Code routes each task over
-# a capability-tier ladder fixed in modules/ai/tasks.go (§1.2) — e.g.
-# summarize tries cheap_cloud then premium; capture_classify tries
-# local_small then cheap_cloud. Swapping a model is an edit HERE, never a
-# deploy. An unbound tier is legal: the router degrades honestly (a ladder
-# with no bound rung refuses the task rather than silently rerouting).
-#
-# profile — the §4 location ladder. The privacy choice is WHERE the model
-# runs, not a redaction setting:
-#   eu_hosted      — partner-operated EU inference (default posture).
-#   cloud_frontier — customer-supplied BYOK cloud API, full capability.
-#   sovereign      — zero egress BY CONSTRUCTION: any cloud provider on any
-#                    tier (or the embeddings lane) is a startup error.
+# env — there is NO api_key field. A cloud provider's BYOK key is read from its
+# conventional environment variable at boot (ADR-0020); a stray `api_key:` line
+# is a startup error. Set it in .env.local (`make dev` loads it) or the process
+# environment (prod):
+#   gemini            → GEMINI_API_KEY
+#   anthropic         → ANTHROPIC_API_KEY
+#   openai            → OPENAI_API_KEY
+#   openai_compatible → OPENAI_COMPATIBLE_API_KEY
 profile: eu_hosted
 
-# tiers — capability tiers (§1.1): local_small (L-S), cheap_cloud (C-C),
-# premium (P-F), local_large (L-L). Bind each to one provider:
-#   provider: fake | anthropic | ollama | vllm | openai_compatible | openai | gemini
-#   model:    provider-native model id (ollama/vllm default to a Gemma-class
-#             model when omitted — ADR-0012/A23: the unbound local path lands
-#             on a non-Chinese model; Mistral is the EU-origin alternative an
-#             operator picks explicitly)
-#   base_url: endpoint override; empty means the provider default
-#             (api.anthropic.com / localhost:11434 / localhost:8000).
-#             REQUIRED for openai_compatible — the vendor HOST ROOT with NO
-#             version segment (the adapter appends /v1; a base ending in /v1
-#             doubles it → 404). Point it at OpenAI, Mistral, DeepSeek, Groq,
-#             Together, OpenRouter, LM Studio, ….
-#
-# There is NO api_key field. A cloud provider's BYOK key is read from its
-# conventional ENVIRONMENT VARIABLE at boot — secrets live in the environment,
-# never a config file:
-#     gemini → GEMINI_API_KEY   openai → OPENAI_API_KEY
-#     anthropic → ANTHROPIC_API_KEY   openai_compatible → OPENAI_COMPATIBLE_API_KEY
-# Set it in .env.local (`make dev` loads it) or the process environment (prod).
-# A stray `api_key:` line is rejected at startup (ADR-0020: BYOK, no inference).
-#
-# Default binding below is gemini (cheap_cloud + premium) for easy cloud testing
-# — set GEMINI_API_KEY in .env.local. anthropic / openai / openai_compatible are
-# shown as commented alternatives.
 tiers:
   local_small:
-    provider: ollama
-    model: gemma3
-    # base_url: http://localhost:11434
+    provider: gemini
+    model: gemini-3.1-flash-lite
 
-  # cheap_cloud + premium default to gemini. No key here — set GEMINI_API_KEY in
-  # .env.local (dev) or the process environment (prod); the api reads it at boot.
   cheap_cloud:
     provider: gemini
     model: gemini-3.1-flash-lite
 
   # premium serves the deep site read's extraction FIRST (site_extract is
-  # premium-first in tasks.go): the evidence gate demands verbatim quotes,
-  # and cheap-tier models paraphrase them — the claim then fails the gate
-  # and the fact is honestly dropped, so the read comes back thin. Bind a
-  # mid-tier model here at minimum; for Anthropic that means SONNET-CLASS
-  # OR BETTER (Haiku loses fields Sonnet keeps). Judge any candidate model
-  # with the pinned E2E quality floor: `make -C backend e2e-siteread`.
+  # premium-first in tasks.go) and its evidence gate demands verbatim quotes, so
+  # a cheap-tier model here makes the read come back thin. Bind a mid-tier model
+  # at minimum; judge a candidate with `make -C backend e2e-siteread`.
   premium:
     provider: gemini
     model: gemini-3.5-flash
 
-  # local_large is typically bound on sovereign deployments only, e.g. a
-  # vLLM server fronting a large open-weights model:
-  # local_large:
-  #   provider: vllm
-  #   model: google/gemma-3-12b-it
-  #   base_url: http://localhost:8000
-
-  # ── Commented cloud alternatives — swap one in for the gemini default above.
-  #    Each reads its key from the env var named; none carry a key in the file. ──
-  #
-  # Anthropic (native Messages API); key from ANTHROPIC_API_KEY:
-  # cheap_cloud: { provider: anthropic, model: claude-haiku-4-5-20251001 }
-  # premium:     { provider: anthropic, model: claude-opus-4-8 }
-  #
-  # OpenAI (native Responses API — reasoning, prompt caching, attachments);
-  # key from OPENAI_API_KEY:
-  # cheap_cloud: { provider: openai, model: gpt-5-mini }
-  #
-  # Generic OpenAI-wire adapter (any OpenAI-compatible vendor). REQUIRES a
-  # base_url — the vendor HOST ROOT with NO version segment (the adapter appends
-  # /v1/chat/completions; a base ending in /v1 doubles it → 404). Key from
-  # OPENAI_COMPATIBLE_API_KEY:
-  # cheap_cloud:
-  #   provider: openai_compatible
-  #   model: mistral-small-2506       # pin an explicit version; -latest aliases drift
-  #   base_url: https://api.mistral.ai   # NOT https://api.mistral.ai/v1
-
-# embeddings — the embedding lane, bound separately from the chat tiers
-# (retrieval must keep working when the chat budget is exhausted). Required.
-# Defaults to gemini so the stack needs no local Ollama; the adapter requests
-# `outputDimensionality: dimensions` below. The embedding column is unbounded
-# (stores whatever width the binding emits) — no migration to change width.
-# `[1,2000]` is THIS config's range (pgvector's ANN ceiling); it is a config
-# cap, not a promise every value works with every model — the provider/model
-# must actually support the width you pick (Gemini emits 128–3072, truncated;
-# Ollama models emit their own NATIVE width and ignore this knob, so match it).
-# Key from GEMINI_API_KEY (same as the chat tiers). Swap to
-# `{ provider: ollama, model: bge-m3, dimensions: 1024 }` for a fully-local
-# embedder (bge-m3's native width), or `{ provider: fake }` for offline dev.
+# embeddings — bound separately from the chat tiers so retrieval keeps working
+# when the chat budget is exhausted. Required.
 embeddings:
   provider: gemini
-  model: gemini-embedding-001   # text-only, GA, not deprecated. Newer alt: gemini-embedding-2 (multimodal) — its space is incompatible, so swapping triggers a reindex (that is this store's whole point).
-  dimensions: 1536   # optional; default 1536. Gemini's recommended widths are 768 / 1536; 3072 is Gemini's API max but EXCEEDS this config's 2000 cap, so it is not selectable here.
-
-# A fully-offline dev/test config needs no infrastructure at all:
-#   profile: eu_hosted
-#   tiers: { local_small: { provider: fake } }
-#   embeddings: { provider: fake }
-# (`--ai-fake` on api/worker is the same thing without a file.)
+  model: gemini-embedding-001
+  dimensions: 1536

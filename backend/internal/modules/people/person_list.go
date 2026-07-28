@@ -33,6 +33,10 @@ type ListPeopleInput struct {
 	Query           *string
 	OwnerID         *ids.UserID
 	IncludeArchived bool
+	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
+	CapturedByKind *string
+	// AiWritten filters on whether an AI wrote into the record (§3a).
+	AiWritten *bool
 	// Sort is the contract's sort spec, validated against the core
 	// vocabulary below plus the workspace's active cf_ columns.
 	Sort *string
@@ -60,6 +64,9 @@ func (s *Store) ListPeople(ctx context.Context, in ListPeopleInput) ([]crmcontra
 		fields:  personListFields,
 		filters: listFilters{
 			IncludeArchived: in.IncludeArchived,
+			CapturedByKind:  in.CapturedByKind,
+			AiWritten:       in.AiWritten,
+			entity:          personEntity,
 			OwnerID:         in.OwnerID,
 			Query:           in.Query,
 			Cursor:          in.Cursor,

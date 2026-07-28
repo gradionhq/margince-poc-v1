@@ -63,6 +63,24 @@ func (w *followUpReconcileWorker) Work(ctx context.Context, _ *river.Job[FollowU
 	return w.reconciler.Reconcile(ctx)
 }
 
+// IdempotencyRetentionArgs schedules one purge of replay claims past the
+// window. Always-on: the claim bodies are record snapshots, so retaining them
+// past the retry they protect is subject data kept for no purpose.
+type IdempotencyRetentionArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (IdempotencyRetentionArgs) Kind() string { return "idempotency_retention" }
+
+// idempotencyRetentionWorker delegates a River job to the compose sweeper.
+type idempotencyRetentionWorker struct {
+	river.WorkerDefaults[IdempotencyRetentionArgs]
+	sweeper *IdempotencyRetentionSweeper
+}
+
+func (w *idempotencyRetentionWorker) Work(ctx context.Context, _ *river.Job[IdempotencyRetentionArgs]) error {
+	return w.sweeper.Sweep(ctx)
+}
+
 // dispatchScanInterval is the due-scan cadence — an indexed one-row-per-due
 // query, deliberately decoupled from per-connection pacing (the sidecar's
 // next_sync_at owns that).
@@ -239,6 +257,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &closeDateSweepWorker{corrector: NewCloseDateCorrector(pool, log)})
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
+	river.AddWorker(workers, &idempotencyRetentionWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
 	// The embed-reindex job is not periodic — the api enqueues one job per
 	// confirmed reindex (embedreindextransport.go); the worker role only
 	// needs the worker registered, same posture as the deep-read worker
@@ -284,6 +303,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		// run-on-start to enrich the existing captured backlog on a fresh boot.
 		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) { return CaptureAutoEnrichSweepArgs{}, sweepInsertOpts() },
+			&river.PeriodicJobOpts{RunOnStart: true}),
+		// Idempotency retention: hourly rather than daily, because the rows
+		// hold verbatim record snapshots and the replay window they serve is
+		// only 24h — a daily pass would leave a day's worth of expired PII
+		// sitting past its purpose. Run-on-start clears the backlog an
+		// installation upgrading into this sweep already carries.
+		river.NewPeriodicJob(river.PeriodicInterval(time.Hour),
+			func() (river.JobArgs, *river.InsertOpts) { return IdempotencyRetentionArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
 

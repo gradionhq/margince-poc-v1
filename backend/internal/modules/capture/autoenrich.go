@@ -111,14 +111,24 @@ func (s *AutoEnrichStore) ExpireExhausted(ctx context.Context) error {
 	return nil
 }
 
+// BudgetSlot is one reservation against a workspace's daily read allowance: the
+// UTC day it was taken on, and whether it was granted at all. Carry it from the
+// reservation to the refund — the day is what makes a refund land on the row the
+// reservation incremented.
+type BudgetSlot struct {
+	Day      time.Time
+	Reserved bool
+}
+
 // ReserveBudget atomically reserves one auto-enrich slot for the current
 // workspace's UTC day, returning false when the daily cap is already spent. The
 // reservation is the same transaction as the counter read, so two concurrent
 // sweeps (replicas) can never both slip past the cap.
-func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (bool, error) {
-	var reserved bool
+func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (BudgetSlot, error) {
+	var slot BudgetSlot
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var enqueued int
+		var day time.Time
 		// INSERT the day's first slot, or increment only while under the cap;
 		// the WHERE on DO UPDATE makes an over-cap increment a no-op that
 		// RETURNS nothing, so the reservation is atomic.
@@ -128,23 +138,60 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (bool
 			ON CONFLICT (workspace_id, budget_date)
 			DO UPDATE SET enqueued = capture_auto_enrich_budget.enqueued + 1
 			WHERE capture_auto_enrich_budget.enqueued < $1
-			RETURNING enqueued`, dailyCap).Scan(&enqueued)
+			RETURNING enqueued, budget_date`, dailyCap).Scan(&enqueued, &day)
 		if err == nil {
-			reserved = true
+			slot = BudgetSlot{Day: day, Reserved: true}
 			return nil
 		}
 		if errors.Is(err, pgx.ErrNoRows) {
 			// The DO UPDATE WHERE failed the cap guard: nothing reserved. (A
 			// real error would fall through and abort the workspace pass.)
-			reserved = false
 			return nil
 		}
 		return err
 	})
 	if err != nil {
-		return false, fmt.Errorf("capture: reserving auto-enrich budget: %w", err)
+		return BudgetSlot{}, fmt.Errorf("capture: reserving auto-enrich budget: %w", err)
 	}
-	return reserved, nil
+	return slot, nil
+}
+
+// ReleaseBudget returns one reserved slot to the day, for a reservation that
+// bought nothing.
+//
+// The pattern is reserve-before-spend, which means the caller sometimes holds a
+// slot it turns out not to need: two paths racing on one organization both
+// reserve, and the uniqueness index lets only one of them start a read. Without
+// the refund the day's allowance erodes a slot at a time, and the shortfall grows
+// with exactly the concurrency the cap is meant to be indifferent to. A slot that
+// was never granted refunds nothing.
+//
+// Guarded at zero rather than trusted: a decrement that could run below zero
+// would hand out free reads on the next reservation, which is the failure this
+// counter exists to prevent.
+//
+// It refunds the day the slot was RESERVED on, not today. A read that started
+// at 23:59:59 and joined after midnight would otherwise decrement the new day's
+// row — freeing a slot nobody had taken and letting that day start one read past
+// its cap. The counter is per UTC day, so the refund has to name the same day
+// the reservation did.
+func (s *AutoEnrichStore) ReleaseBudget(ctx context.Context, slot BudgetSlot) error {
+	if !slot.Reserved {
+		return nil
+	}
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_auto_enrich_budget
+			   SET enqueued = enqueued - 1
+			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND budget_date = $1
+			   AND enqueued > 0`, slot.Day)
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("capture: releasing an auto-enrich budget slot: %w", err)
+	}
+	return nil
 }
 
 // MarkQueued records that the sweep enqueued a deep-read for orgID: it counts

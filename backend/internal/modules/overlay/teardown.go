@@ -212,6 +212,15 @@ func purgeMirror(ctx context.Context, tx pgx.Tx) error {
 	if _, err := tx.Exec(ctx, `DELETE FROM mirror_user_map`); err != nil {
 		return fmt.Errorf("overlay: purging the owner-identity map: %w", err)
 	}
+	// The auto-map block is a decision about THIS connection's visibility, so
+	// it dies with the connection: purgeMirror's invariant is that a
+	// disconnected workspace reads exactly as a never-connected one, and a
+	// surviving block would hide records after a reconnect (possibly to a
+	// different portal of the same incumbent, since the block is keyed by
+	// incumbent name) with nothing left to explain why.
+	if _, err := tx.Exec(ctx, `DELETE FROM mirror_user_automap_block`); err != nil {
+		return fmt.Errorf("overlay: purging the auto-map blocks: %w", err)
+	}
 	if _, err := tx.Exec(ctx, `DELETE FROM overlay_backfill_cursor`); err != nil {
 		return fmt.Errorf("overlay: purging the backfill cursor checkpoints: %w", err)
 	}

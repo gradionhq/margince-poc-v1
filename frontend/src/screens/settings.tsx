@@ -10,6 +10,7 @@ import {
   Coins,
   Database,
   Factory,
+  Layers,
   type LucideIcon,
   Mic,
   Package,
@@ -67,6 +68,7 @@ import { EditAction } from "./edit";
 import { EmbedReindexCard } from "./embedreindex";
 import { EntityRef } from "./entityref";
 import { OverlayCard } from "./overlay";
+import { MirrorUserMapCard } from "./overlay-usermap";
 import { ConsentPurposesCard, PrivacyInboxCard } from "./privacy";
 import { RatesScreen } from "./rates";
 import { UsersAdminCard } from "./users-admin";
@@ -105,6 +107,7 @@ const SETTINGS_TABS = [
   { id: "privacy", icon: ShieldCheck, group: "org" },
   { id: "audit", icon: ScrollText, group: "org" },
   { id: "integrations", icon: Webhook, group: "org" },
+  { id: "overlay", icon: Layers, group: "org" },
 ] as const satisfies readonly {
   id: string;
   icon: LucideIcon;
@@ -155,10 +158,23 @@ function tabContent(id: SettingsTabId): ReactNode {
       return (
         <>
           <ConnectorsCard />
-          <OverlayCard />
           <CaptureSettingsCard />
           <CaptureExclusionsCard />
           <WebhooksCard />
+        </>
+      );
+    case "overlay":
+      // Everything overlay lives here — connect, live sync/budget health
+      // (OverlayCard renders OverlayLiveSection itself once a connection is
+      // active/error — this tab does not render it a second time), and the
+      // user mapping. The tab is NOT gated on useSorMode() === "overlay": a
+      // workspace is native until an overlay is connected, so mode-gating
+      // would hide the only surface that can connect one. In native mode
+      // OverlayCard renders its connect form and the rest stays quiet.
+      return (
+        <>
+          <OverlayCard />
+          <MirrorUserMapCard />
         </>
       );
   }
@@ -181,6 +197,16 @@ export function SettingsScreen({ tab }: Readonly<{ tab?: string }>) {
     // role must still reach the subscription list + delivery-health views,
     // and its deep link must not fall back to Account.
     if (entry.id === "integrations") {
+      return true;
+    }
+    // Overlay is exempt for the same reason, plus one of its own: the
+    // system-of-record chip in the topbar is deliberately shown to EVERY
+    // seat and points here, so hiding the tab would strand any non-admin
+    // who follows it on the Account fallback. Hiding buys no security
+    // either — the server 403s the privileged reads regardless, and both
+    // cards on the tab already gate themselves on canManageOverlay, so a
+    // rep gets the honest read-only view instead of a dead link.
+    if (entry.id === "overlay") {
       return true;
     }
     if (entry.group === "org" && !isOrgAdmin) {

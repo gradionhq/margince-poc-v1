@@ -311,3 +311,48 @@ func TestCaptureTierGateHonorsCorrespondenceFromACRMOriginatedSend(t *testing.T)
 		t.Fatalf("%d ledger rows for a corresponded-with sender, want 0 — T1 decides, nothing defers", n)
 	}
 }
+
+// The enrich-on-capture condition (ADR-0072/A118 §9): mail from a company the
+// workspace ALREADY has must not re-trigger enrichment. That is the half worth
+// holding, because mail from known companies is most mail and re-asking on each
+// message would spend the day's reads on companies nobody learned anything new
+// about — so the trigger keys on the ensure having CREATED the organization.
+//
+// The other half — that a NEW company DOES queue a read — is not observable
+// here and this test does not claim it. Starting a read needs an ambient River
+// client; no test process binds one, so the attempt fails and its budget slot is
+// refunded, leaving the same counter a company that never triggered would. Every
+// production capture runs inside a River job, so the condition is exercised
+// there and nowhere a test can watch it.
+func TestCaptureDoesNotReEnrichACompanyItAlreadyHas(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync, syncSent := env.e, env.sync, env.syncSent
+
+	// T1 correspondence-positive is what lets a first inbound message create
+	// records at all: the owner wrote to them first, attested by the provider.
+	syncSent(t, map[string]bool{"out1@myco.example": true},
+		email(captureOwner, "", "cto@newco.example", "out1@myco.example", ""))
+	sync(t, email("cto@newco.example", "CTO", captureOwner, "in1@newco.example", ""))
+
+	if n := countRows(t, e, `
+		SELECT count(*) FROM organization o
+		JOIN organization_domain d ON d.organization_id = o.id
+		WHERE d.domain = 'newco.example'`); n != 1 {
+		t.Fatalf("%d organizations for the corresponded-with company, want 1", n)
+	}
+
+	// A second message from the same company resolves onto the organization that
+	// already exists, so the ensure reports no creation and the trigger never
+	// runs — no second organization, and nothing spent.
+	sync(t, email("sales@newco.example", "Sales", captureOwner, "in2@newco.example", ""))
+	if n := countRows(t, e, `
+		SELECT count(*) FROM organization o
+		JOIN organization_domain d ON d.organization_id = o.id
+		WHERE d.domain = 'newco.example'`); n != 1 {
+		t.Fatalf("%d organizations after a second message, want the one that existed", n)
+	}
+	if n := countRows(t, e, `
+		SELECT coalesce(sum(enqueued), 0) FROM capture_auto_enrich_budget`); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — nothing here started a read, so nothing may stay reserved", n)
+	}
+}

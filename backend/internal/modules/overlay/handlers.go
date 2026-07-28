@@ -21,10 +21,12 @@ import (
 
 // Handlers is the overlay module's transport surface (crm.yaml
 // /overlay/*): the incumbent connection lifecycle, mirror sync health,
-// budget, reconcile, and the read-mode→overlay flip. svc backs every
-// verb except the flip pair (branch 2), which stays an explicit 501
-// until it lands regardless of whether svc is set — a partially-wired
-// Handlers never silently succeeds on an op it doesn't yet serve.
+// budget, reconcile, and the read-mode→overlay flip. The admin user-map
+// and owners-directory verbs live next door in handlers_usermap.go, on
+// this same type. svc backs every verb except the flip pair (branch 2),
+// which stays an explicit 501 until it lands regardless of whether svc
+// is set — a partially-wired Handlers never silently succeeds on an op
+// it doesn't yet serve.
 type Handlers struct {
 	svc *Service
 }
