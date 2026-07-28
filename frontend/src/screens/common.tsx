@@ -390,6 +390,13 @@ export function problemCode(problem: unknown): string | null {
   return typeof record.code === "string" ? record.code : null;
 }
 
+// The same discriminator, read off a query/mutation FAILURE rather than a raw
+// body: only a ProblemError carries a server problem, so a network exception
+// or a thrown Error never claims a server code it doesn't have.
+export function problemCodeOf(error: unknown): string | null {
+  return error instanceof ProblemError ? problemCode(error.problem) : null;
+}
+
 // A 409 whose code names the If-Match precondition failure — the record
 // changed under the caller since the form was opened. Distinguished from
 // problemExistingId's duplicate-collision code so the edit form can show the

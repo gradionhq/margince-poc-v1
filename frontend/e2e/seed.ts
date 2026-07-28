@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 // The coherent seed (mirrors design/seed-fixtures.md entities: Anna Weber,
 // Brandt Automotive, the fleet-retrofit deal) mocked at the network edge so
@@ -339,6 +339,99 @@ export const overlayBudget = {
   },
 };
 
+// The mirror user mapping, on the same tab as the connection: the seed's own
+// admin holds a matched HubSpot seat, so the overlay tab renders its settled
+// state rather than an empty table nobody would ship with.
+export const overlayOwners = {
+  incumbent: "hubspot",
+  owners: [
+    {
+      incumbent_user_id: "hs-7",
+      name: "Lars Brandt",
+      email: "lars@brandt.example",
+    },
+  ],
+  truncated: false,
+};
+
+// One row of the admin mapping table, shaped as the contract's
+// OverlayUserMapEntry. The nullable halves are spelled out rather than left to
+// inference: the stateful write handlers below have to be able to CLEAR a
+// mapping, and an inferred `string` cannot express the unmapped state the
+// endpoint actually produces.
+type OverlayUserMapEntry = {
+  user_id: string;
+  name: string;
+  email: string;
+  incumbent_user_id: string | null;
+  incumbent_user_name: string | null;
+  incumbent_user_email: string | null;
+  match_source?: "email" | "manual";
+  unmapped_reason: string;
+};
+
+export const overlayUserMap: {
+  incumbent: string;
+  entries: OverlayUserMapEntry[];
+  next_cursor: string | null;
+} = {
+  incumbent: "hubspot",
+  entries: [
+    {
+      user_id: "u1",
+      name: "Lars Brandt",
+      email: "lars@brandt.example",
+      incumbent_user_id: "hs-7",
+      incumbent_user_name: "Lars Brandt",
+      incumbent_user_email: "lars@brandt.example",
+      match_source: "email",
+      unmapped_reason: "none",
+    },
+  ],
+  next_cursor: null,
+};
+
+// PUT/DELETE /overlay/user-map/{id} against the page's own mapping state. The
+// real verbs MOVE a row — a manual pin, or an unmap that also stops automatic
+// re-matching — so the mock moves it too and the card's post-write reload shows
+// what the write did. An id nobody seeded is the endpoint's 404 and a verb it
+// does not serve is a 405, because a mapping write that silently succeeds is
+// indistinguishable from one that worked.
+function overlayUserMapWrite(
+  route: Route,
+  entries: OverlayUserMapEntry[],
+  userId: string,
+  method: string,
+): Promise<void> {
+  if (method !== "PUT" && method !== "DELETE") {
+    return route.fulfill({ status: 405 });
+  }
+  const entry = entries.find((candidate) => candidate.user_id === userId);
+  if (!entry) {
+    return route.fulfill({ status: 404 });
+  }
+  if (method === "DELETE") {
+    entry.incumbent_user_id = null;
+    entry.incumbent_user_name = null;
+    entry.incumbent_user_email = null;
+    entry.unmapped_reason = "blocked_by_admin";
+    delete entry.match_source;
+    return route.fulfill({ status: 204 });
+  }
+  const incumbentUserId = String(
+    route.request().postDataJSON().incumbent_user_id ?? "",
+  );
+  const owner = overlayOwners.owners.find(
+    (candidate) => candidate.incumbent_user_id === incumbentUserId,
+  );
+  entry.incumbent_user_id = incumbentUserId;
+  entry.incumbent_user_name = owner?.name ?? null;
+  entry.incumbent_user_email = owner?.email ?? null;
+  entry.match_source = "manual";
+  entry.unmapped_reason = "none";
+  return route.fulfill({ status: 204 });
+}
+
 function unsupportedBySor(detail: string) {
   return { title: "Unprocessable Entity", detail, code: "unsupported_by_sor" };
 }
@@ -399,6 +492,11 @@ export async function mockApi(
   // vanishing the row or reporting 404 — a 404 means no connection was ever
   // inserted, a different state than "disconnected".
   let connection = { ...overlayConnection };
+  // per-page mapping state so a map/unmap actually MOVES something. A generic
+  // 200 would let the card report a successful write and then reload the
+  // untouched fixture — the workflow would pass having done nothing, which is
+  // the one outcome a mapping test must not be able to reach.
+  const userMapEntries = overlayUserMap.entries.map((entry) => ({ ...entry }));
 
   await target.route(/\/v1\//, async (route) => {
     const url = new URL(route.request().url());
@@ -445,6 +543,20 @@ export async function mockApi(
     }
     if (path === "/overlay/budget") {
       return json(overlayBudget);
+    }
+    if (path === "/overlay/user-map" && method === "GET") {
+      return json({ ...overlayUserMap, entries: userMapEntries });
+    }
+    if (path.startsWith("/overlay/user-map/")) {
+      return overlayUserMapWrite(
+        route,
+        userMapEntries,
+        path.slice("/overlay/user-map/".length),
+        method,
+      );
+    }
+    if (path === "/overlay/owners" && method === "GET") {
+      return json(overlayOwners);
     }
     if (path === "/overlay/reconcile" && method === "POST") {
       // Queues a sweep for the worker's next tick — never runs it in-request,

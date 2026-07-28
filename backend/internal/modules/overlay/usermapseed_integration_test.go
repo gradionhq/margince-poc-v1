@@ -12,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -336,5 +339,64 @@ func TestSeedUserMapSkipsAmbiguousEmail(t *testing.T) {
 	// Ambiguous email → no mapping → bob sees nothing.
 	if _, err := store.Get(ctxBob, objectClass, external); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("an ambiguous email must seed no mapping, got: %v", err)
+	}
+}
+
+// The sweep is the higher-volume sibling of the admin grant path. If it seeds
+// an agent or archived seat, the eligibility ListUserMap and SetManualUserMap
+// enforce is decoration: the automated path would keep re-creating exactly the
+// mappings the admin surface refuses to offer.
+//
+// One owner per seat rather than one shared email, because app_user carries a
+// unique (workspace_id, lower(email)) index — three seats cannot share an
+// address, so the fixture gives each its own matching owner.
+func TestSeedUserMapSkipsAgentAndArchivedUsers(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{
+		"owner-human":    "human@acme.test",
+		"owner-agent":    "agent@acme.test",
+		"owner-archived": "gone@acme.test",
+	})
+	_, humanRaw := testWorkspaceCtxAsUser(t, ws, "human@acme.test")
+	human := ids.From[ids.UserKind](humanRaw)
+	agent := seedAgentUser(t, ws, "agent@acme.test")
+	archived := seedArchivedUser(t, ws, "gone@acme.test")
+
+	owners := []OwnerRef{
+		{ExternalID: "owner-human", Email: "human@acme.test"},
+		{ExternalID: "owner-agent", Email: "agent@acme.test"},
+		{ExternalID: "owner-archived", Email: "gone@acme.test"},
+	}
+	if err := store.SeedUserMap(ctx, "hubspot", owners); err != nil {
+		t.Fatalf("SeedUserMap: %v", err)
+	}
+
+	mapped := map[ids.UserID]bool{}
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `SELECT app_user_id FROM mirror_user_map`)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var id ids.UserID
+			if err := rows.Scan(&id); err != nil {
+				return err
+			}
+			mapped[id] = true
+		}
+		return rows.Err()
+	}); err != nil {
+		t.Fatalf("reading the seeded mappings: %v", err)
+	}
+
+	if !mapped[human] {
+		t.Fatal("a live human whose email matches an owner must still be seeded — without this the exclusions below are vacuous")
+	}
+	if mapped[agent] {
+		t.Fatal("an agent seat is a passport identity with no incumbent counterpart and must not be seeded")
+	}
+	if mapped[archived] {
+		t.Fatal("an archived seat no longer logs in and must not be seeded")
 	}
 }

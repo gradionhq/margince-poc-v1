@@ -130,13 +130,17 @@ type Page struct {
 }
 
 // OwnerRef is one entry of the incumbent's owners directory: an owner's
-// stable incumbent-side id and current email. The pair is what
-// mirror_user_map seeding matches against workspace app_user emails
-// (design.md §4.6: a MATCH against existing users, never an import that
-// creates them).
+// stable incumbent-side id, current email, and display name. The id+email
+// pair is what mirror_user_map seeding matches against workspace app_user
+// emails (design.md §4.6: a MATCH against existing users, never an import
+// that creates them); Name carries no matching weight at all — it exists so
+// the admin mapping picker can show a person rather than an opaque id, and an
+// incumbent that reports no name leaves it empty rather than echoing the
+// email back as one.
 type OwnerRef struct {
 	ExternalID string
 	Email      string
+	Name       string
 }
 
 // Incumbent is the inner seam the overlay module reaches every specific
