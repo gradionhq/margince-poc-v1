@@ -303,9 +303,26 @@ func (s *PendingStore) NoiseMailToHide(ctx context.Context, limit int) ([]ids.UU
 // Content-keyed, not flag-keyed, throughout: a one-shot marker on the ledger row
 // would redact whatever that sender had written by the time it fired and retain
 // everything afterwards.
+//
+// The corroboration requirement (`a.bulk_mail_attested`) is what separates this
+// from NoiseMailToHide, and it is here because the two effects cost different
+// amounts. Hiding is reversible — the sender replies and the sweep lets go.
+// Destroying is not. A model verdict plus a week of nobody objecting is enough
+// evidence to hide mail and not enough to destroy it: silence means a rep on
+// holiday as easily as it means agreement, and the forged-bulk attack is
+// precisely the case where nobody CAN object, since the mail is hidden before
+// any human sees it.
+//
+// So destruction asks for a second, independent signal about THIS message — its
+// own RFC 2369 List-Unsubscribe header (migration 0137), the same corroboration
+// CAP-PARAM-6's prefix rules already accept. Mail the model called noise
+// without one stays hidden indefinitely instead of being destroyed. The
+// reversible half of the effect keeps working, and the irreversible half waits
+// for evidence a forger cannot plant on somebody else's mail.
 func (s *PendingStore) NoiseMailToRedact(ctx context.Context, window time.Duration, limit int) ([]ids.UUID, error) {
 	return s.noiseMail(ctx, withinVerdictReach()+`
 		AND p.resolved_at IS NOT NULL
+		AND a.bulk_mail_attested
 		AND a.archived_at IS NOT NULL AND a.archived_at <= now() - `+quoteInterval(window)+`
 		AND (a.subject IS NOT NULL OR a.body IS NOT NULL OR a.raw IS NOT NULL
 		     OR EXISTS (

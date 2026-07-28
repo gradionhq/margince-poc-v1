@@ -13,7 +13,7 @@ for the flags/env below.
 
 ```sh
 ollama serve                 # default http://localhost:11434
-ollama pull gemma3           # the shipped local_small model (ai-routing.yaml)
+ollama pull gemma3           # a small local model to bind local_small to
 ollama pull bge-m3           # only if you exercise search/retrieval (embeddings lane)
 ```
 
@@ -23,12 +23,15 @@ it too (`ollama pull mistral`) if enrich grounding is weak.
 ## 2. Point the AI lanes at Ollama
 
 Your local `config/ai-routing.yaml` (seeded from the template by `make install` /
-`make dev`) already binds `local_small` to
-`ollama`/`gemma3` with no `base_url` (so it defaults to `localhost:11434`), and
-`enrich`'s tier ladder is `local_small` → `cheap_cloud`. **For a local Ollama,
-enrich works with no config change.**
+`make dev`) binds every tier to `gemini`, so **enrich needs one edit**: rebind
+`local_small` — the first rung of `enrich`'s ladder (`local_small` →
+`cheap_cloud`) — to Ollama.
 
-Edit the tiers only to:
+```yaml
+local_small: { provider: ollama, model: gemma3 }   # no base_url ⇒ localhost:11434
+```
+
+Edit the other tiers to:
 
 - **use a remote/self-hosted Ollama** — add a `base_url` (no trailing slash; the
   adapter appends `/api/chat`):
@@ -51,9 +54,9 @@ real routing only when **every bound cloud provider's key is set** (`anthropic`
 providers (`ollama`/`vllm`/`fake`) need no key. If any key is missing it falls
 back to the offline fake — which would also fake the *Ollama* call.
 
-The shipped default routing binds **gemini** on `cheap_cloud` and `premium`, so
-out of the box you must either set `GEMINI_API_KEY`, or rebind those tiers to
-`ollama` too (§2) for a fully local, no-key stack:
+The shipped default routing binds **gemini** on every tier, so out of the box you
+must either set `GEMINI_API_KEY`, or rebind the tiers you exercise to `ollama`
+(§2) for a fully local, no-key stack:
 
 ```sh
 make dev   # look for: "dev: using config/ai-routing.yaml for the cold-start read-back (bound providers: …)"
@@ -62,8 +65,8 @@ make dev   # look for: "dev: using config/ai-routing.yaml for the cold-start rea
 > Persist keys in `.env.local` if you prefer — it is git-ignored and `make dev`
 > reads it.
 >
-> ⚠️ Ladders can leave the box: enrich *starts* on `local_small` (Ollama)
-> but its ladder is `local_small` → `cheap_cloud`, so a provider error or
+> ⚠️ Ladders can leave the box: enrich *starts* on `local_small` (Ollama once
+> §2 rebinds it) but its ladder is `local_small` → `cheap_cloud`, so a provider error or
 > schema failure escalates to the cloud tier — and flows that start
 > cloud-bound (the cold-start read-back runs `cheap_cloud` → `premium`)
 > call it immediately. For a guaranteed-local run, rebind every tier you
