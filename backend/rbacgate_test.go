@@ -126,6 +126,21 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/overlay:WithLogger":                     "composition-root wiring (injects the logger Connect's best-effort seeding reports through); no data access",
 	"internal/modules/overlay:WithModeFlipObserver":           "composition-root wiring (injects the dispatcher-cache invalidation Connect/Disconnect notify after commit); no data access — both flip paths remain auth.Require-gated",
 	"internal/modules/webhooks:DeliveryEnabled":               "deployment-capability flag (is a signing key configured?): reads no tenant rows, returns a single boolean the gated ListWebhookSubscriptions handler surfaces so the UI can render a not-enabled state — a config posture with nothing for object-RBAC to narrow",
+
+	// comms: delivery machinery, not the message. StageTx runs inside the
+	// caller's own transaction, alongside the activity write that already
+	// passed the gated activity:create check — the outbound send itself was
+	// admitted there, and comms only records the plumbing needed to get it
+	// out. Load/RecordSent/Park/RecordFailure are the dispatcher's own
+	// state-machine steps, driven by the outbox/River worker under the
+	// system principal with no human principal in the call at all; nothing
+	// here discloses a record to anyone — RecordFailure/Park's reason is an
+	// operator-facing transport diagnosis, not tenant data.
+	"internal/modules/comms:StageTx":       "written inside the caller's own transaction alongside the already-gated activity write (activity:create) that authorized this send; comms records only the delivery plumbing for it",
+	"internal/modules/comms:Load":          "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
+	"internal/modules/comms:RecordSent":    "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",
+	"internal/modules/comms:Park":          "worker-loop terminal transition on an unretryable provider failure, system principal, same posture as Load",
+	"internal/modules/comms:RecordFailure": "worker-loop retry-bookkeeping transition on a transient provider failure, system principal, same posture as Load",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

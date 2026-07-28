@@ -157,6 +157,9 @@ var tableOwners = map[string]string{
 	"quota":                "internal/modules/quotas",
 	"webhook_subscription": "internal/modules/webhooks",
 	"webhook_delivery":     "internal/modules/webhooks",
+	// comms (outbound delivery machinery; the activity row is the
+	// user-visible fact and stays owned by activities)
+	"comms_outbound": "internal/modules/comms",
 	// overlay (the HubSpot mirror cluster, ADR-0017 custom namespace —
 	// design.md §4.2)
 	"incumbent_connection":        "internal/modules/overlay",

@@ -69,6 +69,7 @@ components:
   automation:  { in: internal/modules/automation }
   overlay:     { in: [internal/modules/overlay, internal/modules/overlay/**] }
   webhooks:    { in: internal/modules/webhooks }
+  comms:       { in: internal/modules/comms }
   compose:     { in: [internal/compose, internal/compose/**] }
   migrations:  { in: migrations }
   cmd:         { in: cmd/** }
@@ -146,11 +147,14 @@ deps:
   webhooks:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
+  comms:
+    mayDependOn: [contracts, platform]
+    canUse: [pgx, oapi]
   automation:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
   compose:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, webhooks, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, webhooks, comms, contracts, platform, migrations]
     # xtext: the evidence gate normalizes page text to NFC before matching
     # (evidencematch.go) — Unicode normal forms need golang.org/x/text.
     # yaml: aicert's corpus loader parses scenario files directly — the
@@ -176,5 +180,5 @@ deps:
     mayDependOn: [contracts, compose]
     canUse: [yaml]
   cmd:
-    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, webhooks, contracts, platform, migrations]
+    mayDependOn: [compose, identity, people, privacy, deals, activities, approvals, agents, automation, ai, search, capture, consent, collections, signals, customfields, quotas, overlay, webhooks, comms, contracts, platform, migrations]
     canUse: [pgx, redis, xterm, composition]

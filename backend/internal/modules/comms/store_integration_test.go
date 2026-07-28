@@ -1,0 +1,339 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package comms
+
+// The store's real behaviour over a migrated Postgres: staging inside a
+// caller-opened transaction, Load counting the attempt while it reads,
+// ErrTerminal once a delivery is no longer pending (R3: no in-flight
+// status, no claim), and the three RecordSent/Park/RecordFailure
+// transitions doing exactly what their names say.
+
+import (
+	"context"
+	"errors"
+	"os"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+)
+
+// errTestRollback forces WithWorkspaceTx to roll back after a successful
+// StageTx, so the rollback test can assert the row never committed.
+var errTestRollback = errors.New("comms test: forced rollback")
+
+type storeEnv struct {
+	owner      *pgx.Conn
+	store      *Store
+	ctx        context.Context
+	ws         ids.UUID
+	user       ids.UserID
+	activity   ids.ActivityID
+	activity2  ids.ActivityID
+	clockValue time.Time
+}
+
+func setupStore(t *testing.T) *storeEnv {
+	t.Helper()
+	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
+	appDSN := os.Getenv("MARGINCE_TEST_APP_DSN")
+	if ownerDSN == "" || appDSN == "" {
+		t.Fatal("MARGINCE_TEST_DSN / MARGINCE_TEST_APP_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	ctx := context.Background()
+	owner, err := pgx.Connect(ctx, ownerDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := owner.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
+
+	e := &storeEnv{
+		owner:      owner,
+		ws:         ids.NewV7(),
+		user:       ids.New[ids.UserKind](),
+		activity:   ids.New[ids.ActivityKind](),
+		activity2:  ids.New[ids.ActivityKind](),
+		clockValue: time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC),
+	}
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Comms', $2, 'EUR')`,
+		e.ws, "comms-"+e.ws.String()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := owner.Exec(ctx,
+		`INSERT INTO app_user (id, workspace_id, email, display_name) VALUES ($1, $2, $3, 'Rep')`,
+		e.user, e.ws, "rep-"+e.user.String()+"@comms.test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, act := range []ids.ActivityID{e.activity, e.activity2} {
+		if _, err := owner.Exec(ctx,
+			`INSERT INTO activity (id, workspace_id, kind, source, captured_by) VALUES ($1, $2, 'email', 'test', 'human:x')`,
+			act, e.ws); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	pool, err := database.NewPool(ctx, appDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	e.store = NewStore(pool, func() time.Time { return e.clockValue })
+	e.ctx = principal.WithWorkspaceID(context.Background(), e.ws)
+	return e
+}
+
+// stage runs StageTx in its own committed transaction — the shape every
+// real caller uses (the activity and the delivery commit together).
+func (e *storeEnv) stage(t *testing.T, in StageInput) ids.UUID {
+	t.Helper()
+	var id ids.UUID
+	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+		var err error
+		id, err = e.store.StageTx(e.ctx, tx, in)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("staging a delivery: %v", err)
+	}
+	return id
+}
+
+func (e *storeEnv) baseInput(activity ids.ActivityID, messageID string) StageInput {
+	return StageInput{
+		ActivityID:      activity,
+		UserID:          e.user,
+		Provider:        "gmail",
+		MessageID:       messageID,
+		Recipients:      []string{"buyer@example.com"},
+		Cc:              []string{"cc@example.com"},
+		Subject:         "Re: pricing",
+		Body:            "As discussed.",
+		ConsentPurpose:  "transactional",
+		InReplyTo:       "parent@example.com",
+		References:      []string{"root@example.com", "parent@example.com"},
+		ThreadKey:       "thread-1",
+		ListUnsubscribe: "<https://example.com/unsub>",
+	}
+}
+
+// StageTx writes a row every field of Load reads back, and Load's first
+// call counts the attempt that is about to be made (attempts: 0 → 1).
+func TestStageThenLoadRoundTripsEveryFieldAndCountsTheAttempt(t *testing.T) {
+	e := setupStore(t)
+	in := e.baseInput(e.activity, "msg-roundtrip@example.com")
+	id := e.stage(t, in)
+
+	got, err := e.store.Load(e.ctx, id)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.ID != id || got.ActivityID != e.activity || got.UserID != e.user {
+		t.Fatalf("identity fields = %+v", got)
+	}
+	if got.Provider != in.Provider || got.MessageID != in.MessageID || got.Subject != in.Subject || got.Body != in.Body {
+		t.Fatalf("scalar fields = %+v, want %+v", got, in)
+	}
+	if got.ConsentPurpose != in.ConsentPurpose || got.InReplyTo != in.InReplyTo || got.ListUnsubscribe != in.ListUnsubscribe {
+		t.Fatalf("consent/threading fields = %+v", got)
+	}
+	if len(got.Recipients) != 1 || got.Recipients[0] != "buyer@example.com" {
+		t.Fatalf("recipients = %v", got.Recipients)
+	}
+	if len(got.Cc) != 1 || got.Cc[0] != "cc@example.com" {
+		t.Fatalf("cc = %v", got.Cc)
+	}
+	if len(got.References) != 2 || got.References[0] != "root@example.com" {
+		t.Fatalf("references = %v", got.References)
+	}
+	if got.Status != StatusPending {
+		t.Fatalf("status = %q, want pending (staging never transmits)", got.Status)
+	}
+	// The one Load call above made the first attempt.
+	if got.Attempts != 1 {
+		t.Fatalf("attempts after one Load = %d, want 1 (Load counts the attempt it is about to make)", got.Attempts)
+	}
+}
+
+// A second Load on the same still-pending delivery counts a second attempt
+// — the redelivery-without-a-claim case R3 accepts by design.
+func TestLoadCountsEveryAttemptWhileStillPending(t *testing.T) {
+	e := setupStore(t)
+	id := e.stage(t, e.baseInput(e.activity, "msg-retry@example.com"))
+
+	if _, err := e.store.Load(e.ctx, id); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	got, err := e.store.Load(e.ctx, id)
+	if err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	if got.Attempts != 2 {
+		t.Fatalf("attempts after two Loads = %d, want 2", got.Attempts)
+	}
+}
+
+// Load on an id that was never staged in this workspace is terminal too:
+// there is nothing pending to load, and the caller must stop rather than
+// dereference a row that is not there.
+func TestLoadOfAnUnstagedIDIsTerminal(t *testing.T) {
+	e := setupStore(t)
+	if _, err := e.store.Load(e.ctx, ids.NewV7()); err != ErrTerminal {
+		t.Fatalf("Load of an unstaged id: got %v, want ErrTerminal", err)
+	}
+}
+
+// RecordSent closes a pending delivery to 'sent' and stamps the provider
+// receipt; a further Load then reports ErrTerminal — a redelivered job must
+// stop rather than transmit twice.
+func TestRecordSentClosesTheDeliveryAndLoadThenReportsTerminal(t *testing.T) {
+	e := setupStore(t)
+	id := e.stage(t, e.baseInput(e.activity, "msg-sent@example.com"))
+	if _, err := e.store.Load(e.ctx, id); err != nil {
+		t.Fatalf("Load before send: %v", err)
+	}
+	if err := e.store.RecordSent(e.ctx, id, "provider-receipt-1"); err != nil {
+		t.Fatalf("RecordSent: %v", err)
+	}
+
+	var status string
+	var providerMessageID *string
+	var sentAt *time.Time
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT status, provider_message_id, sent_at FROM comms_outbound WHERE id = $1`, id).
+		Scan(&status, &providerMessageID, &sentAt); err != nil {
+		t.Fatalf("reading the row back: %v", err)
+	}
+	if status != StatusSent {
+		t.Fatalf("status = %q, want sent", status)
+	}
+	if providerMessageID == nil || *providerMessageID != "provider-receipt-1" {
+		t.Fatalf("provider_message_id = %v, want provider-receipt-1", providerMessageID)
+	}
+	if sentAt == nil || !sentAt.Equal(e.clockValue) {
+		t.Fatalf("sent_at = %v, want %v (the injected clock)", sentAt, e.clockValue)
+	}
+
+	if _, err := e.store.Load(e.ctx, id); err != ErrTerminal {
+		t.Fatalf("Load on a sent delivery: got %v, want ErrTerminal", err)
+	}
+}
+
+// Park ends a delivery no retry repairs and records why; a further Load
+// then reports ErrTerminal for the same reason as a sent delivery.
+func TestParkClosesTheDeliveryWithAReasonAndLoadThenReportsTerminal(t *testing.T) {
+	e := setupStore(t)
+	id := e.stage(t, e.baseInput(e.activity, "msg-parked@example.com"))
+	if _, err := e.store.Load(e.ctx, id); err != nil {
+		t.Fatalf("Load before park: %v", err)
+	}
+	if err := e.store.Park(e.ctx, id, "recipient permanently rejected"); err != nil {
+		t.Fatalf("Park: %v", err)
+	}
+
+	var status string
+	var reason *string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT status, reason FROM comms_outbound WHERE id = $1`, id).Scan(&status, &reason); err != nil {
+		t.Fatalf("reading the row back: %v", err)
+	}
+	if status != StatusParked {
+		t.Fatalf("status = %q, want parked", status)
+	}
+	if reason == nil || *reason != "recipient permanently rejected" {
+		t.Fatalf("reason = %v, want the parked explanation", reason)
+	}
+
+	if _, err := e.store.Load(e.ctx, id); err != ErrTerminal {
+		t.Fatalf("Load on a parked delivery: got %v, want ErrTerminal", err)
+	}
+}
+
+// RecordFailure notes a transient fault WITHOUT ending the delivery: status
+// stays pending, so River's redelivery — and the next Load — still see it.
+func TestRecordFailureLeavesTheDeliveryPendingForRetry(t *testing.T) {
+	e := setupStore(t)
+	id := e.stage(t, e.baseInput(e.activity, "msg-transient@example.com"))
+	if _, err := e.store.Load(e.ctx, id); err != nil {
+		t.Fatalf("Load before failure: %v", err)
+	}
+	if err := e.store.RecordFailure(e.ctx, id, "smtp 421: try again later"); err != nil {
+		t.Fatalf("RecordFailure: %v", err)
+	}
+
+	var status string
+	var reason *string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT status, reason FROM comms_outbound WHERE id = $1`, id).Scan(&status, &reason); err != nil {
+		t.Fatalf("reading the row back: %v", err)
+	}
+	if status != StatusPending {
+		t.Fatalf("status = %q, want pending — a transient failure must not end the delivery", status)
+	}
+	if reason == nil || *reason != "smtp 421: try again later" {
+		t.Fatalf("reason = %v, want the transient explanation", reason)
+	}
+
+	// Still loadable: the redelivered job gets another attempt.
+	got, err := e.store.Load(e.ctx, id)
+	if err != nil {
+		t.Fatalf("Load after a transient failure: %v", err)
+	}
+	if got.Attempts != 2 {
+		t.Fatalf("attempts after Load, RecordFailure, Load = %d, want 2", got.Attempts)
+	}
+}
+
+// StageTx writes inside the CALLER's transaction: a rollback of that
+// transaction must leave no delivery row behind, exactly as it leaves no
+// activity row behind — the two commit or fail together.
+func TestStageTxRollsBackWithItsCallerTransaction(t *testing.T) {
+	e := setupStore(t)
+	in := e.baseInput(e.activity, "msg-rollback@example.com")
+	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+		if _, err := e.store.StageTx(e.ctx, tx, in); err != nil {
+			return err
+		}
+		return errTestRollback
+	})
+	if err != errTestRollback {
+		t.Fatalf("WithWorkspaceTx: got %v, want the forced rollback error", err)
+	}
+
+	var count int
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM comms_outbound WHERE message_id = $1`, in.MessageID).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("rows after a rolled-back stage = %d, want 0", count)
+	}
+}
+
+// The (workspace_id, message_id) unique constraint is the idempotency key a
+// re-ingested provider copy of the same message relies on: a second stage
+// of the same message_id must fail, not silently duplicate.
+func TestStagingTheSameMessageIDTwiceConflicts(t *testing.T) {
+	e := setupStore(t)
+	in := e.baseInput(e.activity, "msg-dupe@example.com")
+	e.stage(t, in)
+
+	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+		_, err := e.store.StageTx(e.ctx, tx, e.baseInput(e.activity2, in.MessageID))
+		return err
+	})
+	if err == nil {
+		t.Fatal("staging the same message_id twice succeeded; want the unique constraint to refuse it")
+	}
+}
