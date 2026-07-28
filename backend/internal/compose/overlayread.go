@@ -47,6 +47,13 @@ const (
 	paramStatus         = "status"
 	paramKind           = "kind"
 	paramTag            = "tag"
+	// paramCapturedByKind is refused in overlay mode rather than ignored:
+	// captured_by is OUR provenance column, stamped from the principal that
+	// wrote the row. Mirror rows are the incumbent's records, created in the
+	// incumbent by whoever uses it, so "which of these did our AI create?" has
+	// no answer there. Answering the whole mirror would present an unfiltered
+	// list as the review list.
+	paramCapturedByKind = "captured_by_kind"
 )
 
 // overlayParam pairs one refused query-parameter name with whether the
@@ -189,7 +196,12 @@ func (s Server) GetPerson(w http.ResponseWriter, r *http.Request, id crmcontract
 func (s Server) ListPeople(w http.ResponseWriter, r *http.Request, params crmcontracts.ListPeopleParams) {
 	overlayList(s, w, r, datasource.EntityPerson,
 		func() { s.peopleHandlers.ListPeople(w, r, params) },
-		[]overlayParam{{paramSort, params.Sort != nil}, {paramOwnerID, params.OwnerId != nil}, {paramTag, params.Tag != nil}},
+		[]overlayParam{
+			{paramSort, params.Sort != nil},
+			{paramOwnerID, params.OwnerId != nil},
+			{paramTag, params.Tag != nil},
+			{paramCapturedByKind, params.CapturedByKind != nil},
+		},
 		params.Q, params.Cursor, params.Limit, overlayWirePerson,
 		func(data []crmcontracts.Person, page crmcontracts.PageInfo) any {
 			return crmcontracts.PersonListResponse{Data: data, Page: page}
@@ -206,7 +218,12 @@ func (s Server) GetOrganization(w http.ResponseWriter, r *http.Request, id crmco
 func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params crmcontracts.ListOrganizationsParams) {
 	overlayList(s, w, r, datasource.EntityOrganization,
 		func() { s.peopleHandlers.ListOrganizations(w, r, params) },
-		[]overlayParam{{paramSort, params.Sort != nil}, {paramOwnerID, params.OwnerId != nil}, {"domain", params.Domain != nil}},
+		[]overlayParam{
+			{paramSort, params.Sort != nil},
+			{paramOwnerID, params.OwnerId != nil},
+			{"domain", params.Domain != nil},
+			{paramCapturedByKind, params.CapturedByKind != nil},
+		},
 		params.Q, params.Cursor, params.Limit, overlayWireOrganization,
 		func(data []crmcontracts.Organization, page crmcontracts.PageInfo) any {
 			return crmcontracts.OrganizationListResponse{Data: data, Page: page}
@@ -251,7 +268,13 @@ func (s Server) GetLead(w http.ResponseWriter, r *http.Request, id crmcontracts.
 func (s Server) ListLeads(w http.ResponseWriter, r *http.Request, params crmcontracts.ListLeadsParams) {
 	overlayList(s, w, r, datasource.EntityLead,
 		func() { s.peopleHandlers.ListLeads(w, r, params) },
-		[]overlayParam{{paramSort, params.Sort != nil}, {paramStatus, params.Status != nil}, {paramOwnerID, params.OwnerId != nil}, {"min_score", params.MinScore != nil}},
+		[]overlayParam{
+			{paramSort, params.Sort != nil},
+			{paramStatus, params.Status != nil},
+			{paramOwnerID, params.OwnerId != nil},
+			{"min_score", params.MinScore != nil},
+			{paramCapturedByKind, params.CapturedByKind != nil},
+		},
 		params.Q, params.Cursor, params.Limit, overlayWireLead,
 		func(data []crmcontracts.Lead, page crmcontracts.PageInfo) any {
 			return crmcontracts.LeadListResponse{Data: data, Page: page}

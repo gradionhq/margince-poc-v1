@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/fieldcatalog"
@@ -126,8 +127,9 @@ type listFilters struct {
 	CustomFilters   map[string]string
 	// CapturedByKind filters on WHO created the row, matched against the
 	// captured_by prefix. `agent` is the review list for the records an AI
-	// created (ADR-0075/A121 §3a). The contract validates the value against a
-	// closed enum before it reaches here.
+	// created (ADR-0075/A121 §3a). The value is checked against the closed enum
+	// by capturedByKindArg at the handler — declaring it in the contract does
+	// not enforce it on the wire.
 	CapturedByKind *string
 	// nameColumn is the quick-find target — the record's display column.
 	nameColumn string
@@ -182,9 +184,28 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	return where, nil
 }
 
-// capturedByKindArg maps the contract's validated provenance enum onto the
-// store input. The generated type is a distinct string kind, so the conversion
-// is where the wire vocabulary meets the store's.
+// capturedByKindValid refuses a provenance kind outside the contract's enum.
+//
+// This is NOT belt-and-braces over the transport. Binding a query parameter
+// whose schema is a string enum only checks that it is a string — nothing at
+// the wire layer rejects an unknown value. Without this check a typo like
+// `captured_by_kind=ai` builds the clause `captured_by LIKE 'ai:%'`, matches
+// nothing, and answers 200 with an empty page, which reads exactly like "no AI
+// created anything here". A filter whose failure mode is a confident wrong
+// answer is worse than no filter.
+//
+// Each list operation generates its own string kind for the parameter, so the
+// check is generic over the kind and closes over that type's own Valid().
+func capturedByKindValid[T ~string](v *T, valid func(T) bool) error {
+	if v == nil || valid(*v) {
+		return nil
+	}
+	return httperr.Validation("captured_by_kind", "invalid",
+		"must be one of human, agent, connector, system")
+}
+
+// capturedByKindArg maps the optional provenance parameter onto the store
+// input, once capturedByKindValid has accepted it.
 func capturedByKindArg[T ~string](v *T) *string {
 	if v == nil {
 		return nil

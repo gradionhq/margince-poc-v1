@@ -13,6 +13,11 @@ import (
 )
 
 func (h Handlers) ListLeads(w http.ResponseWriter, r *http.Request, params crmcontracts.ListLeadsParams) {
+	if err := capturedByKindValid(params.CapturedByKind,
+		func(v crmcontracts.ListLeadsParamsCapturedByKind) bool { return v.Valid() }); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
 	in := ListLeadsInput{
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,

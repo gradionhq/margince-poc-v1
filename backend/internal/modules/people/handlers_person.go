@@ -33,6 +33,11 @@ func (h Handlers) MergePerson(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 func (h Handlers) ListPeople(w http.ResponseWriter, r *http.Request, params crmcontracts.ListPeopleParams) {
+	if err := capturedByKindValid(params.CapturedByKind,
+		func(v crmcontracts.ListPeopleParamsCapturedByKind) bool { return v.Valid() }); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
 	in := ListPeopleInput{
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,
