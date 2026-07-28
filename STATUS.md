@@ -1094,8 +1094,9 @@ Open work, roughly in priority order:
   person+org capture withheld, on the SAME transaction that resolves the ledger
   row (a new `people.EnsureCounterpartyTx`, shared with the review-queue accept);
   `noise` archives the message immediately and redacts subject/body/raw in place
-  only after a 7-day undo window, keeping the row and its natural key as the
-  replay tombstone; `unsure` — including every answer below the 0.7 floor —
+  only after a 7-day undo window **and only with independent corroboration that
+  the message is bulk** (see the next paragraph), keeping the row and its natural
+  key as the replay tombstone; `unsure` — including every answer below the 0.7 floor —
   creates nothing, hides nothing, and stages a 🟡 proposal whose accept ADDS and
   whose reject does nothing (which is what keeps approvals approve-only-effects).
   `unsure` is deliberately absent from the vocabulary the model may answer with:
@@ -1105,6 +1106,25 @@ Open work, roughly in priority order:
   prohibition outranks the operator's `ai.capture_payloads` posture, held to the
   task contract by a fitness test. Ships two aicert scenarios including the
   release-blocking false-noise case.
+  **Redaction needs corroboration the model did not supply (landed).** Hiding
+  and destroying were firing on identical evidence — a `noise` verdict above the
+  floor, plus seven days of nobody objecting. Hiding is reversible (reply and the
+  sweep lets go); redaction is not. Silence is weak evidence for destroying
+  correspondence, and it is the forged-bulk attack's whole mechanism: a message
+  written as an address the workspace never corresponded with, shaped to read as
+  marketing, puts a `noise` verdict on the ADDRESS, and the real owner's later
+  mail is hidden within the hour and destroyed a week later without a human ever
+  seeing it — so "reply to recover" is unreachable exactly when it is needed.
+  Migration 0137 adds `activity.bulk_mail_attested`, stamped per message from its
+  own RFC 2369 List-Unsubscribe header (the corroboration CAP-PARAM-6's prefix
+  rules already accept). `NoiseMailToRedact` requires it; `NoiseMailToHide` does
+  not, so the reversible half is unchanged. The header is sender-written, and the
+  asymmetry is what makes it usable: a sender can put it on their OWN mail and
+  consent to its destruction, but a forger cannot put it on their victim's — and
+  the victim's mail is the target. Per message, never per sender: a blast is
+  destroyed while a personal note from the same address is only ever hidden. Rows
+  captured before the migration are un-attested, so the failure direction is
+  retention.
   Three defects fixed there are worth naming because the pattern recurs:
   `next_attempt_at` was stamped from the app clock and compared against Postgres
   `now()` (a cross-clock comparison — the local PG container runs ~13ms behind its

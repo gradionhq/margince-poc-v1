@@ -297,9 +297,9 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 	occurredAt := defaultOccurredAt(fields.OccurredAt)
 	var id ids.ActivityID
 	err := tx.QueryRow(ctx, `
-		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested)
+		INSERT INTO activity (workspace_id, kind, subject, body, occurred_at, direction, source_system, source_id, source, captured_by, thread_key, counterparty_email, counterparty_outbound_attested, bulk_mail_attested)
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''), $12)
+		        $1, NULLIF($2, ''), NULLIF($3, ''), $4, NULLIF($5, ''), $6, $7, $8, $9, NULLIF($10, ''), NULLIF($11, ''), $12, $13)
 		ON CONFLICT (workspace_id, source_system, source_id) WHERE source_system IS NOT NULL AND source_id IS NOT NULL
 		DO NOTHING
 		RETURNING id`,
@@ -314,7 +314,12 @@ func (s *Sink) upsertActivity(ctx context.Context, tx pgx.Tx, rec connector.Norm
 		// From-derived direction alone: this column is the T1
 		// correspondence-positive gate's only evidence, and a forged
 		// From:owner must not register as the owner's correspondence.
-		rec.Counterparty.SentByOwner()).Scan(&id)
+		rec.Counterparty.SentByOwner(),
+		// This message's own RFC 2369 List-Unsubscribe header — the corroboration
+		// a noise REDACTION needs before it destroys content (migration 0137).
+		// Stamped per message, so a newsletter blast is destroyable while a
+		// personal mail from the same address is only ever hidden.
+		rec.Counterparty.ListUnsubscribe).Scan(&id)
 	if err == nil {
 		// Field-level provenance (B-E02.12) for the content fields this
 		// capture set — same source/author the row itself carries.

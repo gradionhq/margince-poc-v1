@@ -111,6 +111,15 @@ func (s *AutoEnrichStore) ExpireExhausted(ctx context.Context) error {
 	return nil
 }
 
+// BudgetSlot is one reservation against a workspace's daily read allowance: the
+// UTC day it was taken on, and whether it was granted at all. Carry it from the
+// reservation to the refund — the day is what makes a refund land on the row the
+// reservation incremented.
+type BudgetSlot struct {
+	Day      time.Time
+	Reserved bool
+}
+
 // ReserveBudget atomically reserves one auto-enrich slot for the current
 // workspace's UTC day, returning false when the daily cap is already spent. The
 // reservation is the same transaction as the counter read, so two concurrent
@@ -147,23 +156,15 @@ func (s *AutoEnrichStore) ReserveBudget(ctx context.Context, dailyCap int) (Budg
 	return slot, nil
 }
 
-// BudgetSlot is one reservation against a workspace's daily read allowance: the
-// UTC day it was taken on, and whether it was granted at all. Carry it from the
-// reservation to the refund — the day is what makes a refund land on the row the
-// reservation incremented.
-type BudgetSlot struct {
-	Day      time.Time
-	Reserved bool
-}
-
 // ReleaseBudget returns one reserved slot to the day, for a reservation that
 // bought nothing.
 //
 // The pattern is reserve-before-spend, which means the caller sometimes holds a
 // slot it turns out not to need: two paths racing on one organization both
 // reserve, and the uniqueness index lets only one of them start a read. Without
-// the refund the day's ten reads would deliver nine, and the shortfall would
-// grow with exactly the concurrency the cap is meant to be indifferent to.
+// the refund the day's allowance erodes a slot at a time, and the shortfall grows
+// with exactly the concurrency the cap is meant to be indifferent to. A slot that
+// was never granted refunds nothing.
 //
 // Guarded at zero rather than trusted: a decrement that could run below zero
 // would hand out free reads on the next reservation, which is the failure this

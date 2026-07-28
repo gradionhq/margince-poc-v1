@@ -98,7 +98,9 @@ func TestVerdictRealCreatesTheCounterpartyCaptureWithheld(t *testing.T) {
 // undo window — the two stages that make an automatic hide safe.
 func TestVerdictNoiseHidesNowAndRedactsOnlyAfterTheUndoWindow(t *testing.T) {
 	e := integration.Setup(t)
-	activityID := seedCapturedMail(t, e, "blast@bulk.example", "🚀 growth hacks")
+	// Bulk-attested: this message carried List-Unsubscribe, so it is the kind a
+	// noise verdict may eventually destroy rather than only hide.
+	activityID := seedBulkCapturedMail(t, e, "blast@bulk.example", "🚀 growth hacks")
 	dispositionID := seedPendingDisposition(t, e, "blast@bulk.example", "bulk.example", activityID)
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
@@ -218,14 +220,30 @@ func TestVerdictBelowTheFloorAbstainsAndAsksAHuman(t *testing.T) {
 // workspace's own correspondence.
 func seedCapturedMail(t *testing.T, e *integration.Env, from, subject string) ids.UUID {
 	t.Helper()
+	return seedMail(t, e, from, subject, false)
+}
+
+// seedBulkCapturedMail is seedCapturedMail for a message that carried an RFC
+// 2369 List-Unsubscribe header. That is the corroboration a noise REDACTION
+// requires (migration 0137) — mail seeded without it can be hidden but never
+// destroyed, which is what TestANoiseVerdictWithoutBulkCorroborationHidesButNeverDestroys
+// pins.
+func seedBulkCapturedMail(t *testing.T, e *integration.Env, from, subject string) ids.UUID {
+	t.Helper()
+	return seedMail(t, e, from, subject, true)
+}
+
+func seedMail(t *testing.T, e *integration.Env, from, subject string, bulkAttested bool) ids.UUID {
+	t.Helper()
 	id := ids.NewV7()
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO activity (id, workspace_id, kind, subject, body, raw, direction,
-			                      source_system, source_id, source, captured_by, counterparty_email)
+			                      source_system, source_id, source, captured_by, counterparty_email,
+			                      bulk_mail_attested)
 			VALUES ($1, $2, 'email', $3, 'the message body', '{"headers":"…"}'::jsonb, 'inbound',
-			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5)`,
-			id, e.WS, subject, "vrd-"+id.String(), from)
+			        'gmail', $4, 'gmail:'||$4, 'connector:gmail', $5, $6)`,
+			id, e.WS, subject, "vrd-"+id.String(), from, bulkAttested)
 		if err != nil {
 			return err
 		}
@@ -513,9 +531,12 @@ func TestEachSenderIsJudgedOnItsOwnMessage(t *testing.T) {
 // "noise is not shown" defeated by sending two emails instead of one.
 func TestANoiseVerdictHidesEveryMessageThatSenderWrote(t *testing.T) {
 	e := integration.Setup(t)
-	first := seedCapturedMail(t, e, "bulk@flood.example", "offer one")
-	second := seedCapturedMail(t, e, "bulk@flood.example", "offer two")
-	third := seedCapturedMail(t, e, "bulk@flood.example", "offer three")
+	// All three carry List-Unsubscribe, so the redaction half below is reachable
+	// too — that corroboration is per-message (migration 0137), while the
+	// sender-wide reach this test exists to pin is per-address.
+	first := seedBulkCapturedMail(t, e, "bulk@flood.example", "offer one")
+	second := seedBulkCapturedMail(t, e, "bulk@flood.example", "offer two")
+	third := seedBulkCapturedMail(t, e, "bulk@flood.example", "offer three")
 	dispositionID := seedPendingDisposition(t, e, "bulk@flood.example", "flood.example", first)
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
@@ -715,7 +736,7 @@ func rawCaptureRows(t *testing.T, e *integration.Env, activityID ids.UUID) int {
 // work, not finished work, and nothing else in the system would ever collect it.
 func TestRedactionCollectsMailWhoseOriginalOutlivedItsText(t *testing.T) {
 	e := integration.Setup(t)
-	activityID := seedCapturedMail(t, e, "loud@bulk.example", "offer")
+	activityID := seedBulkCapturedMail(t, e, "loud@bulk.example", "offer")
 	dispositionID := seedPendingDisposition(t, e, "loud@bulk.example", "bulk.example", activityID)
 
 	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
@@ -736,6 +757,49 @@ func TestRedactionCollectsMailWhoseOriginalOutlivedItsText(t *testing.T) {
 	}
 	if n := rawCaptureRows(t, e, activityID); n != 0 {
 		t.Fatal("the sweep skipped mail whose original outlived its text — that original would be retained forever")
+	}
+}
+
+// The forged-bulk attack, and the line that stops it costing somebody their
+// mail: write a message as an address the workspace has never corresponded
+// with, shape it to read as marketing, and the model's noise verdict lands on
+// the ADDRESS. Hiding on that evidence is fine — it is reversible, and a reply
+// releases it. Destroying on it is not, and the victim cannot object to a
+// destruction they never saw coming, because the mail was hidden first.
+//
+// So an ordinary message — no List-Unsubscribe header, nothing corroborating
+// that it is bulk — is hidden and stays hidden. It is never destroyed, however
+// long the undo window runs out.
+func TestANoiseVerdictWithoutBulkCorroborationHidesButNeverDestroys(t *testing.T) {
+	e := integration.Setup(t)
+	// seedCapturedMail, NOT seedBulkCapturedMail: an ordinary message.
+	activityID := seedCapturedMail(t, e, "real.person@partner.example", "about the contract")
+	dispositionID := seedPendingDisposition(t, e, "real.person@partner.example", "partner.example", activityID)
+
+	brain := &scriptedVerdictBrain{verdicts: map[string]string{dispositionID.String(): capture.PendingStatusNoise}}
+	engine := NewCounterpartyVerdictEngine(e.Pool, brain, slog.Default())
+	if err := engine.Run(context.Background(), 0); err != nil {
+		t.Fatalf("verdict pass: %v", err)
+	}
+
+	// The reversible half still works — the verdict is acted on immediately.
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND archived_at IS NOT NULL`, activityID); n != 1 {
+		t.Fatal("the noise verdict did not hide the message — the reversible half of the effect must be unchanged")
+	}
+
+	// Age it well past the undo window and sweep twice: no amount of waiting
+	// turns an uncorroborated verdict into permission to destroy.
+	backdateArchive(t, e, activityID)
+	for range 2 {
+		if err := engine.RedactNoise(context.Background(), capture.NoiseUndoWindow, 0); err != nil {
+			t.Fatalf("redaction sweep: %v", err)
+		}
+	}
+	if n := countIn(t, e, `SELECT count(*) FROM activity WHERE id = $1 AND subject IS NOT NULL AND body IS NOT NULL`, activityID); n != 1 {
+		t.Fatal("the sweep destroyed mail on the model's word alone — a forged bulk message would take a real correspondent's mail with it")
+	}
+	if n := rawCaptureRows(t, e, activityID); n != 1 {
+		t.Fatalf("%d provider originals left, want 1 — the original must survive alongside the text", n)
 	}
 }
 
