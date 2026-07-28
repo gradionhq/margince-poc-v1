@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"slices"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -107,13 +108,25 @@ type Dispatcher struct {
 	maxAttempts int
 }
 
+// defaultMaxAttempts bounds a dispatcher whose ladder length was not
+// configured. A missing bound must still park eventually: once the runner
+// stops delivering an exhausted job nothing else moves the row off pending,
+// and a row that looks live forever is the failure the exhaustion guard exists
+// to prevent. Disabling the guard on a non-positive bound would trade a loud
+// catastrophe for a silent one, so it defaults rather than disappearing.
+//
+// The value is a generous finite ceiling, not a claim about any particular
+// runner's ladder — a caller that knows its own should pass it.
+const defaultMaxAttempts = 25
+
 // NewDispatcher builds the dispatcher. maxAge bounds how long a delivery may
 // be postponed before it parks instead, and maxAttempts is the caller's retry
 // ladder length — the dispatcher parks on the last rung rather than leaving a
 // row the runner will never deliver again looking pending forever.
 //
-// The clock is injected so age arithmetic is asserted by advancing time, never
-// by sleeping.
+// A nil clock and a non-positive maxAttempts both DEFAULT rather than
+// disabling the behaviour they configure: a caller that forgets one gets the
+// conservative version of the rule, never the absence of it.
 func NewDispatcher(
 	store deliveryStore,
 	resolver ConnectionResolver,
@@ -125,6 +138,9 @@ func NewDispatcher(
 ) *Dispatcher {
 	if now == nil {
 		now = time.Now
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = defaultMaxAttempts
 	}
 	return &Dispatcher{
 		store: store, resolver: resolver, consent: consent, policies: policies,
@@ -217,9 +233,9 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Ladder exhaustion. Once the runner stops delivering this job nothing
 	// else would ever move the row off pending, and it would look live
-	// forever. A non-positive bound is no bound at all: reading it as "zero
-	// attempts permitted" would park every delivery on its first attempt.
-	if d.maxAttempts > 0 && del.Attempts >= d.maxAttempts {
+	// forever. The bound is always positive — NewDispatcher defaults it — so
+	// this can never park a delivery on its first attempt.
+	if del.Attempts >= d.maxAttempts {
 		return d.park(ctx, del.ID, fmt.Sprintf("the retry ladder is exhausted after %d attempts", del.Attempts))
 	}
 
@@ -337,12 +353,41 @@ func (d *Dispatcher) park(ctx context.Context, id ids.UUID, reason string) (Outc
 	return OutcomeParked, 0, nil
 }
 
+// maxFaultLen bounds what one fault contributes to a delivery's reason. The
+// causes reaching retry include arbitrary infrastructure errors — a wrapped
+// database error carries SQL text and table names — and the column they land
+// in is unbounded text, so without a bound a single such error would put a
+// kilobyte of internals on the row an operator reads.
+const maxFaultLen = 200
+
+// faultReason renders a fault as the kind of operator sentence every other
+// reason in this file is, bounded and truncated on a RUNE boundary: a
+// byte-offset cut can split a UTF-8 sequence, leaving a mangled tail on the
+// one row that explains the failure.
+func faultReason(cause error) string {
+	msg := cause.Error()
+	if len(msg) > maxFaultLen {
+		cut := maxFaultLen
+		for cut > 0 && !utf8.RuneStart(msg[cut]) {
+			cut--
+		}
+		msg = msg[:cut] + "…"
+	}
+	return "transient fault, will retry: " + msg
+}
+
 // retry records why this attempt failed and hands the cause back so the
 // caller's ladder can back off. The delivery stays pending: this is a fault,
 // not a verdict.
 func (d *Dispatcher) retry(ctx context.Context, id ids.UUID, cause error) (Outcome, time.Duration, error) {
-	if err := d.store.RecordFailure(ctx, id, cause.Error()); err != nil {
+	if err := d.store.RecordFailure(ctx, id, faultReason(cause)); err != nil {
 		if errors.Is(err, ErrTerminal) {
+			// A newer attempt already owns this row and will report its own
+			// outcome. The cause is dropped rather than returned because
+			// returning it would put a finished delivery back on the ladder:
+			// the fault belongs to this attempt alone and no longer describes
+			// the delivery's state. It is lost to the caller's logs, which is
+			// the price of not resurrecting a closed delivery.
 			return OutcomeSkipped, 0, nil
 		}
 		return OutcomeRetry, 0, errors.Join(cause, err)
@@ -353,6 +398,14 @@ func (d *Dispatcher) retry(ctx context.Context, id ids.UUID, cause error) (Outco
 // postpone records which rule is holding the delivery back and asks the caller
 // to try again after wait, so an operator seeing a deferred message knows what
 // deferred it.
+//
+// A postponement must not consume a rung of the retry ladder. The exhaustion
+// guard runs AFTER the policy chain, so on the last rung a deferral is
+// returned where a park would otherwise be; a caller that implements the wait
+// by burning an attempt leaves that row pending with no attempts left and
+// nothing that would ever move it — precisely the state the guard exists to
+// prevent. Implement the wait as a reschedule that restores the attempt, never
+// as a failed one.
 func (d *Dispatcher) postpone(ctx context.Context, id ids.UUID, reason string, wait time.Duration) (Outcome, time.Duration, error) {
 	if err := d.store.RecordFailure(ctx, id, reason); err != nil {
 		if errors.Is(err, ErrTerminal) {

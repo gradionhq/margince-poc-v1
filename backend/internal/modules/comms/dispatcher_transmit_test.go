@@ -5,12 +5,22 @@ package comms
 
 import (
 	"context"
+	"errors"
 	"slices"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
+
+// sendingResolver is the resolver every transmit-side test needs: a mailbox
+// that resolves cleanly and holds the send scope, so the gates pass and the
+// step under test is the one that decides the outcome.
+func sendingResolver() fakeResolver {
+	return fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}
+}
 
 // The postpone-and-transmit half of the dispatcher's spec: the policy chain,
 // the two bounds that keep a deferred delivery from living forever, the
@@ -77,6 +87,12 @@ func TestDispatchParksADeliveryThatHasAgedOutWhileWaiting(t *testing.T) {
 	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
 	if got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked past the max age", got)
+	}
+	// Naming the elapsed window and the rule that held it is the whole point
+	// of computing the age: without them an aged-out park tells an operator
+	// only that a message did not go, not what stopped it or for how long.
+	if !strings.Contains(store.parked, "2h0m0s") || !strings.Contains(store.parked, "test_wait") {
+		t.Errorf("park reason %q names neither the elapsed window nor the policy that deferred it", store.parked)
 	}
 }
 
@@ -149,19 +165,35 @@ func TestDispatchRetriesOnARateLimitWithNoStatedInterval(t *testing.T) {
 	}
 }
 
-// Load already counted this attempt, so a first transmission arrives as
-// Attempt=0 and the provider's prior-send lookup runs only on a real retry.
+// Load already counted this attempt, so Attempt is the count of transmissions
+// BEFORE this one and the provider's prior-send lookup runs only on a real
+// retry. Getting it too low mails a real recipient twice; too high suppresses
+// a legitimate first send against a lookup that finds nothing.
 func TestDispatchPassesTheRetryCountToTheSender(t *testing.T) {
-	sender := &fakeSender{}
-	store := &fakeStore{delivery: liveDelivery()}
-	store.delivery.Attempts = 3
-	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
+	for _, tc := range []struct {
+		name     string
+		attempts int
+		want     int
+	}{
+		{"a retry reports the transmissions before it", 3, 2},
+		// A row Load never counted must not produce a negative Attempt: the
+		// floor is what keeps an unexpected zero from wrapping into a value
+		// that would make a first send look like a retry.
+		{"an uncounted attempt floors at zero", 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &fakeSender{}
+			store := &fakeStore{delivery: liveDelivery()}
+			store.delivery.Attempts = tc.attempts
+			d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
 
-	if _, err := d.Dispatch(context.Background(), store.delivery.ID); err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if sender.seen.Attempt != 2 {
-		t.Errorf("Attempt = %d, want 2", sender.seen.Attempt)
+			if _, err := d.Dispatch(context.Background(), store.delivery.ID); err != nil {
+				t.Fatalf("Dispatch: %v", err)
+			}
+			if sender.seen.Attempt != tc.want {
+				t.Errorf("Attempt = %d, want %d", sender.seen.Attempt, tc.want)
+			}
+		})
 	}
 }
 
@@ -197,6 +229,12 @@ func TestDispatchTransmitsEveryStagedFieldOnTheWire(t *testing.T) {
 	}
 	if got.ListUnsubscribePost != "List-Unsubscribe=One-Click" {
 		t.Errorf("ListUnsubscribePost = %q, want the RFC 8058 one-click literal", got.ListUnsubscribePost)
+	}
+	// liveDelivery is on its first attempt (Load counted it), so the provider
+	// must be told this is a first transmission and skip its prior-send
+	// lookup. Anything above zero here suppresses a send that never happened.
+	if got.Attempt != 0 {
+		t.Errorf("Attempt = %d on a first transmission, want 0", got.Attempt)
 	}
 }
 
@@ -234,21 +272,38 @@ func TestDispatchParksOnTheFinalAttemptRatherThanLeavingItPending(t *testing.T) 
 	}
 }
 
-// A non-positive bound is no bound. Reading it as "zero attempts allowed"
-// would park every delivery on its first attempt — silently destroying all
-// outbound mail on a dispatcher whose ladder length was simply not configured.
-func TestDispatchWithNoConfiguredLadderBoundStillTransmits(t *testing.T) {
-	sender := &fakeSender{}
-	store := &fakeStore{delivery: liveDelivery()}
-	d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{},
-		nil, func() time.Time { return testNow }, time.Hour, 0)
+// An unconfigured ladder length DEFAULTS; it does not switch the exhaustion
+// guard off. Reading a non-positive bound as "zero attempts allowed" would
+// park every delivery on its first attempt, and reading it as "no bound"
+// would leave an exhausted row pending forever with nothing to move it —
+// the silent version of the failure this guard exists to prevent. Both halves
+// are pinned here: a delivery under the default still transmits, and one that
+// reaches the default still parks.
+func TestDispatchDefaultsAnUnconfiguredLadderBound(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		attempts int
+		want     Outcome
+		calls    int
+	}{
+		{"under the default bound", 1, OutcomeSent, 1},
+		{"at the default bound", defaultMaxAttempts, OutcomeParked, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &fakeSender{}
+			store := &fakeStore{delivery: liveDelivery()}
+			store.delivery.Attempts = tc.attempts
+			d := NewDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{},
+				nil, func() time.Time { return testNow }, time.Hour, 0)
 
-	got, err := d.Dispatch(context.Background(), store.delivery.ID)
-	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if got != OutcomeSent || sender.calls != 1 {
-		t.Errorf("outcome=%v calls=%d, want OutcomeSent/1", got, sender.calls)
+			got, err := d.Dispatch(context.Background(), store.delivery.ID)
+			if err != nil {
+				t.Fatalf("Dispatch: %v", err)
+			}
+			if got != tc.want || sender.calls != tc.calls {
+				t.Errorf("outcome=%v calls=%d, want %v/%d", got, sender.calls, tc.want, tc.calls)
+			}
+		})
 	}
 }
 
@@ -332,5 +387,60 @@ func TestDispatchTreatsATerminalFailureNoteAsAlreadyHandled(t *testing.T) {
 	}
 	if got != OutcomeSkipped {
 		t.Errorf("outcome = %v, want OutcomeSkipped", got)
+	}
+}
+
+// A transition that failed for a reason that is NOT ErrTerminal left the row
+// exactly as it was: still pending, with no record that this attempt reached a
+// disposition at all. Reporting the disposition anyway would claim a durable
+// fact that was never written — a park nobody can see, or a receipt no row
+// carries. The attempt goes back on the ladder with the fault instead.
+func TestDispatchRetriesWhenATransitionFailsForANonTerminalReason(t *testing.T) {
+	dbDown := errors.New("connection reset by peer")
+	for _, tc := range []struct {
+		name     string
+		store    *fakeStore
+		resolver fakeResolver
+		policies []SendPolicy
+	}{
+		{"park", &fakeStore{delivery: liveDelivery(), parkErr: dbDown}, fakeResolver{err: ErrNoMailbox}, nil},
+		{"postpone", &fakeStore{delivery: liveDelivery(), failedErr: dbDown}, sendingResolver(), []SendPolicy{waitPolicy{d: time.Minute}}},
+		{"failure note", &fakeStore{delivery: liveDelivery(), failedErr: dbDown}, fakeResolver{err: errors.New("keyvault timeout")}, nil},
+		{"send receipt", &fakeStore{delivery: liveDelivery(), sentErr: dbDown}, sendingResolver(), nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := newTestDispatcher(tc.store, tc.resolver, stubConsent{}, tc.policies...)
+
+			got, err := d.Dispatch(context.Background(), tc.store.delivery.ID)
+			if got != OutcomeRetry {
+				t.Errorf("outcome = %v, want OutcomeRetry", got)
+			}
+			if err == nil {
+				t.Error("no error returned; a caller's ladder cannot back off on a silent failure")
+			}
+		})
+	}
+}
+
+// A fault's own text reaches the delivery's reason column, which is unbounded
+// and operator-facing. An arbitrary infrastructure error — a wrapped database
+// error carrying SQL and table names — must arrive bounded and labelled rather
+// than raw, and truncation must land on a rune boundary or the row an operator
+// reads ends in mojibake.
+func TestDispatchBoundsAFaultBeforeWritingItToTheDeliveryReason(t *testing.T) {
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newTestDispatcher(store, fakeResolver{err: errors.New(strings.Repeat("é", 500))}, stubConsent{})
+
+	if got, _ := d.Dispatch(context.Background(), store.delivery.ID); got != OutcomeRetry {
+		t.Fatalf("outcome = %v, want OutcomeRetry", got)
+	}
+	if !strings.HasPrefix(store.failed, "transient fault, will retry: ") {
+		t.Errorf("reason %q is not labelled as a transient fault", store.failed)
+	}
+	if len(store.failed) > maxFaultLen+len("transient fault, will retry: ")+len("…") {
+		t.Errorf("reason is %d bytes; the fault was not bounded", len(store.failed))
+	}
+	if !utf8.ValidString(store.failed) {
+		t.Errorf("reason %q is not valid UTF-8; truncation split a rune", store.failed)
 	}
 }
