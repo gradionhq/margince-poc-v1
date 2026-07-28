@@ -1,38 +1,29 @@
 -- ADR-0075/A121 §3a: serve the "which records did an AI write into?" review
 -- filter.
 --
--- A record's `captured_by` names who CREATED the row, and it is never
--- restamped — it is real provenance and the whole API reads it that way. But in
--- the connector path the AI does not create the record, it FILLS one: Gmail
--- capture mints the organization (`connector:gmail`), and then signature
--- enrichment renames it and the web dossier writes its profile fields and
--- facts, each of those rows stamped `agent:<task>`.
+-- A record's `captured_by` names who CREATED the row and is never restamped —
+-- it is real provenance and the whole API reads it that way. But in the
+-- connector path the AI does not create the record, it FILLS one: Gmail capture
+-- mints the organization (`connector:gmail`), and then the AI renames it from a
+-- signature and writes its profile. So "an AI wrote this" cannot be read off
+-- the record; it has to be asked of the record's history.
 --
--- So "an AI wrote this" is a property of the CHILD rows, not of the record's
--- creator, and asking it means an EXISTS over them. These partial indexes are
--- what make that EXISTS cheap: they carry only the agent-written rows, which
--- are the minority, and they are keyed by the parent id the join uses.
+-- The audit log is that history, and it is complete BY CONSTRUCTION: every
+-- mutation commits its domain row, its audit row and its outbox row in one
+-- transaction, at one store chokepoint. No agent write reaches a record without
+-- leaving a row here. Any narrower source is a list somebody has to maintain.
 --
--- The LIKE predicate is immutable, so it is index-legal. It is also the same
--- prefix grammar `captured_by` has everywhere else (`human:` | `agent:` |
--- `connector:` | `system:`).
-
-CREATE INDEX idx_organization_profile_field_agent_written
-  ON organization_profile_field (workspace_id, organization_id)
-  WHERE captured_by LIKE 'agent:%';
-
-CREATE INDEX idx_organization_fact_agent_written
-  ON organization_fact (workspace_id, organization_id)
-  WHERE captured_by LIKE 'agent:%';
-
-CREATE INDEX idx_person_profile_field_agent_written
-  ON person_profile_field (workspace_id, person_id)
-  WHERE captured_by LIKE 'agent:%';
-
--- The general one, and the one that carries the most weight: field_provenance
--- holds a row per (object, field) written, for every record type, so an agent
--- updating an ordinary column is found here without the query knowing which
--- column. Same partial shape — only agent-written rows.
-CREATE INDEX idx_field_provenance_agent_written
-  ON field_provenance (workspace_id, object_type, object_id)
-  WHERE captured_by LIKE 'agent:%';
+-- The predicate matches `actor_id LIKE 'agent:%'`, not `actor_type`. Those are
+-- different axes: actor_type is the principal MECHANISM (a background job runs
+-- as 'system') while actor_id carries the <kind>:<id> identity `captured_by`
+-- uses everywhere else. The deep-read worker is a system principal whose
+-- identity is `agent:deepread`, so typing on the mechanism would miss every AI
+-- enrichment this filter exists to surface.
+--
+-- idx_audit_entity (0012) already covers (workspace_id, entity_type, entity_id).
+-- This adds the selectivity that matters for the EXISTS: only agent-written
+-- rows, which are a small minority of an append-only log that holds every
+-- mutation the installation has ever made.
+CREATE INDEX idx_audit_log_agent_actor
+  ON audit_log (workspace_id, entity_type, entity_id)
+  WHERE actor_id LIKE 'agent:%';

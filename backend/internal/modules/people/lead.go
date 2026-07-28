@@ -304,10 +304,7 @@ type ListLeadsInput struct {
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
-	// AiWritten filters on whether an AI wrote into the record (§3a). A lead
-	// holds no per-value evidence tables of its own, so it passes no child
-	// tables — but `lead` IS a field_provenance object_type, so an agent that
-	// writes a lead column is still caught by the general predicate.
+	// AiWritten filters on whether an AI wrote into the record (§3a).
 	AiWritten *bool
 }
 
@@ -349,7 +346,7 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	if ok {
 		where = append(where, kindClause)
 	}
-	if ai := aiWrittenClause(in.AiWritten, "lead", nil, "", arg); ai != "" {
+	if ai := aiWrittenClause(in.AiWritten, "lead", arg); ai != "" {
 		where = append(where, ai)
 	}
 	if in.Query != nil && *in.Query != "" {

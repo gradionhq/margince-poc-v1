@@ -1,4 +1,1 @@
-DROP INDEX idx_field_provenance_agent_written;
-DROP INDEX idx_person_profile_field_agent_written;
-DROP INDEX idx_organization_fact_agent_written;
-DROP INDEX idx_organization_profile_field_agent_written;
+DROP INDEX idx_audit_log_agent_actor;

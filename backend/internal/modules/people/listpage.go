@@ -135,11 +135,6 @@ type listFilters struct {
 	// AiWritten asks whether an AI wrote INTO the record — a different question
 	// from who created it (ADR-0075/A121 §3a). aiWrittenClause spells it.
 	AiWritten *bool
-	// aiWritten* describe where this record type's AI-written values live: the
-	// (table, parent column) pairs carrying per-value provenance, plus any
-	// column on the record itself that holds an AI-written value.
-	aiWrittenChildren [][2]string
-	aiWrittenOwn      string
 	// entity is the record's table name, used to qualify the predicate above.
 	entity string
 	// nameColumn is the quick-find target — the record's display column.
@@ -191,66 +186,48 @@ func capturedByKindClause(kind *string, arg func(any) int) (string, bool, error)
 // there silently costs the index rather than the result.
 const agentPrefix = "agent:%"
 
-// The parent-id columns the per-value provenance tables key on. Named because
-// the predicate below, the relationship edges and the site-read store all spell
-// them, and a typo in one place is a silently empty EXISTS.
-const (
-	personIDColumn = "person_id"
-	orgIDColumn    = "organization_id"
-)
-
 // aiWrittenClause answers "did an AI write into this record?" for one record
 // type, or "" when the caller did not ask.
 //
 // This is deliberately NOT the same question as capturedByKindClause.
-// `captured_by` names who CREATED the row and is never restamped — it is real
-// provenance and the whole API reads it that way. But in the connector path the
-// AI does not create the record, it FILLS one: Gmail capture mints the
-// organization as `connector:gmail`, and then signature enrichment renames it
-// and the web dossier writes its profile fields and facts. Asking who created
-// it misses exactly the records worth reviewing.
+// `captured_by` names who CREATED the row and is never restamped. In the
+// connector path the AI does not create the record, it FILLS one: Gmail capture
+// mints the organization as `connector:gmail`, and then the AI renames it and
+// writes its profile. Asking who created it misses exactly the records worth
+// reviewing.
 //
-// So the predicate is about CONTENT, and it is DERIVED rather than stored: a
-// union over every row-set that records who-wrote-what. A denormalised flag
-// would be a second copy of a truth those rows already hold, and a stale
-// `false` would hide the very records this exists to surface.
+// The predicate is the AUDIT LOG, because that is the only source that is
+// complete by construction. Every mutation in this system commits its domain
+// row, its audit row and its outbox row in ONE transaction — the write shape is
+// non-negotiable and enforced at the one store chokepoint — so no agent write
+// can reach a record without leaving an audit row naming who made it. Anything
+// narrower is a list someone has to maintain: an earlier cut of this predicate
+// enumerated the two dossier evidence tables and the promoted-name column, and
+// silently missed an agent updating an ordinary column, which is the plainest
+// case there is.
 //
-// `field_provenance` is the GENERAL one and carries the most weight: it holds
-// one row per (object, field) written, for every record type, so an agent that
-// updates an ordinary column is caught here without this predicate having to
-// know which column or which agent. That matters more than the specific tables
-// below — a new agent write site is covered the moment it stamps provenance,
-// which storekit.StampFields is the one way to do.
+// It matches on `actor_id`, not `actor_type`. The two are different axes:
+// `actor_type` is the principal MECHANISM (a background job runs as `system`)
+// while `actor_id` carries the `<kind>:<id>` identity that `captured_by` uses
+// everywhere else. The deep-read worker is a system principal whose identity is
+// `agent:deepread`, so typing on the mechanism would miss every AI enrichment
+// this filter exists to surface.
 //
-// childTables are the per-value evidence tables that carry their own
-// captured_by WITHOUT stamping field_provenance (the dossier's organization
-// profile fields and facts); extraOwn is any column on the record itself that
-// records an AI-written value (the organization's promoted display name, whose
-// only marker is name_source). Both exist because those writers predate or sit
-// beside the general table — they are schema facts, not a design choice.
-func aiWrittenClause(want *bool, entity string, childTables [][2]string, extraOwn string, arg func(any) int) string {
+// The record's own `captured_by` is kept as a second arm. It is subsumed by the
+// audit row for the create, and it is on the row itself — so it still answers
+// after audit retention has pruned old rows, which is this predicate's one real
+// limit and is stated rather than papered over.
+func aiWrittenClause(want *bool, entity string, arg func(any) int) string {
 	if want == nil {
 		return ""
 	}
-	touched := []string{
-		// Created by an agent.
+	clause := "(" + strings.Join([]string{
 		storekit.SQLf("%s.captured_by LIKE $%d", entity, arg(agentPrefix)),
-		// Any column of it written by an agent, whichever column, whichever agent.
-		storekit.SQLf(`EXISTS (SELECT 1 FROM field_provenance fp
-			 WHERE fp.workspace_id = %s.workspace_id AND fp.object_type = $%d
-			   AND fp.object_id = %s.id AND fp.captured_by LIKE $%d)`,
+		storekit.SQLf(`EXISTS (SELECT 1 FROM audit_log al
+			 WHERE al.workspace_id = %s.workspace_id AND al.entity_type = $%d
+			   AND al.entity_id = %s.id AND al.actor_id LIKE $%d)`,
 			entity, arg(entity), entity, arg(agentPrefix)),
-	}
-	for _, child := range childTables {
-		touched = append(touched, storekit.SQLf(
-			`EXISTS (SELECT 1 FROM %s c WHERE c.workspace_id = %s.workspace_id
-			           AND c.%s = %s.id AND c.captured_by LIKE $%d)`,
-			child[0], entity, child[1], entity, arg(agentPrefix)))
-	}
-	if extraOwn != "" {
-		touched = append(touched, extraOwn)
-	}
-	clause := "(" + strings.Join(touched, " OR ") + ")"
+	}, " OR ") + ")"
 	if !*want {
 		return "NOT " + clause
 	}
@@ -275,7 +252,7 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	if ok {
 		where = append(where, clause)
 	}
-	if ai := aiWrittenClause(f.AiWritten, f.entity, f.aiWrittenChildren, f.aiWrittenOwn, arg); ai != "" {
+	if ai := aiWrittenClause(f.AiWritten, f.entity, arg); ai != "" {
 		where = append(where, ai)
 	}
 	if f.Query != nil && *f.Query != "" {

@@ -67,19 +67,11 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 		CapturedByKind:  in.CapturedByKind,
 		AiWritten:       in.AiWritten,
 		entity:          organizationEntity,
-		// An organization's AI-written values are the dossier's profile fields
-		// and category facts, plus a display_name promoted from an AI-extracted
-		// email signature — which lives on the record itself.
-		aiWrittenChildren: [][2]string{
-			{"organization_profile_field", orgIDColumn},
-			{"organization_fact", orgIDColumn},
-		},
-		aiWrittenOwn:  "organization.name_source = 'signature'",
-		OwnerID:       in.OwnerID,
-		Query:         in.Query,
-		Cursor:        in.Cursor,
-		CustomFilters: in.CustomFilters,
-		nameColumn:    orgNameColumn,
+		OwnerID:         in.OwnerID,
+		Query:           in.Query,
+		Cursor:          in.Cursor,
+		CustomFilters:   in.CustomFilters,
+		nameColumn:      orgNameColumn,
 	}
 	return listPage(ctx, s, in.Sort, in.Limit, listPageSpec[crmcontracts.Organization]{
 		entity:  organizationEntity,

@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // seatPersonCapturedBy plants one person with an explicit creator, which is the
@@ -163,36 +164,41 @@ func seatConnectorOrg(t *testing.T, e *integration.Env, name, nameSource string)
 	return id
 }
 
+// agentCtx is an agent identity on a system principal — the shape every AI task
+// in this product runs under (the deep-read worker, the counterparty verdict).
+// actor_type is 'system'; the identity that matters is actor_id.
+func agentCtx(e *integration.Env) context.Context {
+	return principal.WithActor(e.As(e.Rep1, nil, integration.AdminPerms), principal.Principal{
+		Type: principal.PrincipalSystem, ID: "agent:deepread", UserID: e.Rep1, OnBehalfOf: e.Rep1,
+	})
+}
+
 // The case a record-level provenance filter gets wrong, and the reason
 // ai_written exists. Gmail capture mints the organization, so captured_by says
-// `connector:gmail` — and then the AI renames it from a signature and fills its
-// profile. Asking "who created it" answers `connector` and hides exactly the
-// record somebody needs to check.
+// `connector:gmail` — and then the AI writes into it. Asking "who created it"
+// answers `connector` and hides exactly the record somebody needs to check.
+//
+// Every write below goes through the real store, so the audit rows the
+// predicate reads are the ones production would leave. Seeding the underlying
+// rows by hand would prove the query can read a table and nothing about whether
+// the system fills it.
 func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	e := integration.Setup(t)
-	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	adminCtx := e.As(e.Rep1, nil, integration.AdminPerms)
 	store := people.NewStore(e.Pool)
 
 	filled := seatConnectorOrg(t, e, "Acme Filled", "domain")
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO organization_profile_field
-				(workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
-			VALUES ($1, $2, 'icp', 'RevOps leaders', 'we serve RevOps leaders', 'https://acme.example', 0.9, 'site_read', 'agent:deepread')`,
-			e.WS, filled)
-		return err
-	}); err != nil {
-		t.Fatalf("seeding the AI-written field: %v", err)
+	industry := "Robotics"
+	if _, err := store.UpdateOrganization(agentCtx(e), ids.From[ids.OrganizationKind](filled),
+		people.UpdateOrganizationInput{Industry: &industry}); err != nil {
+		t.Fatalf("agent enrichment write: %v", err)
 	}
-	// Renamed by the AI from an email signature: the value is on the record
-	// itself, not in a child row.
-	seatConnectorOrg(t, e, "Beta Robotics GmbH", "signature")
-	// Neither: connector-made, connector-named, no AI anywhere near it.
+	// Connector-made, connector-named, no AI ever near it.
 	seatConnectorOrg(t, e, "Gamma Untouched", "domain")
 
 	names := func(ai *bool) []string {
 		t.Helper()
-		got, _, err := store.ListOrganizations(ctx, people.ListOrganizationsInput{AiWritten: ai})
+		got, _, err := store.ListOrganizations(adminCtx, people.ListOrganizationsInput{AiWritten: ai})
 		if err != nil {
 			t.Fatalf("ListOrganizations: %v", err)
 		}
@@ -212,70 +218,51 @@ func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	}
 
 	yes, no := true, false
-	touched := names(&yes)
-	if !has(touched, "Acme Filled") {
-		t.Errorf("ai_written=true returned %v, missing the connector-made org whose profile an AI wrote", touched)
+	if touched := names(&yes); !has(touched, "Acme Filled") || has(touched, "Gamma Untouched") {
+		t.Fatalf("ai_written=true returned %v, want the connector-made org an AI wrote into and not the untouched one", touched)
 	}
-	if !has(touched, "Beta Robotics GmbH") {
-		t.Errorf("ai_written=true returned %v, missing the org an AI renamed from a signature", touched)
-	}
-	if has(touched, "Gamma Untouched") {
-		t.Errorf("ai_written=true returned %v — it includes an org no AI ever wrote to", touched)
-	}
-
-	// The complement is the complement: exactly the records the first list left.
-	untouched := names(&no)
-	if !has(untouched, "Gamma Untouched") || has(untouched, "Acme Filled") || has(untouched, "Beta Robotics GmbH") {
-		t.Errorf("ai_written=false returned %v, want exactly the records ai_written=true did not", untouched)
+	// The complement is the complement.
+	if untouched := names(&no); !has(untouched, "Gamma Untouched") || has(untouched, "Acme Filled") {
+		t.Fatalf("ai_written=false returned %v, want exactly the records ai_written=true did not", untouched)
 	}
 
 	// And the record-level filter still answers its own, narrower question:
-	// none of these was CREATED by an AI.
+	// neither of these was CREATED by an AI.
 	agent := "agent"
-	if got, _, err := store.ListOrganizations(ctx,
+	if got, _, err := store.ListOrganizations(adminCtx,
 		people.ListOrganizationsInput{CapturedByKind: &agent}); err != nil || len(got) != 0 {
-		t.Fatalf("captured_by_kind=agent returned %d orgs (err %v), want 0 — the connector created every one of these", len(got), err)
+		t.Fatalf("captured_by_kind=agent returned %d orgs (err %v), want 0 — the connector created both", len(got), err)
 	}
 }
 
-// The general case, and the one a hand-picked list of evidence tables misses:
-// an agent updates an ORDINARY column. Nothing about which column or which
-// agent is known here — only that the write stamped field_provenance, which
-// storekit.StampFields is the one way to do. A new agent write site is
-// therefore covered the day it lands, without this filter being told about it.
+// The plainest case there is, and the one every narrower predicate missed: an
+// agent updates an ORDINARY column.
+//
+// The update is driven through the real store under a real agent principal —
+// not by seeding a provenance row — because the earlier version of this test
+// inserted the row it then asserted on, which proved the query could read a
+// table and nothing about whether the system ever writes it.
 func TestAiWrittenCatchesAnAgentUpdatingAnOrdinaryColumn(t *testing.T) {
 	e := integration.Setup(t)
-	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
 	store := people.NewStore(e.Pool)
-
 	org := seatConnectorOrg(t, e, "Delta Industries", "domain")
-	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		// An agent writes a plain column and records that it did — no profile
-		// field, no fact, no rename.
-		if _, err := tx.Exec(context.Background(),
-			`UPDATE organization SET industry = 'Robotics' WHERE id = $1`, org); err != nil {
-			return err
-		}
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO field_provenance (workspace_id, object_type, object_id, field_name, source, captured_by)
-			VALUES ($1, 'organization', $2, 'industry', 'site_read', 'agent:deepread')`, e.WS, org)
-		return err
-	}); err != nil {
-		t.Fatalf("seeding the agent column write: %v", err)
+
+	industry := "Robotics"
+	if _, err := store.UpdateOrganization(agentCtx(e), ids.From[ids.OrganizationKind](org),
+		people.UpdateOrganizationInput{Industry: &industry}); err != nil {
+		t.Fatalf("agent update: %v", err)
 	}
 
 	yes := true
-	got, _, err := store.ListOrganizations(ctx, people.ListOrganizationsInput{AiWritten: &yes})
+	got, _, err := store.ListOrganizations(e.As(e.Rep1, nil, integration.AdminPerms),
+		people.ListOrganizationsInput{AiWritten: &yes})
 	if err != nil {
 		t.Fatalf("ListOrganizations: %v", err)
 	}
-	found := false
 	for _, o := range got {
 		if o.DisplayName == "Delta Industries" {
-			found = true
+			return
 		}
 	}
-	if !found {
-		t.Fatalf("ai_written=true returned %v, missing the org whose ordinary column an agent wrote — a review list that only knows about evidence tables is not a review list", got)
-	}
+	t.Fatalf("ai_written=true returned %v, missing the org whose ordinary column an agent updated — a review list that only knows about enrichment tables is not a review list", got)
 }

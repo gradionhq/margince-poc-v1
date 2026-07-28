@@ -13110,23 +13110,30 @@ type ListLeadsParams struct {
 	// and it is deliberately a different question from `captured_by_kind`.
 	// `captured_by` names who CREATED the row and is never restamped. In the
 	// connector path the AI does not create the record — Gmail capture mints
-	// the organization as `connector:gmail`, and then signature enrichment
-	// renames it and the web dossier fills its profile fields and facts. Asking
-	// "who created it" therefore misses exactly the records worth reviewing.
+	// the organization as `connector:gmail`, and then the AI renames it from a
+	// signature and writes its profile. Asking "who created it" therefore
+	// misses exactly the records worth reviewing.
 	//
-	// So this asks about CONTENT: the record was created by an agent, **or** it
-	// carries at least one agent-written profile field or fact, **or** its name
-	// was promoted from an AI-extracted signature (`organization.name_source =
-	// 'signature'`). Derived from those rows at query time rather than stored,
-	// so it cannot drift from what the record actually holds.
+	// Answered from the **audit log**, which is complete by construction: every
+	// mutation commits its domain row and its audit row in one transaction, so
+	// no agent write reaches a record without leaving one. A record matches
+	// when an agent identity (`actor_id` beginning `agent:`) appears in its
+	// history, or when the record itself was agent-created. Nothing narrower
+	// would do — a list of enrichment tables misses an agent updating an
+	// ordinary column, which is the plainest case there is.
+	//
+	// Matching is on the actor's IDENTITY, not the principal mechanism: AI
+	// tasks run as `system` principals whose `actor_id` is `agent:<task>`.
 	//
 	// Each value's own provenance — the agent that wrote it, the verbatim
-	// evidence, the source URL, the confidence — is already on the per-record
+	// evidence, the source URL, the confidence — is on the per-record
 	// profile-field and fact reads; this filter is how you find the records to
 	// open.
 	//
-	// `leads` accept the parameter for symmetry, where it can only mean
-	// agent-created: a lead carries no profile-field or fact rows.
+	// One limit, stated rather than implied: it can only see as far back as
+	// audit retention keeps. A record whose only AI write has aged out of the
+	// audit log is still matched if the AI CREATED it (that is on the row
+	// itself), and not otherwise.
 	AiWritten *AiWritten             `form:"ai_written,omitempty" json:"ai_written,omitempty"`
 	Status    *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
 	OwnerId   *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
@@ -13506,23 +13513,30 @@ type ListOrganizationsParams struct {
 	// and it is deliberately a different question from `captured_by_kind`.
 	// `captured_by` names who CREATED the row and is never restamped. In the
 	// connector path the AI does not create the record — Gmail capture mints
-	// the organization as `connector:gmail`, and then signature enrichment
-	// renames it and the web dossier fills its profile fields and facts. Asking
-	// "who created it" therefore misses exactly the records worth reviewing.
+	// the organization as `connector:gmail`, and then the AI renames it from a
+	// signature and writes its profile. Asking "who created it" therefore
+	// misses exactly the records worth reviewing.
 	//
-	// So this asks about CONTENT: the record was created by an agent, **or** it
-	// carries at least one agent-written profile field or fact, **or** its name
-	// was promoted from an AI-extracted signature (`organization.name_source =
-	// 'signature'`). Derived from those rows at query time rather than stored,
-	// so it cannot drift from what the record actually holds.
+	// Answered from the **audit log**, which is complete by construction: every
+	// mutation commits its domain row and its audit row in one transaction, so
+	// no agent write reaches a record without leaving one. A record matches
+	// when an agent identity (`actor_id` beginning `agent:`) appears in its
+	// history, or when the record itself was agent-created. Nothing narrower
+	// would do — a list of enrichment tables misses an agent updating an
+	// ordinary column, which is the plainest case there is.
+	//
+	// Matching is on the actor's IDENTITY, not the principal mechanism: AI
+	// tasks run as `system` principals whose `actor_id` is `agent:<task>`.
 	//
 	// Each value's own provenance — the agent that wrote it, the verbatim
-	// evidence, the source URL, the confidence — is already on the per-record
+	// evidence, the source URL, the confidence — is on the per-record
 	// profile-field and fact reads; this filter is how you find the records to
 	// open.
 	//
-	// `leads` accept the parameter for symmetry, where it can only mean
-	// agent-created: a lead carries no profile-field or fact rows.
+	// One limit, stated rather than implied: it can only see as far back as
+	// audit retention keeps. A record whose only AI write has aged out of the
+	// audit log is still matched if the AI CREATED it (that is on the row
+	// itself), and not otherwise.
 	AiWritten *AiWritten          `form:"ai_written,omitempty" json:"ai_written,omitempty"`
 	OwnerId   *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
@@ -13738,23 +13752,30 @@ type ListPeopleParams struct {
 	// and it is deliberately a different question from `captured_by_kind`.
 	// `captured_by` names who CREATED the row and is never restamped. In the
 	// connector path the AI does not create the record — Gmail capture mints
-	// the organization as `connector:gmail`, and then signature enrichment
-	// renames it and the web dossier fills its profile fields and facts. Asking
-	// "who created it" therefore misses exactly the records worth reviewing.
+	// the organization as `connector:gmail`, and then the AI renames it from a
+	// signature and writes its profile. Asking "who created it" therefore
+	// misses exactly the records worth reviewing.
 	//
-	// So this asks about CONTENT: the record was created by an agent, **or** it
-	// carries at least one agent-written profile field or fact, **or** its name
-	// was promoted from an AI-extracted signature (`organization.name_source =
-	// 'signature'`). Derived from those rows at query time rather than stored,
-	// so it cannot drift from what the record actually holds.
+	// Answered from the **audit log**, which is complete by construction: every
+	// mutation commits its domain row and its audit row in one transaction, so
+	// no agent write reaches a record without leaving one. A record matches
+	// when an agent identity (`actor_id` beginning `agent:`) appears in its
+	// history, or when the record itself was agent-created. Nothing narrower
+	// would do — a list of enrichment tables misses an agent updating an
+	// ordinary column, which is the plainest case there is.
+	//
+	// Matching is on the actor's IDENTITY, not the principal mechanism: AI
+	// tasks run as `system` principals whose `actor_id` is `agent:<task>`.
 	//
 	// Each value's own provenance — the agent that wrote it, the verbatim
-	// evidence, the source URL, the confidence — is already on the per-record
+	// evidence, the source URL, the confidence — is on the per-record
 	// profile-field and fact reads; this filter is how you find the records to
 	// open.
 	//
-	// `leads` accept the parameter for symmetry, where it can only mean
-	// agent-created: a lead carries no profile-field or fact rows.
+	// One limit, stated rather than implied: it can only see as far back as
+	// audit retention keeps. A record whose only AI write has aged out of the
+	// audit log is still matched if the AI CREATED it (that is on the row
+	// itself), and not otherwise.
 	AiWritten *AiWritten `form:"ai_written,omitempty" json:"ai_written,omitempty"`
 
 	// OwnerId Filter to a single owner.
