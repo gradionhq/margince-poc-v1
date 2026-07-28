@@ -274,3 +274,58 @@ type BackfillPageResult struct {
 	Captured  int
 	Skipped   int
 }
+
+// Sender is the OPTIONAL outbound seam a connector implements when its provider
+// can transmit a message as the connected user. Type-asserted like Watcher and
+// Backfiller, so the frozen Connector interface is unchanged and a capture-only
+// provider simply does not implement it.
+//
+// Send MUST be idempotent on msg.MessageID. Job delivery is at-least-once, so a
+// provider that retransmits on a retry mails the recipient twice; a connector
+// whose provider can look up a prior send by RFC822 Message-ID must do so
+// whenever msg.Attempt > 0 and return the existing receipt instead.
+type Sender interface {
+	Send(ctx context.Context, auth Auth, msg OutboundMessage) (SendReceipt, error)
+}
+
+// OutboundMessage is one message to transmit, in provider-NEUTRAL form. The
+// connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
+// JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
+// owns decoding on the way in.
+type OutboundMessage struct {
+	To      []string
+	Cc      []string
+	Subject string
+	Body    string // text/plain; the only body shape sent today
+
+	// MessageID is the RFC822 message identity WITHOUT angle brackets —
+	// "abc@host", never "<abc@host>". Stored and compared in this form because
+	// that is how mail parsing yields it, so the copy the provider files back
+	// into the mailbox carries a key that matches the one recorded at send.
+	// The connector adds the brackets when it renders the header.
+	MessageID string
+
+	// InReplyTo threads onto an existing conversation, also unbracketed. Empty
+	// starts a new thread.
+	InReplyTo string
+
+	// References is the unbracketed ancestry chain, oldest first.
+	References []string
+
+	// ListUnsubscribe and ListUnsubscribePost carry the RFC 8058 header pair for
+	// a marketing send; both empty for a transactional purpose, which has nothing
+	// to unsubscribe from.
+	ListUnsubscribe     string
+	ListUnsubscribePost string
+
+	// Attempt is 0 on the first transmission and increments on every retry. It is
+	// how a connector knows to run the prior-send lookup the contract requires.
+	Attempt int
+}
+
+// SendReceipt is what the provider confirmed: its own message identity, and the
+// conversation it filed the message under.
+type SendReceipt struct {
+	ProviderMessageID string
+	ThreadKey         string
+}
