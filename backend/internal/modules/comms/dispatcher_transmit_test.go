@@ -72,8 +72,15 @@ func TestDispatchSnoozesWhenAPolicyAsksToWait(t *testing.T) {
 	if got != OutcomePostponed || wait != 90*time.Second || sender.calls != 0 {
 		t.Errorf("outcome=%v wait=%v calls=%d, want OutcomePostponed/90s/0", got, wait, sender.calls)
 	}
-	if store.failed == "" {
+	if store.deferred == "" {
 		t.Error("deferred with no reason; an operator cannot tell which rule deferred it")
+	}
+	// The DEFERRAL transition, not the failure one: a deferral that noted a
+	// failure would also spend a rung of the transmit ladder this dispatch
+	// never used, and a paced mailbox would park as "exhausted" without ever
+	// having reached the provider.
+	if store.failed != "" {
+		t.Errorf("a postponement recorded a failure (%q); it must record a deferral, which gives the attempt back", store.failed)
 	}
 }
 
@@ -404,7 +411,7 @@ func TestDispatchRetriesWhenATransitionFailsForANonTerminalReason(t *testing.T) 
 		policies []SendPolicy
 	}{
 		{"park", &fakeStore{delivery: liveDelivery(), parkErr: dbDown}, fakeResolver{err: ErrNoMailbox}, nil},
-		{"postpone", &fakeStore{delivery: liveDelivery(), failedErr: dbDown}, sendingResolver(), []SendPolicy{waitPolicy{d: time.Minute}}},
+		{"postpone", &fakeStore{delivery: liveDelivery(), deferErr: dbDown}, sendingResolver(), []SendPolicy{waitPolicy{d: time.Minute}}},
 		{"failure note", &fakeStore{delivery: liveDelivery(), failedErr: dbDown}, fakeResolver{err: errors.New("keyvault timeout")}, nil},
 		{"send receipt", &fakeStore{delivery: liveDelivery(), sentErr: dbDown}, sendingResolver(), nil},
 	} {

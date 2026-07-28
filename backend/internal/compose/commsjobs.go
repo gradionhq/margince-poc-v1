@@ -65,10 +65,20 @@ const minSendSnooze = time.Second
 // which can be slow before it is wrong.
 const sendTimeout = 5 * time.Minute
 
-// sendInsertOpts is the enqueue policy for one delivery. No uniqueness: the
-// delivery row is minted per send and the job names it, so there is nothing to
-// deduplicate against — and a unique-by-args window would silently drop the
-// second of two legitimate sends staged in the same instant.
+// sendInsertOpts is the enqueue policy for one delivery, and the ONE place the
+// ladder length is declared — the dispatcher's exhaustion guard reads its bound
+// from here (newSendWorker) rather than from a second copy of the constant.
+//
+// No uniqueness: the delivery row is minted per send and the job names it, so
+// there is nothing to deduplicate against — and a unique-by-args window would
+// silently drop the second of two legitimate sends staged in the same instant.
+//
+// No queue of its own either, unlike the deep-read and rate-refresh lanes. The
+// criterion those two were split out on is job LENGTH — a multi-minute crawl
+// evicting short maintenance work from the default pool. A send is the short
+// kind: one bounded network round trip, and a paced one snoozes rather than
+// holding its slot. It belongs with the default queue's other jobs, not with
+// the long ones.
 func sendInsertOpts() *river.InsertOpts {
 	return &river.InsertOpts{MaxAttempts: sendMaxAttempts}
 }
@@ -121,12 +131,29 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		return err
 	case comms.OutcomeSent, comms.OutcomeParked, comms.OutcomeSkipped:
 		// Finished, each in its own way: the row records which, and there is
-		// nothing left for the ladder to do.
+		// nothing left for the ladder to do. A terminal outcome carrying an
+		// error is a broken contract, not a retryable fault — surface it
+		// rather than let it disappear because this branch returns nil.
+		if err != nil {
+			return fmt.Errorf("comms_send_email: delivery %s reported terminal outcome %q with an error: %w",
+				job.Args.DeliveryID, outcome, err)
+		}
 		return nil
 	default:
 		return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q", job.Args.DeliveryID, outcome)
 	}
 }
+
+// mailboxSenders is the capture lookup the dispatcher's resolver needs, and
+// nothing more. Narrowed to the one method for the same reason the
+// deliveryDispatcher seam above exists: the translation below is the branch
+// whose mis-reading permanently destroys mail, so it must be provable without
+// a database. *capture.Registry is the only implementation the product ships.
+type mailboxSenders interface {
+	SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error)
+}
+
+var _ mailboxSenders = (*capture.Registry)(nil)
 
 // commsResolver resolves the transmitting mailbox over the capture registry —
 // the cross-module edge comms must not hold itself.
@@ -136,7 +163,7 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 // else is a failure to get an answer, and turning one of those into a parking
 // sentinel would permanently destroy legitimate mail that nothing is wrong
 // with.
-type commsResolver struct{ registry *capture.Registry }
+type commsResolver struct{ registry mailboxSenders }
 
 var _ comms.ConnectionResolver = commsResolver{}
 
@@ -157,6 +184,18 @@ func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider 
 	return sender, auth, granted, nil
 }
 
+// mailboxGrants is the scopes-only half of the same capture lookup. The
+// pre-flight deliberately does NOT take mailboxSenders: resolving the
+// credential would unseal a secret to answer a question about scopes, spending
+// a vault round trip on every send request and turning a keyvault blip into a
+// user-facing refusal — where the delivery path classifies the identical fault
+// as transient and retries it.
+type mailboxGrants interface {
+	GrantedScopesFor(ctx context.Context, userID ids.UserID, provider string) ([]string, error)
+}
+
+var _ mailboxGrants = (*capture.Registry)(nil)
+
 // mailboxAuthority answers the request-time pre-flight over the SAME registry
 // the connect flow writes to, so what the user just connected is what the
 // check reads.
@@ -166,7 +205,7 @@ func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider 
 // a check that only asked "is something connected?" would pass all of them and
 // then park every send.
 type mailboxAuthority struct {
-	registry *capture.Registry
+	grants   mailboxGrants
 	provider string
 }
 
@@ -184,9 +223,9 @@ func (m mailboxAuthority) SendCapable(ctx context.Context) (bool, error) {
 	if !sends {
 		return false, nil
 	}
-	_, _, granted, err := m.registry.SenderFor(ctx, ids.From[ids.UserKind](actor.UserID), m.provider)
+	granted, err := m.grants.GrantedScopesFor(ctx, ids.From[ids.UserKind](actor.UserID), m.provider)
 	switch {
-	case errors.Is(err, capture.ErrNoConnection), errors.Is(err, capture.ErrConnectorCannotSend):
+	case errors.Is(err, capture.ErrNoConnection):
 		return false, nil
 	case err != nil:
 		// A pre-flight that cannot ask must not answer. Reporting the fault
@@ -295,7 +334,9 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		p.MaxAge,
 		// The SAME ladder length River enqueues with (sendInsertOpts): the
 		// dispatcher parks on the last rung, and it can only know which rung
-		// that is by being told the runner's own number.
-		sendMaxAttempts,
+		// that is by being told the runner's own number. Read off the insert
+		// options rather than the constant, so the two cannot be changed
+		// apart: there is exactly one place the ladder length is declared.
+		sendInsertOpts().MaxAttempts,
 	)}
 }

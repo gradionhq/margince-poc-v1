@@ -326,6 +326,13 @@ func WithGraphCapture(c GraphConfig) Option {
 // transport (api role). It requires the vault (so WithKeyvault must precede it
 // in the option list) and a fully-configured app; absent any of those the
 // connector surface keeps its declared-but-unimplemented 501 by omission.
+//
+// It ALSO installs the outbound send-grant pre-flight (WithMailbox) over the
+// registry it builds, so this option governs part of the send path too: with
+// it, a user whose mailbox holds no send scope is refused at request time with
+// an actionable 422; without it that check is simply absent and the refusal
+// happens later, at transmission, where only an operator sees it. The
+// placement is not incidental — see the comment at the wiring below.
 func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		// Without a vault the connect flow can't seal the refresh token, so
@@ -353,7 +360,7 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 		// there is no grant to pre-flight and the check is absent by
 		// omission, exactly as the connect surface is.
 		WithMailbox(mailboxAuthority{
-			registry: s.connectorHandlers.registry,
+			grants:   s.connectorHandlers.registry,
 			provider: activities.SendProvider,
 		})(s, pool)
 	}

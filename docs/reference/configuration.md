@@ -49,6 +49,14 @@ Operational endpoints (served next to `/v1`):
 
 ## cmd/worker — the background process role
 
+**Outbound mail does not leave without this process.** Every role that accepts
+a send stages it — the api's HTTP handler, the MCP `send_email` tool, the
+automation send action — but only `cmd/worker` registers the worker that
+transmits (`comms_send_email`). In an api-only deployment an accepted send is
+recorded on the timeline, answers `202`, and then sits `pending` in
+`comms_outbound` indefinitely with no reason string, because nothing has yet
+tried and failed. Run a worker, or accept that mail is queued and not sent.
+
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |

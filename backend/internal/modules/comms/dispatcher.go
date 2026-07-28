@@ -47,6 +47,7 @@ type deliveryStore interface {
 	RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error
 	Park(ctx context.Context, id ids.UUID, reason string) error
 	RecordFailure(ctx context.Context, id ids.UUID, reason string) error
+	RecordDeferral(ctx context.Context, id ids.UUID, reason string) error
 }
 
 var _ deliveryStore = (*Store)(nil)
@@ -388,17 +389,23 @@ func (d *Dispatcher) retry(ctx context.Context, id ids.UUID, cause error) (Outco
 
 // postpone records which rule is holding the delivery back and asks the caller
 // to try again after wait, so an operator seeing a deferred message knows what
-// deferred it.
+// deferred it. It also hands back the attempt Load counted, because this
+// dispatch transmitted nothing.
 //
-// A postponement must not consume a rung of the retry ladder. The exhaustion
-// guard runs AFTER the policy chain, so on the last rung a deferral is
-// returned where a park would otherwise be; a caller that implements the wait
-// by burning an attempt leaves that row pending with no attempts left and
-// nothing that would ever move it — precisely the state the guard exists to
-// prevent. Implement the wait as a reschedule that restores the attempt, never
+// A postponement must not consume a rung of the retry ladder, on EITHER side of
+// the seam. The row's own counter is restored here (RecordDeferral); the
+// caller's must be restored too — the exhaustion guard runs AFTER the policy
+// chain, so on the last rung a deferral is returned where a park would
+// otherwise be, and a caller that implements the wait by burning an attempt
+// leaves that row pending with no attempts left and nothing that would ever
+// move it. Implement the wait as a reschedule that restores the attempt, never
 // as a failed one.
+//
+// With both restored, a permanently paced delivery is bounded by maxAge alone
+// (pace) and parks with a reason that names the pacing — not by the transmit
+// ladder, which it never spent.
 func (d *Dispatcher) postpone(ctx context.Context, id ids.UUID, reason string, wait time.Duration) (Outcome, time.Duration, error) {
-	if err := d.store.RecordFailure(ctx, id, reason); err != nil {
+	if err := d.store.RecordDeferral(ctx, id, reason); err != nil {
 		if errors.Is(err, ErrTerminal) {
 			return OutcomeSkipped, 0, nil
 		}

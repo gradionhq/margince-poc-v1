@@ -142,10 +142,15 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	return id, nil
 }
 
-// Load reads one delivery and counts the attempt about to be made. It returns
-// ErrTerminal for a delivery that already finished — or was never staged in
-// this workspace — which is how a redelivered job stops without transmitting,
-// rather than dereferencing a row that is not there.
+// Load reads one delivery and counts the attempt about to be made — durably,
+// before anything can reach the provider, so a crash mid-send can never leave
+// the retry looking like a first send. A dispatch that turns out to transmit
+// nothing gives the rung back (RecordDeferral); counting first and restoring
+// is what keeps the failure direction conservative.
+//
+// It returns ErrTerminal for a delivery that already finished — or was never
+// staged in this workspace — which is how a redelivered job stops without
+// transmitting, rather than dereferencing a row that is not there.
 func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	var d Delivery
 	var recipients, cc, refs []byte
@@ -210,6 +215,30 @@ func (s *Store) Park(ctx context.Context, id ids.UUID, reason string) error {
 // silently reopened or dropped.
 func (s *Store) RecordFailure(ctx context.Context, id ids.UUID, reason string) error {
 	return s.update(ctx, `UPDATE comms_outbound SET reason = $2 WHERE id = $1 AND status = 'pending'`, id, reason)
+}
+
+// RecordDeferral notes why a delivery is being held back AND gives back the
+// attempt Load counted, in one statement.
+//
+// attempts means TRANSMISSION attempts — both readers depend on it meaning
+// that. The exhaustion guard parks a delivery whose ladder is spent, and the
+// connector's prior-send lookup fires on a non-zero count precisely because a
+// previous attempt may already have put the message on the wire. A dispatch
+// that ends in a deferral put nothing on the wire: it reached no provider, so
+// it must consume no rung. Leaving the increment in place would park a paced
+// delivery as "ladder exhausted" after N windows without it ever having tried
+// to send, and would make the maximum-age bound unreachable.
+//
+// The restore is deliberately the ONLY way the counter goes down, and it is
+// safe in the crash direction: Load's increment is already durable before
+// anything can reach the provider, so a crash between the two leaves the count
+// one too HIGH — an early park, never a retry that skips its prior-send lookup
+// and mails a real recipient twice.
+func (s *Store) RecordDeferral(ctx context.Context, id ids.UUID, reason string) error {
+	return s.update(ctx, `
+		UPDATE comms_outbound
+		   SET reason = $2, attempts = greatest(attempts - 1, 0)
+		 WHERE id = $1 AND status = 'pending'`, id, reason)
 }
 
 // update runs a status-guarded transition and reports ErrTerminal — never

@@ -35,15 +35,46 @@ var ErrNoConnection = errors.New("capture: no live connection for this user and 
 // it.
 var ErrConnectorCannotSend = errors.New("capture: this connector cannot transmit messages")
 
-// SenderFor resolves the transmitting connection for one user and provider:
-// the connector's Sender seam, its unsealed credential, and the scopes the
-// PROVIDER says the grant holds. It is the send path's entry point, which
-// knows a user and a provider rather than a connection id.
+// sendableConnection is the row predicate BOTH send-side lookups select on,
+// spelled once so the pre-flight and the transmission can never disagree about
+// which connections count as live.
 //
 // The status filter is SyncOnce's, and for the same reason: 'error' is a
 // degraded connection, not a dead one, and reading it as "no mailbox" would
 // let a transient sync failure permanently park mail. Only 'disconnected' and
 // 'reauth_required' mean there is nothing to send through.
+const sendableConnection = `
+	 WHERE user_id = $1 AND provider = $2
+	   AND status IN ('connected','error') AND archived_at IS NULL`
+
+// GrantedScopesFor reports the scopes the PROVIDER says one user's live
+// connection holds — and resolves no credential.
+//
+// That omission is the point. The request-time pre-flight needs only the
+// grant, so unsealing the mailbox's secret to answer a question about scopes
+// would spend a vault round trip on every send request and turn a keyvault
+// blip into a refusal the user cannot act on. ErrNoConnection is the only fact
+// it reports; every other error is a failure to get an answer.
+func (r *Registry) GrantedScopesFor(ctx context.Context, userID ids.UserID, provider string) ([]string, error) {
+	var granted []string
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT provider_scopes FROM capture_connection`+sendableConnection,
+			userID, provider).Scan(&granted)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNoConnection
+	}
+	if err != nil {
+		return nil, fmt.Errorf("capture: reading the connection's granted scopes: %w", err)
+	}
+	return granted, nil
+}
+
+// SenderFor resolves the transmitting connection for one user and provider:
+// the connector's Sender seam, its unsealed credential, and the scopes the
+// PROVIDER says the grant holds. It is the send path's entry point, which
+// knows a user and a provider rather than a connection id.
 //
 // Everything this cannot answer is returned as the failure it is. Only the two
 // sentinels above are facts about the deployment; a vault outage or a database
@@ -58,10 +89,8 @@ func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider st
 		granted       []string
 	)
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT credential_ref, auth, provider_scopes FROM capture_connection
-			 WHERE user_id = $1 AND provider = $2
-			   AND status IN ('connected','error') AND archived_at IS NULL`,
+		return tx.QueryRow(ctx,
+			`SELECT credential_ref, auth, provider_scopes FROM capture_connection`+sendableConnection,
 			userID, provider).Scan(&credentialRef, &authBytes, &granted)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

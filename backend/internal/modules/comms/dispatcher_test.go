@@ -29,15 +29,17 @@ type fakeStore struct {
 	delivery Delivery
 	loadErr  error
 
-	sent   string
-	parked string
-	failed string
+	sent     string
+	parked   string
+	failed   string
+	deferred string
 
 	// Per-transition faults. ErrTerminal from any of them is the benign
 	// no-op the store documents: a newer attempt already closed the row.
 	sentErr   error
 	parkErr   error
 	failedErr error
+	deferErr  error
 }
 
 func (f *fakeStore) Load(context.Context, ids.UUID) (Delivery, error) { return f.delivery, f.loadErr }
@@ -55,6 +57,18 @@ func (f *fakeStore) Park(_ context.Context, _ ids.UUID, r string) error {
 func (f *fakeStore) RecordFailure(_ context.Context, _ ids.UUID, r string) error {
 	f.failed = r
 	return f.failedErr
+}
+
+// RecordDeferral is a DISTINCT transition, not an alias of RecordFailure: it
+// also gives back the attempt Load counted. Recording it separately here is
+// what lets a test prove the dispatcher took the deferral path rather than
+// noting a failure that would quietly spend a rung of the transmit ladder.
+func (f *fakeStore) RecordDeferral(_ context.Context, _ ids.UUID, r string) error {
+	f.deferred = r
+	if f.deferErr == nil {
+		f.delivery.Attempts = max(f.delivery.Attempts-1, 0)
+	}
+	return f.deferErr
 }
 
 type fakeSender struct {
