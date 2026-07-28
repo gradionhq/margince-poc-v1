@@ -158,6 +158,14 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		}
 		return nil
 	default:
+		// The cause travels WITH the unknown outcome. A dispatcher that
+		// returned a zero Outcome alongside a real error lands here, and
+		// reporting only "unknown outcome" would replace the one thing that
+		// says what actually went wrong with a description of the symptom.
+		if err != nil {
+			return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q: %w",
+				job.Args.DeliveryID, outcome, err)
+		}
 		return fmt.Errorf("comms_send_email: delivery %s reported unknown outcome %q", job.Args.DeliveryID, outcome)
 	}
 }
@@ -177,10 +185,11 @@ var _ mailboxSenders = (*capture.Registry)(nil)
 // the cross-module edge comms must not hold itself.
 //
 // The translation is the whole point of this type, and it is deliberately
-// narrow. Only two capture answers are FACTS about the deployment; everything
-// else is a failure to get an answer, and turning one of those into a parking
-// sentinel would permanently destroy legitimate mail that nothing is wrong
-// with.
+// narrow. Only three capture answers are FACTS about the deployment — no
+// connection, a capture-only connector, and a provider this role has no
+// integration for; everything else is a failure to get an answer, and turning
+// one of those into a parking sentinel would permanently destroy legitimate
+// mail that nothing is wrong with.
 type commsResolver struct{ registry mailboxSenders }
 
 var _ comms.ConnectionResolver = commsResolver{}
@@ -193,6 +202,8 @@ func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider 
 		return nil, nil, nil, fmt.Errorf("%w: %w", comms.ErrNoMailbox, err)
 	case errors.Is(err, capture.ErrConnectorCannotSend):
 		return nil, nil, nil, fmt.Errorf("%w: %w", comms.ErrCannotSend, err)
+	case errors.Is(err, capture.ErrConnectorNotConfigured):
+		return nil, nil, nil, fmt.Errorf("%w: %w", comms.ErrProviderNotConfigured, err)
 	case err != nil:
 		// Unchanged, and therefore transient: a vault blip, a database
 		// timeout, or a connector this role did not register are all reasons

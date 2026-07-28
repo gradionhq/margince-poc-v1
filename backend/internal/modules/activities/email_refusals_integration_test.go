@@ -187,6 +187,111 @@ func TestSendEmailRefusesAnAnchorOutsideTheCallersRowScope(t *testing.T) {
 	}
 }
 
+// The whole send path rests on one ordering: AUTHORIZATION REFUSES BEFORE
+// ANYTHING ELSE ANSWERS. A caller with no rights over the anchor is owed the
+// row-scope answer and nothing more — a 500 naming this installation's delivery
+// wiring tells them the send path exists and how it is composed, which is a
+// fact about the deployment they reached by pointing at a record they may not
+// read.
+func TestSendEmailAnswersAnUnauthorizedCallerBeforeTheWiringGuards(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	e.linkToPersonOwnedBy(t, anchor, e.other)
+
+	// Composed with NO delivery machinery: the wiring guard would fire on this
+	// call if it ran first.
+	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeOwn), anchor, sendInput("transactional"), stubConsentGate{}, nil)
+	if errors.Is(err, errNoDeliveryStager) {
+		t.Fatal("an unauthorized caller learned the send path has no delivery machinery wired")
+	}
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("send anchored outside the caller's row scope → %v, want ErrNotFound (existence-hiding)", err)
+	}
+}
+
+// The same ordering for the OBJECT grant: a caller who may read the anchor but
+// not create an activity gets the denial, not the composition state.
+func TestSendEmailAnswersAMissingCreateGrantBeforeTheWiringGuards(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+
+	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.readOnly(), anchor, sendInput("transactional"), stubConsentGate{}, nil)
+	if errors.Is(err, errNoDeliveryStager) {
+		t.Fatal("a caller with no create grant learned the send path has no delivery machinery wired")
+	}
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Fatalf("send without a create grant → %v, want ErrPermissionDenied", err)
+	}
+}
+
+// …and once the caller IS authorized, the wiring guard is what refuses: a send
+// nothing will ever transmit must not leave a timeline entry claiming a message
+// went out.
+func TestSendEmailRefusesAnAuthorizedSendWithNoDeliveryMachinery(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+
+	_, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, nil)
+	if !errors.Is(err, errNoDeliveryStager) {
+		t.Fatalf("send with no delivery stager → %v, want errNoDeliveryStager", err)
+	}
+	if n := e.outboundCount(t); n != 0 {
+		t.Fatalf("%d outbound activities survived a refused send, want 0", n)
+	}
+}
+
+// The sender's OWN authority answers before the recipients' consent does. A
+// user who holds no send grant gets the refusal they can act on — "reconnect
+// your mailbox" — rather than a verdict about whether the people they addressed
+// consented, which is a fact about those people they did not earn the right to
+// observe by attempting a send they cannot make.
+func TestSendEmailAnswersTheMailboxRefusalBeforeTheConsentGate(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	gate := &recordingConsentGate{err: apperrors.ErrConsentNotGranted}
+	store := e.store(stubUnsubscribeLinker{}).WithMailbox(stubMailbox{capable: false})
+
+	_, err := store.SendEmail(e.as(principal.RowScopeAll), anchor, sendInput("transactional"), gate, stager)
+	var refusal *MailboxNotSendCapableError
+	if !errors.As(err, &refusal) {
+		t.Fatalf("send with no send grant → %v, want a MailboxNotSendCapableError", err)
+	}
+	if gate.consulted {
+		t.Error("the consent gate answered for a caller who may not send at all")
+	}
+}
+
+// An anchor that is not mail carries no RFC822 identity, so the send starts a
+// conversation instead of threading onto an identifier no mail client can
+// resolve. Emitting a calendar system's opaque id as In-Reply-To breaks the
+// header for every recipient.
+func TestSendEmailThreadsOntoNothingWhenTheAnchorIsNotMail(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedNonMailAnchor(t, "evt-88231@google.com")
+	stager := &recordingStager{}
+
+	sent, err := e.store(stubUnsubscribeLinker{}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
+	if err != nil {
+		t.Fatalf("SendEmail: %v", err)
+	}
+	staged := stager.only(t)
+	if staged.InReplyTo != "" || len(staged.References) != 0 {
+		t.Fatalf("staged In-Reply-To=%q References=%v from a calendar anchor; those headers resolve to no message",
+			staged.InReplyTo, staged.References)
+	}
+	// A message that answers nothing is its own thread root, keyed on the
+	// identity it was minted with — the key capture derives when it reads the
+	// sent copy back out of the mailbox.
+	if sent.SourceId == nil || staged.ThreadKey != *sent.SourceId {
+		t.Fatalf("staged thread key = %q, want this message's own identity %v", staged.ThreadKey, sent.SourceId)
+	}
+}
+
 // Send and capture key the same column. The send writes thread_key at write
 // time; capture's echo of the same natural key is an ON CONFLICT DO NOTHING
 // upsert, which the log path answers by returning the existing row untouched

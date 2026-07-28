@@ -30,6 +30,28 @@ const (
 	testUnsubscribeTok = "tok-1"
 )
 
+// stubConsentGate answers the suppression seam without a consent store, so a
+// test can drive the send path past (or into) the gate deliberately.
+type stubConsentGate struct{ err error }
+
+func (g stubConsentGate) RequireGrantedForEmails(context.Context, []string, string) error {
+	return g.err
+}
+
+// recordingConsentGate remembers WHETHER it was asked at all. The send path's
+// ordering invariant is about what a caller can observe, and a gate that
+// answered is observable even when its answer is discarded — only "never
+// consulted" proves an earlier refusal came first.
+type recordingConsentGate struct {
+	err       error
+	consulted bool
+}
+
+func (g *recordingConsentGate) RequireGrantedForEmails(context.Context, []string, string) error {
+	g.consulted = true
+	return g.err
+}
+
 // recordingStager captures what the send path hands the delivery machinery,
 // and can refuse, so a staging failure's effect on the activity is provable.
 type recordingStager struct {
@@ -139,6 +161,40 @@ func (e *sendEnv) seedAnchor(t *testing.T, sourceID, threadKey string) ids.Activ
 		        'gmail', 'human:x', NULLIF($4, ''))`,
 		id, e.ws, sourceID, threadKey); err != nil {
 		t.Fatalf("seeding the anchor: %v", err)
+	}
+	return id
+}
+
+// readOnly binds the same rep with the anchor readable but no create grant —
+// the caller who may look at the conversation and may not answer it.
+func (e *sendEnv) readOnly() context.Context {
+	ctx := principal.WithWorkspaceID(context.Background(), e.ws)
+	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
+	return principal.WithActor(ctx, principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:" + e.rep.String(), UserID: e.rep,
+		Permissions: principal.Permissions{
+			RoleKeys: []string{"rep"},
+			Objects: map[string]principal.ObjectGrant{
+				"activity": {Read: true},
+				"person":   {Read: true},
+			},
+			RowScope: principal.RowScopeAll,
+		},
+	})
+}
+
+// seedNonMailAnchor writes an anchor captured from a CALENDAR: its source_id is
+// that system's own identifier, which is spelled like an RFC822 identity and is
+// not one. A send anchored here must thread onto nothing.
+func (e *sendEnv) seedNonMailAnchor(t *testing.T, sourceID string) ids.ActivityID {
+	t.Helper()
+	id := ids.New[ids.ActivityKind]()
+	if _, err := e.owner.Exec(context.Background(), `
+		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at,
+		                      source_system, source_id, source, captured_by)
+		VALUES ($1, $2, 'meeting', 'Discovery call', now(), 'gcal', $3, 'gcal', 'connector:gcal')`,
+		id, e.ws, sourceID); err != nil {
+		t.Fatalf("seeding the calendar anchor: %v", err)
 	}
 	return id
 }

@@ -52,6 +52,15 @@ CREATE TABLE comms_outbound (
   sent_at             timestamptz NULL,
   created_at          timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT comms_outbound_status CHECK (status IN ('pending','sent','parked')),
+  -- The three jsonb columns are LISTS, and the type check says so. Without it a
+  -- nil Go slice encodes as JSON null, which is a legal jsonb value: the row
+  -- loads, the dispatcher decodes null into a nil slice, and a message is
+  -- transmitted with no addressees rather than refused. A shape the loader
+  -- cannot distinguish from an empty list belongs to the schema, not to every
+  -- reader.
+  CONSTRAINT comms_outbound_recipients_array CHECK (jsonb_typeof(recipients) = 'array'),
+  CONSTRAINT comms_outbound_cc_array CHECK (jsonb_typeof(cc) = 'array'),
+  CONSTRAINT comms_outbound_references_array CHECK (jsonb_typeof(references_chain) = 'array'),
   CONSTRAINT comms_outbound_message_unique UNIQUE (workspace_id, message_id),
   CONSTRAINT comms_outbound_activity_id_fkey FOREIGN KEY (workspace_id, activity_id)
     REFERENCES activity (workspace_id, id) ON DELETE CASCADE,

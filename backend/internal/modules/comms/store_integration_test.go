@@ -25,12 +25,14 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -182,6 +184,67 @@ func TestStageThenLoadRoundTripsEveryFieldAndCountsTheAttempt(t *testing.T) {
 	// The one Load call above made the first attempt.
 	if got.Attempts != 1 {
 		t.Fatalf("attempts after one Load = %d, want 1 (Load counts the attempt it is about to make)", got.Attempts)
+	}
+	// created_at comes from the INJECTED clock, not the database's now(): the
+	// maximum-age bound that parks a permanently deferred delivery is arithmetic
+	// on this column, and a test that let the server set it could only assert
+	// that age by sleeping.
+	if !got.CreatedAt.Equal(e.clockValue) {
+		t.Fatalf("created_at = %s, want the injected clock's %s", got.CreatedAt, e.clockValue)
+	}
+}
+
+// A delivery with no addressee at all can only be refused later — the consent
+// gate asks about an empty list and answers no — so it is refused here, in the
+// caller's own transaction, rather than staged as a row that will park.
+func TestStagingADeliveryWithNoAddresseeIsRefused(t *testing.T) {
+	e := setupStore(t)
+	in := e.baseInput(e.activity, "msg-noaddressee@example.com")
+	in.Recipients, in.Cc = nil, nil
+
+	err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+		_, err := e.store.StageTx(e.ctx, tx, in)
+		return err
+	})
+	if !errors.Is(err, ErrNoAddressee) {
+		t.Fatalf("staging a delivery addressed to nobody → %v, want ErrNoAddressee", err)
+	}
+}
+
+// A nil Go slice marshals to JSON null, which is a legal jsonb value — the row
+// would load and the dispatcher would decode null into a nil slice, indistinguishable
+// from a list that was written empty. The columns are lists, and both the writer
+// and the schema say so.
+func TestStagedListColumnsAreArraysEvenWhenTheCallerPassedNone(t *testing.T) {
+	e := setupStore(t)
+	in := e.baseInput(e.activity, "msg-nolists@example.com")
+	in.Cc, in.References = nil, nil
+	id := e.stage(t, in)
+
+	var ccType, refsType string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT jsonb_typeof(cc), jsonb_typeof(references_chain) FROM comms_outbound WHERE id = $1`,
+		id).Scan(&ccType, &refsType); err != nil {
+		t.Fatal(err)
+	}
+	if ccType != "array" || refsType != "array" {
+		t.Fatalf("stored cc=%s references_chain=%s, want array/array", ccType, refsType)
+	}
+}
+
+// …and the schema refuses the shape independently of the writer, so a second
+// writer cannot reintroduce it.
+func TestTheSchemaRefusesANonArrayInAListColumn(t *testing.T) {
+	e := setupStore(t)
+	_, err := e.owner.Exec(context.Background(), `
+		INSERT INTO comms_outbound
+		  (id, workspace_id, activity_id, user_id, provider, message_id,
+		   recipients, cc, subject, body, consent_purpose, status)
+		VALUES ($1, $2, $3, $4, 'gmail', 'msg-nullrecipients@example.com',
+		        'null'::jsonb, '[]'::jsonb, 's', 'b', 'transactional', 'pending')`,
+		ids.NewV7(), e.ws, e.activity, e.user)
+	if err == nil {
+		t.Fatal("a delivery with JSON null recipients was accepted; the shape constraint is not enforcing")
 	}
 }
 
@@ -341,8 +404,13 @@ func TestStageTxRollsBackWithItsCallerTransaction(t *testing.T) {
 }
 
 // The (workspace_id, message_id) unique constraint is the idempotency key a
-// re-ingested provider copy of the same message relies on: a second stage
-// of the same message_id must fail, not silently duplicate.
+// re-ingested provider copy of the same message relies on: a second stage of
+// the same message_id must fail, not silently duplicate.
+//
+// It fails in THIS system's words. The raw violation names the SQLSTATE, the
+// constraint and the table; a caller is owed the fact it can act on and not the
+// schema behind it — the same posture the no-actor guard takes a few lines
+// above it in the store.
 func TestStagingTheSameMessageIDTwiceConflicts(t *testing.T) {
 	e := setupStore(t)
 	in := e.baseInput(e.activity, "msg-dupe@example.com")
@@ -352,7 +420,12 @@ func TestStagingTheSameMessageIDTwiceConflicts(t *testing.T) {
 		_, err := e.store.StageTx(e.ctx, tx, e.baseInput(e.activity2, in.MessageID))
 		return err
 	})
-	if err == nil {
-		t.Fatal("staging the same message_id twice succeeded; want the unique constraint to refuse it")
+	if !errors.Is(err, ErrDuplicateMessage) || !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("staging the same message_id twice → %v, want ErrDuplicateMessage (a conflict)", err)
+	}
+	for _, internal := range []string{"SQLSTATE", "constraint", "comms_outbound"} {
+		if strings.Contains(err.Error(), internal) {
+			t.Errorf("refusal %q leaks %q; a caller is owed the fact, not the schema", err, internal)
+		}
 	}
 }

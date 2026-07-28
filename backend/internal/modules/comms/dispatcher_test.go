@@ -13,158 +13,14 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // The gates half of the dispatcher's spec: loading the delivery, resolving
-// the mailbox, and the two fixed gates that can REFUSE a send. The policies
-// that postpone one, and the transmission itself, are in
-// dispatcher_transmit_test.go; the shared harness below serves both.
-//
-// The dispatcher's collaborators are all true boundaries — the database, the
-// provider's transport, the consent authority, the clock — so they are the
-// only things faked here. Nothing asserts call ORDER against a mock; the one
-// ordering invariant that matters (authority refuses before consent answers)
-// is proven by observing whether the consent authority was consulted at all.
-
-type fakeStore struct {
-	delivery Delivery
-	loadErr  error
-
-	sent     string
-	parked   string
-	failed   string
-	deferred string
-
-	// Per-transition faults. ErrTerminal from any of them is the benign
-	// no-op the store documents: a newer attempt already closed the row.
-	sentErr   error
-	parkErr   error
-	failedErr error
-	deferErr  error
-}
-
-func (f *fakeStore) Load(context.Context, ids.UUID) (Delivery, error) { return f.delivery, f.loadErr }
-
-func (f *fakeStore) RecordSent(_ context.Context, _ ids.UUID, p string) error {
-	f.sent = p
-	return f.sentErr
-}
-
-func (f *fakeStore) Park(_ context.Context, _ ids.UUID, r string) error {
-	f.parked = r
-	return f.parkErr
-}
-
-func (f *fakeStore) RecordFailure(_ context.Context, _ ids.UUID, r string) error {
-	f.failed = r
-	return f.failedErr
-}
-
-// RecordDeferral is a DISTINCT transition, not an alias of RecordFailure: it
-// also gives back the attempt Load counted. Recording it separately here is
-// what lets a test prove the dispatcher took the deferral path rather than
-// noting a failure that would quietly spend a rung of the transmit ladder.
-func (f *fakeStore) RecordDeferral(_ context.Context, _ ids.UUID, r string) error {
-	f.deferred = r
-	if f.deferErr == nil {
-		f.delivery.Attempts = max(f.delivery.Attempts-1, 0)
-	}
-	return f.deferErr
-}
-
-type fakeSender struct {
-	calls int
-	seen  connector.OutboundMessage
-	err   error
-}
-
-func (f *fakeSender) Send(_ context.Context, _ connector.Auth, m connector.OutboundMessage) (connector.SendReceipt, error) {
-	f.calls++
-	f.seen = m
-	return connector.SendReceipt{ProviderMessageID: "gmsg1"}, f.err
-}
-
-type fakeResolver struct {
-	sender  connector.Sender
-	granted []string
-	err     error
-}
-
-func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
-	return f.sender, connector.Auth("cred"), f.granted, f.err
-}
-
-// stubConsent records WHO it was asked about, not only what it answered. The
-// recipient list is the gate's whole subject: a gate handed the wrong
-// addressees answers correctly about the wrong people, which is
-// indistinguishable from a pass unless the argument itself is asserted.
-type stubConsent struct {
-	err   error
-	asked []string
-}
-
-func (s *stubConsent) RequireGrantedForEmails(_ context.Context, recipients []string, _ string) error {
-	s.asked = recipients
-	return s.err
-}
-
-// stubSeats answers the live-seat gate. The zero value is a deactivated
-// sender, so a test that means "still employed" has to say so.
-type stubSeats struct {
-	active bool
-	reason string
-	err    error
-}
-
-func (s stubSeats) ActiveSeat(context.Context, ids.UserID) (bool, string, error) {
-	return s.active, s.reason, s.err
-}
-
-// liveSeat is the ordinary case every test that is not ABOUT the seat gate
-// wants: the sender is still a permitted human.
-func liveSeat() stubSeats { return stubSeats{active: true} }
-
-const sendScope = "https://www.googleapis.com/auth/gmail.send"
-
-var testNow = time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
-
-// testMaxAttempts stands in for the ladder length compose reads off River's
-// job configuration; the exhaustion test pins a delivery against it.
-const testMaxAttempts = 5
-
-func liveDelivery() Delivery {
-	return Delivery{
-		ID: ids.NewV7(), UserID: ids.New[ids.UserKind](), Provider: "gmail",
-		MessageID: "abc@margince.test", Recipients: []string{"buyer@example.com"},
-		Cc: []string{"cc@example.com"}, ConsentPurpose: "marketing",
-		Subject: "Re: pricing", Body: "As discussed.",
-		InReplyTo: "anchor@example.com", References: []string{"anchor@example.com"},
-		ListUnsubscribe: "<https://margince.test/u/tok>",
-		Status:          StatusPending, Attempts: 1, CreatedAt: testNow.Add(-time.Minute),
-	}
-}
-
-func newTestDispatcher(store deliveryStore, res ConnectionResolver, consent ConsentGate, policies ...SendPolicy) *Dispatcher {
-	return newSeatedDispatcher(store, res, liveSeat(), consent, policies...)
-}
-
-// newSeatedDispatcher is newTestDispatcher with the seat authority spelled
-// out, for the cases that are about the seat rather than about what comes
-// after it.
-func newSeatedDispatcher(store deliveryStore, res ConnectionResolver, seats SeatAuthority, consent ConsentGate, policies ...SendPolicy) *Dispatcher {
-	return NewDispatcher(store, res, seats, consent, policies, func() time.Time { return testNow }, time.Hour, testMaxAttempts)
-}
-
-// dispatch runs one attempt and drops the postponement interval, which most
-// cases here do not assert on. A case about the interval calls
-// DispatchWithWait directly — the production caller always does, because a
-// postponement the caller does not honor comes back on its own schedule
-// rather than the one the policy asked for.
-func dispatch(ctx context.Context, d *Dispatcher, id ids.UUID) (Outcome, error) {
-	outcome, _, err := d.DispatchWithWait(ctx, id)
-	return outcome, err
-}
+// the mailbox, and the fixed gates that can REFUSE a send. The policies that
+// postpone one and the transmission itself are in
+// dispatcher_transmit_test.go, what an attempt records is in
+// dispatcher_reason_test.go, and the fakes all three ride are in
+// dispatcher_harness_test.go.
 
 // A redelivered job must transmit nothing.
 func TestDispatchOnATerminalDeliveryTransmitsNothing(t *testing.T) {
@@ -233,6 +89,24 @@ func TestDispatchParksWhenTheConnectorCannotSend(t *testing.T) {
 	}
 	if store.parked == "" {
 		t.Error("parked with no reason; an operator cannot act on that")
+	}
+}
+
+// A provider this installation has no integration for is a fact, not an
+// outage. Read as transient it fails identically on every rung, and the
+// exhaustion guard sits AFTER the resolve — so the row would outlive its job
+// and stay pending forever, looking live and never sending.
+func TestDispatchParksWhenTheProviderHasNoConfiguredIntegration(t *testing.T) {
+	sender := &fakeSender{}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newTestDispatcher(store, fakeResolver{err: ErrProviderNotConfigured}, &stubConsent{})
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeParked || sender.calls != 0 {
+		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0", got, sender.calls)
+	}
+	if !strings.Contains(store.parked, "gmail") {
+		t.Errorf("parked reason = %q; it must name the integration an operator has to configure", store.parked)
 	}
 }
 
@@ -330,12 +204,6 @@ func TestDispatchChecksAuthorityBeforeConsent(t *testing.T) {
 	}
 }
 
-type consentFunc func(context.Context, []string, string) error
-
-func (f consentFunc) RequireGrantedForEmails(ctx context.Context, r []string, p string) error {
-	return f(ctx, r, p)
-}
-
 // THE Cc one: a delivery stores its To and Cc apart because the wire needs
 // them apart, and the authoritative gate is owed EVERY addressee. Asking about
 // the To list alone leaves a cc'd person with no suppression at all — their
@@ -356,6 +224,27 @@ func TestDispatchAsksConsentAboutEveryAddresseeIncludingCc(t *testing.T) {
 	want := []string{"buyer@example.com", "second@example.com", "cc@example.com"}
 	if !slices.Equal(consent.asked, want) {
 		t.Errorf("consent was asked about %v, want every addressee %v", consent.asked, want)
+	}
+}
+
+// A recipient stored with surrounding whitespace is ONE addressee, and the gate
+// must be handed the same spelling this helper deduped on. Handing on the padded
+// original refuses a legitimate send: the gate matches an address, finds
+// nothing, and the delivery parks as "consent not granted" — a valid message
+// killed under a reason that reads as a recipient who opted out.
+func TestDispatchAsksConsentAboutTheNormalizedAddressItDedupedOn(t *testing.T) {
+	consent := &stubConsent{}
+	store := &fakeStore{delivery: liveDelivery()}
+	store.delivery.Recipients = []string{"  Buyer@Example.com\t"}
+	store.delivery.Cc = nil
+	d := newTestDispatcher(store, sendingResolver(), consent)
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil || got != OutcomeSent {
+		t.Fatalf("outcome=%v err=%v, want OutcomeSent", got, err)
+	}
+	if !slices.Equal(consent.asked, []string{"buyer@example.com"}) {
+		t.Errorf("consent was asked about %v, want the normalized address the dedupe keyed on", consent.asked)
 	}
 }
 

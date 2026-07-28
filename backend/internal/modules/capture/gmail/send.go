@@ -54,6 +54,13 @@ var _ connector.Sender = (*Connector)(nil)
 // one-job-per-delivery assumption, not this lookup, is what keeps that from
 // happening in practice.
 func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector.OutboundMessage) (connector.SendReceipt, error) {
+	// Before anything reaches Google: a message with no usable identity cannot
+	// be found again by the prior-send lookup above, so transmitting it would
+	// mail the recipient once per retry with nothing able to tell that it had
+	// already gone.
+	if err := msg.Validate(); err != nil {
+		return connector.SendReceipt{}, err
+	}
 	var st authState
 	if err := json.Unmarshal(auth, &st); err != nil {
 		return connector.SendReceipt{}, fmt.Errorf("gmail: malformed auth bundle: %w", err)
@@ -99,9 +106,9 @@ func bracket(id string) string {
 func buildRFC822(from string, msg connector.OutboundMessage) string {
 	var b strings.Builder
 	writeHeader(&b, "From", from)
-	writeHeader(&b, "To", strings.Join(msg.To, ", "))
-	if len(msg.Cc) > 0 {
-		writeHeader(&b, "Cc", strings.Join(msg.Cc, ", "))
+	writeHeader(&b, "To", addressList(msg.To))
+	if cc := addressList(msg.Cc); cc != "" {
+		writeHeader(&b, "Cc", cc)
 	}
 	// Encoded-word per RFC 2047 so a non-ASCII subject survives the wire.
 	writeHeader(&b, "Subject", mime.QEncoding.Encode("utf-8", msg.Subject))
@@ -125,6 +132,21 @@ func buildRFC822(from string, msg connector.OutboundMessage) string {
 	b.WriteString("\r\n")
 	b.WriteString(msg.Body)
 	return b.String()
+}
+
+// addressList renders one address header value: each address trimmed, empties
+// dropped, comma-separated. The trim is the same normalization the send path's
+// consent gate matches on, so the address a recipient is asked about and the
+// address the header carries are one string — a stored " a@x " must not become
+// folding whitespace around an addr-spec that some clients then display raw.
+func addressList(addrs []string) string {
+	out := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		if trimmed := strings.TrimSpace(addr); trimmed != "" {
+			out = append(out, trimmed)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // writeHeader emits one header line with CR and LF removed from the value: a

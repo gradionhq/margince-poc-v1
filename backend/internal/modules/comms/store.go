@@ -15,6 +15,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -33,6 +34,20 @@ const (
 // A redelivered job hits this, and it is a normal at-least-once outcome rather
 // than a failure.
 var ErrTerminal = errors.New("comms: delivery is already terminal")
+
+// ErrDuplicateMessage marks a second staging of a message identity this
+// workspace already staged. It is the (workspace_id, message_id) idempotency
+// key answering, phrased so the caller learns what to do without learning what
+// the database is called: a wrapped pgx violation carries the constraint and
+// table names, and a client is owed neither.
+var ErrDuplicateMessage = fmt.Errorf(
+	"comms: this message identity is already staged for delivery in this workspace: %w", apperrors.ErrConflict)
+
+// ErrNoAddressee marks a delivery staged with nobody to reach. A message with
+// neither a To nor a Cc address can only be refused later — the consent gate
+// asks about an empty list and answers no — so it is refused here, where the
+// caller is still in the transaction that would have written the row.
+var ErrNoAddressee = errors.New("comms: a delivery needs at least one recipient or cc address")
 
 // Store is the comms_outbound seam: staging, loading with attempt-counting,
 // and the four terminal/retry transitions. It carries no RBAC gate of its
@@ -117,17 +132,20 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	if actor.UserID.IsZero() {
 		return ids.UUID{}, fmt.Errorf("comms: staging a delivery requires an authenticated app_user identity, got principal type %q", actor.Type)
 	}
+	if len(in.Recipients) == 0 && len(in.Cc) == 0 {
+		return ids.UUID{}, ErrNoAddressee
+	}
 	userID := ids.From[ids.UserKind](actor.UserID)
 
-	recipients, err := json.Marshal(in.Recipients)
+	recipients, err := marshalList(in.Recipients)
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding recipients: %w", err)
 	}
-	cc, err := json.Marshal(in.Cc)
+	cc, err := marshalList(in.Cc)
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding cc: %w", err)
 	}
-	refs, err := json.Marshal(in.References)
+	refs, err := marshalList(in.References)
 	if err != nil {
 		return ids.UUID{}, fmt.Errorf("comms: encoding references: %w", err)
 	}
@@ -143,9 +161,27 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 		id, in.ActivityID, userID, in.Provider, in.MessageID,
 		recipients, cc, in.Subject, in.Body, in.ConsentPurpose,
 		in.InReplyTo, refs, in.ThreadKey, in.ListUnsubscribe, s.now().UTC()); err != nil {
+		// The idempotency key is an ANSWER, and it is mapped rather than
+		// wrapped: a raw violation carries the constraint and table names, and
+		// no caller is owed the schema behind a refusal it can act on.
+		if storekit.IsUniqueViolation(err) {
+			return ids.UUID{}, ErrDuplicateMessage
+		}
 		return ids.UUID{}, fmt.Errorf("comms: staging delivery: %w", err)
 	}
 	return id, nil
+}
+
+// marshalList encodes one address or reference list as a JSON ARRAY, never
+// null. A nil Go slice marshals to null, and the column's shape constraint
+// refuses it for a reason worth restating here: null and [] decode to the same
+// nil slice, so a delivery whose list was never written would be
+// indistinguishable from one addressed to nobody.
+func marshalList(values []string) ([]byte, error) {
+	if values == nil {
+		values = []string{}
+	}
+	return json.Marshal(values)
 }
 
 // Load reads one delivery and counts the attempt about to be made — durably,

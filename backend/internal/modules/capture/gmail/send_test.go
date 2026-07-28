@@ -253,3 +253,61 @@ func TestTheMessageIDSurvivesARoundTripThroughMailmap(t *testing.T) {
 		t.Errorf("round-tripped SourceID = %q, want %q — the echo will not collapse", got, want)
 	}
 }
+
+// The idempotency contract has a precondition: Send is required to be
+// idempotent on the message identity, and the retransmission guard finds a
+// prior send by searching for exactly that identity. A message carrying none —
+// or one Gmail's rfc822msgid: operator cannot match — makes the guarantee
+// unkeepable, so it must be refused before anything reaches Google rather than
+// mailed once per retry.
+func TestSendRefusesAMessageWithNoUsableIdentityBeforeAnyProviderCall(t *testing.T) {
+	for _, tc := range []struct{ name, id string }{
+		{"empty", ""},
+		{"no domain", "abc"},
+		{"already bracketed", "<abc@margince.test>"},
+		{"embedded newline", "abc@margince\n.test"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls int
+			srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls++ }))
+			defer srv.Close()
+
+			c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
+			_, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
+				To: []string{"buyer@example.com"}, Subject: "Re: pricing",
+				Body: "As discussed.", MessageID: tc.id,
+			})
+			if !errors.Is(err, connector.ErrInvalidMessageID) {
+				t.Fatalf("Send with identity %q → %v, want ErrInvalidMessageID", tc.id, err)
+			}
+			if calls != 0 {
+				t.Errorf("%d provider calls for a message that cannot be retried safely", calls)
+			}
+		})
+	}
+}
+
+// The consent gate matches a trimmed address, so the header must carry the
+// trimmed one too: padding around an addr-spec is folding whitespace some
+// clients render raw, and the address a recipient was asked about should be the
+// address the message says it went to.
+func TestSendTrimsTheAddressesItRenders(t *testing.T) {
+	var raw string
+	srv := sendCapture(t, &raw)
+	defer srv.Close()
+
+	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
+	if _, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
+		To: []string{" buyer@example.com ", ""}, Cc: []string{"\tcc@example.com"},
+		Subject: "Re: pricing", Body: "As discussed.", MessageID: "abc@margince.test",
+	}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	mime := decodeMIME(t, raw)
+	if !strings.Contains(mime, "To: buyer@example.com\r\n") {
+		t.Errorf("To header is not the trimmed address:\n%s", mime)
+	}
+	if !strings.Contains(mime, "Cc: cc@example.com\r\n") {
+		t.Errorf("Cc header is not the trimmed address:\n%s", mime)
+	}
+}

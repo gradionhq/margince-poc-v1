@@ -85,14 +85,27 @@ var ErrNoMailbox = errors.New("comms: no mailbox is connected for this provider"
 // sender, so this parks too.
 var ErrCannotSend = errors.New("comms: this connector cannot transmit messages")
 
+// ErrProviderNotConfigured marks a provider this installation has no
+// integration for: the delivery names it, the deployment configured no
+// connector to reach it through, and nothing in the process will grow one.
+//
+// It PARKS rather than retries, and that is the whole reason it is a sentinel
+// of its own. Read as a transient fault it is indistinguishable from a provider
+// outage, so every attempt fails identically until the runner's ladder is spent
+// — and the exhaustion guard runs after this point, so nothing else would ever
+// move the row. It would stay pending forever, looking live and never sending.
+// Parked, the row carries a reason an operator can act on, and a re-send after
+// they configure the integration is one new delivery.
+var ErrProviderNotConfigured = errors.New("comms: no integration for this provider is configured on this installation")
+
 // ConnectionResolver resolves the transmitting mailbox: the connector's send
 // seam, its unsealed credential, and the scopes the provider says the grant
 // actually holds.
 //
-// ErrNoMailbox and ErrCannotSend are the only facts about the deployment;
-// EVERY OTHER ERROR IS TRANSIENT. A keyvault blip or a database timeout here
-// is a failure to get an answer, and parking on one would permanently destroy
-// a legitimate send that nothing is wrong with.
+// ErrNoMailbox, ErrCannotSend and ErrProviderNotConfigured are the only facts
+// about the deployment; EVERY OTHER ERROR IS TRANSIENT. A keyvault blip or a
+// database timeout here is a failure to get an answer, and parking on one would
+// permanently destroy a legitimate send that nothing is wrong with.
 type ConnectionResolver interface {
 	Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error)
 }
@@ -111,6 +124,12 @@ type ConnectionResolver interface {
 // It fills a slice of its own and never appends onto the delivery's, because
 // the wire rendering downstream reads Recipients and Cc as the separate lists
 // they are.
+//
+// What it appends is the NORMALIZED address, not the stored spelling: the key
+// it dedupes on and the value it hands the gate are then one string. Handing on
+// the padded spelling would make two addresses equivalent here and then ask
+// about one the gate cannot resolve — a legitimate send parked as "consent not
+// granted", which reads as a recipient who opted out.
 func addressees(del Delivery) []string {
 	all := make([]string, 0, len(del.Recipients)+len(del.Cc))
 	seen := make(map[string]bool, len(del.Recipients)+len(del.Cc))
@@ -121,7 +140,7 @@ func addressees(del Delivery) []string {
 				continue
 			}
 			seen[key] = true
-			all = append(all, addr)
+			all = append(all, key)
 		}
 	}
 	return all

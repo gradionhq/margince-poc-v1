@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"slices"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -141,6 +140,9 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 		return d.park(ctx, del.ID, "no mailbox is connected for this provider; connect one to enable sending")
 	case errors.Is(err, ErrCannotSend):
 		return d.park(ctx, del.ID, fmt.Sprintf("the %s connection cannot transmit messages", del.Provider))
+	case errors.Is(err, ErrProviderNotConfigured):
+		return d.park(ctx, del.ID, fmt.Sprintf(
+			"this installation has no %s integration configured to transmit through; configure it, then re-send", del.Provider))
 	case err != nil:
 		// Park only on an answer, never on a failure to get one.
 		return d.retry(ctx, del.ID, err)
@@ -189,10 +191,6 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	return d.transmit(ctx, del, sender, auth)
 }
-
-// outcomeUndecided is the zero Outcome: a step that reached no verdict and
-// leaves the delivery to the next one. It never leaves this package.
-const outcomeUndecided Outcome = ""
 
 // gateSeat refuses a delivery whose sender is no longer a live,
 // mutation-capable seat, and returns outcomeUndecided when they are.
@@ -293,16 +291,6 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connecto
 		return d.classifySendFailure(ctx, del, err)
 	}
 
-	// The provider has the message, so the mailbox's quota is spent whether
-	// or not the receipt records cleanly. Policies that meter an actual
-	// transmission are told here rather than at Wait: a limiter counting
-	// checks instead of sends would pace nothing.
-	for _, policy := range d.policies {
-		if recorder, meters := policy.(SendRecorder); meters {
-			recorder.Recorded(del)
-		}
-	}
-
 	if err := d.store.RecordSent(ctx, del.ID, receipt.ProviderMessageID); err != nil {
 		if errors.Is(err, ErrTerminal) {
 			// A newer attempt already closed this row against its own
@@ -310,6 +298,24 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connecto
 			return OutcomeSkipped, 0, nil
 		}
 		return OutcomeRetry, 0, fmt.Errorf("comms: recording the send receipt: %w", err)
+	}
+
+	// Metering follows the DURABLE record, not the provider call, because the
+	// send call is not the countable event: a receipt that failed to record
+	// comes back on the ladder, and Send answers a retry from Gmail's
+	// prior-send lookup rather than transmitting again. Metering at the call
+	// would count that one message twice. RecordSent is guarded on
+	// status = 'pending' and reports ErrTerminal otherwise, so exactly one
+	// attempt per delivery ever reaches this line — which is what makes
+	// "metered" mean "one message, once".
+	//
+	// Policies are told here rather than at Wait for the same reason in the
+	// other direction: a limiter counting checks instead of sends paces
+	// nothing.
+	for _, policy := range d.policies {
+		if recorder, meters := policy.(SendRecorder); meters {
+			recorder.Recorded(del)
+		}
 	}
 	return OutcomeSent, 0, nil
 }
@@ -336,129 +342,4 @@ func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err 
 		return d.throttled(ctx, del, limited.RetryAfter)
 	}
 	return d.retry(ctx, del.ID, err)
-}
-
-// throttled defers a delivery the PROVIDER refused for now, honouring the
-// interval it stated.
-//
-// It KEEPS the attempt, unlike the pacing deferral below, and the difference is
-// not stylistic: the message reached the provider — a 429 is an answer from it,
-// not a failure to ask — so this was a transmission attempt to both readers of
-// the counter, and it must be bounded like one. Giving the rung back here would
-// leave a throttled delivery snoozing forever: MailboxRatePolicy meters only
-// successful sends, so the policy chain keeps saying "go now" and never reaches
-// its own maximum-age park, and the caller's ladder is restored by the very
-// snooze this asks for. Nothing else would ever move the row.
-//
-// The ladder end is checked HERE rather than left to the guard in
-// DispatchWithWait for two reasons. That guard runs before transmit, so it
-// would only fire one dispatch later — asking the provider to be re-tried on a
-// rung that no longer exists. And it parks under a reason that names no cause,
-// where an operator reading this row should learn which side stopped the
-// message.
-func (d *Dispatcher) throttled(ctx context.Context, del Delivery, retryAfter time.Duration) (Outcome, time.Duration, error) {
-	// del.Attempts counts this attempt, and the guard above admitted it, so
-	// this is the last rung exactly when no further one remains.
-	if del.Attempts >= d.maxAttempts-1 {
-		return d.park(ctx, del.ID, fmt.Sprintf(
-			"the provider is rate limiting this mailbox and the retry ladder is exhausted after %d attempts", del.Attempts,
-		))
-	}
-	if err := d.store.RecordFailure(ctx, del.ID, "waiting: the provider is rate limiting this mailbox"); err != nil {
-		if errors.Is(err, ErrTerminal) {
-			return OutcomeSkipped, 0, nil
-		}
-		return OutcomeRetry, 0, fmt.Errorf("comms: recording the provider throttle: %w", err)
-	}
-	return OutcomePostponed, retryAfter, nil
-}
-
-// park ends a delivery no retry repairs, recording why in words an operator
-// can act on. THIS disposition's wait is always zero, because parking asks for
-// nothing to be tried again; postpone and throttled return a real interval.
-// What all four share is the return SIGNATURE, which is what keeps their call
-// sites one line each.
-//
-// ErrTerminal from the transition means a newer attempt already closed this
-// row: a benign no-op, so this attempt reports that it did nothing rather than
-// claiming a park it did not perform.
-func (d *Dispatcher) park(ctx context.Context, id ids.UUID, reason string) (Outcome, time.Duration, error) {
-	if err := d.store.Park(ctx, id, reason); err != nil {
-		if errors.Is(err, ErrTerminal) {
-			return OutcomeSkipped, 0, nil
-		}
-		return OutcomeRetry, 0, fmt.Errorf("comms: parking delivery: %w", err)
-	}
-	return OutcomeParked, 0, nil
-}
-
-// maxFaultLen bounds what one fault contributes to a delivery's reason. The
-// causes reaching retry include arbitrary infrastructure errors — a wrapped
-// database error carries SQL text and table names — and the column they land
-// in is unbounded text, so without a bound a single such error would put a
-// kilobyte of internals on the row an operator reads.
-const maxFaultLen = 200
-
-// faultReason renders a fault as the kind of operator sentence every other
-// reason in this file is, bounded and truncated on a RUNE boundary: a
-// byte-offset cut can split a UTF-8 sequence, leaving a mangled tail on the
-// one row that explains the failure.
-func faultReason(cause error) string {
-	msg := cause.Error()
-	if len(msg) > maxFaultLen {
-		cut := maxFaultLen
-		for cut > 0 && !utf8.RuneStart(msg[cut]) {
-			cut--
-		}
-		msg = msg[:cut] + "…"
-	}
-	return "transient fault, will retry: " + msg
-}
-
-// retry records why this attempt failed and hands the cause back so the
-// caller's ladder can back off. The delivery stays pending: this is a fault,
-// not a verdict.
-func (d *Dispatcher) retry(ctx context.Context, id ids.UUID, cause error) (Outcome, time.Duration, error) {
-	if err := d.store.RecordFailure(ctx, id, faultReason(cause)); err != nil {
-		if errors.Is(err, ErrTerminal) {
-			// A newer attempt already owns this row and will report its own
-			// outcome. The cause is dropped rather than returned because
-			// returning it would put a finished delivery back on the ladder:
-			// the fault belongs to this attempt alone and no longer describes
-			// the delivery's state. It is lost to the caller's logs, which is
-			// the price of not resurrecting a closed delivery.
-			return OutcomeSkipped, 0, nil
-		}
-		return OutcomeRetry, 0, errors.Join(cause, err)
-	}
-	return OutcomeRetry, 0, cause
-}
-
-// postpone is the PACING deferral, and pace is its only caller: OUR OWN rule
-// held the message back and nothing was ever handed to a provider. It records
-// which rule, so an operator seeing a deferred message knows what deferred it,
-// and hands back the attempt Load counted, because this dispatch transmitted
-// nothing. A provider throttle is a different fact and takes the different path
-// above (throttled), which keeps its rung.
-//
-// A pacing postponement must not consume a rung of the retry ladder, on EITHER
-// side of the seam. The row's own counter is restored here (RecordDeferral);
-// the caller's must be restored too — the exhaustion guard runs AFTER the policy
-// chain, so on the last rung a deferral is returned where a park would
-// otherwise be, and a caller that implements the wait by burning an attempt
-// leaves that row pending with no attempts left and nothing that would ever
-// move it. Implement the wait as a reschedule that restores the attempt, never
-// as a failed one.
-//
-// With both restored, a permanently paced delivery is bounded by maxAge alone
-// (pace) and parks with a reason that names the pacing — not by the transmit
-// ladder, which it never spent.
-func (d *Dispatcher) postpone(ctx context.Context, id ids.UUID, reason string, wait time.Duration) (Outcome, time.Duration, error) {
-	if err := d.store.RecordDeferral(ctx, id, reason); err != nil {
-		if errors.Is(err, ErrTerminal) {
-			return OutcomeSkipped, 0, nil
-		}
-		return OutcomeRetry, 0, fmt.Errorf("comms: recording the deferral: %w", err)
-	}
-	return OutcomePostponed, wait, nil
 }

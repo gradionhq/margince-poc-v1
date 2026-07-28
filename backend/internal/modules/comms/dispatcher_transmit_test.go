@@ -10,7 +10,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -25,8 +24,9 @@ func sendingResolver() fakeResolver {
 // The postpone-and-transmit half of the dispatcher's spec: the policy chain,
 // the two bounds that keep a deferred delivery from living forever, the
 // message put on the wire, and how a provider failure is classified. The
-// gates that refuse a send, and the shared harness both halves use, are in
-// dispatcher_test.go.
+// gates that refuse a send, and the shared harness all three files use, are in
+// dispatcher_test.go; what an attempt RECORDS — the metering and the reason
+// sentence — is in dispatcher_reason_test.go.
 
 type waitPolicy struct{ d time.Duration }
 
@@ -352,44 +352,6 @@ func TestDispatchDefaultsAnUnconfiguredLadderBound(t *testing.T) {
 	}
 }
 
-// The limiter counts messages the provider actually received, so the
-// dispatcher tells the chain only once transmission succeeds. Without this
-// call the limiter never counts and the policy paces nothing.
-func TestDispatchCountsASuccessfulSendAgainstEveryMeteringPolicy(t *testing.T) {
-	meter := &recordingPolicy{}
-	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{},
-		waitPolicy{}, meter)
-
-	if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if meter.recorded != 1 {
-		t.Errorf("Recorded called %d times, want 1 — a limiter that counts checks paces nothing", meter.recorded)
-	}
-}
-
-// A message that never reached the provider consumed none of the mailbox's
-// quota. Counting a deferral would shrink the window every time the chain was
-// merely consulted.
-func TestDispatchCountsNothingAgainstAPolicyWhenTheSendIsPostponed(t *testing.T) {
-	meter := &recordingPolicy{}
-	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{},
-		waitPolicy{d: 90 * time.Second}, meter)
-
-	got, _, err := d.DispatchWithWait(context.Background(), store.delivery.ID)
-	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if got != OutcomePostponed {
-		t.Fatalf("outcome = %v, want OutcomePostponed", got)
-	}
-	if meter.recorded != 0 {
-		t.Errorf("Recorded called %d times for a message that never left", meter.recorded)
-	}
-}
-
 // All four status-guarded transitions — RecordSent, Park, RecordFailure and
 // RecordDeferral — report ErrTerminal when they touch zero rows, which means a
 // newer attempt already closed this delivery. That is a benign no-op: turning
@@ -471,28 +433,5 @@ func TestDispatchRetriesWhenATransitionFailsForANonTerminalReason(t *testing.T) 
 				t.Error("no error returned; a caller's ladder cannot back off on a silent failure")
 			}
 		})
-	}
-}
-
-// A fault's own text reaches the delivery's reason column, which is unbounded
-// and operator-facing. An arbitrary infrastructure error — a wrapped database
-// error carrying SQL and table names — must arrive bounded and labelled rather
-// than raw, and truncation must land on a rune boundary or the row an operator
-// reads ends in mojibake.
-func TestDispatchBoundsAFaultBeforeWritingItToTheDeliveryReason(t *testing.T) {
-	store := &fakeStore{delivery: liveDelivery()}
-	d := newTestDispatcher(store, fakeResolver{err: errors.New(strings.Repeat("é", 500))}, &stubConsent{})
-
-	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeRetry {
-		t.Fatalf("outcome = %v, want OutcomeRetry", got)
-	}
-	if !strings.HasPrefix(store.failed, "transient fault, will retry: ") {
-		t.Errorf("reason %q is not labelled as a transient fault", store.failed)
-	}
-	if len(store.failed) > maxFaultLen+len("transient fault, will retry: ")+len("…") {
-		t.Errorf("reason is %d bytes; the fault was not bounded", len(store.failed))
-	}
-	if !utf8.ValidString(store.failed) {
-		t.Errorf("reason %q is not valid UTF-8; truncation split a rune", store.failed)
 	}
 }

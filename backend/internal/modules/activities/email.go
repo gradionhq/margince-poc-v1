@@ -24,6 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // SendProvider names the channel V1 transmits through. It is both the
@@ -148,9 +149,26 @@ func MintMessageID(domain string) string {
 }
 
 // SendEmail runs the governed send: anchor visibility → write grant →
-// consent gate → mailbox pre-flight → deliverability → the outbound
-// activity and its delivery, committed together in the write shape.
+// wiring guards → mailbox pre-flight → consent gate → deliverability → the
+// outbound activity and its delivery, committed together in the write shape.
+//
+// The ORDER is the invariant, not a sequence of independent checks:
+// AUTHORIZATION REFUSES BEFORE CONSENT ANSWERS. A caller with no rights over
+// the anchor must get the row-scope answer and nothing else — a 500 that names
+// the delivery wiring, or a consent verdict, both tell them something about a
+// record and a person they may not read. Every guard below is fail-closed; only
+// their order carries this rule.
 func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendEmailInput, gate ConsentGate, stager DeliveryStager) (crmcontracts.Activity, error) {
+	anchor, err := s.GetActivity(ctx, anchorID, storekit.LiveOnly)
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	// The composition guards sit HERE, after authorization: they report a
+	// deployment defect, and a caller who may not send has no business
+	// learning which parts of this installation's send path are wired.
 	if gate == nil {
 		// Fail closed: a send surface without its suppression gate is a
 		// wiring defect, not an implicit allow.
@@ -161,21 +179,14 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 		// leave a timeline entry claiming a message went out.
 		return crmcontracts.Activity{}, errNoDeliveryStager
 	}
-	// Authorization FIRST, consent second: the anchor's visibility and
-	// the write grant must refuse before the consent gate answers, or
-	// the 409-vs-403 difference becomes a consent oracle for callers
-	// with no rights at all.
-	anchor, err := s.GetActivity(ctx, anchorID, storekit.LiveOnly)
-	if err != nil {
-		return crmcontracts.Activity{}, err
-	}
-	if err := auth.Require(ctx, "activity", principal.ActionCreate); err != nil {
+	// The mailbox pre-flight is the SENDER's own authority and precedes the
+	// consent gate for the same reason authorization does: a user who holds no
+	// send grant must get the refusal they can act on, not a verdict about the
+	// recipients' consent state.
+	if err := s.ensureMailboxCanSend(ctx); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 	if err := gate.RequireGrantedForEmails(ctx, in.Recipients, in.ConsentPurpose); err != nil {
-		return crmcontracts.Activity{}, err
-	}
-	if err := s.ensureMailboxCanSend(ctx); err != nil {
 		return crmcontracts.Activity{}, err
 	}
 
@@ -365,6 +376,23 @@ func primaryCounterparty(to, recipients []string) string {
 	return ""
 }
 
+// messageIdentity returns value when it is a genuine RFC822 message identity
+// carried by a mail activity, and "" otherwise.
+//
+// Both halves are load-bearing. KIND excludes the systems whose identifiers are
+// opaque to mail — a Google Calendar event's iCalUID is spelled "…@google.com"
+// and would pass a shape test alone while threading a reply onto nothing. SHAPE
+// excludes an email activity whose source_id came from an importer rather than
+// a mail header, and it is asked of the connector seam rather than spelled
+// again here: the identity a send transmits under and the identity a header is
+// derived from must agree on what counts.
+func messageIdentity(kind, value string) string {
+	if kind != "email" || !connector.ValidMessageID(value) {
+		return ""
+	}
+	return value
+}
+
 // threading is the RFC 5322 conversation chain one outbound message
 // carries, plus the key the timeline files it under.
 type threading struct {
@@ -395,16 +423,24 @@ func anchorThreading(ctx context.Context, tx pgx.Tx, id ids.ActivityID, messageI
 	if err := auth.EnsureActivityVisible(ctx, tx, id.UUID); err != nil {
 		return threading{}, err
 	}
-	var parent, root string
+	var kind, parent, root string
 	err := tx.QueryRow(ctx,
-		`SELECT coalesce(source_id, ''), coalesce(thread_key, '') FROM activity WHERE id = $1`,
-		id).Scan(&parent, &root)
+		`SELECT kind, coalesce(source_id, ''), coalesce(thread_key, '') FROM activity WHERE id = $1`,
+		id).Scan(&kind, &parent, &root)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return threading{}, apperrors.ErrNotFound
 	}
 	if err != nil {
 		return threading{}, err
 	}
+	// Only a mail activity's identifiers are RFC822 message identities.
+	// Nothing constrains an anchor to one — a send can be anchored to a
+	// meeting captured from a calendar, or to a note — and emitting that
+	// system's opaque id as In-Reply-To/References produces headers no mail
+	// client can resolve to a message. An anchor that carries none simply
+	// starts a conversation, which is the honest reading of a reply to
+	// something that was never mail.
+	parent, root = messageIdentity(kind, parent), messageIdentity(kind, root)
 
 	chain := threading{inReplyTo: parent, threadKey: root}
 	if root != "" && root != parent {

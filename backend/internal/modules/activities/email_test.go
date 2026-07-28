@@ -3,26 +3,17 @@
 
 package activities
 
-// The parts of the one send path that need no database: the fail-closed
-// guard, the minted message identity, and the To/Cc split. Everything the
-// path does once it reaches Postgres is proven in email_integration_test.go.
+// The parts of the one send path that need no database: which stored
+// identifiers may thread a message, the minted message identity, and the To/Cc
+// split. Everything the path does once it reaches Postgres — including every
+// guard, which now answers only after the anchor has been read — is proven in
+// email_integration_test.go and email_refusals_integration_test.go.
 
 import (
 	"context"
-	"errors"
 	"strings"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
-
-// stubConsentGate answers the suppression seam without a consent store, so a
-// test can drive the send path past (or into) the gate deliberately.
-type stubConsentGate struct{ err error }
-
-func (g stubConsentGate) RequireGrantedForEmails(context.Context, []string, string) error {
-	return g.err
-}
 
 // stubUnsubscribeLinker stands in for the consent module's preference-token
 // mint: ok=false is how a locked (transactional) purpose answers.
@@ -44,20 +35,29 @@ type stubMailbox struct {
 
 func (m stubMailbox) SendCapable(context.Context) (bool, error) { return m.capable, m.err }
 
-// A send surface wired without its delivery machinery refuses, mirroring the
-// nil-consent guard: absence of a seam is a wiring defect, never an implicit
-// "send it anyway". The store here holds a nil pool, so a guard that answered
-// late — after the anchor read — would panic instead of refusing.
-func TestSendEmailWithoutAStagerRefuses(t *testing.T) {
-	store := NewStore(nil)
-	_, err := store.SendEmail(context.Background(), ids.New[ids.ActivityKind](), SendEmailInput{
-		Recipients:     []string{"buyer@example.test"},
-		Subject:        "Re: pricing",
-		Body:           "As discussed.",
-		ConsentPurpose: "transactional",
-	}, stubConsentGate{}, nil)
-	if !errors.Is(err, errNoDeliveryStager) {
-		t.Fatalf("send with no delivery stager → %v, want errNoDeliveryStager", err)
+// Threading headers are derived from an anchor's stored identifiers, and only a
+// MAIL activity's are RFC822 message identities. A calendar event's iCalUID is
+// spelled like one and would pass a shape test alone; an imported email's
+// source_id is opaque and would pass a kind test alone. Emitting either as
+// In-Reply-To produces a header no mail client can resolve.
+func TestOnlyAMailActivitysWellFormedIdentityThreadsAMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name, kind, value string
+		want              string
+	}{
+		{"a captured mail identity", "email", "parent@buyer.test", "parent@buyer.test"},
+		{"a calendar uid that merely looks like one", "meeting", "abc123@google.com", ""},
+		{"an opaque identifier on a mail activity", "email", "crm-import-8842", ""},
+		{"an already-bracketed identity", "email", "<parent@buyer.test>", ""},
+		{"an identity with two at-signs", "email", "a@b@buyer.test", ""},
+		{"an empty local part", "email", "@buyer.test", ""},
+		{"no identity at all", "email", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := messageIdentity(tc.kind, tc.value); got != tc.want {
+				t.Errorf("messageIdentity(%q, %q) = %q, want %q", tc.kind, tc.value, got, tc.want)
+			}
+		})
 	}
 }
 

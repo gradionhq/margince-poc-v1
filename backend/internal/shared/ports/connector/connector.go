@@ -13,6 +13,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -286,6 +287,12 @@ type BackfillPageResult struct {
 // provider that retransmits on a retry mails the recipient twice; a connector
 // whose provider can look up a prior send by RFC822 Message-ID must do so
 // whenever msg.Attempt > 0 and return the existing receipt instead.
+//
+// That obligation has a precondition, and an implementation MUST refuse a
+// message that fails it (OutboundMessage.Validate) before any provider I/O: an
+// identity the prior-send lookup cannot search for makes the idempotency
+// guarantee unkeepable, and transmitting anyway is the double-send this seam
+// exists to prevent.
 type Sender interface {
 	Send(ctx context.Context, auth Auth, msg OutboundMessage) (SendReceipt, error)
 }
@@ -323,6 +330,40 @@ type OutboundMessage struct {
 	// Attempt is 0 on the first transmission and increments on every retry. It is
 	// how a connector knows to run the prior-send lookup the contract requires.
 	Attempt int
+}
+
+// ErrInvalidMessageID marks an outbound message carrying no usable RFC822
+// identity. It is the idempotency contract failing its precondition: Send is
+// required to be idempotent on MessageID, and an identity the provider's
+// prior-send lookup cannot search for makes that guarantee unkeepable. A
+// message sent under one would mail its recipient again on every retry, and
+// the copy the provider files back would key onto no activity.
+var ErrInvalidMessageID = errors.New("connector: outbound message carries no usable RFC822 message identity")
+
+// ValidMessageID reports whether id is a usable RFC822 message identity in the
+// UNBRACKETED form this system stores and compares: an addr-spec with exactly
+// one '@', both sides non-empty, and no whitespace or angle brackets (the
+// connector adds the brackets at the wire).
+//
+// It is the ONE spelling of that question, so the identity a send transmits
+// under and the identity a threading header is derived from cannot disagree
+// about what counts.
+func ValidMessageID(id string) bool {
+	local, domain, found := strings.Cut(id, "@")
+	if !found || local == "" || domain == "" || strings.Contains(domain, "@") {
+		return false
+	}
+	return !strings.ContainsAny(id, " \t\r\n<>")
+}
+
+// Validate refuses a message no provider should be handed. It is the sender
+// boundary's own precondition — checked before any provider I/O, so a message
+// that cannot be retried safely is never transmitted a first time.
+func (m OutboundMessage) Validate() error {
+	if !ValidMessageID(m.MessageID) {
+		return ErrInvalidMessageID
+	}
+	return nil
 }
 
 // SendReceipt is what the provider confirmed: its own message identity.

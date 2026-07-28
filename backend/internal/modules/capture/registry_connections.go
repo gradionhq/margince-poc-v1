@@ -35,6 +35,18 @@ var ErrNoConnection = errors.New("capture: no live connection for this user and 
 // it.
 var ErrConnectorCannotSend = errors.New("capture: this connector cannot transmit messages")
 
+// ErrConnectorNotConfigured marks a provider this process role did not compile
+// in — the deployment configured no OAuth app for it, so the registry holds no
+// connector to reach it through.
+//
+// It is a FACT about the deployment, not an outage, and it is separated from
+// the failures around it for exactly that reason: read as transient it looks
+// identical to a provider blip, and a caller that keeps retrying leaves a
+// message queued against an integration that does not exist here until its
+// ladder runs out and the row sits pending forever. Named, the caller can stop
+// and say why.
+var ErrConnectorNotConfigured = errors.New("capture: no connector for this provider is configured on this process role")
+
 // sendableConnection is the row predicate BOTH send-side lookups select on,
 // spelled once so the pre-flight and the transmission can never disagree about
 // which connections count as live.
@@ -101,7 +113,10 @@ func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider st
 	}
 	c, err := r.connector(provider)
 	if err != nil {
-		return nil, nil, nil, err
+		// The registry's only failure here is a provider this role did not
+		// compile in, and the send path must be able to tell that from an
+		// outage — see ErrConnectorNotConfigured.
+		return nil, nil, nil, fmt.Errorf("%w: %w", ErrConnectorNotConfigured, err)
 	}
 	// Two-value form: Sender is optional (connector.go), so a capture-only
 	// connector is reported rather than silently treated as absent.
