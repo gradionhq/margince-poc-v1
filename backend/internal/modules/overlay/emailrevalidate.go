@@ -16,7 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 )
 
 // revalidateEmailMapping re-verifies every email-sourced mirror_user_map
@@ -79,13 +78,8 @@ func (s *MirrorStore) revalidateEmailMapping(ctx context.Context, tx pgx.Tx, ema
 	if len(dropped) == 0 {
 		return nil
 	}
-	// Audited per dropped row: this revoke takes a user's access to every
-	// mirrored record the owner holds, and "why did I stop seeing these?"
-	// is unanswerable from a visibility table that no longer has the grant.
-	for _, r := range dropped {
-		if _, err := storekit.Audit(ctx, tx, "archive", auditEntityUserMap, r.appUser.UUID, r.image, nil); err != nil {
-			return fmt.Errorf("overlay: auditing %s's revoked mapping: %w", r.appUser, err)
-		}
+	if err := auditRevokedMappings(ctx, tx, dropped); err != nil {
+		return err
 	}
 	return recomputeForOwnerTx(ctx, tx, incumbentUserID)
 }

@@ -20,6 +20,7 @@ export function RecordPicker({
   searchTargets,
   onPick,
   selected,
+  disabled = false,
 }: Readonly<{
   // Doubles as the search field's placeholder and aria-label — the caller
   // supplies already-translated copy, so this component never owns i18n.
@@ -27,6 +28,11 @@ export function RecordPicker({
   searchTargets: (q: string) => Promise<RecordPickerCandidate[]>;
   onPick: (candidate: RecordPickerCandidate) => void;
   selected?: RecordPickerCandidate | null;
+  // Inert while the caller's own write for this pick is still in flight, so a
+  // second choice cannot race the first. Disabled rather than unmounted: the
+  // list and the typed query stay on screen, which is what the user needs to
+  // see if the write comes back refused.
+  disabled?: boolean;
 }>) {
   const [term, setTerm] = useState("");
   const [candidates, setCandidates] = useState<RecordPickerCandidate[]>([]);
@@ -68,6 +74,7 @@ export function RecordPicker({
         placeholder={label}
         aria-label={label}
         value={term}
+        disabled={disabled}
         onChange={(event) => setTerm(event.target.value)}
       />
       {searchError && (
@@ -92,6 +99,7 @@ export function RecordPicker({
                 type="button"
                 className="btn btn-ghost recordpicker-option"
                 aria-pressed={selected?.id === candidate.id}
+                disabled={disabled}
                 onClick={() => {
                   onPick(candidate);
                   // Collapse the list and empty the field so the resolved

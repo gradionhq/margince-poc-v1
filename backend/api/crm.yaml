@@ -7676,11 +7676,24 @@ paths:
         payload carries every user's email plus their incumbent mapping, which no
         non-admin sees today.
       parameters:
-        - $ref: '#/components/parameters/Cursor'
+        # Its own cursor, not the shared components/parameters/Cursor: this page
+        # is keyed on the app_user id alone and has no `sort` dial, so the shared
+        # token's contract — minted from `page.next_cursor`, fingerprinting the
+        # request's sort, rejectable as cursor_param_mismatch — describes
+        # something this endpoint neither issues nor accepts.
+        - name: cursor
+          in: query
+          schema: { type: string }
+          description: >-
+            Opaque keyset cursor from a prior response's root-level `next_cursor`.
+            It encodes the last row's app_user id and nothing else; there is no
+            sort to disagree with. A token this endpoint did not mint returns
+            `422 code: malformed_cursor` — re-issue the request without it.
         - $ref: '#/components/parameters/Limit'
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayUserMapPage' } } } }
         '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+        '422': { $ref: '#/components/responses/ValidationError' }   # malformed_cursor
 
   /overlay/user-map/{id}:
     parameters:
@@ -7701,6 +7714,7 @@ paths:
       responses:
         '204': { description: Mapped }
         '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay, unknown user
+        '422': { $ref: '#/components/responses/ValidationError' }   # missing or malformed body
     delete:
       tags: [Overlay]
       operationId: deleteOverlayUserMap

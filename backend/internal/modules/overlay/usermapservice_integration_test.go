@@ -264,6 +264,69 @@ func TestUserMapDegradesHonestlyWhenTheDirectoryCannotBeRead(t *testing.T) {
 	}
 }
 
+// A disconnect committing between the mode gate and the directory read is not
+// a degraded directory — the workspace has no overlay at all — and answering a
+// settled page would tell an admin their mapping table still governs records
+// this installation no longer mirrors.
+func TestUserMapAnswers404WhenTheConnectionVanishesBeforeTheDirectoryRead(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{
+		owners: []OwnerRef{{ExternalID: "owner-1", Email: "rep@acme.test"}},
+	})
+	testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
+
+	disconnectUnderARequestHoldingAStaleMode(ctx, t, svc, ws)
+
+	if _, err := svc.UserMap(ctx, "", 50); !errors.Is(err, apperrors.ErrModeNotOverlay) {
+		t.Fatalf("a page read racing a disconnect must answer mode_not_overlay, got: %v", err)
+	}
+}
+
+// A directory the cap cut off is as unusable for these derivations as one that
+// could not be read: every remaining diagnosis argues from absence, and absence
+// from a list that stops at 500 is not absence from the incumbent.
+func TestUserMapDerivesNoAbsenceBasedReasonFromATruncatedDirectory(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	oversized := make([]OwnerRef, 0, ownerDirectoryCap+1)
+	for i := range ownerDirectoryCap + 1 {
+		oversized = append(oversized, OwnerRef{
+			ExternalID: fmt.Sprintf("owner-%d", i),
+			Email:      fmt.Sprintf("owner-%d@acme.test", i),
+		})
+	}
+	svc := connectedUserMapService(ctx, t, pool, &directoryIncumbent{owners: oversized})
+	_, unmatchedRaw := testWorkspaceCtxAsUser(t, ws, "unmatched@acme.test")
+	unmatched := ids.From[ids.UserKind](unmatchedRaw)
+	_, pinnedRaw := testWorkspaceCtxAsUser(t, ws, "pinned@acme.test")
+	pinned := ids.From[ids.UserKind](pinnedRaw)
+
+	// Past the cut-off, so the loaded slice does not list this owner — which
+	// says nothing about whether the incumbent still does.
+	if err := svc.SetUserMap(ctx, pinned, fmt.Sprintf("owner-%d", ownerDirectoryCap)); err != nil {
+		t.Fatalf("pinning the mapping: %v", err)
+	}
+
+	page, err := svc.UserMap(ctx, "", 50)
+	if err != nil {
+		t.Fatalf("reading the user map: %v", err)
+	}
+	unmatchedView, found := viewFor(page, unmatched)
+	if !found {
+		t.Fatal("the page must still list the workspace's users")
+	}
+	if unmatchedView.UnmappedReason != reasonNoDirectory {
+		t.Errorf("reason = %q, want %q — a cut-off directory cannot prove no owner carries this email",
+			unmatchedView.UnmappedReason, reasonNoDirectory)
+	}
+	pinnedView, found := viewFor(page, pinned)
+	if !found {
+		t.Fatal("the mapped user must appear on the page")
+	}
+	if pinnedView.StaleOwnerRef {
+		t.Error("an owner past the cut-off must not be reported as gone from the incumbent's directory")
+	}
+}
+
 // Owners() is unpaginated at the seam, so the cap here is the only bound on
 // the response — and a capped list that did not say so would read as the
 // incumbent's complete directory.

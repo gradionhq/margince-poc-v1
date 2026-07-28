@@ -511,6 +511,43 @@ test.describe("B-EP09.23: overlay mode", () => {
     ).toBeVisible();
   });
 
+  test("AC-overlay-8: an admin unmaps a user and maps them back, and each write moves the card", async ({
+    page,
+  }) => {
+    // The whole round trip, not just the request: the seed's mapping handlers
+    // mutate their own state, so each assertion below is about what the write
+    // DID. A mock answering a bare 200 would let this pass having changed
+    // nothing, which is the one way a mapping workflow must not be able to
+    // look correct.
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/settings/overlay");
+
+    // Seeded state: the admin's own seat, matched to a HubSpot owner by email.
+    await expect(page.getByText("Über E-Mail zugeordnet")).toBeVisible();
+
+    await page.getByRole("button", { name: "Zuordnung aufheben" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Zuordnung aufheben" })
+      .click();
+
+    // Unmapping is confirm-first and its own standing decision: the row now
+    // reports the admin's block, and the email match it replaced is gone.
+    await expect(page.getByText("Von Admin aufgehoben")).toBeVisible();
+    await expect(page.getByText("Über E-Mail zugeordnet")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Zuordnen…" }).click();
+    await page.getByLabel("HubSpot-Nutzer suchen").fill("Lars");
+    await page
+      .getByRole("button", { name: "Lars Brandt · lars@brandt.example" })
+      .click();
+
+    // Mapping back is the admin's manual override, never a re-derived email
+    // match — the card has to say which of the two it is.
+    await expect(page.getByText("Manuell gesetzt")).toBeVisible();
+    await expect(page.getByText("Von Admin aufgehoben")).toHaveCount(0);
+  });
+
   test("AC-overlay-7: every 360 panel renders its unavailable state, never an error box", async ({
     page,
   }) => {

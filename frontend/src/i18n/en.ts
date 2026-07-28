@@ -388,7 +388,7 @@ export const en = {
   "overlay.userMap.reason.notYetSynced":
     "The {principal} directory hasn't listed this user yet.",
   "overlay.userMap.reason.directoryUnavailable":
-    "Couldn't read the {principal} directory, so no reason can be derived.",
+    "Couldn't read the whole {principal} directory, so no reason can be derived.",
   "overlay.userMap.staleChip": "No longer in the {principal} directory",
   "overlay.userMap.staleNote":
     "This manual mapping grants no visibility. It is reported, never withdrawn automatically — the decision stays yours.",

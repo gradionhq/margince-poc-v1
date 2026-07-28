@@ -69,6 +69,25 @@ func collectRevokedMapping(row pgx.CollectableRow) (revokedMapping, error) {
 	return r, nil
 }
 
+// auditRevokedMappings records one audit row per mapping an automated revoke
+// deleted. Audited per row, never as a count: the revoke takes a user's access
+// to every mirrored record the owner holds, and "why did I stop seeing these?"
+// is unanswerable from a visibility table that no longer has the grant.
+//
+// Spelled once for both automated revoke paths (a stale email in
+// emailrevalidate.go, an email that turned ambiguous in usermapseed.go): the
+// two record the SAME fact about the same table, so a payload or failure
+// handling that drifted between them would make the trail depend on which
+// automation happened to fire.
+func auditRevokedMappings(ctx context.Context, tx pgx.Tx, dropped []revokedMapping) error {
+	for _, r := range dropped {
+		if _, err := storekit.Audit(ctx, tx, "archive", auditEntityUserMap, r.appUser.UUID, r.image, nil); err != nil {
+			return fmt.Errorf("overlay: auditing %s's revoked mapping: %w", r.appUser, err)
+		}
+	}
+	return nil
+}
+
 // auditUserMapChange records a mapping write at the single insert site, so
 // the sweep's seeding and an admin's manual pin are both covered by
 // construction rather than by remembering to call this from each caller.
@@ -219,6 +238,21 @@ func resolveUserMapTarget(ctx context.Context, tx pgx.Tx, appUser ids.UserID) (g
 		return false, fmt.Errorf("overlay: resolving the user-map target %s: %w", appUser, err)
 	}
 	return grantable, nil
+}
+
+// automapTargetIsGrantable is resolveUserMapTarget for the AUTOMATIC
+// (email-sourced) write, where an ineligible target is a row to skip rather
+// than a fault to report. A seat the workspace no longer has folds into the
+// same answer: the sweep read its candidates in an earlier transaction, so the
+// row can be gone by the time the write runs, and "this one cannot be mapped"
+// is the truthful outcome either way. Every OTHER resolution failure still
+// propagates — a query that fails is not evidence about the seat.
+func automapTargetIsGrantable(ctx context.Context, tx pgx.Tx, appUser ids.UserID) (bool, error) {
+	grantable, err := resolveUserMapTarget(ctx, tx, appUser)
+	if errors.Is(err, apperrors.ErrNotFound) {
+		return false, nil
+	}
+	return grantable, err
 }
 
 // SetManualUserMap pins appUser to incumbentUserID as a human-vouched

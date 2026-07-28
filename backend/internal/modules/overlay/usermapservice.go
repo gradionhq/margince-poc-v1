@@ -90,6 +90,12 @@ func requireUserMapAdmin(ctx context.Context) error {
 // the derived reasons go to directory_unavailable so nothing on the page is a
 // guess. The failure is logged with its cause — a warning the admin's UI
 // surfaces inline is not a substitute for the operator seeing why.
+//
+// A disconnect is NOT such a failure and is not degraded: the connection
+// vanishing between the mode gate and the directory read leaves this workspace
+// with no overlay at all, which is the mode_not_overlay 404 every /overlay verb
+// answers — degrading it would render a settled mapping page for records the
+// installation no longer mirrors.
 func (s *Service) UserMap(ctx context.Context, cursor string, limit int) (UserMapPage, error) {
 	if err := requireUserMapAdmin(ctx); err != nil {
 		return UserMapPage{}, err
@@ -105,21 +111,33 @@ func (s *Service) UserMap(ctx context.Context, cursor string, limit int) (UserMa
 
 	directory, dirErr := s.ownerDirectory(ctx, incumbent)
 	if dirErr != nil {
+		if errors.Is(dirErr, apperrors.ErrModeNotOverlay) || errors.Is(dirErr, ErrConnectionGone) {
+			return UserMapPage{}, foldConnectionGone(dirErr)
+		}
 		s.log.WarnContext(ctx, "overlay user-map: reading the owners directory failed; owner identities and unmapped reasons are not derivable",
 			"incumbent", incumbent, "err", dirErr)
 	}
+	// A TRUNCATED directory is as unusable for these derivations as an
+	// unreadable one, and for the same reason: every remaining diagnosis is an
+	// argument from absence — "no owner carries this email", "no owner holds
+	// this id" — and absence from a list that was cut off is not absence from
+	// the incumbent. Deriving from it would fabricate exactly the diagnoses
+	// directory_unavailable exists to prevent, so the cut-off list is admitted
+	// only for the facts it can carry positively: an owner that IS in it names
+	// a real owner, and userMapView reads identities from it regardless.
 	return UserMapPage{
 		Incumbent:  incumbent,
-		Entries:    userMapViews(entries, directory.Owners, dirErr == nil),
+		Entries:    userMapViews(entries, directory.Owners, dirErr == nil && !directory.Truncated),
 		NextCursor: next,
 	}, nil
 }
 
 // userMapViews derives each listed user's admin-facing state from the live
-// directory. directoryRead says the directory was genuinely read: false means
-// owners is empty because the fetch failed, not because the incumbent has no
-// owners, and the two must not produce the same diagnosis.
-func userMapViews(entries []UserMapEntry, owners []OwnerRef, directoryRead bool) []UserMapView {
+// directory. directoryComplete says owners is the incumbent's WHOLE directory:
+// false means it is short — a failed fetch, or a list the cap cut off — so an
+// owner missing from it may still exist, and "absent here" must not be reported
+// as "absent at the incumbent".
+func userMapViews(entries []UserMapEntry, owners []OwnerRef, directoryComplete bool) []UserMapView {
 	byID := make(map[string]OwnerRef, len(owners))
 	// Distinct owner ids per normalized email, never a raw occurrence count: a
 	// paginated directory can list the same owner on two overlapping pages, and
@@ -145,7 +163,7 @@ func userMapViews(entries []UserMapEntry, owners []OwnerRef, directoryRead bool)
 
 	views := make([]UserMapView, 0, len(entries))
 	for _, entry := range entries {
-		views = append(views, userMapView(entry, byID, ownersByEmail, directoryRead))
+		views = append(views, userMapView(entry, byID, ownersByEmail, directoryComplete))
 	}
 	return views
 }
@@ -153,14 +171,14 @@ func userMapViews(entries []UserMapEntry, owners []OwnerRef, directoryRead bool)
 // userMapView derives one listed user's view. A mapped user reports the
 // owner's identity (or a stale reference); an unmapped one reports the single
 // most actionable reason it has none.
-func userMapView(e UserMapEntry, byID map[string]OwnerRef, ownersByEmail map[string]map[string]struct{}, directoryRead bool) UserMapView {
+func userMapView(e UserMapEntry, byID map[string]OwnerRef, ownersByEmail map[string]map[string]struct{}, directoryComplete bool) UserMapView {
 	v := UserMapView{UserMapEntry: e, UnmappedReason: reasonNone}
 	if e.IncumbentUserID != "" {
 		owner, listed := byID[e.IncumbentUserID]
 		switch {
 		case listed:
 			v.OwnerName, v.OwnerEmail = owner.Name, owner.Email
-		case directoryRead:
+		case directoryComplete:
 			// The mapping points at an owner the incumbent no longer lists.
 			// Reported, never auto-revoked: an email-sourced row in this state
 			// is transient (revalidation drops it), so what survives here is a
@@ -171,10 +189,10 @@ func userMapView(e UserMapEntry, byID map[string]OwnerRef, ownersByEmail map[str
 		return v
 	}
 	switch {
-	case !directoryRead:
-		// Without the directory, "no owner carries this email" and "we could
-		// not look" are indistinguishable — so say which one it is rather than
-		// hand the admin a diagnosis they would act on.
+	case !directoryComplete:
+		// Without the whole directory, "no owner carries this email" and "we
+		// could not look at every owner" are indistinguishable — so say which
+		// one it is rather than hand the admin a diagnosis they would act on.
 		v.UnmappedReason = reasonNoDirectory
 	case e.Blocked:
 		// An admin's own decision outranks whatever the email matching would

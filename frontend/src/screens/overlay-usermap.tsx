@@ -201,13 +201,20 @@ type DirectoryState = Readonly<{
 
 // The mutating half, owned by the card and passed down so a row never holds a
 // query client of its own.
+//
+// `busy` covers BOTH writes, not just the one a given control starts. A PUT and
+// a DELETE for the same user are the opposite decision about their whole CRM,
+// and nothing orders two in-flight requests: the second to be sent can be the
+// first to land, leaving a user mapped after the admin confirmed Unmap. Only
+// one mapping write may be outstanding, so every affordance that starts one
+// goes inert until it settles.
 type MappingActions = Readonly<{
   picking: string | null;
   onStartPick: (userId: string) => void;
   onCancelPick: () => void;
   onPick: (userId: string, incumbentUserId: string) => void;
   onUnmapRequest: (entry: Entry) => void;
-  saving: boolean;
+  busy: boolean;
   saveError: string | null;
 }>;
 
@@ -250,6 +257,7 @@ function OwnerPicker({
         <RecordPicker
           label={t("overlay.userMap.pickerLabel", { principal })}
           searchTargets={searchOwners}
+          disabled={actions.busy}
           onPick={(candidate) => actions.onPick(userId, candidate.id)}
         />
       )}
@@ -266,7 +274,7 @@ function OwnerPicker({
         </p>
       )}
       <div style={{ marginTop: "var(--space-2)" }}>
-        <Button small onClick={actions.onCancelPick} disabled={actions.saving}>
+        <Button small onClick={actions.onCancelPick} disabled={actions.busy}>
           {t("overlay.userMap.cancel")}
         </Button>
       </div>
@@ -358,13 +366,18 @@ function UserRow({
         )}
       </div>
       <div style={ACTIONS_STYLE}>
-        <Button small onClick={() => actions.onStartPick(entry.user_id)}>
+        <Button
+          small
+          disabled={actions.busy}
+          onClick={() => actions.onStartPick(entry.user_id)}
+        >
           {t(mapped ? "overlay.userMap.change" : "overlay.userMap.map")}
         </Button>
         {mapped && (
           <Button
             small
             variant="danger"
+            disabled={actions.busy}
             onClick={() => actions.onUnmapRequest(entry)}
           >
             {t("overlay.userMap.unmap")}
@@ -689,6 +702,8 @@ export function MirrorUserMapCard() {
       : null,
   };
 
+  const busy = setMapping.isPending || unmap.isPending;
+
   // Every dialog open and close clears the previous attempt's failure. A
   // mutation error outlives the dialog it happened in, so without this the
   // next row's picker — or the confirm for a different person — opens already
@@ -709,7 +724,7 @@ export function MirrorUserMapCard() {
       unmap.reset();
       setUnmapping(entry);
     },
-    saving: setMapping.isPending,
+    busy,
     saveError: setMapping.isError ? setMapping.error.message : null,
   };
 
@@ -743,7 +758,7 @@ export function MirrorUserMapCard() {
       <UnmapConfirm
         entry={unmapping}
         self={unmapping?.user_id === meId}
-        pending={unmap.isPending}
+        pending={busy}
         error={unmap.isError ? unmap.error.message : null}
         onClose={() => {
           unmap.reset();

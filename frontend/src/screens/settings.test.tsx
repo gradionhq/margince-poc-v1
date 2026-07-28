@@ -457,8 +457,14 @@ function overlaySettingsBackend(opts: {
   roles: string[];
   sorMode: "native" | "overlay";
 }) {
-  return vi.fn(async (input: RequestInfo | URL) => {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input instanceof Request ? input.url : input);
+    // The two overlay reads below answer GET only. A mock that answers any verb
+    // hands a successful payload to a request the real endpoint would reject,
+    // so a client sending the wrong one would still pass here.
+    const method = (
+      input instanceof Request ? input.method : (init?.method ?? "GET")
+    ).toUpperCase();
     if (url.endsWith("/v1/me")) {
       return jsonResponse({
         user: { id: "u1", email: "ada@acme.test" },
@@ -470,14 +476,14 @@ function overlaySettingsBackend(opts: {
     if (url.includes("/overlay/connection")) {
       return jsonResponse({ detail: "not found" }, 404);
     }
-    if (url.includes("/overlay/user-map")) {
+    if (url.includes("/overlay/user-map") && method === "GET") {
       return jsonResponse({
         incumbent: "hubspot",
         entries: [],
         next_cursor: null,
       });
     }
-    if (url.includes("/overlay/owners")) {
+    if (url.includes("/overlay/owners") && method === "GET") {
       return jsonResponse({
         incumbent: "hubspot",
         owners: [],

@@ -396,6 +396,58 @@ describe("the mirror user-map card", () => {
     ).toBeInTheDocument();
   });
 
+  // Nothing orders two in-flight mapping writes against each other. A PUT and
+  // a DELETE for the same user are opposite decisions about their whole CRM,
+  // and the second one sent can be the first one to land — leaving the user
+  // mapped after the admin confirmed Unmap, or applying a picker choice the
+  // admin has since replaced. One outstanding write per row, enforced by the
+  // controls going inert rather than by hoping the admin waits.
+  //
+  // A write that never settles is how the pending window is held open; a
+  // resolved one would close the very state under test.
+  const stalled = (): Promise<Response> => new Promise<Response>(() => {});
+
+  it("offers no second write while a mapping write is in flight", async () => {
+    renderCard({
+      entries: [mappedEntry],
+      extra: { "PUT /overlay/user-map/*": stalled },
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Change/ }),
+    );
+    await userEvent.type(screen.getByLabelText(/search .* users/i), "grace");
+    await userEvent.click(
+      await screen.findByRole("button", { name: /Grace Hopper/ }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Change/ })).toBeDisabled(),
+    );
+    expect(screen.getByRole("button", { name: /^Unmap$/ })).toBeDisabled();
+    expect(screen.getByLabelText(/search .* users/i)).toBeDisabled();
+  });
+
+  it("offers no second write while an unmap is in flight", async () => {
+    renderCard({
+      entries: [mappedEntry],
+      extra: { "DELETE /overlay/user-map/*": stalled },
+    });
+    await userEvent.click(
+      await screen.findByRole("button", { name: /^Unmap$/ }),
+    );
+    const confirms = screen.getAllByRole("button", { name: /^Unmap$/ });
+    await userEvent.click(confirms[confirms.length - 1]);
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Change/ })).toBeDisabled(),
+    );
+    // Including the confirm the admin already accepted: a re-armed button
+    // reads as "that didn't take" and invites the retry that races the first.
+    for (const confirm of screen.getAllByRole("button", { name: /^Unmap$/ })) {
+      expect(confirm).toBeDisabled();
+    }
+  });
+
   // The refusal is one the server genuinely produces: a disconnect that
   // committed while this tab was open answers mode_not_overlay with the
   // sentinel's own detail.

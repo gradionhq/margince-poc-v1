@@ -13439,15 +13439,8 @@ type UpsertPartnerParams struct {
 
 // ListOverlayUserMapParams defines parameters for ListOverlayUserMap.
 type ListOverlayUserMapParams struct {
-	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
-	// effective `sort` of the originating request (field + direction) plus the last row's keyset
-	// (sort-key tuple + the `created_at`/`id` tie-breaker). **Stability:** results are stable
-	// under concurrent inserts/updates (keyset pagination, not offset). Supplying `cursor`
-	// together with a `sort` that differs from the one the cursor was minted under returns
-	// `422 code: cursor_param_mismatch` — re-issue the query without the cursor. Filters are
-	// **not** fingerprinted by the cursor: changing a filter mid-walk changes which rows the
-	// remaining pages see, so re-issue the query without the cursor when changing filters.
-	Cursor *Cursor `form:"cursor,omitempty" json:"cursor,omitempty"`
+	// Cursor Opaque keyset cursor from a prior response's root-level `next_cursor`. It encodes the last row's app_user id and nothing else; there is no sort to disagree with. A token this endpoint did not mint returns `422 code: malformed_cursor` — re-issue the request without it.
+	Cursor *string `form:"cursor,omitempty" json:"cursor,omitempty"`
 
 	// Limit Max items in the page.
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`

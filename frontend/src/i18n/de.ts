@@ -397,7 +397,7 @@ export const de = {
   "overlay.userMap.reason.notYetSynced":
     "Das {principal}-Verzeichnis führt diese Person noch nicht.",
   "overlay.userMap.reason.directoryUnavailable":
-    "Das {principal}-Verzeichnis konnte nicht gelesen werden, deshalb lässt sich kein Grund ableiten.",
+    "Das {principal}-Verzeichnis konnte nicht vollständig gelesen werden, deshalb lässt sich kein Grund ableiten.",
   "overlay.userMap.staleChip": "Nicht mehr im {principal}-Verzeichnis",
   "overlay.userMap.staleNote":
     "Diese manuelle Zuordnung gewährt keine Sichtbarkeit. Sie wird gemeldet, aber nie automatisch zurückgenommen — die Entscheidung bleibt bei dir.",

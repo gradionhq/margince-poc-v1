@@ -326,6 +326,27 @@ func (s *MirrorStore) upsertUserMapTx(ctx context.Context, tx pgx.Tx, appUser id
 	// slow lookup must never be held under the workspace-wide lock where
 	// it would block every sibling remap.
 	if source == "email" {
+		// Eligibility is re-decided HERE, not trusted from the sweep's own
+		// candidate query: usersMatchingEmail (usermapseed.go) runs in an
+		// earlier transaction, so a seat archived in the window between that
+		// read and this write would still be granted mirror visibility by a
+		// gate that committed separately from the row it guards. This is the
+		// same in-transaction decision SetManualUserMap makes for the manual
+		// source, on the automatic path that had none.
+		//
+		// A quiet no-op rather than a refusal, for the reason the blocked-user
+		// short-circuit below is one: SeedUserMap walks EVERY owner in the
+		// directory, and one seat that stopped being grantable must not abort
+		// the rest of the sweep. The manual source keeps its strict
+		// ErrNotFound — an admin who named an ineligible seat asked a question
+		// and is owed the answer.
+		grantable, err := automapTargetIsGrantable(ctx, tx, appUser)
+		if err != nil {
+			return err
+		}
+		if !grantable {
+			return nil
+		}
 		if err := s.requireEmailMatch(ctx, tx, appUser, incumbentUserID); err != nil {
 			return err
 		}
@@ -353,6 +374,16 @@ func (s *MirrorStore) upsertUserMapTx(ctx context.Context, tx pgx.Tx, appUser id
 		return err
 	}
 
+	return applyUserMapWrite(ctx, tx, appUser, incumbent, incumbentUserID, source)
+}
+
+// applyUserMapWrite is the write half of a mapping change: read the prior row,
+// upsert, audit what moved, and recompute visibility for the new incumbent user
+// and — on a remap — the one it replaced. The caller must already hold the
+// per-workspace visibility lock and have cleared the fence: every step here
+// reads or rewrites state a concurrent remap also touches, so run unguarded it
+// is exactly the interleaving the lock exists to prevent.
+func applyUserMapWrite(ctx context.Context, tx pgx.Tx, appUser ids.UserID, incumbent, incumbentUserID, source string) error {
 	var prior userMapImage
 	err := tx.QueryRow(ctx, selectPriorMappingSQL, appUser, incumbent).
 		Scan(&prior.IncumbentUserID, &prior.MatchSource)

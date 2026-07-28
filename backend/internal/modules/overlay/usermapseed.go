@@ -11,7 +11,6 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -179,13 +178,8 @@ func (s *MirrorStore) revokeEmailMappingsForOwners(ctx context.Context, incumben
 			if len(dropped) == 0 {
 				continue
 			}
-			// Audited per dropped row: the ambiguity rule is automation
-			// taking a user's access away, and the audit row is the only
-			// place that decision survives once the mapping is gone.
-			for _, r := range dropped {
-				if _, err := storekit.Audit(ctx, tx, "archive", auditEntityUserMap, r.appUser.UUID, r.image, nil); err != nil {
-					return fmt.Errorf("overlay: auditing %s's revoked mapping: %w", r.appUser, err)
-				}
+			if err := auditRevokedMappings(ctx, tx, dropped); err != nil {
+				return err
 			}
 			if err := recomputeForOwnerTx(ctx, tx, ownerID); err != nil {
 				return err

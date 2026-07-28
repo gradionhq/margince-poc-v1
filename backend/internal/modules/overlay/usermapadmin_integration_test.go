@@ -313,6 +313,49 @@ func TestBlockAutoMapStillUnmapsAnArchivedUser(t *testing.T) {
 	}
 }
 
+// The sweep reads its candidate seats (usersMatchingEmail) in one transaction
+// and writes each mapping in another, so an eligibility check made only at
+// candidate time describes a row the write can find in a different state: a
+// seat archived in that window would still be granted mirror visibility. The
+// write re-decides for itself, inside its own transaction.
+//
+// Quietly, not by refusing: SeedUserMap walks every owner in the directory, and
+// one seat that stopped being grantable must not abort the rest of the sweep.
+func TestEmailSourcedMappingSkipsASeatArchivedAfterTheCandidateRead(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "rep@acme.test"})
+	_, repRaw := testWorkspaceCtxAsUser(t, ws, "rep@acme.test")
+	rep := ids.From[ids.UserKind](repRaw)
+
+	// The candidate read has already named rep; the archive commits before the
+	// mapping write reaches the row.
+	archiveUser(t, rep)
+
+	if err := store.UpsertUserMap(ctx, rep, "hubspot", "owner-1", "email"); err != nil {
+		t.Fatalf("an ineligible seat must be skipped quietly so the rest of the sweep still seeds, got: %v", err)
+	}
+	if got := countUserMapRows(ctx, t, pool, rep); got != 0 {
+		t.Fatalf("an archived seat must not be granted mirror visibility, got %d mapping row(s)", got)
+	}
+}
+
+// The same skip covers a candidate the workspace no longer has at all (a seat
+// deleted mid-sweep, or another tenant's, which RLS makes indistinguishable):
+// there is nothing to map, and that is a row to pass over rather than a fault
+// that ends the pass.
+func TestEmailSourcedMappingSkipsACandidateTheWorkspaceNoLongerHas(t *testing.T) {
+	ctx, pool, _ := testWorkspaceCtx(t)
+	store := NewMirrorStore(pool, stubOwnerEmails{"owner-1": "gone@other.test"})
+	foreign := seedUserInOtherWorkspace(t, "gone@other.test")
+
+	if err := store.UpsertUserMap(ctx, foreign, "hubspot", "owner-1", "email"); err != nil {
+		t.Fatalf("an unresolvable candidate must be skipped quietly, got: %v", err)
+	}
+	if got := countUserMapRows(ctx, t, pool, foreign); got != 0 {
+		t.Fatalf("no mapping may be written for a seat this workspace does not have, got %d", got)
+	}
+}
+
 // blocked_by is the accountability half of the row — the admin whose decision
 // the table exists to record — so it carries the same tenant-local composite
 // FK app_user_id does. The database is the only thing that can enforce it: the
