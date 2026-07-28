@@ -33,7 +33,8 @@ import (
 func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 	e := integration.Setup(t)
 	consentStore := consent.NewStore(e.Pool)
-	adapter := commsAdapter{store: activities.NewStore(e.Pool), gate: consent.NewGate(consentStore)}
+	stager := &countingStager{}
+	adapter := commsAdapter{store: activities.NewStore(e.Pool), gate: consent.NewGate(consentStore), stager: stager}
 
 	admin := e.Admin()
 	personID := e.SeedPerson(t, "Opt Out Target", &e.Rep1)
@@ -85,10 +86,11 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 		return err
 	}
 
-	// Before opt-out the agent send is allowed.
+	// Before opt-out the agent send is allowed, and reaches delivery.
 	if err := send(); err != nil {
 		t.Fatalf("granted agent send → %v, want success", err)
 	}
+	assertStaged(t, stager, 1, "the granted agent send")
 
 	// The buyer one-click unsubscribes through the PUBLIC preference surface,
 	// exactly as the anonymous middleware binds it (system principal).
@@ -101,10 +103,12 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 		t.Fatalf("one-click withdrawal: %v", err)
 	}
 
-	// After opt-out the SAME agent send is refused at the shared gate.
+	// After opt-out the SAME agent send is refused at the shared gate, and
+	// nothing further reaches delivery.
 	if err := send(); !errors.Is(err, apperrors.ErrConsentNotGranted) {
 		t.Fatalf("agent send after opt-out → %v, want ErrConsentNotGranted", err)
 	}
+	assertStaged(t, stager, 1, "the send after opt-out (still only the pre-opt-out one)")
 }
 
 // addPersonEmail attaches an email channel to a person as admin, so the

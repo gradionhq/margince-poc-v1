@@ -27,10 +27,12 @@ import (
 )
 
 // sendMarketing issues an authenticated send-email and returns the status
-// plus response headers, so the List-Unsubscribe header can be asserted.
-// host/xfProto let a test forge the request origin to prove the emitted
-// link ignores them.
-func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto string) (int, http.Header) {
+// plus the body of the activity the send logged — which is the body that
+// goes out, unsubscribe footer included. The machine List-Unsubscribe header
+// rides the staged message, not this response: the API caller is not the
+// recipient and has nothing to unsubscribe from. host/xfProto let a test
+// forge the request origin to prove the emitted link ignores them.
+func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto string) (int, string) {
 	t.Helper()
 	raw, err := json.Marshal(anyMap{
 		"subject": "Newsletter", "body": "hello", "to": []string{"subject@consent.test"}, "consent_purpose": purpose,
@@ -59,24 +61,45 @@ func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto stri
 		t.Fatalf("send-email: %v", err)
 	}
 	defer closeBody(t, resp)
-	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+	payload, err := io.ReadAll(resp.Body)
+	if err != nil {
 		t.Fatal(err)
 	}
-	return resp.StatusCode, resp.Header
+	if resp.StatusCode != http.StatusAccepted {
+		return resp.StatusCode, ""
+	}
+	var sent struct {
+		Body string `json:"body"`
+	}
+	if err := json.Unmarshal(payload, &sent); err != nil {
+		t.Fatalf("decoding the sent activity: %v (%s)", err, payload)
+	}
+	return resp.StatusCode, sent.Body
 }
 
-// tokenFromHeader lifts the preference token out of a List-Unsubscribe
-// header value: `<https://base/v1/public/preferences/TOKEN/unsubscribe?…>`.
-func tokenFromHeader(t *testing.T, header string) string {
+// unsubscribeLinkIn lifts the one-click URL out of the visible footer the
+// send appended, and tokenFromLink lifts the preference token out of it:
+// `https://base/v1/public/preferences/TOKEN/unsubscribe?…`.
+func unsubscribeLinkIn(t *testing.T, body string) string {
 	t.Helper()
-	trimmed := strings.TrimSuffix(strings.TrimPrefix(header, "<"), ">")
-	u, err := url.Parse(trimmed)
+	for _, line := range strings.Split(body, "\n") {
+		if link, ok := strings.CutPrefix(line, "Unsubscribe: "); ok {
+			return strings.TrimSpace(link)
+		}
+	}
+	t.Fatalf("no visible unsubscribe link in the sent body:\n%s", body)
+	return ""
+}
+
+func tokenFromLink(t *testing.T, link string) string {
+	t.Helper()
+	u, err := url.Parse(link)
 	if err != nil {
-		t.Fatalf("parsing List-Unsubscribe %q: %v", header, err)
+		t.Fatalf("parsing the unsubscribe link %q: %v", link, err)
 	}
 	parts := strings.Split(strings.TrimPrefix(u.Path, "/v1/public/preferences/"), "/")
 	if len(parts) < 2 || parts[0] == "" {
-		t.Fatalf("List-Unsubscribe path has no token: %q", u.Path)
+		t.Fatalf("unsubscribe link has no token: %q", u.Path)
 	}
 	return parts[0]
 }
@@ -105,39 +128,39 @@ func createNewsletterPurpose(t *testing.T, c *consentEnv) string {
 	return newsletter.ID
 }
 
-// sendAndAssertUnsubscribeHeaders covers the RFC 8058 header pair on a
-// marketing send: both headers present and built from the CONFIGURED
-// base, a forged request origin never reshapes the tokenized link, and
-// a transactional (locked) send carries no unsubscribe header at all.
-// Returns the preference token the send minted.
-func sendAndAssertUnsubscribeHeaders(t *testing.T, c *consentEnv) string {
+// sendAndAssertUnsubscribeLink covers the one-click surface a marketing
+// send carries: a visible link built from the CONFIGURED base, a forged
+// request origin that never reshapes the tokenized link, and a
+// transactional (locked) send that carries no unsubscribe surface at all.
+// The machine List-Unsubscribe header derives from the SAME token and URL
+// and is asserted where it is now built, on the send path itself
+// (activities.Store.SendEmail). Returns the preference token the send minted.
+func sendAndAssertUnsubscribeLink(t *testing.T, c *consentEnv) string {
 	t.Helper()
-	// The marketing send carries both RFC 8058 headers, built from the
+	// The marketing send carries the one-click link, built from the
 	// configured base — NOT from the request Host.
-	status, hdr := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	status, body := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
 	if status != http.StatusAccepted {
 		t.Fatalf("marketing send → %d, want 202", status)
 	}
-	if got := hdr.Get("List-Unsubscribe-Post"); got != "List-Unsubscribe=One-Click" {
-		t.Fatalf("List-Unsubscribe-Post = %q", got)
+	link := unsubscribeLinkIn(t, body)
+	if !strings.HasPrefix(link, "https://mail.example.test/v1/public/preferences/") || !strings.Contains(link, "purpose=newsletter") {
+		t.Fatalf("unsubscribe link = %q, want a one-click URL on the configured base", link)
 	}
-	lu := hdr.Get("List-Unsubscribe")
-	if !strings.HasPrefix(lu, "<https://mail.example.test/v1/public/preferences/") || !strings.Contains(lu, "purpose=newsletter") {
-		t.Fatalf("List-Unsubscribe = %q, want a one-click URL on the configured base", lu)
-	}
-	token := tokenFromHeader(t, lu)
+	token := tokenFromLink(t, link)
 
 	// A forged Host / X-Forwarded-Proto must NOT redirect the tokenized
 	// link to an attacker's domain (token-exfiltration guard).
-	_, hostileHdr := sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
-	hostileLU := hostileHdr.Get("List-Unsubscribe")
-	if !strings.HasPrefix(hostileLU, "<https://mail.example.test/") || strings.Contains(hostileLU, "evil.example") {
-		t.Fatalf("hostile Host reshaped the unsubscribe link: %q", hostileLU)
+	_, hostileBody := sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
+	hostileLink := unsubscribeLinkIn(t, hostileBody)
+	if !strings.HasPrefix(hostileLink, "https://mail.example.test/") || strings.Contains(hostileLink, "evil.example") {
+		t.Fatalf("hostile Host reshaped the unsubscribe link: %q", hostileLink)
 	}
 
-	// A transactional (locked) send carries NO unsubscribe header.
-	if _, thdr := sendMarketing(t, c.env, c.activityID, "transactional", "", ""); thdr.Get("List-Unsubscribe") != "" {
-		t.Fatal("transactional send carried a List-Unsubscribe header — there is nothing to unsubscribe from")
+	// A transactional (locked) send has nothing to unsubscribe from, so
+	// nothing is appended to what the sender wrote.
+	if _, tbody := sendMarketing(t, c.env, c.activityID, "transactional", "", ""); strings.Contains(tbody, "/unsubscribe") {
+		t.Fatalf("transactional send carried an unsubscribe link:\n%s", tbody)
 	}
 	return token
 }
@@ -232,7 +255,7 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	newsletterID := createNewsletterPurpose(t, c)
 	grantPurpose(t, c, newsletterID)
 
-	token := sendAndAssertUnsubscribeHeaders(t, c)
+	token := sendAndAssertUnsubscribeLink(t, c)
 
 	// The no-login preference center recognizes the recipient by token.
 	view := readPreferenceView(t, c, token)
@@ -311,8 +334,8 @@ func TestPreferenceCenterRevokedTokenReadsAsAbsent(t *testing.T) {
 	}
 	grantPurpose(t, c, newsletter.ID)
 
-	_, hdr := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
-	token := tokenFromHeader(t, hdr.Get("List-Unsubscribe"))
+	_, body := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	token := tokenFromLink(t, unsubscribeLinkIn(t, body))
 
 	// Live token resolves.
 	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, nil); s != http.StatusOK {
@@ -348,8 +371,8 @@ func TestPreferenceCenterRejectsOversizedChoiceArray(t *testing.T) {
 		t.Fatalf("create newsletter purpose → %d", status)
 	}
 	grantPurpose(t, c, newsletter.ID)
-	_, hdr := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
-	token := tokenFromHeader(t, hdr.Get("List-Unsubscribe"))
+	_, body := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	token := tokenFromLink(t, unsubscribeLinkIn(t, body))
 
 	choices := make([]anyMap, 0, 100)
 	for i := 0; i < 100; i++ {

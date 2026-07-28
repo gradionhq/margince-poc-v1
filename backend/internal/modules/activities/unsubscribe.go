@@ -13,6 +13,7 @@ package activities
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"strings"
 )
@@ -31,8 +32,17 @@ type UnsubscribeLinker interface {
 // send still requires granted consent at the gate, so the missing header
 // is a wiring gap, never a suppression bypass.
 func (h Handlers) WithUnsubscribe(linker UnsubscribeLinker) Handlers {
-	h.unsubscribe = linker
+	h.store = h.store.WithUnsubscribe(linker)
 	return h
+}
+
+// WithUnsubscribe is the store-level wiring the handler option delegates to:
+// the derivation belongs to the send path, which the MCP tool surface enters
+// without passing through any handler.
+func (s *Store) WithUnsubscribe(linker UnsubscribeLinker) *Store {
+	clone := *s
+	clone.unsubscribe = linker
+	return &clone
 }
 
 // WithPublicBaseURL sets the canonical scheme+host the recipient's
@@ -42,8 +52,47 @@ func (h Handlers) WithUnsubscribe(linker UnsubscribeLinker) Handlers {
 // would let an attacker who controls it at send time point the tokenized
 // link at their own domain and harvest the token.
 func (h Handlers) WithPublicBaseURL(base string) Handlers {
-	h.publicBaseURL = strings.TrimRight(strings.TrimSpace(base), "/")
+	h.store = h.store.WithPublicBaseURL(base)
 	return h
+}
+
+// WithPublicBaseURL is the store-level half of the same wiring; it also
+// supplies the domain every minted Message-ID is qualified by.
+func (s *Store) WithPublicBaseURL(base string) *Store {
+	clone := *s
+	clone.publicBaseURL = strings.TrimRight(strings.TrimSpace(base), "/")
+	return &clone
+}
+
+// deliverability derives what a send must carry for a mailbox provider to
+// accept it as bulk mail: the RFC 8058 List-Unsubscribe header value and the
+// human-visible footer, both built from ONE token so they cannot diverge.
+// It returns the body to transmit, footer already applied.
+//
+// ok is false when the address carries no unsubscribe surface — a locked
+// (transactional) purpose, or an address no person holds — in which case a
+// transactional message has nothing to unsubscribe from and an address the
+// consent gate would refuse discloses nothing.
+func (s *Store) deliverability(ctx context.Context, body string, recipients []string, purposeKey string) (listUnsubscribe, outBody string, err error) {
+	if s.unsubscribe == nil || len(recipients) == 0 {
+		return "", body, nil
+	}
+	token, ok, err := s.unsubscribe.UnsubscribeToken(ctx, recipients[0], purposeKey)
+	if err != nil {
+		return "", "", err
+	}
+	if !ok {
+		return "", body, nil
+	}
+	if s.publicBaseURL == "" {
+		// Fail loudly rather than derive the base from the request: the link
+		// carries the recipient's unsubscribe token, and a marketing send
+		// may not go out without a working, non-forgeable List-Unsubscribe
+		// URL (features/06 §1.2).
+		return "", "", fmt.Errorf("send: public base URL is not configured; a marketing send must carry a working List-Unsubscribe URL")
+	}
+	unsubURL := unsubscribeURL(s.publicBaseURL, token, purposeKey)
+	return listUnsubscribeHeader(unsubURL), appendUnsubscribeFooter(body, s.publicBaseURL, token, unsubURL), nil
 }
 
 // unsubscribeURL is the ONE spelling of the public one-click endpoint the
@@ -55,12 +104,13 @@ func unsubscribeURL(baseURL, token, purposeKey string) string {
 		"/unsubscribe?purpose=" + url.QueryEscape(strings.ToLower(strings.TrimSpace(purposeKey)))
 }
 
-// listUnsubscribeHeaders returns the RFC 8058 header pair: the bracketed
-// https one-click URL and the fixed one-click POST marker. Emitting
-// List-Unsubscribe-Post is what promises the URL is a no-confirmation POST
-// target — mail providers surface a one-click control off exactly this.
-func listUnsubscribeHeaders(unsubURL string) (listUnsubscribe, listUnsubscribePost string) {
-	return "<" + unsubURL + ">", "List-Unsubscribe=One-Click"
+// listUnsubscribeHeader returns the RFC 8058 List-Unsubscribe value: the
+// bracketed https one-click URL. Its companion List-Unsubscribe-Post value
+// is fixed by the RFC at "List-Unsubscribe=One-Click" and is therefore
+// rendered at the wire from this value being present, never carried or
+// stored beside it — one value cannot drift out of step with itself.
+func listUnsubscribeHeader(unsubURL string) string {
+	return "<" + unsubURL + ">"
 }
 
 // appendUnsubscribeFooter adds the human-visible unsubscribe + manage-

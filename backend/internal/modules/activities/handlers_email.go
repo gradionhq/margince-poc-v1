@@ -33,6 +33,22 @@ func (h Handlers) WithConsent(gate ConsentGate) Handlers {
 	return h
 }
 
+// WithDelivery returns handlers whose send path records an accepted message
+// for transmission. Compose calls this; the zero Handlers value refuses to
+// send rather than log an activity claiming a message went out.
+func (h Handlers) WithDelivery(stager DeliveryStager) Handlers {
+	h.delivery = stager
+	return h
+}
+
+// WithMailbox returns handlers whose send path pre-flights the sender's
+// mailbox grant, so a user with no send-capable mailbox is refused with an
+// actionable message instead of accepting mail that can only park.
+func (h Handlers) WithMailbox(authority MailboxAuthority) Handlers {
+	h.store = h.store.WithMailbox(authority)
+	return h
+}
+
 // WithEmailDrafter returns handlers whose draft endpoint uses the injected
 // compose path. Drafting only proposes text; the send endpoint remains a
 // separate consent-gated operation.
@@ -139,59 +155,36 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	if !httperr.Decode(w, r, &req) {
 		return
 	}
-	recipients := make([]string, 0, len(req.To))
+	// Recipients is the merged addressee list the consent gate answers on;
+	// cc travels separately so the delivery can render a To: and a Cc: line
+	// that address each person once.
+	var cc []string
+	if req.Cc != nil {
+		cc = make([]string, 0, len(*req.Cc))
+		for _, addr := range *req.Cc {
+			cc = append(cc, string(addr))
+		}
+	}
+	recipients := make([]string, 0, len(req.To)+len(cc))
 	for _, addr := range req.To {
 		recipients = append(recipients, string(addr))
 	}
-	if req.Cc != nil {
-		for _, addr := range *req.Cc {
-			recipients = append(recipients, string(addr))
-		}
-	}
+	recipients = append(recipients, cc...)
 
-	// RFC 8058 one-click unsubscribe (features/06 §1.2 AC-D3): a marketing
-	// send carries the List-Unsubscribe header pair and a visible footer,
-	// keyed on the primary recipient's preference token. A locked
-	// (transactional) purpose, or an address no person carries, yields no
-	// token — a transactional message has nothing to unsubscribe from, and
-	// an address the gate will refuse below discloses nothing. Both header
-	// and footer derive from unsubscribeURL so they cannot diverge.
-	body := req.Body
-	var listUnsubscribe, listUnsubscribePost string
-	if h.unsubscribe != nil && len(recipients) > 0 {
-		token, ok, err := h.unsubscribe.UnsubscribeToken(r.Context(), recipients[0], req.ConsentPurpose)
-		if err != nil {
-			writeStoreErr(w, r, err)
-			return
-		}
-		if ok {
-			if h.publicBaseURL == "" {
-				// Fail loudly rather than derive the base from the request:
-				// the link carries the recipient's unsubscribe token, and a
-				// marketing send may not go out without a working, non-
-				// forgeable List-Unsubscribe URL (features/06 §1.2).
-				httperr.Write(w, r, fmt.Errorf("send: public base URL is not configured; a marketing send must carry a working List-Unsubscribe URL"))
-				return
-			}
-			unsubURL := unsubscribeURL(h.publicBaseURL, token, req.ConsentPurpose)
-			listUnsubscribe, listUnsubscribePost = listUnsubscribeHeaders(unsubURL)
-			body = appendUnsubscribeFooter(body, h.publicBaseURL, token, unsubURL)
-		}
-	}
-
+	// Deliverability — the RFC 8058 header and the visible footer — is
+	// derived by the store, on the message, where the MCP send tool reaches
+	// it too. It belongs on the mail, not on this response to the API
+	// caller, who is not the recipient and has nothing to unsubscribe from.
 	sent, err := h.store.SendEmail(r.Context(), pathID[ids.ActivityKind](id), SendEmailInput{
 		Recipients:     recipients,
+		Cc:             cc,
 		Subject:        req.Subject,
-		Body:           body,
+		Body:           req.Body,
 		ConsentPurpose: req.ConsentPurpose,
-	}, h.consent)
+	}, h.consent, h.delivery)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
-	}
-	if listUnsubscribe != "" {
-		w.Header().Set("List-Unsubscribe", listUnsubscribe)
-		w.Header().Set("List-Unsubscribe-Post", listUnsubscribePost)
 	}
 	// 202: accepted for delivery, the activity is the durable fact.
 	httperr.WriteJSON(w, http.StatusAccepted, sent)

@@ -26,6 +26,20 @@ type Store struct {
 	// objects, in which case the attachment handlers answer 501 rather than
 	// nil-deref (WithBlobstore is how a role opts in).
 	blob blobstore.Store
+	// unsubscribe mints the recipient's RFC 8058 preference token for a
+	// marketing send; nil means no unsubscribe header (WithUnsubscribe).
+	// It lives on the STORE, not on Handlers, because the MCP send tool
+	// calls the store directly — deliverability on one transport only is
+	// deliverability the other transport silently drops.
+	unsubscribe UnsubscribeLinker
+	// publicBaseURL is the canonical scheme+host the tokenized unsubscribe
+	// link resolves to — configured at boot, never taken from the request
+	// (WithPublicBaseURL wires it).
+	publicBaseURL string
+	// mailbox pre-flights the sender's send grant; nil skips the pre-flight
+	// (WithMailbox wires it) and the delivery path still refuses at
+	// transmission.
+	mailbox MailboxAuthority
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {

@@ -30,17 +30,14 @@ type Handlers struct {
 	emailDrafter EmailDrafter
 	// consent gates the send path; nil fails closed (WithConsent wires it).
 	consent ConsentGate
+	// delivery records an accepted send for transmission; nil fails closed
+	// (WithDelivery wires it), because a 202 for a message nothing will
+	// carry is a promise this surface cannot keep.
+	delivery DeliveryStager
 	// The public-booking capture seams; nil fails closed
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer
 	publicConsent ConsentCapturer
-	// unsubscribe builds the RFC 8058 List-Unsubscribe URL for a marketing
-	// send; nil means no unsubscribe header (WithUnsubscribe wires it).
-	unsubscribe UnsubscribeLinker
-	// publicBaseURL is the canonical scheme+host the tokenized unsubscribe
-	// link resolves to — configured at boot, never taken from the request
-	// (WithPublicBaseURL wires it).
-	publicBaseURL string
 	// extractor is the staged AI-extraction seam (RD-T10); nil falls back to
 	// extraction.NoOpExtractor (WithExtractor wires a real one).
 	extractor extraction.Extractor
@@ -76,6 +73,13 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 	var badLink *InvalidLinkTypeError
 	if errors.As(err, &badLink) {
 		httperr.Write(w, r, httperr.Validation("links", "invalid_entity_type", badLink.Error()))
+		return
+	}
+	// A send this installation already knows cannot leave is a refusal the
+	// user can act on, not a server fault: 422, naming the fix.
+	var mailbox *MailboxNotSendCapableError
+	if errors.As(err, &mailbox) {
+		httperr.Write(w, r, httperr.Validation("from", "mailbox_not_send_capable", mailbox.Error()))
 		return
 	}
 	// An activity carries at most one project link (PROJ-AC-15), enforced by
