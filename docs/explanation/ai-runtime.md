@@ -293,7 +293,9 @@ implemented, and a site with no certification case. To debug a verdict, the lane
 dumps every candidate and judge call to a local JSONL trace — the *same*
 secret-stripped `ai_call_payload` shape (on by default, gitignored). Full
 walkthrough: [how-to/certify-an-ai-model.md](../how-to/certify-an-ai-model.md);
-adding a task or site: [how-to/add-an-ai-task.md](../how-to/add-an-ai-task.md).
+adding a task or site: [how-to/add-an-ai-task.md](../how-to/add-an-ai-task.md);
+writing the case that certifies one:
+[how-to/write-a-certification-case.md](../how-to/write-a-certification-case.md).
 
 ## Reference
 

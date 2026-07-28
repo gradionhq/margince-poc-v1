@@ -26,7 +26,8 @@ maps the codebase and links everything below.
 - [connect-a-hubspot-overlay.md](how-to/connect-a-hubspot-overlay.md) — connect a workspace to a HubSpot portal in overlay (read + continuous sync) mode.
 - [connect-a-cloud-model-provider.md](how-to/connect-a-cloud-model-provider.md) — bind the AI lanes to a BYOK cloud key (Anthropic / OpenAI / Gemini / any OpenAI-compatible vendor).
 - [certify-an-ai-model.md](how-to/certify-an-ai-model.md) — certify a model against a task's fixture corpus and benchmark a candidate swap (`make e2e-ai`).
-- [add-an-ai-task.md](how-to/add-an-ai-task.md) — add a new AI task or invocation site: declare it, register the site, write its certification case and corpus scenario, certify it.
+- [add-an-ai-task.md](how-to/add-an-ai-task.md) — add a new AI task or invocation site: declare it in the contract, wire the lane, register the site, certify it.
+- [write-a-certification-case.md](how-to/write-a-certification-case.md) — bind a site to the production request builder and validator that certify it: the test-first loop, the case interface, the three site kinds, scenario and rubric authoring, scope.
 - [register-a-webhook.md](how-to/register-a-webhook.md) — register an HTTPS endpoint for Standard-Webhooks-signed, retried outbound delivery of contract-generated event payloads (curl or Settings → Integrations), and verify/inspect/replay a delivery.
 - [add-an-extension.md](how-to/add-an-extension.md) — ship a stable-tier extension unit (a jurisdiction pack) under `extensions/`, composed and verified.
 
