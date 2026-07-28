@@ -107,13 +107,23 @@ func newTestDispatcher(store deliveryStore, res ConnectionResolver, consent Cons
 	return NewDispatcher(store, res, consent, policies, func() time.Time { return testNow }, time.Hour, testMaxAttempts)
 }
 
+// dispatch runs one attempt and drops the postponement interval, which most
+// cases here do not assert on. A case about the interval calls
+// DispatchWithWait directly — the production caller always does, because a
+// postponement the caller does not honor comes back on its own schedule
+// rather than the one the policy asked for.
+func dispatch(ctx context.Context, d *Dispatcher, id ids.UUID) (Outcome, error) {
+	outcome, _, err := d.DispatchWithWait(ctx, id)
+	return outcome, err
+}
+
 // A redelivered job must transmit nothing.
 func TestDispatchOnATerminalDeliveryTransmitsNothing(t *testing.T) {
 	sender := &fakeSender{}
 	store := &fakeStore{loadErr: ErrTerminal}
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
 
-	got, err := d.Dispatch(context.Background(), ids.NewV7())
+	got, err := dispatch(context.Background(), d, ids.NewV7())
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
@@ -129,7 +139,7 @@ func TestDispatchRetriesWhenTheDeliveryCannotBeLoaded(t *testing.T) {
 	store := &fakeStore{loadErr: errors.New("database timeout")}
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
 
-	got, err := d.Dispatch(context.Background(), ids.NewV7())
+	got, err := dispatch(context.Background(), d, ids.NewV7())
 	if got != OutcomeRetry || err == nil {
 		t.Errorf("outcome=%v err=%v, want OutcomeRetry and the cause", got, err)
 	}
@@ -143,7 +153,7 @@ func TestDispatchRetriesOnATransientResolveFailure(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{err: errors.New("keyvault timeout")}, stubConsent{})
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeRetry {
 		t.Errorf("outcome = %v, want OutcomeRetry — a transient resolve fault is not fatal", got)
 	}
@@ -156,7 +166,7 @@ func TestDispatchParksWhenTheUserHasNoMailbox(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{err: ErrNoMailbox}, stubConsent{})
 
-	if got, _ := d.Dispatch(context.Background(), store.delivery.ID); got != OutcomeParked {
+	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked — there is nothing to retry against", got)
 	}
 }
@@ -168,7 +178,7 @@ func TestDispatchParksWhenTheConnectorCannotSend(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{err: ErrCannotSend}, stubConsent{})
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked", got)
 	}
@@ -182,7 +192,7 @@ func TestDispatchParksWhenTheGrantLacksSendScope(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{"readonly"}}, stubConsent{})
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
 		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0", got, sender.calls)
 	}
@@ -199,7 +209,7 @@ func TestDispatchParksWhenTheProviderCannotSendAtAll(t *testing.T) {
 	store.delivery.Provider = "imap"
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, stubConsent{})
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
 		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0", got, sender.calls)
 	}
@@ -216,7 +226,7 @@ func TestDispatchParksWhenConsentWasWithdrawnAfterStaging(t *testing.T) {
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
 		stubConsent{err: apperrors.ErrConsentNotGranted})
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
 		t.Errorf("outcome=%v calls=%d — a withdrawn consent must stop the send", got, sender.calls)
 	}
@@ -230,7 +240,7 @@ func TestDispatchRetriesWhenTheConsentCheckFailsTransiently(t *testing.T) {
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}},
 		stubConsent{err: errors.New("consent store timeout")})
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeRetry {
 		t.Errorf("outcome = %v, want OutcomeRetry — an outage is not a refusal", got)
 	}
@@ -249,7 +259,7 @@ func TestDispatchParksWhenNoConsentAuthorityIsWired(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, nil)
 
-	got, _ := d.Dispatch(context.Background(), store.delivery.ID)
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
 	if got != OutcomeParked || sender.calls != 0 {
 		t.Errorf("outcome=%v calls=%d, want OutcomeParked/0", got, sender.calls)
 	}
@@ -263,7 +273,7 @@ func TestDispatchChecksAuthorityBeforeConsent(t *testing.T) {
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{"readonly"}}, consent)
 
-	if _, err := d.Dispatch(context.Background(), store.delivery.ID); err != nil {
+	if _, err := dispatch(context.Background(), d, store.delivery.ID); err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
 	if consulted {

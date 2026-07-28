@@ -17,6 +17,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
@@ -344,6 +345,17 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 			publicBaseURL: c.PublicBaseURL,
 			apiBaseURL:    c.APIBaseURL,
 		}
+		// The send-grant pre-flight reads the registry the connect flow just
+		// wrote to — the same one, not a second construction: a mailbox the
+		// user connects here must be the mailbox the check asks about, and
+		// two registries could answer from different connector sets. A role
+		// without the Google app configured registers no gmail connector, so
+		// there is no grant to pre-flight and the check is absent by
+		// omission, exactly as the connect surface is.
+		WithMailbox(mailboxAuthority{
+			registry: s.connectorHandlers.registry,
+			provider: activities.SendProvider,
+		})(s, pool)
 	}
 }
 

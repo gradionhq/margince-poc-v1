@@ -172,6 +172,12 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	}
 }
 
+// Every send option below records onto s.send and NOTHING else. The HTTP
+// handlers' own store is reconciled from that one value once every option has
+// run (New's applySendPath), and the tool surface is rebuilt over it here, so
+// no option can configure one transport and leave the others silently
+// without.
+
 // WithPublicBaseURL sets the canonical scheme+host the buyer-facing
 // unsubscribe/preference links resolve to (B-E11.32). It is configured at
 // boot, never derived from a request: the link carries the recipient's
@@ -180,10 +186,6 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 func WithPublicBaseURL(base string) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.PublicBaseURL = base
-		s.activitiesHandlers = s.WithPublicBaseURL(base)
-		// The MCP tool surface enters the same send path, so it is rebuilt
-		// over the same configuration — a base URL the HTTP transport has and
-		// the tool surface does not is how the two forked.
 		s.rebuildToolRegistry(pool)
 	}
 }
@@ -196,7 +198,6 @@ func WithPublicBaseURL(base string) Option {
 func WithDelivery(stager activities.DeliveryStager) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.Delivery = stager
-		s.activitiesHandlers = s.WithDelivery(stager)
 		s.rebuildToolRegistry(pool)
 	}
 }
@@ -207,7 +208,6 @@ func WithDelivery(stager activities.DeliveryStager) Option {
 func WithMailbox(authority activities.MailboxAuthority) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.Mailbox = authority
-		s.activitiesHandlers = s.WithMailbox(authority)
 		s.rebuildToolRegistry(pool)
 	}
 }

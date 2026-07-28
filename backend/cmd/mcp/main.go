@@ -53,6 +53,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -118,10 +119,23 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	// The delivery machinery is not wired in this role yet, so a send through
-	// the tool surface refuses rather than record one nothing will carry.
+	// The tool surface stages a send exactly as the HTTP transport does — the
+	// governed send path is the same one, so a tool call that could accept a
+	// message but never queue it would be a hole the api does not have.
+	// Insert-only: cmd/worker transmits what any role stages.
+	//
+	// No mailbox pre-flight here: that advisory check reads the connect
+	// registry, which only the api role builds. The transmit-time authority
+	// gate still refuses a grant that cannot send.
+	sendInserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return err
+	}
 	registry := compose.NewRegistryWithIncumbent(pool, compose.OverlayIncumbentResolver(pool, vault),
-		compose.SendPath{PublicBaseURL: *publicBaseURL})
+		compose.SendPath{
+			PublicBaseURL: *publicBaseURL,
+			Delivery:      compose.NewDeliveryStager(pool, sendInserter),
+		})
 
 	// Bind the singleton organization before serving anything: an MCP
 	// process against a pre-bootstrap database is an operator error, not

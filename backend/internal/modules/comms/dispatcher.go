@@ -148,15 +148,6 @@ func NewDispatcher(
 	}
 }
 
-// Dispatch runs one attempt and discards the postponement interval. A caller
-// that can defer work should use DispatchWithWait instead, or a postponed
-// delivery comes back on the caller's own schedule rather than the one the
-// policy asked for.
-func (d *Dispatcher) Dispatch(ctx context.Context, id ids.UUID) (Outcome, error) {
-	outcome, _, err := d.DispatchWithWait(ctx, id)
-	return outcome, err
-}
-
 // DispatchWithWait runs one delivery attempt and reports how long to wait when
 // the outcome is OutcomePostponed (zero for every other outcome).
 //
@@ -195,7 +186,7 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Gate: authority. It refuses first so that a caller with no rights at
 	// all learns nothing about the recipients' consent state.
-	scope, sends := sendScopeFor(del.Provider)
+	scope, sends := SendScopeFor(del.Provider)
 	if !sends {
 		return d.park(ctx, del.ID, fmt.Sprintf("provider %q cannot send messages", del.Provider))
 	}
@@ -416,11 +407,16 @@ func (d *Dispatcher) postpone(ctx context.Context, id ids.UUID, reason string, w
 	return OutcomePostponed, wait, nil
 }
 
-// sendScopeFor names the OAuth scope a provider's grant must hold to transmit,
+// SendScopeFor names the OAuth scope a provider's grant must hold to transmit,
 // and reports false for a provider that cannot send at all. One if rather than
 // a registry: Gmail is the only sending provider today, and a registry with a
 // single entry is an abstraction with no second caller.
-func sendScopeFor(provider string) (string, bool) {
+//
+// It is exported so the request-time pre-flight — which refuses a send this
+// installation already knows cannot leave — asks the SAME question as the gate
+// below. Two spellings of "may this grant send" could disagree, and a
+// pre-flight that accepted what the gate then parks is worse than none.
+func SendScopeFor(provider string) (string, bool) {
 	if provider == "gmail" {
 		return "https://www.googleapis.com/auth/gmail.send", true
 	}

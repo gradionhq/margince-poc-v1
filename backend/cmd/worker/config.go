@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
@@ -46,6 +47,9 @@ type workerConfig struct {
 	gmailWatchRenew      time.Duration
 	overlayInterval      time.Duration
 	overlayBackfillLimit int
+	sendRateLimit        int
+	sendRateWindow       time.Duration
+	sendMaxAge           time.Duration
 	webhookKey           string
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
@@ -103,6 +107,12 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.IntVar(&cfg.deepReadMaxPages, "deepread-max-pages", maxPagesDefault, "deep-read crawl page cap; 0 takes the built-in default")
 	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
+	// Outbound pacing. Zero on any of the three takes the compose default —
+	// a forgotten flag must degrade to the conservative rule, never to "no
+	// limit" or "defer forever".
+	fs.IntVar(&cfg.sendRateLimit, "send-rate-limit", 0, "outbound messages one mailbox may transmit per --send-rate-window; 0 takes the built-in default")
+	fs.DurationVar(&cfg.sendRateWindow, "send-rate-window", 0, "window the outbound per-mailbox rate limit is measured over; 0 takes the built-in default")
+	fs.DurationVar(&cfg.sendMaxAge, "send-max-age", 0, "how long a staged send may be deferred before it parks with a reason; 0 takes the built-in default")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
@@ -118,6 +128,11 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	}
 	if cfg.deepReadMaxPages < 0 || cfg.deepReadMaxBytes < 0 || cfg.deepReadWall < 0 || cfg.overlayBackfillLimit < 0 {
 		return workerConfig{}, errors.New("worker: the deep-read caps and the overlay backfill limit must be zero (default/uncapped) or positive")
+	}
+	// A negative pacing value would read as "take the default" downstream,
+	// which quietly ignores what the operator actually typed.
+	if cfg.sendRateLimit < 0 || cfg.sendRateWindow < 0 || cfg.sendMaxAge < 0 {
+		return workerConfig{}, errors.New("worker: the outbound send pacing values must be zero (default) or positive")
 	}
 	if err := validateSchedulerIntervals(cfg); err != nil {
 		return workerConfig{}, err
@@ -236,9 +251,21 @@ func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
 
 // sendPath is the worker's outbound-send configuration, shared by every lane
 // that can send: the Surface-B agent runner, the event-driven workflow engine,
-// and the clock-trigger scanner. The delivery machinery is not wired in this
-// role yet, so a send from any of them refuses rather than record one that
-// nothing will carry.
-func sendPath(cfg workerConfig) compose.SendPath {
-	return compose.SendPath{PublicBaseURL: cfg.publicBaseURL}
+// and the clock-trigger scanner. All three stage through the same delivery
+// machinery the api does — a lane that could accept a send but never queue one
+// is a silent hole, and this role is the one that transmits.
+//
+// No mailbox pre-flight: that check is advisory and needs the connect
+// registry, which only the api role builds. The transmit-time authority gate
+// still refuses a grant that cannot send, so its absence costs a clearer
+// message, never a message that should not have gone.
+func sendPath(cfg workerConfig, delivery activities.DeliveryStager) compose.SendPath {
+	return compose.SendPath{PublicBaseURL: cfg.publicBaseURL, Delivery: delivery}
+}
+
+// gmailAppWired reports whether the deployment configured the Google OAuth
+// app: without both halves the gmail connector is never registered, so the
+// poll, the push-watch job, and the send lane are all absent by omission.
+func (c workerConfig) gmailAppWired() bool {
+	return c.gmailClientID != "" && c.gmailClientSecret != ""
 }

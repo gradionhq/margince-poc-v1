@@ -26,13 +26,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// sendProvider names the channel V1 transmits through. It is both the
+// SendProvider names the channel V1 transmits through. It is both the
 // delivery's provider and the activity's source_system, deliberately the
 // same literal: the provider files its own copy of every sent message back
 // into the mailbox, and that copy is only recognised as this activity when
 // the natural key it carries — (source_system, source_id) — is the one the
 // send wrote.
-const sendProvider = "gmail"
+//
+// Exported because the composition root's mailbox pre-flight has to ask about
+// the connection this path will actually transmit through; a second literal
+// there could name a provider the send path never uses.
+const SendProvider = "gmail"
 
 // unconfiguredMessageIDDomain is the right-hand side of a minted Message-ID
 // on an installation that never configured its public base URL. RFC 2606
@@ -226,7 +230,7 @@ type outboundMessage struct {
 
 // activity is the timeline row the send commits.
 func (m outboundMessage) activity(chain threading) LogActivityInput {
-	direction, sourceSystem := "outbound", sendProvider
+	direction, sourceSystem := "outbound", SendProvider
 	return LogActivityInput{
 		Kind:         "email",
 		Subject:      &m.in.Subject,
@@ -252,7 +256,7 @@ func (m outboundMessage) activity(chain threading) LogActivityInput {
 func (m outboundMessage) delivery(activityID ids.UUID, chain threading) DeliveryRequest {
 	return DeliveryRequest{
 		ActivityID:      ids.From[ids.ActivityKind](activityID),
-		Provider:        sendProvider,
+		Provider:        SendProvider,
 		MessageID:       m.messageID,
 		Recipients:      m.to,
 		Cc:              m.in.Cc,

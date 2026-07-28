@@ -219,6 +219,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	for _, opt := range opts {
 		opt(&srv, pool)
 	}
+	srv.applySendPath()
 
 	api := contractAPI(srv, pool, identitySvc)
 	mux := operationalMux(srv, pool, log, authH, api)

@@ -22,7 +22,70 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
+
+// ErrNoConnection marks a user with no live connection to a provider. It is a
+// fact to report ("connect a mailbox"), never a transient failure to retry.
+var ErrNoConnection = errors.New("capture: no live connection for this user and provider")
+
+// ErrConnectorCannotSend marks a live connection whose connector implements
+// capture only. No retry turns a capture-only connector into a transmitting
+// one, so a caller is told the fact rather than left to read an outage into
+// it.
+var ErrConnectorCannotSend = errors.New("capture: this connector cannot transmit messages")
+
+// SenderFor resolves the transmitting connection for one user and provider:
+// the connector's Sender seam, its unsealed credential, and the scopes the
+// PROVIDER says the grant holds. It is the send path's entry point, which
+// knows a user and a provider rather than a connection id.
+//
+// The status filter is SyncOnce's, and for the same reason: 'error' is a
+// degraded connection, not a dead one, and reading it as "no mailbox" would
+// let a transient sync failure permanently park mail. Only 'disconnected' and
+// 'reauth_required' mean there is nothing to send through.
+//
+// Everything this cannot answer is returned as the failure it is. Only the two
+// sentinels above are facts about the deployment; a vault outage or a database
+// timeout must never be mistaken for one, because the caller's response to a
+// fact is to stop trying.
+//
+//nolint:ireturn // returns the optional connector.Sender seam by design (the same posture Registry.connector takes for connector.Connector)
+func (r *Registry) SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error) {
+	var (
+		credentialRef *string
+		authBytes     []byte
+		granted       []string
+	)
+	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT credential_ref, auth, provider_scopes FROM capture_connection
+			 WHERE user_id = $1 AND provider = $2
+			   AND status IN ('connected','error') AND archived_at IS NULL`,
+			userID, provider).Scan(&credentialRef, &authBytes, &granted)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil, nil, ErrNoConnection
+	}
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("capture: resolving the sending connection: %w", err)
+	}
+	c, err := r.connector(provider)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	// Two-value form: Sender is optional (connector.go), so a capture-only
+	// connector is reported rather than silently treated as absent.
+	sender, sends := c.(connector.Sender)
+	if !sends {
+		return nil, nil, nil, fmt.Errorf("capture: connector %q: %w", provider, ErrConnectorCannotSend)
+	}
+	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return sender, auth, granted, nil
+}
 
 // ConnectionView is one row of the caller's standing capture connections,
 // for the list surface (listConnectors). It carries only status + cursor +

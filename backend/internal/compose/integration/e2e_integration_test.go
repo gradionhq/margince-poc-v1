@@ -29,6 +29,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/testdb"
 )
 
@@ -86,7 +87,20 @@ func setupWithOptions(t *testing.T, opts ...compose.Option) *env {
 	}
 	t.Cleanup(pool.Close)
 
-	allOpts := append([]compose.Option{compose.WithPublicBaseURL("https://mail.example.test")}, opts...)
+	// The delivery machinery every send transport is composed with in the api
+	// role. Without it a send refuses rather than log an activity claiming a
+	// message went out, so a harness missing it would test the refusal in
+	// every suite that sends — including the consent and preference-center
+	// suites, whose subject is what happens AFTER a send is accepted.
+	ensureRiverSchema(t)
+	sendInserter, err := jobs.NewInserter(pool, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		t.Fatalf("jobs.NewInserter: %v", err)
+	}
+	allOpts := append([]compose.Option{
+		compose.WithPublicBaseURL("https://mail.example.test"),
+		compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)),
+	}, opts...)
 	ts := httptest.NewTLSServer(compose.New(pool, slog.New(slog.NewTextHandler(os.Stderr, nil)), allOpts...))
 	t.Cleanup(ts.Close)
 

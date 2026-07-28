@@ -326,11 +326,17 @@ func (s *Sink) internalDomainTx(ctx context.Context, tx pgx.Tx, domain string) (
 
 // correspondencePositiveTx reports whether the workspace has ever sent mail to
 // email — the T1 evidence (ADR-0072 §1). It reads only
-// `counterparty_outbound_attested`, the provider's own attestation that the
-// mailbox owner sent the message, and never `direction`: direction is derived
+// `counterparty_outbound_attested` and never `direction`: direction is derived
 // by comparing the forgeable From header against the owner, so honoring it here
 // would let a spoofed From:owner message delivered to the inbox whitelist any
 // address it names past the T2 suppression gate.
+//
+// Two writers set that column, and both are unforgeable statements that THIS
+// installation sent the message: a connector attesting the mailbox owner's own
+// sent copy, and the governed send path itself (activities.SendEmail), whose
+// outbound row IS the sent copy — the provider's echo of it upserts onto the
+// same natural key and writes nothing, so the evidence has to be stamped at
+// send or it is never stamped at all.
 //
 // A single cold inbound is NOT correspondence — receiving mail is not intent.
 // The first outbound message to an address counts immediately: writing to

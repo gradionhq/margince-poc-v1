@@ -216,7 +216,9 @@ func (s *PendingStore) ClaimReviewForAgeOut(ctx context.Context, tx pgx.Tx, id i
 //
 //   - INBOUND only. The workspace's own sent mail is its own record, and a
 //     stranger's forged header must never reach it.
-//   - Never provider-attested outbound (the T1 evidence), for the same reason.
+//   - Never attested outbound (the T1 evidence), for the same reason — whether
+//     the attestation came from a connector reading the owner's sent copy or
+//     from the governed send path stamping its own outbound row.
 //   - Never linked to a person, and never for an address a person EXISTS for.
 //     A linked message belongs to somebody's record; and once the workspace has
 //     a contact at that address — by any route, including a human typing it in

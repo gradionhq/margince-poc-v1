@@ -11,8 +11,7 @@ package compose
 // call — so this suite drives that seam and asserts a marketing send leaves it
 // carrying the RFC 8058 header and the visible footer. A suite that only drove
 // the HTTP handlers' store would pass while the tool surface transmitted bulk
-// mail with no unsubscribe surface at all, which is exactly how that gap
-// survived a review.
+// mail with no unsubscribe surface at all.
 
 import (
 	"context"

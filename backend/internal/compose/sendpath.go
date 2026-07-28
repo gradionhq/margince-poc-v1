@@ -5,10 +5,20 @@ package compose
 
 // The outbound-send composition. Three transports enter the send path — the
 // HTTP handler, the MCP send_email tool, and the automation send action — and
-// all three call activities.Store.SendEmail. Everything that governs a send
-// therefore hangs off the STORE, and this file is the ONE place that builds
-// one, so a value configured for a transport cannot be a value the other two
-// silently do without.
+// all three call activities.Store.SendEmail, so everything that governs a send
+// hangs off the STORE.
+//
+// There are TWO stores, not one, and no single constructor can build both: the
+// HTTP handlers carry their own (server.go's activities.NewHandlers, which
+// also wires the public-booking seams no tool surface has), while sendStore
+// below builds the one the tool and automation surfaces share.
+//
+// SendPath is what keeps them from forking. It is the ONE record of how this
+// role sends: every option writes only to it, sendStore reads only from it,
+// and applySendPath projects it onto the HTTP handlers once the options have
+// finished. A send value configured anywhere else — set directly on one
+// store — reaches one transport and not the others, which is exactly the
+// drift this shape exists to make impossible.
 
 import (
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -37,6 +47,20 @@ type SendPath struct {
 	Mailbox activities.MailboxAuthority
 }
 
+// applySendPath projects the assembled send configuration onto the HTTP
+// handlers' own store, once every option has run. It is the reconciliation the
+// file comment above describes: the options record onto s.send, and this is
+// where the transport that does NOT go through sendStore picks the same values
+// up. Running it after the loop rather than inside each option is what makes
+// the two stores agree by construction instead of by three options each
+// remembering to do it twice.
+func (s *Server) applySendPath() {
+	s.activitiesHandlers = s.activitiesHandlers.
+		WithPublicBaseURL(s.send.PublicBaseURL).
+		WithDelivery(s.send.Delivery).
+		WithMailbox(s.send.Mailbox)
+}
+
 // sendStore builds the activities store every send transport shares. The
 // unsubscribe linker needs nothing but the pool, so it is wired here rather
 // than carried in SendPath: a deployment cannot forget to pass it.
@@ -48,9 +72,9 @@ func sendStore(pool *pgxpool.Pool, send SendPath) *activities.Store {
 }
 
 // newCommsAdapter builds the comms seam both the MCP tool registry and the
-// automation executors receive. Both call THIS — a second construction site
-// with its own store is how the tool surface came to transmit marketing mail
-// with no List-Unsubscribe header while the HTTP transport carried one.
+// automation executors receive. Both call THIS: a second construction site
+// with its own store would let the tool surface transmit marketing mail with
+// no List-Unsubscribe header while the HTTP transport carried one.
 func newCommsAdapter(pool *pgxpool.Pool, drafter activities.EmailDrafter, send SendPath) commsAdapter {
 	return commsAdapter{
 		store:  sendStore(pool, send),
