@@ -46,12 +46,46 @@ func NewMailboxRatePolicy(limit int, window time.Duration, now func() time.Time)
 func (p *MailboxRatePolicy) Name() string { return "mailbox_rate" }
 
 // Wait keys on the MAILBOX, not the message: a per-message key would give every
-// send its own window and pace nothing.
+// send its own window and pace nothing. It peeks the limiter with Blocked
+// rather than Allow: a slot stands for a message that actually reached the
+// provider, so merely asking whether we may send must not spend one — a
+// delivery that is asked and then deferred (by an earlier policy in the
+// chain, or by a retry that ends in another deferral) must still have its
+// slot when it is asked again.
+//
+// The wait returned is always a full window, not the time remaining in the
+// caller's current one: the limiter has no way to report that remainder, so
+// a delivery that hits the limit near the end of its window waits longer
+// than strictly necessary. That is a latency cost, not a correctness one —
+// the next attempt, a full window later, is always past the boundary.
+// Combined with the limiter being in-process, the effective ceiling is
+// per-replica: a multi-worker deployment paces each worker's view of the
+// mailbox independently, not the mailbox as a whole.
 func (p *MailboxRatePolicy) Wait(_ context.Context, d Delivery) time.Duration {
-	if p.limiter.Allow(d.UserID.String()) {
+	if !p.limiter.Blocked(d.UserID.String()) {
 		return 0
 	}
 	return p.window
 }
 
-var _ SendPolicy = (*MailboxRatePolicy)(nil)
+// SendRecorder is the optional seam a policy implements when the resource it
+// meters is only consumed by an actual transmission, not by being asked
+// about. Type-asserted by the dispatcher (mirroring how the connector
+// package type-asserts Watcher and Backfiller), so a policy that meters
+// nothing simply does not implement it and SendPolicy stays two methods.
+type SendRecorder interface {
+	Recorded(d Delivery)
+}
+
+// Recorded counts one actual send against the mailbox's quota. The
+// dispatcher calls this once transmission succeeds — not on every Wait
+// check — so the limit tracks messages the provider received, the thing it
+// actually throttles on.
+func (p *MailboxRatePolicy) Recorded(d Delivery) {
+	p.limiter.Record(d.UserID.String())
+}
+
+var (
+	_ SendPolicy   = (*MailboxRatePolicy)(nil)
+	_ SendRecorder = (*MailboxRatePolicy)(nil)
+)

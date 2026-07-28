@@ -19,6 +19,24 @@ func TestMailboxRatePolicyPermitsUpToTheLimit(t *testing.T) {
 		if wait := p.Wait(context.Background(), d); wait != 0 {
 			t.Errorf("send %d waited %v, want 0 (within the limit)", i+1, wait)
 		}
+		p.Recorded(d)
+	}
+}
+
+// Wait only PEEKS the limiter; only Recorded — standing for a message that
+// actually reached the provider — spends a slot. A delivery that is asked
+// and then deferred (by an earlier policy in the chain, or by a retry that
+// ends in another deferral) must not have spent quota it never used: asking
+// N times in a row, with no send ever recorded, must still permit every ask
+// while the mailbox is under its limit.
+func TestMailboxRatePolicyWaitAloneNeverConsumesQuota(t *testing.T) {
+	now := time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
+	p := NewMailboxRatePolicy(1, time.Minute, func() time.Time { return now })
+	d := Delivery{UserID: ids.New[ids.UserKind]()}
+	for i := range 5 {
+		if wait := p.Wait(context.Background(), d); wait != 0 {
+			t.Errorf("ask %d waited %v, want 0 — Wait alone must not consume a slot", i+1, wait)
+		}
 	}
 }
 
@@ -26,8 +44,8 @@ func TestMailboxRatePolicyDefersBeyondTheLimit(t *testing.T) {
 	now := time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
 	p := NewMailboxRatePolicy(2, time.Minute, func() time.Time { return now })
 	d := Delivery{UserID: ids.New[ids.UserKind]()}
-	p.Wait(context.Background(), d)
-	p.Wait(context.Background(), d)
+	p.Recorded(d)
+	p.Recorded(d)
 	if wait := p.Wait(context.Background(), d); wait <= 0 {
 		t.Errorf("third send waited %v, want a positive deferral", wait)
 	}
@@ -39,9 +57,11 @@ func TestMailboxRatePolicyIsPerMailboxNotPerMessage(t *testing.T) {
 	now := time.Date(2026, 7, 28, 9, 0, 0, 0, time.UTC)
 	p := NewMailboxRatePolicy(1, time.Minute, func() time.Time { return now })
 	alice, bob := ids.New[ids.UserKind](), ids.New[ids.UserKind]()
-	if wait := p.Wait(context.Background(), Delivery{UserID: alice, MessageID: "a@t"}); wait != 0 {
+	aliceFirst := Delivery{UserID: alice, MessageID: "a@t"}
+	if wait := p.Wait(context.Background(), aliceFirst); wait != 0 {
 		t.Fatalf("alice's first send waited %v", wait)
 	}
+	p.Recorded(aliceFirst)
 	if wait := p.Wait(context.Background(), Delivery{UserID: bob, MessageID: "b@t"}); wait != 0 {
 		t.Errorf("bob waited %v because of alice's send; the key is not the mailbox", wait)
 	}
