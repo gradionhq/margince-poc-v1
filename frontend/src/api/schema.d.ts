@@ -9924,6 +9924,62 @@ export interface components {
         /** @description Include soft-deleted (archived) rows. Default false. */
         IncludeArchived: boolean;
         /**
+         * @description Filter by WHO created the record, matched on the `captured_by` prefix
+         *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+         *
+         *     `captured_by_kind=agent` is the **review list for records an AI created**
+         *     (ADR-0075/A121). Every record already carries its creator — the field is
+         *     server-stamped from the authenticated principal and read-only on every
+         *     response — but until this parameter there was no way to *ask* for them,
+         *     so "which of these did a model decide existed?" had no answer short of
+         *     exporting the table.
+         *
+         *     Deliberately a filter on the existing lists rather than a queue object: a
+         *     durable `reviewed` state is a separate decision, and nothing here needs
+         *     one to make the records findable.
+         *
+         *     The four values are the whole vocabulary the write paths stamp. That is a
+         *     convention rather than a database constraint, so a row whose prefix
+         *     matches none of them is returned by no value of this parameter — the
+         *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+         *     returns `422 code: validation_failed`.
+         */
+        CapturedByKind: "human" | "agent" | "connector" | "system";
+        /**
+         * @description `true` returns only records an AI **wrote into**; `false` only records it
+         *     did not touch. Omit for both.
+         *
+         *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+         *     and it is deliberately a different question from `captured_by_kind`.
+         *     `captured_by` names who CREATED the row and is never restamped. In the
+         *     connector path the AI does not create the record — Gmail capture mints
+         *     the organization as `connector:gmail`, and then the AI renames it from a
+         *     signature and writes its profile. Asking "who created it" therefore
+         *     misses exactly the records worth reviewing.
+         *
+         *     Answered from the **audit log**, which is complete by construction: every
+         *     mutation commits its domain row and its audit row in one transaction, so
+         *     no agent write reaches a record without leaving one. A record matches
+         *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+         *     history, or when the record itself was agent-created. Nothing narrower
+         *     would do — a list of enrichment tables misses an agent updating an
+         *     ordinary column, which is the plainest case there is.
+         *
+         *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+         *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+         *
+         *     Each value's own provenance — the agent that wrote it, the verbatim
+         *     evidence, the source URL, the confidence — is on the per-record
+         *     profile-field and fact reads; this filter is how you find the records to
+         *     open.
+         *
+         *     One limit, stated rather than implied: it can only see as far back as
+         *     audit retention keeps. A record whose only AI write has aged out of the
+         *     audit log is still matched if the AI CREATED it (that is on the row
+         *     itself), and not otherwise.
+         */
+        AiWritten: boolean;
+        /**
          * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
          *     create (API-CC-6). **Scope:** the key is unique within
          *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
@@ -10263,6 +10319,62 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Filter by WHO created the record, matched on the `captured_by` prefix
+                 *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+                 *
+                 *     `captured_by_kind=agent` is the **review list for records an AI created**
+                 *     (ADR-0075/A121). Every record already carries its creator — the field is
+                 *     server-stamped from the authenticated principal and read-only on every
+                 *     response — but until this parameter there was no way to *ask* for them,
+                 *     so "which of these did a model decide existed?" had no answer short of
+                 *     exporting the table.
+                 *
+                 *     Deliberately a filter on the existing lists rather than a queue object: a
+                 *     durable `reviewed` state is a separate decision, and nothing here needs
+                 *     one to make the records findable.
+                 *
+                 *     The four values are the whole vocabulary the write paths stamp. That is a
+                 *     convention rather than a database constraint, so a row whose prefix
+                 *     matches none of them is returned by no value of this parameter — the
+                 *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+                 *     returns `422 code: validation_failed`.
+                 */
+                captured_by_kind?: components["parameters"]["CapturedByKind"];
+                /**
+                 * @description `true` returns only records an AI **wrote into**; `false` only records it
+                 *     did not touch. Omit for both.
+                 *
+                 *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+                 *     and it is deliberately a different question from `captured_by_kind`.
+                 *     `captured_by` names who CREATED the row and is never restamped. In the
+                 *     connector path the AI does not create the record — Gmail capture mints
+                 *     the organization as `connector:gmail`, and then the AI renames it from a
+                 *     signature and writes its profile. Asking "who created it" therefore
+                 *     misses exactly the records worth reviewing.
+                 *
+                 *     Answered from the **audit log**, which is complete by construction: every
+                 *     mutation commits its domain row and its audit row in one transaction, so
+                 *     no agent write reaches a record without leaving one. A record matches
+                 *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+                 *     history, or when the record itself was agent-created. Nothing narrower
+                 *     would do — a list of enrichment tables misses an agent updating an
+                 *     ordinary column, which is the plainest case there is.
+                 *
+                 *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+                 *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+                 *
+                 *     Each value's own provenance — the agent that wrote it, the verbatim
+                 *     evidence, the source URL, the confidence — is on the per-record
+                 *     profile-field and fact reads; this filter is how you find the records to
+                 *     open.
+                 *
+                 *     One limit, stated rather than implied: it can only see as far back as
+                 *     audit retention keeps. A record whose only AI write has aged out of the
+                 *     audit log is still matched if the AI CREATED it (that is on the row
+                 *     itself), and not otherwise.
+                 */
+                ai_written?: components["parameters"]["AiWritten"];
                 /** @description Filter to a single owner. */
                 owner_id?: string;
                 /** @description Full-text query over name/title (tsvector). */
@@ -10574,6 +10686,62 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Filter by WHO created the record, matched on the `captured_by` prefix
+                 *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+                 *
+                 *     `captured_by_kind=agent` is the **review list for records an AI created**
+                 *     (ADR-0075/A121). Every record already carries its creator — the field is
+                 *     server-stamped from the authenticated principal and read-only on every
+                 *     response — but until this parameter there was no way to *ask* for them,
+                 *     so "which of these did a model decide existed?" had no answer short of
+                 *     exporting the table.
+                 *
+                 *     Deliberately a filter on the existing lists rather than a queue object: a
+                 *     durable `reviewed` state is a separate decision, and nothing here needs
+                 *     one to make the records findable.
+                 *
+                 *     The four values are the whole vocabulary the write paths stamp. That is a
+                 *     convention rather than a database constraint, so a row whose prefix
+                 *     matches none of them is returned by no value of this parameter — the
+                 *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+                 *     returns `422 code: validation_failed`.
+                 */
+                captured_by_kind?: components["parameters"]["CapturedByKind"];
+                /**
+                 * @description `true` returns only records an AI **wrote into**; `false` only records it
+                 *     did not touch. Omit for both.
+                 *
+                 *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+                 *     and it is deliberately a different question from `captured_by_kind`.
+                 *     `captured_by` names who CREATED the row and is never restamped. In the
+                 *     connector path the AI does not create the record — Gmail capture mints
+                 *     the organization as `connector:gmail`, and then the AI renames it from a
+                 *     signature and writes its profile. Asking "who created it" therefore
+                 *     misses exactly the records worth reviewing.
+                 *
+                 *     Answered from the **audit log**, which is complete by construction: every
+                 *     mutation commits its domain row and its audit row in one transaction, so
+                 *     no agent write reaches a record without leaving one. A record matches
+                 *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+                 *     history, or when the record itself was agent-created. Nothing narrower
+                 *     would do — a list of enrichment tables misses an agent updating an
+                 *     ordinary column, which is the plainest case there is.
+                 *
+                 *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+                 *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+                 *
+                 *     Each value's own provenance — the agent that wrote it, the verbatim
+                 *     evidence, the source URL, the confidence — is on the per-record
+                 *     profile-field and fact reads; this filter is how you find the records to
+                 *     open.
+                 *
+                 *     One limit, stated rather than implied: it can only see as far back as
+                 *     audit retention keeps. A record whose only AI write has aged out of the
+                 *     audit log is still matched if the AI CREATED it (that is on the row
+                 *     itself), and not otherwise.
+                 */
+                ai_written?: components["parameters"]["AiWritten"];
                 owner_id?: string;
                 /** @description Lookup by normalized domain (the employer-inference index). */
                 domain?: string;
@@ -13175,6 +13343,62 @@ export interface operations {
                 sort?: components["parameters"]["Sort"];
                 /** @description Include soft-deleted (archived) rows. Default false. */
                 include_archived?: components["parameters"]["IncludeArchived"];
+                /**
+                 * @description Filter by WHO created the record, matched on the `captured_by` prefix
+                 *     (`human:<uuid>` | `agent:<id>` | `connector:<name>` | `system:<id>`).
+                 *
+                 *     `captured_by_kind=agent` is the **review list for records an AI created**
+                 *     (ADR-0075/A121). Every record already carries its creator — the field is
+                 *     server-stamped from the authenticated principal and read-only on every
+                 *     response — but until this parameter there was no way to *ask* for them,
+                 *     so "which of these did a model decide existed?" had no answer short of
+                 *     exporting the table.
+                 *
+                 *     Deliberately a filter on the existing lists rather than a queue object: a
+                 *     durable `reviewed` state is a separate decision, and nothing here needs
+                 *     one to make the records findable.
+                 *
+                 *     The four values are the whole vocabulary the write paths stamp. That is a
+                 *     convention rather than a database constraint, so a row whose prefix
+                 *     matches none of them is returned by no value of this parameter — the
+                 *     UNFILTERED list stays the complete one. An out-of-vocabulary value
+                 *     returns `422 code: validation_failed`.
+                 */
+                captured_by_kind?: components["parameters"]["CapturedByKind"];
+                /**
+                 * @description `true` returns only records an AI **wrote into**; `false` only records it
+                 *     did not touch. Omit for both.
+                 *
+                 *     This is the review list for AI-generated content (ADR-0075/A121 §3a),
+                 *     and it is deliberately a different question from `captured_by_kind`.
+                 *     `captured_by` names who CREATED the row and is never restamped. In the
+                 *     connector path the AI does not create the record — Gmail capture mints
+                 *     the organization as `connector:gmail`, and then the AI renames it from a
+                 *     signature and writes its profile. Asking "who created it" therefore
+                 *     misses exactly the records worth reviewing.
+                 *
+                 *     Answered from the **audit log**, which is complete by construction: every
+                 *     mutation commits its domain row and its audit row in one transaction, so
+                 *     no agent write reaches a record without leaving one. A record matches
+                 *     when an agent identity (`actor_id` beginning `agent:`) appears in its
+                 *     history, or when the record itself was agent-created. Nothing narrower
+                 *     would do — a list of enrichment tables misses an agent updating an
+                 *     ordinary column, which is the plainest case there is.
+                 *
+                 *     Matching is on the actor's IDENTITY, not the principal mechanism: AI
+                 *     tasks run as `system` principals whose `actor_id` is `agent:<task>`.
+                 *
+                 *     Each value's own provenance — the agent that wrote it, the verbatim
+                 *     evidence, the source URL, the confidence — is on the per-record
+                 *     profile-field and fact reads; this filter is how you find the records to
+                 *     open.
+                 *
+                 *     One limit, stated rather than implied: it can only see as far back as
+                 *     audit retention keeps. A record whose only AI write has aged out of the
+                 *     audit log is still matched if the AI CREATED it (that is on the row
+                 *     itself), and not otherwise.
+                 */
+                ai_written?: components["parameters"]["AiWritten"];
                 status?: "new" | "working" | "promoted" | "disqualified";
                 owner_id?: string;
                 /** @description Triage by score. */
