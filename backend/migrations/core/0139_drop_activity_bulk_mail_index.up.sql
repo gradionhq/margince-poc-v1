@@ -7,10 +7,26 @@
 -- inside a transaction, and this repo's migration runner wraps every migration
 -- in one (dbmigrate.Up), so there is no concurrent path to have used instead.
 --
--- Dropping is safe and cheap: the lock DROP INDEX takes is held for the drop,
--- not for a build over every row. What it costs is the redaction sweep's index,
--- and that sweep is a daily background job with a LIMIT, reached through the
--- noise senders' own ledger rows — it is not the query that needed the help.
+-- Dropping is not automatically safe either, and that is why lock_timeout is
+-- set below. The drop itself is instant — there is no build over every row —
+-- but it needs ACCESS EXCLUSIVE on `activity`, and on a busy table that
+-- acquisition queues behind whatever transaction is already running while every
+-- request arriving after it queues behind the acquisition. A short wait turns
+-- into a stall of the same shape as the build this migration removes.
+--
+-- lock_timeout makes that outcome a fast, loud failure instead: the migration
+-- either takes the lock within three seconds or errors, the transaction rolls
+-- back, and the operator retries in a quiet window. DROP INDEX IF EXISTS is
+-- idempotent, so retrying costs nothing. Failing to drop the index is a
+-- performance footnote; stalling capture is an outage.
+--
+-- (The concurrent form of both operations avoids this entirely, and neither is
+-- available: CONCURRENTLY cannot run inside a transaction and dbmigrate.Up
+-- wraps every migration in one.)
+--
+-- What the drop costs is the redaction sweep's index, and that sweep is a daily
+-- background job with a LIMIT, reached through the noise senders' own ledger
+-- rows — it is not the query that needed the help.
 --
 -- IF EXISTS because an installation that has not yet applied 0137 will apply
 -- both in the same run, and one that applied 0137 before this landed has the
@@ -19,4 +35,5 @@
 -- If the sweep ever does need an index here, it belongs behind a
 -- non-transactional migration path built for concurrent builds. That path does
 -- not exist yet, and inventing it inside a migration is how this happened.
+SET LOCAL lock_timeout = '3s';
 DROP INDEX IF EXISTS idx_activity_bulk_mail_attested;
