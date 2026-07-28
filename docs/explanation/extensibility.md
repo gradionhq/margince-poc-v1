@@ -120,7 +120,7 @@ binding input digests to reproducible output hashes. With an *empty* `extensions
 reproduces the committed `composition/` stub **byte-identically**, so a bare `go build` and a composed
 build provably wire the same thing. `make check-composition` is the drift gate that proves it.
 
-The generator also derives each unit's **`manifest.generated.json`** next to the unit (ADR-0069 §5):
+The generator also derives each unit's **`manifest.generated.json`** next to the unit:
 its identity and the **risk tiers** it requests — every operation the extension adds that runs
 at a 🟢/🟡 tier or asks for a scope, the things an operator must resolve under §7 — read STATICALLY
 from the declaration's AST, so review tooling and the coming approval flow learn what a unit needs

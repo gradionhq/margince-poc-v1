@@ -16,7 +16,7 @@ unowned record invisible to everyone, including its author; the mirror implement
 four. To test write-back locally against an isolated HubSpot test account — including the field-level
 detail of what's actually writable — see [test-overlay-locally.md](test-overlay-locally.md).
 
-> **Single-organization installation (ADR-0061/A107).** One installation serves one organization; the
+> **Single-organization installation.** One installation serves one organization; the
 > server resolves its singleton organization itself, so no request selects a tenant — there is no
 > `X-Workspace-Slug` header. The `curl`s below carry only the session cookie. ("Workspace" still names
 > the internal RLS tenant these tables are scoped by.)

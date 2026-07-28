@@ -34,7 +34,7 @@ RBAC**:
 | An **agent** | REST | `Authorization: Bearer mgp_…` (a passport) |
 | An **agent** | MCP (stdio or hosted HTTP) | a passport (`MARGINCE_PASSPORT_TOKEN`, or an OAuth-minted bearer) |
 
-(No request names a tenant: one installation serves one organization (A107/ADR-0061), and the
+(No request names a tenant: one installation serves one organization, and the
 admission middleware binds that singleton workspace itself before any handler runs.)
 
 ### What a passport is
