@@ -44,11 +44,12 @@ import (
 //     or already has a person for. A stranger's mail defers to the ledger and
 //     mints nothing, so an outsider cannot aim this at a domain of their choosing.
 //
-// What is left for this counter is PACING, and 10/day paced the one case that
-// matters most against the product: a first backfill mints hundreds of companies
-// at once, and the promise being demonstrated is that the CRM fills itself
-// (P5). Watching ten of two hundred fill, then waiting weeks, teaches the
-// opposite. Raised to 500 by founder decision (2026-07-28).
+// What is left for this counter is PACING, and 500 is sized for the moment that
+// decides whether the product is believed: a first backfill mints hundreds of
+// companies at once, and what it is demonstrating is that the CRM fills itself
+// (P5). A ceiling below that arrival rate turns the demonstration into a trickle
+// and teaches the opposite, while a ceiling above it buys nothing the three
+// bounds above do not already give.
 const autoEnrichDailyCap = 500
 
 // autoEnrichRetryBackoff is how long a triggered read's cursor is armed before
@@ -187,8 +188,8 @@ func (w *captureAutoEnrichSweepWorker) triggerEnrich(ctx context.Context, org ca
 // It reports whether a read was actually STARTED, as opposed to joined onto one
 // already in flight. Both callers reserve a budget slot before calling, and a
 // join means that slot bought nothing: without the distinction, a sweep and a
-// capture racing on one organization spend two of the day's ten reads on a
-// single crawl and charge that organization two of its bounded attempts. The
+// capture racing on one organization spend two of the day's reads on a single
+// crawl and charge that organization two of its bounded attempts. The
 // cursor is armed only by the caller that started something, for the same
 // reason.
 func startAutoEnrichRead(ctx context.Context, peopleStore *people.Store,

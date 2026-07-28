@@ -25,7 +25,6 @@ import (
 	"context"
 	"log/slog"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -130,11 +129,11 @@ func TestEnrichOnCaptureLeavesTheOrgToTheSweepWhenTheReadCannotStart(t *testing.
 	if !stillDue(t, e, org) {
 		t.Fatal("a trigger that could not start the read retired the organization anyway")
 	}
-	// The reserved slot is spent with no read to show for it. That is the
-	// deliberate direction: under-spending the day's budget costs a dossier a
-	// few hours, over-spending it costs money the cap exists to bound.
-	if n := budgetSpent(t, e); n != 1 {
-		t.Fatalf("budget spent = %d, want 1 — the reservation precedes the start and is not returned", n)
+	// And the slot it reserved goes back. Reserving before starting is what makes
+	// the cap a cap; refunding what did not start is what stops the day's
+	// allowance eroding a slot at a time on a path that never reads anything.
+	if n := budgetSpent(t, e); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — a slot that bought no read must be returned", n)
 	}
 }
 
@@ -202,14 +201,20 @@ func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 	store := capture.NewAutoEnrichStore(e.Pool)
 
 	const testCap = 3
-	today := capture.BudgetSlot{Day: time.Now().UTC().Truncate(24 * time.Hour), Reserved: true}
+	// The day comes from a real reservation rather than Go's clock: the counter
+	// is keyed on the DATABASE's UTC day, and a test that builds its own would
+	// disagree with it across a midnight or any clock offset.
+	today, err := store.ReserveBudget(e.Admin(), testCap)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < testCap; i++ {
 		if err := store.ReleaseBudget(e.Admin(), today); err != nil {
 			t.Fatalf("ReleaseBudget on an unspent day: %v", err)
 		}
 	}
 	if n := budgetSpent(t, e); n != 0 {
-		t.Fatalf("budget spent = %d after refunds with nothing reserved, want 0", n)
+		t.Fatalf("budget spent = %d after more refunds than reservations, want 0", n)
 	}
 	// And the day still gives its full allowance.
 	for i := 0; i < testCap; i++ {
@@ -231,11 +236,16 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 	e := integration.Setup(t)
 	store := capture.NewAutoEnrichStore(e.Pool)
 
-	// Yesterday's spent slot, as the reservation would have recorded it.
-	yesterday := capture.BudgetSlot{
-		Day:      time.Now().UTC().AddDate(0, 0, -1).Truncate(24 * time.Hour),
-		Reserved: true,
+	// Yesterday relative to the DATABASE's day, taken from a real reservation —
+	// the counter is keyed on that day, not on the test process's clock.
+	todaySlot, err := store.ReserveBudget(e.Admin(), 3)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if err := store.ReleaseBudget(e.Admin(), todaySlot); err != nil {
+		t.Fatal(err)
+	}
+	yesterday := capture.BudgetSlot{Day: todaySlot.Day.AddDate(0, 0, -1), Reserved: true}
 	e.WsExec(t, `
 		INSERT INTO capture_auto_enrich_budget (workspace_id, budget_date, enqueued)
 		VALUES ($1, $2, 1)`, e.WS, yesterday.Day)
