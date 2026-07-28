@@ -433,6 +433,7 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/IncludeArchived'
         - $ref: '#/components/parameters/CapturedByKind'
+        - $ref: '#/components/parameters/AiWritten'
         - name: owner_id
           in: query
           schema: { type: string, format: uuid }
@@ -675,6 +676,7 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/IncludeArchived'
         - $ref: '#/components/parameters/CapturedByKind'
+        - $ref: '#/components/parameters/AiWritten'
         - name: owner_id
           in: query
           schema: { type: string, format: uuid }
@@ -2421,6 +2423,7 @@ paths:
         - $ref: '#/components/parameters/Sort'
         - $ref: '#/components/parameters/IncludeArchived'
         - $ref: '#/components/parameters/CapturedByKind'
+        - $ref: '#/components/parameters/AiWritten'
         - name: status
           in: query
           schema: { type: string, enum: [new, working, promoted, disqualified] }
@@ -8021,6 +8024,35 @@ components:
         matches none of them is returned by no value of this parameter — the
         UNFILTERED list stays the complete one. An out-of-vocabulary value
         returns `422 code: validation_failed`.
+    AiWritten:
+      name: ai_written
+      in: query
+      schema: { type: boolean }
+      description: |
+        `true` returns only records an AI **wrote into**; `false` only records it
+        did not touch. Omit for both.
+
+        This is the review list for AI-generated content (ADR-0075/A121 §3a),
+        and it is deliberately a different question from `captured_by_kind`.
+        `captured_by` names who CREATED the row and is never restamped. In the
+        connector path the AI does not create the record — Gmail capture mints
+        the organization as `connector:gmail`, and then signature enrichment
+        renames it and the web dossier fills its profile fields and facts. Asking
+        "who created it" therefore misses exactly the records worth reviewing.
+
+        So this asks about CONTENT: the record was created by an agent, **or** it
+        carries at least one agent-written profile field or fact, **or** its name
+        was promoted from an AI-extracted signature (`organization.name_source =
+        'signature'`). Derived from those rows at query time rather than stored,
+        so it cannot drift from what the record actually holds.
+
+        Each value's own provenance — the agent that wrote it, the verbatim
+        evidence, the source URL, the confidence — is already on the per-record
+        profile-field and fact reads; this filter is how you find the records to
+        open.
+
+        `leads` accept the parameter for symmetry, where it can only mean
+        agent-created: a lead carries no profile-field or fact rows.
     IdempotencyKey:
       name: Idempotency-Key
       in: header

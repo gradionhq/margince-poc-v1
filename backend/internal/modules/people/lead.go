@@ -304,6 +304,10 @@ type ListLeadsInput struct {
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
+	// AiWritten filters on whether an AI wrote into the record (§3a). A lead
+	// holds no profile-field or fact rows, so for leads it can only mean
+	// agent-created — which aiWrittenClause answers with no child tables.
+	AiWritten *bool
 }
 
 func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontracts.Lead, storekit.Page, error) {
@@ -343,6 +347,9 @@ func (s *Store) ListLeads(ctx context.Context, in ListLeadsInput) ([]crmcontract
 	}
 	if ok {
 		where = append(where, kindClause)
+	}
+	if ai := aiWrittenClause(in.AiWritten, "lead", nil, "", arg); ai != "" {
+		where = append(where, ai)
 	}
 	if in.Query != nil && *in.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*in.Query), "coalesce(full_name,'') || ' ' || coalesce(company_name,'')"))

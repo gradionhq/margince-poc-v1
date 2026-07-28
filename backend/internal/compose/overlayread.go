@@ -54,6 +54,10 @@ const (
 	// no answer there. Answering the whole mirror would present an unfiltered
 	// list as the review list.
 	paramCapturedByKind = "captured_by_kind"
+	// paramAiWritten is refused for the same reason as paramCapturedByKind, and
+	// more plainly: it is derived from OUR per-value provenance rows, which a
+	// mirror of the incumbent's records simply does not have.
+	paramAiWritten = "ai_written"
 )
 
 // overlayParam pairs one refused query-parameter name with whether the
@@ -201,6 +205,7 @@ func (s Server) ListPeople(w http.ResponseWriter, r *http.Request, params crmcon
 			{paramOwnerID, params.OwnerId != nil},
 			{paramTag, params.Tag != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
+			{paramAiWritten, params.AiWritten != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWirePerson,
 		func(data []crmcontracts.Person, page crmcontracts.PageInfo) any {
@@ -223,6 +228,7 @@ func (s Server) ListOrganizations(w http.ResponseWriter, r *http.Request, params
 			{paramOwnerID, params.OwnerId != nil},
 			{"domain", params.Domain != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
+			{paramAiWritten, params.AiWritten != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireOrganization,
 		func(data []crmcontracts.Organization, page crmcontracts.PageInfo) any {
@@ -274,6 +280,7 @@ func (s Server) ListLeads(w http.ResponseWriter, r *http.Request, params crmcont
 			{paramOwnerID, params.OwnerId != nil},
 			{"min_score", params.MinScore != nil},
 			{paramCapturedByKind, params.CapturedByKind != nil},
+			{paramAiWritten, params.AiWritten != nil},
 		},
 		params.Q, params.Cursor, params.Limit, overlayWireLead,
 		func(data []crmcontracts.Lead, page crmcontracts.PageInfo) any {

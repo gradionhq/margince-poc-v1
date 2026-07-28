@@ -12095,6 +12095,9 @@ type WebhookSubscriptionListResponse struct {
 	Page            PageInfo `json:"page"`
 }
 
+// AiWritten defines model for AiWritten.
+type AiWritten = bool
+
 // ApprovalToken defines model for ApprovalToken.
 type ApprovalToken = string
 
@@ -13099,8 +13102,34 @@ type ListLeadsParams struct {
 	// UNFILTERED list stays the complete one. An out-of-vocabulary value
 	// returns `422 code: validation_failed`.
 	CapturedByKind *ListLeadsParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
-	Status         *ListLeadsParamsStatus         `form:"status,omitempty" json:"status,omitempty"`
-	OwnerId        *openapi_types.UUID            `form:"owner_id,omitempty" json:"owner_id,omitempty"`
+
+	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
+	// did not touch. Omit for both.
+	//
+	// This is the review list for AI-generated content (ADR-0075/A121 §3a),
+	// and it is deliberately a different question from `captured_by_kind`.
+	// `captured_by` names who CREATED the row and is never restamped. In the
+	// connector path the AI does not create the record — Gmail capture mints
+	// the organization as `connector:gmail`, and then signature enrichment
+	// renames it and the web dossier fills its profile fields and facts. Asking
+	// "who created it" therefore misses exactly the records worth reviewing.
+	//
+	// So this asks about CONTENT: the record was created by an agent, **or** it
+	// carries at least one agent-written profile field or fact, **or** its name
+	// was promoted from an AI-extracted signature (`organization.name_source =
+	// 'signature'`). Derived from those rows at query time rather than stored,
+	// so it cannot drift from what the record actually holds.
+	//
+	// Each value's own provenance — the agent that wrote it, the verbatim
+	// evidence, the source URL, the confidence — is already on the per-record
+	// profile-field and fact reads; this filter is how you find the records to
+	// open.
+	//
+	// `leads` accept the parameter for symmetry, where it can only mean
+	// agent-created: a lead carries no profile-field or fact rows.
+	AiWritten *AiWritten             `form:"ai_written,omitempty" json:"ai_written,omitempty"`
+	Status    *ListLeadsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+	OwnerId   *openapi_types.UUID    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
 	// MinScore Triage by score.
 	MinScore *int    `form:"min_score,omitempty" json:"min_score,omitempty"`
@@ -13469,7 +13498,33 @@ type ListOrganizationsParams struct {
 	// UNFILTERED list stays the complete one. An out-of-vocabulary value
 	// returns `422 code: validation_failed`.
 	CapturedByKind *ListOrganizationsParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
-	OwnerId        *openapi_types.UUID                    `form:"owner_id,omitempty" json:"owner_id,omitempty"`
+
+	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
+	// did not touch. Omit for both.
+	//
+	// This is the review list for AI-generated content (ADR-0075/A121 §3a),
+	// and it is deliberately a different question from `captured_by_kind`.
+	// `captured_by` names who CREATED the row and is never restamped. In the
+	// connector path the AI does not create the record — Gmail capture mints
+	// the organization as `connector:gmail`, and then signature enrichment
+	// renames it and the web dossier fills its profile fields and facts. Asking
+	// "who created it" therefore misses exactly the records worth reviewing.
+	//
+	// So this asks about CONTENT: the record was created by an agent, **or** it
+	// carries at least one agent-written profile field or fact, **or** its name
+	// was promoted from an AI-extracted signature (`organization.name_source =
+	// 'signature'`). Derived from those rows at query time rather than stored,
+	// so it cannot drift from what the record actually holds.
+	//
+	// Each value's own provenance — the agent that wrote it, the verbatim
+	// evidence, the source URL, the confidence — is already on the per-record
+	// profile-field and fact reads; this filter is how you find the records to
+	// open.
+	//
+	// `leads` accept the parameter for symmetry, where it can only mean
+	// agent-created: a lead carries no profile-field or fact rows.
+	AiWritten *AiWritten          `form:"ai_written,omitempty" json:"ai_written,omitempty"`
+	OwnerId   *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
 
 	// Domain Lookup by normalized domain (the employer-inference index).
 	Domain *string `form:"domain,omitempty" json:"domain,omitempty"`
@@ -13675,6 +13730,32 @@ type ListPeopleParams struct {
 	// UNFILTERED list stays the complete one. An out-of-vocabulary value
 	// returns `422 code: validation_failed`.
 	CapturedByKind *ListPeopleParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
+
+	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
+	// did not touch. Omit for both.
+	//
+	// This is the review list for AI-generated content (ADR-0075/A121 §3a),
+	// and it is deliberately a different question from `captured_by_kind`.
+	// `captured_by` names who CREATED the row and is never restamped. In the
+	// connector path the AI does not create the record — Gmail capture mints
+	// the organization as `connector:gmail`, and then signature enrichment
+	// renames it and the web dossier fills its profile fields and facts. Asking
+	// "who created it" therefore misses exactly the records worth reviewing.
+	//
+	// So this asks about CONTENT: the record was created by an agent, **or** it
+	// carries at least one agent-written profile field or fact, **or** its name
+	// was promoted from an AI-extracted signature (`organization.name_source =
+	// 'signature'`). Derived from those rows at query time rather than stored,
+	// so it cannot drift from what the record actually holds.
+	//
+	// Each value's own provenance — the agent that wrote it, the verbatim
+	// evidence, the source URL, the confidence — is already on the per-record
+	// profile-field and fact reads; this filter is how you find the records to
+	// open.
+	//
+	// `leads` accept the parameter for symmetry, where it can only mean
+	// agent-created: a lead carries no profile-field or fact rows.
+	AiWritten *AiWritten `form:"ai_written,omitempty" json:"ai_written,omitempty"`
 
 	// OwnerId Filter to a single owner.
 	OwnerId *openapi_types.UUID `form:"owner_id,omitempty" json:"owner_id,omitempty"`
@@ -27926,6 +28007,19 @@ func (siw *ServerInterfaceWrapper) ListLeads(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// ------------- Optional query parameter "ai_written" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ai_written", r.URL.Query(), &params.AiWritten, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ai_written"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ai_written", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "status" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
@@ -29620,6 +29714,19 @@ func (siw *ServerInterfaceWrapper) ListOrganizations(w http.ResponseWriter, r *h
 		return
 	}
 
+	// ------------- Optional query parameter "ai_written" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ai_written", r.URL.Query(), &params.AiWritten, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ai_written"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ai_written", Err: err})
+		}
+		return
+	}
+
 	// ------------- Optional query parameter "owner_id" -------------
 
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "owner_id", r.URL.Query(), &params.OwnerId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
@@ -30870,6 +30977,19 @@ func (siw *ServerInterfaceWrapper) ListPeople(w http.ResponseWriter, r *http.Req
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "captured_by_kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "captured_by_kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "ai_written" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "ai_written", r.URL.Query(), &params.AiWritten, runtime.BindQueryParameterOptions{Type: "boolean", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "ai_written"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "ai_written", Err: err})
 		}
 		return
 	}

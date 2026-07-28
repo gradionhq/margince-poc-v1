@@ -38,6 +38,8 @@ type ListOrganizationsInput struct {
 	IncludeArchived bool
 	// CapturedByKind filters on the captured_by prefix (ADR-0075/A121 §3a).
 	CapturedByKind *string
+	// AiWritten filters on whether an AI wrote into the record (§3a).
+	AiWritten *bool
 	// Sort is the contract's sort spec, validated against the core
 	// vocabulary below plus the workspace's active cf_ columns.
 	Sort *string
@@ -63,11 +65,21 @@ func (s *Store) ListOrganizations(ctx context.Context, in ListOrganizationsInput
 	shared := listFilters{
 		IncludeArchived: in.IncludeArchived,
 		CapturedByKind:  in.CapturedByKind,
-		OwnerID:         in.OwnerID,
-		Query:           in.Query,
-		Cursor:          in.Cursor,
-		CustomFilters:   in.CustomFilters,
-		nameColumn:      orgNameColumn,
+		AiWritten:       in.AiWritten,
+		entity:          organizationEntity,
+		// An organization's AI-written values are the dossier's profile fields
+		// and category facts, plus a display_name promoted from an AI-extracted
+		// email signature — which lives on the record itself.
+		aiWrittenChildren: [][2]string{
+			{"organization_profile_field", orgIDColumn},
+			{"organization_fact", orgIDColumn},
+		},
+		aiWrittenOwn:  "organization.name_source = 'signature'",
+		OwnerID:       in.OwnerID,
+		Query:         in.Query,
+		Cursor:        in.Cursor,
+		CustomFilters: in.CustomFilters,
+		nameColumn:    orgNameColumn,
 	}
 	return listPage(ctx, s, in.Sort, in.Limit, listPageSpec[crmcontracts.Organization]{
 		entity:  organizationEntity,

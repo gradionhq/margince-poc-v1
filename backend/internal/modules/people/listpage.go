@@ -132,6 +132,16 @@ type listFilters struct {
 	// generated enum, after authorization — declaring the enum in the contract
 	// does not enforce it on the wire.
 	CapturedByKind *string
+	// AiWritten asks whether an AI wrote INTO the record — a different question
+	// from who created it (ADR-0075/A121 §3a). aiWrittenClause spells it.
+	AiWritten *bool
+	// aiWritten* describe where this record type's AI-written values live: the
+	// (table, parent column) pairs carrying per-value provenance, plus any
+	// column on the record itself that holds an AI-written value.
+	aiWrittenChildren [][2]string
+	aiWrittenOwn      string
+	// entity is the record's table name, used to qualify the predicate above.
+	entity string
 	// nameColumn is the quick-find target — the record's display column.
 	nameColumn string
 }
@@ -175,6 +185,62 @@ func capturedByKindClause(kind *string, arg func(any) int) (string, bool, error)
 	return storekit.SQLf("captured_by LIKE $%d", arg(*kind+":%")), true, nil
 }
 
+// agentPrefix matches the captured_by grammar's AI namespace. Shared by every
+// predicate below so "which prefix counts as an AI" has one answer, and it is
+// the same one the partial indexes in migration 0138 are built on — a mismatch
+// there silently costs the index rather than the result.
+const agentPrefix = "agent:%"
+
+// The parent-id columns the per-value provenance tables key on. Named because
+// the predicate below, the relationship edges and the site-read store all spell
+// them, and a typo in one place is a silently empty EXISTS.
+const (
+	personIDColumn = "person_id"
+	orgIDColumn    = "organization_id"
+)
+
+// aiWrittenClause answers "did an AI write into this record?" for one record
+// type, or "" when the caller did not ask.
+//
+// This is deliberately NOT the same question as capturedByKindClause.
+// `captured_by` names who CREATED the row and is never restamped — it is real
+// provenance and the whole API reads it that way. But in the connector path the
+// AI does not create the record, it FILLS one: Gmail capture mints the
+// organization as `connector:gmail`, and then signature enrichment renames it
+// and the web dossier writes its profile fields and facts. Asking who created
+// it misses exactly the records worth reviewing.
+//
+// So the predicate is about CONTENT, and it is DERIVED rather than stored: an
+// EXISTS over the child rows that carry the AI's own provenance. A denormalised
+// flag would be a second copy of a truth those rows already hold, and a stale
+// `false` would hide the very records this exists to surface.
+//
+// childTables are the (table, parent column) pairs whose rows carry per-value
+// provenance for this record type; extraOwn is any column on the record itself
+// that records an AI-written value (the organization's promoted name). A type
+// with neither — a lead — falls back to "was it agent-created", which is the
+// honest answer for a record that holds no AI-written values.
+func aiWrittenClause(want *bool, entity string, childTables [][2]string, extraOwn string, arg func(any) int) string {
+	if want == nil {
+		return ""
+	}
+	touched := []string{storekit.SQLf("%s.captured_by LIKE $%d", entity, arg(agentPrefix))}
+	for _, child := range childTables {
+		touched = append(touched, storekit.SQLf(
+			`EXISTS (SELECT 1 FROM %s c WHERE c.workspace_id = %s.workspace_id
+			           AND c.%s = %s.id AND c.captured_by LIKE $%d)`,
+			child[0], entity, child[1], entity, arg(agentPrefix)))
+	}
+	if extraOwn != "" {
+		touched = append(touched, extraOwn)
+	}
+	clause := "(" + strings.Join(touched, " OR ") + ")"
+	if !*want {
+		return "NOT " + clause
+	}
+	return clause
+}
+
 // clauses translates the filters into WHERE clauses, appending their
 // arguments through arg — archived visibility, owner, provenance,
 // quick-find, custom-field equality, and the keyset cursor.
@@ -192,6 +258,9 @@ func (f listFilters) clauses(active []fieldcatalog.Column, sorted *storekit.List
 	}
 	if ok {
 		where = append(where, clause)
+	}
+	if ai := aiWrittenClause(f.AiWritten, f.entity, f.aiWrittenChildren, f.aiWrittenOwn, arg); ai != "" {
+		where = append(where, ai)
 	}
 	if f.Query != nil && *f.Query != "" {
 		where = append(where, storekit.QuickFindClause(arg(*f.Query), f.nameColumn))

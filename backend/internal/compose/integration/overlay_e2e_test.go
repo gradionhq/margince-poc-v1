@@ -300,6 +300,9 @@ func TestOverlayReadAndSyncEndToEnd(t *testing.T) {
 		"/v1/people?captured_by_kind=agent",
 		"/v1/organizations?captured_by_kind=agent",
 		"/v1/leads?captured_by_kind=agent",
+		"/v1/people?ai_written=true",
+		"/v1/organizations?ai_written=true",
+		"/v1/leads?ai_written=true",
 	} {
 		if code := e.call(t, "GET", path, nil, nil, nil); code != http.StatusUnprocessableEntity {
 			t.Errorf("overlay-mode %s = %d, want 422 — a provenance filter the mirror cannot answer must be refused, never ignored", path, code)

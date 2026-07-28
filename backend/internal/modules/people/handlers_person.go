@@ -39,6 +39,7 @@ func (h Handlers) ListPeople(w http.ResponseWriter, r *http.Request, params crmc
 		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 		CapturedByKind:  capturedByKindArg(params.CapturedByKind),
+		AiWritten:       params.AiWritten,
 		Sort:            params.Sort,
 		CustomFilters:   httperr.CustomFieldFilters(r),
 	}

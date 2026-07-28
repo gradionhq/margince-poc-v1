@@ -145,3 +145,93 @@ func TestCapturedByKindNarrowsRowScopeAndNeverWidensIt(t *testing.T) {
 		}
 	}
 }
+
+// seatOrgCapturedBy plants one organization with an explicit creator.
+func seatOrgCapturedBy(t *testing.T, e *integration.Env, name, capturedBy, nameSource string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization (id, workspace_id, owner_id, display_name, name_source, source, captured_by)
+			VALUES ($1, $2, $3, $4, $5, 'test', $6)`, id, e.WS, e.Rep1, name, nameSource, capturedBy)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding %s: %v", name, err)
+	}
+	return id
+}
+
+// The case a record-level provenance filter gets wrong, and the reason
+// ai_written exists. Gmail capture mints the organization, so captured_by says
+// `connector:gmail` — and then the AI renames it from a signature and fills its
+// profile. Asking "who created it" answers `connector` and hides exactly the
+// record somebody needs to check.
+func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
+	e := integration.Setup(t)
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	store := people.NewStore(e.Pool)
+
+	filled := seatOrgCapturedBy(t, e, "Acme Filled", "connector:gmail", "domain")
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO organization_profile_field
+				(workspace_id, organization_id, field, value, evidence_snippet, source_url, confidence, source, captured_by)
+			VALUES ($1, $2, 'icp', 'RevOps leaders', 'we serve RevOps leaders', 'https://acme.example', 0.9, 'site_read', 'agent:deepread')`,
+			e.WS, filled)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the AI-written field: %v", err)
+	}
+	// Renamed by the AI from an email signature: the value is on the record
+	// itself, not in a child row.
+	seatOrgCapturedBy(t, e, "Beta Robotics GmbH", "connector:gmail", "signature")
+	// Neither: connector-made, connector-named, no AI anywhere near it.
+	seatOrgCapturedBy(t, e, "Gamma Untouched", "connector:gmail", "domain")
+
+	names := func(ai *bool) []string {
+		t.Helper()
+		got, _, err := store.ListOrganizations(ctx, people.ListOrganizationsInput{AiWritten: ai})
+		if err != nil {
+			t.Fatalf("ListOrganizations: %v", err)
+		}
+		out := make([]string, 0, len(got))
+		for _, o := range got {
+			out = append(out, o.DisplayName)
+		}
+		return out
+	}
+	has := func(list []string, want string) bool {
+		for _, n := range list {
+			if n == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	yes, no := true, false
+	touched := names(&yes)
+	if !has(touched, "Acme Filled") {
+		t.Errorf("ai_written=true returned %v, missing the connector-made org whose profile an AI wrote", touched)
+	}
+	if !has(touched, "Beta Robotics GmbH") {
+		t.Errorf("ai_written=true returned %v, missing the org an AI renamed from a signature", touched)
+	}
+	if has(touched, "Gamma Untouched") {
+		t.Errorf("ai_written=true returned %v — it includes an org no AI ever wrote to", touched)
+	}
+
+	// The complement is the complement: exactly the records the first list left.
+	untouched := names(&no)
+	if !has(untouched, "Gamma Untouched") || has(untouched, "Acme Filled") || has(untouched, "Beta Robotics GmbH") {
+		t.Errorf("ai_written=false returned %v, want exactly the records ai_written=true did not", untouched)
+	}
+
+	// And the record-level filter still answers its own, narrower question:
+	// none of these was CREATED by an AI.
+	agent := "agent"
+	if got, _, err := store.ListOrganizations(ctx,
+		people.ListOrganizationsInput{CapturedByKind: &agent}); err != nil || len(got) != 0 {
+		t.Fatalf("captured_by_kind=agent returned %d orgs (err %v), want 0 — the connector created every one of these", len(got), err)
+	}
+}
