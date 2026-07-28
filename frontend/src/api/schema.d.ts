@@ -9942,7 +9942,7 @@ export interface components {
          *     convention rather than a database constraint, so a row whose prefix
          *     matches none of them is returned by no value of this parameter — the
          *     UNFILTERED list stays the complete one. An out-of-vocabulary value
-         *     returns `422 code: validation_failed`.
+         *     returns `422 code: validation_error`.
          */
         CapturedByKind: "human" | "agent" | "connector" | "system";
         /**
@@ -10338,7 +10338,7 @@ export interface operations {
                  *     convention rather than a database constraint, so a row whose prefix
                  *     matches none of them is returned by no value of this parameter — the
                  *     UNFILTERED list stays the complete one. An out-of-vocabulary value
-                 *     returns `422 code: validation_failed`.
+                 *     returns `422 code: validation_error`.
                  */
                 captured_by_kind?: components["parameters"]["CapturedByKind"];
                 /**
@@ -10705,7 +10705,7 @@ export interface operations {
                  *     convention rather than a database constraint, so a row whose prefix
                  *     matches none of them is returned by no value of this parameter — the
                  *     UNFILTERED list stays the complete one. An out-of-vocabulary value
-                 *     returns `422 code: validation_failed`.
+                 *     returns `422 code: validation_error`.
                  */
                 captured_by_kind?: components["parameters"]["CapturedByKind"];
                 /**
@@ -10764,6 +10764,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     createOrganization: {
@@ -13362,7 +13363,7 @@ export interface operations {
                  *     convention rather than a database constraint, so a row whose prefix
                  *     matches none of them is returned by no value of this parameter — the
                  *     UNFILTERED list stays the complete one. An out-of-vocabulary value
-                 *     returns `422 code: validation_failed`.
+                 *     returns `422 code: validation_error`.
                  */
                 captured_by_kind?: components["parameters"]["CapturedByKind"];
                 /**
@@ -13422,6 +13423,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     createLead: {

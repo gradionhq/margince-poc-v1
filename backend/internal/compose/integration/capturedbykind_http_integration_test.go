@@ -48,6 +48,7 @@ func TestCapturedByKindRefusesAValueOutsideTheEnum(t *testing.T) {
 		"/v1/people?captured_by_kind=agent",
 		"/v1/organizations?captured_by_kind=human",
 		"/v1/leads?captured_by_kind=connector",
+		"/v1/people?captured_by_kind=system",
 	} {
 		if status := e.call(t, "GET", path, nil, nil, nil); status != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, status)

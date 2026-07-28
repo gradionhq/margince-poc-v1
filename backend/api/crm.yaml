@@ -693,6 +693,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/OrganizationListResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
@@ -2443,6 +2444,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/LeadListResponse' }
+        '422': { $ref: '#/components/responses/ValidationError' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
     post:
@@ -8023,7 +8025,7 @@ components:
         convention rather than a database constraint, so a row whose prefix
         matches none of them is returned by no value of this parameter — the
         UNFILTERED list stays the complete one. An out-of-vocabulary value
-        returns `422 code: validation_failed`.
+        returns `422 code: validation_error`.
     AiWritten:
       name: ai_written
       in: query

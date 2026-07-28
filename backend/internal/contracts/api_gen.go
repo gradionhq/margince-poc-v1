@@ -13100,7 +13100,7 @@ type ListLeadsParams struct {
 	// convention rather than a database constraint, so a row whose prefix
 	// matches none of them is returned by no value of this parameter — the
 	// UNFILTERED list stays the complete one. An out-of-vocabulary value
-	// returns `422 code: validation_failed`.
+	// returns `422 code: validation_error`.
 	CapturedByKind *ListLeadsParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
 
 	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
@@ -13503,7 +13503,7 @@ type ListOrganizationsParams struct {
 	// convention rather than a database constraint, so a row whose prefix
 	// matches none of them is returned by no value of this parameter — the
 	// UNFILTERED list stays the complete one. An out-of-vocabulary value
-	// returns `422 code: validation_failed`.
+	// returns `422 code: validation_error`.
 	CapturedByKind *ListOrganizationsParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
 
 	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it
@@ -13742,7 +13742,7 @@ type ListPeopleParams struct {
 	// convention rather than a database constraint, so a row whose prefix
 	// matches none of them is returned by no value of this parameter — the
 	// UNFILTERED list stays the complete one. An out-of-vocabulary value
-	// returns `422 code: validation_failed`.
+	// returns `422 code: validation_error`.
 	CapturedByKind *ListPeopleParamsCapturedByKind `form:"captured_by_kind,omitempty" json:"captured_by_kind,omitempty"`
 
 	// AiWritten `true` returns only records an AI **wrote into**; `false` only records it

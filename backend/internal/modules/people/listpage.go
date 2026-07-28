@@ -177,14 +177,28 @@ func capturedByKindClause(kind *string, arg func(any) int) (string, bool, error)
 		return "", false, httperr.Validation("captured_by_kind", "invalid",
 			"must be one of human, agent, connector, system")
 	}
-	return storekit.SQLf("captured_by LIKE $%d", arg(*kind+":%")), true, nil
+	return storekit.SQLf("captured_by LIKE $%d", arg(likePrefix(*kind+":"))), true, nil
 }
 
 // agentPrefix matches the captured_by grammar's AI namespace. Shared by every
 // predicate below so "which prefix counts as an AI" has one answer, and it is
 // the same one the partial indexes in migration 0138 are built on — a mismatch
 // there silently costs the index rather than the result.
-const agentPrefix = "agent:%"
+const agentPrefix = "agent:" + likeWildcard
+
+// likeWildcard is the LIKE "any suffix" metacharacter, named so the prefix
+// builder below reads as intent rather than as punctuation.
+const likeWildcard = "%"
+
+// likePrefix builds a LIKE pattern matching everything that starts with lit,
+// escaping the metacharacters lit may contain. Binding a pattern as a parameter
+// stops it being SQL, not being a PATTERN — a value carrying % or _ would still
+// match beyond itself. The captured_by vocabulary is plain words today; this is
+// what keeps that from being load-bearing.
+func likePrefix(lit string) string {
+	r := strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`)
+	return r.Replace(lit) + likeWildcard
+}
 
 // aiWrittenClause answers "did an AI write into this record?" for one record
 // type, or "" when the caller did not ask.
@@ -217,6 +231,13 @@ const agentPrefix = "agent:%"
 // audit row for the create, and it is on the row itself — so it still answers
 // after audit retention has pruned old rows, which is this predicate's one real
 // limit and is stated rather than papered over.
+//
+// No partial index backs this. `idx_audit_entity` (workspace_id, entity_type,
+// entity_id) already serves the lookup; a partial index on the agent prefix
+// could not be used anyway, because the prefix arrives as a bind parameter and
+// the planner cannot prove a bound value implies the index predicate. Building
+// one on `audit_log` would also hold a write-blocking lock for the length of
+// the build, and this repo has no non-transactional migration path.
 func aiWrittenClause(want *bool, entity string, arg func(any) int) string {
 	if want == nil {
 		return ""

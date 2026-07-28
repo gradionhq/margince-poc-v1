@@ -179,9 +179,7 @@ func agentCtx(e *integration.Env) context.Context {
 // answers `connector` and hides exactly the record somebody needs to check.
 //
 // Every write below goes through the real store, so the audit rows the
-// predicate reads are the ones production would leave. Seeding the underlying
-// rows by hand would prove the query can read a table and nothing about whether
-// the system fills it.
+// predicate reads are the ones production would leave.
 func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	e := integration.Setup(t)
 	adminCtx := e.As(e.Rep1, nil, integration.AdminPerms)
@@ -235,13 +233,12 @@ func TestAiWrittenFindsRecordsTheConnectorMadeAndTheAiFilled(t *testing.T) {
 	}
 }
 
-// The plainest case there is, and the one every narrower predicate missed: an
-// agent updates an ORDINARY column.
+// An agent updates an ORDINARY column — no enrichment table, no rename.
 //
-// The update is driven through the real store under a real agent principal —
-// not by seeding a provenance row — because the earlier version of this test
-// inserted the row it then asserted on, which proved the query could read a
-// table and nothing about whether the system ever writes it.
+// The write is driven through the real store under a real agent principal, so
+// what the filter reads is the audit row production would leave. A test that
+// seeds the row it then asserts on proves the query can read a table and
+// nothing about whether the system writes one.
 func TestAiWrittenCatchesAnAgentUpdatingAnOrdinaryColumn(t *testing.T) {
 	e := integration.Setup(t)
 	store := people.NewStore(e.Pool)
