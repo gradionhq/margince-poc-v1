@@ -390,48 +390,55 @@ func TestDispatchCountsNothingAgainstAPolicyWhenTheSendIsPostponed(t *testing.T)
 	}
 }
 
-// The three status-guarded transitions all report ErrTerminal when they touch
-// zero rows, which means a newer attempt already closed this delivery. That is
-// a benign no-op: turning it into a retry would put a finished delivery back
-// on the ladder, and turning it into an error would fail a job that did its
-// work correctly.
-
-func TestDispatchTreatsATerminalRecordSentAsAlreadyHandled(t *testing.T) {
-	store := &fakeStore{delivery: liveDelivery(), sentErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{sendScope}}, &stubConsent{})
-
-	got, err := dispatch(context.Background(), d, store.delivery.ID)
-	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if got != OutcomeSkipped {
-		t.Errorf("outcome = %v, want OutcomeSkipped", got)
-	}
-}
-
-func TestDispatchTreatsATerminalParkAsAlreadyHandled(t *testing.T) {
-	store := &fakeStore{delivery: liveDelivery(), parkErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{err: ErrNoMailbox}, &stubConsent{})
-
-	got, err := dispatch(context.Background(), d, store.delivery.ID)
-	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if got != OutcomeSkipped {
-		t.Errorf("outcome = %v, want OutcomeSkipped", got)
-	}
-}
-
-func TestDispatchTreatsATerminalFailureNoteAsAlreadyHandled(t *testing.T) {
-	store := &fakeStore{delivery: liveDelivery(), failedErr: ErrTerminal}
-	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{err: connector.ErrUnreachable}, granted: []string{sendScope}}, &stubConsent{})
-
-	got, err := dispatch(context.Background(), d, store.delivery.ID)
-	if err != nil {
-		t.Fatalf("Dispatch: %v", err)
-	}
-	if got != OutcomeSkipped {
-		t.Errorf("outcome = %v, want OutcomeSkipped", got)
+// All four status-guarded transitions — RecordSent, Park, RecordFailure and
+// RecordDeferral — report ErrTerminal when they touch zero rows, which means a
+// newer attempt already closed this delivery. That is a benign no-op: turning
+// it into a retry would put a finished delivery back on the ladder, turning it
+// into an error would fail a job that did its work correctly, and reporting the
+// disposition it was reaching for would claim a fact the row does not carry.
+//
+// One case per transition, because each is reached down a different path and a
+// transition nothing routes to could never fail here.
+func TestDispatchTreatsATerminalTransitionAsAlreadyHandled(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// store faults the ONE transition under test with ErrTerminal.
+		store *fakeStore
+		// route drives the dispatcher down the path that reaches it.
+		route func(*fakeStore) *Dispatcher
+	}{
+		{
+			"the send receipt", &fakeStore{delivery: liveDelivery(), sentErr: ErrTerminal},
+			func(s *fakeStore) *Dispatcher { return newTestDispatcher(s, sendingResolver(), &stubConsent{}) },
+		},
+		{
+			"a park", &fakeStore{delivery: liveDelivery(), parkErr: ErrTerminal},
+			func(s *fakeStore) *Dispatcher {
+				return newTestDispatcher(s, fakeResolver{err: ErrNoMailbox}, &stubConsent{})
+			},
+		},
+		{
+			"a failure note", &fakeStore{delivery: liveDelivery(), failedErr: ErrTerminal},
+			func(s *fakeStore) *Dispatcher {
+				return newTestDispatcher(s, fakeResolver{sender: &fakeSender{err: connector.ErrUnreachable}, granted: []string{sendScope}}, &stubConsent{})
+			},
+		},
+		{
+			"a pacing deferral", &fakeStore{delivery: liveDelivery(), deferErr: ErrTerminal},
+			func(s *fakeStore) *Dispatcher {
+				return newTestDispatcher(s, sendingResolver(), &stubConsent{}, waitPolicy{d: 90 * time.Second})
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, wait, err := tc.route(tc.store).DispatchWithWait(context.Background(), tc.store.delivery.ID)
+			if err != nil {
+				t.Fatalf("Dispatch: %v", err)
+			}
+			if got != OutcomeSkipped || wait != 0 {
+				t.Errorf("outcome=%v wait=%v, want OutcomeSkipped/0 — a newer attempt already closed this delivery", got, wait)
+			}
+		})
 	}
 }
 
