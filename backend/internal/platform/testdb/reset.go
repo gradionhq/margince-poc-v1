@@ -288,6 +288,9 @@ func reclaimBloat(ctx context.Context, tx execQuerier) ([]string, error) {
 	if len(bloated) == 0 {
 		return unbaselined, nil
 	}
+	// Same injection posture as the DELETE batch: every name is quote_ident()
+	// over pg_class and schema-qualified, never caller input.
+	//
 	// CASCADE because TRUNCATE still refuses a table whose referencing tables
 	// are not named, structurally, whatever the triggers are doing. Everything
 	// it reaches is being emptied in this transaction anyway.

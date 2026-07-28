@@ -57,8 +57,9 @@ var benchTiers = map[search.BenchTier]benchTierSpec{
 }
 
 // benchDatabase connects as owner, resets the schema, and migrates. This is
-// the ONE compose/integration suite that migrates inline instead of riding the
-// shared migrate-once harness (testdb.EnsureSchema + Reset) — it seeds a
+// the ONE compose/integration suite that migrates inline rather than riding the
+// migrate-once harness every other suite uses (testdb.EnsureSchema + Reset) —
+// it seeds a
 // large volume and asserts query-latency SLOs, so it wants pristine physical
 // tables (fresh relfilenodes, no bloat or stale planner stats a prior reset
 // cycle would leave) and pays a genuine fresh migrate. It runs once per tier, so

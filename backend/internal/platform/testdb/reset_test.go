@@ -375,25 +375,42 @@ func relfilenodes(ctx context.Context, owner *pgx.Conn) (map[string]uint32, erro
 // sane — present, non-zero, and below the slack, which is what keeps the
 // reclaim from firing on a table that merely holds no rows.
 func TestEnsureSchemaRecordsASaneBaseline(t *testing.T) {
-	ownerConn(t) // runs EnsureSchema; the baseline is its side effect
+	ctx := context.Background()
+	owner := ownerConn(t) // runs EnsureSchema; the baseline is its side effect
 
-	recorded := emptySizes.Load()
-	if recorded == nil || len(*recorded) == 0 {
+	if recorded := emptySizes.Load(); recorded == nil || len(*recorded) == 0 {
 		t.Fatal("EnsureSchema recorded no empty-schema baseline — reclaimBloat would silently fall back to an absolute size threshold")
 	}
-	for name, size := range *recorded {
+
+	// The slack half is checked against a freshly measured empty schema rather
+	// than against the stored baseline. Both would read the same numbers today,
+	// but the stored map is process-global and baselineNewTables may replace an
+	// entry mid-run, which would make a failure here point at EnsureSchema for
+	// something it did not do. Measuring live keeps the message true, and covers
+	// tables that appeared after EnsureSchema as well as the ones it recorded.
+	if err := Reset(ctx, owner); err != nil {
+		t.Fatalf("reset to an empty schema: %v", err)
+	}
+	sizes, err := tableSizes(ctx, owner)
+	if err != nil {
+		t.Fatalf("measuring table sizes: %v", err)
+	}
+	if len(sizes) == 0 {
+		t.Fatal("measured no tables — this test would pass vacuously")
+	}
+	for name, size := range sizes {
 		if size <= 0 {
-			t.Errorf("baseline for %s is %d bytes — a migrated table always occupies storage, so the baseline was not taken on the migrated schema", name, size)
+			t.Errorf("%s occupies %d bytes — a migrated table always holds storage, so this measurement is not of the migrated schema", name, size)
 		}
-		// reclaimBloat's fallback for a missing baseline is to measure against
-		// zero, which is only safe while no empty table reaches the slack on its
-		// own. That is true today with room to spare, and it is the kind of margin
-		// a few added indexes erode silently: once an empty table crosses the
-		// slack, the fallback TRUNCATEs it on every reset and the per-test cost
-		// this whole path avoids comes straight back.
+		// reclaimBloat measures a table with no baseline against zero, which is
+		// only safe while no empty table reaches the slack on its own. That holds
+		// today with room to spare, and it is the kind of margin a few added
+		// indexes erode silently: once an empty table crosses the slack, the
+		// fallback TRUNCATEs it on every reset and the per-test cost this whole
+		// path avoids comes straight back.
 		if size >= reclaimSlack {
-			t.Errorf("%s occupies %d bytes empty, at or past the %d-byte slack — reclaimBloat's "+
-				"missing-baseline fallback would now TRUNCATE it on every reset; raise reclaimSlack",
+			t.Errorf("%s occupies %d bytes empty, at or past the %d-byte slack — a table with no "+
+				"baseline would now be TRUNCATEd on every reset; raise reclaimSlack",
 				name, size, reclaimSlack)
 		}
 	}
