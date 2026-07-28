@@ -21,9 +21,7 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"log/slog"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -116,40 +114,8 @@ func (t *autoEnrichTrigger) queueRead(ctx context.Context, orgID ids.Organizatio
 			"org", orgID.String())
 		return nil
 	}
-	started, err := startAutoEnrichRead(enrichCtx, t.people, t.autoEnrich, orgID, domain)
-	if started {
-		// A read exists, so the slot bought one — even when err is non-nil,
-		// which is how startAutoEnrichRead reports a cursor it could not arm
-		// after the read was already queued. Refunding here would pay for that
-		// crawl twice: the slot returns to the day AND the read still runs.
-		return err
-	}
-	if err != nil {
-		// Nothing started, so the slot goes back — the same rule as the join
-		// below. Reserving before starting is what makes the cap a cap;
-		// refunding what did not start is what stops the ceiling eroding a slot
-		// at a time.
-		return errors.Join(err, t.refund(enrichCtx, slot))
-	}
-	// A read for this organization was already in flight — the sweep and this
-	// capture found it in the same moment, and the uniqueness index arbitrated.
-	// One crawl must not cost the day two of its reads.
-	return t.refund(enrichCtx, slot)
-}
-
-// refundTimeout bounds the compensating write. Short: it is one indexed UPDATE,
-// and a refund that hangs would hold the capture path it runs on.
-const refundTimeout = 5 * time.Second
-
-// refund returns a slot on a context that outlives whatever went wrong.
-//
-// It detaches for the case that matters most: when the start failed BECAUSE the
-// capture's context was cancelled or timed out, the refund is owed and the
-// context it would run on is already dead. Compensating on the dying context
-// leaks the slot exactly when it is most likely to leak. Same
-// detach-and-deadline shape the connector teardown and the AI tracer use.
-func (t *autoEnrichTrigger) refund(ctx context.Context, slot capture.BudgetSlot) error {
-	refundCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), refundTimeout)
-	defer cancel()
-	return t.autoEnrich.ReleaseBudget(refundCtx, slot)
+	// One rule for a reserved slot, shared with the sweep: it buys a read or it
+	// goes back, and the refund survives the cancellation that may have caused
+	// the failure it compensates for.
+	return startEnrichOrRefund(enrichCtx, t.people, t.autoEnrich, orgID, domain, slot)
 }

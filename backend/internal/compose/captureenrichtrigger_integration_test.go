@@ -156,7 +156,7 @@ func TestEnrichOnCaptureIgnoresAnEmptyDomain(t *testing.T) {
 // Reserve-before-spend means a caller sometimes holds a slot it turns out not to
 // need — two paths racing on one organization both reserve, and the in-flight
 // uniqueness index lets only one of them start a read. The refund is what keeps
-// the day's ten reads from delivering nine, with the shortfall growing with
+// the day's allowance eroding a slot at a time, with the shortfall growing with
 // exactly the concurrency the cap is meant to be indifferent to.
 func TestAutoEnrichBudgetSlotIsReturnedWhenItBoughtNothing(t *testing.T) {
 	e := integration.Setup(t)
@@ -208,6 +208,9 @@ func TestAutoEnrichBudgetReleaseNeverGoesBelowZero(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !today.Reserved {
+		t.Fatal("setup reservation refused — the guard below would pass without ever running")
+	}
 	for i := 0; i < testCap; i++ {
 		if err := store.ReleaseBudget(e.Admin(), today); err != nil {
 			t.Fatalf("ReleaseBudget on an unspent day: %v", err)
@@ -241,6 +244,9 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 	todaySlot, err := store.ReserveBudget(e.Admin(), 3)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !todaySlot.Reserved {
+		t.Fatal("setup reservation refused — yesterday's day would be the zero time")
 	}
 	if err := store.ReleaseBudget(e.Admin(), todaySlot); err != nil {
 		t.Fatal(err)
@@ -285,9 +291,14 @@ func TestAutoEnrichRefundSurvivesACancelledCaptureContext(t *testing.T) {
 	cancelled, cancel := context.WithCancel(e.Admin())
 	cancel()
 
+	// Through the shared rule both the trigger and the sweep use. With no River
+	// client the read cannot start, so this is the refund path — on a context
+	// that is already dead.
 	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
-	if err := trigger.refund(cancelled, slot); err != nil {
-		t.Fatalf("refund on a cancelled context: %v", err)
+	err = startEnrichOrRefund(cancelled, trigger.people, trigger.autoEnrich,
+		insertDomainOrg(t, e, "cancelled.example"), "cancelled.example", slot)
+	if err == nil {
+		t.Fatal("expected the start to fail on a cancelled context")
 	}
 	if n := budgetSpent(t, e); n != 0 {
 		t.Fatalf("budget spent = %d, want 0 — the slot must come back even when the capture was cancelled", n)
