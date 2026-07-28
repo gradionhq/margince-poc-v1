@@ -30,9 +30,15 @@ func TestCapturedByKindRefusesAValueOutsideTheEnum(t *testing.T) {
 		"/v1/people?captured_by_kind=ai",
 		"/v1/organizations?captured_by_kind=robot",
 		"/v1/leads?captured_by_kind=Agent",
+		// Present-but-empty is a VALUE, and not one the enum has. Reading it as
+		// "no filter" would answer the whole list to a caller who did ask to
+		// filter — the same wrong answer, arrived at more quietly.
+		"/v1/people?captured_by_kind=",
+		"/v1/organizations?captured_by_kind=",
+		"/v1/leads?captured_by_kind=",
 	} {
 		if status := e.call(t, "GET", path, nil, nil, nil); status != http.StatusUnprocessableEntity {
-			t.Errorf("GET %s = %d, want 422 — an unknown provenance kind must be refused, not answered with an empty page", path, status)
+			t.Errorf("GET %s = %d, want 422 — an unusable provenance kind must be refused, not answered with an unfiltered page", path, status)
 		}
 	}
 
@@ -46,5 +52,10 @@ func TestCapturedByKindRefusesAValueOutsideTheEnum(t *testing.T) {
 		if status := e.call(t, "GET", path, nil, nil, nil); status != http.StatusOK {
 			t.Errorf("GET %s = %d, want 200", path, status)
 		}
+	}
+
+	// Omitting the parameter entirely is the one thing that means "no filter".
+	if status := e.call(t, "GET", "/v1/people", nil, nil, nil); status != http.StatusOK {
+		t.Errorf("GET /v1/people = %d, want 200 — an absent filter is not an unusable one", status)
 	}
 }

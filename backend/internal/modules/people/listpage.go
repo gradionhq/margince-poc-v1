@@ -159,7 +159,13 @@ type listFilters struct {
 // today; binding the pattern is what keeps that true of a value the enum gains
 // later.
 func capturedByKindClause(kind *string, arg func(any) int) (string, bool, error) {
-	if kind == nil || *kind == "" {
+	// ABSENT is the only thing that means "no filter". An empty value is a
+	// value, and it is not in the enum: reading it as absent hands an
+	// unfiltered list to a caller who did ask to filter — the same
+	// confident-wrong-answer failure as an unknown kind, so it gets the same
+	// refusal. (The quick-find `q` above may legitimately be empty; a blank
+	// search is no search. An enum has no such reading.)
+	if kind == nil {
 		return "", false, nil
 	}
 	if !crmcontracts.CapturedByKind(*kind).Valid() {
