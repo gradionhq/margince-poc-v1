@@ -330,9 +330,11 @@ func TestOrgNamePromotionRemembersADeclineAfterTheEvidenceMoves(t *testing.T) {
 }
 
 // A refusal recorded BEFORE proposed_name_key existed must still be
-// remembered. Those payloads carry only the exact spelling, so the normalized
-// identity finds nothing in them — without the legacy probe the sweep would
-// re-stage the refused rename and, once corroborated, apply it.
+// remembered, INCLUDING when the spelling has since moved. Those payloads
+// carry only the raw name, and the raw name is dominantSpelling's pick — it
+// changes as signatures accumulate. Matching on it would forget the refusal
+// exactly when a second signer arrives, which is also when the claim becomes
+// corroborated enough to apply without asking.
 func TestOrgNamePromotionRemembersADeclineRecordedBeforeTheIdentityField(t *testing.T) {
 	e := integration.Setup(t)
 	org := seedProvisionalOrg(t, e, "Gitex", "domain")
@@ -347,14 +349,17 @@ func TestOrgNamePromotionRemembersADeclineRecordedBeforeTheIdentityField(t *test
 		UPDATE approval SET proposed_change = proposed_change - 'proposed_name_key'
 		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org)
 
-	// The dossier now agrees, which is what normally writes without asking.
+	// A second signer spells the SAME company differently, which moves the
+	// dominant spelling off the one the refusal recorded, and the dossier now
+	// agrees — the combination that normally writes without asking.
+	seedSigningEmployee(t, e, org, "Bob Signer", "GITEX GLOBAL")
 	seedDossierName(t, e, org, "Gitex Global")
 	if err := promoter.Run(context.Background()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 
 	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
-		t.Fatalf("organization = %q/%q — a refusal recorded before the identity field existed must still bind", name, source)
+		t.Fatalf("organization = %q/%q — a pre-upgrade refusal must bind even after the spelling moved", name, source)
 	}
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM approval

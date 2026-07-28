@@ -88,20 +88,31 @@ func orgNameIdentity(orgID ids.OrganizationID, nameKey string) (json.RawMessage,
 	return identity, nil
 }
 
-// orgNameLegacyIdentity is the identity an offer staged BEFORE proposed_name_key
-// existed can still be matched by: those payloads carry only the exact spelling,
-// so the normalized identity above finds nothing in them and a refusal recorded
-// then would be silently forgotten — re-staged, and after corroboration applied.
-// A decision a human already made does not expire because the schema moved.
-func orgNameLegacyIdentity(orgID ids.OrganizationID, proposedName string) (json.RawMessage, error) {
-	identity, err := json.Marshal(map[string]string{
-		paramOrganizationID: orgID.String(),
-		"proposed_name":     proposedName,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("compose: encoding the legacy org-name proposal identity: %w", err)
+// refusedNameKey reports whether any of the refused payloads named THIS claim.
+//
+// The comparison is on the normalized key, never on the spelling. An offer
+// staged before proposed_name_key existed carries only the raw name, and the
+// raw name is dominantSpelling's pick — it moves as signatures accumulate, so
+// two spellings of one refused claim would otherwise read as two different
+// questions and the human's answer to the first would not bind the second.
+// Normalizing the stored name is what makes an old refusal mean the same thing
+// a new one does.
+func refusedNameKey(refused []json.RawMessage, nameKey string) bool {
+	for _, raw := range refused {
+		var prior orgNameProposal
+		if err := json.Unmarshal(raw, &prior); err != nil {
+			// A payload this kind cannot read is not this kind's refusal.
+			continue
+		}
+		key := prior.ProposedNameKey
+		if key == "" {
+			key = people.NormalizeOrgName(prior.ProposedName)
+		}
+		if key != "" && key == nameKey {
+			return true
+		}
 	}
-	return identity, nil
+	return false
 }
 
 // OrgNamePromoter runs the sweep for every workspace.
@@ -190,21 +201,17 @@ func (p *OrgNamePromoter) decideOne(ctx context.Context, cand people.OrgNameCand
 	if err != nil {
 		return err
 	}
-	legacy, err := orgNameLegacyIdentity(cand.OrganizationID, verdict.Name)
-	if err != nil {
-		return err
-	}
 	if verdict.Corroborated {
-		return p.applyUnlessDeclined(ctx, cand, verdict, identity, legacy)
+		return p.applyUnlessDeclined(ctx, cand, verdict)
 	}
-	// StageUnlessDeclined checks the CURRENT identity under its own lock; the
-	// legacy one has to be asked separately. A race here costs one extra offer
-	// in the inbox, never an unasked write.
-	declined, err := p.approvals.HasDeclinedFor(ctx, orgNameProposalKind, cand.OrganizationID.UUID, legacy)
+	// StageUnlessDeclined re-checks under its own lock, so this read only has
+	// to keep the inbox tidy: losing the race costs one extra offer, never an
+	// unasked write.
+	refused, err := p.approvals.RejectedChangesFor(ctx, orgNameProposalKind, cand.OrganizationID.UUID)
 	if err != nil {
 		return err
 	}
-	if declined {
+	if refusedNameKey(refused, verdict.NameKey) {
 		return nil
 	}
 	return p.stageOrgNameReview(ctx, cand, verdict, identity)
@@ -220,22 +227,19 @@ func (p *OrgNamePromoter) decideOne(ctx context.Context, cand people.OrgNameCand
 // and the rename the human refused is applied anyway. Rejecting deliberately
 // leaves name_source where it was, so the promotion CAS is no backstop here.
 func (p *OrgNamePromoter) applyUnlessDeclined(ctx context.Context, cand people.OrgNameCandidate,
-	verdict people.OrgNameVerdict, identity, legacy json.RawMessage,
+	verdict people.OrgNameVerdict,
 ) error {
 	var promoted bool
 	err := database.WithWorkspaceTx(ctx, p.pool, func(tx pgx.Tx) error {
-		for _, probe := range []json.RawMessage{identity, legacy} {
-			declined, err := p.approvals.HasDeclinedForTx(ctx, tx, orgNameProposalKind, cand.OrganizationID.UUID, probe)
-			if err != nil {
-				return err
-			}
-			if declined {
-				p.log.InfoContext(ctx, "org-name promotion: name refused by a human, not re-applied",
-					"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
-				return nil
-			}
+		refused, err := p.approvals.RejectedChangesForTx(ctx, tx, orgNameProposalKind, cand.OrganizationID.UUID)
+		if err != nil {
+			return err
 		}
-		var err error
+		if refusedNameKey(refused, verdict.NameKey) {
+			p.log.InfoContext(ctx, "org-name promotion: name refused by a human, not re-applied",
+				"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
+			return nil
+		}
 		promoted, err = p.store.PromoteOrgNameTx(ctx, tx, cand.OrganizationID, verdict.Name, verdict.Corroboration)
 		return err
 	})

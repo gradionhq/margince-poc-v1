@@ -4,13 +4,10 @@
 package approvals
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
-
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // The edit-scope rule as a table: an edit corrects what a staged action SAYS,
@@ -103,20 +100,6 @@ func TestAssertSameEntityRefsPinsEveryRecordTheProposalNames(t *testing.T) {
 				t.Errorf("refused paths = %v, want %v", retargeted.Paths, tc.wantChanged)
 			}
 		})
-	}
-}
-
-// An identity is a QUESTION, and `{}` asks nothing: `proposed_change @> '{}'`
-// is true of every JSON object, so accepting it would let one rejected
-// proposal read as a refusal of every later proposal for that kind and target.
-// The check has to be semantic — `{}` is four bytes, so a length test passes it.
-func TestHasDeclinedForRejectsAnIdentityThatMatchesEverything(t *testing.T) {
-	svc := &Service{}
-	for _, identity := range []string{`{}`, `[]`, `null`, `"x"`, ``} {
-		_, err := svc.HasDeclinedForTx(context.Background(), nil, "org_name_promotion", ids.NewV7(), json.RawMessage(identity))
-		if err == nil {
-			t.Errorf("identity %q accepted — it would match every proposal for the kind and target", identity)
-		}
 	}
 }
 

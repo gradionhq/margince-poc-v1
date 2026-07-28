@@ -104,7 +104,7 @@ type OrgNameVerdict struct {
 // Pure, so the rule is testable without a database and reads as the rule
 // rather than as a query plan.
 func DecideOrgName(c OrgNameCandidate) (OrgNameVerdict, bool) {
-	groups := groupSignatureNames(c.Signatures, normalizeOrgName(c.DisplayName))
+	groups := groupSignatureNames(c.Signatures, NormalizeOrgName(c.DisplayName))
 	if len(groups) == 0 {
 		return OrgNameVerdict{}, false
 	}
@@ -137,7 +137,7 @@ type nameClaim struct {
 func dossierKeys(names []string) map[string]bool {
 	keys := make(map[string]bool, len(names))
 	for _, n := range names {
-		if key := normalizeOrgName(n); key != "" {
+		if key := NormalizeOrgName(n); key != "" {
 			keys[key] = true
 		}
 	}
@@ -151,7 +151,7 @@ func dossierKeys(names []string) map[string]bool {
 func groupSignatureNames(signatures []SignatureOrgName, current string) map[string]*nameClaim {
 	claims := map[string]*nameClaim{}
 	for _, s := range signatures {
-		key := normalizeOrgName(s.Value)
+		key := NormalizeOrgName(s.Value)
 		if key == "" || key == current {
 			continue
 		}

@@ -158,56 +158,65 @@ func declinedProbeSQL(byIdentity bool) string {
 	return prefix + `diff_hash = $4` + suffix
 }
 
-// HasDeclinedFor reports whether a human has REJECTED a proposal of this kind
-// against this target carrying this logical identity. It is the read half of
-// the same memory StageUnlessDeclined enforces, for a caller that can APPLY a
-// change without staging one: an auto-apply path that never consults it lets a
-// stronger trigger execute exactly what a human refused, and the refusal is
-// invisible because no approval is created to join.
-func (s *Service) HasDeclinedFor(ctx context.Context, kind string, targetID ids.UUID, identity json.RawMessage) (bool, error) {
-	var declined bool
+// RejectedChangesFor returns the proposed_change of every REJECTED proposal of
+// this kind against this target. It is the read half of the memory
+// StageUnlessDeclined enforces, for a caller that can APPLY a change without
+// staging one: an auto-apply path that never consults it lets a stronger
+// trigger execute exactly what a human refused, and the refusal is invisible
+// because no approval is created to join.
+//
+// It hands back the PAYLOADS rather than answering a containment query,
+// because only the caller knows what makes two of its proposals the same
+// question. A payload written by an older version of that caller may not carry
+// the field today's identity is keyed on, and a decision a human already made
+// does not expire because the schema moved — deciding that in SQL would mean
+// deciding it wrong.
+func (s *Service) RejectedChangesFor(ctx context.Context, kind string, targetID ids.UUID) ([]json.RawMessage, error) {
+	var out []json.RawMessage
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
-		declined, err = s.HasDeclinedForTx(ctx, tx, kind, targetID, identity)
+		out, err = s.RejectedChangesForTx(ctx, tx, kind, targetID)
 		return err
 	})
-	return declined, err
+	return out, err
 }
 
-// HasDeclinedForTx is HasDeclinedFor on the caller's transaction, and it LOCKS
-// every offer this identity has produced. That lock is what makes a
-// check-then-apply caller safe: a plain read commits before the apply opens its
-// own transaction, so a human could reject in the gap and the apply would go
-// ahead anyway — the exact race StageUnlessDeclined takes the same lock to
-// close. A concurrent Decide blocks on these rows until the caller commits.
-func (s *Service) HasDeclinedForTx(ctx context.Context, tx pgx.Tx, kind string, targetID ids.UUID, identity json.RawMessage) (bool, error) {
-	// A non-empty JSON OBJECT, held to the same shape Stage canonicalizes.
-	// The emptiness check has to be semantic, not `len(identity) == 0`:
-	// `{}` is four bytes and `proposed_change @> '{}'` is true of every JSON
-	// object, so one rejected proposal would read as a refusal of every later
-	// proposal for that kind and target.
-	fields, err := decodeJSONObject(identity)
-	if err != nil || len(fields) == 0 {
-		return false, errors.New("crmapprovals: HasDeclinedFor requires a non-empty JSON-object identity")
-	}
+// RejectedChangesForTx is RejectedChangesFor on the caller's transaction, and
+// it LOCKS every offer of this kind against this target. That lock is what
+// makes a check-then-apply caller safe: a plain read commits before the apply
+// opens its own transaction, so a human could reject in the gap and the apply
+// would go ahead anyway — the exact race StageUnlessDeclined takes the same
+// lock to close. A concurrent Decide blocks on these rows until the caller
+// commits.
+func (s *Service) RejectedChangesForTx(ctx context.Context, tx pgx.Tx, kind string, targetID ids.UUID) ([]json.RawMessage, error) {
+	// EVERY offer is locked, not only the already-rejected ones: a pending row
+	// is exactly the one a human is about to reject, and leaving it unlocked
+	// would reopen the gap this closes.
 	rows, err := tx.Query(ctx, `
-		SELECT status FROM approval
-		 WHERE kind = $1 AND target_entity_id = $2 AND proposed_change @> $3
+		SELECT status, proposed_change FROM approval
+		 WHERE kind = $1 AND target_entity_id = $2
 		 ORDER BY created_at
-		 FOR UPDATE`, kind, targetID, identity)
+		 FOR UPDATE`, kind, targetID)
 	if err != nil {
-		return false, fmt.Errorf("lock the offers for this proposal: %w", err)
+		return nil, fmt.Errorf("lock the offers for this proposal: %w", err)
 	}
-	statuses, err := pgx.CollectRows(rows, pgx.RowTo[string])
-	if err != nil {
-		return false, fmt.Errorf("read the declined offers for this proposal: %w", err)
-	}
-	for _, status := range statuses {
+	defer rows.Close()
+
+	var out []json.RawMessage
+	for rows.Next() {
+		var status string
+		var change json.RawMessage
+		if err := rows.Scan(&status, &change); err != nil {
+			return nil, fmt.Errorf("read the declined offers for this proposal: %w", err)
+		}
 		if status == approvalStatusRejected {
-			return true, nil
+			out = append(out, change)
 		}
 	}
-	return false, nil
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read the declined offers for this proposal: %w", err)
+	}
+	return out, nil
 }
 
 // StageUnlessDeclined stages in — unless a human has already REJECTED this

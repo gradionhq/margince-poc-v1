@@ -229,7 +229,7 @@ func DedupeOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate)
 	if hit, found, err := exactOrgByDomain(ctx, tx, c.Domains); err != nil || found {
 		return OrganizationMatch{Decision: DecisionExactCollision, OrganizationID: hit}, err
 	}
-	if normalizeOrgName(c.DisplayName) == "" {
+	if NormalizeOrgName(c.DisplayName) == "" {
 		return OrganizationMatch{Decision: DecisionNoMatch}, nil
 	}
 	return fuzzyOrganization(ctx, tx, c)
@@ -273,7 +273,7 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 		SELECT id, display_name FROM organization
 		 WHERE archived_at IS NULL
 		   AND f_fold_apostrophes(lower(display_name)) % f_fold_apostrophes(lower($1))`,
-		normalizeOrgName(c.DisplayName))
+		NormalizeOrgName(c.DisplayName))
 	if err != nil {
 		return OrganizationMatch{}, fmt.Errorf("dedupe org candidate set: %w", err)
 	}
@@ -286,7 +286,7 @@ func fuzzyOrganization(ctx context.Context, tx pgx.Tx, c OrganizationCandidate) 
 		if err := rows.Scan(&id, &name); err != nil {
 			return OrganizationMatch{}, fmt.Errorf("scan org candidate: %w", err)
 		}
-		confidence := nameSimilarity(normalizeOrgName(c.DisplayName), normalizeOrgName(name))
+		confidence := nameSimilarity(NormalizeOrgName(c.DisplayName), NormalizeOrgName(name))
 		if confidence > best.Confidence ||
 			(confidence == best.Confidence && best.OrganizationID != (ids.OrganizationID{}) && id.String() < best.OrganizationID.String()) {
 			best.Confidence, best.OrganizationID = confidence, id

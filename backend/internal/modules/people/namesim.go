@@ -51,10 +51,10 @@ func normalizeName(s string) string {
 	return strings.TrimSpace(cases.Fold().String(unaccented))
 }
 
-// normalizeOrgName is normalizeName plus the PO-PARAM-1 legal-suffix
+// NormalizeOrgName is normalizeName plus the PO-PARAM-1 legal-suffix
 // strip, applied only to the trailing token: "Co" inside "Coca Co" is a
 // name, "Co" at the end is a suffix.
-func normalizeOrgName(s string) string {
+func NormalizeOrgName(s string) string {
 	fields := strings.Fields(normalizeName(strings.ReplaceAll(s, ",", " ")))
 	for len(fields) > 1 {
 		last := strings.Trim(fields[len(fields)-1], ".")
