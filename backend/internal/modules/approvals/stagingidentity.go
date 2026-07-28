@@ -15,6 +15,7 @@ package approvals
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -134,9 +135,94 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 	return true, nil
 }
 
-// StageUnlessDeclined stages in — unless a human has already REJECTED this exact
-// proposal (same kind, same target, same proposed change). It reports whether
-// anything was staged.
+// declinedProbeSQL locks every offer a proposal identity has ever produced,
+// decided or not, so a decision landing on one of them is ordered against the
+// staging rather than interleaved with it.
+//
+// WHAT the memory is keyed on decides whether it works. A caller that declares
+// a logical Identity is matched by jsonb containment on that identity; only a
+// caller with none falls back to the diff hash. The hash covers the WHOLE
+// payload — the corroborating evidence, the record's current name — so a
+// refusal keyed on it is forgotten the moment any of that moves, and the next
+// pass re-offers the rename a human just refused. Containment matches the
+// decision the human actually made: this record, this proposed value.
+func declinedProbeSQL(byIdentity bool) string {
+	const prefix = `SELECT status FROM approval
+		 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND `
+	const suffix = `
+		 ORDER BY created_at
+		 FOR UPDATE`
+	if byIdentity {
+		return prefix + `proposed_change @> $4` + suffix
+	}
+	return prefix + `diff_hash = $4` + suffix
+}
+
+// RejectedChangesFor returns the proposed_change of every REJECTED proposal of
+// this kind against this target. It is the read half of the memory
+// StageUnlessDeclined enforces, for a caller that can APPLY a change without
+// staging one: an auto-apply path that never consults it lets a stronger
+// trigger execute exactly what a human refused, and the refusal is invisible
+// because no approval is created to join.
+//
+// It hands back the PAYLOADS rather than answering a containment query,
+// because only the caller knows what makes two of its proposals the same
+// question. A payload written by an older version of that caller may not carry
+// the field today's identity is keyed on, and a decision a human already made
+// does not expire because the schema moved — deciding that in SQL would mean
+// deciding it wrong.
+func (s *Service) RejectedChangesFor(ctx context.Context, kind string, targetID ids.UUID) ([]json.RawMessage, error) {
+	var out []json.RawMessage
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		out, err = s.RejectedChangesForTx(ctx, tx, kind, targetID)
+		return err
+	})
+	return out, err
+}
+
+// RejectedChangesForTx is RejectedChangesFor on the caller's transaction, and
+// it LOCKS every offer of this kind against this target. That lock is what
+// makes a check-then-apply caller safe: a plain read commits before the apply
+// opens its own transaction, so a human could reject in the gap and the apply
+// would go ahead anyway — the exact race StageUnlessDeclined takes the same
+// lock to close. A concurrent Decide blocks on these rows until the caller
+// commits.
+func (s *Service) RejectedChangesForTx(ctx context.Context, tx pgx.Tx, kind string, targetID ids.UUID) ([]json.RawMessage, error) {
+	// EVERY offer is locked, not only the already-rejected ones: a pending row
+	// is exactly the one a human is about to reject, and leaving it unlocked
+	// would reopen the gap this closes.
+	rows, err := tx.Query(ctx, `
+		SELECT status, proposed_change FROM approval
+		 WHERE kind = $1 AND target_entity_id = $2
+		 ORDER BY created_at
+		 FOR UPDATE`, kind, targetID)
+	if err != nil {
+		return nil, fmt.Errorf("lock the offers for this proposal: %w", err)
+	}
+	defer rows.Close()
+
+	var out []json.RawMessage
+	for rows.Next() {
+		var status string
+		var change json.RawMessage
+		if err := rows.Scan(&status, &change); err != nil {
+			return nil, fmt.Errorf("read the declined offers for this proposal: %w", err)
+		}
+		if status == approvalStatusRejected {
+			out = append(out, change)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("read the declined offers for this proposal: %w", err)
+	}
+	return out, nil
+}
+
+// StageUnlessDeclined stages in — unless a human has already REJECTED this
+// proposal. Its identity is the caller's Identity when one is declared and the
+// diff hash otherwise (see declinedProbeSQL). It reports whether anything was
+// staged.
 //
 // It exists because a nightly stager re-derives the same proposal every pass, and
 // JoinPending joins only a PENDING row: the moment a human says no, the next pass
@@ -152,6 +238,20 @@ func (s *Service) WithdrawInTx(ctx context.Context, tx pgx.Tx, id ids.ApprovalID
 // this commits and then decides the offer this joined, or this reads the row as
 // already rejected and stages nothing.
 func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.ApprovalID, bool, error) {
+	// Canonicalized HERE as well as in Stage: the lock discriminator, the
+	// containment probe below and supersession must all agree on what "same
+	// identity" means, and an uncanonicalized identity differs from the stored
+	// one by key order alone — which reads as a different proposal.
+	if len(in.Identity) > 0 {
+		if !in.JoinPending {
+			return ids.ApprovalID{}, false, errors.New("crmapprovals: Identity staging requires JoinPending")
+		}
+		canonical, err := canonicalIdentity(in.Identity, in.ProposedChange)
+		if err != nil {
+			return ids.ApprovalID{}, false, err
+		}
+		in.Identity = canonical
+	}
 	var id ids.ApprovalID
 	staged := false
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -174,14 +274,12 @@ func (s *Service) StageUnlessDeclined(ctx context.Context, in StageInput) (ids.A
 		if err := lockProposalIdentity(ctx, tx, wsID, in); err != nil {
 			return err
 		}
-		// Locks every row this exact proposal has ever produced, decided or not,
-		// so a decision landing on one of them is ordered against this staging
-		// rather than interleaved with it.
-		rows, err := tx.Query(ctx, `
-			SELECT status FROM approval
-			 WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
-			 ORDER BY created_at
-			 FOR UPDATE`, wsID, in.Kind, in.TargetID, in.DiffHash)
+		byIdentity := len(in.Identity) > 0
+		var discriminator any = in.DiffHash
+		if byIdentity {
+			discriminator = in.Identity
+		}
+		rows, err := tx.Query(ctx, declinedProbeSQL(byIdentity), wsID, in.Kind, in.TargetID, discriminator)
 		if err != nil {
 			return fmt.Errorf("lock the prior offers for this proposal: %w", err)
 		}

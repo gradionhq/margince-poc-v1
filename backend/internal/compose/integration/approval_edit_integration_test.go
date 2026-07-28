@@ -126,6 +126,72 @@ func assertEditAuditCarriesBothSides(t *testing.T, owner *pgx.Conn, approvalID i
 	}
 }
 
+// Modify-then-approve must not become a row-scope escape. The follow-on effect
+// resolves the record it writes from an id INSIDE the payload — not from
+// approval.target_entity_id — and several executors run it under a system
+// principal, which makes the stores' own RBAC and row-scope gates no-ops. So an
+// approver who swaps an id would write to a record their scope hides, while the
+// decide-time visibility probe and the version pin both still pass against the
+// untouched original target. The edit is pinned to the records the staging
+// named; nothing else about it is constrained.
+func TestModifyThenApproveCannotRetargetTheEffect(t *testing.T) {
+	e := Setup(t)
+	pipeline, open, _ := DealFixture(t, e)
+	svc := approvals.NewService(e.Pool)
+
+	var effectRan bool
+	svc.WithEffect("advance_deal", func(_ context.Context, _ ids.ApprovalID, _ json.RawMessage, _ string) error {
+		effectRan = true
+		return nil
+	})
+
+	mine := e.SeedDeal(t, "Mine", pipeline, open, &e.Rep1)
+	hidden := e.SeedDeal(t, "Another team's book", pipeline, open, &e.Rep2)
+	staged, stagedHash, err := diffhash.Canonical(
+		json.RawMessage(`{"deal_id":"` + mine.String() + `","note":"agent version"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	approvalID, err := svc.Stage(e.AgentCtx(), approvals.StageInput{
+		Kind: "advance_deal", ProposedChange: staged, DiffHash: stagedHash,
+		TargetType: "deal", TargetID: mine, Summary: "retarget test staging",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, RepPerms)
+	retarget := json.RawMessage(`{"deal_id":"` + hidden.String() + `","note":"agent version"}`)
+	var retargeted *approvals.RetargetedEditError
+	if _, err := svc.DecideEdited(rep, approvalID, retarget); !errors.As(err, &retargeted) {
+		t.Fatalf("edit repointing deal_id at a hidden record → %v, want RetargetedEditError", err)
+	}
+	if effectRan {
+		t.Fatal("the effect executed on a refused edit — the refusal must land before anything runs")
+	}
+
+	// Nothing was decided, and the ORIGINAL payload is intact: a refused edit
+	// must not half-apply itself.
+	after, err := svc.Get(rep, approvalID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Status != "pending" || after.DiffHash != stagedHash {
+		t.Fatalf("after a refused retarget the approval is %s/%s, want pending on the staged hash",
+			after.Status, after.DiffHash)
+	}
+
+	// The positive control: an edit that corrects the CONTENT still works, so
+	// this test cannot pass by modify-then-approve being broken outright.
+	corrected := json.RawMessage(`{"deal_id":"` + mine.String() + `","note":"human version"}`)
+	if _, err := svc.DecideEdited(rep, approvalID, corrected); err != nil {
+		t.Fatalf("editing the note → %v, want ok — pinning the record must not freeze the payload", err)
+	}
+	if !effectRan {
+		t.Fatal("the accepted edit never reached the effect")
+	}
+}
+
 // An edit that cannot canonicalize is refused as a validation error and
 // decides nothing: the staging stays pending and decidable.
 func TestMalformedEditLeavesTheStagingPending(t *testing.T) {

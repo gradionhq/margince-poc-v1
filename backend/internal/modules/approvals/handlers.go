@@ -127,6 +127,11 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 		})
 		return
 	}
+	var retargeted *RetargetedEditError
+	if errors.As(err, &retargeted) {
+		httperr.Write(w, r, httperr.Validation("edited_payload", "retargeted", retargeted.Error()))
+		return
+	}
 	var edit *InvalidEditError
 	if errors.As(err, &edit) {
 		httperr.Write(w, r, httperr.Validation("edited_payload", "malformed", edit.Error()))

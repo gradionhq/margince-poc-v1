@@ -34,9 +34,10 @@ const (
 
 // recordHistoryVerbs renders each audit_log action as a past-tense phrase
 // for composeRecordSummary. The set here is reconciled to the CHECK
-// constraint's admitted vocabulary (migrations/core/0053_audit_verb_
-// vocabulary.up.sql, 25 verbs); TestRecordHistoryVerbsCoverTheAuditCheckVocabulary
-// parses that file directly and fails if a future widening lands without a
+// constraint's admitted vocabulary;
+// TestRecordHistoryVerbsCoverTheAuditCheckVocabulary derives that
+// vocabulary from the highest-numbered migration restating
+// audit_log_action_check and fails if a future widening lands without a
 // matching entry here. An action absent from the map (defensive only — the
 // CHECK already closes the set at the DB level) falls back to the raw
 // string, never an error: an unrenderable phrase is still honest history.
@@ -52,6 +53,7 @@ var recordHistoryVerbs = map[string]string{
 	"login":            "logged in",
 	"assign":           "assigned",
 	"advance_stage":    "advanced the stage of",
+	"advance_phase":    "advanced the phase of",
 	"approve":          "approved",
 	"reject":           "rejected",
 	"consent_grant":    "granted consent for",
