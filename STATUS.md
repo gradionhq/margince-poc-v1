@@ -949,12 +949,12 @@ Open work, roughly in priority order:
   domain-named captured org (`name_source='domain'`) with a live domain and no
   dossier, newest-first, under an atomically-reserved per-workspace daily cap
   (N=10; migration 0120 adds `capture_auto_enrich_state` cursor +
-  `capture_auto_enrich_budget`, both FORCE-RLS). The deep-read worker's
-  auto-apply lane applies a system-requested read's fields+facts DIRECTLY
-  (fill-empty + human-precedence, idempotent) instead of staging a confirm-first
-  proposal; site people still stage as leads (NEVER-8). The flag is re-read each
+  `capture_auto_enrich_budget`, both FORCE-RLS). The flag is re-read each
   pass (toggle-off stops new reads). `make check` + `make check-fe` + full
   zero-skip integration lane green.
+  As landed, the deep-read worker's auto-apply lane applied a system-requested
+  read's fields+facts DIRECTLY instead of staging a confirm-first proposal; that
+  is no longer true — see *the auto-enrich lane now stages its write* below.
   `ApplySitePersonFields` closed this list's last item: a published person the
   workspace already records at that company is no longer staged as a duplicate
   lead — the site's role fills their empty fields instead. The match is
@@ -1306,6 +1306,24 @@ Open work, roughly in priority order:
   The same amendment settles `capture_auto_enrich`: **default ON is the shipping
   default**, not the testing posture, and the ADR's "GA default is its own later
   decision" caveat is withdrawn.
+  **The auto-enrich lane now stages its write (landed).** With the default
+  settled ON, the direct apply was the last unmitigated path from
+  outsider-controlled text to a record: any company whose mail the CRM captures
+  gets its website read by a model, and the model's findings landed on the
+  organization with nobody in the loop. The lane now calls the same
+  `stageProposals` the human lane calls — one confirm-first `deepread` proposal
+  for the fields + facts, one `site_lead` per stranger — and records the cursor
+  outcome `staged` (migration 0136 widens the `last_outcome` CHECK; `applied`
+  stays for rows already written). `compose/deepreadautoapply.go` is renamed
+  `deepreadautostage.go` and `ApplyDeepRead` has no auto-lane caller left.
+  One direct write survives on the lane by design: `ApplySitePersonFields`,
+  which fills only the empty columns of a person the workspace already records
+  at that company, on an unmistakable match — a fill that overwrites nothing,
+  scoped to a record a human already has.
+  **This contradicts A118 as written** (the ADR specifies the auto lane applies
+  directly) and needs an upstream raise: contract-first says the spec wins, so
+  ADR-0072/A118 must either ratify staging or this change reverts. It rides with
+  the ADR-0075 `<untrusted>`-boundary raise.
   **Still open in this arc:** the other upstream raises listed throughout this
   entry (the §1 ladder wording), and the synchronous enrich-on-capture trigger.
 

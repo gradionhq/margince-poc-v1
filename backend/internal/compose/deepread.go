@@ -239,13 +239,13 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 	var proposalIDs []ids.UUID
 	if claim.OrganizationID != nil {
 		if isAutoEnrichRequest(claim.RequestedBy) {
-			// The auto-enrich lane applies the org's fields + facts directly
-			// (fill-empty, human-precedence) instead of staging a confirm-first
-			// proposal — the system chose to enrich this company, so there is no
-			// human to confirm. Site people still stage as leads (strangers stay
-			// staged, NEVER-8). Applied under the worker's PrincipalSystem ctx,
-			// which ApplyDeepReadTx's auth.Require accepts.
-			proposalIDs, err = w.autoApply(ctx, args, claim, mergedFields, extraction.merged.facts, extraction.merged.people)
+			// The auto-enrich lane stages the same confirm-first proposals the
+			// human lane does — a site the system chose to read is still
+			// outsider-controlled text that reached a model, so nothing it
+			// evidenced reaches the org without a human accept. The lane
+			// differs only in filling the people the workspace can already
+			// identify, and in recording the sweep cursor's terminal outcome.
+			proposalIDs, err = w.autoStage(ctx, args, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
 		} else {
 			proposalIDs, err = w.stageProposals(ctx, args.SiteReadID, claim, mergedFields, extraction.merged.facts, extraction.merged.people, len(readPages))
 		}

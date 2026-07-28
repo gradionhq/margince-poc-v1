@@ -6,10 +6,10 @@
 package compose
 
 // The captured-organization auto-enrich lane end to end (ADR-0072/A118): a
-// system-requested deep read APPLIES its findings directly (fill-empty, no
-// confirm-first proposal) and records the sweep cursor terminal outcome; and
-// the AutoEnrichStore's eligibility read + atomic daily cap behave over a real
-// migrated Postgres.
+// system-requested deep read STAGES its findings as a confirm-first proposal
+// and writes nothing to the organization, and it records the sweep cursor
+// terminal outcome; and the AutoEnrichStore's eligibility read + atomic daily
+// cap behave over a real migrated Postgres.
 
 import (
 	"context"
@@ -24,7 +24,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-func TestAutoEnrichLaneAppliesDirectlyInsteadOfStaging(t *testing.T) {
+func TestAutoEnrichLaneStagesAndWritesNothingToTheOrganization(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
 	store := capture.NewAutoEnrichStore(e.Pool)
@@ -49,18 +49,19 @@ func TestAutoEnrichLaneAppliesDirectlyInsteadOfStaging(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 
-	// The org fields + facts were applied directly — NOT staged as a deepread
-	// proposal a human must accept.
-	if n := deepReadApprovals(t, e); n != 0 {
-		t.Fatalf("%d deepread proposals staged, want 0 — the auto lane applies directly", n)
+	// The org fields + facts are STAGED as one deepread proposal a human must
+	// accept — the site's claims about this company reach nobody's records on
+	// the model's say-so alone.
+	if n := deepReadApprovals(t, e); n != 1 {
+		t.Fatalf("%d deepread proposals staged, want 1 — the auto lane stages like the human lane", n)
 	}
-	if n := e.WsCount(t, `SELECT count(*) FROM organization_profile_field WHERE organization_id = $1`, org); n == 0 {
-		t.Fatal("the auto lane applied no profile fields")
+	if n := e.WsCount(t, `SELECT count(*) FROM organization_profile_field WHERE organization_id = $1`, org); n != 0 {
+		t.Fatalf("%d profile fields written, want 0 — the auto lane must write nothing before the accept", n)
 	}
-	if n := e.WsCount(t, `SELECT count(*) FROM organization_fact WHERE organization_id = $1`, org); n == 0 {
-		t.Fatal("the auto lane applied no category facts")
+	if n := e.WsCount(t, `SELECT count(*) FROM organization_fact WHERE organization_id = $1`, org); n != 0 {
+		t.Fatalf("%d category facts written, want 0 — the auto lane must write nothing before the accept", n)
 	}
-	// The sweep cursor is terminal: outcome 'applied', never re-enqueued.
+	// The sweep cursor is terminal: outcome 'staged', never re-enqueued.
 	var outcome string
 	var nextAttempt *time.Time
 	if err := database.WithWorkspaceTx(adminCtx, e.Pool, func(tx pgx.Tx) error {
@@ -70,8 +71,8 @@ func TestAutoEnrichLaneAppliesDirectlyInsteadOfStaging(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("reading the cursor: %v", err)
 	}
-	if outcome != "applied" || nextAttempt != nil {
-		t.Fatalf("cursor = (%q, %v), want (applied, <nil>)", outcome, nextAttempt)
+	if outcome != "staged" || nextAttempt != nil {
+		t.Fatalf("cursor = (%q, %v), want (staged, <nil>)", outcome, nextAttempt)
 	}
 }
 

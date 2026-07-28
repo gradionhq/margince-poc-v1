@@ -7,11 +7,14 @@ package compose
 // a leader-elected periodic pass (run-on-start + daily) that gives every
 // surviving auto-created company a governed web dossier. Per workspace, when
 // the capture_auto_enrich flag is on, it enqueues a deep read
-// (system:capture_auto_enrich, auto-applied on completion) for each due
-// domain-named org — newest first, under an atomically-reserved daily cap. It
-// is the ONE trigger and the self-healing reconciler in one: a missed org is
-// simply picked up next pass. The deep-read worker's auto-apply lane
-// (deepread.go) records the terminal outcome on the sweep's cursor.
+// (system:capture_auto_enrich) for each due domain-named org — newest first,
+// under an atomically-reserved daily cap. It is the ONE trigger and the
+// self-healing reconciler in one: a missed org is simply picked up next pass.
+//
+// The sweep decides WHICH company gets read; it decides nothing about what the
+// read writes. The findings stage as confirm-first proposals like any other
+// read's, and the deep-read worker's auto-enrich lane
+// (deepreadautostage.go) records the terminal outcome on the sweep's cursor.
 
 import (
 	"context"

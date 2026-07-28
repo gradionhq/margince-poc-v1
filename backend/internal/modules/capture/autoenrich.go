@@ -176,19 +176,39 @@ func (s *AutoEnrichStore) MarkQueued(ctx context.Context, orgID ids.Organization
 	return nil
 }
 
-// MarkResolved records the terminal outcome of a deep-read the sweep triggered.
-// 'applied' and 'empty' are terminal — next_attempt_at is cleared so the org is
-// never re-enqueued; 'failed' leaves the queued backoff standing so the next
-// due sweep retries it (until the attempt bound). A cursor row is expected
-// (MarkQueued wrote it); a missing row is a no-op, never an error.
+// The outcomes a completed sweep-triggered deep read records on its cursor.
+// capture_auto_enrich_state.last_outcome's CHECK carries these plus the
+// non-terminal 'queued' and the sweep's own 'exhausted' (and the retired
+// 'applied', which rows written before migration 0136 still carry).
+const (
+	// AutoEnrichOutcomeStaged: the read's findings reached a human as
+	// confirm-first proposals. Terminal — the read did its whole job.
+	AutoEnrichOutcomeStaged = "staged"
+	// AutoEnrichOutcomeEmpty: the site evidenced nothing to decide. Terminal —
+	// an honest empty read, not a failure to retry.
+	AutoEnrichOutcomeEmpty = "empty"
+	// AutoEnrichOutcomeFailed: the read did not finish. NOT terminal — the
+	// queued backoff stands so the next due sweep retries it.
+	AutoEnrichOutcomeFailed = "failed"
+)
+
+// autoEnrichTerminalOutcomes retire an org: the cursor's next_attempt_at
+// clears, the row leaves the partial due-index, and the sweep never reconsiders
+// it. Kept here as ONE list rather than repeated in the SQL below, so adding an
+// outcome cannot leave the two disagreeing about what "done" means.
+var autoEnrichTerminalOutcomes = []string{AutoEnrichOutcomeStaged, AutoEnrichOutcomeEmpty}
+
+// MarkResolved records the outcome of a deep-read the sweep triggered, and
+// clears the retry cursor when that outcome is terminal. A cursor row is
+// expected (MarkQueued wrote it); a missing row is a no-op, never an error.
 func (s *AutoEnrichStore) MarkResolved(ctx context.Context, orgID ids.OrganizationID, outcome string) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_auto_enrich_state SET
 			  last_outcome = $2,
-			  next_attempt_at = CASE WHEN $2 IN ('applied', 'empty') THEN NULL ELSE next_attempt_at END,
+			  next_attempt_at = CASE WHEN $2 = ANY($3::text[]) THEN NULL ELSE next_attempt_at END,
 			  updated_at = now()
-			WHERE organization_id = $1`, orgID, outcome)
+			WHERE organization_id = $1`, orgID, outcome, autoEnrichTerminalOutcomes)
 		return err
 	})
 	if err != nil {
