@@ -21,6 +21,14 @@ package approvals
 // passes, because it re-reads the untouched original target. Pinning the
 // references is what keeps "the action that was admitted" and "the action that
 // runs" the same action.
+//
+// The pin applies to EVERY edit, including agent-staged ones whose redemption
+// re-enters the admission gate and would therefore re-check a swapped id on its
+// own. That is deliberate: serverProposed is a subtle discriminator to hang a
+// security control on — getting it wrong once already produced a consumed
+// approval for an effect that never ran — and no kind stages a payload whose
+// entity ids a human is meant to correct. Content stays fully editable, which
+// is what ADR-0036 §4 is for.
 
 import (
 	"encoding/json"

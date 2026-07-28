@@ -329,6 +329,51 @@ func TestOrgNamePromotionRemembersADeclineAfterTheEvidenceMoves(t *testing.T) {
 	}
 }
 
+// Evidence moving while an offer is STILL PENDING must refresh the question,
+// not duplicate it. The offer's payload carries the corroborating persons, so a
+// new signer changes the diff hash and JoinPending — which joins on that hash —
+// finds nothing to join. Only the staging Identity collapses the two: the
+// fresher offer supersedes the stale one instead of competing with it in the
+// inbox. Without it a human is asked the same question once per signer.
+func TestOrgNamePromotionSupersedesAStalePendingOffer(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// A second signer for the same claim: same normalized name, different
+	// evidence, so a different payload and a different diff hash.
+	seedSigningEmployee(t, e, org, "Bob Signer", "Gitex Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	live := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1
+		   AND status = 'pending' AND expires_at > now()`, org)
+	if live != 1 {
+		t.Fatalf("%d live offers after the evidence moved, want exactly 1 — a human must be asked this question once, not once per signer", live)
+	}
+	// The survivor is the FRESH one: it cites both signers.
+	var persons int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT jsonb_array_length(proposed_change -> 'persons') FROM approval
+			 WHERE kind = 'org_name_promotion' AND target_entity_id = $1
+			   AND status = 'pending' AND expires_at > now()`, org).Scan(&persons)
+	}); err != nil {
+		t.Fatalf("reading the surviving offer: %v", err)
+	}
+	if persons != 2 {
+		t.Errorf("the surviving offer cites %d signer(s), want the fresher 2 — the stale offer outlived the fresh one", persons)
+	}
+}
+
 // A refusal recorded BEFORE proposed_name_key existed must still be
 // remembered, INCLUDING when the spelling has since moved. Those payloads
 // carry only the raw name, and the raw name is dominantSpelling's pick — it

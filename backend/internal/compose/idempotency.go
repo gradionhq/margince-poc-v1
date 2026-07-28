@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -160,28 +161,54 @@ func claimKey(r *http.Request, pool *pgxpool.Pool, principalID, key, endpoint, d
 	outcome := claimFresh
 	var stored storedResponse
 	err := database.WithWorkspaceTx(r.Context(), pool, func(tx pgx.Tx) error {
-		tag, err := tx.Exec(r.Context(), `
-			INSERT INTO idempotency_key (workspace_id, principal_id, key, endpoint, request_digest)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
-			ON CONFLICT (workspace_id, principal_id, key, endpoint) DO NOTHING`,
-			principalID, key, endpoint, digest)
+		claim := func() (bool, error) {
+			tag, err := tx.Exec(r.Context(), `
+				INSERT INTO idempotency_key (workspace_id, principal_id, key, endpoint, request_digest)
+				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4)
+				ON CONFLICT (workspace_id, principal_id, key, endpoint) DO NOTHING`,
+				principalID, key, endpoint, digest)
+			if err != nil {
+				return false, err
+			}
+			return tag.RowsAffected() == 1, nil
+		}
+		claimed, err := claim()
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 1 {
+		if claimed {
 			return nil // fresh claim
 		}
 		var storedDigest, contentType string
 		var status *int
 		var respBody *string
 		var expired bool
-		if err := tx.QueryRow(r.Context(), `
+		err = tx.QueryRow(r.Context(), `
 			SELECT request_digest, response_status, response_body, response_content_type,
 			       created_at < now() - make_interval(secs => $4)
 			FROM idempotency_key
 			WHERE principal_id = $1 AND key = $2 AND endpoint = $3
 			FOR UPDATE`,
-			principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &expired); err != nil {
+			principalID, key, endpoint, replayWindow.Seconds()).Scan(&storedDigest, &status, &respBody, &contentType, &expired)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The retention sweep removed the row between the INSERT above and
+			// this read. It was past the replay window, so it was protecting
+			// nothing — but simply erroring here would degrade to executing
+			// with NO claim recorded, and two concurrent retries of one key
+			// would then both execute. Claim it again instead.
+			claimed, err = claim()
+			if err != nil {
+				return err
+			}
+			if claimed {
+				return nil
+			}
+			// Someone re-created it in the same instant; the honest answer is
+			// that this attempt is still in flight elsewhere.
+			outcome = claimInProgress
+			return nil
+		}
+		if err != nil {
 			return err
 		}
 		if expired {
