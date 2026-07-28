@@ -18,8 +18,8 @@ MARGINCE_DSN='postgres://margince_app:…@localhost:55432/margince' \
 mcp
 ```
 
-There is no workspace flag: one installation serves one organization
-(A107/ADR-0061), so the process binds the bootstrapped installation's
+There is no workspace flag: one installation serves one organization,
+so the process binds the bootstrapped installation's
 workspace itself at boot — against a pre-bootstrap database it refuses
 to start ("start the API with a margince.yaml first").
 

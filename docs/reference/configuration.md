@@ -21,7 +21,7 @@ stdio protocol channel). Log lines carry the per-request
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
-| `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file (A107/ADR-0061: bootstrap + auth — organization, bootstrap_admin, seeds, email; strict decoding, secrets as `*_file` references). A missing file boots an existing installation; bootstrapping an empty database requires `organization` + `bootstrap_admin` |
+| `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file (bootstrap + auth — organization, bootstrap_admin, seeds, email; strict decoding, secrets as `*_file` references). A missing file boots an existing installation; bootstrapping an empty database requires `organization` + `bootstrap_admin` |
 | `--schema-dsn` | `MARGINCE_SCHEMA_DSN` | — | Postgres DSN, **owner** role, for the customfields runtime-DDL pool; unset = `createCustomField`/`updateCustomFieldOptions` answer 501 |
 | `--addr` | — | `:8080` | listen address |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
@@ -209,7 +209,7 @@ migrate <recreate-db|drop-db|db-exists> --dsn <owner-maintenance-dsn> --name <db
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, **owner** role. For the db verbs it must name a maintenance database (`postgres`): `CREATE`/`DROP DATABASE` cannot run inside the database being dropped |
 | `--steps` | — | `1` | migrations to revert (`down` only) |
-| `--email` | — | — | user email (`reset-password` only): the operator break-glass (A107/ADR-0061 §9.1) — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
+| `--email` | — | — | user email (`reset-password` only): the operator break-glass — sets that user's password directly against the database, reading the new password from **stdin** (never argv); the way back in when the admin is locked out and no outbound email is configured |
 | `--name` | — | — | database name (`recreate-db`, `drop-db`, `db-exists` only): the integration lane's clone-per-package admin — drop-if-exists + create, drop-if-exists, or print `true`/`false`; the drops are `WITH (FORCE)`, so a lingering session dies rather than flaking the teardown. Runs on the same owner DSN the migrations and tests use, so the lane needs no host psql and an overridden `MARGINCE_TEST_DSN` targets one cluster throughout. A name (or template) over the server's identifier limit (63 bytes stock) is rejected, never silently truncated onto a different database |
 | `--template` | — | — | template database to copy (`recreate-db` only): `CREATE DATABASE … TEMPLATE`, a fast file copy |
 

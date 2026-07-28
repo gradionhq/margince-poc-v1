@@ -71,7 +71,7 @@ func New(pool, log, opts...) http.Handler {
 ## The workspace-bootstrap seed (one transaction)
 
 `workspaceSeed` is the hook `identity` runs when the installation bootstraps its singleton
-organization from `margince.yaml` on first boot (A107/ADR-0061 — no request creates a workspace). It
+organization from `margince.yaml` on first boot (no request creates a workspace). It
 seeds **every module's per-workspace defaults in ONE transaction** — they stand or fall together — yet
 identity imports none of those modules, because the hook is injected here:
 
@@ -148,5 +148,5 @@ Each binary composes only what its role needs, all through this one layer:
 | Background wiring | `internal/compose/{jobs,runnerservice,workflows,capture}.go` |
 | The AI orchestration group | `internal/compose/{brain,companycontextprompt,companycontextrollout,replydraft,deepreadtransport,deepreadbudget,onboardingstate}.go` |
 | The AI certification lane | `internal/compose/aicert/` (corpus, runner, records; report tool in `aicert/reportcmd`) |
-| The AI cost pre-flight estimator | `internal/compose/costestimate/` (backfill preview cost; reads `ai` + `activities` + `capture`, prices with `ai.PriceCall`; ADR-0068) |
+| The AI cost pre-flight estimator | `internal/compose/costestimate/` (backfill preview cost; reads `ai` + `activities` + `capture`, prices with `ai.PriceCall`) |
 | Generated (never edit) | `internal/compose/{stubs_gen,agentpolicy_gen}.go` |
