@@ -63,8 +63,28 @@ type orgNameProposal struct {
 	OrganizationID ids.OrganizationID `json:"organization_id"`
 	CurrentName    string             `json:"current_name"`
 	ProposedName   string             `json:"proposed_name"`
+	// ProposedNameKey is ProposedName normalized. It is carried on the payload
+	// because the staging identity is a subset of it: the identity is what a
+	// human's refusal is remembered by, and it must survive a change of
+	// spelling, of evidence, or of the name the record currently holds.
+	ProposedNameKey string `json:"proposed_name_key"`
 	// Persons are the people whose signatures state the proposed name.
 	Persons []ids.PersonID `json:"persons"`
+}
+
+// orgNameIdentity is the logical identity of an org-name proposal: WHICH record
+// would be renamed to WHICH name. Everything else in the payload is evidence,
+// and evidence moves — a new signer, a corrected spelling, the record's current
+// name changing — while the question a human answered stays the same one.
+func orgNameIdentity(orgID ids.OrganizationID, nameKey string) (json.RawMessage, error) {
+	identity, err := json.Marshal(map[string]string{
+		paramOrganizationID: orgID.String(),
+		"proposed_name_key": nameKey,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("compose: encoding the org-name proposal identity: %w", err)
+	}
+	return identity, nil
 }
 
 // OrgNamePromoter runs the sweep for every workspace.
@@ -149,6 +169,25 @@ func (p *OrgNamePromoter) decideOne(ctx context.Context, cand people.OrgNameCand
 	if !ok {
 		return nil
 	}
+	identity, err := orgNameIdentity(cand.OrganizationID, verdict.NameKey)
+	if err != nil {
+		return err
+	}
+	// A human's refusal binds the AUTO-APPLY path too, not just the staging
+	// path. Rejecting an org-name proposal deliberately leaves name_source
+	// where it was, so the CAS still admits the write and nothing else on this
+	// branch would ever look at the approval the human decided — the refused
+	// rename would simply be applied later, by a stronger trigger, without
+	// asking again.
+	declined, err := p.approvals.HasDeclinedFor(ctx, orgNameProposalKind, cand.OrganizationID.UUID, identity)
+	if err != nil {
+		return err
+	}
+	if declined {
+		p.log.InfoContext(ctx, "org-name promotion: name refused by a human, not re-applied",
+			"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
+		return nil
+	}
 	if verdict.Corroborated {
 		promoted, err := p.store.PromoteOrgName(ctx, cand.OrganizationID, verdict.Name, verdict.Corroboration)
 		if err != nil {
@@ -160,17 +199,20 @@ func (p *OrgNamePromoter) decideOne(ctx context.Context, cand people.OrgNameCand
 		}
 		return nil
 	}
-	return p.stageOrgNameReview(ctx, cand, verdict)
+	return p.stageOrgNameReview(ctx, cand, verdict, identity)
 }
 
 // stageOrgNameReview offers one uncorroborated name to a human. JoinPending
 // keeps a nightly re-run from stacking the same question in the inbox.
-func (p *OrgNamePromoter) stageOrgNameReview(ctx context.Context, cand people.OrgNameCandidate, verdict people.OrgNameVerdict) error {
+func (p *OrgNamePromoter) stageOrgNameReview(ctx context.Context, cand people.OrgNameCandidate,
+	verdict people.OrgNameVerdict, identity json.RawMessage,
+) error {
 	proposal := orgNameProposal{
-		OrganizationID: cand.OrganizationID,
-		CurrentName:    cand.DisplayName,
-		ProposedName:   verdict.Name,
-		Persons:        verdict.Persons,
+		OrganizationID:  cand.OrganizationID,
+		CurrentName:     cand.DisplayName,
+		ProposedName:    verdict.Name,
+		ProposedNameKey: verdict.NameKey,
+		Persons:         verdict.Persons,
 	}
 	body, err := json.Marshal(proposal)
 	if err != nil {
@@ -182,10 +224,17 @@ func (p *OrgNamePromoter) stageOrgNameReview(ctx context.Context, cand people.Or
 	// first and staging afterwards would let a decision land in between, and the
 	// refused offer would be recreated anyway — nightly, because the signature
 	// that produced it never goes away.
+	//
+	// Identity, not the diff hash, is what that memory keys on. The payload
+	// carries the corroborating persons and the record's current name; both move
+	// on their own, and a refusal keyed on the whole payload would be forgotten
+	// the first time either did, re-offering the same rename every night until
+	// someone clicked approve.
 	_, _, err = p.approvals.StageUnlessDeclined(ctx, approvals.StageInput{
 		Kind:           orgNameProposalKind,
 		ProposedChange: body,
 		DiffHash:       hex.EncodeToString(digest[:]),
+		Identity:       identity,
 		TargetType:     orgNameTargetType,
 		TargetID:       cand.OrganizationID.UUID,
 		Summary:        "Rename " + cand.DisplayName + " to " + verdict.Name + "?",

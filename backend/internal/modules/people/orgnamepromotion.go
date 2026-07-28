@@ -13,10 +13,15 @@ package people
 // record belongs to: an attacker who mails a connected mailbox from a domain
 // nobody has written to yet would otherwise get to name the organization.
 //
-// So a name is promoted directly only when a second, independent source agrees
-// — the site dossier's own stated name, or a second person's accepted
-// signature. A single uncorroborated signature does not lose; it stages a 🟡
-// proposal, which is the same answer with a human in it.
+// So a name is promoted directly only when a source the SENDER DOES NOT CONTROL
+// agrees: the site dossier's own stated name. Signatures never carry that
+// authority, however many of them agree — the people at one organization share
+// one mail domain, so two signatures are two mailboxes an actor who controls (or
+// can forge From: for) that domain controls both of, and the capture path
+// authenticates no From header. Counting them as independent sources would hand
+// the naming decision back to exactly the attacker this rule exists to stop.
+// Agreeing signatures still rank a claim above a lone one; they just stage a 🟡
+// proposal instead of writing, which is the same answer with a human in it.
 //
 // The promotion never wins against a stronger source: the write is a CAS on
 // name_source='domain' under a row lock, so a human edit (or a dossier name)
@@ -41,9 +46,13 @@ import (
 // reason a name changed is readable years later, not re-derived.
 const (
 	// OrgNameCorroborationDossier: the organization's own site states this name.
+	// The only corroboration that authorizes an unattended write — a sender
+	// cannot edit the victim's website.
 	OrgNameCorroborationDossier = "dossier"
 	// OrgNameCorroborationSignatures: two or more people at the organization
-	// signed with it.
+	// signed with it. It outranks a lone signature but still stages for a human:
+	// those people share one mail domain, so the agreement is one forgeable
+	// source repeated, not two independent ones.
 	OrgNameCorroborationSignatures = "signatures"
 	// OrgNameCorroborationNone: one person said so and nothing agrees — this
 	// verdict is staged for a human, never written.
@@ -75,6 +84,10 @@ type OrgNameCandidate struct {
 type OrgNameVerdict struct {
 	// Name is the display name to write, verbatim as a signature spelled it.
 	Name string
+	// NameKey is Name's normalized form — the identity of the CLAIM rather
+	// than of one spelling of it. A refusal keyed on this survives the
+	// evidence moving; keyed on the payload it would not.
+	NameKey string
 	// Corroborated says whether it may be written without asking a human.
 	Corroborated bool
 	// Corroboration names WHICH source agreed (one of the constants above).
@@ -98,8 +111,11 @@ func DecideOrgName(c OrgNameCandidate) (OrgNameVerdict, bool) {
 	winner := bestNameClaim(groups, dossierKeys(c.DossierNames))
 	corroboration := winner.corroboration
 	return OrgNameVerdict{
-		Name:          dominantSpelling(winner.spelling),
-		Corroborated:  corroboration != OrgNameCorroborationNone,
+		Name:    dominantSpelling(winner.spelling),
+		NameKey: winner.key,
+		// ONLY the dossier authorizes an unattended write. Agreeing signatures
+		// are the same mail domain speaking twice, and the sender chose it.
+		Corroborated:  corroboration == OrgNameCorroborationDossier,
 		Corroboration: corroboration,
 		Persons:       sortedPersonIDs(winner.persons),
 	}, true
