@@ -56,9 +56,18 @@ func onboardingCompanyAnswerRequest(
 		// statement — without it a bare option label like "Use the
 		// website's value" would leave the model guessing which exact
 		// value the human chose.
+		//
+		// The ACT of selecting is the administrator's, and it speaks in the
+		// prompt's own voice. The VALUE is not: for a closed option list it is
+		// whatever the crawled page said, which is the exact text the fence
+		// above exists to contain, arriving back by a different door. Free-text
+		// clarifications carry request-body text on top of that. So the value
+		// goes inside the same per-call boundary the context blob uses, and the
+		// field name — verified equal to the server-authored clarify.Field
+		// before this runs — stays outside it.
 		messages = append(messages, model.Message{Role: chatRoleUser, Content: fmt.Sprintf(
-			"I selected %q as the value for %s from your clarification options.",
-			strings.TrimSpace(selection.Value), strings.TrimSpace(selection.Field))})
+			"I selected this value for %s from your clarification options: %s",
+			strings.TrimSpace(selection.Field), fence.Wrap(strings.TrimSpace(selection.Value)))})
 	}
 	messages = append(messages, model.Message{Role: chatRoleUser, Content: message})
 	return model.Request{
