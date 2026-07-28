@@ -256,6 +256,65 @@ func TestErasureRedactsTheDeliveryBehindARedactedActivity(t *testing.T) {
 	}
 }
 
+// linkToHeldDeal hangs an activity off a deal under legal_hold — the position
+// a sent reply lands in by default, because the send path copies its anchor's
+// organization and deal links onto the message it stages. No person link is
+// written: this is the arm the link-walk cannot see.
+func linkToHeldDeal(t *testing.T, e *Env, activityID ids.UUID) {
+	t.Helper()
+	pipeline, open, _ := DealFixture(t, e)
+	dealID := e.SeedDeal(t, "Disputed renewal", pipeline, open, nil)
+	e.WsExec(t, `UPDATE deal SET legal_hold = true WHERE id = $1`, dealID)
+	e.WsExec(t,
+		`INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+		 VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, 'deal', $2)`,
+		activityID, dealID)
+}
+
+// A litigation hold reaches mail the link-walk cannot see. Sent mail is
+// STRUCTURALLY organization- and deal-linked — the send path inherits the
+// anchor's links — and carries no person link of its own, so it is reached by
+// address rather than by link. Destroying it because of that would spoliate
+// litigation-held evidence the nightly retention evaluator refuses to touch,
+// and the delivery behind it would go with it.
+//
+// The fixture is aged past the statutory correspondence floor on purpose: a
+// recent email survives on the floor alone, which would keep this green with
+// the hold exclusion removed.
+func TestErasurePreservesUnlinkedMailUnderATransitiveLegalHold(t *testing.T) {
+	e := Setup(t)
+	person := seedMailRecipient(t, e, mailRecipientEmail)
+	held := seedDelivery(t, e, "9 years", "Disputed renewal terms",
+		"the terms we agreed before the dispute", "sent", mailRecipientEmail, ids.UUID{})
+	linkToHeldDeal(t, e, held.activity)
+	// The control: same shape, same age, no hold — so the survival above is
+	// attributable to the legal_hold and not to the selector missing this class.
+	free := seedDelivery(t, e, "9 years", "Ordinary quote",
+		"the quote nobody disputed", "sent", mailRecipientEmail, ids.UUID{})
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+		t.Fatalf("ErasePerson: %v", err)
+	}
+
+	var subject string
+	var body *string
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT subject, body FROM activity WHERE id = $1`, held.activity).Scan(&subject, &body)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if subject != held.subject || body == nil || *body != "the terms we agreed before the dispute" {
+		t.Errorf("held evidence was destroyed: subject=%q body=%v", subject, body)
+	}
+	// The delivery behind a held activity is evidence of the same message, so
+	// the scrub must not reach it either.
+	if row := readDelivery(t, e, held.delivery); row.body == "" || !strings.Contains(row.recipients, mailRecipientEmail) {
+		t.Errorf("the delivery behind held evidence was scrubbed: recipients=%s body=%q", row.recipients, row.body)
+	}
+	assertDeliveryRedacted(t, e, free)
+}
+
 // Art. 15: the export owes the subject the messages sent to them, reached both
 // through the timeline links and by their own address on the recipient list —
 // a message the send path never linked to a record is still data about them.

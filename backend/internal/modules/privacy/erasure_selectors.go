@@ -9,34 +9,46 @@ package privacy
 // captured mail the link-walk cannot see. Kept in one file so the three
 // selectors read as one concept.
 
+// notTransitivelyHeld excludes an activity frozen by a legal hold reached
+// through its own links — the same transitive freeze the retention engine
+// applies (retention.go: "a hold on the subject must cover the evidence about
+// them"). Without it, an activity that is erasable to this cascade yet
+// transitively held to retention gets destroyed here, spoliating
+// litigation-held evidence the nightly evaluator explicitly refuses to touch.
+//
+// It is a function rather than a copied fragment because EVERY selector this
+// file feeds into the erase UPDATE owes the exclusion, and the selectors alias
+// the activity differently. A selector that could be written without it would
+// re-admit exactly what its sibling just excluded, so the only way to write one
+// is to name its activity expression here.
+//
+// The held-person arm is deliberately absent: a person-linked activity shared
+// with another subject is already outside every selector below, and the erased
+// subject itself is proven unheld before the cascade runs (ErasePerson's
+// own-hold check).
+func notTransitivelyHeld(activityID string) string {
+	return `
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link h
+	    LEFT JOIN organization org ON org.id = h.organization_id
+	    LEFT JOIN deal dl ON dl.id = h.deal_id
+	    WHERE h.activity_id = ` + activityID + `
+	      AND (coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
+}
+
 // subjectOnlyActivities selects timeline rows linked to the erased
 // person and to no OTHER person — the emails, call notes and meeting
 // bodies whose free text is about the subject alone. Rows shared with
 // another person on the thread are excluded on purpose: redacting them
 // would erase a different subject's record.
-//
-// A subject-only row is ALSO excluded when it is linked to an organization
-// or deal under legal_hold — the same transitive freeze the retention
-// engine applies (retention.go: "a hold on the subject must cover the
-// evidence about them"). Without this, an activity that is subject-only to
-// erasure yet transitively held to retention gets destroyed here, spoliating
-// litigation-held evidence the nightly evaluator explicitly refuses to touch.
-// The held-person arm is unnecessary: an activity linked to any other person
-// is already not subject-only, and the erased subject itself is proven
-// unheld before this runs (ErasePerson's own-hold check).
-const subjectOnlyActivities = `
+var subjectOnlyActivities = `
 	SELECT l.activity_id FROM activity_link l
 	WHERE l.person_id = $1
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity_link o
 	    WHERE o.activity_id = l.activity_id
-	      AND o.person_id IS NOT NULL AND o.person_id <> $1)
-	  AND NOT EXISTS (
-	    SELECT 1 FROM activity_link h
-	    LEFT JOIN organization org ON org.id = h.organization_id
-	    LEFT JOIN deal dl ON dl.id = h.deal_id
-	    WHERE h.activity_id = l.activity_id
-	      AND (coalesce(org.legal_hold, false) OR coalesce(dl.legal_hold, false)))`
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)` +
+	notTransitivelyHeld("l.activity_id")
 
 // subjectOnlyDestroyable narrows subjectOnlyActivities to the rows a
 // person-erase may actually destroy: subject-only AND not shielded by the
@@ -82,10 +94,16 @@ var subjectOnlyDestroyable = `
 // filters when redactSubjectTimeline wraps both id sets in one UPDATE — so
 // commercial correspondence younger than the statutory floor is shielded here
 // exactly as it is on the link-walk arm.
-const unlinkedSubjectMail = `
+//
+// The legal-hold exclusion matters MORE on this arm than on the link-walk one:
+// a send inherits its anchor's organization and deal links, so mail on a held
+// deal's thread is the ordinary shape of an activity with no person link at
+// all — precisely the position a litigation hold protects.
+var unlinkedSubjectMail = `
 	SELECT m.id FROM activity m
 	WHERE m.counterparty_email = ANY($2)
 	  AND NOT EXISTS (
 	    SELECT 1 FROM activity_link o
 	    WHERE o.activity_id = m.id
-	      AND o.person_id IS NOT NULL AND o.person_id <> $1)`
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)` +
+	notTransitivelyHeld("m.id")
