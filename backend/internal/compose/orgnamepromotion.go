@@ -30,6 +30,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -83,6 +84,22 @@ func orgNameIdentity(orgID ids.OrganizationID, nameKey string) (json.RawMessage,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("compose: encoding the org-name proposal identity: %w", err)
+	}
+	return identity, nil
+}
+
+// orgNameLegacyIdentity is the identity an offer staged BEFORE proposed_name_key
+// existed can still be matched by: those payloads carry only the exact spelling,
+// so the normalized identity above finds nothing in them and a refusal recorded
+// then would be silently forgotten — re-staged, and after corroboration applied.
+// A decision a human already made does not expire because the schema moved.
+func orgNameLegacyIdentity(orgID ids.OrganizationID, proposedName string) (json.RawMessage, error) {
+	identity, err := json.Marshal(map[string]string{
+		paramOrganizationID: orgID.String(),
+		"proposed_name":     proposedName,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("compose: encoding the legacy org-name proposal identity: %w", err)
 	}
 	return identity, nil
 }
@@ -173,33 +190,63 @@ func (p *OrgNamePromoter) decideOne(ctx context.Context, cand people.OrgNameCand
 	if err != nil {
 		return err
 	}
-	// A human's refusal binds the AUTO-APPLY path too, not just the staging
-	// path. Rejecting an org-name proposal deliberately leaves name_source
-	// where it was, so the CAS still admits the write and nothing else on this
-	// branch would ever look at the approval the human decided — the refused
-	// rename would simply be applied later, by a stronger trigger, without
-	// asking again.
-	declined, err := p.approvals.HasDeclinedFor(ctx, orgNameProposalKind, cand.OrganizationID.UUID, identity)
+	legacy, err := orgNameLegacyIdentity(cand.OrganizationID, verdict.Name)
+	if err != nil {
+		return err
+	}
+	if verdict.Corroborated {
+		return p.applyUnlessDeclined(ctx, cand, verdict, identity, legacy)
+	}
+	// StageUnlessDeclined checks the CURRENT identity under its own lock; the
+	// legacy one has to be asked separately. A race here costs one extra offer
+	// in the inbox, never an unasked write.
+	declined, err := p.approvals.HasDeclinedFor(ctx, orgNameProposalKind, cand.OrganizationID.UUID, legacy)
 	if err != nil {
 		return err
 	}
 	if declined {
-		p.log.InfoContext(ctx, "org-name promotion: name refused by a human, not re-applied",
-			"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
-		return nil
-	}
-	if verdict.Corroborated {
-		promoted, err := p.store.PromoteOrgName(ctx, cand.OrganizationID, verdict.Name, verdict.Corroboration)
-		if err != nil {
-			return err
-		}
-		if promoted {
-			p.log.InfoContext(ctx, "org-name promotion: corroborated name applied",
-				"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
-		}
 		return nil
 	}
 	return p.stageOrgNameReview(ctx, cand, verdict, identity)
+}
+
+// applyUnlessDeclined performs the corroborated rename, refusing if a human has
+// already said no to it.
+//
+// The refusal check and the write share ONE transaction, and the check takes
+// the offers' row locks: a human's refusal binds the auto-apply path too, and
+// checking in a transaction that commits before the write opens its own would
+// leave exactly the gap the check exists to close — reject lands in between,
+// and the rename the human refused is applied anyway. Rejecting deliberately
+// leaves name_source where it was, so the promotion CAS is no backstop here.
+func (p *OrgNamePromoter) applyUnlessDeclined(ctx context.Context, cand people.OrgNameCandidate,
+	verdict people.OrgNameVerdict, identity, legacy json.RawMessage,
+) error {
+	var promoted bool
+	err := database.WithWorkspaceTx(ctx, p.pool, func(tx pgx.Tx) error {
+		for _, probe := range []json.RawMessage{identity, legacy} {
+			declined, err := p.approvals.HasDeclinedForTx(ctx, tx, orgNameProposalKind, cand.OrganizationID.UUID, probe)
+			if err != nil {
+				return err
+			}
+			if declined {
+				p.log.InfoContext(ctx, "org-name promotion: name refused by a human, not re-applied",
+					"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
+				return nil
+			}
+		}
+		var err error
+		promoted, err = p.store.PromoteOrgNameTx(ctx, tx, cand.OrganizationID, verdict.Name, verdict.Corroboration)
+		return err
+	})
+	if err != nil {
+		return err
+	}
+	if promoted {
+		p.log.InfoContext(ctx, "org-name promotion: corroborated name applied",
+			"organization", cand.OrganizationID.String(), "corroboration", verdict.Corroboration)
+	}
+	return nil
 }
 
 // stageOrgNameReview offers one uncorroborated name to a human. JoinPending

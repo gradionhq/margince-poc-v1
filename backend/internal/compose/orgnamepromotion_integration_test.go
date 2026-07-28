@@ -329,6 +329,40 @@ func TestOrgNamePromotionRemembersADeclineAfterTheEvidenceMoves(t *testing.T) {
 	}
 }
 
+// A refusal recorded BEFORE proposed_name_key existed must still be
+// remembered. Those payloads carry only the exact spelling, so the normalized
+// identity finds nothing in them — without the legacy probe the sweep would
+// re-stage the refused rename and, once corroborated, apply it.
+func TestOrgNamePromotionRemembersADeclineRecordedBeforeTheIdentityField(t *testing.T) {
+	e := integration.Setup(t)
+	org := seedProvisionalOrg(t, e, "Gitex", "domain")
+	seedSigningEmployee(t, e, org, "Alice Signer", "Gitex Global")
+
+	promoter := NewOrgNamePromoter(e.Pool, slog.New(slog.DiscardHandler))
+	declineTheStagedRename(t, e, promoter, org)
+
+	// Age the refusal into a pre-upgrade one by dropping the field that
+	// version of the code never wrote.
+	e.WsExec(t, `
+		UPDATE approval SET proposed_change = proposed_change - 'proposed_name_key'
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org)
+
+	// The dossier now agrees, which is what normally writes without asking.
+	seedDossierName(t, e, org, "Gitex Global")
+	if err := promoter.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if name, source := orgNameAndSource(t, e, org); name != "Gitex" || source != "domain" {
+		t.Fatalf("organization = %q/%q — a refusal recorded before the identity field existed must still bind", name, source)
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM approval
+		 WHERE kind = 'org_name_promotion' AND target_entity_id = $1`, org); n != 1 {
+		t.Fatalf("%d offers, want only the declined one — the legacy refusal must also stop re-staging", n)
+	}
+}
+
 // The refusal must bind the AUTO-APPLY path too. Declining leaves name_source
 // at 'domain' by design, so the promotion CAS still admits the write: a later
 // corroboration that never consults the approval simply performs the rename the

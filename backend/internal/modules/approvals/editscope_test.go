@@ -4,10 +4,13 @@
 package approvals
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // The edit-scope rule as a table: an edit corrects what a staged action SAYS,
@@ -39,31 +42,47 @@ func TestAssertSameEntityRefsPinsEveryRecordTheProposalNames(t *testing.T) {
 			name:        "repointing the target at another record is refused",
 			original:    `{"organization_id":"` + mine + `","proposed_name":"Acme"}`,
 			edited:      `{"organization_id":"` + theirs + `","proposed_name":"Acme"}`,
-			wantChanged: []string{".organization_id"},
+			wantChanged: []string{"/organization_id"},
 		},
 		{
 			name:        "dropping the reference is refused too — an absent id resolves to nothing the gate checked",
 			original:    `{"organization_id":"` + mine + `","proposed_name":"Acme"}`,
 			edited:      `{"proposed_name":"Acme"}`,
-			wantChanged: []string{".organization_id"},
+			wantChanged: []string{"/organization_id"},
 		},
 		{
 			name:        "introducing a reference the staging never carried is refused",
 			original:    `{"proposed_name":"Acme"}`,
 			edited:      `{"proposed_name":"Acme","owner_id":"` + theirs + `"}`,
-			wantChanged: []string{".owner_id"},
+			wantChanged: []string{"/owner_id"},
 		},
 		{
 			name:        "a reference nested in a list is pinned like a top-level one",
 			original:    `{"persons":["` + alice + `"]}`,
 			edited:      `{"persons":["` + theirs + `"]}`,
-			wantChanged: []string{".persons[0]"},
+			wantChanged: []string{"/persons/[0]"},
 		},
 		{
 			name:        "a reference nested in an object is pinned like a top-level one",
 			original:    `{"link":{"activity_id":"` + alice + `"}}`,
 			edited:      `{"link":{"activity_id":"` + theirs + `"}}`,
-			wantChanged: []string{".link.activity_id"},
+			wantChanged: []string{"/link/activity_id"},
+		},
+		// The editor chooses the key names, so it can try to spell a nested
+		// path as one flat key and have the two read as the same location.
+		// They must not: the reference would move out of where the effect
+		// reads it while this check saw nothing change.
+		{
+			name:        "a flat key spelling a nested path does not collide with it",
+			original:    `{"link":{"activity_id":"` + alice + `"}}`,
+			edited:      `{"link/activity_id":"` + alice + `"}`,
+			wantChanged: []string{"/link/activity_id", "/link~1activity_id"},
+		},
+		{
+			name:        "an object key spelling an array index does not collide with it",
+			original:    `{"persons":["` + alice + `"]}`,
+			edited:      `{"persons":{"[0]":"` + alice + `"}}`,
+			wantChanged: []string{"/persons/[0]", "/persons/~20]"},
 		},
 	}
 
@@ -87,12 +106,26 @@ func TestAssertSameEntityRefsPinsEveryRecordTheProposalNames(t *testing.T) {
 	}
 }
 
+// An identity is a QUESTION, and `{}` asks nothing: `proposed_change @> '{}'`
+// is true of every JSON object, so accepting it would let one rejected
+// proposal read as a refusal of every later proposal for that kind and target.
+// The check has to be semantic — `{}` is four bytes, so a length test passes it.
+func TestHasDeclinedForRejectsAnIdentityThatMatchesEverything(t *testing.T) {
+	svc := &Service{}
+	for _, identity := range []string{`{}`, `[]`, `null`, `"x"`, ``} {
+		_, err := svc.HasDeclinedForTx(context.Background(), nil, "org_name_promotion", ids.NewV7(), json.RawMessage(identity))
+		if err == nil {
+			t.Errorf("identity %q accepted — it would match every proposal for the kind and target", identity)
+		}
+	}
+}
+
 // The refusal message names the field, so an operator reading a 422 can tell a
 // typo from an attempt to re-aim the approval.
 func TestRetargetedEditErrorNamesTheOffendingPaths(t *testing.T) {
-	err := &RetargetedEditError{Paths: []string{".organization_id", ".owner_id"}}
+	err := &RetargetedEditError{Paths: []string{"/organization_id", "/owner_id"}}
 	msg := err.Error()
-	for _, want := range []string{".organization_id", ".owner_id"} {
+	for _, want := range []string{"/organization_id", "/owner_id"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message %q does not name %q", msg, want)
 		}

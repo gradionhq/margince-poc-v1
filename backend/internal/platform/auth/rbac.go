@@ -302,7 +302,6 @@ var auditActionGrant = map[string]principal.Action{
 	"consent_withdraw": principal.ActionUpdate,
 	"activity_relink":  principal.ActionUpdate,
 	"resolve":          principal.ActionUpdate,
-	"reject":           principal.ActionUpdate,
 	"erase":            principal.ActionUpdate,
 	"export":           principal.ActionDelete,
 	"record_share":     principal.ActionUpdate,
@@ -410,6 +409,21 @@ func EnsureSignalVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 	return nil
 }
 
+// EnsureSignalVisibleLive is EnsureSignalVisible with the two strictnesses a
+// caller serving STORED data needs — the row must still be live, and an
+// unbounded actor does not skip the probe. See EnsureVisibleLive.
+func EnsureSignalVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+
+	clause, err := SignalScopeClause(ctx, "s", arg)
+	if err != nil {
+		return err
+	}
+	return probeExistsLive(ctx, tx, "signal s", "s", idPos, clause, args)
+}
+
 // EnsureActivityVisible is EnsureVisible for activities, using the
 // linked-entity scope above; out of scope reads as ErrNotFound.
 func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
@@ -429,6 +443,43 @@ func EnsureActivityVisible(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
 		fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM activity a WHERE a.id = $%d AND %s)`, idPos, clause),
 		args...).Scan(&visible)
 	if err != nil {
+		return err
+	}
+	if !visible {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+// EnsureActivityVisibleLive is EnsureActivityVisible with the two
+// strictnesses a caller serving STORED data needs — the row must still be
+// live, and an unbounded actor does not skip the probe. See EnsureVisibleLive.
+func EnsureActivityVisibleLive(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	idPos := arg(id)
+
+	clause, err := ActivityScopeClause(ctx, "a", arg)
+	if err != nil {
+		return err
+	}
+	return probeExistsLive(ctx, tx, "activity a", "a", idPos, clause, args)
+}
+
+// probeExistsLive is the one spelling of "this row exists, is not archived,
+// and the caller may see it" for the aliased scope probes. An empty clause
+// narrows nothing but never SKIPS the probe: that skip is what would let an
+// unbounded actor be handed a row that is gone.
+func probeExistsLive(ctx context.Context, tx pgx.Tx, from, alias string, idPos int, clause string, args []any) error {
+	q := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE %s.id = $%d AND %s.archived_at IS NULL`,
+		from, alias, idPos, alias)
+	if clause != "" {
+		q += " AND " + clause
+	}
+	q += ")"
+
+	var visible bool
+	if err := tx.QueryRow(ctx, q, args...).Scan(&visible); err != nil {
 		return err
 	}
 	if !visible {

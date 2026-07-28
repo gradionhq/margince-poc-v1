@@ -99,6 +99,11 @@ func TestComposeRecordSummary(t *testing.T) {
 // backend root.
 const coreMigrationsDir = "../../../migrations/core"
 
+// auditActionConstraint is the CHECK this gate derives its vocabulary from —
+// anchored on the constraint NAME so a sibling *_action vocabulary restated in
+// a later migration cannot win the last-wins scan.
+const auditActionConstraint = "audit_log_action_check"
+
 // auditActionCheckClause matches the single-quoted literal list inside the
 // audit_log_action_check CHECK constraint, across its multi-line layout.
 var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
@@ -133,11 +138,16 @@ func verbsFromCheckConstraint(t *testing.T) []string {
 			t.Fatalf("reading %s: %v", path, err)
 		}
 		text := string(raw)
-		start := strings.Index(text, "action IN (")
-		if start == -1 {
+		named := strings.Index(text, auditActionConstraint)
+		if named == -1 {
 			continue
 		}
-		clause := text[start:]
+		rest := text[named:]
+		off := strings.Index(rest, "action IN (")
+		if off == -1 {
+			continue
+		}
+		clause := rest[off:]
 		end := strings.Index(clause, ")")
 		if end == -1 {
 			t.Fatalf("%s: unterminated \"action IN (\" clause", path)

@@ -40,6 +40,14 @@ func (e *RetargetedEditError) Error() string {
 		"; an edit may correct a staged action's content, never the record it applies to"
 }
 
+// refEscape makes an object key unambiguous inside a path. The editor CHOOSES
+// the key names, so the encoding has to be injective or the comparison is
+// foolable by construction: without escaping, a key literally spelled "a/b"
+// renders the same path as the nested {"a":{"b":…}}, and a key "[0]" the same
+// as array index 0. Either collision lets an edit move a reference into a
+// place the effect no longer reads while this check sees nothing change.
+var refEscape = strings.NewReplacer("~", "~0", "/", "~1", "[", "~2")
+
 // entityRefs collects every entity id in a decoded proposed change, keyed by
 // its JSON path. It walks to any depth: a nested object or a list of ids names
 // records exactly as a top-level field does, so a rule that only looked at the
@@ -50,11 +58,11 @@ func entityRefs(v any, path string, out map[string]string) {
 	switch t := v.(type) {
 	case map[string]any:
 		for k, child := range t {
-			entityRefs(child, path+"."+k, out)
+			entityRefs(child, path+"/"+refEscape.Replace(k), out)
 		}
 	case []any:
 		for i, child := range t {
-			entityRefs(child, fmt.Sprintf("%s[%d]", path, i), out)
+			entityRefs(child, fmt.Sprintf("%s/[%d]", path, i), out)
 		}
 	case string:
 		if _, err := ids.Parse(t); err == nil {

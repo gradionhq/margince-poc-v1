@@ -36,6 +36,9 @@ import (
 // module's record-history vocabulary gate uses.
 const coreMigrationsDir = "../../../migrations/core"
 
+// auditActionConstraint is the CHECK this gate derives its vocabulary from.
+const auditActionConstraint = "audit_log_action_check"
+
 // auditActionCheckLiteral pulls the quoted verbs out of an IN-list.
 var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 
@@ -43,7 +46,13 @@ var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 // human- or agent-authored storekit.Audit call writes, so no CRUD grant
 // attributes them. Each carries the reason it needs none.
 var auditVerbNoGrant = map[string]string{
-	"approve":     "approvals writes its own decision row (approvals/service.go) without the authorization_rule column",
+	"approve": "approvals writes its own decision row (approvals/service.go) without the authorization_rule column",
+	// Rule() renders the AUDITED entity, and this verb's only storekit writer
+	// audits voice_profile_version — not an RBAC policy object, so any rule it
+	// rendered would name a grant that cannot exist. The transition is really
+	// admitted by voice_profile.update; naming the right object means auditing
+	// under it, which belongs with that module, not with this map.
+	"reject":      "audited on voice_profile_version, which is not an RBAC policy object; the governing grant is voice_profile.update",
 	"anonymize":   "privacy erasure only, under the system principal — AuthzRule answers \"system\" before the map is read",
 	"demote":      "admitted by the contract vocabulary; no Go writer emits it yet",
 	"import":      "admitted by the contract vocabulary; no Go writer emits it yet",
@@ -119,11 +128,20 @@ func auditActionVocabulary(t *testing.T) []string {
 			t.Fatalf("reading %s: %v", path, err)
 		}
 		text := string(raw)
-		start := strings.Index(text, "action IN (")
-		if start == -1 {
+		// Anchored on the CONSTRAINT name, not on "action IN (": a sibling
+		// vocabulary (automation_action, retention_action, …) restated in a
+		// later migration would otherwise win the last-wins scan and this gate
+		// would validate the wrong verb set.
+		named := strings.Index(text, auditActionConstraint)
+		if named == -1 {
 			continue
 		}
-		clause := text[start:]
+		rest := text[named:]
+		off := strings.Index(rest, "action IN (")
+		if off == -1 {
+			continue
+		}
+		clause := rest[off:]
 		end := strings.Index(clause, ")")
 		if end == -1 {
 			t.Fatalf("%s: unterminated \"action IN (\" clause", path)

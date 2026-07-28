@@ -244,11 +244,11 @@ func ensureReplayVisible(ctx context.Context, pool *pgxpool.Pool, probes map[str
 	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		switch table {
 		case tableActivity:
-			return auth.EnsureActivityVisible(ctx, tx, id)
+			return auth.EnsureActivityVisibleLive(ctx, tx, id)
 		case tableSignal:
 			// A signal has no owner column but is scoped through its subject
 			// entity; "no owner_id" is never on its own a reason to skip.
-			return auth.EnsureSignalVisible(ctx, tx, id)
+			return auth.EnsureSignalVisibleLive(ctx, tx, id)
 		}
 		// LIVE, not merely visible. The recorded body is a frozen snapshot the
 		// store itself would no longer serve: Art. 17 erasure anonymizes the

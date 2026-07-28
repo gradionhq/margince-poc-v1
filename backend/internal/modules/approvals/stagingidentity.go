@@ -165,21 +165,49 @@ func declinedProbeSQL(byIdentity bool) string {
 // stronger trigger execute exactly what a human refused, and the refusal is
 // invisible because no approval is created to join.
 func (s *Service) HasDeclinedFor(ctx context.Context, kind string, targetID ids.UUID, identity json.RawMessage) (bool, error) {
-	if len(identity) == 0 {
-		return false, errors.New("crmapprovals: HasDeclinedFor requires a non-empty identity")
-	}
 	var declined bool
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM approval
-			  WHERE kind = $1 AND target_entity_id = $2
-			    AND status = $3 AND proposed_change @> $4)`,
-			kind, targetID, approvalStatusRejected, identity).Scan(&declined)
+		var err error
+		declined, err = s.HasDeclinedForTx(ctx, tx, kind, targetID, identity)
+		return err
 	})
+	return declined, err
+}
+
+// HasDeclinedForTx is HasDeclinedFor on the caller's transaction, and it LOCKS
+// every offer this identity has produced. That lock is what makes a
+// check-then-apply caller safe: a plain read commits before the apply opens its
+// own transaction, so a human could reject in the gap and the apply would go
+// ahead anyway — the exact race StageUnlessDeclined takes the same lock to
+// close. A concurrent Decide blocks on these rows until the caller commits.
+func (s *Service) HasDeclinedForTx(ctx context.Context, tx pgx.Tx, kind string, targetID ids.UUID, identity json.RawMessage) (bool, error) {
+	// A non-empty JSON OBJECT, held to the same shape Stage canonicalizes.
+	// The emptiness check has to be semantic, not `len(identity) == 0`:
+	// `{}` is four bytes and `proposed_change @> '{}'` is true of every JSON
+	// object, so one rejected proposal would read as a refusal of every later
+	// proposal for that kind and target.
+	fields, err := decodeJSONObject(identity)
+	if err != nil || len(fields) == 0 {
+		return false, errors.New("crmapprovals: HasDeclinedFor requires a non-empty JSON-object identity")
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT status FROM approval
+		 WHERE kind = $1 AND target_entity_id = $2 AND proposed_change @> $3
+		 ORDER BY created_at
+		 FOR UPDATE`, kind, targetID, identity)
+	if err != nil {
+		return false, fmt.Errorf("lock the offers for this proposal: %w", err)
+	}
+	statuses, err := pgx.CollectRows(rows, pgx.RowTo[string])
 	if err != nil {
 		return false, fmt.Errorf("read the declined offers for this proposal: %w", err)
 	}
-	return declined, nil
+	for _, status := range statuses {
+		if status == approvalStatusRejected {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // StageUnlessDeclined stages in — unless a human has already REJECTED this
