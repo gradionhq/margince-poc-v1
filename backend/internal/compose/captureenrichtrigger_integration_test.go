@@ -264,3 +264,32 @@ func TestAutoEnrichBudgetRefundNamesTheDayItWasReservedOn(t *testing.T) {
 		t.Fatalf("today's counter = %d, want 1 — a refund for yesterday must not free today's slot", n)
 	}
 }
+
+// The refund has to survive the cancellation that can cause the failure it is
+// compensating for. A capture cancelled mid-start owes a slot back and, without
+// the detach, would try to return it on a context that is already dead —
+// leaking the slot in precisely the case it was written to handle.
+func TestAutoEnrichRefundSurvivesACancelledCaptureContext(t *testing.T) {
+	e := integration.Setup(t)
+	store := capture.NewAutoEnrichStore(e.Pool)
+	slot, err := store.ReserveBudget(e.Admin(), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slot.Reserved {
+		t.Fatal("setup reservation refused")
+	}
+
+	// The capture's context, already cancelled — what the trigger holds when a
+	// sync is torn down mid-flight.
+	cancelled, cancel := context.WithCancel(e.Admin())
+	cancel()
+
+	trigger := newAutoEnrichTrigger(e.Pool, slog.New(slog.DiscardHandler))
+	if err := trigger.refund(cancelled, slot); err != nil {
+		t.Fatalf("refund on a cancelled context: %v", err)
+	}
+	if n := budgetSpent(t, e); n != 0 {
+		t.Fatalf("budget spent = %d, want 0 — the slot must come back even when the capture was cancelled", n)
+	}
+}
