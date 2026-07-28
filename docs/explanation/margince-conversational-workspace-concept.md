@@ -3,9 +3,8 @@
 > **Status:** onboarding baseline implemented; reusable backend framework and
 > compact company-maintenance caller remain follow-up work. This document is
 > both the implemented product model and its remaining direction. It does not
-> override the contract-first specification in `margince-foundation`; contract,
-> ADR, and acceptance-criterion differences still require upstream
-> reconciliation.
+> override the upstream contract-first specification; contract, decision-record,
+> and acceptance-criterion differences still require upstream reconciliation.
 
 Margince should feel like one professional, governed AI collaborator rather
 than a sequence of forms with an AI illustration beside them. The first

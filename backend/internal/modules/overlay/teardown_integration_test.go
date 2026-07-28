@@ -642,3 +642,38 @@ func TestDisconnectResetsSyncCheckpointsSoAFreshBackfillRelistsFromTheStart(t *t
 		t.Errorf("the post-disconnect backfill re-landed %d purged row(s) — the teardown tombstone guard must hold until a reconnect flow clears it", relanded)
 	}
 }
+
+// purgeMirror's pinned invariant is that a disconnected workspace reads
+// exactly as a never-connected one. A surviving block would hide records
+// from a user after a reconnect — possibly to a DIFFERENT portal of the same
+// incumbent, since the block is keyed by incumbent NAME — with nobody
+// remembering the unmap that caused it.
+func TestDisconnectPurgesTheAutomapBlocks(t *testing.T) {
+	ctx, pool, ws := testWorkspaceCtx(t)
+	vault := keyvault.NewMemory()
+	store := NewMirrorStore(pool, noOwnerEmails{})
+	svc := NewService(pool, vault, store)
+
+	if _, err := svc.Connect(ctx, ConnectInput{Incumbent: "hubspot", Region: "eu1", Token: "pat-automap-block-secret"}); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		t.Fatal("testWorkspaceCtx did not bind an actor")
+	}
+	user := ids.From[ids.UserKind](actor.UserID)
+	if err := store.BlockAutoMap(ctx, user, "hubspot"); err != nil {
+		t.Fatalf("blocking: %v", err)
+	}
+
+	if err := svc.Disconnect(ctx); err != nil {
+		t.Fatalf("Disconnect: %v", err)
+	}
+
+	var blocked int
+	queryRowWS(ctx, t, pool, `SELECT count(*) FROM mirror_user_automap_block WHERE workspace_id = $1`, []any{ws}, &blocked)
+	if blocked != 0 {
+		t.Fatalf("disconnect must purge the auto-map blocks, %d remain", blocked)
+	}
+}

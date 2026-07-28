@@ -20,13 +20,7 @@ import { formatDateTime } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import type { QueryLike } from "./common";
-import {
-  canManageOverlay,
-  ProblemError,
-  problemCode,
-  throwProblem,
-  useMe,
-} from "./common";
+import { canManageOverlay, problemCodeOf, throwProblem, useMe } from "./common";
 import type { Budget, SyncStatus } from "./overlay-health";
 import { converged, OverlayLiveSection } from "./overlay-health";
 
@@ -72,12 +66,6 @@ const STATUS_LABEL: Record<ConnectionStatus, MessageKey> = {
   revoked: "overlay.statusRevoked",
   error: "overlay.statusError",
 };
-
-// A query queued via throwProblem carries the RFC-7807 code on `.problem`;
-// anything else (a network exception, say) never claims a server code.
-function overlayProblemCode(error: unknown): string | null {
-  return error instanceof ProblemError ? problemCode(error.problem) : null;
-}
 
 // The connect/reconnect form: region + private-app token, shared by the
 // not-yet-connected empty state and a revoked connection's Reconnect
@@ -370,8 +358,7 @@ export function OverlayCard() {
   });
 
   const notConfigured =
-    connection.isError &&
-    overlayProblemCode(connection.error) === "not_implemented";
+    connection.isError && problemCodeOf(connection.error) === "not_implemented";
   const loadFailed = connection.isError && !notConfigured;
 
   return (

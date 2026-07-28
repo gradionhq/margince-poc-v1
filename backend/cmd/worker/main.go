@@ -86,7 +86,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	cfg.captureConfig = compose.CaptureConfigFromDeploy(deployCfg.Capture)
 	cfg.ratesFx = deployCfg.Rates.Fx
 	cfg.ratesCurrencies = deployCfg.Rates.FxCurrencies
 	cfg.ratesModelPricing = deployCfg.Rates.ModelPricing
@@ -96,6 +95,9 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	logger := slog.New(httpserver.WithCorrelation(handler))
+	// Set after the logger exists: the capture config carries it to the Sink's
+	// post-commit steps, where a fault is reported rather than returned.
+	cfg.captureConfig = compose.CaptureConfigFromDeploy(deployCfg.Capture, logger)
 
 	pool, err := database.NewPool(ctx, cfg.dsn)
 	if err != nil {

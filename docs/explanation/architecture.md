@@ -29,7 +29,7 @@ shared  →  platform  →  modules  →  compose  →  cmd
   capture, consent, privacy, collections, signals, customfields, quotas,
   and the `de` jurisdiction pack). A
   module package starts flat (store + mapping + transport + provider in
-  one package, ADR-0054 §3) and earns a subpackage only under the
+  one package) and earns a subpackage only under the
   module growth policy —
   e.g. `capture/imap` (protocol adapter), `agents/runner` (independent
   engine), `identity/internal/policy` (hidden ruleset). A module
@@ -46,7 +46,7 @@ shared  →  platform  →  modules  →  compose  →  cmd
 - **`cmd/{api,worker,migrate,mcp}`** — thin process roles.
 
 `cmd/<role>` is reserved for those **four deployable process-role
-binaries** (ADR-0054/A69). A *developer/CI harness* binary — a tool a
+binaries**. A *developer/CI harness* binary — a tool a
 human or a `make` target runs, not a role that gets deployed — does not
 belong there: it lives **beside the package it serves** (e.g. the AI
 certification report tool at `internal/compose/aicert/reportcmd`, run by

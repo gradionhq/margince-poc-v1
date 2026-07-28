@@ -284,7 +284,7 @@ export const de = {
     "In der HubSpot-Ansicht nicht verfügbar — in HubSpot öffnen",
   "overlay.chipLabel": "Liest aus HubSpot",
   "overlay.chipAria":
-    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+    "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Overlay, um die Verbindung zu verwalten.",
   "overlay.refused":
     "Beim Lesen aus HubSpot nicht verfügbar — der Spiegel kann diesen Schreibvorgang nicht ausführen.",
   "overlay.filterUnsupported":
@@ -349,6 +349,73 @@ export const de = {
   "overlay.disconnectTitle": "HubSpot trennen?",
   "overlay.disconnectBody":
     "Dies löscht die gespiegelten Daten und schaltet den Workspace zurück auf native Datensätze. Das Audit-Protokoll bleibt erhalten.",
+
+  "overlay.userMap.title": "Nutzerzuordnung des Spiegels",
+  "overlay.userMap.sub":
+    "Wer jede Person im Workspace als {principal}-Nutzer ist. Diese Zuordnung entscheidet allein darüber, was sie im Spiegel sieht.",
+  "overlay.userMap.cost":
+    "Wer nicht zugeordnet ist, sieht überhaupt keine gespiegelten Datensätze — alle Listen bleiben leer.",
+  "overlay.userMap.loading": "Lade die Nutzerzuordnung…",
+  "overlay.userMap.loadFailed":
+    "Die Nutzerzuordnung konnte nicht geladen werden.",
+  "overlay.userMap.adminOnly":
+    "Bitte eine Admin- oder Ops-Person bitten, die Zuordnung zu prüfen.",
+  "overlay.userMap.notOverlay":
+    "Dieser Workspace liest aus nativen Tabellen, es gibt also nichts zuzuordnen.",
+  "overlay.userMap.notConfigured":
+    "Overlay-Modus ist in diesem Deployment nicht konfiguriert.",
+  "overlay.userMap.empty": "Dieser Workspace hat keine Nutzer zum Zuordnen.",
+  "overlay.userMap.view": "Gruppierung",
+  "overlay.userMap.viewByUser": "Nach Nutzer",
+  "overlay.userMap.viewByOwner": "Nach {principal}-Nutzer",
+  "overlay.userMap.principal.hubspot": "HubSpot",
+  "overlay.userMap.principal.generic": "verbundenes CRM",
+  "overlay.userMap.you": "Du",
+  "overlay.userMap.matchEmail": "Über E-Mail zugeordnet",
+  "overlay.userMap.matchManual": "Manuell gesetzt",
+  "overlay.userMap.map": "Zuordnen…",
+  "overlay.userMap.change": "Ändern…",
+  "overlay.userMap.unmap": "Zuordnung aufheben",
+  "overlay.userMap.cancel": "Abbrechen",
+  "overlay.userMap.pickerLabel": "{principal}-Nutzer suchen",
+  "overlay.userMap.truncated":
+    "Das {principal}-Verzeichnis ist länger als diese Liste — wen du hier nicht findest, liegt vielleicht hinter der Grenze.",
+  "overlay.userMap.directoryFailed":
+    "Das {principal}-Verzeichnis konnte nicht gelesen werden, deshalb lässt sich gerade niemand auswählen.",
+  "overlay.userMap.notMapped": "Nicht zugeordnet",
+  "overlay.userMap.chip.noEmailMatch": "Keine E-Mail-Übereinstimmung",
+  "overlay.userMap.chip.ambiguousEmail": "Mehrdeutige E-Mail",
+  "overlay.userMap.chip.blockedByAdmin": "Von Admin aufgehoben",
+  "overlay.userMap.chip.notYetSynced": "Noch nicht synchronisiert",
+  "overlay.userMap.chip.directoryUnavailable": "Grund unbekannt",
+  "overlay.userMap.reason.noEmailMatch":
+    "Kein {principal}-Nutzer hat diese E-Mail-Adresse.",
+  "overlay.userMap.reason.ambiguousEmail":
+    "Zwei oder mehr {principal}-Nutzer teilen sich diese E-Mail-Adresse, eine automatische Zuordnung wäre also nicht sicher.",
+  "overlay.userMap.reason.blockedByAdmin":
+    "Eine Admin-Person hat die Zuordnung aufgehoben; die automatische Zuordnung setzt sie nicht erneut.",
+  "overlay.userMap.reason.notYetSynced":
+    "Das {principal}-Verzeichnis führt diese Person noch nicht.",
+  "overlay.userMap.reason.directoryUnavailable":
+    "Das {principal}-Verzeichnis konnte nicht vollständig gelesen werden, deshalb lässt sich kein Grund ableiten.",
+  "overlay.userMap.staleChip": "Nicht mehr im {principal}-Verzeichnis",
+  "overlay.userMap.staleNote":
+    "Diese manuelle Zuordnung gewährt keine Sichtbarkeit. Sie wird gemeldet, aber nie automatisch zurückgenommen — die Entscheidung bleibt bei dir.",
+  "overlay.userMap.unmapTitle": "Zuordnung dieser Person aufheben?",
+  "overlay.userMap.unmapSelfTitle": "Deine eigene Zuordnung aufheben?",
+  "overlay.userMap.unmapBody":
+    "{user} sieht dann keine gespiegelten Datensätze mehr, bis die Zuordnung wieder gesetzt ist.",
+  "overlay.userMap.unmapSelfBody":
+    "Du siehst dann keine gespiegelten Datensätze mehr, bis du wieder zugeordnet bist. Dieser Tab bleibt erreichbar, du kannst es hier rückgängig machen.",
+  "overlay.userMap.sharedSeat": "Geteilter Sitz — {count} Nutzer",
+  "overlay.userMap.ownerEmpty":
+    "Bisher ist niemand einem {principal}-Nutzer zugeordnet.",
+  "overlay.userMap.unmappedCountOne":
+    "1 Person ist nicht zugeordnet und fehlt hier — wechsle zu Nach Nutzer, um das zu beheben.",
+  "overlay.userMap.unmappedCount":
+    "{count} Personen sind nicht zugeordnet und fehlen hier — wechsle zu Nach Nutzer, um das zu beheben.",
+  "overlay.userMap.partialView":
+    "Diese Gruppierung und die Zählung umfassen nur die bisher geladenen Nutzer. Lade mehr, um den Rest zu sehen.",
 
   "people.name": "Name",
   "people.email": "E-Mail",
@@ -1892,6 +1959,7 @@ export const de = {
   "settings.tab.audit": "Audit-Log",
   "settings.tab.voice": "Voice DNA",
   "settings.tab.integrations": "Integrationen",
+  "settings.tab.overlay": "Overlay",
   "settings.group.you": "Deine Einstellungen",
   "settings.group.org": "Organisation",
   "settings.rates.fxTitle": "Währungskurse",

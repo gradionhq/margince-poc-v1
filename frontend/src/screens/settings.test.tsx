@@ -447,6 +447,138 @@ describe("SettingsScreen tab layout", () => {
   });
 });
 
+// Overlay had outgrown one card in Integrations (connect + sync/budget
+// health + user mapping) — it now gets its own org tab. `system_of_record`
+// is stubbed explicitly per test: the tab must stay reachable in native
+// mode (a workspace is native until an overlay is connected, so gating the
+// tab on overlay mode would hide the only place to connect one), and the
+// card must be entirely gone from Integrations regardless of mode.
+function overlaySettingsBackend(opts: {
+  roles: string[];
+  sorMode: "native" | "overlay";
+}) {
+  return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    // The two overlay reads below answer GET only. A mock that answers any verb
+    // hands a successful payload to a request the real endpoint would reject,
+    // so a client sending the wrong one would still pass here.
+    const method = (
+      input instanceof Request ? input.method : (init?.method ?? "GET")
+    ).toUpperCase();
+    if (url.endsWith("/v1/me")) {
+      return jsonResponse({
+        user: { id: "u1", email: "ada@acme.test" },
+        roles: opts.roles,
+        teams: [],
+        system_of_record: { mode: opts.sorMode },
+      });
+    }
+    if (url.includes("/overlay/connection")) {
+      return jsonResponse({ detail: "not found" }, 404);
+    }
+    if (url.includes("/overlay/user-map") && method === "GET") {
+      return jsonResponse({
+        incumbent: "hubspot",
+        entries: [],
+        next_cursor: null,
+      });
+    }
+    if (url.includes("/overlay/owners") && method === "GET") {
+      return jsonResponse({
+        incumbent: "hubspot",
+        owners: [],
+        truncated: false,
+      });
+    }
+    return jsonResponse({
+      data: [],
+      page: { next_cursor: null, has_more: false },
+    });
+  });
+}
+
+describe("SettingsScreen overlay tab", () => {
+  it("gives overlay its own org tab, reachable before any overlay is connected", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({ roles: ["admin"], sorMode: "native" }),
+    );
+    render(<SettingsScreen tab="overlay" />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("link", { name: /overlay/i })
+          .getAttribute("aria-current"),
+      ).toBe("page"),
+    );
+    // OverlayCard's own heading — proof its connect flow rendered on this
+    // tab even though the workspace has never connected an overlay.
+    expect(
+      await screen.findByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeTruthy();
+  });
+
+  it("no longer renders the overlay card under Integrations", async () => {
+    vi.stubGlobal(
+      "fetch",
+      overlaySettingsBackend({ roles: ["admin"], sorMode: "overlay" }),
+    );
+    render(<SettingsScreen tab="integrations" />);
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /integrations/i })).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeNull();
+  });
+
+  // The system-of-record chip is shown to every seat and links here, so a
+  // rep who follows it must land on the tab, not on the Account fallback.
+  // Tab-level hiding would buy no confidentiality either: the mapping
+  // card's reads are admin/ops-only on the server, and the card keeps them
+  // unsent for anyone else — so a rep sees the connection card's read-only
+  // state and the mapping card's admin-only notice, never the directory.
+  it("shows the Overlay tab to a non-admin rep with both cards in their read-only state", async () => {
+    const fetchMock = overlaySettingsBackend({
+      roles: ["rep"],
+      sorMode: "native",
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SettingsScreen tab="overlay" />);
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("link", { name: /overlay/i })
+          .getAttribute("aria-current"),
+      ).toBe("page"),
+    );
+    expect(
+      await screen.findByRole("heading", { name: "HubSpot mirror" }),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Ask an admin or ops teammate to connect or disconnect HubSpot.",
+      ),
+    ).toBeTruthy();
+    expect(
+      await screen.findByText(
+        "Ask an admin or ops teammate to review who is mapped.",
+      ),
+    ).toBeTruthy();
+    // No mapping table, no grouping toggle, and — the point of the card's
+    // own gate — no request that could only have come back 403.
+    expect(screen.queryByRole("group", { name: "Grouping" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "By user" })).toBeNull();
+    const requested = fetchMock.mock.calls.map(([input]) => String(input));
+    expect(
+      requested.some((url) => url.includes("/overlay/user-map")),
+    ).toBeFalsy();
+    expect(
+      requested.some((url) => url.includes("/overlay/owners")),
+    ).toBeFalsy();
+  });
+});
+
 // Routed by URL, with the pipelines list stubbed to the D-8 shape (an array
 // with embedded stages) and a POST /stages hook so a test can inspect the exact
 // body shipped.

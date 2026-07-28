@@ -500,7 +500,8 @@ ratified.
 
 **AI runtime contract + certification (four phases, one arc)** — the AI
 task/tier vocabulary is now a compiled contract:
-`backend/api/ai-tasks.yaml` (15 tasks, 4 tiers, execution modes, ladders + budget
+`backend/api/ai-tasks.yaml` (17 tasks — 13 shipped, 4 planned — 4 tiers,
+execution modes, ladders + budget
 posture) generates `tasks_gen.go` and `config/ai-routing.schema.json`
 via `tools/gen-aitasks` (drift-gated, like `crm.yaml`) — editing routing
 POLICY is a rebuild; binding a tier to a provider/model stays runtime
@@ -970,10 +971,48 @@ Open work, roughly in priority order:
   written is fill-only-empty with a `person_profile_field` evidence row
   (first-verdict-wins, so a signature or a human already there is untouchable),
   one audit row and one `person.updated`.
-  **Deferred follow-up still open:** the synchronous enrich-on-capture trigger
-  (the sweep already self-heals, so it is a latency optimization). The 12-page
-  auto-read ceiling this list also named turned out to be built already
-  (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
+  **Enrich-on-capture landed (founder call, 2026-07-28: enrich immediately, at
+  least while testing).** A capture that MINTS a new company now queues its
+  dossier there and then instead of waiting for the next daily sweep. The hook
+  is `compose.peopleEnsurer` — already the composition-side adapter, so capture
+  still knows nothing about website reads — and it fires only on
+  `OrgCreated`, because mail from a company that already exists teaches nothing
+  a fresh crawl would add.
+  It queues; it does not crawl. Reserve a budget slot, write the dossier row,
+  insert the River job, arm the cursor — a handful of statements, no network and
+  no model call, on the post-commit step that already may not fail a capture. The
+  pages and the extraction happen in the deep-read worker on its own job, so
+  neither the contact nor the backfill page waits for a website to answer.
+  Deliberately best-effort in one direction only: no ambient River client, the
+  day's cap spent, or any fault leaves the organization exactly as the sweep
+  finds it, and every give-up says so in the log. The queue check runs FIRST
+  because it is the only gate that costs nothing to ask and the only one that
+  makes every later step pointless — a process that composes a Sink without a
+  queue would otherwise pay three round trips per captured company to learn it
+  could never have started a read. It is an injected probe (`queueReady`) rather
+  than a direct River call: the client is AMBIENT, and a gate reading ambient
+  state is one no test can put on either side of.
+  A sweep and a capture racing on one organization used to spend TWO of the
+  day's ten reads and charge that organization two of its bounded attempts,
+  while the in-flight uniqueness index let only one read exist.
+  `startAutoEnrichRead` now reports whether it started or merely joined; the
+  cursor is armed only by the starter, and the joiner returns its slot
+  (`AutoEnrichStore.ReleaseBudget`, guarded at zero). The sweep is unchanged and
+  remains the reconciler — which is what lets the trigger be quick rather than
+  careful. Both paths spend the SAME atomically-reserved daily cap
+  (`autoEnrichDailyCap` = 10/workspace/UTC-day), so the trigger is a faster route
+  through the ADR-0020 guardrail, never a way around it.
+  **The daily cap went 10 → 500 with it** (founder, 2026-07-28; foundation
+  #1200). N=10 throttled exactly the case the feature exists to demonstrate: a
+  first backfill mints hundreds of companies, and watching ten of them fill
+  teaches the opposite of "the CRM fills itself" (P5). It is safe because the cap
+  was never the money bound — concurrency is capped by the deep-read worker pool
+  (`deepReadMaxWorkers` = 2), spend by the ADR-0020 budget window, and reach by
+  the §1 ladder, which only lets a company be created for an address the owner
+  corresponded with or already has a person for. What the counter actually paces
+  is how fast a workspace fills.
+  The 12-page auto-read ceiling this list also named turned out to be built
+  already (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
   **Phase 2a (build, landed):** the counterparty-identity column
   (`activity.counterparty_email`, migration 0123, partial index) stamped
   (lowercased) at capture — captured from now so the phase-2b correspondence

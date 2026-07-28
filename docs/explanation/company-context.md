@@ -121,6 +121,6 @@ The safety frame:
 **Related:** [ai-runtime.md](ai-runtime.md) (the Router, tracing, budget) ·
 [agent-surface.md](agent-surface.md) (the agent loop that consumes the compact
 profile) · [privacy-and-consent.md](privacy-and-consent.md) (erasure/retention
-over the same rows). The ratified design lives upstream in
-`margince-foundation` (ADR-0065/A111); the delivery plan that built this lane
-is in this repo's git history.
+over the same rows). The ratified design lives in the upstream
+specification; the delivery plan that built this lane is in this repo's
+git history.

@@ -1,8 +1,8 @@
 # Connect a cloud model provider (BYOK)
 
 Point the AI lanes at a **customer-supplied cloud key** — Anthropic, OpenAI,
-Gemini, or any OpenAI-compatible vendor. Margince runs no inference of its own
-(ADR-0020): the key, the endpoint, and the DPA are yours. Providers are config
+Gemini, or any OpenAI-compatible vendor. Margince runs no inference of its own:
+the key, the endpoint, and the DPA are yours. Providers are config
 rows in `ai-routing.yaml`, never binary flags — swapping one is an edit here, not
 a deploy. See [explanation/agent-surface.md](../explanation/agent-surface.md) for
 the model runtime and [reference/configuration.md](../reference/configuration.md)

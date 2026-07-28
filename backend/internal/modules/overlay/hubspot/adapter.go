@@ -321,9 +321,17 @@ func (a *Adapter) Owners(ctx context.Context) ([]overlay.OwnerRef, error) {
 	}
 	out := make([]overlay.OwnerRef, 0, len(owners))
 	for _, o := range owners {
-		out = append(out, overlay.OwnerRef{ExternalID: o.ID, Email: o.Email})
+		out = append(out, overlay.OwnerRef{ExternalID: o.ID, Email: o.Email, Name: ownerName(o)})
 	}
 	return out, nil
+}
+
+// ownerName joins a HubSpot owner's first and last name into the display name
+// the admin mapping picker shows next to the email. HubSpot leaves either part
+// blank on an owner nobody filled in, so an owner with neither yields "" — an
+// honest "this incumbent reports no name", never the email echoed back as one.
+func ownerName(o Owner) string {
+	return strings.TrimSpace(strings.TrimSpace(o.FirstName) + " " + strings.TrimSpace(o.LastName))
 }
 
 // mappingFor resolves objectClass's mapping with a direct membership
