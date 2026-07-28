@@ -334,18 +334,18 @@ test.describe("B-EP09.23: overlay mode", () => {
     await mockApi(page, { sor: "overlay" });
     await page.reload();
     const chip = page.getByRole("link", {
-      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Integrationen, um die Verbindung zu verwalten.",
+      name: "Diese Installation liest Datensätze aus einem HubSpot-Spiegel statt aus nativen Tabellen. Öffne Einstellungen → Overlay, um die Verbindung zu verwalten.",
     });
     await expect(chip).toBeVisible();
     await expect(chip).toHaveText("Liest aus HubSpot");
-    await expect(chip).toHaveAttribute("href", "#/settings/integrations");
+    await expect(chip).toHaveAttribute("href", "#/settings/overlay");
   });
 
   test("AC-overlay-2: the card shows connection, sync rows and budget band", async ({
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/integrations");
+    await page.goto("/#/settings/overlay");
     await expect(page.getByText("Verbunden", { exact: true })).toBeVisible();
     await expect(page.getByText(/eu1/)).toBeVisible();
     // Per-object sync rows: person + organization landed fresh; deal is still
@@ -467,7 +467,7 @@ test.describe("B-EP09.23: overlay mode", () => {
 
   test("AC-overlay-5: sync now reports a queued sweep", async ({ page }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/integrations");
+    await page.goto("/#/settings/overlay");
     await page.getByRole("button", { name: "Jetzt synchronisieren" }).click();
     await expect(page.getByText(/Abgleich eingereiht/)).toBeVisible();
     // Distinct from the per-object "Backfill abgeschlossen" copy already on
@@ -480,8 +480,12 @@ test.describe("B-EP09.23: overlay mode", () => {
     page,
   }) => {
     await mockApi(page, { sor: "overlay" });
-    await page.goto("/#/settings/integrations");
-    await expect(page.locator(".badge-accent")).toBeVisible();
+    await page.goto("/#/settings/overlay");
+    // The chip is the only accent badge that is a link; the mapping card on
+    // this tab wears the same badge on the row for the signed-in user, so an
+    // unqualified `.badge-accent` would be counting two different things.
+    const chip = page.locator("a.badge-accent");
+    await expect(chip).toBeVisible();
     await page.getByRole("button", { name: "Trennen" }).click();
     await expect(
       page.getByText(
@@ -496,7 +500,7 @@ test.describe("B-EP09.23: overlay mode", () => {
     await confirms.last().click();
     // The whole cache is invalidated on success (/me included) — the chip
     // (driven purely off /me) disappears once the app re-reads native.
-    await expect(page.locator(".badge-accent")).toHaveCount(0);
+    await expect(chip).toHaveCount(0);
     // The connection row survives disconnect (revoked, never deleted —
     // backend/internal/modules/overlay/teardown.go's revokeConnection), so
     // the card's own re-read must show that, not vanish or revert to
@@ -505,6 +509,43 @@ test.describe("B-EP09.23: overlay mode", () => {
     await expect(
       page.getByRole("button", { name: "Erneut verbinden" }),
     ).toBeVisible();
+  });
+
+  test("AC-overlay-8: an admin unmaps a user and maps them back, and each write moves the card", async ({
+    page,
+  }) => {
+    // The whole round trip, not just the request: the seed's mapping handlers
+    // mutate their own state, so each assertion below is about what the write
+    // DID. A mock answering a bare 200 would let this pass having changed
+    // nothing, which is the one way a mapping workflow must not be able to
+    // look correct.
+    await mockApi(page, { sor: "overlay" });
+    await page.goto("/#/settings/overlay");
+
+    // Seeded state: the admin's own seat, matched to a HubSpot owner by email.
+    await expect(page.getByText("Über E-Mail zugeordnet")).toBeVisible();
+
+    await page.getByRole("button", { name: "Zuordnung aufheben" }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Zuordnung aufheben" })
+      .click();
+
+    // Unmapping is confirm-first and its own standing decision: the row now
+    // reports the admin's block, and the email match it replaced is gone.
+    await expect(page.getByText("Von Admin aufgehoben")).toBeVisible();
+    await expect(page.getByText("Über E-Mail zugeordnet")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Zuordnen…" }).click();
+    await page.getByLabel("HubSpot-Nutzer suchen").fill("Lars");
+    await page
+      .getByRole("button", { name: "Lars Brandt · lars@brandt.example" })
+      .click();
+
+    // Mapping back is the admin's manual override, never a re-derived email
+    // match — the card has to say which of the two it is.
+    await expect(page.getByText("Manuell gesetzt")).toBeVisible();
+    await expect(page.getByText("Von Admin aufgehoben")).toHaveCount(0);
   });
 
   test("AC-overlay-7: every 360 panel renders its unavailable state, never an error box", async ({

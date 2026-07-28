@@ -198,6 +198,116 @@ func testMemberCtx(ws, userID ids.UUID) context.Context {
 	})
 }
 
+// testOwnerConn opens a short-lived owner-DSN connection for the fixture
+// seeders below. They write app_user shapes no product store ever writes (an
+// agent seat, an archived seat) or rows in a DIFFERENT workspace than the
+// test's context is bound to — both of which the app role's RLS policies
+// correctly refuse, so only the owner role can seed them.
+func testOwnerConn(t *testing.T) *pgx.Conn {
+	t.Helper()
+	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
+	if ownerDSN == "" {
+		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
+	}
+	conn, err := pgx.Connect(context.Background(), ownerDSN)
+	if err != nil {
+		t.Fatalf("connecting the owner DSN: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Errorf("closing owner connection: %v", err)
+		}
+	})
+	return conn
+}
+
+// seedAgentUser seeds one AGENT app_user (a passport identity) into ws — the
+// seat the admin mapping list must never offer a mapping affordance for,
+// because it has no incumbent counterpart to map to.
+func seedAgentUser(t *testing.T, ws ids.UUID, email string) ids.UserID {
+	t.Helper()
+	user := ids.New[ids.UserKind]()
+	if _, err := testOwnerConn(t).Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name, is_agent)
+		 VALUES ($1, $2, $3, 'Overlay Agent User', true)`,
+		user, ws, email); err != nil {
+		t.Fatalf("seeding an agent app_user: %v", err)
+	}
+	return user
+}
+
+// seedArchivedUser seeds one archived app_user into ws — a seat that no
+// longer logs in, and so must not be offered a mapping either.
+func seedArchivedUser(t *testing.T, ws ids.UUID, email string) ids.UserID {
+	t.Helper()
+	user := ids.New[ids.UserKind]()
+	if _, err := testOwnerConn(t).Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name, archived_at)
+		 VALUES ($1, $2, $3, 'Overlay Archived User', now())`,
+		user, ws, email); err != nil {
+		t.Fatalf("seeding an archived app_user: %v", err)
+	}
+	return user
+}
+
+// archiveUser archives an app_user that already exists — the "archived while
+// still mapped" state, which no seeder can produce up front because the
+// mapping has to be written by a live seat first.
+func archiveUser(t *testing.T, user ids.UserID) {
+	t.Helper()
+	if _, err := testOwnerConn(t).Exec(context.Background(),
+		`UPDATE app_user SET archived_at = now() WHERE id = $1`, user); err != nil {
+		t.Fatalf("archiving app_user %s: %v", user, err)
+	}
+}
+
+// seedUserInOtherWorkspace seeds a whole SECOND workspace holding one user —
+// the cross-tenant target the composite-FK test aims at. It has to be a user
+// that genuinely exists somewhere else: a merely invented uuid would be
+// rejected by any FK at all, proving nothing about the tenant-local
+// (workspace_id, app_user_id) pair being the thing that rejects it.
+func seedUserInOtherWorkspace(t *testing.T, email string) ids.UserID {
+	t.Helper()
+	conn := testOwnerConn(t)
+	other := ids.NewV7()
+	if _, err := conn.Exec(context.Background(),
+		`INSERT INTO workspace (id, name, slug, base_currency) VALUES ($1, 'Overlay Other', $2, 'EUR')`,
+		other, "overlay-other-"+other.String()); err != nil {
+		t.Fatalf("seeding the other workspace: %v", err)
+	}
+	user := ids.New[ids.UserKind]()
+	if _, err := conn.Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name)
+		 VALUES ($1, $2, $3, 'Overlay Other-Workspace User')`,
+		user, other, email); err != nil {
+		t.Fatalf("seeding an app_user in the other workspace: %v", err)
+	}
+	return user
+}
+
+// seedAutoMapBlock writes the mirror_user_automap_block row an admin's
+// deliberate unmap leaves behind, so a test can put a user in the blocked
+// state without going through the admin write path. It inserts through
+// database.WithWorkspaceTx like every other tenant write, so RLS and the
+// workspace GUC apply exactly as they do in production; blocked_by is the
+// acting principal, which is who an admin unmap would record.
+func seedAutoMapBlock(ctx context.Context, t *testing.T, pool *pgxpool.Pool, user ids.UserID, incumbent string) {
+	t.Helper()
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		t.Fatal("seeding an auto-map block needs an acting principal on the context")
+	}
+	if err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO mirror_user_automap_block (workspace_id, app_user_id, incumbent, blocked_by)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3)`,
+			user, incumbent, actor.UserID)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the auto-map block for %s: %v", user, err)
+	}
+}
+
 // noOwnerEmails is an OwnerEmailResolver that never resolves any owner —
 // the tests that only exercise the tombstone/staleness/dirty guards (not
 // email matching) have no owner-email fixture to seed, and a resolver that

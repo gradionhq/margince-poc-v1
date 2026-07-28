@@ -656,12 +656,28 @@ func (stubs) PreflightOverlayFlip(w nethttp.ResponseWriter, r *nethttp.Request) 
 	httperr.NotImplemented(w, r, "PreflightOverlayFlip")
 }
 
+func (stubs) ListOverlayOwners(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListOverlayOwners")
+}
+
 func (stubs) ReconcileOverlay(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ReconcileOverlay")
 }
 
 func (stubs) GetOverlaySyncStatus(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetOverlaySyncStatus")
+}
+
+func (stubs) ListOverlayUserMap(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOverlayUserMapParams) {
+	httperr.NotImplemented(w, r, "ListOverlayUserMap")
+}
+
+func (stubs) DeleteOverlayUserMap(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DeleteOverlayUserMap")
+}
+
+func (stubs) SetOverlayUserMap(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "SetOverlayUserMap")
 }
 
 func (stubs) ListPartners(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListPartnersParams) {
