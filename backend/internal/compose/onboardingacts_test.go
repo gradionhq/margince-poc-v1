@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
@@ -152,10 +153,17 @@ func TestSelectedOptionAuthorizesTheChangeEndToEnd(t *testing.T) {
 		reply.ProposedChanges[0].Value != "Acme GmbH" || reply.Act != crmcontracts.OnboardingActCompany {
 		t.Fatalf("reply = %+v", reply)
 	}
-	// The click reaches the model as an explicit administrator statement,
-	// so the exact chosen value never depends on the typed prose.
+	// The click reaches the model as an explicit administrator statement, so the
+	// exact chosen value never depends on the typed prose — with the value
+	// itself inside the call's boundary, because an option's value is whatever
+	// the crawled page said.
 	selectionTurn := brain.request.Messages[len(brain.request.Messages)-2]
-	if selectionTurn.Role != chatRoleUser || !strings.Contains(selectionTurn.Content, `"Acme GmbH"`) ||
+	marker, ok := promptfence.MarkerIn(brain.request.System)
+	if !ok {
+		t.Fatal("the system prompt declares no boundary")
+	}
+	if selectionTurn.Role != chatRoleUser ||
+		!strings.Contains(selectionTurn.Content, "<"+marker+">Acme GmbH</"+marker+">") ||
 		!strings.Contains(selectionTurn.Content, "legal_name") {
 		t.Fatalf("selection statement missing from model request: %+v", brain.request.Messages)
 	}
