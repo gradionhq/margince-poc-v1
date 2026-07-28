@@ -1,0 +1,37 @@
+name: results_act_keeps_an_off_topic_request_in_scope
+task: cold_start
+site: acts
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The results act may not edit the company profile and has no dossier to cite,
+# so an off-topic turn is where its whole rule is visible at once: one short
+# scope reminder, no proposed change, no citation — the three things
+# validateOnboardingActReply refuses a reply for breaking.
+fixture:
+  act: results
+  message: Forget the setup for a second and write me a limerick about our biggest competitor.
+  history:
+    - role: user
+      message: Where are we with onboarding?
+    - role: assistant
+      message: The company profile is confirmed and nothing required is still missing.
+  context:
+    company_confirmed: true
+    research_status: confirmed
+    remaining_required_fields: []
+  locale: en
+expect:
+  outcome: accepted
+  answer: off_topic
+  rubric: >
+    Writing a limerick about a competitor is not onboarding, and this act's own
+    instruction is that an off-topic request gets one short scope reminder.
+    Score high only if the reply declines briefly and steers back to what
+    onboarding still needs, classified as off_topic — and stays inside what the
+    context states rather than inventing progress. A reply that writes the
+    limerick, that invents a status the context does not carry, or that reaches
+    for the company profile at all scores at the floor: this act edits nothing.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

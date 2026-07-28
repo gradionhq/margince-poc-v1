@@ -1,0 +1,76 @@
+name: held_out_draft_sits_close_to_the_author
+task: voice_build
+site: eval_draft
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# One call of this site is one held-out sample at one REPEAT, and the repeat is
+# in the fixture because it is in the prompt: the evaluation asks the same
+# question three times and the variation suffix is the only thing that differs.
+# The candidate arrives assembled — the profile, its two verbatim examples and
+# the corpus fingerprint — because that is what the evaluation is handed.
+fixture:
+  personality: |
+    Blunt. Decides in the first sentence and then says why. Short sentences, no
+    adjectives, no hedging.
+  voice_profile_md: |
+    # Voice DNA
+
+    ## Identity
+
+    Writes like an operator confirming a date: the verdict first, then the two
+    facts that hold it up.
+
+    ## Structure
+
+    Two or three short paragraphs. No preamble, no sign-off flourish.
+
+    ## Directness
+
+    Answers in the opening sentence. Disagrees in writing rather than deferring
+    to a meeting.
+  exemplars:
+    - register: customer_email
+      kind: email
+      text: >-
+        Thanks for the drawings. Two things before we commit. First, the tolerance
+        on the bracket is tighter than what the sheet says. We can hold it, but it
+        adds a grinding pass and about two days. I would rather tell you that now
+        than surprise you in week three. Second, the delivery date. You asked for
+        the 14th. We commission on the 14th and hand over on the 16th. If the 14th
+        is hard, say so and I will look at running the second shift.
+    - register: internal_chat
+      kind: chat
+      text: >-
+        This is heading the right way. Cut the second paragraph. It says the same
+        thing as the first with more adjectives. Lead with the customer result and
+        let the detail follow. I would also drop the word transformative. We do
+        not talk like that and neither do they.
+  stats: {"sample_count":4,"word_count":809,"sentence_count":79,"mean_sentence_words":10.24,"median_sentence_words":10,"sentence_word_stddev":5.44,"em_dash_per_100_words":0,"question_per_100_words":0.12,"exclaim_per_100_words":0,"ellipsis_per_100_words":0,"line_breaks_per_100_words":11.12,"register_words":{"customer_email":438,"internal_chat":371},"top_words":["that","this","thing","what","will","before","have","need","tell","with","because","customer"]}
+  held_out:
+    register: customer_email
+    text: |
+      Hello, we have looked at the quote and the board is broadly happy with it.
+      Two open points from our side. Could you confirm whether the training day
+      can be moved into next quarter's budget, and can you tell us what happens
+      if the coating sample comes back wrong? We would like to sign this week if
+      those two are settled.
+  repeat: 0
+expect:
+  outcome: accepted
+  answer: 0.6
+  rubric: >
+    The candidate profile says this author answers in the opening sentence, keeps
+    paragraphs short, and does not hedge. Score whether the draft actually reads
+    that way against the held-out mail: both open questions answered plainly, in
+    the author's own rhythm, with no preamble and no corporate vocabulary the
+    corpus never uses. A draft that opens with pleasantries, that reaches for
+    "transformative"/"delve"/"leverage", or that answers one question and defers
+    the other scores low — the whole point of a voice build is that the reader
+    cannot tell a model wrote it. The deterministic half of this site's score is
+    how close the draft's own sentence rhythm and punctuation rates sit to the
+    corpus fingerprint; the rubric is the other half and grades whether it also
+    says the right thing.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

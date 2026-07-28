@@ -19,6 +19,7 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -96,6 +97,109 @@ func (s *PendingStore) ReconcileDeclined(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("capture: reconciling declined dispositions: %w", err)
 	}
 	return closed, nil
+}
+
+// UnsureReviewWindow is how long an `unsure` row waits for a human before the
+// ledger stops asking. It is long on purpose — a question worth putting to a
+// person is worth leaving there over a holiday — but it is not forever, because
+// an unanswered question holds a slot against the deferral ceiling and against
+// its sender's address for as long as it sits there.
+const UnsureReviewWindow = 30 * 24 * time.Hour
+
+// StaleReview is one `unsure` row that has waited past the window, with the
+// offer standing in the review queue for it.
+type StaleReview struct {
+	ID         ids.UUID
+	ProposalID *ids.UUID
+}
+
+// StaleReviews lists the rows whose review window has closed. Read-only: the
+// caller ages each one out, because closing the question also means withdrawing
+// its offer, and the approval table belongs to another module.
+//
+// The clock is `resolved_at`, which is stamped when the row BECAME `unsure` —
+// not `updated_at`, which a nightly re-offer touches, so an unanswered question
+// would keep resetting its own deadline and never age out at all.
+func (s *PendingStore) StaleReviews(ctx context.Context, window time.Duration, limit int) ([]StaleReview, error) {
+	var out []StaleReview
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		rows, err := tx.Query(ctx, `
+			SELECT id, proposal_id
+			  FROM capture_pending_counterparty
+			 WHERE status = 'unsure'
+			   AND resolved_at IS NOT NULL
+			   AND resolved_at <= now() - make_interval(secs => $1)
+			 ORDER BY resolved_at
+			 LIMIT $2`, window.Seconds(), limit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var r StaleReview
+			if err := rows.Scan(&r.ID, &r.ProposalID); err != nil {
+				return err
+			}
+			out = append(out, r)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("capture: reading the stale review backlog: %w", err)
+	}
+	return out, nil
+}
+
+// AgeOutReviewTx closes one unanswered question on the caller's transaction, so
+// the ledger row and the withdrawal of its offer commit together.
+//
+// It resolves as `rejected`, which is exactly what it means: nothing is created,
+// no mail is touched, and the sender is free to raise the question again the
+// next time they write — the live-unique index only covers `pending` and
+// `unsure`, so a later message opens a fresh row that gets a fresh verdict.
+//
+// The caller must have taken the row through ClaimReviewForAgeOut first: that is
+// where the row lock and the still-`unsure` check live, and the CAS here repeats
+// it so this can never be the write that decides.
+func (s *PendingStore) AgeOutReviewTx(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	if _, err := tx.Exec(ctx, `
+		UPDATE capture_pending_counterparty
+		   SET status = 'rejected',
+		       disposition_reason = 'no decision within the review window',
+		       resolved_at = now(), next_attempt_at = NULL, updated_at = now()
+		 WHERE id = $1 AND status = 'unsure'`, id); err != nil {
+		return fmt.Errorf("capture: ageing out review %s: %w", id, err)
+	}
+	return nil
+}
+
+// ClaimReviewForAgeOut locks one stale row for the rest of the caller's
+// transaction and reports the offer standing against it, or ok=false when the
+// row stopped being an open question between the scan and now.
+//
+// The lock is the point. A human can decide the offer in that window, and the
+// accept executor then creates the records and CASes the ledger to `real`. If
+// this sweep wrote `rejected` in between, the executor's CAS would match nothing
+// and the ledger would describe an outcome the database contradicts — records
+// for a question recorded as closed unanswered. Holding the row (and, through
+// the returned proposal, the offer) makes the two orders the only two possible
+// ones: the human wins and this sweep skips, or this sweep wins and the decision
+// is refused on an expired offer.
+func (s *PendingStore) ClaimReviewForAgeOut(ctx context.Context, tx pgx.Tx, id ids.UUID) (proposalID *ids.UUID, ok bool, err error) {
+	var status string
+	err = tx.QueryRow(ctx, `
+		SELECT status, proposal_id FROM capture_pending_counterparty
+		 WHERE id = $1 FOR UPDATE`, id).Scan(&status, &proposalID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("capture: locking review %s to age it out: %w", id, err)
+	}
+	if status != PendingStatusUnsure {
+		return nil, false, nil
+	}
+	return proposalID, true, nil
 }
 
 // noiseMailScope decides WHICH captured mail a noise disposition is allowed to

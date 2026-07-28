@@ -79,7 +79,7 @@ func coldStartOptions(modelPath *compose.ModelPath) []compose.Option {
 	return []compose.Option{
 		compose.WithColdStart(fetch, modelPath.ColdStart),
 		compose.WithScrape(fetch, modelPath.ColdStart),
-		compose.WithBrief(modelPath.BriefRank),
+		compose.WithBrief(modelPath.BriefRanking),
 		compose.WithReplyDraft(modelPath.DraftReply),
 	}
 }

@@ -10,12 +10,76 @@ package compose
 // a distinct way the one-sender contract can be broken.
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 )
+
+// The request is the whole security perimeter of this site: the sender's own
+// bytes reach the model unedited, and the only thing that stops them ending
+// their span is a marker minted for THIS call and named in THIS call's system
+// prompt. A request that fences under some other marker, or repeats the sender
+// outside the span, hands the instruction region to whoever wrote the mail.
+func TestVerdictRequestFencesTheSenderUnderTheMarkerItDeclares(t *testing.T) {
+	row := capture.PendingCounterparty{
+		ID:          ids.NewV7(),
+		Email:       "stranger@prospect.example",
+		DisplayName: "A Stranger",
+		Subject:     "quote please",
+		Body:        "We need forty seats by March.",
+	}
+
+	req := verdictRequest(row)
+
+	marker, declared := promptfence.MarkerIn(req.System)
+	if !declared {
+		t.Fatalf("the verdict system prompt declares no data boundary: %q", req.System)
+	}
+	if len(req.Messages) != 1 {
+		t.Fatalf("got %d messages, want the single user turn", len(req.Messages))
+	}
+	content := req.Messages[0].Content
+	openTag, closeTag := "<"+marker+` id="`+row.ID.String()+`">`, "</"+marker+">"
+	openAt, closeAt := strings.Index(content, openTag), strings.Index(content, closeTag)
+	if openAt < 0 || closeAt < openAt {
+		t.Fatalf("the sender is not wrapped in the declared marker keyed by the row id:\n%s", content)
+	}
+	span := content[openAt+len(openTag) : closeAt]
+	for _, sender := range []string{row.DisplayName, row.Email, row.Subject, row.Body} {
+		if !strings.Contains(span, sender) {
+			t.Errorf("sender text %q never reached the fenced span:\n%s", sender, content)
+		}
+		// Containment is a question of counts, not membership: a prompt that keeps
+		// the fence and ALSO repeats the sender beside it puts that copy in the
+		// instruction region while "is it inside?" stays true.
+		if n := strings.Count(content, sender); n != 1 {
+			t.Errorf("sender text %q appears %d times, want only the fenced one:\n%s", sender, n, content)
+		}
+	}
+}
+
+// A fence's scope is one call. A marker a previous sender was shown is a marker
+// they can spell, so reusing one would give away the only thing they cannot
+// forge.
+func TestVerdictRequestMintsAFreshBoundaryPerCall(t *testing.T) {
+	row := capture.PendingCounterparty{ID: ids.NewV7(), Email: "stranger@prospect.example"}
+
+	first, declared := promptfence.MarkerIn(verdictRequest(row).System)
+	if !declared {
+		t.Fatal("the verdict system prompt declares no data boundary")
+	}
+	second, declared := promptfence.MarkerIn(verdictRequest(row).System)
+	if !declared {
+		t.Fatal("the second verdict system prompt declares no data boundary")
+	}
+	if first == second {
+		t.Errorf("two verdict requests share the boundary %q", first)
+	}
+}
 
 func TestValidateVerdictPayloadRejectsEveryBrokenBatchContract(t *testing.T) {
 	asked := capture.PendingCounterparty{ID: ids.NewV7()}
@@ -98,5 +162,44 @@ func TestValidationMessagesDoNotEchoUnboundedModelText(t *testing.T) {
 	}
 	if len(msg) > 500 {
 		t.Fatalf("the validation message is %d bytes — model-chosen text must be clamped before it reaches a log", len(msg))
+	}
+}
+
+// The bound model intermittently returns a confidence declared type: number as
+// a JSON string. A verdict is a single-answer decision — there is no partial
+// result to keep — so a reply that is right but quoted must be read, not
+// deferred.
+func TestVerdictPayloadReadsAQuotedConfidence(t *testing.T) {
+	const reply = `{"results":[{"id":"0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a61","verdict":"noise","confidence":"0.94"}]}`
+
+	var payload verdictPayload
+	if err := json.Unmarshal([]byte(reply), &payload); err != nil {
+		t.Fatalf("a quoted confidence failed to decode: %v", err)
+	}
+	if len(payload.Results) != 1 {
+		t.Fatalf("got %d results, want 1", len(payload.Results))
+	}
+	if got := float64(payload.Results[0].Confidence); got != 0.94 {
+		t.Errorf("Confidence = %v, want 0.94", got)
+	}
+}
+
+// Tolerating the wrapper must not tolerate the value. The range gate lives in
+// the validator, where the refusal can name what was wrong, so a quoted 1.4 is
+// read and then rejected rather than being read as a number the floor accepts.
+func TestVerdictPayloadStillRefusesAnOutOfRangeConfidence(t *testing.T) {
+	asked := capture.PendingCounterparty{ID: ids.NewV7()}
+	reply := `{"results":[{"id":"` + asked.ID.String() + `","verdict":"noise","confidence":"1.4"}]}`
+
+	var payload verdictPayload
+	if err := json.Unmarshal([]byte(reply), &payload); err != nil {
+		t.Fatalf("a quoted confidence failed to decode: %v", err)
+	}
+	msg := validateVerdictPayload(payload, asked)
+	if msg == "" {
+		t.Fatal("a confidence of 1.4 was accepted; want a refusal")
+	}
+	if !strings.Contains(msg, "outside [0,1]") {
+		t.Errorf("refusal %q does not say what was wrong with the value", msg)
 	}
 }

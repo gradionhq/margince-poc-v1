@@ -10,10 +10,12 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/compose/aitasks"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 )
 
@@ -24,20 +26,63 @@ import (
 // produces the same Record byte-for-byte except for whatever the caller
 // puts in RanAt.
 type Record struct {
-	Task          string  `json:"task"`
-	Provider      string  `json:"provider"`
-	ServedModel   string  `json:"served_model"`
-	EnvClass      string  `json:"env_class"`
-	PromptVersion string  `json:"prompt_version"`
-	CorpusVersion string  `json:"corpus_version"`
-	Verdict       string  `json:"verdict"`
-	Runs          int     `json:"runs"`
-	Reliability   float64 `json:"reliability"`
-	ScoreP50      int     `json:"score_p50"`
-	ScoreMin      int     `json:"score_min"`
-	LatencyP50    int64   `json:"latency_p50"`
-	LatencyP95    int64   `json:"latency_p95"`
-	MeanTokens    int     `json:"mean_tokens"`
+	Task          string `json:"task"`
+	Provider      string `json:"provider"`
+	ServedModel   string `json:"served_model"`
+	EnvClass      string `json:"env_class"`
+	PromptVersion string `json:"prompt_version"`
+	CorpusVersion string `json:"corpus_version"`
+	Verdict       string `json:"verdict"`
+	Runs          int    `json:"runs"`
+	// Passed is how many runs did what their scenario asked — the reply the
+	// scenario expects, inside its caps — and Reliability is that count over
+	// Runs. It is carried as a count of its own because pass/fail is the first
+	// question asked of a record, and the four counts below cannot answer it:
+	// a run that came back accepted where the scenario demanded an abstention
+	// is a FAILED run that still raises ReportedAccepted.
+	Passed      int     `json:"passed"`
+	Reliability float64 `json:"reliability"`
+	// ReportedAccepted/ReportedWrongAnswer/ReportedInvalid/ReportedAbstained
+	// are what the sites' own validators REPORTED across the pooled runs, one
+	// count per outcome — never a pass/fail column. They are what turns a
+	// reliability number into a diagnosis: replies the validator refused want a
+	// different fix from well-formed replies that say the wrong thing, and an
+	// abstention is a right answer that neither of the other two can express.
+	// They always sum to Runs.
+	ReportedAccepted    int `json:"reported_accepted"`
+	ReportedWrongAnswer int `json:"reported_wrong_answer"`
+	ReportedInvalid     int `json:"reported_invalid"`
+	ReportedAbstained   int `json:"reported_abstained"`
+	// CertifiedScope is how much of the task this record actually covers (one of
+	// the aitasks.Scope* words), folded to the NARROWEST scope any site the run
+	// touched could claim. A multi-turn or agent-loop scenario seeds the window
+	// and grades the one reply that follows; a case bound to a site that calls
+	// the model more than once for one invocation grades one of those calls. In
+	// both, something the product does is supplied or skipped rather than
+	// exercised, and a record silent about it claims more than it tested.
+	CertifiedScope string `json:"certified_scope"`
+	// ContextApplied says whether the runs were served the company context
+	// production prepends. It is recorded rather than implied because the
+	// answer is no: assembling that context reads the database, and the cert
+	// lane runs without one. A record that omitted the field would leave a
+	// reader to assume parity nobody checked.
+	ContextApplied bool `json:"context_applied"`
+	// ContextScopes is what THIS task's contract has production prepend, and it
+	// is what makes ContextApplied's answer readable on one row instead of only
+	// as a fact about the lane. Most tasks declare no scopes and lose nothing by
+	// running DB-less; the ones that declare some were certified without
+	// reference data every production call carries, and how much that costs
+	// starts with which scopes they are.
+	//
+	// It is read off the task contract at build time rather than kept as a list
+	// beside it, so a scope added to a task cannot leave a record naming the old
+	// set.
+	ContextScopes []string `json:"context_scopes"`
+	ScoreP50      int      `json:"score_p50"`
+	ScoreMin      int      `json:"score_min"`
+	LatencyP50    int64    `json:"latency_p50"`
+	LatencyP95    int64    `json:"latency_p95"`
+	MeanTokens    int      `json:"mean_tokens"`
 	// MeanTokensIn/MeanTokensOut/MeanCachedTokens/MeanCacheWriteTokens are
 	// the four-bucket baseline (ADR-0067 phase 2): the pooled run set's
 	// per-bucket mean, each bucket's own truncating integer division —
@@ -52,6 +97,88 @@ type Record struct {
 	SelfJudged           bool   `json:"self_judged"`
 	ServedIdentitySource string `json:"served_identity_source"`
 	RanAt                string `json:"ran_at"`
+	// Scenarios is every scenario this record pooled, with its own verdict and
+	// its own counts. A record is written per TASK and a task is not one
+	// scenario or even one site — cold_start ships four sites — so the pooled
+	// numbers above cannot answer the question a failure actually raises:
+	// WHICH scenario failed. One injection scenario failing every run and one
+	// ordinary scenario failing occasionally reach the same task reliability
+	// and want completely different fixes.
+	Scenarios []ScenarioRecord `json:"scenarios"`
+}
+
+// ScenarioRecord is one scenario's own share of a task's record: what it asked
+// for, how often it got it, and what came back the rest of the time.
+//
+// Site is carried per scenario rather than derived, because it is what lets a
+// reader — and the readiness report — attribute a task's record to the site
+// each of its rows actually measured.
+type ScenarioRecord struct {
+	Scenario string `json:"scenario"`
+	Site     string `json:"site"`
+	Verdict  string `json:"verdict"`
+	Runs     int    `json:"runs"`
+	Passed   int    `json:"passed"`
+	// The same reported-outcome counts the task carries, on this scenario's own
+	// runs: they say what came back, never whether it was what was asked for.
+	ReportedAccepted    int `json:"reported_accepted"`
+	ReportedWrongAnswer int `json:"reported_wrong_answer"`
+	ReportedInvalid     int `json:"reported_invalid"`
+	ReportedAbstained   int `json:"reported_abstained"`
+}
+
+// SiteTally is one SITE's share of a task's record, folded from the scenario
+// rows that ran on it.
+//
+// It exists because a record covers a task and a reader asks about a site: a
+// task's pooled numbers printed under four site labels are the same four
+// numbers wearing labels they did not earn.
+type SiteTally struct {
+	Verdict             string
+	Runs                int
+	Passed              int
+	ReportedAccepted    int
+	ReportedWrongAnswer int
+	ReportedInvalid     int
+	ReportedAbstained   int
+}
+
+// Reliability is the fraction of this site's runs that did what their scenario
+// asked. A site with no run has no reliability rather than a perfect one.
+func (t SiteTally) Reliability() float64 {
+	if t.Runs == 0 {
+		return 0
+	}
+	return float64(t.Passed) / float64(t.Runs)
+}
+
+// ForSite folds every scenario row this record kept for one site's variant.
+// False means this record measured that site not at all — a different thing
+// from measuring it and finding nothing, which is why it is not a zero tally.
+//
+// The verdict folds to the WORST of the site's scenarios, the same way the
+// task's own does: a site is only as certified as its weakest scenario.
+func (r Record) ForSite(variant string) (SiteTally, bool) {
+	var tally SiteTally
+	found := false
+	for _, sc := range r.Scenarios {
+		if sc.Site != variant {
+			continue
+		}
+		if !found {
+			tally.Verdict = sc.Verdict
+			found = true
+		} else {
+			tally.Verdict = worstVerdict(tally.Verdict, sc.Verdict)
+		}
+		tally.Runs += sc.Runs
+		tally.Passed += sc.Passed
+		tally.ReportedAccepted += sc.ReportedAccepted
+		tally.ReportedWrongAnswer += sc.ReportedWrongAnswer
+		tally.ReportedInvalid += sc.ReportedInvalid
+		tally.ReportedAbstained += sc.ReportedAbstained
+	}
+	return tally, found
 }
 
 // sanitizeForPath maps a raw identifier (a provider name, or a served-model
@@ -151,34 +278,28 @@ func LoadRecords(dir string) ([]Record, error) {
 // shape. Score/latency percentiles are computed directly here (not via
 // Verdict, which is scoped to one scenario's odd-N run set and would
 // panic on a multi-scenario task's pooled, possibly-even count).
-func buildRecord(task ai.Task, taskVerdict string, reliability float64, results []RunResult, latencies []int64,
-	tokensInTotal, tokensOutTotal, cachedTokensTotal, cacheWriteTokensTotal int,
-	provider, servedModel, identitySource, judgeServedModel string, selfJudgedEveryRun bool, baseCfg ai.RoutingConfig,
-	promptVersion string,
-) Record {
+//
+// The run set arrives as the accumulation certifyTask folded it into, rather
+// than as one parameter per number: the record IS that accumulation written
+// down, and a dozen same-typed positional arguments is a transposition waiting
+// to happen that no test would catch.
+func buildRecord(task ai.Task, taskVerdict string, acc *taskAccumulation, baseCfg ai.RoutingConfig, promptVersion string) Record {
+	results := acc.allResults
 	scores := make([]int, len(results))
 	for i, r := range results {
 		scores[i] = r.Score
 	}
 	sort.Ints(scores)
 
-	sortedLatencies := append([]int64(nil), latencies...)
+	sortedLatencies := append([]int64(nil), acc.latencies...)
 	sort.Slice(sortedLatencies, func(i, j int) bool { return sortedLatencies[i] < sortedLatencies[j] })
 
 	n := len(results)
-	meanTokens, meanTokensIn, meanTokensOut, meanCachedTokens, meanCacheWriteTokens := 0, 0, 0, 0, 0
+	reliability := 0.0
 	if n > 0 {
-		// meanTokens divides the exact summed total (tokensInTotal +
-		// tokensOutTotal, an exact sum of two exact sums) — bit-for-bit the
-		// same value this field held before the per-bucket split existed.
-		// Each mean bucket below divides its OWN total independently, so it
-		// need not add back up to meanTokens after truncation.
-		meanTokens = (tokensInTotal + tokensOutTotal) / n
-		meanTokensIn = tokensInTotal / n
-		meanTokensOut = tokensOutTotal / n
-		meanCachedTokens = cachedTokensTotal / n
-		meanCacheWriteTokens = cacheWriteTokensTotal / n
+		reliability = float64(acc.passed) / float64(n)
 	}
+	meanTokens, usage := meanUsage(acc, n)
 
 	// ranAt is captured once and reused for both RanAt and the pricing
 	// snapshot date so buildRecord never calls nowFunc twice — the record's
@@ -186,33 +307,38 @@ func buildRecord(task ai.Task, taskVerdict string, reliability float64, results 
 	// instant.
 	ranAt := nowFunc().UTC()
 	estCostMicroUSD := int64(0)
-	usage := ai.Usage{
-		TokensIn: meanTokensIn, TokensOut: meanTokensOut,
-		CachedTokens: meanCachedTokens, CacheWriteTokens: meanCacheWriteTokens,
-	}
-	if rate, ok := seedRateFor(provider, servedModel, ranAt); ok {
+	if rate, ok := seedRateFor(acc.provider, acc.servedModel, ranAt); ok {
 		estCostMicroUSD = ai.PriceCall(usage, rate)
 	}
 
+	tally := tallyOutcomes(results)
 	return Record{
 		Task:                 string(task),
-		Provider:             provider,
-		ServedModel:          servedModel,
+		Provider:             acc.provider,
+		ServedModel:          acc.servedModel,
 		EnvClass:             string(baseCfg.Profile),
 		PromptVersion:        promptVersion,
 		CorpusVersion:        corpusVersionV1,
 		Verdict:              taskVerdict,
 		Runs:                 n,
+		Passed:               acc.passed,
 		Reliability:          reliability,
+		ReportedAccepted:     tally.accepted,
+		ReportedWrongAnswer:  tally.wrongAnswer,
+		ReportedInvalid:      tally.invalid,
+		ReportedAbstained:    tally.abstained,
+		CertifiedScope:       acc.certifiedScope,
+		ContextApplied:       certLaneAppliesCompanyContext,
+		ContextScopes:        declaredCompanyContextScopes(task),
 		ScoreP50:             scores[len(scores)/2],
 		ScoreMin:             scores[0],
 		LatencyP50:           percentile(sortedLatencies, 0.50),
 		LatencyP95:           percentile(sortedLatencies, 0.95),
 		MeanTokens:           meanTokens,
-		MeanTokensIn:         meanTokensIn,
-		MeanTokensOut:        meanTokensOut,
-		MeanCachedTokens:     meanCachedTokens,
-		MeanCacheWriteTokens: meanCacheWriteTokens,
+		MeanTokensIn:         usage.TokensIn,
+		MeanTokensOut:        usage.TokensOut,
+		MeanCachedTokens:     usage.CachedTokens,
+		MeanCacheWriteTokens: usage.CacheWriteTokens,
 		// EstCostMicroUSD prices the pooled per-bucket means against the
 		// cert lane's in-memory seed rate sheet (ai.SeedModelRates): the
 		// cert lane runs outside any DB workspace tx, so there is no
@@ -221,11 +347,83 @@ func buildRecord(task ai.Task, taskVerdict string, reliability float64, results 
 		// served model) row keeps it an honest 0, exactly like an unpriced
 		// RateStore.RateFor call (price-on-read; never fabricate a price).
 		EstCostMicroUSD:      estCostMicroUSD,
-		JudgeServedModel:     judgeServedModel,
-		SelfJudged:           selfJudgedEveryRun,
-		ServedIdentitySource: identitySource,
+		JudgeServedModel:     acc.judgeServedModel,
+		SelfJudged:           acc.selfJudgedEveryRun,
+		ServedIdentitySource: acc.identitySource,
 		RanAt:                ranAt.Format(time.RFC3339),
+		Scenarios:            acc.scenarios,
 	}
+}
+
+// meanUsage is the pooled run set's per-bucket mean, alongside the flat
+// MeanTokens the record has always carried.
+//
+// MeanTokens divides the exact summed total (tokens in + tokens out, an exact
+// sum of two exact sums) — bit-for-bit the value that field held before the
+// per-bucket split existed. Each bucket divides its OWN total independently, so
+// the four need not add back up to MeanTokens after truncation.
+func meanUsage(acc *taskAccumulation, n int) (int, ai.Usage) {
+	if n == 0 {
+		return 0, ai.Usage{}
+	}
+	return (acc.tokensInTotal + acc.tokensOutTotal) / n, ai.Usage{
+		TokensIn:         acc.tokensInTotal / n,
+		TokensOut:        acc.tokensOutTotal / n,
+		CachedTokens:     acc.cachedTokensTotal / n,
+		CacheWriteTokens: acc.cacheWriteTokensTotal / n,
+	}
+}
+
+// declaredCompanyContextScopes reads the task contract's own answer to what
+// production prepends for this task. Every task declares a policy — the ai
+// module's contract holds that — so an absent one is a build that could not
+// have run this task at all, and the empty set is the honest reading of it
+// rather than a scope list invented here.
+//
+// The slice is copied because the contract's own is package state: a record
+// handed the original would let anything holding it edit what the next record
+// claims.
+func declaredCompanyContextScopes(task ai.Task) []string {
+	policy, declared := ai.CompanyContextFor(task)
+	if !declared {
+		return nil
+	}
+	return slices.Clone(policy.Scopes)
+}
+
+// certLaneAppliesCompanyContext is false because this lane has no database.
+// The company context production prepends is assembled from stored workspace
+// facts, and every certification run here is DB-less — so the requests scored
+// are the site's own prompt without it. Spelled as a named constant so the
+// record's claim is a stated fact of the lane rather than a literal a reader
+// has to interpret.
+const certLaneAppliesCompanyContext = false
+
+// outcomeTally is the per-outcome run count a record carries. It is a struct
+// rather than four returns so the four numbers cannot be transposed at a call
+// site, which is the one way this arithmetic can be wrong without failing.
+type outcomeTally struct {
+	accepted, wrongAnswer, invalid, abstained int
+}
+
+// tallyOutcomes counts what each pooled run's validator reported. Every
+// RunResult reaching here carries one of the four (the runner refuses a run
+// whose case reported anything else), so the counts always sum to len(results).
+func tallyOutcomes(results []RunResult) outcomeTally {
+	var t outcomeTally
+	for _, r := range results {
+		switch r.Outcome {
+		case aitasks.OutcomeAccepted:
+			t.accepted++
+		case aitasks.OutcomeWrongAnswer:
+			t.wrongAnswer++
+		case aitasks.OutcomeInvalid:
+			t.invalid++
+		case aitasks.OutcomeAbstained:
+			t.abstained++
+		}
+	}
+	return t
 }
 
 // seedRateFor resolves the exact (provider, servedModel) rate row from

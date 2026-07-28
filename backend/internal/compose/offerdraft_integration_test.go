@@ -54,9 +54,10 @@ var offerDraftPerms = principal.Permissions{
 // independent.
 func newOfferDrafterFixture(t *testing.T, e *integration.Env, brain *ai.FakeClient) offerDrafter {
 	return offerDrafter{
-		brain:   fakeModelPath(t, brain).OfferDraft,
-		deals:   e.Deals,
-		context: search.NewRetriever(search.NewStore(e.Pool), nil),
+		brain:    fakeModelPath(t, brain).OfferDraft,
+		deals:    e.Deals,
+		rateCard: e.Deals,
+		context:  search.NewRetriever(search.NewStore(e.Pool), nil),
 	}
 }
 
@@ -334,7 +335,7 @@ func TestGroundOfferLinesPropagatesANonNotFoundProductLookupError(t *testing.T) 
 		t.Fatalf("seed product: %v", err)
 	}
 
-	drafter := offerDrafter{deals: e.Deals}
+	drafter := offerDrafter{rateCard: e.Deals}
 	dealContext := []dealContextItem{{SourceID: "activity:1", Snippet: "Client wants the support plan."}}
 	candidates := []offerLineCandidate{{
 		Description: "Support plan", Quantity: "1", TaxRate: "19.00",

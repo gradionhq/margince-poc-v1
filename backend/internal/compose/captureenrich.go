@@ -105,34 +105,29 @@ func (e *CaptureEnricher) Run(ctx context.Context) error {
 
 func isBudgetStop(err error) bool { return errors.Is(err, ai.ErrBudgetDeferred) }
 
+// unparseableReply reports the one drop reason that means the model failed
+// rather than the signature being silent — the distinction the read cursor
+// turns on.
+func unparseableReply(dropped []droppedFinding) bool {
+	for _, d := range dropped {
+		if d.Reason == dropUnparseableReply {
+			return true
+		}
+	}
+	return false
+}
+
 // enrichOne reads one candidate's signature block, gates the model's
 // fields against it, and applies the survivors fill-only-empty.
 func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCandidate) error {
 	lines := signatureBlock(cand.Body)
 	if lines == "" {
-		// Nothing to read — mark nothing; the person simply has no
-		// signature to learn from yet.
-		return nil
+		// Nothing to read in this mail. The read still counts: without the
+		// cursor a person whose latest mail has no signature block would be
+		// selected again every night for the same empty window.
+		return e.store.MarkSignatureRead(ctx, cand.PersonID, cand.ActivityID)
 	}
-	fence := promptfence.New()
-	var prompt strings.Builder
-	// The person's own name and address are theirs to write, so they go INSIDE
-	// the boundary like the signature does. Interpolated into a header line they
-	// would be reading in the prompt's own voice, which is the whole attack.
-	prompt.WriteString("Person (untrusted):\n")
-	prompt.WriteString(fence.Wrap(fmt.Sprintf("Name: %s\nEmail: %s", cand.FullName, cand.Email)) + "\n")
-	prompt.WriteString("Fields currently empty: [\"title\",\"phone\"]\n")
-	prompt.WriteString("Signature block (untrusted; the trailing lines of their last email):\n")
-	prompt.WriteString(fence.WrapAttr("source_id", cand.ActivityID.String(), lines) + "\n")
-	prompt.WriteString(`Return JSON: { "fields": [ { "field", "value", "evidence_snippet", "confidence" } ] }`)
-
-	req := model.Request{
-		System:         signatureEnrichSystemFor(fence),
-		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
-		MaxTokens:      ai.ReasoningOutputMaxTokens,
-		ResponseSchema: signatureEnrichSchema(),
-		SecretStripper: ai.NewSecretStripper(),
-	}
+	req := signatureEnrichRequest(cand, lines)
 	var resp model.Response
 	var err error
 	if structured, ok := e.brain.(validatedBrain); ok {
@@ -148,6 +143,12 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 	// the model was shown, then the confidence floor.
 	gated, dropped := gateEvidence(resp.Text, lines, "activity:"+cand.ActivityID.String(),
 		func(name string) bool { return enrichFieldNames[name] })
+	if unparseableReply(dropped) {
+		// A reply no reader can parse is a fault in the ANSWER, not evidence
+		// that the signature states nothing — so the read goes unrecorded and
+		// this person is asked again next pass.
+		return fmt.Errorf("compose: unparseable signature reply for person %s", cand.PersonID)
+	}
 	if len(dropped) > 0 {
 		e.log.DebugContext(ctx, "signature enrich: fields dropped by the evidence gate",
 			"person", cand.PersonID.String(), "dropped", len(dropped))
@@ -162,10 +163,51 @@ func (e *CaptureEnricher) enrichOne(ctx context.Context, cand people.SignatureCa
 		})
 	}
 	if len(fields) == 0 {
-		return nil
+		// The model answered and nothing survived the gate — an answer, and
+		// the same answer next time unless this person writes again.
+		return e.store.MarkSignatureRead(ctx, cand.PersonID, cand.ActivityID)
 	}
-	_, err = e.store.ApplySignatureFields(ctx, cand.PersonID, cand.ActivityID, fields)
-	return err
+	if _, err := e.store.ApplySignatureFields(ctx, cand.PersonID, cand.ActivityID, fields); err != nil {
+		return err
+	}
+	// A model error above returns before this point on purpose: an
+	// unanswered call is a call still owed, so the person stays a candidate.
+	return e.store.MarkSignatureRead(ctx, cand.PersonID, cand.ActivityID)
+}
+
+// signatureEnrichRequest builds the ONE model call that reads one candidate's
+// signature. It is a pure function of the candidate and the window their mail
+// yielded so the same request can be issued outside the pass — by the
+// certification lane — without re-creating it, because a re-creation certifies a
+// copy rather than the prompt that ships.
+//
+// The lines arrive already derived by signatureBlock rather than being derived
+// here: the evidence gate matches every quote against the SAME window the model
+// was shown, so one derivation feeds both readers and neither can drift.
+//
+// The fence is minted here, per request: a boundary reused across calls is one a
+// previous sender has already been shown, and every field of this prompt is
+// their own writing.
+func signatureEnrichRequest(cand people.SignatureCandidate, lines string) model.Request {
+	fence := promptfence.New()
+	var prompt strings.Builder
+	// The person's own name and address are theirs to write, so they go INSIDE
+	// the boundary like the signature does. Interpolated into a header line they
+	// would be reading in the prompt's own voice, which is the whole attack.
+	prompt.WriteString("Person (untrusted):\n")
+	prompt.WriteString(fence.Wrap(fmt.Sprintf("Name: %s\nEmail: %s", cand.FullName, cand.Email)) + "\n")
+	prompt.WriteString("Fields currently empty: [\"title\",\"phone\"]\n")
+	prompt.WriteString("Signature block (untrusted; the trailing lines of their last email):\n")
+	prompt.WriteString(fence.WrapAttr("source_id", cand.ActivityID.String(), lines) + "\n")
+	prompt.WriteString(`Return JSON: { "fields": [ { "field", "value", "evidence_snippet", "confidence" } ] }`)
+
+	return model.Request{
+		System:         signatureEnrichSystemFor(fence),
+		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
+		MaxTokens:      ai.ReasoningOutputMaxTokens,
+		ResponseSchema: signatureEnrichSchema(),
+		SecretStripper: ai.NewSecretStripper(),
+	}
 }
 
 // signatureBlock returns the trailing signatureLineCount non-quoted,

@@ -514,22 +514,32 @@ one `ai_call` row per ATTEMPT (retries/degrades/escalations visible,
 terminal-only metrics), served-model identity reported from the wire
 (`response|echo|configured`, never overclaimed), embeddings traced,
 config snapshots hash-keyed in `ai_call_config`, embedding rows aging
-out at 90 d. On top sits `compose/aicert`: a scenario corpus
-(hand-authored, provenance-attested, ≥1 per task — completeness
-fitness-tested), structural checks + a pinned rubric judge
-(`cert_judge`, own router, never the candidate's binding), N-odd
-cache-off repeats, spec §5 verdict math, and committed JSON records —
+out at 90 d. On top sits `compose/aicert`: a FIXTURE corpus
+(hand-authored, provenance-attested, ≥1 per shipped SITE — completeness
+fitness-tested). A scenario carries the input its site is given and the
+product builds the prompt, so each of the 19 census sites is certified
+through its own production request builder and production validator
+rather than a hand-written copy of either. The grader is a pinned rubric
+judge (`cert_judge`, own router, never the candidate's binding, its two
+untrusted inputs behind a freshly minted fence), with N-odd cache-off
+repeats, spec §5 verdict math, and committed JSON records —
 `make e2e-ai TASK=x MODEL=prov:model` certifies any binding;
-`make e2e-ai-report` prints the matrix. Boot warns loudly on unbound
+`make e2e-ai-report` prints the readiness report — every shipped site's
+band, outcome counts, certified scope and binding, with a record that no
+longer matches the corpus marked stale and one that was never produced
+marked absent. Boot warns loudly on unbound
 ladders; `/readyz` names the AI state. A payload trace (`TRACE=1`, on by
 default) dumps every candidate+judge request/response — the post-stripper
 `ai_call_payload` shape — to a gitignored `.tmp/aicert/*.jsonl` for prompt
-tuning. First full-corpus Gemini sweep committed (2026-07-19): of 13 tasks,
-6 certified, 2 supported_degraded, 5 not_supported (mostly Gemini emitting
-`confidence` as a JSON string where the schema wants a number), and
-`offer_draft` blocked — Gemini 2.5's thinking exhausts its 300-token cap
-scenario before it answers. The verdicts are an honest snapshot, not a
-target to game.
+tuning. Full-corpus Gemini sweep committed (2026-07-28, ADR-0074): of 13
+tasks, 10 certified, 2 supported_degraded (`site_extract` 0.83,
+`cold_start`), 1 not_supported (`offer_draft` 0.67) — the drags are real
+refusals by the production validators, not structural mismatches. On one
+`cold_start` scenario the model answers "I have set" where it only staged
+a change for confirmation: the reply is well formed and proposes the right
+field, so no validator can see it, and the claim to have saved is exactly
+what the human is being asked to confirm. Kept as a finding about this
+binding. The verdicts are an honest snapshot, not a target to game.
 
 **Email ingestion — from fragment to nightly, every-user pipeline
 (ADR-0063, 2026-07-19)** — capture was operationally fragile (one 429
@@ -862,6 +872,56 @@ tooling and gate suite the baseline needs. Merged so far:
 
 Open work, roughly in priority order:
 
+- **Recorded idempotency bodies survive Art. 17 erasure.**
+  `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
+  `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that
+  table. Erasure anonymizes the person row in place, so the replay's row-scope
+  probe still passes for the original owner — API-CC-8 does not close this by
+  construction. Within the window a rep can replay their own key and receive the
+  pre-erasure name and email verbatim. Fix: purge `response_body` for claims
+  whose recorded record is the subject through the ratified cross-store seam, or
+  cap that column's retention well below the DSR SLA.
+
+- **17 replay routes re-check nothing at all.** Those carrying a `rowNote`
+  (pipelines, stages, products, offer-templates, quotas, custom-fields,
+  onboarding, DSR, site-reads) have no row-scoped record AND no object re-check,
+  so it is zero dimensions rather than half a gate. Related: ADR-0055's
+  "revocation binds mid-session" is false for a passport on a replay — narrowing
+  a passport's scope does not stop it replaying a body recorded under the wider
+  scope, because scope is the object dimension.
+
+- **Idempotent replay does not re-check the OBJECT grant (the row scope now is).**
+  `compose/replayscope.go` re-probes row-scope visibility before serving a
+  recorded body (API-CC-8), which closes the leak that mattered: a grant or
+  ownership transfer moves a record out of sight while permissions stay
+  byte-identical. The object half is recorded per route in `replayTarget.object`
+  but not re-run, because the ACTION to re-check is per-route data and both
+  obvious derivations are wrong. `ActionRead` is stricter than the write the
+  caller originally passed — a role with create and no read would have every
+  retry 403, breaking idempotency outright rather than only after a revocation
+  (this is not hypothetical: it broke `TestIdempotencyReplayRepeatsTheRecordedContentType`
+  when tried). Deriving the action from the HTTP method fails too, since
+  `POST /v1/deals/{id}/advance`, `/merge` and `/offers/{id}/send` are updates.
+  Closing it needs the required action recorded per route beside the object,
+  then re-checked; the fitness test already forces every route to name its
+  object or say why it has none, so the data half is in place.
+  Second, separate defect in the same area: `settleClaim` runs on
+  `r.Context()`, already cancelled when a client disconnects mid-request, so
+  the claim strands with `response_status IS NULL` and every retry of that key
+  answers `409 idempotency_key_conflict` for 24h — the write did not land *and*
+  the retry is refused. The repo already has the idiom: `context.WithoutCancel`
+  in `capture/backfillpager.go` and `ai/tracing.go`.
+
+- **403 is declared on a minority of the operations that can answer it.**
+  margince-foundation#1194 made the narrow invariant unanimous — every
+  operation declaring `ApprovalToken` now declares 403 — but the broader one is
+  open: ~113 operations declare 404 without 403 while their handlers reach
+  `auth.Require`, including the `getProject` / `getDeal` / `updateDeal` triads
+  whose `/people/{id}` peers all declare it. Fix upstream first (the spec's
+  `crm.yaml` is the source of truth), then re-derive here; and pin it with a
+  fitness test on the `idempotencymap_test.go` model — derive the expected set
+  from the handlers, carry a reasoned exemption map — so it cannot drift again.
+
 - **Capture quality gates + captured-company auto-enrichment — spec ratified,
   implementation in flight (margince-foundation ADR-0072/A118).**
   **Phase 0 (spec):** ADR-0072/A118 authored in `margince-foundation`
@@ -895,11 +955,25 @@ Open work, roughly in priority order:
   proposal; site people still stage as leads (NEVER-8). The flag is re-read each
   pass (toggle-off stops new reads). `make check` + `make check-fe` + full
   zero-skip integration lane green.
-  **Deferred follow-ups (noted, not blocking):** the synchronous
-  enrich-on-capture trigger (the sweep already self-heals, so it's a latency
-  optimization); per-run crawl caps pinned lower for auto reads (12 pages);
-  and `ApplySitePersonFields` (auto-filling an exact/unique-match existing
-  person instead of always staging a lead).
+  `ApplySitePersonFields` closed this list's last item: a published person the
+  workspace already records at that company is no longer staged as a duplicate
+  lead — the site's role fills their empty fields instead. The match is
+  deliberately narrow, and it is the whole safety argument: an exact live email
+  among that ORGANIZATION's own employees, or exactly one employee whose name
+  matches at ≥0.92 (well above the 0.72 dedupe-review threshold, because this
+  path asks nobody). Zero or ambiguous matches stage the lead exactly as before,
+  so strangers stay staged (NEVER-8). The scope is the org's employees rather
+  than the workspace on purpose: filling a title from company X's site onto a
+  person the CRM records at company Y is a disagreement a human should see. The
+  published EMAIL is a matching key and never a fill — adding an address changes
+  who a record is reachable as, and a site is not authority for that. Everything
+  written is fill-only-empty with a `person_profile_field` evidence row
+  (first-verdict-wins, so a signature or a human already there is untouchable),
+  one audit row and one `person.updated`.
+  **Deferred follow-up still open:** the synchronous enrich-on-capture trigger
+  (the sweep already self-heals, so it is a latency optimization). The 12-page
+  auto-read ceiling this list also named turned out to be built already
+  (`autoEnrichMaxPages` in `compose/deepreadstop.go`).
   **Phase 2a (build, landed):** the counterparty-identity column
   (`activity.counterparty_email`, migration 0123, partial index) stamped
   (lowercased) at capture — captured from now so the phase-2b correspondence
@@ -1084,21 +1158,18 @@ Open work, roughly in priority order:
   the fence in the same function; the test says so where it is defined rather
   than implying more than it checks.
 
-  **Owed: pin each task's corpus scenario to the prompt it ships.**
-  `aicert.PromptVersion` stamps the SCENARIOS a record was scored against, so a
-  corpus edit is visible — but nothing checks that the scenario still matches
-  what production sends. Only `rate_extract` and its FX twin are pinned
-  byte-for-byte. The other lanes' scenarios are close but not identical: they use
-  YAML folded style, so production's line breaks arrive as spaces, which means
-  those records did not score the shipped text exactly.
-
-  The fix is a per-scenario pin map plus a coverage test (every contract task
-  either pinned or declared an approximation with its reason), with the pinned
-  blocks GENERATED from the shipped prompt rather than hand-maintained. It was
-  built and reverted out of #264 deliberately: repinning changes those prompts,
-  which invalidates the records that PR just certified, so it needs its own
-  certification run. Worth doing next — it is the one remaining place where
-  "certified = shipped" rests on a comment rather than a gate.
+  **CLOSED by ADR-0074: each task's scenario IS the prompt it ships.** This was
+  owed as a per-scenario pin map — every task either pinned byte-for-byte to its
+  shipped prompt or declaring an approximation with its reason. The fixture
+  corpus removes the thing that needed pinning: a scenario now carries the INPUT
+  a site is given and the product builds the prompt from it, so there is no
+  second copy to drift. `PromptVersion` digests the scenario, the request the
+  site's own case builds, and the request the grader is sent, so editing a
+  prompt, a schema, a validator or the grader marks every affected record stale.
+  Converting the corpus found drift on seven of thirteen tasks that the old
+  hand-written scenarios had been certifying — including `rate_extract`, one of
+  the two that WAS byte-pinned, whose input carried a page header the rate
+  producer never emits.
 
   **Two pre-existing defects this surfaced — neither caused by #264, both worth
   a ticket.**
@@ -1137,9 +1208,95 @@ Open work, roughly in priority order:
   party creating them is an outsider, so the queue needs a ceiling; at the cap
   capture stops asking and messages land unjudged. The ADR names no such bound —
   it wants a CAP-PARAM entry once the value is confirmed.
-  **Still open:** phase 3 (corroborated signature org-name promotion), and
-  linking a deferred message's activity to the person a later `real` verdict
-  creates (the ledger row carries `activity_id` for exactly this).
+  **Phase 3 (landed): corroborated signature org-name promotion (PO-F-2a).**
+  A captured organization named from its mail domain ("Gitex" for gitex.com,
+  `name_source='domain'`) is renamed to the name its own people sign with —
+  but only when a second independent source agrees. Corroboration is either the
+  site dossier's stated name (`organization_profile_field` display_name or
+  legal_name) or a second employee's accepted signature; one signature alone
+  neither wins nor loses, it stages a 🟡 `org_name_promotion` proposal whose
+  accept renames and whose reject does nothing. The write is a CAS on
+  `name_source='domain'` under a row lock, so a human edit landing first makes
+  the promotion a silent no-op — weaker never overwrites stronger, and the
+  accepted name stamps `'signature'` rather than `'human'` so a later human
+  edit still wins over it. Signature spellings are grouped by
+  `normalizeOrgName`, so "Acme GmbH" and "ACME" corroborate each other; the
+  winner is picked deterministically (corroborated first, then most people,
+  then lexicographic) because two workers reading the same evidence must not
+  rename the organization back and forth. Runs as its own daily River job
+  (`org_name_promotion`), registered unconditionally — it weighs rows the
+  enrich pass already wrote and asks no model.
+  **Two defects found by the stop-time review and fixed before the arc closed
+  (#284), both about the sweep repeating itself forever.** The pass read the
+  first 200 candidates by age and stopped. Most candidates reach a verdict that
+  changes nothing — their signatures restate the name already on the record, or
+  the one name proposed is uncorroborated and waits on a human — and those rows
+  stay candidates indefinitely, so a fixed prefix of a fixed ordering fills with
+  rows that never resolve and every organization behind them is never reached
+  again, including ones whose corroborated name could be applied today. The pass
+  now pages to exhaustion on a keyset cursor (`OrgNameCandidates(after, limit)`);
+  the page size is a memory bound, not a work bound, and the runaway backstop
+  logs when it is hit rather than trimming silently. Second: `JoinPending` joins
+  only a PENDING offer, so once a human declined a rename the next pass found
+  nothing to join and staged a fresh copy of what was just refused — nightly,
+  because the signature behind it never goes away.
+  `approvals.Service.StageUnlessDeclined` checks and stages in ONE transaction,
+  under the same `SELECT ... FOR UPDATE` on the approval row that `decideInTx`
+  takes — a separate check followed by a stage leaves a window where a decision
+  lands in between, the check reads "not declined", the staging finds no pending
+  row to join, and the refused offer is recreated anyway. Ordered instead of
+  interleaved, whoever gets there first wins cleanly.
+  **And the row lock alone was not enough (#288).** `FOR UPDATE` locks the rows
+  it finds and locks NOTHING when it finds none, so an empty result is not the
+  same as "no offer can appear": a second pass reading before the first has
+  committed sees no prior offers at all, and by the time it writes, the first
+  pass's offer may exist AND have been rejected — it then finds no PENDING row to
+  join and recreates exactly what the human refused. The per-identity advisory
+  lock (already used inside `stageOrJoinPendingInTx`, now hoisted into
+  `lockProposalIdentity` and taken FIRST) is what makes the read late enough to
+  see it. Proven rather than argued, in
+  `TestStageUnlessDeclinedWaitsForACompetingPassBeforeReading`:
+  it holds that lock in one transaction, watches `pg_locks` until
+  the staging is provably blocked on it (busy-read, no clock), commits a rejected
+  offer, and asserts nothing was staged — it fails on exactly that assertion when
+  the hoisted lock is removed.
+  The §2.9 amendment landed with it: `SignatureCandidates` no longer retires a
+  person the moment ANY profile-field row exists (one accepted title used to
+  silence the company name their signature also states) — the predicate is now
+  per field, and a missing `org_name` reopens them. That alone would re-ask the
+  model about the same mail every night for anyone whose signature simply names
+  no company, so migration 0135 adds `person_signature_enrich_state`: the
+  activity whose signature block was last shown to the model. A person returns
+  as a candidate only when NEWER mail arrives, which bounds the cost by mail
+  volume instead of by time. An unparseable model reply is deliberately not
+  recorded as a read — that is a fault in the answer, not evidence that the
+  signature is silent.
+  **Correction to an earlier entry here:** linking a deferred message's activity
+  to the person a `real` verdict creates was listed as still open; it shipped
+  with 2b core as `activities.LinkCapturedMailTx`, called from the `real`
+  disposition path.
+  **The deferral-cap freeze is closed (both halves).** The follow-up both review
+  lanes deferred: an outsider parking open questions until the workspace ceiling
+  (`PendingDeferralCap` = 500) was full stopped every NEW corporate-domain sender
+  from being deferred at all, and the state was self-sustaining. Two bounds fix
+  it. `PendingDeferralDomainCap` = 50 gives each sender domain a share of the
+  ceiling, so a flood can only ever consume its own lane and an unrelated sender
+  still gets a verdict; the operator breadcrumb now names WHICH ceiling refused
+  (`detail->>'ceiling'`), because "the queue is full" and "one domain is flooding
+  it" send an operator looking for different things. And `UnsureReviewWindow` =
+  30 days ages out a question nobody answered: a staged offer expires after a
+  day and `StageReviews` honestly re-offers the row, so an unanswered `unsure`
+  used to cycle forever while holding a slot against both the ceiling and its
+  sender's address. The age-out closes it as `rejected` — creates nothing,
+  touches no mail — and withdraws the standing offer in the SAME transaction
+  (new `approvals.Service.WithdrawInTx`: forced expiry, audited, event-free,
+  the supersession mechanism), so the inbox can never hold an offer whose accept
+  would resolve nothing. The sender is not shut out: the live-unique index
+  covers only `pending` and `unsure`, so their next message opens a fresh row
+  and gets a fresh verdict.
+  **Still open in this arc:** the upstream ADR raises listed throughout this
+  entry — `PendingDeferralCap`/`PendingDeferralDomainCap`/`UnsureReviewWindow`
+  all want CAP-PARAM entries, and none of the three values is founder-confirmed.
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can

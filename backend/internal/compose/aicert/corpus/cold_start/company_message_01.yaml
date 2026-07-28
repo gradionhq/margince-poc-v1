@@ -1,0 +1,53 @@
+name: bare_answer_corrects_the_field_the_wizard_asked_for
+task: cold_start
+site: company_message
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+# The turn this site exists to be measured on: the administrator answers the
+# wizard's own question with a bare value that names no field at all. Only
+# next_required_field makes it a correction to display_name — and the same reply
+# in a conversation that asked nothing would be a change nobody requested.
+fixture:
+  message: Acme Robotics
+  history:
+    - role: user
+      message: Let's set the company up.
+    - role: assistant
+      message: What name should I show for your company?
+  conversation:
+    dossier_evidence:
+      - source_id: S1
+        kind: legal_entity
+        field: legal_identity
+        value: Acme Robotics GmbH · Werkstr. 1 · HRB 12345
+        evidence_quote: Acme Robotics GmbH, Werkstr. 1, HRB 12345
+        source_url: https://acme.example/imprint
+      - source_id: S2
+        kind: profile_field
+        field: offer_summary
+        value: Warehouse robotics
+        evidence_quote: We build warehouse robotics.
+        source_url: https://acme.example/product
+    current_company_draft: {}
+    next_required_field: display_name
+    remaining_required_fields: [display_name, offer_summary, icp]
+  locale: en
+expect:
+  outcome: accepted
+  answer:
+    kind: correction
+    changes:
+      display_name: Acme Robotics
+  rubric: >
+    The wizard asked which name to show and the administrator answered with one
+    word of company name and nothing else. Score high only if the reply reads
+    that as the answer to the question just asked — a correction proposing
+    display_name "Acme Robotics" — and then moves the setup on to what is still
+    required. Penalize a reply that treats the bare value as a legal name, that
+    proposes the dossier's own fields alongside it, or that claims to have saved
+    anything: this turn stages a change for a human to confirm and writes
+    nothing itself.
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40

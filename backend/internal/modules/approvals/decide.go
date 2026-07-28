@@ -139,7 +139,7 @@ func (s *Service) decideInTx(ctx context.Context, tx pgx.Tx, p principal.Princip
 		return row{}, &AlreadyDecidedError{Status: st}
 	}
 
-	status, action, verdict := "rejected", "reject", "rejected"
+	status, action, verdict := approvalStatusRejected, "reject", approvalStatusRejected
 	if approve {
 		status, action, verdict = approvalStatusApproved, "approve", approvalStatusApproved
 	}

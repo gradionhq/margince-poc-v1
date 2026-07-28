@@ -185,3 +185,73 @@ func fillLedgerToCeiling(t *testing.T, e *searchEnv, activityID, ownerID ids.UUI
 		t.Fatalf("filling the ledger to the ceiling: %v", err)
 	}
 }
+
+// One domain flooding the queue must not cost every other sender their
+// deferral. The workspace ceiling alone fails that way and an outsider can steer
+// it: mail from enough fresh addresses at one throwaway domain and no NEW
+// corporate sender is ever deferred again. The per-domain share is what keeps a
+// flood inside its own lane.
+func TestCaptureLedgerStopsDeferringOneFloodingDomain(t *testing.T) {
+	env := newCaptureEnv(t)
+	e, sync := env.e, env.sync
+
+	sync(t, email("first@flood.example", "First Flooder", captureOwner, "dom1@flood.example", ""))
+	var activityID, ownerID ids.UUID
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `
+			SELECT activity_id, owner_id FROM capture_pending_counterparty
+			 WHERE email = 'first@flood.example'`).Scan(&activityID, &ownerID)
+	}); err != nil {
+		t.Fatalf("reading the seeded disposition: %v", err)
+	}
+	fillDomainToShare(t, e, "flood.example", activityID, ownerID)
+
+	sync(t, email("late@flood.example", "Late Flooder", captureOwner, "dom2@flood.example", ""))
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty
+		WHERE email = 'late@flood.example'`); n != 0 {
+		t.Fatalf("%d ledger rows past the domain share, want 0", n)
+	}
+	// The breadcrumb names the domain ceiling, not the workspace one: an
+	// operator reading "the queue is full" would go looking for the wrong thing.
+	if n := countRows(t, e, `
+		SELECT count(*) FROM system_log
+		WHERE action = 'capture_deferral_capped'
+		  AND detail->>'source_id' = 'dom2@flood.example'
+		  AND detail->>'ceiling' = 'domain_ceiling'`); n != 1 {
+		t.Fatalf("%d domain-ceiling breadcrumbs, want 1", n)
+	}
+
+	// And the point of the whole exercise: everyone else still gets through.
+	sync(t, email("real@customer.example", "Real Prospect", captureOwner, "dom3@customer.example", ""))
+	if n := countRows(t, e, `
+		SELECT count(*) FROM capture_pending_counterparty
+		WHERE email = 'real@customer.example'`); n != 1 {
+		t.Fatalf("%d ledger rows for an unrelated sender, want 1 — one domain's flood must not cost everyone their deferral", n)
+	}
+}
+
+// fillDomainToShare tops one domain up to exactly its share of the ceiling,
+// leaving it full but not over — so the next message from it is the first the
+// per-domain cap refuses.
+func fillDomainToShare(t *testing.T, e *searchEnv, domain string, activityID, ownerID ids.UUID) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		var live int
+		if err := tx.QueryRow(context.Background(), `
+			SELECT count(*) FROM capture_pending_counterparty
+			 WHERE domain = $1 AND status IN ('pending', 'unsure')`, domain).Scan(&live); err != nil {
+			return err
+		}
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO capture_pending_counterparty
+			  (workspace_id, email, domain, activity_id, owner_id, status, next_attempt_at)
+			SELECT $1, 'domfill' || g || '@' || $5, $5, $2, $3, 'pending', now()
+			  FROM generate_series(1, $4) g`,
+			e.WS, activityID, ownerID, capture.PendingDeferralDomainCap-live, domain)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("filling the domain to its share: %v", err)
+	}
+}

@@ -164,8 +164,53 @@ func revokeSignatureEvidence(ctx context.Context, tx pgx.Tx, personID ids.Person
 	return nil
 }
 
+// MarkSignatureRead advances the read watermark to THIS mail, whatever the read
+// yielded. It is what stops a person whose signature states nothing the pass
+// wants from being re-read — and re-billed — every night: they return as a
+// candidate only when mail NEWER than the watermark arrives.
+//
+// The watermark is the message's own occurred_at and it only moves forward
+// (GREATEST): a cursor that could rewind would reopen the person as soon as the
+// mail it names is archived, or whenever two workers finished out of order.
+//
+// Bookkeeping, not a domain mutation, so it carries no audit or outbox row — the
+// same posture as the capture auto-enrich cursor. Deliberately outside the apply
+// transaction too: losing the watermark after a successful apply costs one
+// repeated read whose evidence rows are all first-verdict-wins inserts, so the
+// repeat changes nothing.
+func (s *Store) MarkSignatureRead(ctx context.Context, personID ids.PersonID, activityID ids.UUID) error {
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// occurred_at is read from the activity rather than taken from the
+		// caller: the watermark and the candidate query must compare the same
+		// number, and only one of them can be the row itself.
+		tag, err := tx.Exec(ctx, `
+			INSERT INTO person_signature_enrich_state (workspace_id, person_id, activity_id, last_activity_at)
+			SELECT $1, $2, a.id, a.occurred_at FROM activity a WHERE a.id = $3
+			ON CONFLICT (person_id) DO UPDATE
+			SET activity_id = EXCLUDED.activity_id,
+			    last_activity_at = GREATEST(person_signature_enrich_state.last_activity_at,
+			                                EXCLUDED.last_activity_at),
+			    attempted_at = now()`,
+			workspaceID(ctx), personID, activityID)
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() == 0 {
+			// The activity is gone (erased, archived away) between the candidate
+			// query and here. Nothing to watermark against; the next pass reads
+			// whatever mail this person has now.
+			return nil
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("people: recording the signature read: %w", err)
+	}
+	return nil
+}
+
 // SignatureCandidate is one person the enrich pass should look at: a
-// connector-created person still missing title AND phone, with the mail to
+// connector-created person with an unanswered signature field, and the mail to
 // read the signature from.
 type SignatureCandidate struct {
 	PersonID   ids.PersonID
@@ -175,9 +220,24 @@ type SignatureCandidate struct {
 	Body       string // the latest inbound email's stored body
 }
 
-// SignatureCandidates lists connector-created people still missing BOTH
-// title and phone, each with their most recent inbound linked email — the
-// §2.9 candidate set, bounded for one pass.
+// SignatureCandidates lists connector-created people whose signature still
+// has something to say, each with their most recent inbound linked email —
+// the §2.9 candidate set, bounded for one pass.
+//
+// "Something to say" is per FIELD, not per person (the PO-F-2a amendment): a
+// person is a candidate while they lack a title AND a phone, OR while they
+// lack the `org_name` evidence the name-promotion rule reads. The predicate
+// used to retire a person the moment ANY profile-field row existed, so one
+// accepted title permanently silenced the company name their signature also
+// states.
+//
+// Asking is bounded by person_signature_enrich_state: the pass watermarks the
+// mail it read, and a person returns as a candidate only when mail newer than
+// the watermark arrives. Without that a person whose signature simply never
+// states a company would be re-read every night forever, paying a model call
+// each time. The comparison is on occurred_at, not on the activity id — an
+// identity check would reopen the person the moment the mail it names is
+// archived, and the query would then pay to re-read an OLDER signature.
 func (s *Store) SignatureCandidates(ctx context.Context, limit int) ([]SignatureCandidate, error) {
 	var out []SignatureCandidate
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -186,7 +246,7 @@ func (s *Store) SignatureCandidates(ctx context.Context, limit int) ([]Signature
 			FROM person p
 			LEFT JOIN person_email pe ON pe.person_id = p.id AND pe.is_primary AND pe.archived_at IS NULL
 			JOIN LATERAL (
-				SELECT a.id, a.body
+				SELECT a.id, a.body, a.occurred_at
 				FROM activity_link al
 				JOIN activity a ON a.id = al.activity_id
 				WHERE al.person_id = p.id AND al.entity_type = 'person'
@@ -194,10 +254,17 @@ func (s *Store) SignatureCandidates(ctx context.Context, limit int) ([]Signature
 				ORDER BY a.occurred_at DESC
 				LIMIT 1
 			) a ON true
+			LEFT JOIN person_signature_enrich_state st ON st.person_id = p.id
 			WHERE p.captured_by LIKE 'connector:%' AND p.archived_at IS NULL AND p.merged_into_id IS NULL
-			  AND p.title IS NULL
-			  AND NOT EXISTS (SELECT 1 FROM person_phone ph WHERE ph.person_id = p.id AND ph.archived_at IS NULL)
-			  AND NOT EXISTS (SELECT 1 FROM person_profile_field f WHERE f.person_id = p.id)
+			  AND (
+				(p.title IS NULL
+				  AND NOT EXISTS (SELECT 1 FROM person_phone ph WHERE ph.person_id = p.id AND ph.archived_at IS NULL)
+				  AND NOT EXISTS (SELECT 1 FROM person_profile_field f
+				                  WHERE f.person_id = p.id AND f.field IN ('title', 'phone')))
+				OR NOT EXISTS (SELECT 1 FROM person_profile_field f
+				               WHERE f.person_id = p.id AND f.field = 'org_name')
+			  )
+			  AND (st.last_activity_at IS NULL OR a.occurred_at > st.last_activity_at)
 			ORDER BY p.created_at
 			LIMIT $1`, limit)
 		if err != nil {

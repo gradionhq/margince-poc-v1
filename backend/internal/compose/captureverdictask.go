@@ -31,8 +31,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/schema"
 )
 
-// ask makes one structured verdict call for the given addresses.
-func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.PendingCounterparty) ([]verdictResult, error) {
+// verdictRequest builds the ONE model call that judges ONE sender. It is a pure
+// function of the ledger row so the same request can be issued outside the
+// engine — by the certification lane — without re-creating it, because a
+// re-creation certifies a copy rather than the prompt that ships.
+//
+// The fence is minted here, per request: its scope is the text of this one call,
+// and a boundary reused across calls is one a previous sender has already been
+// shown.
+func verdictRequest(row capture.PendingCounterparty) model.Request {
 	fence := promptfence.New()
 	var prompt strings.Builder
 	prompt.WriteString("First-time sender (untrusted; judge it by its id):\n")
@@ -46,13 +53,18 @@ func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.Pending
 	prompt.WriteString(fence.WrapAttr("id", row.ID.String(), sender) + "\n")
 	prompt.WriteString(`Return JSON: { "results": [ { "id", "verdict", "confidence" } ] } — one entry for the supplied id.`)
 
-	req := model.Request{
+	return model.Request{
 		System:         verdictSystemFor(fence),
 		Messages:       []model.Message{{Role: chatRoleUser, Content: prompt.String()}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: verdictSchema(),
 		SecretStripper: ai.NewSecretStripper(),
 	}
+}
+
+// ask makes one structured verdict call for the given addresses.
+func (e *CounterpartyVerdictEngine) ask(ctx context.Context, row capture.PendingCounterparty) ([]verdictResult, error) {
+	req := verdictRequest(row)
 	validate := verdictShapeValid(row)
 	var resp model.Response
 	var err error

@@ -158,27 +158,14 @@ func decodeJSONObject(raw json.RawMessage) (map[string]any, error) {
 	return m, nil
 }
 
-// stageOrJoinPendingInTx serializes one proposal identity and returns its live
-// pending approval when another worker already staged it. The transaction
-// lock covers the empty-set case that a row lock cannot protect, so replicas
-// cannot both observe no pending row and create duplicates.
 func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.ApprovalID, error) {
 	var id ids.ApprovalID
 	wsID, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no workspace bound to context")
 	}
-	// The lock serializes one proposal identity: the diff hash by default, the
-	// logical Identity when set — two workers proposing DIFFERENT diffs for one
-	// identity must not interleave between the join-check and the supersede.
-	discriminator := in.DiffHash
-	if len(in.Identity) > 0 {
-		discriminator = string(in.Identity)
-	}
-	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended(
-			'approval_pending:' || $1::text || ':' || $2 || ':' || $3::text || ':' || $4, 0))`,
-		wsID, in.Kind, in.TargetID, discriminator); err != nil {
-		return ids.ApprovalID{}, fmt.Errorf("lock pending approval identity: %w", err)
+	if err := lockProposalIdentity(ctx, tx, wsID, in); err != nil {
+		return ids.ApprovalID{}, err
 	}
 	err := tx.QueryRow(ctx, `SELECT id FROM approval
 			WHERE workspace_id = $1 AND kind = $2 AND target_entity_id = $3 AND diff_hash = $4
@@ -353,38 +340,4 @@ func optionalTargetID(id ids.UUID) *openapi_types.UUID {
 	}
 	v := openapi_types.UUID(id)
 	return &v
-}
-
-// HasPendingFor reports whether a live pending staging of this kind,
-// target and exact proposed change already sits in the inbox. Stagers
-// fed by at-least-once triggers (connector syncs re-hitting the same
-// collision) consult it so a recurring trigger cannot multiply
-// identical proposals.
-func (s *Service) HasPendingFor(ctx context.Context, kind string, targetID ids.UUID, diffHash string) (bool, error) {
-	var exists bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM approval
-			  WHERE kind = $1 AND target_entity_id = $2 AND diff_hash = $3
-			    AND status = 'pending' AND expires_at > now())`,
-			kind, targetID, diffHash).Scan(&exists)
-	})
-	return exists, err
-}
-
-// HasPendingKind reports whether a live pending staging of this kind
-// sits against the target at all, whatever its proposed change. Nightly
-// sweeps whose proposal moves with "today" consult it — a diff-hash
-// identity check (HasPendingFor) would let every pass stack a fresh
-// staging on one still awaiting decision.
-func (s *Service) HasPendingKind(ctx context.Context, kind string, targetID ids.UUID) (bool, error) {
-	var exists bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (SELECT 1 FROM approval
-			  WHERE kind = $1 AND target_entity_id = $2
-			    AND status = 'pending' AND expires_at > now())`,
-			kind, targetID).Scan(&exists)
-	})
-	return exists, err
 }

@@ -1,10 +1,12 @@
 # ai-tasks.yaml — the AI task contract (spec §1.2, ai-operational-spec.md).
 #
 # Authority relationship (ratified: margince-poc-v1 AI runtime contract +
-# certification arc): THIS file is the normative authority for the task/tier
-# vocabulary — the task list, its tiers, each task's fallback ladder, execution
-# mode (interactive | background), and budget-exhaustion posture (degrade |
-# queue). The build repo's copy
+# certification arc): THIS file is the normative authority for the AI task
+# DECLARATION — the task list, its tiers, each task's fallback ladder, execution
+# mode (interactive | background), budget-exhaustion posture (degrade | queue),
+# and (ADR-0074) whether the task ships at all, its named invocation sites, its
+# payload-capture posture, its company-context policy, and which cost-unit rule
+# prices it. The build repo's copy
 # (backend/api/ai-tasks.yaml) must match it verbatim; the build's
 # tools/gen-aitasks compiles that copy into the binary (tasks_gen.go) behind a
 # drift gate, the same mechanism crm.yaml already uses for the HTTP contract.
@@ -18,33 +20,209 @@
 # use `queue`. Here `queue` means "return a typed budget deferral to the task's
 # existing durable carrier" — the router never creates an unowned generic job.
 # Deferral makes no provider call and does not consume a worker attempt.
+#
+# ADR-0074 fields, and what each is for:
+#
+#   status            shipped | planned. A `planned` task is declared but has no
+#                     implementation: no site, no corpus scenario, no
+#                     certification record. This is what stops an unimplemented
+#                     task presenting as certified.
+#   sites             the named model-invocation sites the build registers for
+#                     this task. A task is NOT one prompt: rate_extract has
+#                     always had two (pricing, fx), cold_start has four. A bare
+#                     name defaults to kind `one_shot`; a mapping declares a
+#                     different kind.
+#   kind              one_shot | multi_turn | agent_loop — how the site invokes
+#                     the model. `agent_loop` is a cumulative, tool-fed window,
+#                     NOT a request factory, and must not be described as one.
+#   no_payload        content from this task must NEVER reach ai_call_payload,
+#                     whatever the deployment's capture posture says. A parsed
+#                     field, not a phrase in `doc:` — a sentence in a comment
+#                     must not be load-bearing for a data-protection control.
+#   company_context   the ADR-0065 policy: `none`, or scopes + token_budget
+#                     (+ conditional, meaning "only when the caller requests
+#                     it"). Absent-by-accident must be a build error, never a
+#                     runtime one.
+#   cost_unit         the ADR-0067/0068 unit rule BY NAME. The arithmetic
+#                     (observed-unit and denominator functions, the work-shape
+#                     floor) is behaviour and stays in code; naming the rule
+#                     here lets the build prove the mapping is total.
+#
+# Deliberately NOT declared here (ADR-0074): answer schemas — two sites build
+# theirs per call (one varies its very shape) and four tasks send none at all,
+# and the enums involved derive from crm.yaml's generated vocabulary, so
+# declaring them would create a third unguarded copy of a vocabulary whose
+# synchronisation is already known to be un-gateable. Also not declared: a
+# required certification band — the certification lane is paid and BYOK-gated,
+# so it reports release readiness (naming its provider/model binding) and never
+# gates a merge.
 tiers: [local_small, cheap_cloud, premium, local_large]
 
 tasks:
-  capture_classify: {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue}
-  capture_counterparty_verdict: {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "ADR-0072/A118: the ambiguous first-time-sender creation gate — real|noise|unsure per address, floor 0.7 (below → unsure, never noise). No-payload capture policy (verdict batches never persist to ai_call_payload). Release-blocking false-noise eval threshold."}
-  enrich:           {ladder: [local_small, cheap_cloud], execution_mode: background, on_budget_exhausted: queue}
-  summarize:        {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  draft_reply:      {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  nl_search:        {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  cold_start:       {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  transcript:       {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  deal_health:      {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  brief_ranking:    {ladder: [premium, cheap_cloud], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "the one Premium-frontier default (§1.2 RATIFY): genuinely multi-hop reasoning"}
-  agent_loop:       {ladder: [cheap_cloud, premium], execution_mode: background, on_budget_exhausted: queue}
-  offer_draft:      {ladder: [cheap_cloud, premium], execution_mode: interactive, on_budget_exhausted: degrade}
-  site_extract:     {ladder: [premium], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung"}
-  site_fact_extract: {ladder: [cheap_cloud, premium], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads"}
-  cert_judge:       {ladder: [premium, cheap_cloud], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding"}
-  voice_build:      {ladder: [cheap_cloud, premium], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066)"}
-  rate_extract:     {ladder: [premium, cheap_cloud], execution_mode: background, on_budget_exhausted: queue,
-                     doc: "extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer"}
+  capture_classify:
+    ladder: [local_small, cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [classify]
+    company_context: none
+    cost_unit: per_message
+
+  capture_counterparty_verdict:
+    ladder: [local_small, cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [verdict]
+    no_payload: true
+    company_context: none
+    doc: "ADR-0072/A118: the ambiguous first-time-sender creation gate — real|noise|unsure per address, floor 0.7 (below → unsure, never noise). Release-blocking false-noise eval threshold. The no-payload posture is the `no_payload` field above (ADR-0074); it was formerly asserted in this prose and matched by substring."
+
+  enrich:
+    ladder: [local_small, cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [signature]
+    company_context: none
+    cost_unit: per_person
+
+  summarize:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: planned
+    company_context: {scopes: [identity], token_budget: 300, conditional: true}
+    doc: "Declared, not built (ADR-0074). The company-context policy is carried forward so the task keeps its ADR-0065 posture when a site lands."
+
+  draft_reply:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: shipped
+    sites: [reply]
+    company_context: {scopes: [positioning, sales, proof, market], token_budget: 1400}
+    doc: "One site with two system variants (voice-enabled and plain), selected per call from the workspace's Voice DNA state — a variant, not a second site."
+
+  nl_search:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: planned
+    company_context: {scopes: [offer, market], token_budget: 600}
+    doc: "Declared, not built (ADR-0074)."
+
+  cold_start:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: shipped
+    sites:
+      - {name: company_message, kind: multi_turn}
+      - {name: sitereadmessage, kind: multi_turn}
+      - {name: acts, kind: multi_turn}
+      - field_extract
+    company_context: none
+    doc: "Four sites, not one: three conversational onboarding lanes plus the evidence-extraction pass the read-back rides. The extraction site is the consequential one and had no name before ADR-0074."
+
+  transcript:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: planned
+    company_context: none
+    doc: "Declared, not built (ADR-0074). Pasted transcript text is T2/untrusted per ai-operational-spec §1 when a site lands."
+
+  deal_health:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: planned
+    company_context: none
+    doc: "Declared, not built (ADR-0074)."
+
+  brief_ranking:
+    ladder: [premium, cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [rank]
+    company_context: none
+    doc: "the one Premium-frontier default (§1.2 RATIFY): genuinely multi-hop reasoning"
+
+  agent_loop:
+    ladder: [cheap_cloud, premium]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites:
+      - {name: loop, kind: agent_loop}
+    company_context: {scopes: [identity, positioning, sales, offer], token_budget: 1200}
+    doc: "The Surface-B reason-act loop: a cumulative, tool-fed message window, not a request factory. ADR-0074 names it the open risk for fixture-driven certification — if it cannot be certified honestly the census needs a `not_certifiable` kind."
+
+  offer_draft:
+    ladder: [cheap_cloud, premium]
+    execution_mode: interactive
+    on_budget_exhausted: degrade
+    status: shipped
+    sites: [draft]
+    company_context: {scopes: [offer, positioning, proof], token_budget: 1600}
+
+  site_extract:
+    ladder: [premium]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [profile]
+    company_context: none
+    doc: "premium-only BY CONTRACT: the no-guess gate demands verbatim quotes cheap tiers paraphrase; no fallback rung. Its response schema is built PER CALL (the citation enum is that call's passage ids), which is why ADR-0074 leaves answer schemas in code."
+
+  site_fact_extract:
+    ladder: [cheap_cloud, premium]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [page_facts]
+    company_context: none
+    doc: "the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads. Its response schema varies in SHAPE per call with the page menu (ADR-0074)."
+
+  cert_judge:
+    ladder: [premium, cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [judge]
+    company_context: none
+    doc: "the aicert quality judge — pinned to its own router in the cert lane, never the candidate's binding"
+
+  voice_build:
+    ladder: [cheap_cloud, premium]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [derive, eval_draft, eval_scores]
+    company_context: none
+    doc: "owner-requested or automatic durable Voice DNA candidate build; own-authored corpus only, CompanyContext none (ADR-0066). Three sites: the derive pass plus the two evaluation passes."
+
+  rate_extract:
+    ladder: [premium, cheap_cloud]
+    execution_mode: background
+    on_budget_exhausted: queue
+    status: shipped
+    sites: [pricing, fx]
+    company_context: none
+    doc: "extract per-model AI pricing (per-MTok buckets) from a fetched pricing page, evidence-gated; feeds the model-cost refresh proposal producer. Two sites — the pricing-page pass and the FX pass — a distinction the build has carried unnamed (two prompt builders, two byte-pin tests, three corpus scenarios) since it was written."
+
+# embed is a workload, not a task (ADR-0074). It has a real ladder and a real
+# cost rule, but its tier is deliberately NOT one of the chat tiers above, and
+# it has no prompt, no text answer and no completion path — so it carries no
+# sites, no company-context policy, and no corpus or certification obligation.
+# Forcing it through the task shape would make it unparseable and would give
+# those obligations no meaning. Its absence from `tasks:` is why it escaped
+# every completeness check before this ADR.
+embed:
+  tier: embed
+  cost_unit: per_entity
 
 degrade_to:
   premium: cheap_cloud

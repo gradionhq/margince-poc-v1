@@ -61,6 +61,23 @@ func (w *captureEnrichWorker) Work(ctx context.Context, _ *river.Job[CaptureEnri
 	return w.enricher.Run(ctx)
 }
 
+// OrgNamePromotionArgs runs one org-name promotion pass (PO-F-2a).
+type OrgNamePromotionArgs struct{}
+
+// Kind is the stable job identifier River persists in river_job.
+func (OrgNamePromotionArgs) Kind() string { return "org_name_promotion" }
+
+// orgNamePromotionWorker drives the corroborated-name sweep: a database-only
+// pass over the org_name evidence the enrich job collects.
+type orgNamePromotionWorker struct {
+	river.WorkerDefaults[OrgNamePromotionArgs]
+	promoter *OrgNamePromoter
+}
+
+func (w *orgNamePromotionWorker) Work(ctx context.Context, _ *river.Job[OrgNamePromotionArgs]) error {
+	return w.promoter.Run(ctx)
+}
+
 // CaptureDigestArgs builds the morning digests (CAP-DDL-6; the nightly
 // suite's last pass).
 type CaptureDigestArgs struct{}
@@ -246,6 +263,12 @@ func (w *counterpartyVerdictWorker) Work(ctx context.Context, _ *river.Job[Count
 		return err
 	}
 	if err := w.engine.StageReviews(ctx, 0); err != nil {
+		return err
+	}
+	// After staging, not before: a row whose window closed this tick has had its
+	// last chance to be offered, and closing it first would withdraw an offer
+	// that was about to be re-staged in the same pass.
+	if err := w.engine.AgeOutStaleReviews(ctx, capture.UnsureReviewWindow); err != nil {
 		return err
 	}
 	if err := w.engine.HideNoiseStragglers(ctx); err != nil {

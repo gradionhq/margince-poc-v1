@@ -270,10 +270,15 @@ func replyDraftSystemFor(system string, fence promptfence.Fence) string {
 	return system + "\n" + fence.Rule("activity")
 }
 
-func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, voiceBlock voiceBlockFor) (replyDraft, error) {
+// replyDraftRequest builds the one request a draft call sends, in whichever of
+// this site's two system variants the call is made under. The workspace's Voice
+// DNA state selects the variant per call — a loaded profile supplies a block and
+// takes the voice prompt, no profile takes the plain one — and both remain the
+// same invocation site: same schema, same bounds, same data boundary.
+func replyDraftRequest(activity replyActivityData, voiceBlock voiceBlockFor) (model.Request, error) {
 	payload, err := json.Marshal(activity)
 	if err != nil {
-		return replyDraft{}, fmt.Errorf("compose: encode reply activity context: %w", err)
+		return model.Request{}, fmt.Errorf("compose: encode reply activity context: %w", err)
 	}
 	// The activity is the counterparty's own text. It was safe here only by
 	// accident — json.Marshal escapes "<" to \u003c, so a forged block marker
@@ -286,7 +291,7 @@ func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, 
 		system = replyDraftVoiceSystem
 		content = voiceBlock(fence) + "\n\n" + content
 	}
-	req := model.Request{
+	return model.Request{
 		System: replyDraftSystemFor(system, fence),
 		Messages: []model.Message{{
 			Role:    chatRoleUser,
@@ -295,6 +300,13 @@ func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, 
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		ResponseSchema: replyDraftSchema,
 		SecretStripper: ai.NewSecretStripper(),
+	}, nil
+}
+
+func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, voiceBlock voiceBlockFor) (replyDraft, error) {
+	req, err := replyDraftRequest(activity, voiceBlock)
+	if err != nil {
+		return replyDraft{}, err
 	}
 
 	var resp model.Response
@@ -306,12 +318,23 @@ func (d replyDrafter) complete(ctx context.Context, activity replyActivityData, 
 	if err != nil {
 		return replyDraft{}, err
 	}
-	var draft replyDraft
-	if err := json.Unmarshal([]byte(ai.Unfence(resp.Text)), &draft); err != nil {
-		return replyDraft{}, fmt.Errorf("compose: reply draft response is not valid JSON: %w", err)
+	draft, err := parseReplyDraft(resp.Text)
+	if err != nil {
+		return replyDraft{}, err
 	}
 	if err := validateReplyDraft(draft); err != nil {
 		return replyDraft{}, err
+	}
+	return draft, nil
+}
+
+// parseReplyDraft reads one model reply as the draft it claims to be. The
+// provider's own envelope comes off first: a reply is not malformed for having
+// been returned inside one.
+func parseReplyDraft(text string) (replyDraft, error) {
+	var draft replyDraft
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &draft); err != nil {
+		return replyDraft{}, fmt.Errorf("compose: reply draft response is not valid JSON: %w", err)
 	}
 	return draft, nil
 }
