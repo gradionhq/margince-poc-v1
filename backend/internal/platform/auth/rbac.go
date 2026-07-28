@@ -264,11 +264,20 @@ func EnsureVisible(ctx context.Context, tx pgx.Tx, table string, id ids.UUID) er
 
 // auditActionGrant maps each audit_log.action verb onto the CRUD grant
 // that authorizes it. Package-level: AuthzRule sits on every write path.
+//
+// Each entry names the grant the verb's write path actually demands, so
+// the attribution is the rule that admitted the call rather than a
+// plausible-looking one: export is person.delete because SAR assembly is
+// gated on it, and erase is voice_profile.update because clearing a
+// corpus is gated as an update. A verb missing here renders a BLANK
+// authorization_rule, which reads as "no rule applied" years later —
+// TestEveryAuditVerbRendersItsAuthorizationRule keeps the set closed.
 var auditActionGrant = map[string]principal.Action{
 	"create":           principal.ActionCreate,
 	"update":           principal.ActionUpdate,
 	"assign":           principal.ActionUpdate,
 	"advance_stage":    principal.ActionUpdate,
+	"advance_phase":    principal.ActionUpdate,
 	"restore":          principal.ActionUpdate,
 	"archive":          principal.ActionDelete,
 	"merge":            principal.ActionUpdate,
@@ -277,6 +286,11 @@ var auditActionGrant = map[string]principal.Action{
 	"consent_withdraw": principal.ActionUpdate,
 	"activity_relink":  principal.ActionUpdate,
 	"resolve":          principal.ActionUpdate,
+	"reject":           principal.ActionUpdate,
+	"erase":            principal.ActionUpdate,
+	"export":           principal.ActionDelete,
+	"record_share":     principal.ActionUpdate,
+	"record_unshare":   principal.ActionUpdate,
 }
 
 // AuthzRule renders the audit_log.authorization_rule attribution for a

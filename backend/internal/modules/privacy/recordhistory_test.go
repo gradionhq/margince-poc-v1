@@ -5,7 +5,9 @@ package privacy
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -91,46 +93,67 @@ func TestComposeRecordSummary(t *testing.T) {
 	}
 }
 
-// checkVocabularyPath is relative to this package directory
+// coreMigrationsDir is relative to this package directory
 // (backend/internal/modules/privacy), the same "walk up to the repo tree"
 // style as backend/license_test.go and backend/arch_test.go use from the
-// backend root — here the fixed point is one file, not the whole tree.
-const checkVocabularyPath = "../../../migrations/core/0053_audit_verb_vocabulary.up.sql"
+// backend root.
+const coreMigrationsDir = "../../../migrations/core"
 
 // auditActionCheckClause matches the single-quoted literal list inside the
 // audit_log_action_check CHECK constraint, across its multi-line layout.
 var auditActionCheckLiteral = regexp.MustCompile(`'([a-z_]+)'`)
 
-// verbsFromCheckConstraint parses 0053's CHECK(action IN (...)) clause and
-// returns every admitted verb. This is the fitness function (repo rule 2):
-// the expected verb set is derived from the migration file itself, not
-// copied by hand into the test — so a future widening of the CHECK without
-// a matching rendering phrase fails this test instead of silently falling
-// back to the raw action string at render time.
+// verbsFromCheckConstraint returns every verb the effective
+// audit_log_action_check admits. The vocabulary grows additively (drop
+// CHECK + re-add wider), so the effective set is the HIGHEST-numbered
+// migration that restates it — reading one pinned file instead is how a
+// later widening (0133 added advance_phase) sailed past this gate while
+// the new verb rendered no phrase at all. ADR-0017's 4-digit prefix makes
+// lexical order migration order, so the last match wins.
 func verbsFromCheckConstraint(t *testing.T) []string {
 	t.Helper()
-	raw, err := os.ReadFile(checkVocabularyPath) // #nosec G304 -- fixed repo-relative path, test-only
+	entries, err := os.ReadDir(coreMigrationsDir)
 	if err != nil {
-		t.Fatalf("reading %s: %v", checkVocabularyPath, err)
+		t.Fatalf("reading %s: %v", coreMigrationsDir, err)
 	}
-	text := string(raw)
-	start := strings.Index(text, "action IN (")
-	if start == -1 {
-		t.Fatalf("%s: no \"action IN (\" clause found — has the constraint been renamed?", checkVocabularyPath)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".up.sql") {
+			names = append(names, e.Name())
+		}
 	}
-	clause := text[start:]
-	end := strings.Index(clause, ")")
-	if end == -1 {
-		t.Fatalf("%s: unterminated \"action IN (\" clause", checkVocabularyPath)
+	sort.Strings(names)
+
+	var verbs []string
+	var source string
+	for _, name := range names {
+		path := filepath.Join(coreMigrationsDir, name)
+		raw, err := os.ReadFile(path) // #nosec G304 -- a *.up.sql name from the trusted migrations tree, test-only
+		if err != nil {
+			t.Fatalf("reading %s: %v", path, err)
+		}
+		text := string(raw)
+		start := strings.Index(text, "action IN (")
+		if start == -1 {
+			continue
+		}
+		clause := text[start:]
+		end := strings.Index(clause, ")")
+		if end == -1 {
+			t.Fatalf("%s: unterminated \"action IN (\" clause", path)
+		}
+		matches := auditActionCheckLiteral.FindAllStringSubmatch(clause[:end], -1)
+		if len(matches) == 0 {
+			t.Fatalf("%s: matched the IN clause but found no quoted verbs inside it", path)
+		}
+		verbs = verbs[:0]
+		for _, m := range matches {
+			verbs = append(verbs, m[1])
+		}
+		source = path
 	}
-	clause = clause[:end]
-	matches := auditActionCheckLiteral.FindAllStringSubmatch(clause, -1)
-	if len(matches) == 0 {
-		t.Fatalf("%s: matched the IN clause but found no quoted verbs inside it", checkVocabularyPath)
-	}
-	verbs := make([]string, 0, len(matches))
-	for _, m := range matches {
-		verbs = append(verbs, m[1])
+	if source == "" {
+		t.Fatalf("%s: no migration states an \"action IN (\" clause — has the constraint been renamed?", coreMigrationsDir)
 	}
 	return verbs
 }
@@ -178,7 +201,7 @@ func TestRecordHistoryVerbsCoverTheAuditCheckVocabulary(t *testing.T) {
 		// the known 0053 count is a floor, not a ceiling, so a widening
 		// migration after this one still passes.
 		t.Fatalf("parsed only %d verb(s) from %s, want at least 25 — parser likely broken: %v",
-			len(verbs), checkVocabularyPath, verbs)
+			len(verbs), coreMigrationsDir, verbs)
 	}
 	var missing []string
 	for _, verb := range verbs {
