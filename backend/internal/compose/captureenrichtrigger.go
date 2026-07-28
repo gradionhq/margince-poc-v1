@@ -70,75 +70,71 @@ func riverQueueReady(ctx context.Context) bool {
 // It never returns an error, and that is the contract rather than laziness: it
 // is called from the capture pipeline's post-commit step, which must never fail
 // a capture. The message and its records are already committed by the time this
-// runs; the worst outcome here is a company whose dossier waits for the sweep.
-// Every give-up says so in the log, because a trigger that silently declines is
-// indistinguishable from one that ran.
+// runs; the worst outcome is a company whose dossier waits for the sweep.
 func (t *autoEnrichTrigger) organizationCaptured(ctx context.Context, orgID ids.OrganizationID, domain string) {
-	if domain == "" {
+	// The two free gates first. Nothing to read without a domain, and a process
+	// with no ambient queue cannot start a read however the setting reads and
+	// however much budget is left — asking the database three questions before
+	// discovering that is pure cost on the capture hot path.
+	if domain == "" || !t.queueReady(ctx) {
 		return
 	}
-	// The queue first, because it is the only gate that costs nothing to ask and
-	// the only one that can make every later step pointless. A process with no
-	// ambient River client cannot start a read however the setting reads and
-	// however much budget is left, so asking the database three questions before
-	// discovering that is pure cost on the hot capture path — and it is the
-	// normal state in any process that composes a Sink without a queue.
-	if !t.queueReady(ctx) {
-		t.log.DebugContext(ctx, "capture auto-enrich: no queue in this process, the sweep takes this org",
-			"org", orgID.String())
-		return
+	if err := t.queueRead(ctx, orgID, domain); err != nil {
+		// One place to report from, because every fault here has the same
+		// consequence and the same remedy: nothing was queued, and the sweep
+		// finds this organization exactly as it would have anyway.
+		t.log.WarnContext(ctx, "capture auto-enrich: on-capture trigger gave up, the sweep takes this org",
+			"org", orgID.String(), "err", err)
 	}
-	// The read is the system's, not the connector's: it is attributed to
+}
+
+// queueRead runs the gates that cost a query and queues the read past them.
+//
+// A nil return is not "it queued": the setting being off and the day's cap being
+// spent are ordinary answers, not faults, and they are what the sweep exists to
+// pick up. Only a genuine failure comes back as an error.
+func (t *autoEnrichTrigger) queueRead(ctx context.Context, orgID ids.OrganizationID, domain string) error {
+	// The read is the system's, not the connector's: attributed to
 	// `system:capture_auto_enrich` exactly as the sweep's is, so the dossier's
-	// provenance says what caused it rather than who happened to be syncing.
-	// The correlation id is deliberately NOT re-minted — keeping the capture's
-	// ties this dossier to the message that asked for it.
+	// provenance says what caused it rather than who happened to be syncing. The
+	// correlation id is deliberately NOT re-minted — keeping the capture's ties
+	// this dossier to the message that asked for it.
 	enrichCtx := principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: systemAutoEnrichActor,
 	})
-
 	settings, err := t.settings.Get(enrichCtx)
 	if err != nil {
-		t.log.WarnContext(ctx, "capture auto-enrich: reading the setting failed, leaving the org to the sweep",
-			"org", orgID.String(), "err", err)
-		return
+		return err
 	}
 	if !settings.AutoEnrich {
-		return
+		return nil
 	}
 	// The same atomically-reserved daily cap the sweep spends from — one budget,
-	// whichever path spends it, or the trigger would be a way around the
-	// ADR-0020 guardrail rather than a faster route through it.
+	// whichever path spends it, or the trigger would be a way around the ADR-0020
+	// guardrail rather than a faster route through it.
 	reserved, err := t.autoEnrich.ReserveBudget(enrichCtx, t.dailyCap)
 	if err != nil {
-		t.log.WarnContext(ctx, "capture auto-enrich: reserving the daily budget failed, leaving the org to the sweep",
-			"org", orgID.String(), "err", err)
-		return
+		return err
 	}
 	if !reserved {
-		// The day's reads are spent. Said at debug, not warn: on a backfill that
-		// mints hundreds of companies this is the NORMAL state after the first
-		// few, and a warning per company would bury the faults that matter.
+		// Debug, not warn: on a backfill that mints hundreds of companies this is
+		// the NORMAL state after the first ten, and a warning per company would
+		// bury the faults that matter.
 		t.log.DebugContext(ctx, "capture auto-enrich: daily cap reached, the sweep takes this org",
 			"org", orgID.String())
-		return
+		return nil
 	}
 	started, err := startAutoEnrichRead(enrichCtx, t.people, t.autoEnrich, orgID, domain)
 	if err != nil {
-		// The reserved slot is spent without a read to show for it — a
-		// conservative under-spend, and the org stays due for the sweep.
-		t.log.WarnContext(ctx, "capture auto-enrich: on-capture trigger failed, leaving the org to the sweep",
-			"org", orgID.String(), "err", err)
-		return
+		// The reserved slot is spent with no read to show for it — a conservative
+		// under-spend, and the org stays due for the sweep.
+		return err
 	}
 	if started {
-		return
+		return nil
 	}
 	// A read for this organization was already in flight — the sweep and this
 	// capture found it in the same moment, and the uniqueness index arbitrated.
 	// The slot goes back: one crawl must not cost the day two of its ten reads.
-	if err := t.autoEnrich.ReleaseBudget(enrichCtx); err != nil {
-		t.log.WarnContext(ctx, "capture auto-enrich: returning the unused budget slot failed",
-			"org", orgID.String(), "err", err)
-	}
+	return t.autoEnrich.ReleaseBudget(enrichCtx)
 }
