@@ -102,9 +102,18 @@ func TestEveryBackfillRunWriteSettlesTheInFlightTally(t *testing.T) {
 	}
 	// Consts first, across every file: the shared reset fragment is declared in
 	// one file and concatenated into statements written in others.
+	// Repeat until the map stops growing: a fragment can be assembled from
+	// another fragment declared in a different file, and one pass would leave
+	// the outer one unresolved.
 	consts := map[string]string{}
-	for _, file := range files {
-		collectStringConsts(file, consts)
+	for range files {
+		before := len(consts)
+		for _, file := range files {
+			collectStringConsts(file, consts)
+		}
+		if len(consts) == before {
+			break
+		}
 	}
 	var writers int
 	for _, file := range files {
@@ -147,7 +156,7 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 		case matchesEveryColumn(sql, fromParameter):
 			writers++
 		case !matchesEveryColumn(sql, toZero):
-			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end the statement with resetInflightProgress, or the status read counts that page's work twice:\n%s",
+			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end it with settleInflightProgress (a page-ending write, which keeps the counterparty yields) or resetInflightProgress (the page commit, which has already folded them in), or the status read counts that page's work twice:\n%s",
 				fset.Position(expr.Pos()), strings.Join(inflightColumns, ", "), sql)
 		}
 		return false
@@ -157,7 +166,10 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 
 // collectStringConsts adds one file's string constants to consts, so a
 // statement assembled from a shared fragment resolves to what the database
-// actually receives.
+// actually receives. A const may be built FROM another const, so it resolves
+// through sqlOf and the caller repeats until the map stops growing — a
+// fragment that resolved to nothing would make every statement using it look
+// like it settles no tally.
 func collectStringConsts(file *ast.File, consts map[string]string) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -169,10 +181,12 @@ func collectStringConsts(file *ast.File, consts map[string]string) {
 			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
 				continue
 			}
-			if lit, ok := value.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				if text, err := strconv.Unquote(lit.Value); err == nil {
-					consts[value.Names[0].Name] = text
-				}
+			name := value.Names[0].Name
+			if _, done := consts[name]; done {
+				continue
+			}
+			if text, ok := sqlOf(consts, value.Values[0]); ok {
+				consts[name] = text
 			}
 		}
 	}

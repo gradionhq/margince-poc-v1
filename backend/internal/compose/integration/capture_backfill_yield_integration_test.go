@@ -36,6 +36,10 @@ type mailPageConnector struct {
 	// afterMessage hands control to the test once a message has been captured
 	// and its counterparties resolved, so the live tally is observable MID-page.
 	afterMessage func()
+	// failAfterMessages > 0 abandons the page transiently once that many
+	// messages have been captured — the retryable fault whose counterparty
+	// yields no later attempt can re-count.
+	failAfterMessages int
 }
 
 func (m *mailPageConnector) Descriptor() connector.Descriptor {
@@ -89,6 +93,9 @@ func (m *mailPageConnector) BackfillPage(ctx context.Context, _ connector.Auth, 
 		res.Captured++
 		if m.afterMessage != nil {
 			m.afterMessage()
+		}
+		if m.failAfterMessages > 0 && res.Captured == m.failAfterMessages {
+			return connector.BackfillPageResult{}, &connector.RateLimitedError{}
 		}
 	}
 	return res, nil
@@ -276,4 +283,68 @@ func readBackfillYieldColumns(t *testing.T, e *searchEnv, id ids.UUID) (people, 
 		t.Fatal(err)
 	}
 	return people, organizations
+}
+
+func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
+	// A page that fails transiently is retried from the committed cursor, and
+	// capture is idempotent: every message it already captured replays as
+	// created=false and never reaches the counterparty resolver again. So the
+	// people and companies the failed attempt minted are counted by that
+	// attempt or by nobody — dropping them with the rest of its tally
+	// undercounts the run for good.
+	e := setupSearch(t)
+	seedCaptureRole(t, e)
+	prov := &mailPageConnector{
+		raws: [][]byte{
+			email("alice@gmail.com", "Alice Example", captureOwner, "y1@gmail.com", ""),
+			email(captureOwner, "", "dave@globex.example", "y3@myco.example", ""),
+		},
+		sent: map[string]bool{"y3@myco.example": true},
+	}
+	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{}).
+		WithProgressPacing(0)
+	registry.Register(prov)
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 2, enqueueNothing)
+	if err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+
+	// Fail the page after both messages have been captured and resolved, which
+	// is the worst case: every counterparty exists, and none of them will be
+	// offered to the resolver again.
+	prov.failAfterMessages = 2
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if _, _, retryAfter, err := registry.RunBackfillStep(wsCtx, run.ID); err == nil || retryAfter <= 0 {
+		t.Fatalf("the page must fail transiently and ask for a retry: retryAfter=%v err=%v", retryAfter, err)
+	}
+
+	// Promoted into the committed columns by the fault, not discarded with the
+	// message tally.
+	people, orgs := readBackfillYieldColumns(t, e, run.ID)
+	if people != 2 || orgs != 1 {
+		t.Fatalf("after the transient fault people_created=%d organizations_created=%d, want 2/1 — the rows exist and no retry will count them", people, orgs)
+	}
+	if inflightPeople, inflightOrgs := readBackfillInflightYields(t, e, run.ID); inflightPeople != 0 || inflightOrgs != 0 {
+		t.Fatalf("the fault left inflight yields = %d/%d, want them settled", inflightPeople, inflightOrgs)
+	}
+
+	// The retry replays both messages, mints nothing, and must not inflate the
+	// count it inherited.
+	prov.failAfterMessages = 0
+	if _, _, _, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil {
+		t.Fatalf("retry: %v", err)
+	}
+	status, err := registry.BackfillStatus(grantCtx, "gmail", rep)
+	if err != nil || status == nil {
+		t.Fatalf("BackfillStatus: %v (run=%v)", err, status)
+	}
+	if status.People != 2 || status.Organizations != 1 {
+		t.Fatalf("after the retry = %d people / %d organizations, want 2/1 — counted once, by the attempt that minted them", status.People, status.Organizations)
+	}
 }

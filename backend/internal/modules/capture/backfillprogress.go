@@ -115,7 +115,7 @@ func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.tally.advance(scanned, captured, skipped) {
-		c.persist(ctx)
+		c.persist(ctx, paced)
 	}
 }
 
@@ -142,7 +142,11 @@ func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if outcome.OrganizationCreated {
 		c.tally.organizations++
 	}
-	c.persist(ctx)
+	// Unpaced, unlike the message tally. A yield write is rare — only an ensure
+	// that actually minted a row reaches here — and it is the ONE number a
+	// page-ending write promotes out of the row rather than out of this
+	// collector, so a paced-away increment would be lost for good.
+	c.persist(ctx, unpaced)
 }
 
 // totals reads the page's yield, for the commit that folds it into the run's
@@ -156,8 +160,18 @@ func (c *pageProgress) totals() (people, organizations int) {
 	return c.tally.people, c.tally.organizations
 }
 
-// persist writes the current tally to the run row, at most once per the
-// registry's progressPacing. Caller holds the lock.
+// flushPacing says whether a write may be dropped for being too soon. The
+// message tally is paced (the next report restates it); the counterparty
+// yields are not (nothing restates them).
+type flushPacing bool
+
+const (
+	paced   flushPacing = true
+	unpaced flushPacing = false
+)
+
+// persist writes the current tally to the run row, honouring the registry's
+// progressPacing when the caller allows it. Caller holds the lock.
 //
 // A failure is logged and dropped rather than returned, and that is the
 // deliberate call: this write exists so a screen can move, and failing a
@@ -165,9 +179,9 @@ func (c *pageProgress) totals() (people, organizations int) {
 // did not land would trade the product for the indicator. The next message
 // restates the absolute tally, and the page's own commit reconciles
 // regardless, so a lost flush costs one frame of animation and nothing else.
-func (c *pageProgress) persist(ctx context.Context) {
+func (c *pageProgress) persist(ctx context.Context, pacing flushPacing) {
 	now := c.registry.now()
-	if !c.lastFlush.IsZero() && now.Sub(c.lastFlush) < c.registry.progressPacing {
+	if pacing == paced && !c.lastFlush.IsZero() && now.Sub(c.lastFlush) < c.registry.progressPacing {
 		return
 	}
 	c.lastFlush = now
@@ -213,13 +227,31 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 	})
 }
 
-// resetInflightProgress is the SQL fragment every write that ends a page
-// carries. A page's live tally belongs to the page: once it commits, faults,
-// fails, or is cancelled, what it walked is either in the committed columns or
-// about to be walked again by a retry — either way the transient copy must go,
-// or the status read would count it twice.
+// resetInflightProgress is what the page COMMIT carries: the commit folds the
+// page's work into the committed columns from the connector's own result and
+// the collector's totals, so the transient copy has done its job and goes.
 //
 // It BEGINS with a comma, so it splices in after an existing SET assignment
 // and never as the first one.
 const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
 	    inflight_people = 0, inflight_organizations = 0`
+
+// settleInflightProgress is what every OTHER page-ending write carries — a
+// transient fault, a terminal failure, a cancel. It keeps the counterparty
+// yields and drops only the message tally, because the two halves survive a
+// failed page differently:
+//
+//   - scanned/captured/skipped describe messages the retry will walk again and
+//     restate, so keeping them would double-count.
+//   - people/organizations describe rows that ALREADY EXIST. Capture is
+//     idempotent on the natural key, so a replayed message returns
+//     created=false and never reaches the counterparty resolver again — the
+//     retry cannot re-count them, and anything dropped here is undercounted
+//     for the life of the run.
+//
+// Promoting from the ROW rather than from the collector is deliberate: cancel
+// runs in the api process, which holds no collector for a page the worker is
+// still walking. The same statement zeroes what it promoted, so no later write
+// can promote it twice.
+const settleInflightProgress = `, people_created = people_created + inflight_people,
+	    organizations_created = organizations_created + inflight_organizations` + resetInflightProgress

@@ -172,7 +172,7 @@ func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID
 		// leaving it 'queued' would misreport a live import as one never begun.
 		scanErr := tx.QueryRow(countCtx, `
 			UPDATE capture_backfill
-			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2`+resetInflightProgress+`,
+			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2`+settleInflightProgress+`,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
 			WHERE id = $1 AND status IN ('queued','running')
 			RETURNING consecutive_failures`, backfillID, string(class)).Scan(&failures)
@@ -261,7 +261,7 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 		// what happened — the import stopped, and what it already captured is
 		// kept.
 		_, err = tx.Exec(ctx, `
-			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+resetInflightProgress+`
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+settleInflightProgress+`
 			WHERE id = $1 AND status IN ('queued','running')`, backfillID)
 		return err
 	})
@@ -295,7 +295,7 @@ func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause 
 	defer cancel()
 	return database.WithWorkspaceTx(failCtx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(failCtx, `
-			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()`+resetInflightProgress+`
+			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()`+settleInflightProgress+`
 			WHERE id = $1 AND status IN ('queued','running')`, backfillID, string(class))
 		return err
 	})
