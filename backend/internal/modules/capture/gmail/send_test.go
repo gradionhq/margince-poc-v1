@@ -28,10 +28,19 @@ func authFixture(t *testing.T, granted ...string) connector.Auth {
 	return connector.Auth(raw)
 }
 
-// sendCapture serves messages.send and records the raw MIME it received.
+// sendCapture serves messages.send and records the raw MIME it received. The
+// read-back that follows every send is answered with those same bytes, which is
+// what a provider that honoured the client's identity returns.
 func sendCapture(t *testing.T, raw *string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			echo := map[string]any{"raw": *raw, "labelIds": []string{"SENT"}}
+			if err := json.NewEncoder(w).Encode(echo); err != nil {
+				t.Errorf("write read-back response: %v", err)
+			}
+			return
+		}
 		var body struct {
 			Raw string `json:"raw"`
 		}
@@ -309,5 +318,133 @@ func TestSendTrimsTheAddressesItRenders(t *testing.T) {
 	}
 	if !strings.Contains(mime, "Cc: cc@example.com\r\n") {
 		t.Errorf("Cc header is not the trimmed address:\n%s", mime)
+	}
+}
+
+// sendThenGet serves messages.send and the messages.get read-back. getRaw is
+// the RFC822 the read-back returns; an empty getRaw makes the read-back 404,
+// which is the graceful-degradation case.
+func sendThenGet(t *testing.T, getRaw string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			if _, err := w.Write([]byte(`{"id":"gmsg1"}`)); err != nil {
+				t.Errorf("write send response: %v", err)
+			}
+			return
+		}
+		if getRaw == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		body := map[string]any{
+			"raw":      base64.RawURLEncoding.EncodeToString([]byte(getRaw)),
+			"labelIds": []string{"SENT"},
+		}
+		if err := json.NewEncoder(w).Encode(body); err != nil {
+			t.Errorf("write get response: %v", err)
+		}
+	}))
+}
+
+func sentMessage(messageID string) string {
+	return "From: rep@acme.test\r\n" +
+		"To: buyer@example.com\r\n" +
+		"Subject: pricing\r\n" +
+		"Message-ID: <" + messageID + ">\r\n" +
+		"\r\n" +
+		"As discussed.\r\n"
+}
+
+func sendOne(t *testing.T, srv *httptest.Server) (connector.SendReceipt, error) {
+	t.Helper()
+	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
+	return c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
+		To: []string{"buyer@example.com"}, Subject: "pricing", Body: "As discussed.",
+		MessageID: "minted@margince.test",
+	})
+}
+
+// Gmail discards the client's Message-ID and mints its own. The receipt must
+// report what the wire carries, or every sent mail is filed under an identity
+// no reply will ever quote.
+func TestSendReportsTheIdentityGmailStampedWhenItRewroteIt(t *testing.T) {
+	srv := sendThenGet(t, sentMessage("CAFAR1tx@mail.gmail.com"))
+	defer srv.Close()
+
+	got, err := sendOne(t, srv)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got.RFC822MessageID != "CAFAR1tx@mail.gmail.com" {
+		t.Errorf("RFC822MessageID = %q, want Gmail's stamped identity", got.RFC822MessageID)
+	}
+}
+
+// A provider that honoured the identity reports it unchanged, which the
+// reconcile then recognises as a no-op.
+func TestSendReportsTheMintedIdentityUnchangedWhenGmailHonouredIt(t *testing.T) {
+	srv := sendThenGet(t, sentMessage("minted@margince.test"))
+	defer srv.Close()
+
+	got, err := sendOne(t, srv)
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got.RFC822MessageID != "minted@margince.test" {
+		t.Errorf("RFC822MessageID = %q, want the honoured identity", got.RFC822MessageID)
+	}
+}
+
+// THE RE-MAIL GUARD. The message has already left when the read-back runs, so
+// a read-back failure must never surface as a Send error: an error hands the
+// delivery back to a retry ladder whose prior-send lookup cannot see a
+// rewritten identity, and the recipient is mailed twice. Degrading to an empty
+// identity costs one duplicate timeline row and nothing else.
+func TestSendSucceedsWithNoIdentityWhenTheReadBackFails(t *testing.T) {
+	srv := sendThenGet(t, "")
+	defer srv.Close()
+
+	got, err := sendOne(t, srv)
+	if err != nil {
+		t.Fatalf("Send returned an error after the message was already transmitted: %v", err)
+	}
+	if got.ProviderMessageID != "gmsg1" {
+		t.Errorf("ProviderMessageID = %q, want the receipt to survive a failed read-back", got.ProviderMessageID)
+	}
+	if got.RFC822MessageID != "" {
+		t.Errorf("RFC822MessageID = %q, want empty when the read-back could not answer", got.RFC822MessageID)
+	}
+}
+
+// Finding a prior send by rfc822msgid: proves the identity was honoured, so
+// the retry path owes no read-back at all.
+func TestSendOnRetryFindsThePriorSendAndReadsNothingBack(t *testing.T) {
+	gets := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/messages") && r.URL.Query().Get("q") != "" {
+			if _, err := w.Write([]byte(`{"messages":[{"id":"gmsg1"}]}`)); err != nil {
+				t.Errorf("write search response: %v", err)
+			}
+			return
+		}
+		gets++
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	c := New(fakeOAuth{access: "access-token"}, NewAPI(srv.Client(), srv.URL))
+	got, err := c.Send(context.Background(), authFixture(t, SendScope), connector.OutboundMessage{
+		To: []string{"buyer@example.com"}, Subject: "pricing", Body: "As discussed.",
+		MessageID: "minted@margince.test", Attempt: 1,
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if got.RFC822MessageID != "" {
+		t.Errorf("RFC822MessageID = %q, want empty: found by rfc822msgid means the identity was honoured", got.RFC822MessageID)
+	}
+	if gets != 0 {
+		t.Errorf("read-back ran %d times on the retry path, want 0", gets)
 	}
 }

@@ -10,12 +10,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/modules/capture/mailmap"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -86,7 +88,50 @@ func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector
 	if err != nil {
 		return connector.SendReceipt{}, err
 	}
-	return connector.SendReceipt{ProviderMessageID: id}, nil
+	return connector.SendReceipt{
+		ProviderMessageID: id,
+		RFC822MessageID:   c.stampedIdentity(ctx, access, st.Owner, id),
+	}, nil
+}
+
+// stampedIdentity reads back the RFC822 identity the provider actually put on
+// the message. Gmail discards a client-supplied Message-ID and mints its own,
+// so the identity this system records — the natural key its captured echo will
+// carry, and the key a reply will root at — has to come from the sent copy
+// rather than from what was asked for.
+//
+// It parses with mailmap, the same function capture parses the echo with, so
+// the identity recorded here and the identity derived there are one function of
+// one set of bytes and cannot drift apart.
+//
+// Unlike FindByMessageID, this is a get-by-id, not a search: messages.get on
+// the id messages.send just returned reads the resource directly, not the
+// eventually-consistent search index the retransmission guard is warned about
+// above. The ordering is already right; it does not need "fixing".
+//
+// EVERY failure returns "". The message has already been transmitted when this
+// runs, and returning an error would hand the delivery back to a retry whose
+// prior-send lookup cannot find a rewritten identity — mailing the recipient a
+// second time to fix a bookkeeping problem. An unread identity costs one
+// duplicate timeline row; a re-mail costs the recipient's trust. This is the
+// one place in this package where an error is deliberately not propagated, and
+// TestSendSucceedsWithNoIdentityWhenTheReadBackFails is what keeps it that way.
+//
+// A connection granted send-but-not-read makes this structurally dead: Send
+// verifies only SendScope, so the read-back 403s and degrades as above.
+func (c *Connector) stampedIdentity(ctx context.Context, access, owner, providerMessageID string) string {
+	sent, err := c.api.GetRaw(ctx, access, providerMessageID)
+	if err != nil {
+		slog.WarnContext(ctx, "gmail: reading back the sent message identity",
+			"err", err, "provider_message_id", providerMessageID)
+		return ""
+	}
+	parsed, err := mailmap.Parse(sent.RFC822, owner)
+	if err != nil {
+		slog.WarnContext(ctx, "gmail: parsing the sent message identity", "err", err)
+		return ""
+	}
+	return parsed.ID()
 }
 
 // bracket renders a message identity as RFC 5322 requires it on the wire. The
