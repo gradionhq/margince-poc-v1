@@ -22,11 +22,8 @@ package compose
 // own auth.Require/EnsureVisible calls are redundant with the strength
 // call's but idempotent, never a second, different gate.
 import (
-	"math"
 	"net/http"
 	"time"
-
-	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
@@ -57,7 +54,7 @@ func (h strengthHandlers) GetPersonStrength(w http.ResponseWriter, r *http.Reque
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, strengthToWire(rs, now))
+	httperr.WriteJSON(w, http.StatusOK, people.StrengthToWire(rs, now))
 }
 
 // GetOrganizationStrength implements GET /organizations/{id}/strength.
@@ -76,58 +73,5 @@ func (h strengthHandlers) GetOrganizationStrength(w http.ResponseWriter, r *http
 	// This route answers the shared RelationshipStrength shape; the
 	// account-only facts (contributor, contact count) ride the 360's
 	// OrganizationStrength schema instead of widening this one.
-	httperr.WriteJSON(w, http.StatusOK, strengthToWire(account.RelationshipStrength, now))
-}
-
-// strengthBucketToWire maps the domain's display bucket onto the
-// contract vocabulary. The domain only ever emits the four cases below;
-// an unrecognized value defaults to dormant rather than surfacing a
-// wire value the enum doesn't declare.
-func strengthBucketToWire(bucket string) crmcontracts.RelationshipStrengthBucket {
-	switch bucket {
-	case "weak":
-		return crmcontracts.RelationshipStrengthBucketWeak
-	case "moderate":
-		return crmcontracts.RelationshipStrengthBucketWarm
-	case "strong":
-		return crmcontracts.RelationshipStrengthBucketStrong
-	default: // "none"
-		return crmcontracts.RelationshipStrengthBucketDormant
-	}
-}
-
-// strengthToWire renders the computed §4 result onto the contract's
-// RelationshipStrength.
-func strengthToWire(rs people.RelationshipStrength, now time.Time) crmcontracts.RelationshipStrength {
-	inbound, outbound := rs.Inbound90d, rs.Outbound90d
-
-	// The contract's factors.direction has no dedicated domain field; the
-	// domain computes this exact balance term internally (strength.go
-	// finish()) on the way to reciprocity — surfaced here faithfully
-	// rather than invented: (inbound+outbound) > 0 ? 1 - |inbound-outbound|/(inbound+outbound) : 0.
-	direction := 0.0
-	if directed := inbound + outbound; directed > 0 {
-		direction = 1 - math.Abs(float64(inbound-outbound))/float64(directed)
-	}
-
-	contributing := make([]openapi_types.UUID, len(rs.ContributingIDs))
-	for i, activityID := range rs.ContributingIDs {
-		contributing[i] = openapi_types.UUID(activityID.UUID)
-	}
-
-	computedAt := now
-	wire := crmcontracts.RelationshipStrength{
-		Score:                   rs.Strength,
-		Bucket:                  strengthBucketToWire(rs.Bucket),
-		LastInteraction:         rs.LastInteraction,
-		ComputedAt:              &computedAt,
-		Inbound90d:              &inbound,
-		Outbound90d:             &outbound,
-		ContributingActivityIds: &contributing,
-	}
-	wire.Factors.Recency = float32(rs.Recency)
-	wire.Factors.Frequency = float32(rs.Frequency)
-	wire.Factors.Reciprocity = float32(rs.Reciprocity)
-	wire.Factors.Direction = float32(direction)
-	return wire
+	httperr.WriteJSON(w, http.StatusOK, people.StrengthToWire(account.RelationshipStrength, now))
 }

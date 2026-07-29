@@ -331,8 +331,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// workspace running on the incumbent mirror gets one honest refusal
 	// instead of a page that quietly omits most of itself. Wired after the
 	// literal because it needs srv.sorDispatch, which is built above.
+	// The people store carries the SAME fieldcatalog seam peopleHandlers
+	// gets: the 360 serves the organization object, and without it the
+	// company view would silently omit the cf_* columns GET
+	// /organizations/{id} returns for the same record.
 	srv.org360Handlers = org360.NewHandlers(
-		org360.NewService(pool, people.NewStore(pool), approvals.NewService(pool), time.Now),
+		org360.NewService(pool,
+			people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
+			approvals.NewService(pool), time.Now),
 		srv.sorDispatch.isOverlay,
 	)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries

@@ -79,7 +79,8 @@ func TestGetOrganization360RefusesWhenTheModeCannotBeResolved(t *testing.T) {
 
 	h.GetOrganization360(rec, req, crmcontracts.Id(ids.NewV7()))
 
-	if rec.Code == http.StatusOK {
-		t.Error("status = 200 after a failed mode lookup — falling back to native data is the silent fallback overlay refuses")
+	if rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d after a failed mode lookup, want 500 — the mode is unknown, so neither native data nor a tidy refusal is an honest answer",
+			rec.Code)
 	}
 }

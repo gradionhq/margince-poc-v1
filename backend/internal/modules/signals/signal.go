@@ -229,14 +229,17 @@ func (s *Store) ListSignals(ctx context.Context, in ListSignalsInput) ([]crmcont
 		where = append(where, storekit.SQLf("s.resolution_state = $%d", arg(*in.ResolutionState)))
 	}
 	if in.OrganizationID != nil {
-		// Two arms, because a signal reaches an organization two ways. The
-		// resolver stamps resolved_org_id on a RAW item it attributed; a signal
-		// created directly ABOUT the organization carries the subject pair and
-		// never gets a resolved_org_id at all. Matching only the first arm hid
-		// every hand-created account signal from the account's own view.
+		// Two arms, because a signal reaches an organization two ways: the
+		// resolver stamps resolved_org_id on the item it attributed, and a
+		// signal created directly ABOUT the organization carries the subject
+		// pair and no resolved_org_id at all. Both belong to the account.
+		//
+		// A deal-subject signal belongs to its DEAL, even when the resolver
+		// attributed it to this account, so the resolved arm excludes it.
 		pos := arg(*in.OrganizationID)
 		where = append(where, storekit.SQLf(
-			"(s.resolved_org_id = $%d OR (s.entity_type = 'organization' AND s.entity_id = $%d))", pos, pos))
+			`((s.entity_type IS DISTINCT FROM 'deal' AND s.resolved_org_id = $%d)
+			  OR (s.entity_type = 'organization' AND s.entity_id = $%d))`, pos, pos))
 	}
 	scope, err := auth.SignalScopeClause(ctx, "s", arg)
 	if err != nil {

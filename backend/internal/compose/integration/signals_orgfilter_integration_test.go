@@ -5,12 +5,11 @@
 
 package integration
 
-// A signal reaches an organization two ways, and the account filter has to
-// answer for both. The resolver stamps resolved_org_id on a RAW item it
-// attributed; a signal created directly ABOUT the organization carries the
-// (entity_type, entity_id) subject pair and never gets a resolved_org_id
-// at all. Filtering on the resolver's column alone hid every hand-created
-// account signal from the account's own view — the exact case this pins.
+// A signal reaches an organization two ways, and the account filter answers
+// for both: the resolver stamps resolved_org_id on the item it attributed,
+// and a signal created directly ABOUT the organization carries the
+// (entity_type, entity_id) subject pair and no resolved_org_id at all.
+// A deal-subject signal belongs to its deal and stays out of both arms.
 
 import (
 	"testing"

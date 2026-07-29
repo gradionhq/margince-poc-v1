@@ -5,14 +5,12 @@
 
 package integration
 
-// Two halves of the activity read the contract declared and the code did
-// not deliver.
+// The two halves of the activity read a client can act on.
 //
-// links[] is on the Activity schema and is what a timeline's "which record
-// is this about" chip is built from — but scanActivity never read the link
-// rows, so every client that asked got null. q was declared as a query
-// parameter and never reached the SQL, so a caller could not tell a
-// silently-ignored filter from an honestly empty result.
+// links[] answers "which records is this about", and answers it within the
+// caller's row scope: activity visibility is an any-link rule, so a link to
+// a record the caller cannot read is dropped rather than disclosed. q
+// filters subject and body, with its wildcards escaped as data.
 
 import (
 	"testing"
@@ -20,6 +18,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 func TestListActivitiesCarriesItsLinks(t *testing.T) {
@@ -67,6 +66,57 @@ func TestListActivitiesCarriesItsLinks(t *testing.T) {
 	if one.Links == nil || len(*one.Links) != 2 {
 		t.Errorf("GetActivity links = %v, want the same two the list returned", one.Links)
 	}
+}
+
+// Activity visibility is an ANY-link rule: one visible link makes the whole
+// activity readable. The link PROJECTION cannot inherit that, or reading a
+// shared contact's timeline would hand back the ids of the other records the
+// same thread touches — records the caller's scope exists to hide.
+func TestListActivitiesDropsLinksToRecordsOutOfRowScope(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	pipeline, stage, _ := DealFixture(t, e)
+
+	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
+	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
+	activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+		VALUES ($1, $2, 'meeting', 'Joint call', now(), 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, activity, "person", mine)
+	LinkActivity(t, owner, e.WS, activity, "deal", theirDeal)
+
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, activityLinkRepPerms)
+	got, _, err := e.Activities.ListActivities(rep, activities.ListActivitiesInput{})
+	if err != nil {
+		t.Fatalf("list activities: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("activities = %d, want the one reachable through the visible contact", len(got))
+	}
+	if got[0].Links == nil {
+		t.Fatal("links[] is null — the visible link must still be reported")
+	}
+	for _, link := range *got[0].Links {
+		if ids.UUID(link.EntityId) == theirDeal {
+			t.Errorf("links[] carries deal %v, which the caller cannot read — an any-link activity gate does not license disclosing every target",
+				theirDeal)
+		}
+	}
+	if len(*got[0].Links) != 1 || ids.UUID((*got[0].Links)[0].EntityId) != mine {
+		t.Errorf("links[] = %+v, want only the visible contact %v", *got[0].Links, mine)
+	}
+}
+
+// activityLinkRepPerms is a team-scoped rep: an unbounded caller short-circuits
+// every scope clause, so the fixture must be bounded to test one at all.
+var activityLinkRepPerms = principal.Permissions{
+	RoleKeys: []string{"rep"},
+	Objects: map[string]principal.ObjectGrant{
+		"person":       {Read: true},
+		"organization": {Read: true},
+		"deal":         {Read: true},
+		"activity":     {Read: true},
+	},
+	RowScope: principal.RowScopeTeam,
 }
 
 func TestListActivitiesAppliesTheDeclaredQueryFilter(t *testing.T) {

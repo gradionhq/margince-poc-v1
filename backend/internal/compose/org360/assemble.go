@@ -6,7 +6,6 @@ package org360
 import (
 	"context"
 	"errors"
-	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -84,22 +83,23 @@ func (s *Service) Assemble(ctx context.Context, orgID ids.OrganizationID) (crmco
 // fails the whole read, because a section that broke for a real reason
 // must never be reported as one the caller may not see.
 func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, out *crmcontracts.Organization360) error {
+	a := &assembly{svc: s, ctx: ctx, tx: tx, orgID: orgID, now: now, out: out}
 	each := []struct {
 		name crmcontracts.Organization360SectionsOmitted
-		read func(context.Context, pgx.Tx, ids.OrganizationID, time.Time, *crmcontracts.Organization360) error
+		read func() error
 	}{
-		{sectionPeople, s.readContacts},
-		{sectionStrength, s.readStrength},
-		{sectionDeals, s.readDeals},
-		{sectionActivities, s.readTimeline},
-		{sectionNextSteps, s.readNextSteps},
-		{sectionTags, s.readTags},
-		{sectionListMemberships, s.readListMemberships},
-		{sectionApprovals, s.readPendingApprovals},
-		{sectionSinceLastVisit, s.readSinceLastVisit},
+		{sectionPeople, a.readContacts},
+		{sectionStrength, a.readStrength},
+		{sectionDeals, a.readDeals},
+		{sectionActivities, a.readTimeline},
+		{sectionNextSteps, a.readNextSteps},
+		{sectionTags, a.readTags},
+		{sectionListMemberships, a.readListMemberships},
+		{sectionApprovals, a.readPendingApprovals},
+		{sectionSinceLastVisit, a.readSinceLastVisit},
 	}
 	for _, section := range each {
-		err := section.read(ctx, tx, orgID, now, out)
+		err := section.read()
 		if errors.Is(err, apperrors.ErrPermissionDenied) {
 			out.SectionsOmitted = append(out.SectionsOmitted, section.name)
 			continue
@@ -111,15 +111,73 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 	return nil
 }
 
-func (s *Service) readContacts(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+// assembly is one 360's working state. Several sections are built from the
+// same underlying read — the contact list and the account roll-up both need
+// every contact's score, and the approvals section and the since-last-visit
+// count both need the decidable stagings — so those reads are taken once
+// here and shared, rather than each section paying for its own copy of the
+// same rows at the same instant.
+type assembly struct {
+	svc   *Service
+	ctx   context.Context
+	tx    pgx.Tx
+	orgID ids.OrganizationID
+	now   time.Time
+	out   *crmcontracts.Organization360
+
+	contacts      []people.ContactStrength
+	contactsRead  bool
+	staged        []crmcontracts.Approval
+	stagedRead    bool
+	stagedRefused bool
+}
+
+// contactStrengths reads every visible contact's §4 score once per request.
+func (a *assembly) contactStrengths() ([]people.ContactStrength, error) {
+	if a.contactsRead {
+		return a.contacts, nil
+	}
+	contacts, err := people.StrengthForOrgContacts(a.ctx, a.tx, a.orgID, a.now)
+	if err != nil {
+		return nil, err
+	}
+	a.contacts, a.contactsRead = contacts, true
+	return contacts, nil
+}
+
+// pendingApprovals reads the decidable stagings once per request.
+// stagedRefused records a permission refusal so the count half can answer
+// "not counted" without asking again and getting the same refusal.
+func (a *assembly) pendingApprovals() ([]crmcontracts.Approval, bool, error) {
+	if a.stagedRead {
+		return a.staged, !a.stagedRefused, nil
+	}
+	staged, err := a.svc.approvals.PendingForTarget(a.ctx, a.tx, entityTypeOrganization, a.orgID.UUID, approvals.PendingScanCap)
+	a.stagedRead = true
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		a.stagedRefused = true
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	a.staged = staged
+	return staged, true, nil
+}
+
+func (a *assembly) readContacts() error {
+	if err := auth.Require(a.ctx, "person", principal.ActionRead); err != nil {
 		return err
 	}
-	data, page, err := contactsSection(ctx, tx, orgID, now)
+	strengths, err := a.contactStrengths()
 	if err != nil {
 		return err
 	}
-	out.People = &struct {
+	data, page, err := contactsSection(a.ctx, a.tx, a.orgID, a.now, strengths)
+	if err != nil {
+		return err
+	}
+	a.out.People = &struct {
 		Data []crmcontracts.Organization360Contact `json:"data"`
 		Page crmcontracts.PageInfo                 `json:"page"`
 	}{Data: data, Page: page}
@@ -130,38 +188,40 @@ func (s *Service) readContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 // roll-up is computed over the account's contacts, and reading an account
 // does not entitle the caller to a number derived from people they may
 // not see.
-func (s *Service) readStrength(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+func (a *assembly) readStrength() error {
+	if err := auth.Require(a.ctx, "person", principal.ActionRead); err != nil {
 		return err
 	}
-	account, err := people.AccountStrengthFor(ctx, tx, orgID, now)
+	strengths, err := a.contactStrengths()
 	if err != nil {
 		return err
 	}
-	out.Strength = accountStrengthToWire(account, now)
+	a.out.Strength = accountStrengthToWire(people.FoldAccountStrength(strengths), a.now)
 	return nil
 }
 
-func (s *Service) readDeals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
+func (a *assembly) readDeals() error {
+	if err := auth.Require(a.ctx, "deal", principal.ActionRead); err != nil {
 		return err
 	}
-	section, err := dealsSection(ctx, tx, orgID, now)
+	section, err := dealsSection(a.ctx, a.tx, a.orgID, a.now)
 	if err != nil {
 		return err
 	}
-	out.Deals = &section
+	a.out.Deals = &section
 	return nil
 }
 
 // readTimeline reads the first page of the account's timeline through the
 // activities module's own list, so the section and GET /activities can
-// never disagree about ordering or row scope.
-func (s *Service) readTimeline(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, _ time.Time, out *crmcontracts.Organization360) error {
-	orgUUID := orgID.UUID
+// never disagree about ordering or row scope. Its gate is that list's own
+// auth.Require, which refuses with the same error every other section uses
+// to declare itself omitted.
+func (a *assembly) readTimeline() error {
+	orgUUID := a.orgID.UUID
 	entityType := "organization"
 	limit := sectionLimit
-	data, page, err := activities.ListActivitiesTx(ctx, tx, activities.ListActivitiesInput{
+	data, page, err := activities.ListActivitiesTx(a.ctx, a.tx, activities.ListActivitiesInput{
 		EntityType: &entityType,
 		EntityID:   &orgUUID,
 		Limit:      &limit,
@@ -169,46 +229,46 @@ func (s *Service) readTimeline(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 	if err != nil {
 		return err
 	}
-	out.Activities = &crmcontracts.ActivityListResponse{Data: data, Page: pageInfo(page)}
+	a.out.Activities = &crmcontracts.ActivityListResponse{Data: data, Page: pageInfo(page)}
 	return nil
 }
 
-func (s *Service) readNextSteps(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+func (a *assembly) readNextSteps() error {
+	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
 		return err
 	}
-	data, page, err := nextStepsSection(ctx, tx, orgID, now)
+	data, page, err := nextStepsSection(a.ctx, a.tx, a.orgID, a.now)
 	if err != nil {
 		return err
 	}
-	out.NextSteps = &struct {
+	a.out.NextSteps = &struct {
 		Data []crmcontracts.Organization360NextStep `json:"data"`
 		Page crmcontracts.PageInfo                  `json:"page"`
 	}{Data: data, Page: page}
 	return nil
 }
 
-func (s *Service) readTags(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, _ time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "tag", principal.ActionRead); err != nil {
+func (a *assembly) readTags() error {
+	if err := auth.Require(a.ctx, "tag", principal.ActionRead); err != nil {
 		return err
 	}
-	tags, err := tagsSection(ctx, tx, orgID)
+	tags, err := tagsSection(a.ctx, a.tx, a.orgID)
 	if err != nil {
 		return err
 	}
-	out.Tags = &tags
+	a.out.Tags = &tags
 	return nil
 }
 
-func (s *Service) readListMemberships(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, _ time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "list", principal.ActionRead); err != nil {
+func (a *assembly) readListMemberships() error {
+	if err := auth.Require(a.ctx, "list", principal.ActionRead); err != nil {
 		return err
 	}
-	lists, err := listMembershipsSection(ctx, tx, orgID)
+	lists, err := listMembershipsSection(a.ctx, a.tx, a.orgID)
 	if err != nil {
 		return err
 	}
-	out.ListMemberships = &lists
+	a.out.ListMemberships = &lists
 	return nil
 }
 
@@ -217,28 +277,31 @@ func (s *Service) readListMemberships(ctx context.Context, tx pgx.Tx, orgID ids.
 // a record page that re-derived it would become the workspace-wide side
 // channel the inbox refuses to be. Triage is human work, so a
 // passport-driven read is refused there and the section is simply absent.
-func (s *Service) readPendingApprovals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, _ time.Time, out *crmcontracts.Organization360) error {
-	staged, err := s.approvals.PendingForTarget(ctx, tx, entityTypeOrganization, orgID.UUID, sectionLimit)
+func (a *assembly) readPendingApprovals() error {
+	staged, triageable, err := a.pendingApprovals()
 	if err != nil {
 		return err
 	}
+	if !triageable {
+		return apperrors.ErrPermissionDenied
+	}
 	data, page := truncate(staged)
-	out.PendingApprovals = &struct {
+	a.out.PendingApprovals = &struct {
 		Data []crmcontracts.Approval `json:"data"`
 		Page crmcontracts.PageInfo   `json:"page"`
 	}{Data: data, Page: page}
 	return nil
 }
 
-func (s *Service) readSinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, _ time.Time, out *crmcontracts.Organization360) error {
-	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
+func (a *assembly) readSinceLastVisit() error {
+	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
 		return err
 	}
-	delta, err := s.sinceLastVisit(ctx, tx, orgID)
+	delta, err := a.svc.sinceLastVisit(a.ctx, a.tx, a.orgID, a)
 	if err != nil {
 		return err
 	}
-	out.SinceLastVisit = &delta
+	a.out.SinceLastVisit = &delta
 	return nil
 }
 
@@ -251,66 +314,27 @@ func pageInfo(p storekit.Page) crmcontracts.PageInfo {
 	return info
 }
 
-// strengthToWire renders one contact's §4 result onto the shared contract
-// shape. direction has no dedicated domain field — the §4 computation
-// derives it internally on the way to reciprocity, and it is surfaced here
-// from the same two counts rather than invented.
-func strengthToWire(rs people.RelationshipStrength, now time.Time) crmcontracts.RelationshipStrength {
-	inbound, outbound := rs.Inbound90d, rs.Outbound90d
-	direction := 0.0
-	if directed := inbound + outbound; directed > 0 {
-		direction = 1 - math.Abs(float64(inbound-outbound))/float64(directed)
-	}
-	computedAt := now
-	wire := crmcontracts.RelationshipStrength{
-		Score:           rs.Strength,
-		Bucket:          bucketToWire(rs.Bucket),
-		LastInteraction: rs.LastInteraction,
-		ComputedAt:      &computedAt,
-		Inbound90d:      &inbound,
-		Outbound90d:     &outbound,
-	}
-	wire.Factors.Recency = float32(rs.Recency)
-	wire.Factors.Frequency = float32(rs.Frequency)
-	wire.Factors.Reciprocity = float32(rs.Reciprocity)
-	wire.Factors.Direction = float32(direction)
-	return wire
-}
-
 // accountStrengthToWire adds the two account-only facts to the shared
 // shape: whose relationship carries the score, and how many contacts it
-// was chosen from.
+// was chosen from. The shared half comes from compose.StrengthToWire, so
+// a bucket rename is made once for both the account roll-up and the
+// per-person routes.
 func accountStrengthToWire(account people.AccountStrength, now time.Time) *crmcontracts.OrganizationStrength {
-	base := strengthToWire(account.RelationshipStrength, now)
+	base := people.StrengthToWire(account.RelationshipStrength, now)
 	out := crmcontracts.OrganizationStrength{
-		Score:           base.Score,
-		Bucket:          crmcontracts.OrganizationStrengthBucket(base.Bucket),
-		Factors:         base.Factors,
-		ComputedAt:      base.ComputedAt,
-		LastInteraction: base.LastInteraction,
-		Inbound90d:      base.Inbound90d,
-		Outbound90d:     base.Outbound90d,
-		ContactCount:    account.ContactCount,
+		Score:                   base.Score,
+		Bucket:                  crmcontracts.OrganizationStrengthBucket(base.Bucket),
+		Factors:                 base.Factors,
+		ComputedAt:              base.ComputedAt,
+		LastInteraction:         base.LastInteraction,
+		Inbound90d:              base.Inbound90d,
+		Outbound90d:             base.Outbound90d,
+		ContributingActivityIds: base.ContributingActivityIds,
+		ContactCount:            account.ContactCount,
 	}
 	if account.ContributorPersonID != nil {
 		v := openapi_types.UUID(account.ContributorPersonID.UUID)
 		out.ContributorPersonId = &v
 	}
 	return &out
-}
-
-// bucketToWire maps the domain's display bucket onto the contract
-// vocabulary. The domain emits only the four cases below; anything else
-// reads as dormant rather than as a wire value the enum never declared.
-func bucketToWire(bucket string) crmcontracts.RelationshipStrengthBucket {
-	switch bucket {
-	case "weak":
-		return crmcontracts.RelationshipStrengthBucketWeak
-	case "moderate":
-		return crmcontracts.RelationshipStrengthBucketWarm
-	case "strong":
-		return crmcontracts.RelationshipStrengthBucketStrong
-	default: // "none"
-		return crmcontracts.RelationshipStrengthBucketDormant
-	}
 }

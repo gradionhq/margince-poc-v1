@@ -13,14 +13,18 @@ package people
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -89,9 +93,10 @@ func (s *Store) PersonStrength(ctx context.Context, personID ids.PersonID, now t
 // actionable on an account — the rep needs to know whose relationship it is.
 type AccountStrength struct {
 	RelationshipStrength
-	// ContributorPersonID is nil only when the account has no contact the
-	// caller can read; the roll-up is taken over visible contacts, so a
-	// score that exists always has a nameable contributor.
+	// ContributorPersonID names the contact whose relationship the score is.
+	// It is nil when there is no relationship to attribute: no contact the
+	// caller can read, or none of them has ever interacted. A dormant
+	// account has no carrier, and inventing one would read as a claim.
 	ContributorPersonID *ids.PersonID
 	ContactCount        int
 }
@@ -126,15 +131,37 @@ func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.Organization
 // roll-up inside it rather than opening a second one at a second instant.
 func AccountStrengthFor(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) (AccountStrength, error) {
 	contacts, err := StrengthForOrgContacts(ctx, tx, orgID, now)
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		// A caller holding organization:read but not person:read sees an
+		// account with no contacts they may read, so the roll-up is dormant
+		// with nobody behind it. Refusing here instead would newly 403 a
+		// route that has answered this shape since it shipped.
+		return AccountStrength{RelationshipStrength: RelationshipStrength{Bucket: bucketNone}}, nil
+	}
 	if err != nil {
 		return AccountStrength{}, err
 	}
+	return FoldAccountStrength(contacts), nil
+}
+
+// FoldAccountStrength picks the strongest contact out of an already-read
+// contact set, so a caller that needs both the per-contact scores and the
+// account roll-up pays for the underlying read once.
+//
+// Picking the strongest: A contributor is named
+// only when there is a relationship to attribute: an account whose contacts
+// have never interacted is dormant, and naming one of them as the carrier
+// of a zero would invent a relationship that does not exist.
+func FoldAccountStrength(contacts []ContactStrength) AccountStrength {
 	out := AccountStrength{
 		RelationshipStrength: RelationshipStrength{Bucket: bucketNone},
 		ContactCount:         len(contacts),
 	}
 	for i := range contacts {
 		c := contacts[i]
+		if c.Strength.LastInteraction == nil {
+			continue
+		}
 		if out.ContributorPersonID != nil && c.Strength.Strength <= out.Strength {
 			continue
 		}
@@ -142,7 +169,59 @@ func AccountStrengthFor(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID
 		personID := c.PersonID
 		out.ContributorPersonID = &personID
 	}
-	return out, nil
+	return out
+}
+
+// StrengthToWire renders a §4 result onto the contract's shared
+// RelationshipStrength. It lives with the computation, not beside one of
+// its transports: the per-person route, the per-organization route and the
+// company view all answer this shape, and a bucket rename made in only one
+// of three places is the drift this prevents.
+//
+// factors.direction has no dedicated domain field — the §4 computation
+// derives it internally on the way to reciprocity — so it is recomputed
+// here from the same two counts rather than invented.
+func StrengthToWire(rs RelationshipStrength, now time.Time) crmcontracts.RelationshipStrength {
+	inbound, outbound := rs.Inbound90d, rs.Outbound90d
+	direction := 0.0
+	if directed := inbound + outbound; directed > 0 {
+		direction = 1 - math.Abs(float64(inbound-outbound))/float64(directed)
+	}
+	contributing := make([]openapi_types.UUID, len(rs.ContributingIDs))
+	for i, activityID := range rs.ContributingIDs {
+		contributing[i] = openapi_types.UUID(activityID.UUID)
+	}
+	computedAt := now
+	wire := crmcontracts.RelationshipStrength{
+		Score:                   rs.Strength,
+		Bucket:                  StrengthBucketToWire(rs.Bucket),
+		LastInteraction:         rs.LastInteraction,
+		ComputedAt:              &computedAt,
+		Inbound90d:              &inbound,
+		Outbound90d:             &outbound,
+		ContributingActivityIds: &contributing,
+	}
+	wire.Factors.Recency = float32(rs.Recency)
+	wire.Factors.Frequency = float32(rs.Frequency)
+	wire.Factors.Reciprocity = float32(rs.Reciprocity)
+	wire.Factors.Direction = float32(direction)
+	return wire
+}
+
+// StrengthBucketToWire maps the domain's display bucket onto the contract
+// vocabulary. The domain emits only the four cases below; anything else
+// reads as dormant rather than as a wire value the enum never declared.
+func StrengthBucketToWire(bucket string) crmcontracts.RelationshipStrengthBucket {
+	switch bucket {
+	case "weak":
+		return crmcontracts.RelationshipStrengthBucketWeak
+	case "moderate":
+		return crmcontracts.RelationshipStrengthBucketWarm
+	case "strong":
+		return crmcontracts.RelationshipStrengthBucketStrong
+	default: // bucketNone
+		return crmcontracts.RelationshipStrengthBucketDormant
+	}
 }
 
 // ContactStrength pairs one of an organization's current contacts with
@@ -185,7 +264,7 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 		JOIN relationship r ON r.person_id = p.id
 		WHERE r.kind = 'employment' AND r.organization_id = $%d
 		  AND r.ended_at IS NULL AND r.archived_at IS NULL
-		  AND p.archived_at IS NULL AND %s
+		  AND p.archived_at IS NULL AND (%s)
 		ORDER BY p.id`, orgPos, scope), args...)
 	if err != nil {
 		return nil, err

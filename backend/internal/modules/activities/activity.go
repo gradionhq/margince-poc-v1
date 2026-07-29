@@ -349,9 +349,9 @@ func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join str
 		where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
 	}
 	if in.Query != nil && *in.Query != "" {
-		// subject + body are the two human-readable columns; a q that matched
-		// nothing was worse than no q at all, because the caller could not tell
-		// a silently-ignored filter from an empty result.
+		// subject + body are the two human-readable columns a person would
+		// recognize an item by. The wildcard is escaped, so a caller typing %
+		// searches for a percent sign rather than matching everything.
 		pos := arg("%" + storekit.EscapeLike(*in.Query) + "%")
 		where = append(where, sprintf("(a.subject ILIKE $%d ESCAPE '\\' OR a.body ILIKE $%d ESCAPE '\\')", pos, pos))
 	}
@@ -400,15 +400,17 @@ func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived st
 }
 
 // attachLinks fills the contract's links[] on a page of activities in ONE
-// query. The column is declared on the Activity schema and is what the
-// timeline's "via" chips and the per-person filter are built from; scanning
-// the activity row alone left it permanently null, so every client that
-// asked what an item was about got nothing back. Batched rather than
-// per-row because the timeline reads a page at a time.
+// query — the column the timeline's "via" chips and the per-person filter
+// read. Batched rather than per-row because the timeline reads a page at a
+// time.
 //
-// The link rows carry no row scope of their own: an activity the caller can
-// read is an activity whose subject the caller may know, and the link-walk
-// in auth.ActivityScopeClause is what already decided that.
+// Each link row carries its OWN row-scope check, which the activity's does
+// not subsume. Activity visibility is an ANY-link rule: one visible person
+// makes the whole activity readable. Projecting every link row back would
+// then disclose the ids of the other records it touches — a colleague's
+// deal on the same thread — to a caller who cannot read them. A link whose
+// target is out of scope is dropped, so links[] answers "what this is about,
+// as far as you can see".
 func attachLinks(ctx context.Context, tx pgx.Tx, activities []crmcontracts.Activity) error {
 	if len(activities) == 0 {
 		return nil
@@ -419,11 +421,20 @@ func attachLinks(ctx context.Context, tx pgx.Tx, activities []crmcontracts.Activ
 		activityIDs[i] = ids.UUID(a.Id)
 		byID[ids.UUID(a.Id)] = i
 	}
+	args := []any{activityIDs}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	visible, err := auth.LinkTargetVisibleClause(ctx, "al", arg)
+	if err != nil {
+		return err
+	}
+	if visible == "" {
+		visible = "TRUE"
+	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, activity_id, entity_type, `+linkIDCoalesce+`
-		FROM activity_link
-		WHERE activity_id = ANY($1)
-		ORDER BY activity_id, entity_type, id`, activityIDs)
+		SELECT al.id, al.activity_id, al.entity_type, `+linkIDCoalesceQualified("al")+`
+		FROM activity_link al
+		WHERE al.activity_id = ANY($1) AND `+visible+`
+		ORDER BY al.activity_id, al.entity_type, al.id`, args...)
 	if err != nil {
 		return err
 	}

@@ -872,6 +872,12 @@ paths:
         different facts. Aggregates count only rows the viewer can see, the same posture
         `GET /organizations/{id}/hierarchy-rollup` states for its own prune.
 
+        **Nested collections are summaries, not paging surfaces.** Each carries at most
+        25 rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is
+        always null: page two comes from the endpoint that owns that collection —
+        `GET /activities` for the timeline, `GET /deals`, `GET /relationships`,
+        `GET /approvals` — each with its own cursor vocabulary.
+
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`, the same refusal entity-scoped activity reads
         give, because the mirror holds none of these relationships.
@@ -912,6 +918,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /organizations/{id}/partner:
     parameters:
@@ -9467,7 +9474,13 @@ components:
       properties:
         deal_id: { type: string, format: uuid }
         name: { type: string }
-        status: { type: string, enum: [open, won, lost] }
+        status:
+          type: string
+          enum: [open, won, lost]
+          description: |
+            Always `open` in the 360's `deals.data` — closed deals are reported by
+            `won_lifetime` and `lost_count`, not listed. The full vocabulary is declared
+            because this is the deal's own status field, not a filter echo.
         stage_id: { type: [string, 'null'], format: uuid }
         stage_name: { type: [string, 'null'] }
         amount: { $ref: '#/components/schemas/Money' }
@@ -9516,7 +9529,11 @@ components:
           description: Null when the caller has no deal read grant — not counted, as opposed to counted as zero.
         pending_proposals:
           type: [integer, 'null']
-          description: Null when the caller cannot triage approvals (an agent principal) — not counted, as opposed to counted as zero.
+          description: |
+            Null when the caller cannot triage approvals (an agent principal) — not
+            counted, as opposed to counted as zero. Saturates at 200: deciding who may
+            see a staged change is a per-row check, and a badge is not worth making one
+            record page pay for an unbounded backlog.
 
     Organization360:
       type: object

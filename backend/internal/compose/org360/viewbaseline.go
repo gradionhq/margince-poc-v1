@@ -42,7 +42,18 @@ const entityTypeOrganization = "organization"
 // The upsert takes GREATEST(stored, now), so a slow tab's late-arriving
 // ack can never rewind a newer one — two tabs open on the same account
 // converge on the later visit instead of racing the baseline backwards.
+//
+// The human gate is explicit and load-bearing, not defense in depth. An
+// agent principal carries the granting human's id as its UserID
+// (identity/passport.go stamps OnBehalfOf there for row scope), so
+// "resolve the acting user" would happily write a baseline marking an
+// account as SEEN by a human who never opened it — consuming their unread
+// marker on their behalf. The transport's x-agent-access: human-only says
+// the same thing one layer up; this is the layer that owns the write.
 func (s *Service) Acknowledge(ctx context.Context, orgID ids.OrganizationID) (crmcontracts.RecordViewAck, error) {
+	if err := auth.RequireHuman(ctx); err != nil {
+		return crmcontracts.RecordViewAck{}, err
+	}
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return crmcontracts.RecordViewAck{}, err
 	}
@@ -82,7 +93,7 @@ func (s *Service) Acknowledge(ctx context.Context, orgID ids.OrganizationID) (cr
 // A caller with no stored baseline is on their first visit; the counts run
 // over the account's whole history rather than over nothing, because "0
 // new" on a record you have never opened is the wrong answer.
-func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (crmcontracts.Organization360SinceLastVisit, error) {
+func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, a *assembly) (crmcontracts.Organization360SinceLastVisit, error) {
 	var out crmcontracts.Organization360SinceLastVisit
 	since, visited, err := s.baselineFor(ctx, tx, orgID)
 	if err != nil {
@@ -106,7 +117,7 @@ func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 		SELECT count(DISTINCT a.id)
 		FROM activity a
 		JOIN activity_link l ON l.activity_id = a.id AND l.entity_type = 'organization' AND l.organization_id = $%d
-		WHERE a.archived_at IS NULL AND a.created_at > $%d AND %s`,
+		WHERE a.archived_at IS NULL AND a.created_at > $%d AND (%s)`,
 		orgPos, sincePos, activityScope), args...).Scan(&out.NewActivities); err != nil {
 		return out, fmt.Errorf("count new activities: %w", err)
 	}
@@ -119,12 +130,16 @@ func (s *Service) sinceLastVisit(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 		out.DealStageMoves = &moves
 	}
 
-	proposals, triageable, err := s.pendingProposals(ctx, tx, orgID)
+	// The same decidable set the approvals section already read: counting it
+	// again would run the whole scan and its per-kind grant checks twice
+	// against one account in one transaction.
+	staged, triageable, err := a.pendingApprovals()
 	if err != nil {
 		return out, err
 	}
 	if triageable {
-		out.PendingProposals = &proposals
+		count := len(staged)
+		out.PendingProposals = &count
 	}
 
 	return out, nil
@@ -170,40 +185,28 @@ func (s *Service) dealStageMoves(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 	if err != nil {
 		return 0, false, err
 	}
-	// The stage history lives in audit_log: the write shape records every
-	// deal mutation there, so "did this deal move" is answered from the
-	// same trail that proves it moved, not from a second bookkeeping column.
+	// deal_stage_history IS the stage-move ledger: one row per move, written
+	// by the advance path, indexed on (deal_id, changed_at). A move with no
+	// from_stage_id is the deal entering its first stage at creation — a new
+	// deal, which the account reports as a new deal, not as a move.
 	if err := tx.QueryRow(ctx, fmt.Sprintf(`
 		SELECT count(*)
-		FROM audit_log al
-		JOIN deal d ON d.id = al.entity_id
-		WHERE al.entity_type = 'deal' AND al.occurred_at > $%d
-		  AND al.after ? 'stage_id'
-		  AND d.organization_id = $%d AND d.archived_at IS NULL AND %s`,
+		FROM deal_stage_history h
+		JOIN deal d ON d.id = h.deal_id
+		WHERE h.changed_at > $%d AND h.from_stage_id IS NOT NULL
+		  AND d.organization_id = $%d AND d.archived_at IS NULL AND (%s)`,
 		sincePos, orgPos, dealScope), args...).Scan(&moves); err != nil {
 		return 0, false, fmt.Errorf("count deal stage moves: %w", err)
 	}
 	return moves, true, nil
 }
 
-// pendingProposals counts the approvals staged against this account that
-// the caller could themselves decide. triageable is false for an agent
-// principal, which cannot triage at all — not counted, as opposed to
-// counted as zero.
-func (s *Service) pendingProposals(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (count int, triageable bool, err error) {
-	staged, err := s.approvals.PendingForTarget(ctx, tx, entityTypeOrganization, orgID.UUID, 0)
-	if errors.Is(err, apperrors.ErrPermissionDenied) {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, err
-	}
-	return len(staged), true, nil
-}
-
-// actingUser resolves the human this read belongs to. The baseline is
-// per-user by definition, so a principal with no user id has no baseline
-// to read or write — that is a refusal, never a shared default row.
+// actingUser resolves the user this baseline belongs to. It answers for
+// agents too — an agent's UserID is the granting human's — so it is a
+// lookup, not a gate: Acknowledge's auth.RequireHuman is what keeps an
+// agent from writing that human's mark. A principal with no user id at
+// all (system, connector) has no baseline, and that is a refusal rather
+// than a shared default row.
 func actingUser(ctx context.Context) (ids.UserID, error) {
 	p, ok := principal.Actor(ctx)
 	if !ok || p.UserID == (ids.UUID{}) {

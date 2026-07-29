@@ -10221,11 +10221,17 @@ type Organization360Deal struct {
 	StageName         *string             `json:"stage_name,omitempty"`
 
 	// Stalled No linked activity inside the pipeline's stall window.
-	Stalled bool                      `json:"stalled"`
-	Status  Organization360DealStatus `json:"status"`
+	Stalled bool `json:"stalled"`
+
+	// Status Always `open` in the 360's `deals.data` — closed deals are reported by
+	// `won_lifetime` and `lost_count`, not listed. The full vocabulary is declared
+	// because this is the deal's own status field, not a filter echo.
+	Status Organization360DealStatus `json:"status"`
 }
 
-// Organization360DealStatus defines model for Organization360Deal.Status.
+// Organization360DealStatus Always `open` in the 360's `deals.data` — closed deals are reported by
+// `won_lifetime` and `lost_count`, not listed. The full vocabulary is declared
+// because this is the deal's own status field, not a filter echo.
 type Organization360DealStatus string
 
 // Organization360DealRole One contact's stakeholder role on one of the account's deals.
@@ -10267,7 +10273,10 @@ type Organization360SinceLastVisit struct {
 	DealStageMoves *int `json:"deal_stage_moves,omitempty"`
 	NewActivities  int  `json:"new_activities"`
 
-	// PendingProposals Null when the caller cannot triage approvals (an agent principal) — not counted, as opposed to counted as zero.
+	// PendingProposals Null when the caller cannot triage approvals (an agent principal) — not
+	// counted, as opposed to counted as zero. Saturates at 200: deciding who may
+	// see a staged change is a per-row check, and a badge is not worth making one
+	// record page pay for an unbounded backlog.
 	PendingProposals *int `json:"pending_proposals,omitempty"`
 }
 

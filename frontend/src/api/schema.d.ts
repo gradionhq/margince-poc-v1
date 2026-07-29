@@ -441,6 +441,12 @@ export interface paths {
          *     different facts. Aggregates count only rows the viewer can see, the same posture
          *     `GET /organizations/{id}/hierarchy-rollup` states for its own prune.
          *
+         *     **Nested collections are summaries, not paging surfaces.** Each carries at most
+         *     25 rows with `page.has_more` saying whether it was cut, and `page.next_cursor` is
+         *     always null: page two comes from the endpoint that owns that collection —
+         *     `GET /activities` for the timeline, `GET /deals`, `GET /relationships`,
+         *     `GET /approvals` — each with its own cursor vocabulary.
+         *
          *     Native system-of-record only: a workspace reading from an incumbent mirror gets
          *     `422 unsupported_in_overlay_mode`, the same refusal entity-scoped activity reads
          *     give, because the mirror holds none of these relationships.
@@ -6036,7 +6042,12 @@ export interface components {
             /** Format: uuid */
             deal_id: string;
             name: string;
-            /** @enum {string} */
+            /**
+             * @description Always `open` in the 360's `deals.data` — closed deals are reported by
+             *     `won_lifetime` and `lost_count`, not listed. The full vocabulary is declared
+             *     because this is the deal's own status field, not a filter echo.
+             * @enum {string}
+             */
             status: "open" | "won" | "lost";
             /** Format: uuid */
             stage_id?: string | null;
@@ -6083,7 +6094,12 @@ export interface components {
             new_activities: number;
             /** @description Null when the caller has no deal read grant — not counted, as opposed to counted as zero. */
             deal_stage_moves?: number | null;
-            /** @description Null when the caller cannot triage approvals (an agent principal) — not counted, as opposed to counted as zero. */
+            /**
+             * @description Null when the caller cannot triage approvals (an agent principal) — not
+             *     counted, as opposed to counted as zero. Saturates at 200: deciding who may
+             *     see a staged change is a per-row check, and a badge is not worth making one
+             *     record page pay for an unbounded backlog.
+             */
             pending_proposals?: number | null;
         };
         /**
@@ -11286,6 +11302,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getPartner: {

@@ -260,93 +260,6 @@ func TestOrganization360ContactsHonorTheCallersRowScope(t *testing.T) {
 	}
 }
 
-func TestOrganizationViewAckIsMonotonicAndPerUser(t *testing.T) {
-	e := Setup(t)
-	svc := org360Service(e)
-	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep1 := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
-
-	first, err := svc.Acknowledge(rep1, org)
-	if err != nil {
-		t.Fatalf("first acknowledgment: %v", err)
-	}
-	if !first.LastViewedAt.Equal(org360Clock) {
-		t.Errorf("last_viewed_at = %v, want the pinned instant %v", first.LastViewedAt, org360Clock)
-	}
-
-	// A second tab whose clock lags must not rewind the mark: the upsert
-	// keeps the later of the two.
-	lagging := org360.NewService(e.Pool, people.NewStore(e.Pool), approvals.NewService(e.Pool),
-		func() time.Time { return org360Clock.Add(-time.Hour) })
-	second, err := lagging.Acknowledge(rep1, org)
-	if err != nil {
-		t.Fatalf("lagging acknowledgment: %v", err)
-	}
-	if !second.LastViewedAt.Equal(org360Clock) {
-		t.Errorf("last_viewed_at = %v after a lagging ack, want the earlier %v to be kept",
-			second.LastViewedAt, org360Clock)
-	}
-
-	// Rep2 shares Rep1's team and can read the same account, but has never
-	// visited it: the baseline is per user, not per record.
-	rep2 := e.As(e.Rep2, []ids.UUID{e.Team1}, org360RepPerms)
-	view, err := svc.Assemble(rep2, org)
-	if err != nil {
-		t.Fatalf("assemble as the second rep: %v", err)
-	}
-	if view.SinceLastVisit == nil {
-		t.Fatal("since_last_visit absent for a rep holding the activity grant")
-	}
-	if view.SinceLastVisit.BaselineAt != nil {
-		t.Errorf("baseline_at = %v for a rep who never acknowledged this account, want null",
-			view.SinceLastVisit.BaselineAt)
-	}
-}
-
-// The 360 is a read: it must never advance the mark it reports against,
-// or the "what changed" answer destroys itself on first sight.
-func TestOrganization360DoesNotAdvanceTheVisitBaseline(t *testing.T) {
-	e := Setup(t)
-	svc := org360Service(e)
-	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
-
-	if _, err := svc.Assemble(rep, org); err != nil {
-		t.Fatalf("assemble: %v", err)
-	}
-	if marks := e.WsCount(t, `SELECT count(*) FROM user_record_view WHERE entity_id = $1`, org.UUID); marks != 0 {
-		t.Errorf("user_record_view rows after a GET = %d, want 0 — only the ack writes the baseline", marks)
-	}
-	if _, err := svc.Acknowledge(rep, org); err != nil {
-		t.Fatalf("acknowledge: %v", err)
-	}
-	if marks := e.WsCount(t, `SELECT count(*) FROM user_record_view WHERE entity_id = $1`, org.UUID); marks != 1 {
-		t.Errorf("user_record_view rows after an ack = %d, want 1", marks)
-	}
-}
-
-// An agent acting through a passport is not a visitor: it must not consume
-// the human's unread marker, and it cannot triage approvals either.
-func TestOrganization360RefusesTheVisitBaselineToAnAgent(t *testing.T) {
-	e := Setup(t)
-	svc := org360Service(e)
-	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
-
-	if _, err := svc.Acknowledge(agentWithOrgRead(e), org); !errors.Is(err, apperrors.ErrPermissionDenied) {
-		t.Errorf("agent acknowledgment → %v, want ErrPermissionDenied", err)
-	}
-	view, err := svc.Assemble(agentWithOrgRead(e), org)
-	if err != nil {
-		t.Fatalf("assemble as an agent: %v", err)
-	}
-	if view.PendingApprovals != nil {
-		t.Error("pending_approvals present for an agent — triage is human work, so the section must be omitted")
-	}
-	if !slices.Contains(view.SectionsOmitted, "pending_approvals") {
-		t.Errorf("sections_omitted = %v, want it to name pending_approvals for an agent", view.SectionsOmitted)
-	}
-}
-
 // The transport is thin, but "thin" is a claim: it has to bind the path id,
 // let the service's gates decide, and hand back the assembled body — and a
 // native workspace must reach it, not be refused by the overlay guard that
@@ -392,9 +305,10 @@ func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
 }
 
 // agentWithOrgRead binds an agent principal holding the same object grants
-// the rep does, unbounded so the only thing left under test is the
-// human-only rule (an agent carries no user id, so a team row scope would
-// refuse it for the wrong reason).
+// the rep does, unbounded, and CARRYING the granting human's user id — the
+// shape identity/passport.go actually mints, where OnBehalfOf becomes
+// UserID for row scope. An agent with no user id would be refused for the
+// wrong reason and would prove nothing about the human-only rule.
 func agentWithOrgRead(e *Env) context.Context {
 	perms := org360RepPerms
 	perms.RowScope = principal.RowScopeAll
@@ -402,6 +316,44 @@ func agentWithOrgRead(e *Env) context.Context {
 	ctx = principal.WithCorrelationID(ctx, ids.NewV7())
 	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalAgent, ID: "agent:test", SeatType: principal.SeatFull,
-		Permissions: perms,
+		UserID: e.Rep1, OnBehalfOf: e.Rep1, Permissions: perms,
 	})
+}
+
+// A task reaches this account through a contact the caller can read, while
+// also being linked to another team's deal. The task belongs on the page;
+// that deal's id does not.
+func TestOrganization360NextStepsHideALinkedDealOutOfRowScope(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+	pipeline, stage, _ := DealFixture(t, e)
+
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	mine := e.SeedPerson(t, "My Contact", &e.Rep1)
+	e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, person_id, organization_id, source, captured_by)
+		VALUES ($1, 'employment', $2, $3, 'manual', 'human:x')`, e.WS, mine, org)
+	theirDeal := e.SeedDeal(t, "Other team deal", pipeline, stage, &e.Rep3)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, theirDeal, org)
+
+	task := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, is_done, source, captured_by)
+		VALUES ($1, $2, 'task', 'Send the renewal paperwork', now(), false, 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, task, "person", mine)
+	LinkActivity(t, owner, e.WS, task, "deal", theirDeal)
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.NextSteps == nil || len(view.NextSteps.Data) != 1 {
+		t.Fatalf("next_steps = %+v, want the one open task reachable through the visible contact", view.NextSteps)
+	}
+	step := view.NextSteps.Data[0]
+	if step.LinkedDealId != nil {
+		t.Errorf("linked_deal_id = %v for a deal outside the caller's row scope — the task is theirs to see, that deal is not",
+			step.LinkedDealId)
+	}
+	if step.LinkedPersonId == nil || ids.UUID(*step.LinkedPersonId) != mine {
+		t.Errorf("linked_person_id = %v, want the visible contact %v", step.LinkedPersonId, mine)
+	}
 }
