@@ -41,9 +41,39 @@ const DRAFT: components["schemas"]["EmailDraft"] = {
   to: ["buyer@acme.test"],
   ai_generated: true,
   ai_disclosure: "AI-assisted draft (Art. 50): reviewed and sent by a human.",
-  // No voice profile shaped this draft (voice_profile_version stays unset),
-  // so there is no served voice draft to key a learning outcome against.
-  draft_ref: null,
+  // A voice-styled draft: the profile version is the provenance the banner
+  // reports, and the reference is what a send or a discard binds its outcome
+  // to. Both are null on a draft no voice profile shaped.
+  voice_profile_version: 3,
+  draft_ref: "vd-1",
+};
+
+// The owner's profile behind that draft, in the middle maturity band — the
+// state that adds the provisional label to the disclosure banner.
+const VOICE_PROFILE = {
+  data: [
+    {
+      id: "vp-1",
+      owner_id: "u1",
+      status: "ready",
+      maturity: "provisional",
+      quality_band: "thin",
+      voice_profile_md: "Short sentences. Concrete nouns.",
+      profile_version: 3,
+      personality_md: "",
+      auto_learning_enabled: false,
+      active_source_hash: null,
+      candidate_version: null,
+      last_built_at: null,
+      source: "manual",
+      captured_by: "human:u1",
+      version: 1,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+      archived_at: null,
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
 };
 
 // Renders the composer over a given route map, always serving the consent
@@ -95,9 +125,12 @@ export const Empty: Story = {
   render: composeStory({}),
 };
 
-// "Draft with AI" fills To/Subject/Body from the returned EmailDraft.
+// "Draft with AI" fills To/Subject/Body from the returned EmailDraft and
+// discloses it: the Art. 50 banner, the voice version that styled it, and the
+// provisional label its profile currently carries.
 export const Drafted: Story = {
   render: composeStory({
+    "GET /voice-profiles": () => jsonResponse(VOICE_PROFILE),
     "POST /activities/act-1/draft-email": () => jsonResponse(DRAFT),
   }),
   play: async ({ canvasElement }) => {

@@ -11,28 +11,13 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
+import { useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
 
 type VoiceProfile = components["schemas"]["VoiceProfile"];
 type VoiceCorpusSource = components["schemas"]["VoiceCorpusSource"];
 type VoiceCorpusSummary = components["schemas"]["VoiceCorpusSummary"];
-
-// The owner's single Voice DNA (listVoiceProfiles caps at one). Owner-private
-// and human-only server-side; this card is the "…later in Settings" surface the
-// onboarding Voice step promises.
-function useVoiceProfile() {
-  return useQuery({
-    queryKey: ["voice-profile"],
-    queryFn: async (): Promise<VoiceProfile | null> => {
-      const { data, error } = await api.GET("/voice-profiles");
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data.data[0] ?? null;
-    },
-  });
-}
 
 type CorpusManifest = {
   sources: VoiceCorpusSource[];
@@ -70,6 +55,8 @@ function bandFor(totalWords: number): string {
   return "sharp";
 }
 
+// The "…later in Settings" surface the onboarding Voice step promises: the
+// owner's own profile, its corpus, and its builds.
 export function VoiceDnaCard() {
   const t = useT();
   const profile = useVoiceProfile();

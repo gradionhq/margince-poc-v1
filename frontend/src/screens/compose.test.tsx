@@ -60,6 +60,41 @@ const PURPOSES = {
   page: { next_cursor: null, has_more: false },
 };
 
+// listVoiceProfiles caps at one profile and answers an empty page when the
+// caller has none — the state most composer tests run in.
+const NO_VOICE_PROFILE = {
+  data: [],
+  page: { next_cursor: null, has_more: false },
+};
+
+// One profile whose maturity is the middle band (800–4000 corpus words): enough
+// to style a draft, not yet a full build.
+const PROVISIONAL_VOICE_PROFILE = {
+  data: [
+    {
+      id: "vp-1",
+      owner_id: "u1",
+      status: "ready",
+      maturity: "provisional",
+      quality_band: "thin",
+      voice_profile_md: "Short sentences.",
+      profile_version: 3,
+      personality_md: "",
+      auto_learning_enabled: false,
+      active_source_hash: null,
+      candidate_version: null,
+      last_built_at: null,
+      source: "manual",
+      captured_by: "human:u1",
+      version: 1,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+      archived_at: null,
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
+};
+
 // Records every request so a test can assert what actually went to the server
 // — the request body and headers ARE the contract for a send/relink.
 type Sent = { key: string; body: unknown; headers: Headers };
@@ -93,6 +128,7 @@ function stubRoutes(overrides: Record<string, () => Response> = {}) {
       const override = overrides[key];
       if (override) return override();
       if (key === "GET /consent-purposes") return jsonResponse(PURPOSES);
+      if (key === "GET /voice-profiles") return jsonResponse(NO_VOICE_PROFILE);
       return jsonResponse({});
     }),
   );
@@ -262,6 +298,173 @@ describe("ComposeModal", () => {
     expect(screen.getByDisplayValue("Thanks for the note.")).toBeTruthy();
     // EmailDraft.to prefills the recipient chips.
     expect(screen.getByText("buyer@acme.test")).toBeTruthy();
+  });
+
+  // Art. 50 is a hard gate: a model-produced draft that reaches a human
+  // without a disclosure is a compliance failure, so these three cases fix the
+  // banner's presence, its verbatim text, and its absence on human-written
+  // text. Removing the banner from the composer fails all three.
+  it("discloses a model-produced draft, rendering the server's line verbatim", async () => {
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: Q3 numbers",
+          body: "Thanks for the note.",
+          ai_generated: true,
+          ai_disclosure: "AI-assisted draft (Art. 50): reviewed by a human.",
+          draft_ref: null,
+        }),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByTestId("ai-disclosure-banner")).toBeTruthy();
+    expect(
+      screen.getByText("AI-assisted draft (Art. 50): reviewed by a human."),
+    ).toBeTruthy();
+  });
+
+  it("still discloses when the server sends no disclosure line", async () => {
+    // ai_disclosure is contract-guaranteed alongside ai_generated, but a
+    // client that trusts that would drop the disclosure entirely against an
+    // older or misbehaving server. Absence of the line is not absence of the
+    // obligation, so the composer carries its own wording.
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: Q3 numbers",
+          body: "Thanks for the note.",
+          ai_generated: true,
+          ai_disclosure: null,
+          draft_ref: null,
+        }),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByTestId("ai-disclosure-banner")).toBeTruthy();
+    expect(screen.getByText(/This draft was produced by AI/i)).toBeTruthy();
+  });
+
+  it("discloses nothing when no model produced the draft", async () => {
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: Q3 numbers",
+          body: "Thanks for the note.",
+          ai_generated: false,
+          ai_disclosure: null,
+          draft_ref: null,
+        }),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    // The fill proves the draft landed, so the missing banner is the
+    // disclosure being conditional rather than the response never arriving.
+    expect(await screen.findByDisplayValue("Re: Q3 numbers")).toBeTruthy();
+    expect(screen.queryByTestId("ai-disclosure-banner")).toBeNull();
+  });
+
+  it("names the voice version that styled the draft and flags a provisional profile", async () => {
+    stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: Q3 numbers",
+          body: "Thanks for the note.",
+          ai_generated: true,
+          ai_disclosure: "AI-assisted draft (Art. 50).",
+          voice_profile_version: 3,
+          draft_ref: "vd-1",
+        }),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByText("Built from your corpus · v3")).toBeTruthy();
+    expect(screen.getByText("Provisional voice")).toBeTruthy();
+  });
+
+  it("flags nothing provisional when the profile is past that band", async () => {
+    stubRoutes({
+      "GET /voice-profiles": () =>
+        jsonResponse({
+          ...PROVISIONAL_VOICE_PROFILE,
+          data: [
+            { ...PROVISIONAL_VOICE_PROFILE.data[0], maturity: "building" },
+          ],
+        }),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          subject: "Re: Q3 numbers",
+          body: "Thanks for the note.",
+          ai_generated: true,
+          ai_disclosure: "AI-assisted draft (Art. 50).",
+          voice_profile_version: 3,
+          draft_ref: "vd-1",
+        }),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByText("Built from your corpus · v3")).toBeTruthy();
+    expect(screen.queryByText("Provisional voice")).toBeNull();
   });
 
   it("shows an unavailable note on a 501 draft, keeping the form usable", async () => {

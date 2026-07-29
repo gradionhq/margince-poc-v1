@@ -3,7 +3,12 @@ import { X } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
-import { Button, TextInput } from "../design-system/atoms";
+import {
+  Badge,
+  Button,
+  SectionHeader,
+  TextInput,
+} from "../design-system/atoms";
 import { ConfirmModal } from "../design-system/confirmmodal";
 import {
   RecordPicker,
@@ -17,6 +22,7 @@ import {
   throwProblem,
 } from "./common";
 import { useConsentPurposes } from "./consent";
+import { useVoiceProfile } from "./voice-profile";
 import "./compose.css";
 
 // The composer surface for the three already-routed ops (draftEmail /
@@ -25,6 +31,16 @@ import "./compose.css";
 // and typed on the backend; this file only calls them.
 
 type Activity = components["schemas"]["Activity"];
+type EmailDraft = components["schemas"]["EmailDraft"];
+type VoiceProfile = components["schemas"]["VoiceProfile"];
+
+// What a drafting call reported about the text it produced. Held apart from the
+// fields it filled because the disclosure is owed for the call that put model
+// output on this surface, whatever the human then does to the words.
+type DraftProvenance = Pick<
+  EmailDraft,
+  "ai_generated" | "ai_disclosure" | "voice_profile_version"
+>;
 
 // The link targets a relink can point at (relinkActivity's entity_type enum,
 // minus `activity` — a relink never points at another activity). Reused by
@@ -202,6 +218,51 @@ function RecipientField({
   );
 }
 
+// The Art. 50 disclosure for a model-produced draft, in the card treatment the
+// offer surface's banner already uses. The server's disclosure line is a
+// compliance string rendered verbatim, never reworded; a response that omits it
+// still discloses, because a missing line may not silently become a missing
+// disclosure.
+//
+// The voice tag names the PROFILE version that styled the draft, and the
+// provisional label reports what that profile is today. Neither implies a
+// weaker draft: nothing gates drafting on maturity, so a provisional profile
+// styles this text exactly as a fuller one would.
+function DraftDisclosure({
+  provenance,
+  maturity,
+}: Readonly<{
+  provenance: DraftProvenance;
+  maturity: VoiceProfile["maturity"] | undefined;
+}>) {
+  const t = useT();
+  if (!provenance.ai_generated) {
+    return null;
+  }
+  return (
+    <section
+      className="card compose-disclosure"
+      data-testid="ai-disclosure-banner"
+    >
+      <SectionHeader title={t("compose.aiDisclosureTitle")} />
+      <p className="t-body">
+        {provenance.ai_disclosure || t("compose.aiDisclosureFallback")}
+      </p>
+      {provenance.voice_profile_version != null && (
+        <p className="t-caption">
+          {t("compose.voiceVersion", { n: provenance.voice_profile_version })}
+        </p>
+      )}
+      {maturity === "provisional" && (
+        <>
+          <Badge>{t("compose.provisional")}</Badge>
+          <p className="t-caption">{t("compose.provisionalHint")}</p>
+        </>
+      )}
+    </section>
+  );
+}
+
 // The 🟡 confirm-first composer (draftEmail + sendEmail). Draft with AI fills
 // the fields; the human edits and confirms; the human's own click IS the
 // approval (ADR-0055), so the human REST path sends no X-Approval-Token and no
@@ -226,12 +287,14 @@ export function ComposeModal({
   const t = useT();
   const queryClient = useQueryClient();
   const purposes = useConsentPurposes();
+  const voiceProfile = useVoiceProfile();
   const [to, setTo] = useState<string[]>([]);
   const [cc, setCc] = useState<string[]>([]);
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [intent, setIntent] = useState("");
   const [purpose, setPurpose] = useState("");
+  const [provenance, setProvenance] = useState<DraftProvenance | null>(null);
   // Two honest non-error outcomes, kept OUT of react-query's error channel so
   // the form stays usable: the model / mailer simply isn't configured (501).
   const [draftUnavailable, setDraftUnavailable] = useState(false);
@@ -266,6 +329,11 @@ export function ComposeModal({
         return;
       }
       const drafted = result.draft;
+      setProvenance({
+        ai_generated: drafted.ai_generated,
+        ai_disclosure: drafted.ai_disclosure,
+        voice_profile_version: drafted.voice_profile_version,
+      });
       // Never clobber a field the user already edited.
       if (!subject) setSubject(drafted.subject);
       if (!body) setBody(drafted.body);
@@ -361,6 +429,12 @@ export function ComposeModal({
           <p className="t-caption" style={{ color: "var(--danger)" }}>
             {draft.error?.message}
           </p>
+        )}
+        {provenance && (
+          <DraftDisclosure
+            provenance={provenance}
+            maturity={voiceProfile.data?.maturity}
+          />
         )}
 
         <RecipientField label={t("compose.to")} values={to} onChange={setTo} />
