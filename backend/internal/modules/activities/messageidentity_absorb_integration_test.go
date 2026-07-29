@@ -9,9 +9,13 @@ package activities
 // cannot learn of a send until the send is recorded, so an echo of our own
 // message that arrived first already holds the identity the re-key is about to
 // claim. Our row survives — it holds the delivery, the consent purpose and the
-// draft outcome, none of which capture can recreate — and everything on the
-// echo that a human would otherwise have to raise again moves onto it before
-// the delete cascades the rest away.
+// draft outcome, none of which capture can recreate — and the echo gives up its
+// natural key and its place on the timeline, keeping everything else.
+//
+// Three properties the cases below pin, because each is one a refactor could
+// undo without any of the others noticing: the survivor GAINS what the echo
+// derived, the echo KEEPS the links erasure reaches its own derived rows by,
+// and only a row shaped like this message's echo may be folded in at all.
 
 import (
 	"context"
@@ -264,10 +268,36 @@ func TestReconcileAbsorbsAnEchoThatAlreadyHoldsTheStampedIdentity(t *testing.T) 
 	}
 }
 
+// THE ERASURE REACH, and the reason the echo is archived rather than deleted.
+// Subject-scoped Art. 17 erasure walks from a person to an activity's
+// attachments, provenance and embeddings THROUGH activity_link. An archived row
+// stripped of its links is therefore a row whose derived evidence that walk no
+// longer finds — the same defect as the hard delete, in a smaller shape. So the
+// placement is COPIED: the survivor gains it, the echo does not lose it. The
+// archived row shows on no timeline, so keeping the link cannot show the
+// message twice.
+func TestAbsorbLeavesTheEchoTheLinksErasureReachesItBy(t *testing.T) {
+	e := setupSend(t)
+	survivor := e.seedSentEmail(t, mintedIdentity)
+	echo := e.seedCapturedEcho(t)
+	buyer := e.seedPerson(t, "Buyer")
+	e.link(t, echo, "person", buyer)
+
+	e.reconcileAbsorbing(t, survivor)
+
+	if targets := e.linkedTargets(t, echo, "person"); len(targets) != 1 || targets[0] != buyer {
+		t.Errorf("the absorbed echo's person links = %v, want its own link to %s kept — erasure reaches this row's attachments and embeddings through it",
+			targets, buyer)
+	}
+	if targets := e.linkedTargets(t, survivor, "person"); len(targets) != 1 || targets[0] != buyer {
+		t.Errorf("the survivor's person links = %v, want the placement on its own record too", targets)
+	}
+}
+
 // Both rows sit on the same person, which is the ordinary case: the send linked
-// the counterparty and capture derived the same one. Re-pointing the echo's
-// copy would raise the uniqueness violation the absorb exists to answer, so it
-// is left for the delete to cascade.
+// the counterparty and capture derived the same one. Copying the echo's link
+// would raise the uniqueness violation the absorb exists to answer, so the
+// survivor keeps the one it has and the echo keeps its own.
 func TestAbsorbDoesNotDuplicateALinkTheSurvivorAlreadyHolds(t *testing.T) {
 	e := setupSend(t)
 	survivor := e.seedSentEmail(t, mintedIdentity)
@@ -285,9 +315,10 @@ func TestAbsorbDoesNotDuplicateALinkTheSurvivorAlreadyHolds(t *testing.T) {
 
 // uq_activity_link_project permits ONE project link per activity whatever the
 // target, and 0131's ladder decides once and never overwrites. So a survivor
-// that already sits on a project keeps its own, and the echo's is dropped
-// rather than moved — moving it would be the overwrite the ladder refuses.
-func TestAbsorbDropsTheEchosProjectLinkWhenTheSurvivorHasOne(t *testing.T) {
+// that already sits on a project keeps its own and the echo's is not copied —
+// copying it could not even be written, and taking it would be the overwrite
+// the ladder refuses.
+func TestAbsorbLeavesTheEchosProjectLinkBehindWhenTheSurvivorHasOne(t *testing.T) {
 	e := setupSend(t)
 	survivor := e.seedSentEmail(t, mintedIdentity)
 	echo := e.seedCapturedEcho(t)
@@ -303,10 +334,10 @@ func TestAbsorbDropsTheEchosProjectLinkWhenTheSurvivorHasOne(t *testing.T) {
 	}
 }
 
-// A survivor with NO project link takes the echo's: nothing is being
-// overwritten, and dropping it would lose a placement the ladder had already
+// A survivor with NO project link gets the echo's: nothing is being
+// overwritten, and skipping it would lose a placement the ladder had already
 // decided on evidence the survivor never saw.
-func TestAbsorbTakesTheEchosProjectLinkWhenTheSurvivorHasNone(t *testing.T) {
+func TestAbsorbGivesTheSurvivorTheEchosProjectLinkWhenItHasNone(t *testing.T) {
 	e := setupSend(t)
 	survivor := e.seedSentEmail(t, mintedIdentity)
 	echo := e.seedCapturedEcho(t)
@@ -317,6 +348,9 @@ func TestAbsorbTakesTheEchosProjectLinkWhenTheSurvivorHasNone(t *testing.T) {
 
 	if targets := e.linkedTargets(t, survivor, "project"); len(targets) != 1 || targets[0] != theirs {
 		t.Errorf("the survivor's project links = %v, want the echo's project %s", targets, theirs)
+	}
+	if targets := e.linkedTargets(t, echo, "project"); len(targets) != 1 || targets[0] != theirs {
+		t.Errorf("the absorbed echo's project links = %v, want its own kept: the placement is copied, not taken", targets)
 	}
 }
 

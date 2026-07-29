@@ -189,9 +189,10 @@ func reKeyActivity(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, pr
 // OUR row is the survivor, never the echo: it holds the delivery this message
 // was sent through, the consent purpose it was sent under, the draft outcome
 // and counterparty_outbound_attested — facts capture can neither observe nor
-// recreate. The echo holds only what capture derived from the bytes: what a
-// human would otherwise have to raise again moves onto the survivor first, and
-// the rest stays on a row that still exists.
+// recreate. The echo holds only what capture derived from the bytes, and the
+// two kinds of thing it holds are treated differently: evidence is COPIED, so
+// the survivor gains it and the archived row keeps it; a work item is MOVED, so
+// it is queued once.
 //
 // WHICH row is absorbed is decided here, and it is decided narrowly on purpose.
 // `stamped` is parsed out of a remote provider's response bytes, so a hostile
@@ -243,7 +244,7 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 	if err != nil {
 		return fmt.Errorf("activities: finding the captured echo of the sent message: %w", err)
 	}
-	if err := repointEchoLinks(ctx, tx, survivorID, echoID); err != nil {
+	if err := copyEchoLinks(ctx, tx, survivorID, echoID); err != nil {
 		return err
 	}
 	if err := repointEchoReviews(ctx, tx, survivorID, echoID); err != nil {
@@ -252,22 +253,38 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 	return archiveAbsorbedEcho(ctx, tx, survivorID, echoID, stamped)
 }
 
-// repointEchoLinks moves the echo's timeline placements onto the survivor —
-// the sent mail's presence on an auto-created person's record, which is most of
-// what the echo's row was worth.
+// copyEchoLinks gives the survivor the echo's timeline placements — the sent
+// mail's presence on an auto-created person's record, which is most of what the
+// echo's row was worth — and LEAVES the echo's own copies where they are.
 //
-// Two kinds of link are deliberately left where they are, on the row that is
-// about to be archived off the timeline. One the survivor already holds,
-// because uq_activity_link keys on the activity, the entity type, and the five
-// target columns coalesced into one — re-pointing a duplicate would raise the
-// very violation this path exists to answer. And a project link whenever the
-// survivor holds one at all, because
-// uq_activity_link_project permits exactly one per activity WHATEVER the
-// target: the link ladder decides once and never overwrites, so the survivor's
-// project wins rather than the echo's replacing it.
-func repointEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID) error {
+// Copying rather than moving is load-bearing, and it follows from the echo
+// being archived rather than destroyed. An archived row is filtered out of
+// every timeline read, so its links cannot show the message twice; moving them
+// would only have been necessary while the row was being deleted out from under
+// them. What moving them WOULD cost is reach: the subject-scoped Art. 17
+// erasure walks from a person to an activity's attachments, provenance and
+// embeddings through activity_link, so an archived row with no links left is a
+// row whose derived evidence that walk no longer finds. Releasing the natural
+// key instead of deleting the echo exists precisely to keep that evidence
+// reachable, and re-pointing its links away would have been the same defect in
+// a smaller shape.
+//
+// Two kinds of link are deliberately NOT copied. One the survivor already
+// holds, because uq_activity_link keys on the activity, the entity type, and
+// the five target columns coalesced into one — inserting a duplicate would
+// raise the very violation this path exists to answer. And a project link
+// whenever the survivor holds one at all, because uq_activity_link_project
+// permits exactly one per activity WHATEVER the target: the link ladder decides
+// once and never overwrites, so the survivor's project wins rather than the
+// echo's replacing it.
+func copyEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID) error {
 	if _, err := tx.Exec(ctx, `
-		UPDATE activity_link echo_link SET activity_id = $1
+		INSERT INTO activity_link
+		  (workspace_id, activity_id, entity_type, person_id, organization_id, deal_id, lead_id, project_id)
+		SELECT echo_link.workspace_id, $1, echo_link.entity_type,
+		       echo_link.person_id, echo_link.organization_id, echo_link.deal_id,
+		       echo_link.lead_id, echo_link.project_id
+		  FROM activity_link echo_link
 		 WHERE echo_link.activity_id = $2
 		   AND NOT EXISTS (
 		       SELECT 1 FROM activity_link held
@@ -279,18 +296,19 @@ func repointEchoLinks(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.Act
 		       SELECT 1 FROM activity_link held
 		        WHERE held.activity_id = $1 AND held.entity_type = 'project'))`,
 		survivorID, echoID); err != nil {
-		return fmt.Errorf("activities: re-pointing the absorbed echo's timeline links: %w", err)
+		return fmt.Errorf("activities: giving the send the absorbed echo's timeline links: %w", err)
 	}
 	return nil
 }
 
-// repointEchoReviews moves the echo's queued counterparty dispositions onto the
-// survivor. What those rows hold is a queued HUMAN review, and an ensure-retry
-// cursor, that the survivor does not re-queue: left on the row this absorb
-// archives, the question "who is this stranger?" would be asked about a message
-// the workspace can no longer see. Their live-row uniqueness keys on
-// (workspace_id, email), which this write does not touch, so a re-point can
-// collide with nothing.
+// repointEchoReviews MOVES the echo's queued counterparty dispositions onto the
+// survivor — the one thing here that is moved rather than copied, because it is
+// a work item and not evidence. What those rows hold is a queued HUMAN review,
+// and an ensure-retry cursor, that the survivor does not re-queue: left on the
+// row this absorb archives, the question "who is this stranger?" would be asked
+// about a message the workspace can no longer see, and copied it would be asked
+// twice. Their live-row uniqueness keys on (workspace_id, email), which this
+// write does not touch, so a re-point can collide with nothing.
 func repointEchoReviews(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID) error {
 	if _, err := tx.Exec(ctx,
 		`UPDATE capture_pending_counterparty SET activity_id = $1 WHERE activity_id = $2`,
@@ -324,6 +342,15 @@ func repointEchoReviews(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.A
 // collapses onto the survivor, and raw_capture is keyed on the natural key
 // rather than on an activity id, so the provider's evidence already resolves
 // there.
+//
+// The stub therefore KEEPS ITS CONTENT INDEFINITELY, and that is the accepted
+// consequence rather than an oversight. The nightly retention evaluator selects
+// only live rows (`activity/` requires archived_at IS NULL), so an archived
+// message ages out of nothing — the same standing arrangement the ADR-0072
+// noise hide already makes. It is what respecting the retention floor costs: a
+// row this path is forbidden to destroy is a row it also cannot hand to a sweep
+// that would destroy it. Art. 17 erasure still reaches it, which is why the
+// echo's links are copied rather than moved.
 //
 // 'merge' is the verb because that is what happened — two rows for one message
 // collapse into one — and the images name what the row gave up and the row it
