@@ -92,6 +92,7 @@ func TestDeterministicPipelineCitesEveryOpenDeal(t *testing.T) {
 			{ID: "d-2", Name: "B", AmountMinor: 100_000, Currency: "EUR"},
 		},
 		WonLifetime: 1_200_000,
+		WonCurrency: "EUR",
 		LostCount:   3,
 	})
 	var pipeline *Sentence
@@ -207,5 +208,37 @@ func TestDeterministicRefusesATotalWithAnUnknownCurrency(t *testing.T) {
 	}
 	if strings.Contains(text, "worth about") {
 		t.Errorf("totalled past an amount with no currency: %q", text)
+	}
+}
+
+// The won total is converted to the workspace base at each deal's frozen
+// close-time rate, so it has no relation to whatever the open deals are
+// priced in. Labelling it with the open currency reports a real figure under
+// the wrong unit.
+func TestDeterministicLabelsTheWonTotalWithItsOwnCurrency(t *testing.T) {
+	text := briefLines(Deterministic(briefOrgID, Input{
+		Name:        "Acme",
+		OpenDeals:   []DealIn{{ID: "d-1", Name: "US deal", AmountMinor: 100_000, Currency: "USD"}},
+		WonLifetime: 1_200_000,
+		WonCurrency: "EUR",
+	}))
+	if !strings.Contains(text, "12000 EUR won") {
+		t.Errorf("the won total is not in its own currency: %q", text)
+	}
+	if strings.Contains(text, "12000 USD") {
+		t.Errorf("the won total was labelled with the open deals' currency: %q", text)
+	}
+}
+
+// A won total with no currency is not reported at all: the figure alone is
+// not money.
+func TestDeterministicOmitsAWonTotalWithNoCurrency(t *testing.T) {
+	text := briefLines(Deterministic(briefOrgID, Input{
+		Name:        "Acme",
+		OpenDeals:   []DealIn{{ID: "d-1", Name: "A", AmountMinor: 100_000, Currency: "EUR"}},
+		WonLifetime: 1_200_000,
+	}))
+	if strings.Contains(text, "won to date") {
+		t.Errorf("reported a won total with no currency: %q", text)
 	}
 }

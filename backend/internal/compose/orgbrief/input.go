@@ -40,9 +40,14 @@ type Input struct {
 	Contacts     []NamedIn `json:"contacts,omitempty"`
 	OpenDeals    []DealIn  `json:"open_deals,omitempty"`
 	WonLifetime  int64     `json:"won_lifetime_minor"`
-	LostCount    int       `json:"lost_count"`
-	OpenTasks    []NamedIn `json:"open_tasks,omitempty"`
-	Recent       []ActIn   `json:"recent,omitempty"`
+	// WonCurrency is the won total's OWN currency — the workspace base, which
+	// the 360 converts to at each deal's frozen close-time rate. It has no
+	// relation to whatever the open deals are priced in, so it must never be
+	// labelled with theirs.
+	WonCurrency string    `json:"won_currency,omitempty"`
+	LostCount   int       `json:"lost_count"`
+	OpenTasks   []NamedIn `json:"open_tasks,omitempty"`
+	Recent      []ActIn   `json:"recent,omitempty"`
 	// SectionsOmitted names what the reader could NOT see. It rides the
 	// fingerprint so two readers with different grants never share a cached
 	// brief, and it tells the writer to stay silent about those sections
@@ -124,6 +129,9 @@ func foldDeals(view crmcontracts.Organization360, in *Input) {
 	in.LostCount = view.Deals.LostCount
 	if view.Deals.WonLifetime.AmountMinor != nil {
 		in.WonLifetime = *view.Deals.WonLifetime.AmountMinor
+		if view.Deals.WonLifetime.Currency != nil {
+			in.WonCurrency = *view.Deals.WonLifetime.Currency
+		}
 	}
 	for _, deal := range view.Deals.Data {
 		d := DealIn{ID: deal.DealId.String(), Name: deal.Name, Stalled: deal.Stalled}

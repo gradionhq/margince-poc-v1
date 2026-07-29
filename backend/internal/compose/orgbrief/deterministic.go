@@ -82,8 +82,12 @@ func pipelineLine(in Input) string {
 		// formats money properly, and this text is the fallback.
 		line += fmt.Sprintf(" worth about %d %s", total/100, currency)
 	}
-	if in.WonLifetime > 0 && currency != "" {
-		line += fmt.Sprintf("; %d %s won to date", in.WonLifetime/100, currency)
+	// The won total carries its OWN currency: the 360 converts it to the
+	// workspace base at each deal's frozen close-time rate, which has no
+	// relation to whatever the open deals are priced in. Labelling it with
+	// the open currency reported a real figure under the wrong unit.
+	if in.WonLifetime > 0 && in.WonCurrency != "" {
+		line += fmt.Sprintf("; %d %s won to date", in.WonLifetime/100, in.WonCurrency)
 	}
 	return line + "."
 }
