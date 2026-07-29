@@ -35,6 +35,7 @@ func (e *sendEnv) seedCapturedEcho(t *testing.T) ids.ActivityID {
 	return e.seedEcho(t, echoSeed{
 		workspace: e.ws, direction: "outbound", kind: "email",
 		source: "gmail:" + stampedIdentity, capturedBy: "connector:gmail",
+		counterparty: counterparty,
 	})
 }
 
@@ -42,11 +43,12 @@ func (e *sendEnv) seedCapturedEcho(t *testing.T) ids.ActivityID {
 // exposes is one the absorb's lookup reads, so a case can seed a row that holds
 // the key and is NOT this message's echo.
 type echoSeed struct {
-	workspace  ids.UUID
-	direction  string
-	kind       string
-	source     string
-	capturedBy string
+	workspace    ids.UUID
+	direction    string
+	kind         string
+	source       string
+	capturedBy   string
+	counterparty string
 }
 
 func (e *sendEnv) seedEcho(t *testing.T, seed echoSeed) ids.ActivityID {
@@ -54,10 +56,12 @@ func (e *sendEnv) seedEcho(t *testing.T, seed echoSeed) ids.ActivityID {
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction,
-		                      source_system, source_id, source, captured_by, thread_key)
+		                      source_system, source_id, source, captured_by, thread_key,
+		                      counterparty_email)
 		VALUES ($1, $2, $3, 'Re: pricing', now(), $4,
-		        'gmail', $5, $6, $7, $5)`,
-		id, seed.workspace, seed.kind, seed.direction, stampedIdentity, seed.source, seed.capturedBy); err != nil {
+		        'gmail', $5, $6, $7, $5, NULLIF($8, ''))`,
+		id, seed.workspace, seed.kind, seed.direction, stampedIdentity, seed.source, seed.capturedBy,
+		seed.counterparty); err != nil {
 		t.Fatalf("seeding the row on the stamped identity: %v", err)
 	}
 	return id
@@ -244,27 +248,32 @@ func TestReconcileAbsorbsAnEchoThatAlreadyHoldsTheStampedIdentity(t *testing.T) 
 	if targets := e.linkedTargets(t, survivor, "person"); len(targets) != 1 || targets[0] != buyer {
 		t.Errorf("the survivor's person links = %v, want just the buyer %s: the echo's placement on the record must move", targets, buyer)
 	}
-	// The delete is audited and NOT emitted: 'merge' names what happened to the
-	// two rows, while the event catalog has no verb for a hard delete and
-	// activity.archived would claim an archive that never happened.
-	var merges int
+	// The archive is audited AS an archive — the verb the row's own state now
+	// carries — with the folded-in identity and the row it went into as the
+	// evidence of WHY. A row taken off the timeline with no record of why is a
+	// row nobody can account for.
+	var archives int
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM audit_log
-		 WHERE entity_type = 'activity' AND entity_id = $1 AND action = 'merge'
-		   AND after->>'merged_into_id' = $2`, echo, survivor.String()).Scan(&merges); err != nil {
+		 WHERE entity_type = 'activity' AND entity_id = $1 AND action = 'archive'
+		   AND after->>'merged_into_id' = $2`, echo, survivor.String()).Scan(&archives); err != nil {
 		t.Fatalf("counting absorb audit rows: %v", err)
 	}
-	if merges != 1 {
-		t.Errorf("%d merge audit rows naming the survivor, want 1 — a row deleted with no record of why is a row nobody can account for", merges)
+	if archives != 1 {
+		t.Errorf("%d archive audit rows naming the survivor, want 1", archives)
 	}
-	var events int
+	// And the event that goes with it. A subscriber was told activity.captured
+	// about this row; without activity.archived it is holding an entity nothing
+	// ever tells it to stop showing.
+	var archived int
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM event_outbox
-		 WHERE envelope->'entity'->>'id' = $1::text`, echo.String()).Scan(&events); err != nil {
+		 WHERE envelope->>'type' = 'activity.archived'
+		   AND envelope->'entity'->>'id' = $1::text`, echo.String()).Scan(&archived); err != nil {
 		t.Fatalf("counting the absorbed echo's events: %v", err)
 	}
-	if events != 0 {
-		t.Errorf("%d events about the absorbed echo, want 0 — no catalog verb says 'hard-deleted'", events)
+	if archived != 1 {
+		t.Errorf("%d activity.archived events for the absorbed echo, want 1", archived)
 	}
 }
 
@@ -358,8 +367,8 @@ func TestAbsorbGivesTheSurvivorTheEchosProjectLinkWhenItHasNone(t *testing.T) {
 // is parsed out of a remote provider's response, so a hostile or corrupted
 // answer would otherwise get to nominate any Gmail-captured row in the
 // workspace to be archived. A candidate that is not shaped like this message's
-// own echo is a fault: the reconcile reports it, the caller's savepoint degrades
-// it to one duplicate row, and NOTHING is touched.
+// own echo is a fault: the reconcile reports it, the caller rolls its
+// best-effort transaction back to one duplicate row, and NOTHING is touched.
 func TestAbsorbRefusesARowThatIsNotThisMessagesEcho(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -367,14 +376,29 @@ func TestAbsorbRefusesARowThatIsNotThisMessagesEcho(t *testing.T) {
 	}{
 		// A message this mailbox RECEIVED. Whatever put the send's stamped
 		// identity on it, capture never derived it from a copy of this send.
-		{"inbound", echoSeed{direction: "inbound", kind: "email", source: "gmail:x", capturedBy: "connector:gmail"}},
+		{"inbound", echoSeed{direction: "inbound", kind: "email", source: "gmail:x", capturedBy: "connector:gmail", counterparty: counterparty}},
 		// A row a human filed. The connector provenance is what capture's sink
 		// validates against the acting connector before it writes anything;
 		// without it there is no evidence the provider produced this row at all.
-		{"human-authored", echoSeed{direction: "outbound", kind: "email", source: "manual", capturedBy: "human:x"}},
+		{"human-authored", echoSeed{direction: "outbound", kind: "email", source: "manual", capturedBy: "human:x", counterparty: counterparty}},
 		// Not a message. The natural key spans every kind, so a calendar event
 		// filed under the same source system can hold it.
-		{"not an email", echoSeed{direction: "outbound", kind: "meeting", source: "gmail:x", capturedBy: "connector:gmail"}},
+		{"not an email", echoSeed{direction: "outbound", kind: "meeting", source: "gmail:x", capturedBy: "connector:gmail", counterparty: counterparty}},
+		// THE SAME-SHAPED BYSTANDER, and the reason the counterparty is in the
+		// predicate at all: a connector-captured outbound Gmail message, filed
+		// after this send, satisfying every OTHER condition — but addressed to
+		// somebody else. Without that column this row would be archived on a
+		// remote provider's say-so, and every case above would still pass.
+		{"another recipient", echoSeed{
+			direction: "outbound", kind: "email", source: "gmail:x",
+			capturedBy: "connector:gmail", counterparty: "someone.else@example.test",
+		}},
+		// The same row with no counterparty recorded at all. NULL matches
+		// nothing, which is the safe direction: an unaddressed row is one
+		// nothing shows to be this message's echo.
+		{"no recipient recorded", echoSeed{
+			direction: "outbound", kind: "email", source: "gmail:x", capturedBy: "connector:gmail",
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := setupSend(t)
@@ -408,9 +432,12 @@ func TestAbsorbNeverReachesAnotherWorkspacesRowOnTheSameIdentity(t *testing.T) {
 	e := setupSend(t)
 	survivor := e.seedSentEmail(t, mintedIdentity)
 	neighbour := e.seedNeighbourWorkspace(t)
+	// Shaped exactly like this message's own echo, so the workspace bound is
+	// the only thing keeping it out of reach.
 	theirs := e.seedEcho(t, echoSeed{
 		workspace: neighbour, direction: "outbound", kind: "email",
 		source: "gmail:" + stampedIdentity, capturedBy: "connector:gmail",
+		counterparty: counterparty,
 	})
 
 	e.reconcile(t, survivor, stampedIdentity)

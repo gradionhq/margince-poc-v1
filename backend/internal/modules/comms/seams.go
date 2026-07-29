@@ -37,13 +37,15 @@ var _ deliveryStore = (*Store)(nil)
 // MessageIdentityReconciler re-keys the timeline row for a message whose
 // provider stamped an identity different from the one this system minted.
 //
-// It takes the caller's transaction so the re-key lands with the receipt that
-// learned about it — but the caller runs it inside a SAVEPOINT, because the
-// ordering between them is not symmetric. The receipt commits whenever the
-// provider accepted the message; the re-key is bookkeeping subordinate to it.
-// A re-key that could roll the receipt back would return the delivery to a
-// retry ladder whose prior-send lookup cannot see a rewritten identity, and the
-// recipient would be mailed twice over a bookkeeping fault.
+// It takes the caller's transaction so the delivery's own re-key and the
+// timeline row commit together — but that transaction is NOT the receipt's.
+// The ordering between the two is not symmetric: the receipt commits whenever
+// the provider accepted the message, and the re-key is bookkeeping subordinate
+// to it, run afterwards and best effort. A re-key that could roll the receipt
+// back would return the delivery to a retry ladder whose prior-send lookup
+// cannot see a rewritten identity, and the recipient would be mailed twice over
+// a bookkeeping fault. So an error from here is recorded and dropped, never
+// reported to the dispatcher, and an implementer may fail freely.
 //
 // previous is the identity the message was staged under, so the implementer
 // can tell a conversation ROOT (thread_key == previous) from a reply, which

@@ -28,6 +28,10 @@ import (
 const (
 	mintedIdentity  = "019fad38-minted@margince.test"
 	stampedIdentity = "CAFAR1txEuKW@mail.gmail.com"
+	// counterparty is who this message was with. Both the send and the
+	// provider's echo of it name the same person, which is one of the things
+	// the absorb insists on before it takes a row off the timeline.
+	counterparty = "buyer@example.test"
 )
 
 // sentRow is the timeline row as the re-key leaves it. version is read with
@@ -44,18 +48,19 @@ type sentRow struct {
 
 // seedSentEmail writes the row the send path leaves behind: outbound, filed
 // under the provider whose echo must collapse onto it, keyed on the identity
-// this system minted, and authored by a human ('manual'). Only threadKey
-// varies, because that is the one column that tells a conversation root from a
-// reply.
+// this system minted, authored by a human ('manual'), and addressed to the
+// counterparty the send stamps from its own To list. Only threadKey varies,
+// because that is the one column that tells a conversation root from a reply.
 func (e *sendEnv) seedSentEmail(t *testing.T, threadKey string) ids.ActivityID {
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction,
-		                      source_system, source_id, source, captured_by, thread_key)
+		                      source_system, source_id, source, captured_by, thread_key,
+		                      counterparty_email)
 		VALUES ($1, $2, 'email', 'Re: pricing', now(), 'outbound',
-		        'gmail', $3, 'manual', 'human:x', NULLIF($4, ''))`,
-		id, e.ws, mintedIdentity, threadKey); err != nil {
+		        'gmail', $3, 'manual', 'human:x', NULLIF($4, ''), $5)`,
+		id, e.ws, mintedIdentity, threadKey, counterparty); err != nil {
 		t.Fatalf("seeding the sent email: %v", err)
 	}
 	return id
@@ -103,7 +108,7 @@ func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, stamped string) {
 
 // reconcileExpectingRefusal is the same drive for the cases where the seam MUST
 // refuse. It returns the error rather than failing on it, and it rolls the
-// transaction back afterwards the way the delivery store's savepoint does — so
+// transaction back afterwards the way the delivery store's reconcile does — so
 // what a case then reads is what an operator would find on disk.
 func (e *sendEnv) reconcileExpectingRefusal(t *testing.T, id ids.ActivityID) error {
 	t.Helper()
@@ -132,9 +137,9 @@ func TestReconcileReKeysARootSendOntoTheStampedIdentity(t *testing.T) {
 		t.Errorf("thread_key = %q, want %q: a root re-roots onto the identity the world will reply to",
 			row.threadKey, stampedIdentity)
 	}
-	// The write shape: domain row + audit_log row + event_outbox row, one
-	// transaction. Without the audit row the operator has no record that this
-	// mailbox rewrites identities at all.
+	// The audit row is the whole record of the re-key, and it names both
+	// identities: without it the operator has no evidence that this mailbox
+	// rewrites identities at all.
 	var audits int
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM audit_log
@@ -146,15 +151,21 @@ func TestReconcileReKeysARootSendOntoTheStampedIdentity(t *testing.T) {
 	if audits != 1 {
 		t.Errorf("%d audit rows naming both identities, want 1", audits)
 	}
+	// And NO event. activity.updated carries a required, typed, bounded delta
+	// over the fields a human patches; the transport identity is not one of
+	// them and cannot be expressed as one, so emitting it with an empty delta
+	// would publish a claim about the contract that is not true. The gap is the
+	// contract's and belongs upstream (P3); the honest answer here is to stay
+	// quiet rather than to say nothing loudly. What it costs is recorded as a
+	// residual: a subscriber holding the minted identity is never told it moved.
 	var events int
 	if err := e.owner.QueryRow(context.Background(), `
 		SELECT count(*) FROM event_outbox
-		 WHERE envelope->>'type' = 'activity.updated'
-		   AND envelope->'entity'->>'id' = $1::text`, id.String()).Scan(&events); err != nil {
+		 WHERE envelope->'entity'->>'id' = $1::text`, id.String()).Scan(&events); err != nil {
 		t.Fatalf("counting outbox events: %v", err)
 	}
-	if events != 1 {
-		t.Errorf("%d activity.updated events, want 1 — a read model still pointing at the dead identity is a 404", events)
+	if events != 0 {
+		t.Errorf("%d events about the re-keyed send, want 0 — an empty bounded delta tells a consumer nothing and misreports the contract", events)
 	}
 }
 

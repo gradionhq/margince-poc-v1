@@ -7,8 +7,8 @@ package activities
 // onto the RFC822 identity its provider actually stamped, absorbing the
 // provider's own captured echo of it when that echo won the race. The delivery
 // half lives in comms, which declares the seam this satisfies and owns the
-// savepoint the call runs inside; all SQL against activity lives here, where
-// the table is owned.
+// best-effort transaction the call runs inside; all SQL against activity lives
+// here, where the table is owned.
 
 import (
 	"context"
@@ -55,10 +55,11 @@ const sourceIDImage = "source_id"
 // source is deliberately untouched: it says a human wrote this ('manual'), and
 // re-keying the transport identity does not make it connector-ingested.
 //
-// The caller owns the transaction AND a savepoint around this call. Every
-// error raised here therefore travels to the caller rather than being
-// contained, and degrades to "receipt recorded, one duplicate timeline row"
-// instead of un-sending a sent message.
+// The caller owns the transaction, and it is NOT the one the send receipt
+// committed in: that receipt is durable before this runs. Every error raised
+// here therefore travels to the caller rather than being contained, and
+// degrades to "receipt recorded, one duplicate timeline row" instead of
+// un-sending a sent message.
 func (s *Store) ReconcileMessageIdentityTx(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, previous, stamped string) error {
 	if stamped == "" || stamped == previous {
 		// The provider honoured the identity, reports none, or could not be
@@ -82,23 +83,34 @@ func (s *Store) ReconcileMessageIdentityTx(ctx context.Context, tx pgx.Tx, activ
 		// auditing a re-key that did not happen.
 		return nil
 	}
-	// 'update' is the audit verb, and the before/after images name the two
-	// identities: this row IS the operator-visible evidence that the mailbox
-	// rewrites what it is given, so no separate flag or counter has to exist.
-	auditID, err := storekit.Audit(ctx, tx, "update", "activity", activityID.UUID,
-		map[string]any{sourceIDImage: previous}, map[string]any{sourceIDImage: stamped})
-	if err != nil {
+	return auditIdentityReKey(ctx, tx, activityID, previous, stamped)
+}
+
+// auditIdentityReKey records the survivor's move from one transport identity to
+// the other. 'update' is the verb, and the before/after images name both
+// identities: this row IS the operator-visible evidence that the mailbox
+// rewrites what it is given, so no separate flag or counter has to exist.
+//
+// It is a function of its own so that the write-shape gate can see it. This
+// write is AUDIT-ONLY and the missing piece is a contract one: activity.updated
+// carries changed_fields as a REQUIRED, typed, bounded delta over the fields a
+// human patches (subject, body, occurred_at, due_at, remind_at, assignee_id,
+// is_done, a relinked target). The transport identity is not among them and
+// cannot be expressed as one, so emitting that event with an empty delta would
+// publish a message that says a change happened and cannot say what — a claim
+// about the contract that is not true. The closed catalog has no verb for a
+// transport-identity change either, and the closed-verb law forbids inventing
+// one build-side. Written inline, the absorb's own activity.archived would have
+// credited this path with an event it publishes only when an echo collided, and
+// the exemption would have gone unratified; named here, it is one entry in
+// writeshape_test.go's auditOnlyWrites like every other. Upstream (P3): the
+// public event contract cannot represent this mutation, and the fix is a spec
+// change — a typed identity delta on activity.updated, or a discrete
+// reconciliation event — not a build-side substitute.
+func auditIdentityReKey(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, previous, stamped string) error {
+	if _, err := storekit.Audit(ctx, tx, "update", "activity", activityID.UUID,
+		map[string]any{sourceIDImage: previous}, map[string]any{sourceIDImage: stamped}); err != nil {
 		return fmt.Errorf("activities: auditing the message-identity re-key: %w", err)
-	}
-	// activity.updated's changed_fields is a BOUNDED delta over the fields a
-	// human patches, and the natural key is not one of them — so the event
-	// carries no delta and says only "re-read this activity". That is the whole
-	// job here: a read model or an E10 subscriber holding the minted identity
-	// is holding one that resolves nowhere. It fires no user automation either:
-	// the trigger catalog's only activity trigger is activity.captured.
-	if err := storekit.EmitEvent(ctx, tx, auditID, activityID.UUID,
-		crmcontracts.PublicEventActivityUpdated{}); err != nil {
-		return fmt.Errorf("activities: emitting the message-identity re-key: %w", err)
 	}
 	return nil
 }
@@ -114,14 +126,14 @@ func (s *Store) ReconcileMessageIdentityTx(ctx context.Context, tx pgx.Tx, activ
 // look and the UPDATE — so the violation is CAUGHT rather than prevented, and
 // the row it names is absorbed into this one.
 //
-// The first attempt runs in a savepoint of its own, nested inside the caller's,
-// because a failed statement aborts the whole transaction in Postgres: without
-// one there would be nothing left to run the absorb ON. Same shape and same
-// reason as capture's decideCounterpartyGuarded.
+// The first attempt runs in a savepoint of its own, nested inside the caller's
+// transaction, because a failed statement aborts the whole transaction in
+// Postgres: without one there would be nothing left to run the absorb ON. Same
+// shape and same reason as capture's decideCounterpartyGuarded.
 //
 // Exactly ONE retry. A second violation is not this race repeating — the echo
-// it named has given the identity up — so it travels to the caller, whose
-// savepoint degrades it.
+// it named has given the identity up — so it travels to the caller, who rolls
+// the whole reconcile back and degrades it.
 func reKeyAbsorbingTheEcho(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, previous, stamped string) (bool, error) {
 	sp, err := tx.Begin(ctx)
 	if err != nil {
@@ -157,8 +169,8 @@ func reKeyAbsorbingTheEcho(ctx context.Context, tx pgx.Tx, activityID ids.Activi
 		// a survivor that then was not there to take it. This is NOT the
 		// erasure-shaped no-op the first attempt tolerates: absorbEcho joins
 		// the survivor and fails loudly without it, so this transaction saw
-		// the row exist moments ago. Reporting it hands the caller's savepoint
-		// the rollback that puts the archived row back, and leaves the
+		// the row exist moments ago. Reporting it rolls the caller's reconcile
+		// transaction back, which puts the archived row back, and leaves the
 		// breadcrumb an operator can act on — returning nil here would leave a
 		// message hidden from the timeline to no end.
 		return false, fmt.Errorf(
@@ -219,23 +231,51 @@ func absorbEcho(ctx context.Context, tx pgx.Tx, survivorID ids.ActivityID, stamp
 	//     row staged. Both timestamps are stamped by THIS installation, which
 	//     occurred_at is not — that one is the provider's Date header, the same
 	//     remote input this predicate exists to distrust.
+	//   counterparty_email — the two rows must name the same recipient. A row
+	//     addressed to somebody else is a message somebody else was sent,
+	//     whatever key it holds. NULL on either side matches nothing, which is
+	//     the safe direction: it degrades to a duplicate row rather than
+	//     widening what may be archived. The two writers do not choose the
+	//     address by the same rule, and the difference is real rather than
+	//     theoretical: the send takes its FIRST To (primaryCounterparty), while
+	//     capture takes the first NON-OWNER address (mailmap). A human who
+	//     addresses themselves ahead of the recipient therefore produces two
+	//     rows naming different people, and this absorb declines — one duplicate
+	//     row, which is the defect this whole path removes, in the one shape it
+	//     does not. One spelling of "who was this message with" would close it,
+	//     and that is an ADR-0072 correspondence-semantics decision rather than
+	//     something this reconcile may settle on its own.
+	//
+	// WHAT THIS STILL CANNOT PROVE, stated because a heuristic read as a proof
+	// is how the next reader gets it wrong: none of these predicates ties the
+	// row to THIS transmission. They describe the shape of an outbound message
+	// this mailbox sent to this recipient after this send was staged, and a
+	// second such message that genuinely carries the collided key would satisfy
+	// every one of them. The invariant that is missing is a provider-stable
+	// one: capture does not persist the provider's own internal message id
+	// (Gmail's messages.id, which the receipt already carries as
+	// ProviderMessageID), so there is nothing on the captured row that names
+	// the transmission it came from. Persisting it is the real fix and it
+	// belongs on the capture side; until then the absorb is a strong heuristic
+	// held narrow, not a match.
 	//
 	// A collision that matches none of it is reported rather than absorbed. The
-	// caller's savepoint degrades that to "receipt recorded, one duplicate row"
-	// plus a breadcrumb, which is the right price for never archiving a row
-	// nobody showed was this message.
+	// caller degrades that to "receipt recorded, one duplicate row" plus a
+	// breadcrumb, which is the right price for never archiving a row nobody
+	// showed was this message.
 	err := tx.QueryRow(ctx, `
 		SELECT echo.id
 		  FROM activity survivor
 		  JOIN activity echo
-		    ON echo.workspace_id  = survivor.workspace_id
-		   AND echo.id           <> survivor.id
-		   AND echo.source_system = survivor.source_system
-		   AND echo.source_id     = $2
-		   AND echo.kind          = 'email'
-		   AND echo.direction     = 'outbound'
+		    ON echo.workspace_id       = survivor.workspace_id
+		   AND echo.id                <> survivor.id
+		   AND echo.source_system      = survivor.source_system
+		   AND echo.source_id          = $2
+		   AND echo.kind               = 'email'
+		   AND echo.direction          = 'outbound'
 		   AND echo.captured_by LIKE 'connector:%'
-		   AND echo.created_at   >= survivor.created_at
+		   AND echo.created_at        >= survivor.created_at
+		   AND echo.counterparty_email = survivor.counterparty_email
 		 WHERE survivor.id = $1`, survivorID, stamped).Scan(&echoID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fmt.Errorf("activities: the re-key collided on %s, but no row this workspace holds under that identity is a captured outbound echo of this send",
@@ -319,7 +359,7 @@ func repointEchoReviews(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.A
 }
 
 // archiveAbsorbedEcho releases the natural key the folded-in row was holding
-// and takes that row off the timeline, audit-only.
+// and takes that row off the timeline.
 //
 // It RELEASES rather than deletes, and the difference is the whole point.
 // uq_activity_source is a PARTIAL index — it keys only rows whose source
@@ -352,16 +392,20 @@ func repointEchoReviews(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.A
 // that would destroy it. Art. 17 erasure still reaches it, which is why the
 // echo's links are copied rather than moved.
 //
-// 'merge' is the verb because that is what happened — two rows for one message
-// collapse into one — and the images name what the row gave up and the row it
-// went into, the same shape a person merge audits. There is no EVENT: the
-// catalog is closed and has no activity.merged, while activity.archived would
-// report a lifecycle disposition nobody made (this is de-duplication; the
-// archive is its mechanism, not its meaning). The survivor's own
-// activity.updated, emitted in the same transaction, is what tells a read model
-// where the message now lives. A subscriber holding the echo's id from its
-// already relayed activity.captured is the accepted residue — that delivery has
-// happened and no later event can un-deliver it.
+// 'archive' is the verb, because that is what this row's state and its
+// lifecycle both now say: archived_at is set, every timeline read filters it
+// out, and it is the same disposition ArchiveActivity records when a human
+// takes an activity off the timeline. Why it happened is carried in the images
+// rather than in the verb — the key given up and the row it went into are the
+// evidence that this archive was a de-duplication — because a verb the catalog
+// does not define ('merge') would file the same disposition under a name
+// nothing else in the system reads.
+//
+// The paired activity.archived goes out for the reason every archive emits one:
+// a subscriber was told activity.captured about this row and has no other way
+// to learn it should stop showing it. That the archive is a de-duplication
+// changes what an operator reads in the audit images, not what a consumer must
+// do with an entity that has left the timeline.
 func archiveAbsorbedEcho(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.ActivityID, stamped string) error {
 	// The identity predicate is the concurrency guard, and it guards a real
 	// window: the row was chosen by a SELECT, and only this UPDATE re-asserts
@@ -384,10 +428,15 @@ func archiveAbsorbedEcho(ctx context.Context, tx pgx.Tx, survivorID, echoID ids.
 	if tag.RowsAffected() == 0 {
 		return errors.New("activities: the captured echo gave the stamped identity up between the lookup and the fold")
 	}
-	if _, err := storekit.Audit(ctx, tx, "merge", "activity", echoID.UUID,
+	auditID, err := storekit.Audit(ctx, tx, "archive", "activity", echoID.UUID,
 		map[string]any{sourceIDImage: stamped, "merged_into_id": nil},
-		map[string]any{sourceIDImage: nil, "merged_into_id": survivorID}); err != nil {
+		map[string]any{sourceIDImage: nil, "merged_into_id": survivorID})
+	if err != nil {
 		return fmt.Errorf("activities: auditing the absorbed echo: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, echoID.UUID,
+		crmcontracts.PublicEventActivityArchived{}); err != nil {
+		return fmt.Errorf("activities: emitting the absorbed echo's archive: %w", err)
 	}
 	return nil
 }

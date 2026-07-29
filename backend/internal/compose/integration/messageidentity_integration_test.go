@@ -124,15 +124,15 @@ func echoAlreadyCaptured(subject, stamped string) []byte {
 }
 
 // THE ABSORB, in the shape production actually runs it: the echo wins the race,
-// so the unique violation fires two savepoints deep — inside the activities
-// re-key savepoint, inside the delivery store's reconcile savepoint, inside the
-// receipt's transaction — with the real reconciler rather than a stub. The
-// module-level suite drives one savepoint shallower and the stubbed comms case
-// proves only degradation, so this composition of the machinery is not
-// otherwise run by anything.
+// so the unique violation fires inside the activities re-key savepoint, inside
+// the reconcile transaction the delivery store opens after the receipt has
+// committed — with the real reconciler rather than a stub. The module-level
+// suite drives the seam directly and the stubbed comms case proves only
+// degradation, so this composition of the machinery is not otherwise run by
+// anything.
 //
 // The breadcrumb count is what separates the two outcomes: an absorb that
-// worked and a savepoint that quietly gave up both leave one row on the key.
+// worked and a reconcile that quietly gave up both leave one row on the key.
 func TestAnEchoCapturedBeforeTransmitIsAbsorbedByTheReceiptItself(t *testing.T) {
 	p := setupPreflight(t)
 	p.connect(t, gmailReadonlyScope, gmailSendScope)
@@ -176,7 +176,7 @@ func TestAnEchoCapturedBeforeTransmitIsAbsorbedByTheReceiptItself(t *testing.T) 
 		t.Error("the absorbed echo still holds the natural key it was folded in over")
 	}
 	// Zero breadcrumbs is what distinguishes an absorb that worked from a
-	// savepoint that silently degraded to "receipt recorded, one duplicate".
+	// reconcile that silently degraded to "receipt recorded, one duplicate".
 	var faults int
 	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
