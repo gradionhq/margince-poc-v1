@@ -1,0 +1,161 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+// The running page's live tally. A run's counters advance once per COMMITTED
+// page (backfillpager.go), and a page is a hundred messages of provider I/O
+// and capture work — long enough that the activation view sat at zero for the
+// whole first page and read as an import that never started.
+//
+// So the page also reports what it has walked so far into the run's inflight_*
+// columns, and the status read adds the two. Those columns are advisory and
+// transient by construction: every write that ends a page resets them, which
+// is what keeps the committed counters the one authority and a retried page
+// counted once.
+
+package capture
+
+import (
+	"context"
+	"log/slog"
+	"sync"
+
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+)
+
+// pageTally is one page's live counts — absolute since the page began, never
+// deltas, so a flush that never lands is corrected by the next one instead of
+// leaving the row permanently short.
+type pageTally struct {
+	scanned       int
+	captured      int
+	people        int
+	organizations int
+}
+
+// pageProgress accumulates what ONE backfill page walks and creates, and
+// persists it as it goes. Its two sources arrive on different seams: the
+// connector reports scanned/captured/skipped through connector.BackfillProgress,
+// while counterparty creations happen deep inside the Sink, which reads this
+// collector straight off the context — widening connector.Sink to carry a
+// count would change four connectors and every test fake for a number none of
+// them can produce.
+type pageProgress struct {
+	// A page is a batch of independent messages and nothing promises a
+	// connector walks it serially. The lock is held ACROSS the flush on
+	// purpose: released earlier, two writes could land out of order and the
+	// screen would show a count going backwards.
+	mu         sync.Mutex
+	tally      pageTally
+	backfillID ids.UUID
+	registry   *Registry
+}
+
+var _ connector.BackfillProgress = (*pageProgress)(nil)
+
+// pageProgressKey is the private context key — unexported and typed, so no
+// other package can install or read this.
+type pageProgressKey struct{}
+
+// withPageProgress installs a fresh collector for one page. Fresh per page,
+// because the counters are folded in at page commit: a shared collector would
+// double-count every page after the first.
+func withPageProgress(ctx context.Context, r *Registry, backfillID ids.UUID) (context.Context, *pageProgress) {
+	p := &pageProgress{backfillID: backfillID, registry: r}
+	ctx = context.WithValue(ctx, pageProgressKey{}, p)
+	return connector.WithBackfillProgress(ctx, p), p
+}
+
+// pageProgressFrom returns the collector this context carries, or nil when no
+// backfill page is running — the incremental sync path, where a created
+// counterparty belongs to no run. Every method tolerates a nil receiver, so
+// absence costs a branch and never a panic.
+func pageProgressFrom(ctx context.Context) *pageProgress {
+	c, _ := ctx.Value(pageProgressKey{}).(*pageProgress)
+	return c
+}
+
+// Observed takes the connector's running count for this page.
+func (c *pageProgress) Observed(ctx context.Context, scanned, captured int) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tally.scanned, c.tally.captured = scanned, captured
+	c.persist(ctx)
+}
+
+// counted folds one ensure's outcome into the page's yield.
+func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if outcome.PersonCreated {
+		c.tally.people++
+	}
+	if outcome.OrganizationCreated {
+		c.tally.organizations++
+	}
+	c.persist(ctx)
+}
+
+// totals reads the page's yield, for the commit that folds it into the run's
+// own counter columns.
+func (c *pageProgress) totals() (people, organizations int) {
+	if c == nil {
+		return 0, 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.tally.people, c.tally.organizations
+}
+
+// persist writes the current tally to the run row. Caller holds the lock.
+//
+// A failure here is logged and dropped rather than returned, and that is the
+// deliberate call: this write exists so a screen can move, and failing a
+// captured message — a real, committed CRM row — because its progress ping
+// did not land would trade the product for the indicator. The next message
+// restates the absolute tally, and the page's own commit reconciles
+// regardless, so a lost flush costs one frame of animation and nothing else.
+func (c *pageProgress) persist(ctx context.Context) {
+	if err := c.registry.flushBackfillProgress(ctx, c.backfillID, c.tally); err != nil {
+		slog.WarnContext(ctx, "capture: the backfill's live progress was not written — the import is unaffected and the page's commit will reconcile it",
+			"backfill_id", c.backfillID, "err", err)
+	}
+}
+
+// flushBackfillProgress stores the running page's tally on the run row.
+//
+// It also promotes a 'queued' run to 'running', because by the time a page has
+// walked a message the run demonstrably IS running — leaving it queued would
+// put "Import queued" above a set of numbers that are climbing.
+//
+// Guarded on the live states: a run someone cancelled, or one a fault already
+// ended, must not be resurrected by a page that has not noticed yet.
+func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUID, t pageTally) error {
+	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			UPDATE capture_backfill
+			SET inflight_scanned = $2, inflight_captured = $3,
+			    inflight_people = $4, inflight_organizations = $5,
+			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
+			WHERE id = $1 AND status IN ('queued','running')`,
+			backfillID, t.scanned, t.captured, t.people, t.organizations)
+		return err
+	})
+}
+
+// resetInflightProgress is the SQL fragment every write that ends a page
+// carries. A page's live tally belongs to the page: once it commits, faults,
+// fails, or is cancelled, what it walked is either in the committed columns or
+// about to be walked again by a retry — either way the transient copy must go,
+// or the status read would count it twice.
+const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0,
+	    inflight_people = 0, inflight_organizations = 0`

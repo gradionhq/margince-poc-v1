@@ -22,6 +22,37 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The backfill import shows progress while it runs (`feat/backfill-live-progress`).**
+A run's counters only ever moved at page commit, and a page is 100 messages —
+a minute and a half of real provider I/O and capture work. So a user who
+connected a mailbox watched "Import queued / 0 / 0 / 0" for the whole first
+page, which is indistinguishable from an import that never started. Found by
+running a cold stack against a real Gmail account: the API and the polling
+panel were both correct, the data simply had nothing new to say.
+
+The page now reports as it walks. `connector.BackfillProgress` is a new
+optional seam (installed by the engine, read from the context, ignored by any
+connector that does not call it); Gmail reports the absolute page tally after
+each message; `capture.pageProgress` folds that together with the
+counterparty creations the Sink already counted and writes both to four new
+`capture_backfill.inflight_*` columns (migration 0141), which the status read
+adds to the committed counters. The run also flips `queued`→`running` on the
+first reported message, so the title stops contradicting numbers that are
+climbing.
+
+The invariant that made this safe to do: **the committed columns still move
+only at commit.** The in-flight copy is advisory and is cleared by every write
+that ends a page — commit, transient fault, terminal failure, cancel — so a
+page walked twice is still counted once. Three integration tests hold that
+line, including a cancel issued mid-page that the still-running page must not
+resurrect.
+
+**Two upstream spec raises from this (not worked around here):**
+CAP-DDL-4's pinned `capture_backfill` DDL gains the four `inflight_*` columns,
+and `interfaces.md` §1 gains the optional `BackfillProgress` seam next to
+`Backfiller`/`Watcher`/`Sender`. Both need reconciling into
+`margince-foundation`.
+
 **The first outbound channel (`feat/gmail-send`, #303).** Until this, nothing
 the product sent ever reached a contact: `POST /activities/{id}/send-email` ran
 the full governance chain — anchor visibility, write grant, consent gate — and

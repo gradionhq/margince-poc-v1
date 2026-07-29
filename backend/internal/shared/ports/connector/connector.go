@@ -281,6 +281,58 @@ type BackfillPageResult struct {
 	Skipped   int
 }
 
+// BackfillProgress carries a page's tally WHILE the page runs, so the engine
+// can show progress that moves per message instead of once per committed
+// page. A page is a hundred messages and minutes of provider I/O; without
+// this the activation view sits at zero for the whole first page and reads
+// as a dead import.
+//
+// Optional on both sides. The engine installs a reporter with
+// WithBackfillProgress; a connector that never calls it reports only the
+// BackfillPageResult it already returned, and behaves exactly as before.
+// What a reporter records is advisory and transient — the page's own commit
+// remains the one authority on a run's counters.
+type BackfillProgress interface {
+	// Observed reports how many messages THIS page has walked and how many
+	// of them it captured. The numbers are absolute since the page began,
+	// never deltas: a reporter that misses a call is corrected by the next
+	// one instead of drifting, and a retried page restates rather than
+	// double-counts. What was skipped stays the committed result's to
+	// report — no live surface shows it.
+	Observed(ctx context.Context, scanned, captured int)
+}
+
+// backfillProgressKey is the private context key — unexported and typed, so
+// only this package can install or read the reporter.
+type backfillProgressKey struct{}
+
+// WithBackfillProgress installs the reporter a running page reports into.
+// The engine calls this for the page it is about to run; nothing else should.
+func WithBackfillProgress(ctx context.Context, p BackfillProgress) context.Context {
+	return context.WithValue(ctx, backfillProgressKey{}, p)
+}
+
+// BackfillReporter is the value a connector reports through. It wraps the
+// installed reporter, if any, so an unreported page costs a branch instead of
+// a nil check at every call site.
+type BackfillReporter struct{ to BackfillProgress }
+
+// Observed forwards the page's tally, or discards it when nothing is
+// listening.
+func (r BackfillReporter) Observed(ctx context.Context, scanned, captured int) {
+	if r.to != nil {
+		r.to.Observed(ctx, scanned, captured)
+	}
+}
+
+// BackfillProgressFrom returns the reporter for the running page — usable
+// whether or not one was installed. Absence is ordinary: incremental sync
+// installs no reporter, and neither do a connector's own tests.
+func BackfillProgressFrom(ctx context.Context) BackfillReporter {
+	p, _ := ctx.Value(backfillProgressKey{}).(BackfillProgress)
+	return BackfillReporter{to: p}
+}
+
 // Sender is the OPTIONAL outbound seam a connector implements when its provider
 // can transmit a message as the connected user. Type-asserted like Watcher and
 // Backfiller, so the frozen Connector interface is unchanged and a capture-only

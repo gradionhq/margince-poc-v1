@@ -218,11 +218,17 @@ func (r *Registry) BackfillStatus(ctx context.Context, provider string, userID i
 // caller's transaction; no run at all is (nil, nil) — the contract's state
 // "none". The connection-list read shares this with BackfillStatus so the
 // two surfaces cannot drift.
+//
+// The counters it returns are the committed columns PLUS the running page's
+// live tally (backfillprogress.go), which is what makes progress visible
+// during a page rather than only between pages. The two can never
+// double-count: a page's inflight_* columns are cleared by the same statement
+// that folds its work into the committed ones.
 func latestBackfill(ctx context.Context, tx pgx.Tx, connID ids.UUID) (*BackfillRun, error) {
 	row := tx.QueryRow(ctx, `
 		SELECT b.id, b.connection_id, b.window_months, b.after_date, b.status, b.cursor, b.total_estimate,
-		       b.scanned, b.captured, b.skipped,
-		       b.people_created, b.organizations_created,
+		       b.scanned + b.inflight_scanned, b.captured + b.inflight_captured, b.skipped,
+		       b.people_created + b.inflight_people, b.organizations_created + b.inflight_organizations,
 		       b.dedupe_candidates,
 		       b.started_at, b.completed_at, b.updated_at, b.last_error_class
 		FROM capture_backfill b WHERE b.connection_id = $1
@@ -249,7 +255,7 @@ func (r *Registry) CancelBackfill(ctx context.Context, provider string, userID i
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
-			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+resetInflightProgress+`
 			WHERE connection_id = $1 AND status IN ('queued','running')`, connID)
 		if err != nil {
 			return err
