@@ -35,6 +35,20 @@ function problemResponse(body: unknown, status: number) {
   });
 }
 
+// The 422 body httperr.Validation actually emits. Every validation problem
+// carries the same top-level `code`, so the rule that fired is named only in
+// details.errors[] beside the field it was asserted about — a stub that
+// hoisted the specific code to the top level would prove the screen reads a
+// shape the server never sends.
+function validationProblem(field: string, code: string, message: string) {
+  return {
+    code: "validation_error",
+    title: "Unprocessable Entity",
+    detail: message,
+    details: { errors: [{ field, code, message }] },
+  };
+}
+
 function render(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -122,7 +136,9 @@ const LEARNING_SUMMARY = {
 // — the request body and headers ARE the contract for a send/relink.
 type Sent = { key: string; body: unknown; headers: Headers };
 
-function stubRoutes(overrides: Record<string, () => Response> = {}) {
+function stubRoutes(
+  overrides: Record<string, () => Response | Promise<Response>> = {},
+) {
   const sent: Sent[] = [];
   vi.stubGlobal(
     "fetch",
@@ -674,15 +690,20 @@ describe("ComposeModal", () => {
 });
 
 // A voice-styled draft, served with the reference the server keys a learning
-// outcome against.
-function voiceDraft(ref: string, subject: string, body: string) {
+// outcome against and the profile version that styled it.
+function voiceDraft(
+  ref: string,
+  subject: string,
+  body: string,
+  voiceVersion = 3,
+) {
   return {
     subject,
     body,
     to: ["buyer@acme.test"],
     ai_generated: true,
     ai_disclosure: "AI-assisted draft (Art. 50).",
-    voice_profile_version: 3,
+    voice_profile_version: voiceVersion,
     draft_ref: ref,
   };
 }
@@ -855,6 +876,105 @@ describe("ComposeModal draft binding", () => {
     expect(rejections[0].body).toEqual({ draft_ref: "vd-a" });
   });
 
+  it("bars a send while a rejection of the same draft is in flight", async () => {
+    // A rejection and a send are contradictory verdicts on one draft and the
+    // signal keeps whichever lands first. A send that slipped through here
+    // would leave the durable learning record saying "rejected" for a message
+    // that actually went out — the exact failure the explicit judgment exists
+    // to prevent.
+    let landRejection = (): void => {};
+    const rejectionInFlight = new Promise<void>((resolve) => {
+      landRejection = resolve;
+    });
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /voice-profiles/vp-1/draft-rejections": () =>
+        rejectionInFlight.then(() => jsonResponse(LEARNING_SUMMARY)),
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    // The form is sendable before the judgment starts, so the refusal below is
+    // the rejection holding the draft rather than an unmet precondition.
+    expect(
+      screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
+    ).toBe(false);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard draft" }),
+    );
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Send" }).hasAttribute("disabled"),
+      ).toBe(true),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(
+      sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+    ).toBe(false);
+
+    landRejection();
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Draft A body.")).toBeNull(),
+    );
+    expect(
+      sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+    ).toBe(false);
+  });
+
+  it("hands the reference back to the send when the rejection fails", async () => {
+    // A rejection that never landed left the signal open, so the draft on
+    // screen is still the one it named: the send that follows must still be
+    // able to report what the rep did with those words.
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /voice-profiles/vp-1/draft-rejections": () =>
+        problemResponse(
+          { code: "internal_error", title: "Server Error", detail: "boom" },
+          500,
+        ),
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard draft" }),
+    );
+    expect(await screen.findByText(/boom/i)).toBeTruthy();
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+      ).toBe(true),
+    );
+    const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    expect(req?.body).toMatchObject({ draft_ref: "vd-a" });
+  });
+
   it("records no rejection when the composer is merely closed", async () => {
     // `rejected` is a judgment, not an accident of navigation — and because the
     // reference is deterministic and the drafted signal inserts once, a
@@ -879,6 +999,110 @@ describe("ComposeModal draft binding", () => {
   });
 });
 
+// The Art. 50 banner describes the words on screen, so it rides on exactly the
+// condition that puts a served draft there and leaves when they do. A banner
+// that outlived its text would attribute a human's writing to a model, or
+// credit it to a voice version that never touched it.
+describe("ComposeModal draft provenance", () => {
+  it("discloses nothing when a draft's words were discarded for the rep's own", async () => {
+    stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.type(screen.getByPlaceholderText("Body"), "My own words.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    // The subject fill proves the draft landed, so the missing banner is the
+    // disclosure following the body rather than the response never arriving.
+    expect(await screen.findByDisplayValue("Re: Q3")).toBeTruthy();
+    expect(screen.getByDisplayValue("My own words.")).toBeTruthy();
+    expect(screen.queryByTestId("ai-disclosure-banner")).toBeNull();
+  });
+
+  it("keeps the applied draft's voice version when a re-draft is discarded", async () => {
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": draftsInTurn(
+        voiceDraft("vd-a", "Re: Q3", "Draft A body.", 3),
+        voiceDraft("vd-b", "Re: Q3 again", "Draft B body.", 4),
+      ),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    const bodyField = await screen.findByDisplayValue("Draft A body.");
+    await userEvent.type(bodyField, " And my own line.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await waitFor(() =>
+      expect(
+        sent.filter((r) => r.key === "POST /activities/act-1/draft-email")
+          .length,
+      ).toBe(2),
+    );
+
+    // v4's words were never applied, so v4 may not be named over v3's.
+    expect(screen.getByText("Built from your corpus · v3")).toBeTruthy();
+    expect(screen.queryByText("Built from your corpus · v4")).toBeNull();
+  });
+
+  it("drops the disclosure once the body it described is cleared", async () => {
+    stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    const bodyField = await screen.findByDisplayValue("Draft A body.");
+    expect(screen.getByTestId("ai-disclosure-banner")).toBeTruthy();
+
+    await userEvent.clear(bodyField);
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("ai-disclosure-banner")).toBeNull(),
+    );
+  });
+
+  it("claims no voice maturity on a draft no voice profile styled", async () => {
+    // Maturity is a corpus-word band, so it reads `provisional` while the
+    // profile is still only collecting — a state in which drafting serves a
+    // plain model draft and the served version is null. The provisional copy
+    // says a voice already shapes the draft, which here nothing does.
+    stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse({
+          ...voiceDraft("vd-a", "Re: Q3", "Draft A body."),
+          voice_profile_version: null,
+        }),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    expect(await screen.findByTestId("ai-disclosure-banner")).toBeTruthy();
+    expect(screen.queryByText("Provisional voice")).toBeNull();
+  });
+});
+
 // The send pre-flight's two refusals: each is a product state with a fix, so
 // each must read as its own copy rather than as the generic failure line the
 // server's detail string would otherwise land in.
@@ -888,11 +1112,11 @@ describe("ComposeModal send refusals", () => {
     stubRoutes({
       "POST /activities/act-1/send-email": () =>
         problemResponse(
-          {
-            code: "mailbox_not_send_capable",
-            title: "Unprocessable Entity",
-            detail: "opaque server wording",
-          },
+          validationProblem(
+            "from",
+            "mailbox_not_send_capable",
+            "opaque server wording",
+          ),
           422,
         ),
     });
@@ -918,11 +1142,11 @@ describe("ComposeModal send refusals", () => {
     stubRoutes({
       "POST /activities/act-1/send-email": () =>
         problemResponse(
-          {
-            code: "shared_unsubscribe_token",
-            title: "Unprocessable Entity",
-            detail: "opaque server wording",
-          },
+          validationProblem(
+            "recipients",
+            "shared_unsubscribe_token",
+            "opaque server wording",
+          ),
           422,
         ),
     });
@@ -941,11 +1165,11 @@ describe("ComposeModal send refusals", () => {
     stubRoutes({
       "POST /activities/act-1/send-email": () =>
         problemResponse(
-          {
-            code: "some_future_refusal",
-            title: "Unprocessable Entity",
-            detail: "opaque server wording",
-          },
+          validationProblem(
+            "subject",
+            "some_future_refusal",
+            "opaque server wording",
+          ),
           422,
         ),
     });
@@ -955,6 +1179,31 @@ describe("ComposeModal send refusals", () => {
     await userEvent.click(screen.getByRole("button", { name: "Send" }));
 
     expect(await screen.findByText(/opaque server wording/i)).toBeTruthy();
+  });
+
+  it("does not read a refusal off the field the server did not assert it about", async () => {
+    // The pointed copy answers a specific input: "reconnect your mailbox" is
+    // an answer about `from`, and would be the wrong instruction under a later
+    // rule that refused some other field. So the pair is matched, not the code
+    // alone, and an unrecognised pair keeps the server's own wording.
+    stubRoutes({
+      "POST /activities/act-1/send-email": () =>
+        problemResponse(
+          validationProblem(
+            "recipients",
+            "mailbox_not_send_capable",
+            "opaque server wording",
+          ),
+          422,
+        ),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/opaque server wording/i)).toBeTruthy();
+    expect(screen.queryByText(/never granted permission to send/i)).toBeNull();
   });
 
   it("warns about a second addressee before the send, not after it", async () => {

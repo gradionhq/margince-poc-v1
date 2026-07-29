@@ -18,7 +18,7 @@ import { useT } from "../i18n";
 import {
   isConsentNotGranted,
   ProblemError,
-  problemCodeOf,
+  problemFieldErrorsOf,
   problemMessage,
   throwProblem,
 } from "./common";
@@ -229,6 +229,12 @@ function RecipientField({
 // provisional label reports what that profile is today. Neither implies a
 // weaker draft: nothing gates drafting on maturity, so a provisional profile
 // styles this text exactly as a fuller one would.
+//
+// Both hang off the served version, because maturity is a corpus-word band
+// that reaches `provisional` while the profile is still only collecting — and
+// a profile with nothing built yet leaves the version null and styles nothing.
+// Reporting a voice's maturity over a draft no voice touched would overstate
+// this surface's own provenance, which Art. 50 does not permit.
 function DraftDisclosure({
   provenance,
   maturity,
@@ -250,14 +256,16 @@ function DraftDisclosure({
         {provenance.ai_disclosure || t("compose.aiDisclosureFallback")}
       </p>
       {provenance.voice_profile_version != null && (
-        <p className="t-caption">
-          {t("compose.voiceVersion", { n: provenance.voice_profile_version })}
-        </p>
-      )}
-      {maturity === "provisional" && (
         <>
-          <Badge>{t("compose.provisional")}</Badge>
-          <p className="t-caption">{t("compose.provisionalHint")}</p>
+          <p className="t-caption">
+            {t("compose.voiceVersion", { n: provenance.voice_profile_version })}
+          </p>
+          {maturity === "provisional" && (
+            <>
+              <Badge>{t("compose.provisional")}</Badge>
+              <p className="t-caption">{t("compose.provisionalHint")}</p>
+            </>
+          )}
         </>
       )}
     </section>
@@ -265,10 +273,13 @@ function DraftDisclosure({
 }
 
 // One control's worth of mutation state, flattened so a presentational child
-// renders a pending/failed action without speaking react-query.
+// renders a pending/failed action without speaking react-query. `disabled` is
+// wider than `pending`: a control is also barred while a sibling action that
+// would contradict it is in flight.
 type PendingAction = Readonly<{
   run: () => void;
   pending: boolean;
+  disabled: boolean;
   error: string | null;
 }>;
 
@@ -298,11 +309,11 @@ function DraftBar({
           value={intent}
           onChange={(event) => onIntentChange(event.target.value)}
         />
-        <Button small onClick={draft.run} disabled={draft.pending}>
+        <Button small onClick={draft.run} disabled={draft.disabled}>
           {draft.pending ? t("compose.drafting") : t("compose.draftWithAi")}
         </Button>
         {discard && (
-          <Button small onClick={discard.run} disabled={discard.pending}>
+          <Button small onClick={discard.run} disabled={discard.disabled}>
             {t("compose.discardDraft")}
           </Button>
         )}
@@ -331,18 +342,25 @@ function DraftBar({
 // not understand would put words in the server's mouth.
 type Refusal = "consent" | "mailbox" | "sharedUnsubscribe" | null;
 
+// The consent gate is a sentinel-mapped 409 and names itself at the top level;
+// the two pre-flight refusals are 422s, where the top-level code is only ever
+// "validation_error" and the rule that fired is the field + code pair the
+// server asserted. Matching the field too keeps the copy tied to the input it
+// is about: "reconnect your mailbox" is an answer about `from`, and would be
+// wrong advice if some later rule refused `recipients` under the same code.
 function refusalOf(error: unknown): Refusal {
   if (error instanceof ProblemError && isConsentNotGranted(error.problem)) {
     return "consent";
   }
-  switch (problemCodeOf(error)) {
-    case "mailbox_not_send_capable":
+  for (const { field, code } of problemFieldErrorsOf(error)) {
+    if (field === "from" && code === "mailbox_not_send_capable") {
       return "mailbox";
-    case "shared_unsubscribe_token":
+    }
+    if (field === "recipients" && code === "shared_unsubscribe_token") {
       return "sharedUnsubscribe";
-    default:
-      return null;
+    }
   }
+  return null;
 }
 
 // Each refusal states the condition and where it is resolved. The consent gate
@@ -391,6 +409,19 @@ function SendRefusal({
     );
   }
   return null;
+}
+
+// What rejecting a draft needs: the reference to name and the profile that
+// served it. The pair IS the offer — non-null exactly when the judgment has a
+// subject, and the request's own arguments when it is made.
+function rejectionTarget(
+  draftRef: string | null,
+  voiceProfileId: string | null,
+): { profileId: string; draftRef: string } | null {
+  if (draftRef === null || voiceProfileId === null) {
+    return null;
+  }
+  return { profileId: voiceProfileId, draftRef };
 }
 
 // sharedUnsubscribeAhead predicts the refusal above from what is on the form.
@@ -484,20 +515,22 @@ export function ComposeModal({
         return;
       }
       const drafted = result.draft;
-      setProvenance({
-        ai_generated: drafted.ai_generated,
-        ai_disclosure: drafted.ai_disclosure,
-        voice_profile_version: drafted.voice_profile_version,
-      });
       // Never clobber a field the user already edited.
       if (!subject) setSubject(drafted.subject);
       if (!body) {
-        // The reference names the words it was served with, so it rides on
-        // exactly the condition that applies them. A re-draft over text the rep
-        // already wrote keeps that text — adopting the newer reference here
-        // would report a stranger's draft as the rep's own edit of it.
+        // The reference and the disclosure both describe the words they were
+        // served with, so both ride on exactly the condition that applies
+        // them. A re-draft over text the rep already wrote keeps that text —
+        // adopting the newer reference would report a stranger's draft as the
+        // rep's own edit of it, and adopting the newer disclosure would credit
+        // a model, and a voice version, with words a human typed.
         setBody(drafted.body);
         setDraftRef(drafted.draft_ref ?? null);
+        setProvenance({
+          ai_generated: drafted.ai_generated,
+          ai_disclosure: drafted.ai_disclosure,
+          voice_profile_version: drafted.voice_profile_version,
+        });
       }
       if (to.length === 0 && drafted.to?.length) setTo(drafted.to);
     },
@@ -508,31 +541,38 @@ export function ComposeModal({
   // reference is deterministic and the drafted signal is inserted once, so a
   // rejection recorded because someone navigated away would silently stand in
   // for the real outcome of an identical draft that is later sent.
-  const voiceProfileId = voiceProfile.data?.id ?? null;
-  // A rejection needs both a draft to name and the profile that served it.
-  const rejectable = draftRef !== null && voiceProfileId !== null;
+  const rejectable = rejectionTarget(draftRef, voiceProfile.data?.id ?? null);
   const discard = useMutation({
-    mutationFn: async () => {
-      if (!voiceProfileId || !draftRef) {
-        // The control is only offered with both in hand; reaching here means
-        // the profile query answered differently mid-edit.
-        throw new Error(t("compose.actionFailed"));
-      }
+    mutationFn: async (rejected: { profileId: string; draftRef: string }) => {
       const { error } = await api.POST(
         "/voice-profiles/{id}/draft-rejections",
         {
-          params: { path: { id: voiceProfileId } },
-          body: { draft_ref: draftRef },
+          params: { path: { id: rejected.profileId } },
+          body: { draft_ref: rejected.draftRef },
         },
       );
       if (error) throw new Error(problemMessage(error));
+    },
+    onMutate: () => {
+      // A rejection and a send are contradictory verdicts on one draft, and
+      // whichever reaches the signal first owns it for good. Dropping the
+      // reference the moment the judgment leaves means a send that starts
+      // anyway carries no draft at all: an unrecorded send, never a message
+      // that actually went out filed as rejected. The control withdraws with
+      // it, which is where a succeeding rejection leaves the surface anyway.
+      setDraftRef(null);
+    },
+    onError: (_error, rejected) => {
+      // The rejection never landed, so the signal is still open and the words
+      // on screen are still the ones it named. Restoring the reference keeps
+      // the judgment retryable and lets a send that follows report honestly.
+      setDraftRef(rejected.draftRef);
     },
     onSuccess: () => {
       // The rejected words leave with the judgment; the recipients the rep
       // addressed are their own work and stay.
       setSubject("");
       setBody("");
-      setDraftRef(null);
       setProvenance(null);
     },
   });
@@ -589,6 +629,11 @@ export function ComposeModal({
     subject.trim() !== "" &&
     body.trim() !== "" &&
     purpose !== "";
+  // While a rejection is in flight the draft it names is being disposed of, so
+  // nothing else on this surface may act on that draft: sending would race the
+  // rejection for the signal, and re-drafting would hand the rep words the
+  // rejection's clear-down is about to wipe.
+  const rejectionInFlight = discard.isPending;
 
   return (
     <ConfirmModal
@@ -597,7 +642,7 @@ export function ComposeModal({
       title={t("compose.sendConfirmTitle")}
       tier="confirm"
       confirmLabel={t("compose.send")}
-      confirmDisabled={!canSend}
+      confirmDisabled={!canSend || rejectionInFlight}
       onConfirm={() => send.mutate()}
       pending={send.isPending}
       error={sendError}
@@ -609,13 +654,17 @@ export function ComposeModal({
           draft={{
             run: () => draft.mutate(),
             pending: draft.isPending,
+            disabled: draft.isPending || rejectionInFlight,
             error: draft.isError ? draft.error.message : null,
           }}
           discard={
             rejectable
               ? {
-                  run: () => discard.mutate(),
+                  run: () => discard.mutate(rejectable),
                   pending: discard.isPending,
+                  // The mirror of the send gate: a rejection may not be
+                  // started against a draft already on its way out.
+                  disabled: send.isPending,
                   error: discard.isError ? discard.error.message : null,
                 }
               : null
@@ -646,8 +695,12 @@ export function ComposeModal({
             // An emptied body no longer holds the served draft, and the fill
             // rule above will re-adopt on the next draft. Keeping the old
             // reference across the gap would bind the next send's outcome to
-            // words the rep deleted.
-            if (!next) setDraftRef(null);
+            // words the rep deleted, and keeping the disclosure would announce
+            // a model draft over an empty field the rep is about to fill.
+            if (!next) {
+              setDraftRef(null);
+              setProvenance(null);
+            }
           }}
         />
 

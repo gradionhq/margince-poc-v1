@@ -14,6 +14,8 @@ import {
   canManageCustomFields,
   isConsentNotGranted,
   problemExistingId,
+  problemFieldErrors,
+  problemFieldErrorsOf,
   problemMessage,
   provenanceOf,
   throwProblem,
@@ -134,6 +136,78 @@ describe("problemMessage", () => {
     expect(
       problemMessage({ code: "version_skew", detail: "record changed" }, t),
     ).toBe("record changed");
+  });
+});
+
+// The 422 shape httperr.Validation emits: the top-level code is always
+// "validation_error", so the rule a caller keys on lives only here.
+describe("problemFieldErrors", () => {
+  it("reads the field, code, and message the server asserted", () => {
+    expect(
+      problemFieldErrors({
+        code: "validation_error",
+        detail: "reconnect your mailbox",
+        details: {
+          errors: [
+            {
+              field: "from",
+              code: "mailbox_not_send_capable",
+              message: "reconnect your mailbox",
+            },
+          ],
+        },
+      }),
+    ).toEqual([
+      {
+        field: "from",
+        code: "mailbox_not_send_capable",
+        message: "reconnect your mailbox",
+      },
+    ]);
+  });
+
+  it("reads nothing out of a body that carries no field errors", () => {
+    expect(problemFieldErrors({ code: "consent_not_granted" })).toEqual([]);
+    expect(problemFieldErrors({ details: { errors: "not a list" } })).toEqual(
+      [],
+    );
+    expect(problemFieldErrors(null)).toEqual([]);
+    expect(problemFieldErrors("nope")).toEqual([]);
+  });
+
+  it("drops an entry that does not name a field, a code, and a message", () => {
+    // A half-formed entry cannot be matched on, and filling its holes with
+    // empty strings would let a caller key on a rule nobody asserted.
+    expect(
+      problemFieldErrors({
+        details: {
+          errors: [
+            { field: "from", code: "mailbox_not_send_capable" },
+            { code: "shared_unsubscribe_token", message: "one at a time" },
+            null,
+          ],
+        },
+      }),
+    ).toEqual([]);
+  });
+
+  it("claims field errors only off a failure that carries a server problem", () => {
+    const problem = {
+      details: {
+        errors: [{ field: "from", code: "not_send_capable", message: "fix" }],
+      },
+    };
+    let thrown: unknown;
+    try {
+      throwProblem(problem);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(problemFieldErrorsOf(thrown)).toEqual([
+      { field: "from", code: "not_send_capable", message: "fix" },
+    ]);
+    expect(problemFieldErrorsOf(new Error("network down"))).toEqual([]);
+    expect(problemFieldErrorsOf(problem)).toEqual([]);
   });
 });
 
