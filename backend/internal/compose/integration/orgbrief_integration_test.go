@@ -19,7 +19,10 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -332,5 +335,66 @@ func TestOrganizationBriefRefusesAnAgent(t *testing.T) {
 
 	if _, err := briefService(e, nil, "").Get(agent, org, false); !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("agent brief → %v, want ErrPermissionDenied", err)
+	}
+}
+
+// The transport is thin, but thin is a claim: the GET serves the cache and
+// the POST forces a rewrite, and a refusal from the service has to reach the
+// wire as a refusal rather than an empty 200.
+func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
+	e := Setup(t)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	reader := e.As(e.Rep1, nil, briefReaderPerms)
+	lane := &countingLane{reply: `{"sentences":[{"text":"An account.","evidence":[{"entity_type":"organization","entity_id":"` + org.String() + `"}]}]}`}
+	handlers := orgbrief.NewHandlers(briefService(e, lane, "routing-1"))
+	path := "/v1/organizations/" + org.String() + "/brief"
+
+	rec := httptest.NewRecorder()
+	get := httptest.NewRequest(http.MethodGet, path, nil)
+	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	var body crmcontracts.OrganizationBrief
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding the brief: %v", err)
+	}
+	if len(body.Sentences) == 0 {
+		t.Error("the served brief carries no sentences")
+	}
+
+	// A second GET is the cache; the POST is the reader asking anyway.
+	rec = httptest.NewRecorder()
+	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID))
+	if lane.calls != 1 {
+		t.Errorf("model calls = %d after a second GET, want the cache to answer", lane.calls)
+	}
+	rec = httptest.NewRecorder()
+	post := httptest.NewRequest(http.MethodPost, path, nil)
+	handlers.RegenerateOrganizationBrief(rec, post.WithContext(reader), crmcontracts.Id(org.UUID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	if lane.calls != 2 {
+		t.Errorf("model calls = %d after the forced refresh, want a rewrite", lane.calls)
+	}
+}
+
+// A refusal must reach the wire AS a refusal: an out-of-scope account is a
+// 404, not a 200 carrying an empty brief.
+func TestOrganizationBriefTransportRefusesOutOfScope(t *testing.T) {
+	e := Setup(t)
+	theirs := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Other Team Account", &e.Rep3))
+	scoped := briefReaderPerms
+	scoped.RowScope = principal.RowScopeTeam
+	handlers := orgbrief.NewHandlers(briefService(e, nil, ""))
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+theirs.String()+"/brief", nil)
+	handlers.GetOrganizationBrief(rec,
+		req.WithContext(e.As(e.Rep1, []ids.UUID{e.Team1}, scoped)), crmcontracts.Id(theirs.UUID))
+
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("status = %d for an out-of-scope account, want 404", rec.Code)
 	}
 }
