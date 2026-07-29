@@ -73,10 +73,14 @@ func setupSendOutcomeStore(t *testing.T) *sendOutcomeEnv {
 // draftOptions varies the seeded signal for the refusal under test. The
 // zero value is the ordinary case: a live drafted signal on a profile the
 // acting human owns.
+//
+// The erasure stamp and the text it removes are separate switches, because
+// real erasure sets both: seeding only one is how a case isolates which of the
+// two gates a refusal actually came from.
 type draftOptions struct {
 	outcome            string // "" seeds the drafted state
-	noGeneratedText    bool   // a live row whose original text is NULL
-	erased             bool   // Art. 17 / retention erasure: content NULLed in place
+	noGeneratedText    bool   // generated_original is NULL
+	contentErased      bool   // content_erased_at is stamped
 	archived           bool
 	foreignOwner       bool // the profile belongs to another human
 	agentActor         bool // the send is attributed to an agent, not the owner
@@ -125,11 +129,11 @@ func (e *sendOutcomeEnv) seedDraft(t *testing.T, opts draftOptions) draftFixture
 		outcome = voiceOutcomeDrafted
 	}
 	generated := any(seededDraftBody)
-	if opts.noGeneratedText || opts.erased {
+	if opts.noGeneratedText {
 		generated = nil
 	}
 	var erasedAt, archivedAt any
-	if opts.erased {
+	if opts.contentErased {
 		erasedAt = sendOutcomeClock
 	}
 	if opts.archived {
@@ -379,13 +383,29 @@ func TestRecordSendOutcomeTreatsAnUnknownDraftReferenceAsNothingToRecord(t *test
 // find it, compare the sent body against a NULL original, misclassify as
 // edited_sent — and re-materialise a similarity over plaintext an erasure
 // already removed.
+//
+// Erasure trips two gates at once, so each is proven on its own. A suite that
+// only ever seeded the pair would stay green with either one deleted, and a
+// GDPR gate that no test can fail is a gate nobody is holding.
 func TestRecordSendOutcomeRefusesAnErasedOrArchivedSignal(t *testing.T) {
 	env := setupSendOutcomeStore(t)
 
 	t.Run("content erased by retention or Art. 17", func(t *testing.T) {
-		f := env.seedDraft(t, draftOptions{erased: true})
+		f := env.seedDraft(t, draftOptions{contentErased: true, noGeneratedText: true})
 		if env.record(f.ctx, t, f.draftRef, seededDraftBody) {
 			t.Error("recorded = true for a signal whose content was erased")
+		}
+		env.assertUntouched(t, f)
+	})
+
+	t.Run("the erasure stamp alone, with the served text still on the row", func(t *testing.T) {
+		// Fabricated: no product path leaves the stamp without clearing the
+		// text. That is the point — it is the only state in which the answer
+		// can come from the content_erased_at predicate and nothing else, so
+		// it is what holds that predicate in place.
+		f := env.seedDraft(t, draftOptions{contentErased: true})
+		if env.record(f.ctx, t, f.draftRef, seededDraftBody) {
+			t.Error("recorded = true for a signal stamped as erased")
 		}
 		env.assertUntouched(t, f)
 	})
