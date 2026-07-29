@@ -19,7 +19,7 @@ type unitRule struct {
 	// observedUnits computes the expected units for scanned messages from a
 	// COMPLETED backfill yield (the caller guarantees y.Scanned > 0). ok=false
 	// means the yield cannot anchor this task's ratio, so the caller floors and
-	// marks the estimate heuristic — this is where enrich's C1 guard lives.
+	// marks the estimate heuristic — this is where enrich's zero-people guard lives.
 	observedUnits func(scanned int64, y capture.BackfillYields) (units int64, ok bool)
 	// observedDenom is the observed-unit count the window's served slices are
 	// divided by for the priced-slice cost: classify's exact labeled-message

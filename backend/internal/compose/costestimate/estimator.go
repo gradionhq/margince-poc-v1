@@ -288,9 +288,10 @@ func (e *Estimator) priceFloor(ctx context.Context, task ai.Task, units int64, t
 // expectedUnits maps this preview's scanned-message count to a task's expected
 // unit count via the connection's backfill yields, or the floor when no
 // completed run exists (no yield, an unruled task, or a rule reporting its ratio
-// unavailable — enrich's C1 guard). Multiply-before-divide. observed=false ⇒ the
-// floor was used (a heuristic). The per-task observed ratio lives in the rule
-// the contract names; the shared floor fallback is spelled once here.
+// unavailable — where enrich's zero-people guard lands). Multiply-before-divide.
+// observed=false ⇒ the floor was used (a heuristic). The per-task observed ratio
+// lives in the rule the contract names; the shared floor fallback is spelled
+// once here.
 func expectedUnits(task ai.Task, scanned int64, y capture.BackfillYields) (units int64, observed bool) {
 	if rule, ok := unitRuleFor(task); ok && y.Scanned > 0 {
 		if u, ratioOK := rule.observedUnits(scanned, y); ratioOK {
