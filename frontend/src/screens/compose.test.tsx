@@ -975,6 +975,137 @@ describe("ComposeModal draft binding", () => {
     expect(req?.body).toMatchObject({ draft_ref: "vd-a" });
   });
 
+  it("keeps the draft when a bodiless gateway failure refuses the rejection", async () => {
+    // openapi-fetch reports a falsy `error` and no `data` for a bodiless
+    // non-2xx, so a rejection that never reached the server looks exactly like
+    // one that succeeded. Clearing the composer on it would tell the rep their
+    // verdict was recorded while the signal is still open — and the next send
+    // would then be classified against a draft the rep believes they discarded.
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /voice-profiles/vp-1/draft-rejections": () => emptyResponse(502),
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard draft" }),
+    );
+
+    expect(
+      await screen.findByText("The request failed. Please try again."),
+    ).toBeTruthy();
+    expect(screen.getByDisplayValue("Draft A body.")).toBeTruthy();
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+      ).toBe(true),
+    );
+    const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    expect(req?.body).toMatchObject({ draft_ref: "vd-a" });
+  });
+
+  it("announces a failed rejection rather than only colouring it", async () => {
+    // The line appears without any navigation, so a rep who cannot see it is
+    // otherwise never told the judgment did not land.
+    stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /voice-profiles/vp-1/draft-rejections": () =>
+        problemResponse(
+          { code: "internal_error", title: "Server Error", detail: "boom" },
+          500,
+        ),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard draft" }),
+    );
+
+    const announced = await screen.findAllByRole("alert");
+    expect(announced.map((node) => node.textContent)).toContain("boom");
+  });
+
+  it("announces a failed draft rather than only colouring it", async () => {
+    stubRoutes({
+      "POST /activities/act-1/draft-email": () =>
+        problemResponse(
+          { code: "internal_error", title: "Server Error", detail: "no model" },
+          500,
+        ),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+
+    const announced = await screen.findAllByRole("alert");
+    expect(announced.map((node) => node.textContent)).toContain("no model");
+  });
+
+  it("freezes the drafted text while the rejection is in flight", async () => {
+    // A failed rejection hands its reference back to the surface. If the rep
+    // could type meanwhile, that reference would return over words it does not
+    // describe, and a later send would file an outcome against a draft nobody
+    // wrote — the same defect as adopting a reference whose body was never
+    // applied.
+    let landRejection = (): void => {};
+    const rejectionInFlight = new Promise<void>((resolve) => {
+      landRejection = resolve;
+    });
+    stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /voice-profiles/vp-1/draft-rejections": () =>
+        rejectionInFlight.then(() => jsonResponse(LEARNING_SUMMARY)),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    const bodyField = await screen.findByDisplayValue("Draft A body.");
+    const subjectField = screen.getByDisplayValue("Re: Q3");
+    expect(bodyField.hasAttribute("disabled")).toBe(false);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard draft" }),
+    );
+    await waitFor(() => expect(bodyField.hasAttribute("disabled")).toBe(true));
+    expect(subjectField.hasAttribute("disabled")).toBe(true);
+    await userEvent.type(bodyField, " and mine");
+    expect(screen.getByDisplayValue("Draft A body.")).toBeTruthy();
+
+    landRejection();
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Draft A body.")).toBeNull(),
+    );
+  });
+
   it("records no rejection when the composer is merely closed", async () => {
     // `rejected` is a judgment, not an accident of navigation — and because the
     // reference is deterministic and the drafted signal inserts once, a

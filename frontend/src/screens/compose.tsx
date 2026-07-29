@@ -322,13 +322,25 @@ function DraftBar({
       {unavailable && (
         <p className="t-caption">{t("compose.draftUnavailable")}</p>
       )}
+      {/* Both failures appear without any navigation, so they are announced
+          rather than merely coloured: a rep who cannot see the line has to be
+          told the draft or the rejection did not land, on the same terms the
+          send refusals are announced. */}
       {!unavailable && draft.error && (
-        <p className="t-caption" style={{ color: "var(--danger)" }}>
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--danger)" }}
+        >
           {draft.error}
         </p>
       )}
       {discard?.error && (
-        <p className="t-caption" style={{ color: "var(--danger)" }}>
+        <p
+          className="t-caption"
+          role="alert"
+          style={{ color: "var(--danger)" }}
+        >
           {discard.error}
         </p>
       )}
@@ -544,14 +556,23 @@ export function ComposeModal({
   const rejectable = rejectionTarget(draftRef, voiceProfile.data?.id ?? null);
   const discard = useMutation({
     mutationFn: async (rejected: { profileId: string; draftRef: string }) => {
-      const { error } = await api.POST(
+      const { error, response } = await api.POST(
         "/voice-profiles/{id}/draft-rejections",
         {
           params: { path: { id: rejected.profileId } },
           body: { draft_ref: rejected.draftRef },
         },
       );
-      if (error) throw new Error(problemMessage(error));
+      // The rejection landed only on a real 2xx. openapi-fetch reports a falsy
+      // `error` for a bodiless non-2xx (a gateway 502/503/504), and treating
+      // that as success would clear the draft off this surface while the
+      // server's signal is still open — the rep would be told their verdict
+      // was recorded when it never left the building.
+      if (!response.ok) {
+        throw new Error(
+          problemMessage(error || { title: t("compose.actionFailed") }),
+        );
+      }
     },
     onMutate: () => {
       // A rejection and a send are contradictory verdicts on one draft, and
@@ -632,7 +653,10 @@ export function ComposeModal({
   // While a rejection is in flight the draft it names is being disposed of, so
   // nothing else on this surface may act on that draft: sending would race the
   // rejection for the signal, and re-drafting would hand the rep words the
-  // rejection's clear-down is about to wipe.
+  // rejection's clear-down is about to wipe. The drafted text is frozen for the
+  // same span — a failed rejection hands its reference back, and a reference
+  // may only ever name the words on screen, never words typed while it was
+  // away.
   const rejectionInFlight = discard.isPending;
 
   return (
@@ -688,12 +712,14 @@ export function ComposeModal({
         <TextInput
           placeholder={t("compose.subject")}
           value={subject}
+          disabled={rejectionInFlight}
           onChange={(event) => setSubject(event.target.value)}
         />
         <textarea
           className="textarea compose-body"
           placeholder={t("compose.body")}
           value={body}
+          disabled={rejectionInFlight}
           onChange={(event) => {
             const next = event.target.value;
             setBody(next);
