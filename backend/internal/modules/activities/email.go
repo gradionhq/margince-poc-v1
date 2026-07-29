@@ -66,6 +66,10 @@ type SendEmailInput struct {
 	Subject        string
 	Body           string
 	ConsentPurpose string
+	// DraftRef names the voice draft this message came from, so the send can
+	// close the learning signal that draft opened. Empty is the ordinary case:
+	// mail the human composed independently resolves no draft.
+	DraftRef string
 }
 
 // DeliveryStager records an outbound message for transmission. It is the
@@ -217,7 +221,17 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 		if err != nil {
 			return err
 		}
-		return stager.StageTx(ctx, tx, message.delivery(ids.UUID(sent.Id), chain))
+		if err := stager.StageTx(ctx, tx, message.delivery(ids.UUID(sent.Id), chain)); err != nil {
+			return err
+		}
+		// in.Body, not message.body: the judgment is about the text the HUMAN
+		// approved, and the two differ once a footer is applied. The reason
+		// in.Body still holds that text is that deliverability() returns a NEW
+		// local and never rewrites in — the transmitted body is that derived
+		// local. So this is correct because in is immutable, NOT because of
+		// where the footer is applied relative to this call, and moving the
+		// transaction boundary does not make it wrong.
+		return s.recordDraftOutcome(ctx, tx, in.DraftRef, in.Body)
 	})
 	if err != nil {
 		return crmcontracts.Activity{}, err
