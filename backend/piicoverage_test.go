@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -37,6 +38,13 @@ type piiHandling struct {
 	// promises: "erased when the subject asks" and "erased when the clock
 	// says", and only the first answers an Art. 17 request.
 	retentionErase bool
+	// retentionErasures names the SET assignments that CONSTITUTE the sweep's
+	// erasure of this table, normalized to single spaces. Required wherever
+	// retentionErase is set: "the sweep writes this table" is satisfied by any
+	// statement at all, so a version bump or a metadata touch left behind after
+	// the plaintext wipe was deleted would keep that claim true while the
+	// content survived its window. These are the assignments the erasure IS.
+	retentionErasures []string
 	// sarRead: SAR assembly must read this table into the export package.
 	// False only for opaque derived artifacts (vectors) that carry no
 	// human-readable PII to hand back — they are purged, never exported.
@@ -80,16 +88,37 @@ var piiTables = map[string]piiHandling{
 	// mail behind a join Art. 17 would have to find. So the time-based sweep
 	// (privacy/retention.go, 180 days) is its eraser, not the cascade.
 	//
-	// SAR is a DOCUMENTED EXCLUSION rather than a gap: the subject's copy of
-	// the correspondence is the activity, which AssembleSAR already exports,
-	// and this row holds no content the subject does not receive there — the
-	// sent body is classified and discarded, never stored.
-	"voice_learning_signal": {retentionErase: true, sarRead: false},
+	// The SAR exclusion holds for a draft that was SENT: the subject's copy of
+	// that correspondence is the activity, which AssembleSAR already exports,
+	// and the sent body itself is classified and discarded, never stored. It
+	// does NOT hold for a draft that was rejected or abandoned — no activity
+	// exists, so generated_original is the only copy of words written about the
+	// subject, and it is held for up to 180 days with no Art. 15 export path.
+	// That bound is a property of storing the drafted text at all
+	// (RecordDraftedSignal), not of any one outcome recorded against it, and
+	// whether Art. 15 must reach an unsent draft is open against the spec.
+	"voice_learning_signal": {
+		retentionErase: true,
+		retentionErasures: []string{
+			"generated_original = NULL",
+			"final_text = NULL",
+			"content_erased_at = now()",
+		},
+		sarRead: false,
+	},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are
 // SELECTs, invisible to sqlWriteTargets.
 var fromJoinRe = regexp.MustCompile(`(?is)\b(?:from|join)\s+([a-z_][a-z0-9_]*)`)
+
+// sqlWhitespaceRe collapses the indentation of a raw-string SQL literal so an
+// assignment can be matched as the one-line clause it reads as in the registry.
+var sqlWhitespaceRe = regexp.MustCompile(`\s+`)
+
+func collapsedSQL(literal string) string {
+	return strings.ToLower(strings.TrimSpace(sqlWhitespaceRe.ReplaceAllString(literal, " ")))
+}
 
 // sqlLiterals returns every Go string literal in one source file. Both the
 // write-target and read-target scans run over these.
@@ -141,10 +170,13 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 			}
 		}
 	}
-	sweeps := map[string]bool{}
+	// Each swept table keeps the text of the sweep statements that write it, so
+	// the declared erasure assignments are checked against the statement that
+	// erases THIS table rather than against retention.go as a whole.
+	sweeps := map[string]string{}
 	for _, lit := range sqlLiterals(t, retentionSweepFile) {
 		for _, table := range sqlWriteTargets(lit) {
-			sweeps[table] = true
+			sweeps[table] += " " + collapsedSQL(lit)
 		}
 	}
 	reads := map[string]bool{}
@@ -164,9 +196,19 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 			missing = append(missing, "erasure never writes PII table "+table+
 				" — Art. 17 leaves it intact; redact/purge it in ErasePerson")
 		}
-		if h.retentionErase && !sweeps[table] {
+		if h.retentionErase && sweeps[table] == "" {
 			missing = append(missing, "the retention sweep never writes PII table "+table+
 				" — its only eraser is gone; erase it in the nightly evaluator or move it onto the Art. 17 cascade")
+		}
+		if h.retentionErase && len(h.retentionErasures) == 0 {
+			missing = append(missing, "PII table "+table+
+				" names the retention sweep as its eraser but declares no erasure assignments — list the SET clauses that ARE the wipe, so a metadata-only write cannot satisfy this gate")
+		}
+		for _, assignment := range h.retentionErasures {
+			if !strings.Contains(sweeps[table], strings.ToLower(assignment)) {
+				missing = append(missing, "the retention sweep no longer assigns `"+assignment+"` on PII table "+table+
+					" — the content it was written to erase now outlives its window; restore the assignment or amend the declared erasure")
+			}
 		}
 		if h.sarRead && !reads[table] {
 			missing = append(missing, "SAR never reads PII table "+table+
