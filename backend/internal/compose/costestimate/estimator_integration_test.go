@@ -259,17 +259,17 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 	}
 }
 
-// TestEstimatorEnrichFloorsWhenPeopleCreatedZero is TODAY's production reality:
-// the backfill loop never populates capture_backfill.people_created, so a
-// completed run carries people_created=0. Enrich must FLOOR (heuristic) and
-// price the floor units — never quote a silent observed $0 — even though
-// classify and embeddings price observed from the same completed run.
+// TestEstimatorEnrichFloorsWhenPeopleCreatedZero covers a completed run that
+// minted no counterparty of its own — every sender already known, or deferred to
+// the verdict engine. Enrich must FLOOR (heuristic) and price the floor units —
+// never quote a silent observed $0 — even though classify and embeddings price
+// observed from the same completed run.
 func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
 	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 80, 0, 0) // people/orgs 0, as production leaves them
+	e.seedBackfill(t, ws, connID, 6, 100, 80, 0, 0) // people/orgs 0: the run minted no counterparty
 
 	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
 	e.insertRate(t, ws, "embed-model", 500_000, 0)

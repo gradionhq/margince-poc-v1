@@ -407,9 +407,10 @@ func TestEstimateClassifyUnpricedSliceDoesNotOverquote(t *testing.T) {
 	}
 }
 
-// C1 — a zero people_created is NOT a zero-people observed enrich line. The
-// backfill loop never populates capture_backfill.people_created (people/orgs are
-// created asynchronously downstream, not at page-commit), so a 0 means "ratio
+// C1 — a zero people_created is NOT a zero-people observed enrich line. A run
+// counts only the counterparties its own pages minted, so a window whose senders
+// were all already known — or all deferred to the verdict engine — reads 0 while
+// a wider window would still create plenty. A 0 therefore means "ratio
 // unavailable": enrich must FLOOR (heuristic) and price the floor units, never
 // silently quote an observed $0 enrich cost.
 func TestEstimateEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {

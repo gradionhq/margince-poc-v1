@@ -88,12 +88,12 @@ var unitRulesByName = map[string]unitRule{
 		},
 	},
 	"per_entity": {
-		// person/org embed entities are UNDER-counted while people_created /
-		// organizations_created are unpopulated by the backfill loop (they are
-		// created asynchronously downstream, not at page-commit), so this degrades
-		// to a captured-only figure — a labeled, conservative underestimate.
-		// Embeddings is NOT floored: captured is real and dominates the entity mix,
-		// so the observed ratio stays the honest anchor.
+		// person/org embed entities are counted from the run's own committed
+		// yields, which are an honest UNDER-count: a sender the tier gate deferred
+		// is minted by the verdict engine long after the page that saw it, and
+		// belongs to no run. Embeddings is NOT floored on that shortfall: captured
+		// is exact and dominates the entity mix, so the observed ratio stays the
+		// honest anchor.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
 			return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
 		},

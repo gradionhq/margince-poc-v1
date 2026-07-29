@@ -263,7 +263,11 @@ model-call hot path.
     else its own tier's current binding (so a rebind re-prices instantly), else
     the ladder head if that tier is now unbound.
   - **Expected units** come from the connection's completed backfill yields:
-    messages to classify, people to enrich, entities to embed.
+    messages to classify, people to enrich, entities to embed. A run measures its
+    own yield as it pages — the counterparty resolver reports whether an ensure
+    *minted* a person/organization or merely resolved onto rows that already
+    existed, and those counts commit in the same statement as `scanned`/`captured`,
+    so a page that fails to commit counts nothing.
   - **When there's nothing to price from, the preview says so instead of
     guessing.** With no history it falls back to a priced **work-shape floor** and
     labels the estimate `heuristic` (vs `observed`). If the whole preview would be
@@ -271,12 +275,13 @@ model-call hot path.
     cost-read failure degrades it to a plain message count — never a block on the
     consent flow.
 
-  *(Known rough edge, tracked: the backfill loop doesn't populate the people/org
-  unit counters yet, so anything keyed on them under-counts today — the enrich
-  line floors as `heuristic`, and the embed estimate counts captured-message
-  embeds only, under-counting person/org entities. The cold-start floor also
-  counts message embeds by design: person/org embeds would over-quote at its
-  full-email unit size.)*
+  *(Known rough edge, tracked: the people/org yields are an honest under-count —
+  a sender the tier gate defers is minted by the verdict engine long after the
+  page that saw it, so it belongs to no run. A run that minted nobody reports
+  "ratio unavailable" rather than zero people, floating the enrich line to its
+  `heuristic` floor instead of quoting a confident $0. The cold-start floor
+  counts message embeds only, by design: person/org embeds would over-quote at
+  its full-email unit size.)*
 
 ## Certification — proving a binding is good enough
 
