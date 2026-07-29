@@ -1397,8 +1397,53 @@ Open work, roughly in priority order:
   The same amendment settles `capture_auto_enrich`: **default ON is the shipping
   default**, not the testing posture, and the ADR's "GA default is its own later
   decision" caveat is withdrawn.
+  **ADR-0075/A121 — the prompt boundary, and what a model-derived write owes
+  (merged upstream, foundation #1201; build PRs #295/#297/#300/#302).**
+  Two decisions. §1–§2 pin the untrusted-data boundary as a **per-call nonce**
+  named by a sentence that REPLACES any existing boundary wording, with the data
+  passing byte for byte — recognising a forged marker is a losing game, and
+  blocklisting mangles the verbatim evidence the product quotes back. One fence
+  per call; a multi-step agent run is the sanctioned exception with its leak
+  residual stated. #297 closed the last unfenced echo: a clicked clarify option
+  put its value — crawled page text — into the prompt in the administrator's own
+  voice.
+  §3 settles the write posture, and **not the way this session first proposed
+  it.** Staging every model-derived write confirm-first was built (#294) and
+  **rejected by the founder**: a CRM that fills itself is the product (P5), and
+  these writes are field-level, additive and fill-only-empty, so being wrong
+  costs a visible wrong value rather than a destructive act. #294 is closed and
+  A118 §9's direct apply stands unchanged. What §3 pins instead is what the
+  write owes, as three parts that only work together — **attributed** (every
+  model-written value carries `captured_by = agent:<task>` at FIELD level with
+  its evidence snippet, source URL and confidence), **reversible** (a human edit
+  flips the field to `human:*` and no later pass overwrites it), and
+  **findable** (§3a). Weakening any one puts staging back on the table.
+  §3a is #300: two filters, because there are two questions.
+  `captured_by_kind` asks who CREATED the record; **`ai_written` asks which
+  records an AI WROTE INTO, and that is the review list** — in the connector
+  path the AI does not create the record, it renames and fills one Gmail capture
+  minted, so a creator-only filter returns nothing and reads as a clean bill of
+  health. It is answered from the **audit log**, the one source complete by
+  construction (the write shape commits an audit row with every mutation),
+  matching the actor's IDENTITY (`agent:<task>`) rather than the principal
+  mechanism — AI tasks run as `system` principals. Two narrower predicates were
+  tried and both missed an agent updating an ordinary column.
+  The contrast that shows where the line is: the noise disposition's
+  *destructive* half DOES require corroboration (#295 — redaction now needs an
+  RFC 2369 List-Unsubscribe on the message itself, so a forged bulk-looking mail
+  cannot destroy a real correspondent's later mail). Reversible + visible →
+  write directly; irreversible → require a second signal.
+  **One defect reached `main` and was fixed forward (#302).** 0137 created a
+  plain index on `activity`; a plain `CREATE INDEX` holds a write-blocking lock
+  for the whole build, so applying it pauses mail capture. `CONCURRENTLY` cannot
+  run inside a transaction and `dbmigrate.Up` wraps every migration in one —
+  **this repo has no non-transactional migration path, and that is now the
+  blocker for any index on a hot table.** 0139 drops it under a bounded
+  `SET LOCAL lock_timeout` so a busy table fails fast rather than stalling.
   **Still open in this arc:** the other upstream raises listed throughout this
   entry (the §1 ladder wording), and the synchronous enrich-on-capture trigger.
+  Not ours: the AI-task census (#1189) and the injection corpus gated on its G6
+  fix.
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
