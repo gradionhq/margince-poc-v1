@@ -255,7 +255,10 @@ model-call hot path.
   price a whole window in one round-trip — while the backfill preview and the
   certification record both call `PriceCall` directly, for a **pre-flight
   estimate** and a per-run cost stamp. One formula, so the numbers can't drift.
-- **The pre-flight estimate (`compose/costestimate`).** Before a backfill runs,
+- **The pre-flight estimate (`compose/costestimate`).** The same estimate told as one
+  end-to-end story — the consent screen, the scope count, and the spend that lands after the
+  import finishes — is [mail-history-import.md](mail-history-import.md); the formula is here.
+  Before a backfill runs,
   the preview estimates its cost as `Σ per-task (per-unit cost × expected units)`:
   - **Per-unit cost** comes from the last 7 days of `ai_call` history, grouped
     into `(task, tier, provider, model)` slices. Each slice is priced at whichever
@@ -275,13 +278,13 @@ model-call hot path.
     cost-read failure degrades it to a plain message count — never a block on the
     consent flow.
 
-  *(Known rough edge, tracked: the people/org yields are an honest under-count —
-  a sender the tier gate defers is minted by the verdict engine long after the
-  page that saw it, so it belongs to no run. A run that minted nobody reports
-  "ratio unavailable" rather than zero people, floating the enrich line to its
-  `heuristic` floor instead of quoting a confident $0. The cold-start floor
-  counts message embeds only, by design: person/org embeds would over-quote at
-  its full-email unit size.)*
+  *(Two deliberate under-counts. The people/org yields count only what a run's own
+  pages minted: a sender the tier gate defers is resolved by the verdict engine
+  long after that page, and the person it may eventually mint is nobody's page to
+  claim. So a run that minted nobody reports "ratio unavailable" rather than zero
+  people, floating the enrich line to its `heuristic` floor instead of quoting a
+  confident $0. And the cold-start floor counts message embeds only: person/org
+  embeds would over-quote at its full-email unit size.)*
 
 ## Certification — proving a binding is good enough
 

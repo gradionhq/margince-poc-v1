@@ -68,8 +68,8 @@ var unitRulesByName = map[string]unitRule{
 	"per_person": {
 		// A zero people_created is "ratio unavailable", not "zero people": a run
 		// counts only the counterparties its own pages minted, so a window whose
-		// senders were all already known — or all deferred to the verdict engine —
-		// reads zero while a wider window would still create plenty. Reporting
+		// senders were all already known, suppressed, or deferred to the verdict
+		// engine reads zero while a wider window would still create plenty. Reporting
 		// ok=false floors to the named default, which is honest; a silent
 		// observed-0 on a consent number — quoting $0 enrich to the user — is not.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
@@ -90,10 +90,10 @@ var unitRulesByName = map[string]unitRule{
 	"per_entity": {
 		// person/org embed entities are counted from the run's own committed
 		// yields, which are an honest UNDER-count: a sender the tier gate deferred
-		// is minted by the verdict engine long after the page that saw it, and
-		// belongs to no run. Embeddings is NOT floored on that shortfall: captured
-		// is exact and dominates the entity mix, so the observed ratio stays the
-		// honest anchor.
+		// is resolved by the verdict engine long after the page that saw it, and
+		// the person it may eventually mint is nobody's page to claim. Embeddings
+		// is NOT floored on that shortfall: captured is exact and dominates the
+		// entity mix, so the observed ratio stays the honest anchor.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
 			return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
 		},

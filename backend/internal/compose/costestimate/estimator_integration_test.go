@@ -260,10 +260,10 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 }
 
 // TestEstimatorEnrichFloorsWhenPeopleCreatedZero covers a completed run that
-// minted no counterparty of its own — every sender already known, or deferred to
-// the verdict engine. Enrich must FLOOR (heuristic) and price the floor units —
-// never quote a silent observed $0 — even though classify and embeddings price
-// observed from the same completed run.
+// minted no counterparty of its own — every sender already known, suppressed, or
+// deferred to the verdict engine. Classify and embeddings price observed from
+// that run; the zero-people enrich must force the whole estimate heuristic and
+// still carry a priced cost, never collapse to a silent observed $0.
 func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
