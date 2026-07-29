@@ -303,7 +303,8 @@ type BackfillProgress interface {
 }
 
 // backfillProgressKey is the private context key — unexported and typed, so
-// only this package can install or read the reporter.
+// the reporter is reachable only through the two helpers below, never by
+// another package reaching into the context for it directly.
 type backfillProgressKey struct{}
 
 // WithBackfillProgress installs the reporter a running page reports into.
