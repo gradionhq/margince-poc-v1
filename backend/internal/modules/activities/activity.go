@@ -250,39 +250,91 @@ type ListActivitiesInput struct {
 	EntityType *string
 	// note: EntityType+EntityID is the polymorphic activity_link filter —
 	// the target is ANY entity kind, so the id stays untyped (rule 6).
-	EntityID        *ids.UUID
+	EntityID *ids.UUID
+	// Query is the contract's `q`: a substring match over the subject and
+	// body a human would recognize the item by.
+	Query           *string
 	IncludeArchived bool
 }
 
 // ListActivities is the timeline read: newest first, optionally scoped to
 // one entity through activity_link (the indexed 360-view join).
 func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]crmcontracts.Activity, storekit.Page, error) {
+	var activities []crmcontracts.Activity
+	var page storekit.Page
+	err := s.tx(ctx, func(tx pgx.Tx) (err error) {
+		activities, page, err = ListActivitiesTx(ctx, tx, in)
+		return err
+	})
+	return activities, page, err
+}
+
+// ListActivitiesTx is ListActivities for a caller that already opened a
+// transaction — the composite record read, whose timeline section must
+// describe the same instant as its sibling sections. Same gate, same
+// ordering; only the transaction is borrowed.
+func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([]crmcontracts.Activity, storekit.Page, error) {
 	if err := auth.Require(ctx, "activity", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
 	}
 	limit := storekit.ClampLimit(in.Limit)
+	join, where, args, err := listActivitiesFilter(ctx, in)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
 
-	where := []string{"1=1"}
-	args := []any{}
+	rows, err := tx.Query(ctx,
+		`SELECT `+activityColumns+` FROM activity a`+join+` WHERE `+strings.Join(where, " AND ")+
+			sprintf(` ORDER BY a.occurred_at DESC, a.id DESC LIMIT %d`, limit+1),
+		args...)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	// Collected rather than streamed: attachLinks runs a second query on
+	// this same transaction, which needs the cursor already closed.
+	activities, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (crmcontracts.Activity, error) {
+		return scanActivity(row)
+	})
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
+	var page storekit.Page
+	if len(activities) > limit {
+		activities = activities[:limit]
+		last := activities[len(activities)-1]
+		page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.OccurredAt, ids.UUID(last.Id))}
+	}
+	if err := attachLinks(ctx, tx, activities); err != nil {
+		return nil, storekit.Page{}, err
+	}
+	if activities == nil {
+		activities = []crmcontracts.Activity{}
+	}
+	return activities, page, nil
+}
+
+// listActivitiesFilter builds the timeline query's join, WHERE terms and
+// bind arguments from one list input.
+func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join string, where []string, args []any, err error) {
+	where = []string{"1=1"}
+	args = []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 
 	// The timeline carries the workspace's most sensitive free-text, so
 	// it is scoped through the linked records.
 	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
 	if err != nil {
-		return nil, storekit.Page{}, err
+		return "", nil, nil, err
 	}
 	if scope != "" {
 		where = append(where, scope)
 	}
-
 	if !in.IncludeArchived {
 		where = append(where, "a.archived_at IS NULL")
 	}
 	if in.Kind != nil {
 		where = append(where, sprintf("a.kind = $%d", arg(*in.Kind)))
 	}
-	join := ""
 	if in.EntityType != nil && in.EntityID != nil {
 		join = ` JOIN activity_link al ON al.activity_id = a.id`
 		where = append(where, sprintf("al.entity_type = $%d", arg(*in.EntityType)))
@@ -292,50 +344,25 @@ func (s *Store) ListActivities(ctx context.Context, in ListActivitiesInput) ([]c
 		// the very link that was just written.
 		column := linkColumn(*in.EntityType)
 		if column == "" {
-			return nil, storekit.Page{}, &InvalidLinkTypeError{EntityType: *in.EntityType}
+			return "", nil, nil, &InvalidLinkTypeError{EntityType: *in.EntityType}
 		}
 		where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
 	}
+	if in.Query != nil && *in.Query != "" {
+		// subject + body are the two human-readable columns; a q that matched
+		// nothing was worse than no q at all, because the caller could not tell
+		// a silently-ignored filter from an empty result.
+		pos := arg("%" + storekit.EscapeLike(*in.Query) + "%")
+		where = append(where, sprintf("(a.subject ILIKE $%d ESCAPE '\\' OR a.body ILIKE $%d ESCAPE '\\')", pos, pos))
+	}
 	if in.Cursor != nil && *in.Cursor != "" {
-		c, err := storekit.DecodeCursor(*in.Cursor)
-		if err != nil {
-			return nil, storekit.Page{}, err
+		c, decodeErr := storekit.DecodeCursor(*in.Cursor)
+		if decodeErr != nil {
+			return "", nil, nil, decodeErr
 		}
 		where = append(where, sprintf("(a.occurred_at, a.id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
 	}
-
-	var activities []crmcontracts.Activity
-	var page storekit.Page
-	err = s.tx(ctx, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx,
-			`SELECT `+activityColumns+` FROM activity a`+join+` WHERE `+strings.Join(where, " AND ")+
-				sprintf(` ORDER BY a.occurred_at DESC, a.id DESC LIMIT %d`, limit+1),
-			args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			a, err := scanActivity(rows)
-			if err != nil {
-				return err
-			}
-			activities = append(activities, a)
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
-		if len(activities) > limit {
-			activities = activities[:limit]
-			last := activities[len(activities)-1]
-			page = storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.OccurredAt, ids.UUID(last.Id))}
-		}
-		return nil
-	})
-	if activities == nil {
-		activities = []crmcontracts.Activity{}
-	}
-	return activities, page, err
+	return join, where, args, nil
 }
 
 const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occurred_at, a.direction,
@@ -362,7 +389,67 @@ func readActivity(ctx context.Context, tx pgx.Tx, id ids.ActivityID, archived st
 	if errors.Is(err, pgx.ErrNoRows) {
 		return crmcontracts.Activity{}, apperrors.ErrNotFound
 	}
-	return a, err
+	if err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	one := []crmcontracts.Activity{a}
+	if err := attachLinks(ctx, tx, one); err != nil {
+		return crmcontracts.Activity{}, err
+	}
+	return one[0], nil
+}
+
+// attachLinks fills the contract's links[] on a page of activities in ONE
+// query. The column is declared on the Activity schema and is what the
+// timeline's "via" chips and the per-person filter are built from; scanning
+// the activity row alone left it permanently null, so every client that
+// asked what an item was about got nothing back. Batched rather than
+// per-row because the timeline reads a page at a time.
+//
+// The link rows carry no row scope of their own: an activity the caller can
+// read is an activity whose subject the caller may know, and the link-walk
+// in auth.ActivityScopeClause is what already decided that.
+func attachLinks(ctx context.Context, tx pgx.Tx, activities []crmcontracts.Activity) error {
+	if len(activities) == 0 {
+		return nil
+	}
+	activityIDs := make([]ids.UUID, len(activities))
+	byID := make(map[ids.UUID]int, len(activities))
+	for i, a := range activities {
+		activityIDs[i] = ids.UUID(a.Id)
+		byID[ids.UUID(a.Id)] = i
+	}
+	rows, err := tx.Query(ctx, `
+		SELECT id, activity_id, entity_type, `+linkIDCoalesce+`
+		FROM activity_link
+		WHERE activity_id = ANY($1)
+		ORDER BY activity_id, entity_type, id`, activityIDs)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var linkID, activityID, entityID ids.UUID
+		var entityType string
+		if err := rows.Scan(&linkID, &activityID, &entityType, &entityID); err != nil {
+			return err
+		}
+		i, ok := byID[activityID]
+		if !ok {
+			continue
+		}
+		link := crmcontracts.ActivityLink{
+			Id:         (*openapi_types.UUID)(&linkID),
+			ActivityId: (*openapi_types.UUID)(&activityID),
+			EntityType: crmcontracts.ActivityLinkEntityType(entityType),
+			EntityId:   openapi_types.UUID(entityID),
+		}
+		if activities[i].Links == nil {
+			activities[i].Links = &[]crmcontracts.ActivityLink{}
+		}
+		*activities[i].Links = append(*activities[i].Links, link)
+	}
+	return rows.Err()
 }
 
 func scanActivity(row pgx.Row) (crmcontracts.Activity, error) {

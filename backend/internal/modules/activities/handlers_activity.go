@@ -16,6 +16,7 @@ func (h Handlers) ListActivities(w http.ResponseWriter, r *http.Request, params 
 	in := ListActivitiesInput{
 		Cursor:          params.Cursor,
 		Limit:           params.Limit,
+		Query:           params.Q,
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 	}
 	if params.Kind != nil {

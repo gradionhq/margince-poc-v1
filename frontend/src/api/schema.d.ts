@@ -416,6 +416,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/360": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
+         * @description One composite read assembled inside ONE workspace transaction, so the sections
+         *     describe one consistent moment rather than a stack of independently-timed round
+         *     trips. `as_of` stamps that moment; the isolation level is Read Committed, so a
+         *     write committed mid-read may land in a later section — the stamp is what makes
+         *     that honest rather than hidden.
+         *
+         *     **Authorization is per section.** Reading the organization itself is mandatory: a
+         *     caller who cannot see it gets the usual 403/404. Every other section needs its own
+         *     object grant, and a section the caller may not read is *omitted* and named in
+         *     `sections_omitted` — never returned empty, because empty and forbidden are
+         *     different facts. Aggregates count only rows the viewer can see, the same posture
+         *     `GET /organizations/{id}/hierarchy-rollup` states for its own prune.
+         *
+         *     Native system-of-record only: a workspace reading from an incumbent mirror gets
+         *     `422 unsupported_in_overlay_mode`, the same refusal entity-scoped activity reads
+         *     give, because the mirror holds none of these relationships.
+         */
+        get: operations["getOrganization360"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/view-ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record that the calling human has now seen this organization — the baseline `since_last_visit` counts from.
+         * @description The baseline moves forward only here, never as a side effect of reading the 360:
+         *     a GET that silently advanced it would destroy the very "what changed" answer the
+         *     caller opened the page to read, and would make a prefetch indistinguishable from
+         *     a visit. The upsert is monotonic (`GREATEST(last_viewed_at, now())`), so a
+         *     late-arriving ack from a slower tab can never rewind a newer one.
+         *
+         *     Human-only: an agent reading a record through a passport is not a visit, and must
+         *     not consume the human's unread marker.
+         */
+        post: operations["acknowledgeOrganizationView"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/partner": {
         parameters: {
             query?: never;
@@ -5912,6 +5980,145 @@ export interface components {
             computed_at: string;
         };
         /**
+         * @description Relationship strength for an ACCOUNT: the §4 score of its strongest current
+         *     contact (one strong relationship makes an account warm; an average would dilute
+         *     it), plus who carries it and how many contacts it was chosen from. A separate
+         *     schema from the person-facing `RelationshipStrength` because those two extra
+         *     facts are meaningless on a person.
+         */
+        OrganizationStrength: components["schemas"]["RelationshipStrength"] & {
+            /**
+             * Format: uuid
+             * @description The contact whose score this is. Null when the account has no contact the
+             *     caller can read — the roll-up is taken over visible contacts only, so a
+             *     score that exists always has a nameable contributor behind it.
+             */
+            contributor_person_id?: string | null;
+            /** @description How many current contacts of this account the caller can see and the score was chosen from. */
+            contact_count: number;
+        };
+        /** @description The per-user "I have seen this record" baseline, after an acknowledgment. */
+        RecordViewAck: {
+            /** @enum {string} */
+            entity_type: "organization";
+            /** Format: uuid */
+            entity_id: string;
+            /** Format: date-time */
+            last_viewed_at: string;
+        };
+        /** @description One current employee of the account, as the company view shows them. */
+        Organization360Contact: {
+            /** Format: uuid */
+            person_id: string;
+            full_name: string;
+            title?: string | null;
+            primary_email?: string | null;
+            strength: components["schemas"]["RelationshipStrength"];
+            /** @description This contact's stakeholder roles on the account's deals (champion, economic_buyer, …). */
+            deal_roles: components["schemas"]["Organization360DealRole"][];
+            /**
+             * @description Consent state keyed by purpose key — per purpose, never one boolean. A purpose
+             *     the person has no row for reads `unknown`, which is default-deny for outbound,
+             *     not "not applicable".
+             */
+            consent: {
+                [key: string]: "unknown" | "granted" | "withdrawn";
+            };
+        };
+        /** @description One contact's stakeholder role on one of the account's deals. */
+        Organization360DealRole: {
+            /** Format: uuid */
+            deal_id: string;
+            /** @description champion | economic_buyer | blocker | influencer | user; empty when the edge records no role. */
+            role: string;
+        };
+        Organization360Deal: {
+            /** Format: uuid */
+            deal_id: string;
+            name: string;
+            /** @enum {string} */
+            status: "open" | "won" | "lost";
+            /** Format: uuid */
+            stage_id?: string | null;
+            stage_name?: string | null;
+            amount?: components["schemas"]["Money"];
+            /** Format: date */
+            expected_close_date?: string | null;
+            /** @description No linked activity inside the pipeline's stall window. */
+            stalled: boolean;
+        };
+        /** @description The account's open deals plus the two lifetime figures the header needs. */
+        Organization360Deals: {
+            data: components["schemas"]["Organization360Deal"][];
+            page: components["schemas"]["PageInfo"];
+            /** @description Every won deal on this account, converted at each deal's frozen close-time rate. Never a live re-conversion. */
+            won_lifetime: components["schemas"]["Money"];
+            lost_count: number;
+        };
+        /** @description One open task on the account, ordered overdue → due → undated. */
+        Organization360NextStep: {
+            /** Format: uuid */
+            activity_id: string;
+            subject: string;
+            /** Format: date-time */
+            due_at?: string | null;
+            overdue: boolean;
+            /** Format: uuid */
+            assignee_id?: string | null;
+            /** Format: uuid */
+            linked_deal_id?: string | null;
+            /** Format: uuid */
+            linked_person_id?: string | null;
+        };
+        /**
+         * @description What changed on this account since the caller last acknowledged seeing it. Read-only:
+         *     the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.
+         */
+        Organization360SinceLastVisit: {
+            /**
+             * Format: date-time
+             * @description The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the account's whole history).
+             */
+            baseline_at?: string | null;
+            new_activities: number;
+            /** @description Null when the caller has no deal read grant — not counted, as opposed to counted as zero. */
+            deal_stage_moves?: number | null;
+            /** @description Null when the caller cannot triage approvals (an agent principal) — not counted, as opposed to counted as zero. */
+            pending_proposals?: number | null;
+        };
+        /**
+         * @description The company record page in one payload. Every section except `organization` is
+         *     optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+         */
+        Organization360: {
+            /**
+             * Format: date-time
+             * @description The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+             */
+            as_of: string;
+            organization: components["schemas"]["Organization"];
+            /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit")[];
+            people?: {
+                data: components["schemas"]["Organization360Contact"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            deals?: components["schemas"]["Organization360Deals"];
+            strength?: components["schemas"]["OrganizationStrength"];
+            activities?: components["schemas"]["ActivityListResponse"];
+            tags?: components["schemas"]["Tag"][];
+            list_memberships?: components["schemas"]["List"][];
+            pending_approvals?: {
+                data: components["schemas"]["Approval"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            next_steps?: {
+                data: components["schemas"]["Organization360NextStep"][];
+                page: components["schemas"]["PageInfo"];
+            };
+            since_last_visit?: components["schemas"]["Organization360SinceLastVisit"];
+        };
+        /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
          *     `employment` (person↔org), `deal_stakeholder` (deal↔person), `project_stakeholder`
          *     (project↔person — the deal-stakeholder shape applied to a body of work), and the partner edges
@@ -11026,6 +11233,59 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganization360: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's 360 view. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Organization360"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    acknowledgeOrganizationView: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The stored baseline after the acknowledgment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RecordViewAck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     getPartner: {
@@ -18895,6 +19155,16 @@ export interface operations {
                 status?: "open" | "acknowledged" | "resolved" | "dismissed";
                 kind?: "stalled_deal" | "champion_left" | "reengagement" | "buying_intent" | "risk" | "other";
                 resolution_state?: "resolved" | "low_confidence" | "unresolved" | "dropped";
+                /**
+                 * @description Signals about one organization, matched two ways because a signal reaches an
+                 *     account two ways: the resolver stamps `resolved_org_id` (a contact-subject
+                 *     signal attributed to the contact's account), and a signal created directly
+                 *     about the organization carries the `entity_type=organization` subject pair.
+                 *     Matching only the first arm hides every hand-created account signal.
+                 *     Deal-subject signals are NOT folded in — a signal about a deal is reported on
+                 *     that deal, not silently re-attributed to its account.
+                 */
+                organization_id?: string;
             };
             header?: never;
             path?: never;

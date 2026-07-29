@@ -851,6 +851,68 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/360:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganization360
+      summary: The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
+      description: |
+        One composite read assembled inside ONE workspace transaction, so the sections
+        describe one consistent moment rather than a stack of independently-timed round
+        trips. `as_of` stamps that moment; the isolation level is Read Committed, so a
+        write committed mid-read may land in a later section — the stamp is what makes
+        that honest rather than hidden.
+
+        **Authorization is per section.** Reading the organization itself is mandatory: a
+        caller who cannot see it gets the usual 403/404. Every other section needs its own
+        object grant, and a section the caller may not read is *omitted* and named in
+        `sections_omitted` — never returned empty, because empty and forbidden are
+        different facts. Aggregates count only rows the viewer can see, the same posture
+        `GET /organizations/{id}/hierarchy-rollup` states for its own prune.
+
+        Native system-of-record only: a workspace reading from an incumbent mirror gets
+        `422 unsupported_in_overlay_mode`, the same refusal entity-scoped activity reads
+        give, because the mirror holds none of these relationships.
+      responses:
+        '200':
+          description: The organization's 360 view.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Organization360' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/view-ack:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations]
+      operationId: acknowledgeOrganizationView
+      x-agent-access: human-only
+      summary: Record that the calling human has now seen this organization — the baseline `since_last_visit` counts from.
+      description: |
+        The baseline moves forward only here, never as a side effect of reading the 360:
+        a GET that silently advanced it would destroy the very "what changed" answer the
+        caller opened the page to read, and would make a prefetch indistinguishable from
+        a visit. The upsert is monotonic (`GREATEST(last_viewed_at, now())`), so a
+        late-arriving ack from a slower tab can never rewind a newer one.
+
+        Human-only: an agent reading a record through a passport is not a visit, and must
+        not consume the human's unread marker.
+      responses:
+        '200':
+          description: The stored baseline after the acknowledgment.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RecordViewAck' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /organizations/{id}/partner:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -6654,6 +6716,17 @@ paths:
         - name: resolution_state
           in: query
           schema: { type: string, enum: [resolved, low_confidence, unresolved, dropped] }
+        - name: organization_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: |
+            Signals about one organization, matched two ways because a signal reaches an
+            account two ways: the resolver stamps `resolved_org_id` (a contact-subject
+            signal attributed to the contact's account), and a signal created directly
+            about the organization carries the `entity_type=organization` subject pair.
+            Matching only the first arm hides every hand-created account signal.
+            Deal-subject signals are NOT folded in — a signal about a deal is reported on
+            that deal, not silently re-attributed to its account.
       responses:
         '200':
           description: A page of signals.
@@ -9324,6 +9397,169 @@ components:
               id: { type: string, format: uuid }
               display_name: { type: string }
         computed_at: { type: string, format: date-time }
+
+    OrganizationStrength:
+      description: |
+        Relationship strength for an ACCOUNT: the §4 score of its strongest current
+        contact (one strong relationship makes an account warm; an average would dilute
+        it), plus who carries it and how many contacts it was chosen from. A separate
+        schema from the person-facing `RelationshipStrength` because those two extra
+        facts are meaningless on a person.
+      allOf:
+        - $ref: '#/components/schemas/RelationshipStrength'
+        - type: object
+          required: [contact_count]
+          properties:
+            contributor_person_id:
+              type: [string, 'null']
+              format: uuid
+              description: |
+                The contact whose score this is. Null when the account has no contact the
+                caller can read — the roll-up is taken over visible contacts only, so a
+                score that exists always has a nameable contributor behind it.
+            contact_count:
+              type: integer
+              minimum: 0
+              description: How many current contacts of this account the caller can see and the score was chosen from.
+
+    RecordViewAck:
+      type: object
+      description: The per-user "I have seen this record" baseline, after an acknowledgment.
+      required: [entity_type, entity_id, last_viewed_at]
+      properties:
+        entity_type: { type: string, enum: [organization] }
+        entity_id: { type: string, format: uuid }
+        last_viewed_at: { type: string, format: date-time }
+
+    Organization360Contact:
+      type: object
+      description: One current employee of the account, as the company view shows them.
+      required: [person_id, full_name, strength, deal_roles, consent]
+      properties:
+        person_id: { type: string, format: uuid }
+        full_name: { type: string }
+        title: { type: [string, 'null'] }
+        primary_email: { type: [string, 'null'] }
+        strength: { $ref: '#/components/schemas/RelationshipStrength' }
+        deal_roles:
+          type: array
+          description: This contact's stakeholder roles on the account's deals (champion, economic_buyer, …).
+          items: { $ref: '#/components/schemas/Organization360DealRole' }
+        consent:
+          type: object
+          additionalProperties: { type: string, enum: [unknown, granted, withdrawn] }
+          description: |
+            Consent state keyed by purpose key — per purpose, never one boolean. A purpose
+            the person has no row for reads `unknown`, which is default-deny for outbound,
+            not "not applicable".
+
+    Organization360DealRole:
+      type: object
+      description: One contact's stakeholder role on one of the account's deals.
+      required: [deal_id, role]
+      properties:
+        deal_id: { type: string, format: uuid }
+        role: { type: string, description: 'champion | economic_buyer | blocker | influencer | user; empty when the edge records no role.' }
+
+    Organization360Deal:
+      type: object
+      required: [deal_id, name, status, stalled]
+      properties:
+        deal_id: { type: string, format: uuid }
+        name: { type: string }
+        status: { type: string, enum: [open, won, lost] }
+        stage_id: { type: [string, 'null'], format: uuid }
+        stage_name: { type: [string, 'null'] }
+        amount: { $ref: '#/components/schemas/Money' }
+        expected_close_date: { type: [string, 'null'], format: date }
+        stalled: { type: boolean, description: No linked activity inside the pipeline's stall window. }
+
+    Organization360Deals:
+      type: object
+      description: The account's open deals plus the two lifetime figures the header needs.
+      required: [data, page, won_lifetime, lost_count]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/Organization360Deal' } }
+        page: { $ref: '#/components/schemas/PageInfo' }
+        won_lifetime:
+          allOf: [{ $ref: '#/components/schemas/Money' }]
+          description: Every won deal on this account, converted at each deal's frozen close-time rate. Never a live re-conversion.
+        lost_count: { type: integer, minimum: 0 }
+
+    Organization360NextStep:
+      type: object
+      description: One open task on the account, ordered overdue → due → undated.
+      required: [activity_id, subject, overdue]
+      properties:
+        activity_id: { type: string, format: uuid }
+        subject: { type: string }
+        due_at: { type: [string, 'null'], format: date-time }
+        overdue: { type: boolean }
+        assignee_id: { type: [string, 'null'], format: uuid }
+        linked_deal_id: { type: [string, 'null'], format: uuid }
+        linked_person_id: { type: [string, 'null'], format: uuid }
+
+    Organization360SinceLastVisit:
+      type: object
+      description: |
+        What changed on this account since the caller last acknowledged seeing it. Read-only:
+        the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.
+      required: [new_activities]
+      properties:
+        baseline_at:
+          type: [string, 'null']
+          format: date-time
+          description: The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the account's whole history).
+        new_activities: { type: integer, minimum: 0 }
+        deal_stage_moves:
+          type: [integer, 'null']
+          description: Null when the caller has no deal read grant — not counted, as opposed to counted as zero.
+        pending_proposals:
+          type: [integer, 'null']
+          description: Null when the caller cannot triage approvals (an agent principal) — not counted, as opposed to counted as zero.
+
+    Organization360:
+      type: object
+      description: |
+        The company record page in one payload. Every section except `organization` is
+        optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+      required: [as_of, organization, sections_omitted]
+      properties:
+        as_of:
+          type: string
+          format: date-time
+          description: The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+        organization: { $ref: '#/components/schemas/Organization' }
+        sections_omitted:
+          type: array
+          description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+          items:
+            type: string
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit]
+        people:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Organization360Contact' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        deals: { $ref: '#/components/schemas/Organization360Deals' }
+        strength: { $ref: '#/components/schemas/OrganizationStrength' }
+        activities: { $ref: '#/components/schemas/ActivityListResponse' }
+        tags: { type: array, items: { $ref: '#/components/schemas/Tag' } }
+        list_memberships: { type: array, items: { $ref: '#/components/schemas/List' } }
+        pending_approvals:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Approval' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        next_steps:
+          type: object
+          required: [data, page]
+          properties:
+            data: { type: array, items: { $ref: '#/components/schemas/Organization360NextStep' } }
+            page: { $ref: '#/components/schemas/PageInfo' }
+        since_last_visit: { $ref: '#/components/schemas/Organization360SinceLastVisit' }
 
     # ---- Relationship ----
     Relationship:

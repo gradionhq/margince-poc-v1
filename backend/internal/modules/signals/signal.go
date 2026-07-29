@@ -199,6 +199,11 @@ type ListSignalsInput struct {
 	Status          *string
 	Kind            *string
 	ResolutionState *string
+	// OrganizationID narrows the list to one account. The id is an
+	// organization's, but it is compared against BOTH the resolver's
+	// resolved_org_id and the polymorphic (entity_type, entity_id) subject
+	// pair, so it stays untyped here (rule 6).
+	OrganizationID  *ids.UUID
 	IncludeArchived bool
 }
 
@@ -222,6 +227,16 @@ func (s *Store) ListSignals(ctx context.Context, in ListSignalsInput) ([]crmcont
 	}
 	if in.ResolutionState != nil {
 		where = append(where, storekit.SQLf("s.resolution_state = $%d", arg(*in.ResolutionState)))
+	}
+	if in.OrganizationID != nil {
+		// Two arms, because a signal reaches an organization two ways. The
+		// resolver stamps resolved_org_id on a RAW item it attributed; a signal
+		// created directly ABOUT the organization carries the subject pair and
+		// never gets a resolved_org_id at all. Matching only the first arm hid
+		// every hand-created account signal from the account's own view.
+		pos := arg(*in.OrganizationID)
+		where = append(where, storekit.SQLf(
+			"(s.resolved_org_id = $%d OR (s.entity_type = 'organization' AND s.entity_id = $%d))", pos, pos))
 	}
 	scope, err := auth.SignalScopeClause(ctx, "s", arg)
 	if err != nil {

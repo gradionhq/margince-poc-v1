@@ -20,10 +20,12 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
+	"github.com/gradionhq/margince/backend/internal/compose/org360"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
@@ -84,6 +86,7 @@ type Server struct {
 	embedReindexHandlers
 	rateRefreshHandlers
 	webhooksHandlers
+	org360Handlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
@@ -323,6 +326,15 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// boot-time SetOverlayIncumbentResolver reaches the same instance this
 	// field serves reads through.
 	srv.sorDispatch = NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, srv.overlayMeter, nil), pool)
+	// The company view (org360) is assembled from THIS system of record;
+	// it asks the same dispatch every other overlay-aware read asks, so a
+	// workspace running on the incumbent mirror gets one honest refusal
+	// instead of a page that quietly omits most of itself. Wired after the
+	// literal because it needs srv.sorDispatch, which is built above.
+	srv.org360Handlers = org360.NewHandlers(
+		org360.NewService(pool, people.NewStore(pool), approvals.NewService(pool), time.Now),
+		srv.sorDispatch.isOverlay,
+	)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries
 	// the vault-backed live-incumbent resolver so overlay write-back
 	// (Create/Update/Archive) actually reaches HubSpot from the agent surface.

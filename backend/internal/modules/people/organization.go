@@ -127,27 +127,52 @@ func (s *Store) GetOrganization(ctx context.Context, id ids.OrganizationID, arch
 	}
 	var out crmcontracts.Organization
 	err = s.tx(ctx, func(tx pgx.Tx) (err error) {
-		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
-			return err
-		}
-		if out, err = readOrganization(ctx, tx, id, archived, active); err != nil {
-			return err
-		}
-		// STATE-4: the gate is a pure permission check (no query), so a
-		// caller whose role lacks computed_field:read never pays for the
-		// rollup read below, and out.ComputedFields stays its nil zero
-		// value — omitempty then drops the key entirely on marshal (T1).
-		if computedFieldsVisible(ctx) {
-			minor, dealCount, err := openPipelineRollup(ctx, tx, id)
-			if err != nil {
-				return fmt.Errorf("read open pipeline rollup: %w", err)
-			}
-			rows := organizationComputedFields(minor, dealCount)
-			out.ComputedFields = &rows
-		}
-		return nil
+		out, err = getOrganizationInTx(ctx, tx, id, archived, active)
+		return err
 	})
 	return out, err
+}
+
+// GetOrganizationTx is GetOrganization for a caller that already opened a
+// transaction — the composite record read, which must see every one of its
+// sections at the same instant and cannot afford a second connection per
+// section. Same gates in the same order; only the transaction is borrowed.
+func (s *Store) GetOrganizationTx(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, archived storekit.ArchivedFilter) (crmcontracts.Organization, error) {
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	active, err := s.activeColumns(ctx, "organization")
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	return getOrganizationInTx(ctx, tx, id, archived, active)
+}
+
+// getOrganizationInTx is the shared body of the store-opened and
+// caller-opened organization reads.
+func getOrganizationInTx(ctx context.Context, tx pgx.Tx, id ids.OrganizationID,
+	archived storekit.ArchivedFilter, active []fieldcatalog.Column,
+) (crmcontracts.Organization, error) {
+	if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	out, err := readOrganization(ctx, tx, id, archived, active)
+	if err != nil {
+		return crmcontracts.Organization{}, err
+	}
+	// STATE-4: the gate is a pure permission check (no query), so a
+	// caller whose role lacks computed_field:read never pays for the
+	// rollup read below, and out.ComputedFields stays its nil zero
+	// value — omitempty then drops the key entirely on marshal (T1).
+	if computedFieldsVisible(ctx) {
+		minor, dealCount, err := openPipelineRollup(ctx, tx, id)
+		if err != nil {
+			return crmcontracts.Organization{}, fmt.Errorf("read open pipeline rollup: %w", err)
+		}
+		rows := organizationComputedFields(minor, dealCount)
+		out.ComputedFields = &rows
+	}
+	return out, nil
 }
 
 type UpdateOrganizationInput struct {

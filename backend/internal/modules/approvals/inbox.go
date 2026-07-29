@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -181,6 +182,54 @@ func collect(ctx context.Context, tx pgx.Tx, q string, args []any) ([]row, error
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// PendingForTarget returns the pending approvals staged against ONE record,
+// filtered by the same decidability rule the inbox uses — a record page must
+// never become the side channel List refuses to be. It takes the caller's
+// transaction so a composite record read assembles every section at one
+// instant instead of opening a second connection for this one.
+//
+// It answers the wire shape rather than the store row: the caller is another
+// package, and re-deriving the effective status (lazy expiry) outside this
+// module is exactly the drift the type keeps unexported to prevent.
+func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID, limit int) ([]crmcontracts.Approval, error) {
+	if err := humanOnly(ctx); err != nil {
+		return nil, err
+	}
+	p, _ := principal.Actor(ctx)
+	if limit <= 0 || limit > inboxBatch {
+		limit = inboxBatch
+	}
+	now := s.now()
+	batch, err := collect(ctx, tx, `SELECT `+columns+` FROM approval
+		WHERE status = 'pending' AND target_entity_type = $1 AND target_entity_id = $2
+		ORDER BY created_at DESC, id DESC
+		LIMIT $3`, []any{targetType, targetID, inboxBatch})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]crmcontracts.Approval, 0, len(batch))
+	for i := range batch {
+		a := batch[i]
+		if a.effectiveStatus(now) != "pending" {
+			// Lazy expiry: a row past its expiry is not a decision anyone
+			// still owes, so it must not appear as one on the record page.
+			continue
+		}
+		visible, err := decidable(ctx, tx, p, a)
+		if err != nil {
+			return nil, err
+		}
+		if !visible {
+			continue
+		}
+		out = append(out, wire(a, now))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
 }
 
 func (s *Service) Get(ctx context.Context, id ids.ApprovalID) (row, error) {

@@ -13,6 +13,7 @@ package people
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -23,6 +24,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// bucketNone is the display bucket for a relationship with no
+// qualifying interaction at all — shown as "no interactions yet", never
+// as a number.
+const bucketNone = "none"
 
 // §4 tunables (spec parameter registry names in comments).
 const (
@@ -77,51 +83,174 @@ func (s *Store) PersonStrength(ctx context.Context, personID ids.PersonID, now t
 	return out, nil
 }
 
+// AccountStrength is the §4 org roll-up: the strongest current contact's
+// score, which contact carries it, and how many contacts it was chosen
+// from. The two extra facts exist because the number alone is not
+// actionable on an account — the rep needs to know whose relationship it is.
+type AccountStrength struct {
+	RelationshipStrength
+	// ContributorPersonID is nil only when the account has no contact the
+	// caller can read; the roll-up is taken over visible contacts, so a
+	// score that exists always has a nameable contributor.
+	ContributorPersonID *ids.PersonID
+	ContactCount        int
+}
+
 // OrganizationStrength is the §4 org roll-up: the MAX over the org's
 // current employees' strengths — one strong relationship makes the
-// account warm; an average would dilute it.
-func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.OrganizationID, now time.Time) (RelationshipStrength, error) {
+// account warm; an average would dilute it. A contact outside the caller's
+// row scope contributes nothing, so the roll-up never out-sees the contact
+// list.
+func (s *Store) OrganizationStrength(ctx context.Context, orgID ids.OrganizationID, now time.Time) (AccountStrength, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
-		return RelationshipStrength{}, err
+		return AccountStrength{}, err
 	}
-	var people []ids.PersonID
+	var out AccountStrength
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
-		rows, err := tx.Query(ctx, `
-			SELECT person_id FROM relationship
-			WHERE kind = 'employment' AND organization_id = $1
-			  AND ended_at IS NULL AND archived_at IS NULL`, orgID)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var id ids.PersonID
-			if err := rows.Scan(&id); err != nil {
-				return err
-			}
-			people = append(people, id)
-		}
-		return rows.Err()
+		var err error
+		out, err = AccountStrengthFor(ctx, tx, orgID, now)
+		return err
 	})
 	if err != nil {
-		return RelationshipStrength{}, err
+		return AccountStrength{}, err
 	}
-	best := RelationshipStrength{Bucket: "none"}
-	for _, personID := range people {
-		st, err := s.PersonStrength(ctx, personID, now)
-		if err != nil {
-			// A person outside the caller's row scope contributes nothing
-			// — the roll-up must not out-see the person list.
+	return out, nil
+}
+
+// AccountStrengthFor is OrganizationStrength's body without the
+// transaction or the organization gate, so a composite read that already
+// opened one transaction and already gated the account computes the same
+// roll-up inside it rather than opening a second one at a second instant.
+func AccountStrengthFor(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) (AccountStrength, error) {
+	contacts, err := StrengthForOrgContacts(ctx, tx, orgID, now)
+	if err != nil {
+		return AccountStrength{}, err
+	}
+	out := AccountStrength{
+		RelationshipStrength: RelationshipStrength{Bucket: bucketNone},
+		ContactCount:         len(contacts),
+	}
+	for i := range contacts {
+		c := contacts[i]
+		if out.ContributorPersonID != nil && c.Strength.Strength <= out.Strength {
 			continue
 		}
-		if st.Strength > best.Strength || best.LastInteraction == nil {
-			best = st
-		}
+		out.RelationshipStrength = c.Strength
+		personID := c.PersonID
+		out.ContributorPersonID = &personID
 	}
-	return best, nil
+	return out, nil
+}
+
+// ContactStrength pairs one of an organization's current contacts with
+// that contact's §4 score.
+type ContactStrength struct {
+	PersonID ids.PersonID
+	Strength RelationshipStrength
+}
+
+// StrengthForOrgContacts computes §4 for every current employee of one
+// organization that the caller can read, inside the caller's OWN
+// transaction and in a fixed number of queries — two, regardless of how
+// many contacts the account has.
+//
+// It exists because the per-person path opens a transaction each: the
+// company view needs a score beside every contact, and doing that through
+// PersonStrength would open one transaction per row and read a different
+// instant for each of them. The caller has already gated the organization;
+// what this adds is the person row scope, applied here as a predicate so a
+// contact the caller may not read contributes nothing and is not named.
+//
+// The results come back in the order the contacts sort by id, so a page
+// built from them is deterministic.
+func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time) ([]ContactStrength, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos := arg(orgID)
+	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope == "" {
+		scope = "TRUE"
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT p.id FROM person p
+		JOIN relationship r ON r.person_id = p.id
+		WHERE r.kind = 'employment' AND r.organization_id = $%d
+		  AND r.ended_at IS NULL AND r.archived_at IS NULL
+		  AND p.archived_at IS NULL AND %s
+		ORDER BY p.id`, orgPos, scope), args...)
+	if err != nil {
+		return nil, err
+	}
+	contacts, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ids.PersonID, error) {
+		var id ids.PersonID
+		err := row.Scan(&id)
+		return id, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(contacts) == 0 {
+		return nil, nil
+	}
+	return contactStrengths(ctx, tx, contacts, now)
+}
+
+// contactStrengths folds the §4 inputs for a whole contact set out of ONE
+// grouped pass over their qualifying activities. The evidence ids are
+// deliberately NOT collected here: they are the person page's receipts, and
+// carrying up to relStrengthEvidenceCap of them per contact would make an
+// account list payload grow with its history rather than its contact count.
+func contactStrengths(ctx context.Context, tx pgx.Tx, contacts []ids.PersonID, now time.Time) ([]ContactStrength, error) {
+	windowStart := now.AddDate(0, 0, -relStrengthWindowDays)
+	rows, err := tx.Query(ctx, `
+		SELECT l.person_id,
+		       max(a.occurred_at),
+		       count(*) FILTER (WHERE a.occurred_at >= $2),
+		       count(*) FILTER (WHERE a.occurred_at >= $2 AND a.direction = 'inbound'),
+		       count(*) FILTER (WHERE a.occurred_at >= $2 AND a.direction = 'outbound')
+		FROM activity a
+		JOIN activity_link l ON l.activity_id = a.id
+		WHERE l.person_id = ANY($1) AND a.kind IN `+strengthKinds+` AND a.archived_at IS NULL
+		GROUP BY l.person_id`, contacts, windowStart)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byPerson := make(map[ids.PersonID]*RelationshipStrength, len(contacts))
+	for rows.Next() {
+		var personID ids.PersonID
+		var rs RelationshipStrength
+		if err := rows.Scan(&personID, &rs.LastInteraction, &rs.InteractionCount90d,
+			&rs.Inbound90d, &rs.Outbound90d); err != nil {
+			return nil, err
+		}
+		byPerson[personID] = &rs
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]ContactStrength, 0, len(contacts))
+	for _, personID := range contacts {
+		// A contact with no qualifying interaction is still a contact: it
+		// carries the honest "none" bucket, never a missing row.
+		rs := RelationshipStrength{Bucket: bucketNone}
+		if found, ok := byPerson[personID]; ok {
+			rs = *found
+		}
+		rs.finish(now)
+		out = append(out, ContactStrength{PersonID: personID, Strength: rs})
+	}
+	return out, nil
 }
 
 func strengthInputs(ctx context.Context, tx pgx.Tx, personID ids.PersonID, now time.Time, out *RelationshipStrength) error {
@@ -166,7 +295,7 @@ func (r *RelationshipStrength) finish(now time.Time) {
 	if r.LastInteraction == nil {
 		// No interactions: undefined → 0, shown as "no interactions yet",
 		// never as a number.
-		r.Bucket = "none"
+		r.Bucket = bucketNone
 		return
 	}
 	days := now.Sub(*r.LastInteraction).Hours() / 24

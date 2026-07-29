@@ -68,12 +68,15 @@ func (h strengthHandlers) GetOrganizationStrength(w http.ResponseWriter, r *http
 		return
 	}
 	now := h.now()
-	rs, err := h.people.OrganizationStrength(r.Context(), orgID, now)
+	account, err := h.people.OrganizationStrength(r.Context(), orgID, now)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	httperr.WriteJSON(w, http.StatusOK, strengthToWire(rs, now))
+	// This route answers the shared RelationshipStrength shape; the
+	// account-only facts (contributor, contact count) ride the 360's
+	// OrganizationStrength schema instead of widening this one.
+	httperr.WriteJSON(w, http.StatusOK, strengthToWire(account.RelationshipStrength, now))
 }
 
 // strengthBucketToWire maps the domain's display bucket onto the
