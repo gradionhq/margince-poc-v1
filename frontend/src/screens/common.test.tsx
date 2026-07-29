@@ -168,11 +168,35 @@ describe("problemFieldErrors", () => {
 
   it("reads nothing out of a body that carries no field errors", () => {
     expect(problemFieldErrors({ code: "consent_not_granted" })).toEqual([]);
-    expect(problemFieldErrors({ details: { errors: "not a list" } })).toEqual(
-      [],
-    );
+    expect(
+      problemFieldErrors({
+        code: "validation_error",
+        details: { errors: "not a list" },
+      }),
+    ).toEqual([]);
     expect(problemFieldErrors(null)).toEqual([]);
     expect(problemFieldErrors("nope")).toEqual([]);
+  });
+
+  it("reads nothing out of a problem that is not a validation error", () => {
+    // `details` is a free-form extension any problem may carry. A gateway or
+    // dependency failure that happens to spell an `errors` array is not the
+    // server asserting a rule about a submitted field, and reading it as one
+    // would turn an unrelated fault into an actionable send refusal.
+    expect(
+      problemFieldErrors({
+        code: "internal_error",
+        details: {
+          errors: [
+            {
+              field: "from",
+              code: "mailbox_not_send_capable",
+              message: "reconnect your mailbox",
+            },
+          ],
+        },
+      }),
+    ).toEqual([]);
   });
 
   it("drops an entry that does not name a field, a code, and a message", () => {
@@ -180,6 +204,7 @@ describe("problemFieldErrors", () => {
     // empty strings would let a caller key on a rule nobody asserted.
     expect(
       problemFieldErrors({
+        code: "validation_error",
         details: {
           errors: [
             { field: "from", code: "mailbox_not_send_capable" },
@@ -193,6 +218,7 @@ describe("problemFieldErrors", () => {
 
   it("claims field errors only off a failure that carries a server problem", () => {
     const problem = {
+      code: "validation_error",
       details: {
         errors: [{ field: "from", code: "not_send_capable", message: "fix" }],
       },

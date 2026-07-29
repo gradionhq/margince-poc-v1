@@ -411,12 +411,22 @@ export type FieldProblem = Readonly<{
   message: string;
 }>;
 
+// The top-level code every 422 carries — httperr.Validation is the only
+// emitter of the per-field `details.errors[]` shape below.
+const VALIDATION_PROBLEM_CODE = "validation_error";
+
 // Pull `details.errors[]` out of a validation problem body, dropping any entry
 // that is not a complete {field, code, message} — a partial entry cannot be
 // matched on, and inventing empty strings for its holes would let a caller key
 // on a rule the server never asserted.
+//
+// The validation code is required, not incidental: `details` is a free-form
+// RFC-7807 extension every problem may carry, so reading an `errors` array off
+// any body at all would let an unrelated failure that happens to spell one be
+// read as the server asserting a rule about a submitted field.
 export function problemFieldErrors(problem: unknown): FieldProblem[] {
-  if (!isRecord(problem) || !isRecord(problem.details)) return [];
+  if (!isRecord(problem) || problem.code !== VALIDATION_PROBLEM_CODE) return [];
+  if (!isRecord(problem.details)) return [];
   const errors = problem.details.errors;
   if (!Array.isArray(errors)) return [];
   const out: FieldProblem[] = [];
