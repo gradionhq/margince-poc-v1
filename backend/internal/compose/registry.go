@@ -54,12 +54,13 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// on the mirror (design.md §4.2/§4.6) — chosen per call from
 	// ctx, never fixed at registry construction time.
 	//
-	// The MCP overlay provider carries no live-incumbent resolver (the nil
-	// below) and agent tools never call the freshness path, so this surface
-	// incurs no force-fresh spend of its own — its OVB meter is a
-	// fail-closed placeholder (no Redis), never charged. When a metered MCP
-	// force-fresh path lands, this becomes a Redis-backed NewOverlayMeter
-	// like the REST surface's, sharing the same per-workspace windows.
+	// No tool reaches the freshness path, so this surface has no force-fresh
+	// spend of its own to account for and its OVB meter is a fail-closed
+	// placeholder (no Redis), never charged — the one metered reservation
+	// lives in the refetch poller, which takes its own Redis-backed meter.
+	// When a metered force-fresh path lands for a tool, this becomes a
+	// Redis-backed NewOverlayMeter like the REST surface's, sharing the same
+	// per-workspace windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
 	// The guards take the uncached read — see sorModeProbe for why a stale

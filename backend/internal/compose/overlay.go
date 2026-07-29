@@ -43,9 +43,8 @@ const incumbentHubSpot = "hubspot"
 // declined (a role never spends live quota it cannot account for). The
 // REST read surface (server.go) and the poller (jobs.go) receive their
 // live Redis-backed meter from cmd via WithOverlayMeter / JobRunnerConfig;
-// the MCP-tool and workflow surfaces carry no live-incumbent resolver, so
-// they never charge a meter and this fail-closed placeholder is all they
-// need. Building the meter here (rather than taking a *redis.Client
+// no tool or workflow path reaches the freshness path, so those surfaces
+// never charge a meter and this fail-closed placeholder is all they need. Building the meter here (rather than taking a *redis.Client
 // parameter) keeps the raw-Redis dependency in the cmd/platform tiers,
 // never in compose.
 func failClosedOverlayMeter() *overlaybudget.Meter {

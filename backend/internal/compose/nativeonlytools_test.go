@@ -15,8 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -196,6 +200,12 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 // replica holding a pre-flip 'native' entry would then let each guarded tool
 // answer out of the empty native tables — the silent break this file exists
 // to forbid.
+//
+// What it pins is that the probe re-reads and honours the fresh answer, NOT
+// that it reads the right row: queryMode is stubbed here and ignores its
+// workspace id, so a probe reading fresh for the WRONG workspace would still
+// pass. That half is carried by the integration pair — an overlay workspace
+// must refuse, a native one must not — which drives the real SQL.
 func TestTheGuardsProbeIgnoresAStaleCachedMode(t *testing.T) {
 	wsID := ids.NewV7()
 	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
@@ -212,4 +222,122 @@ func TestTheGuardsProbeIgnoresAStaleCachedMode(t *testing.T) {
 	if *calls == before {
 		t.Error("the probe served the cached mode without paying a workspace-row read")
 	}
+}
+
+// TestNoSorModeProbeIsWiredToTheCachedRead closes the drift the factory above
+// cannot. sorModeProbe is a bare func type, so a new guard can be wired
+// `nativeOnlyRetriever{mode: provider.isOverlay}` in one token: the test above
+// pins only what nativeOnlyModeProbe returns, and the integration pair seeds
+// overlay from creation, so a cached probe cache-misses there and answers
+// correctly. Both stay green while the guard reads a stale 'native'.
+//
+// The rule is that nothing expecting a sorModeProbe may be handed isOverlay,
+// the CACHED read. Note it is only ever wrong in THIS position: /me takes the
+// cached probe deliberately (server.go), because a stale answer there costs a
+// stale screen, which is the whole distinction sorModeProbe's doc draws.
+//
+// Both halves are derived from the tree, so a guard or field added later is
+// covered without editing this test.
+func TestNoSorModeProbeIsWiredToTheCachedRead(t *testing.T) {
+	files, fset := productionFilesOfPackageCompose(t)
+
+	// Which declarations expect a probe: functions by parameter position,
+	// struct types by field name.
+	probeParams := map[string]map[int]bool{}
+	probeFields := map[string]bool{}
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.FuncDecl:
+				for i, param := range node.Type.Params.List {
+					if isSorModeProbe(param.Type) {
+						if probeParams[node.Name.Name] == nil {
+							probeParams[node.Name.Name] = map[int]bool{}
+						}
+						probeParams[node.Name.Name][i] = true
+					}
+				}
+			case *ast.StructType:
+				for _, field := range node.Fields.List {
+					if isSorModeProbe(field.Type) {
+						for _, name := range field.Names {
+							probeFields[name.Name] = true
+						}
+					}
+				}
+			}
+			return true
+		})
+	}
+	if len(probeParams) == 0 || len(probeFields) == 0 {
+		t.Fatalf("found %d probe params and %d probe fields — the obligation would be vacuous",
+			len(probeParams), len(probeFields))
+	}
+
+	for _, file := range files {
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.CallExpr:
+				fn, ok := node.Fun.(*ast.Ident)
+				if !ok {
+					return true
+				}
+				for i, arg := range node.Args {
+					if probeParams[fn.Name][i] && isCachedRead(arg) {
+						t.Errorf("%s: %s takes a sorModeProbe at argument %d and is handed the CACHED read; "+
+							"a guard on the cached mode serves a stale 'native' as a well-formed empty native "+
+							"answer — pass nativeOnlyModeProbe instead",
+							fset.Position(arg.Pos()), fn.Name, i)
+					}
+				}
+			case *ast.KeyValueExpr:
+				key, ok := node.Key.(*ast.Ident)
+				if !ok || !probeFields[key.Name] || !isCachedRead(node.Value) {
+					return true
+				}
+				t.Errorf("%s: field %s is a sorModeProbe and is set to the CACHED read; "+
+					"a guard on the cached mode serves a stale 'native' as a well-formed empty native "+
+					"answer — pass nativeOnlyModeProbe instead",
+					fset.Position(node.Value.Pos()), key.Name)
+			}
+			return true
+		})
+	}
+}
+
+func isSorModeProbe(t ast.Expr) bool {
+	ident, ok := t.(*ast.Ident)
+	return ok && ident.Name == "sorModeProbe"
+}
+
+// isCachedRead reports whether e hands over Dispatcher.isOverlay itself rather
+// than calling it — the method value, which is what reaches a probe.
+func isCachedRead(e ast.Expr) bool {
+	sel, ok := e.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "isOverlay"
+}
+
+func productionFilesOfPackageCompose(t *testing.T) ([]*ast.File, *token.FileSet) {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("reading package compose's directory: %v", err)
+	}
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		files = append(files, file)
+	}
+	if len(files) == 0 {
+		t.Fatal("walked no production files — the obligation would be vacuous")
+	}
+	return files, fset
 }
