@@ -397,6 +397,60 @@ export function problemCodeOf(error: unknown): string | null {
   return error instanceof ProblemError ? problemCode(error.problem) : null;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+// One assertion a 422 makes about one submitted field. The server states the
+// condition HERE, not at the top level: every validation problem carries the
+// same top-level `code` of "validation_error", so `problemCode` cannot tell
+// two refusals apart and only the field + code pair names the rule that fired.
+export type FieldProblem = Readonly<{
+  field: string;
+  code: string;
+  message: string;
+}>;
+
+// The top-level code every 422 carries — httperr.Validation is the only
+// emitter of the per-field `details.errors[]` shape below.
+const VALIDATION_PROBLEM_CODE = "validation_error";
+
+// Pull `details.errors[]` out of a validation problem body, dropping any entry
+// that is not a complete {field, code, message} — a partial entry cannot be
+// matched on, and inventing empty strings for its holes would let a caller key
+// on a rule the server never asserted.
+//
+// The validation code is required, not incidental: `details` is a free-form
+// RFC-7807 extension every problem may carry, so reading an `errors` array off
+// any body at all would let an unrelated failure that happens to spell one be
+// read as the server asserting a rule about a submitted field.
+export function problemFieldErrors(problem: unknown): FieldProblem[] {
+  if (!isRecord(problem) || problem.code !== VALIDATION_PROBLEM_CODE) return [];
+  if (!isRecord(problem.details)) return [];
+  const errors = problem.details.errors;
+  if (!Array.isArray(errors)) return [];
+  const out: FieldProblem[] = [];
+  for (const entry of errors) {
+    if (!isRecord(entry)) continue;
+    const { field, code, message } = entry;
+    if (
+      typeof field === "string" &&
+      typeof code === "string" &&
+      typeof message === "string"
+    ) {
+      out.push({ field, code, message });
+    }
+  }
+  return out;
+}
+
+// The same per-field assertions read off a query/mutation FAILURE, on the same
+// terms as problemCodeOf: only a ProblemError carries a server problem, so a
+// network exception never claims field errors it doesn't have.
+export function problemFieldErrorsOf(error: unknown): FieldProblem[] {
+  return error instanceof ProblemError ? problemFieldErrors(error.problem) : [];
+}
+
 // A 409 whose code names the If-Match precondition failure — the record
 // changed under the caller since the form was opened. Distinguished from
 // problemExistingId's duplicate-collision code so the edit form can show the

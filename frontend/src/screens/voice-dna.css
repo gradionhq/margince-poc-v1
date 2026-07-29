@@ -5,6 +5,36 @@
   margin-bottom: var(--space-1);
 }
 
+/* The add-a-source composer. The textarea is a block of its own rather than an
+   inline field: .textarea carries no width, so left to flow it collapses to its
+   intrinsic column count and the submit button rides up alongside it. */
+.vdna-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.vdna-composer .textarea {
+  width: 100%;
+}
+
+/* The action sits on its own row under the paste area, so the control reads as
+   one composer rather than a field with something stuck to its edge. */
+.vdna-composer-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+/* Wraps the build button so a tooltip has something that still receives
+   pointer events while the button itself is disabled. */
+.vdna-build {
+  display: inline-flex;
+  align-self: flex-start;
+}
+
 .vdna-list {
   list-style: none;
   padding: 0;
