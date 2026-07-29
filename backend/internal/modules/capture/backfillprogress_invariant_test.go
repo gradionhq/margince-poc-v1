@@ -36,10 +36,37 @@ var (
 	// a row that already exists, tally and all.
 	insertRunRe = regexp.MustCompile(`(?is)\binsert\s+into\s+capture_backfill\b`)
 	doUpdateRe  = regexp.MustCompile(`(?is)\bdo\s+update\s+set\b`)
-	// The one writer sets the tally from its parameters; everyone else zeroes it.
-	setsTallyRe   = regexp.MustCompile(`(?is)\binflight_scanned\s*=\s*\$`)
-	clearsTallyRe = regexp.MustCompile(`(?is)\binflight_scanned\s*=\s*0\b`)
 )
+
+// inflightColumns is the whole transient tally. Every column is checked, not
+// just the first: a statement that zeroes inflight_scanned and forgets
+// inflight_captured leaves the status read adding a captured count no page
+// owns any more, which is the same double-report the reset exists to prevent
+// — and it is exactly the kind of half-edit a copy of a neighbouring
+// statement produces.
+var inflightColumns = []string{
+	"inflight_scanned", "inflight_captured", "inflight_skipped",
+	"inflight_people", "inflight_organizations",
+}
+
+// The two right-hand sides a statement may assign the tally: the one writer
+// sets every column from its parameters, every other writer of an existing row
+// zeroes every column.
+const (
+	fromParameter = `\$`
+	toZero        = `0\b`
+)
+
+// matchesEveryColumn reports whether each inflight column is assigned the
+// given right-hand side in this statement.
+func matchesEveryColumn(sql, rhs string) bool {
+	for _, column := range inflightColumns {
+		if !regexp.MustCompile(`(?is)\b` + column + `\s*=\s*` + rhs).MatchString(sql) {
+			return false
+		}
+	}
+	return true
+}
 
 func TestEveryBackfillRunWriteSettlesTheInFlightTally(t *testing.T) {
 	fset := token.NewFileSet()
@@ -106,11 +133,11 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 			(insertRunRe.MatchString(sql) && doUpdateRe.MatchString(sql))
 		switch {
 		case !updates:
-		case setsTallyRe.MatchString(sql):
+		case matchesEveryColumn(sql, fromParameter):
 			writers++
-		case !clearsTallyRe.MatchString(sql):
-			t.Errorf("%s writes an existing capture_backfill row without settling the running page's tally — end the statement with resetInflightProgress, or the status read counts that page twice:\n%s",
-				fset.Position(expr.Pos()), sql)
+		case !matchesEveryColumn(sql, toZero):
+			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end the statement with resetInflightProgress, or the status read counts that page's work twice:\n%s",
+				fset.Position(expr.Pos()), strings.Join(inflightColumns, ", "), sql)
 		}
 		return false
 	})
