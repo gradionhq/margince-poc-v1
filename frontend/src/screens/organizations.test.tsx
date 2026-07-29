@@ -87,6 +87,9 @@ const org360 = {
     deal_stage_moves: 0,
     pending_proposals: 0,
   },
+  // Assembled and empty: the section came back, and the account needs nothing.
+  // Suites that exercise the card pass their own through `org360`.
+  suggestions: [],
 };
 
 // The roll-up backstop. It sits in the company view's left rail now rather
@@ -1460,6 +1463,214 @@ describe("CompanyScreen — History tab", () => {
 
     await waitFor(() =>
       expect(screen.getByText("Created the record")).toBeTruthy(),
+    );
+  });
+});
+
+// companyBackstop answers the record read the page shell needs and an empty
+// page for everything else, so a suite exercising one card does not have to
+// plumb every other request the screen fires.
+async function companyBackstop(url: string): Promise<Response> {
+  return url.endsWith("/organizations/o-1") ? jsonResponse(org) : emptyPage();
+}
+
+// One stalled-deal suggestion, as the 360 serves it. The reason is the part
+// the rep judges, so the reason is what the tests assert on.
+const stalledSuggestion = {
+  kind: "stalled_deal",
+  reason:
+    '"Fleet retrofit 2026" has had no activity long enough to count as stalled.',
+  fingerprint: "fp-stalled-1",
+  subject_type: "deal",
+  subject_id: "d-1",
+  evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+};
+
+describe("CompanyScreen — next-step suggestions", () => {
+  it("leads each suggestion with the reason the rule fired, and cites the record", async () => {
+    stubFetch(companyBackstop, {
+      org360: { ...org360, suggestions: [stalledSuggestion] },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
+    );
+    expect(screen.getByText("Stalled deal")).toBeTruthy();
+    // The evidence is reachable: a suggestion the rep cannot check is a verdict.
+    expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
+  });
+
+  it("says nothing at all when the account needs nothing", async () => {
+    stubFetch(companyBackstop);
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    // "No advice" is not something a rep acts on, so the card is absent
+    // rather than empty.
+    expect(screen.queryByText("Worth doing next")).toBeNull();
+  });
+
+  it("stays silent rather than claiming no advice when the section is withheld", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        suggestions: undefined,
+        sections_omitted: ["suggestions"],
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    expect(screen.queryByText("Worth doing next")).toBeNull();
+  });
+
+  it("dismisses by fingerprint, and re-reads the 360 rather than hiding the row itself", async () => {
+    let dismissed: unknown;
+    const { urls } = stubFetch(
+      async (url, method, request) => {
+        if (method === "POST" && url.includes("/suggestions/dismiss")) {
+          dismissed = await request.json();
+          return new Response(null, { status: 204 });
+        }
+        return companyBackstop(url);
+      },
+      { org360: { ...org360, suggestions: [stalledSuggestion] } },
+    );
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Not now" }));
+
+    await waitFor(() => expect(dismissed).toBeTruthy());
+    expect(dismissed).toEqual({ fingerprint: "fp-stalled-1" });
+    // The server decides what survives: the row goes when the re-read says so.
+    await waitFor(() =>
+      expect(urls.filter((u) => u.endsWith("/360")).length).toBeGreaterThan(1),
+    );
+  });
+
+  it("says a dismissal failed instead of leaving the click looking like a miss", async () => {
+    stubFetch(
+      async (url, method) => {
+        if (method === "POST" && url.includes("/suggestions/dismiss")) {
+          return jsonResponse({ title: "nope" }, 500);
+        }
+        return companyBackstop(url);
+      },
+      { org360: { ...org360, suggestions: [stalledSuggestion] } },
+    );
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Not now" }));
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not be dismissed/)).toBeTruthy(),
+    );
+    // The row is still there, which is what the notice is telling the reader.
+    expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy();
+  });
+});
+
+describe("CompanyScreen — Ask Margince", () => {
+  const answer = {
+    organization_id: "o-1",
+    question: "whats_open",
+    generated_at: "2026-06-01T09:00:00Z",
+    generated_by: "model",
+    sentences: [
+      {
+        text: "Two open deals, worth about 57000 EUR.",
+        evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+      },
+    ],
+  };
+
+  it("asks only the prepared questions, and shows which one the answer answers", async () => {
+    let asked: unknown;
+    stubFetch(async (url, method, request) => {
+      if (method === "POST" && url.endsWith("/ask")) {
+        asked = await request.json();
+        return jsonResponse(answer);
+      }
+      return companyBackstop(url);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "What's open here?" }),
+      ).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "What's open here?" }),
+    );
+
+    await waitFor(() => expect(asked).toEqual({ question: "whats_open" }));
+    await waitFor(() =>
+      expect(
+        screen.getByText("Two open deals, worth about 57000 EUR."),
+      ).toBeTruthy(),
+    );
+    // Which writer produced it is never implied.
+    expect(screen.getByText("Written by Margince")).toBeTruthy();
+    // The question is repeated over its answer, so a reader who has scrolled
+    // cannot pair the wrong one with it.
+    expect(screen.getAllByText("What's open here?").length).toBeGreaterThan(1);
+  });
+
+  it("says there is nothing to answer from rather than nothing at all", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "POST" && url.endsWith("/ask")) {
+        return jsonResponse({ ...answer, sentences: [] });
+      }
+      return companyBackstop(url);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "What's open here?" }),
+      ).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "What's open here?" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/Nothing here that you can see/)).toBeTruthy(),
+    );
+  });
+
+  it("reports a failed question instead of leaving the card blank", async () => {
+    stubFetch(async (url, method) => {
+      if (method === "POST" && url.endsWith("/ask")) {
+        return jsonResponse({ title: "nope" }, 500);
+      }
+      return companyBackstop(url);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "What's open here?" }),
+      ).toBeTruthy(),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "What's open here?" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText(/could not be answered/)).toBeTruthy(),
     );
   });
 });

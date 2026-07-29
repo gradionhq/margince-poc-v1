@@ -1477,7 +1477,11 @@ function CompanyOverview({
       {tabs}
       {overlay && <OverlayFallback />}
       {failed && <EmptyState>{t("co.partial")}</EmptyState>}
-      <BriefCard orgId={org.id} enabled={!overlay} onOpenRecord={openCitation} />
+      <BriefCard
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={openCitation}
+      />
       {view && (
         <>
           <SinceLastVisit view={view} />
