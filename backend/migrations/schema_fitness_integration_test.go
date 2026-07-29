@@ -262,6 +262,7 @@ var rowScopedFKDecisions = map[string]string{
 	"activity_link.project_id":      "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
 	"deal.project_id":               "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
 	"lead.project_id":               "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
+	"org_brief.organization_id":     "gated: the brief is written only after orgbrief.Service.Get runs the caller's own org360 Assemble, whose GetOrganizationTx does auth.Require + auth.EnsureVisible — an account the caller cannot read has no brief written for it, and the row is keyed on that same caller",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
 	"activity_link.activity_id": "child row: written only inside LogActivity for the new activity",

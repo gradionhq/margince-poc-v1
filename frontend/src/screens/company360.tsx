@@ -1,10 +1,11 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import {
   Badge,
+  Button,
   EmptyState,
   SectionHeader,
   Skeleton,
@@ -621,4 +622,123 @@ export function NextSteps({
 export function OverlayFallback() {
   const t = useT();
   return <EmptyState>{t("co.overlayFallback")}</EmptyState>;
+}
+
+type Brief = components["schemas"]["OrganizationBrief"];
+
+/** useOrganizationBrief reads the standing brief for this account. */
+export function useOrganizationBrief(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["organization-brief", id],
+    enabled,
+    queryFn: async () => {
+      const { data, error } = await api.GET("/organizations/{id}/brief", {
+        params: { path: { id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+}
+
+/**
+ * BriefCard leads the middle column with the account in a few sentences.
+ *
+ * Two things are always visible, because a reader deciding how much to
+ * trust a sentence needs both: WHO wrote it — a model, or the deterministic
+ * fallback — and whether it is still current. Every sentence carries the
+ * records it was written from, and those are always records this reader can
+ * open, because the brief was assembled under their own row scope.
+ */
+export function BriefCard({
+  orgId,
+  enabled,
+  onOpenRecord,
+}: Readonly<{
+  orgId: string;
+  enabled: boolean;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const query = useOrganizationBrief(orgId, enabled);
+  const client = useQueryClient();
+  const refresh = useMutation({
+    mutationFn: async () => {
+      const { data, error } = await api.POST("/organizations/{id}/brief", {
+        params: { path: { id: orgId } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+    onSuccess: (data) =>
+      client.setQueryData(["organization-brief", orgId], data),
+  });
+
+  if (!enabled) {
+    return null;
+  }
+  const brief: Brief | undefined = query.data;
+  // A payload without sentences is a brief this build cannot read, not an
+  // account with nothing to say about it — the same distinction every other
+  // card on this page keeps.
+  const readable = Array.isArray(brief?.sentences) ? brief : undefined;
+  const unreadable = !query.isPending && !query.isError && !readable;
+  return (
+    <section className="card co-brief">
+      <SectionHeader title={t("co.brief.title")} />
+      {query.isPending && <Skeleton width="100%" height={40} />}
+      {(query.isError || unreadable) && (
+        <p className="co-restricted">{t("co.section.unavailable")}</p>
+      )}
+      {readable && (
+        <>
+          <ul className="co-brief-lines">
+            {readable.sentences.map((sentence) => (
+              <li key={sentence.text}>
+                {sentence.text}
+                {sentence.evidence.map((cited) => (
+                  <button
+                    key={`${cited.entity_type}:${cited.entity_id}`}
+                    type="button"
+                    className="co-brief-cite"
+                    onClick={() =>
+                      onOpenRecord?.(cited.entity_type, cited.entity_id)
+                    }
+                  >
+                    {t(`co.brief.cite.${cited.entity_type}`)}
+                  </button>
+                ))}
+              </li>
+            ))}
+          </ul>
+          <p className="co-row-meta">
+            {/* Which of the two wrote this is never implied — a reader
+                weighing a sentence needs to know, and the two are not
+                interchangeable. */}
+            <Badge tone={readable.generated_by === "model" ? "ai" : undefined}>
+              {t(`co.brief.by.${readable.generated_by}`)}
+            </Badge>
+            <span>
+              {t("co.brief.generatedAt", {
+                when: formatDate(readable.generated_at, locale, RECORD_ZONE),
+              })}
+            </span>
+            {readable.stale && <Badge tone="warn">{t("co.brief.stale")}</Badge>}
+            <Button
+              small
+              onClick={() => refresh.mutate()}
+              disabled={refresh.isPending}
+            >
+              {t("co.brief.refresh")}
+            </Button>
+          </p>
+        </>
+      )}
+    </section>
+  );
 }

@@ -460,6 +460,56 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The standing account brief — what this account is, where it stands, and what changed.
+         * @description A short written brief over the same records the 360 serves, cached and reused
+         *     until its inputs change.
+         *
+         *     **Per viewer, by design.** The brief is assembled by running the reads AS THE
+         *     CALLER, inside the normal gates, so it can only describe records that caller
+         *     could open themselves. A single shared brief would either leak scoped deals and
+         *     activities to a restricted reader, or degrade to the lowest common scope and tell
+         *     the account owner less than they can already see. The cache is therefore keyed
+         *     per user as well as per account.
+         *
+         *     **Cached on the INPUTS, not on the record.** The cache key is a fingerprint over
+         *     the assembled input plus the prompt, task and model-routing versions. Facts,
+         *     deals and activities move without touching the organization row, so a key derived
+         *     from that row would serve a stale brief indefinitely.
+         *
+         *     A cached brief whose fingerprint no longer matches is served with `stale: true`
+         *     while a fresh one is generated in the same request; a caller that would rather
+         *     wait can ask for a regeneration with `POST`. When no model lane is configured, or
+         *     the workspace's AI budget is exhausted, the brief degrades to a deterministic
+         *     structured summary rather than failing — `generated_by` says which it is.
+         *
+         *     Human-only: a brief is a reading aid for a person, and an agent reading records
+         *     through a passport has the records themselves.
+         */
+        get: operations["getOrganizationBrief"];
+        put?: never;
+        /**
+         * Regenerate this account's brief, ignoring the cached one.
+         * @description The explicit refresh behind the brief card's "outdated — refresh". It reads and
+         *     writes only the cached brief: no record field changes, and nothing is sent.
+         */
+        post: operations["regenerateOrganizationBrief"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/view-ack": {
         parameters: {
             query?: never;
@@ -6003,6 +6053,47 @@ export interface components {
             /** @description How many current contacts of this account the caller can see and the score was chosen from. */
             contact_count: number;
         };
+        /**
+         * @description A written brief over one account, assembled from what the READER can see.
+         *     Every sentence carries the records it was written from, so the reader can open
+         *     the evidence rather than take the sentence on trust.
+         */
+        OrganizationBrief: {
+            /** Format: uuid */
+            organization_id: string;
+            /** Format: date-time */
+            generated_at: string;
+            /**
+             * @description `model` — written by the configured model lane. `deterministic` — the
+             *     structured fallback, used when no lane is configured or the AI budget is
+             *     exhausted. Never silently interchangeable: a reader deciding how much to
+             *     trust a sentence needs to know which wrote it.
+             * @enum {string}
+             */
+            generated_by: "model" | "deterministic";
+            /**
+             * @description The cached brief no longer matches its inputs. It is still shown — an
+             *     out-of-date brief beats a blank card — and a fresh one is being written.
+             */
+            stale: boolean;
+            /** @description The brief itself, one claim per entry. */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        OrganizationBriefSentence: {
+            text: string;
+            /**
+             * @description The records this sentence was written from — always records the reader can
+             *     already open, because the brief was assembled under their own row scope.
+             */
+            evidence: components["schemas"]["OrganizationBriefEvidence"][];
+        };
+        /** @description One record a brief sentence was written from. */
+        OrganizationBriefEvidence: {
+            /** @enum {string} */
+            entity_type: "deal" | "activity" | "person" | "organization";
+            /** Format: uuid */
+            entity_id: string;
+        };
         /** @description The per-user "I have seen this record" baseline, after an acknowledgment. */
         RecordViewAck: {
             /** @enum {string} */
@@ -11278,6 +11369,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Organization360"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganizationBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The account brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    regenerateOrganizationBrief: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The regenerated brief. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationBrief"];
                 };
             };
             401: components["responses"]["Unauthorized"];

@@ -892,6 +892,67 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/brief:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationBrief
+      x-agent-access: human-only
+      summary: The standing account brief — what this account is, where it stands, and what changed.
+      description: |
+        A short written brief over the same records the 360 serves, cached and reused
+        until its inputs change.
+
+        **Per viewer, by design.** The brief is assembled by running the reads AS THE
+        CALLER, inside the normal gates, so it can only describe records that caller
+        could open themselves. A single shared brief would either leak scoped deals and
+        activities to a restricted reader, or degrade to the lowest common scope and tell
+        the account owner less than they can already see. The cache is therefore keyed
+        per user as well as per account.
+
+        **Cached on the INPUTS, not on the record.** The cache key is a fingerprint over
+        the assembled input plus the prompt, task and model-routing versions. Facts,
+        deals and activities move without touching the organization row, so a key derived
+        from that row would serve a stale brief indefinitely.
+
+        A cached brief whose fingerprint no longer matches is served with `stale: true`
+        while a fresh one is generated in the same request; a caller that would rather
+        wait can ask for a regeneration with `POST`. When no model lane is configured, or
+        the workspace's AI budget is exhausted, the brief degrades to a deterministic
+        structured summary rather than failing — `generated_by` says which it is.
+
+        Human-only: a brief is a reading aid for a person, and an agent reading records
+        through a passport has the records themselves.
+      responses:
+        '200':
+          description: The account brief.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationBrief' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+    post:
+      tags: [Organizations]
+      operationId: regenerateOrganizationBrief
+      x-agent-access: human-only
+      summary: Regenerate this account's brief, ignoring the cached one.
+      description: |
+        The explicit refresh behind the brief card's "outdated — refresh". It reads and
+        writes only the cached brief: no record field changes, and nothing is sent.
+      responses:
+        '200':
+          description: The regenerated brief.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationBrief' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /organizations/{id}/view-ack:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -9428,6 +9489,54 @@ components:
               type: integer
               minimum: 0
               description: How many current contacts of this account the caller can see and the score was chosen from.
+
+    OrganizationBrief:
+      type: object
+      description: |
+        A written brief over one account, assembled from what the READER can see.
+        Every sentence carries the records it was written from, so the reader can open
+        the evidence rather than take the sentence on trust.
+      required: [organization_id, generated_at, generated_by, stale, sentences]
+      properties:
+        organization_id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time }
+        generated_by:
+          type: string
+          enum: [model, deterministic]
+          description: |
+            `model` — written by the configured model lane. `deterministic` — the
+            structured fallback, used when no lane is configured or the AI budget is
+            exhausted. Never silently interchangeable: a reader deciding how much to
+            trust a sentence needs to know which wrote it.
+        stale:
+          type: boolean
+          description: |
+            The cached brief no longer matches its inputs. It is still shown — an
+            out-of-date brief beats a blank card — and a fresh one is being written.
+        sentences:
+          type: array
+          description: The brief itself, one claim per entry.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+
+    OrganizationBriefSentence:
+      type: object
+      required: [text, evidence]
+      properties:
+        text: { type: string }
+        evidence:
+          type: array
+          description: |
+            The records this sentence was written from — always records the reader can
+            already open, because the brief was assembled under their own row scope.
+          items: { $ref: '#/components/schemas/OrganizationBriefEvidence' }
+
+    OrganizationBriefEvidence:
+      type: object
+      description: One record a brief sentence was written from.
+      required: [entity_type, entity_id]
+      properties:
+        entity_type: { type: string, enum: [deal, activity, person, organization] }
+        entity_id: { type: string, format: uuid }
 
     RecordViewAck:
       type: object

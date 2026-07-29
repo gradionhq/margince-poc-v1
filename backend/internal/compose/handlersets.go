@@ -5,6 +5,7 @@ package compose
 
 import (
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
@@ -43,4 +44,5 @@ type (
 	overlayHandlers      = overlay.Handlers
 	webhooksHandlers     = webhooks.Handlers
 	org360Handlers       = org360.Handlers
+	orgBriefHandlers     = orgbrief.Handlers
 )

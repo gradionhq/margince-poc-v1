@@ -33,12 +33,16 @@ import (
 // AI-unconfigured deployment is a legitimate, ready one (aistate.go);
 // coldStartOptions/offerDraftOptions/writeAIMetrics all treat nil as
 // "this role wires no AI surfaces" rather than panicking.
-func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, error) {
+// routingVersionOf names the model binding a resolved path came from, for
+// callers that cache model-written content keyed on it.
+func routingVersionOf(cfg ai.RoutingConfig) string { return cfg.RoutingVersion() }
+
+func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, capturePayloads bool, log *slog.Logger) (*compose.ModelPath, string, ai.PublicProfile, string, error) {
 	switch {
 	case routingPath != "":
 		cfg, err := ai.LoadRoutingFile(routingPath)
 		if err != nil {
-			return nil, "", ai.PublicProfile{}, err
+			return nil, "", ai.PublicProfile{}, "", err
 		}
 		// A task whose whole fallback ladder has no bound tier is not a
 		// boot error (a deployment may legitimately not run every
@@ -49,18 +53,21 @@ func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, ca
 		}
 		modelPath, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
 		if err != nil {
-			return nil, "", ai.PublicProfile{}, err
+			return nil, "", ai.PublicProfile{}, "", err
 		}
-		return &modelPath, compose.AIStateConfigured, ai.NewPublicProfile(compose.AIStateConfigured, cfg), nil
+		return &modelPath, compose.AIStateConfigured,
+			ai.NewPublicProfile(compose.AIStateConfigured, cfg), routingVersionOf(cfg), nil
 	case fakeBrain:
 		cfg := ai.FakeRoutingConfig()
 		modelPath, err := compose.NewModelPath(cfg, pool, capturePayloads, log)
 		if err != nil {
-			return nil, "", ai.PublicProfile{}, err
+			return nil, "", ai.PublicProfile{}, "", err
 		}
-		return &modelPath, compose.AIStateFake, ai.NewPublicProfile(compose.AIStateFake, cfg), nil
+		return &modelPath, compose.AIStateFake,
+			ai.NewPublicProfile(compose.AIStateFake, cfg), routingVersionOf(cfg), nil
 	default:
-		return nil, compose.AIStateUnconfigured, ai.NewPublicProfile(compose.AIStateUnconfigured, ai.RoutingConfig{}), nil
+		return nil, compose.AIStateUnconfigured,
+			ai.NewPublicProfile(compose.AIStateUnconfigured, ai.RoutingConfig{}), "", nil
 	}
 }
 
@@ -68,7 +75,7 @@ func resolveModelPath(routingPath string, fakeBrain bool, pool *pgxpool.Pool, ca
 // an already-resolved model path: a real deployment or --ai-fake lights
 // it up, no path leaves the operation an explicit 501 (same posture as
 // the worker's runner lane).
-func coldStartOptions(modelPath *compose.ModelPath) []compose.Option {
+func coldStartOptions(modelPath *compose.ModelPath, routingVersion string) []compose.Option {
 	if modelPath == nil {
 		return nil
 	}
@@ -80,6 +87,7 @@ func coldStartOptions(modelPath *compose.ModelPath) []compose.Option {
 		compose.WithColdStart(fetch, modelPath.ColdStart),
 		compose.WithScrape(fetch, modelPath.ColdStart),
 		compose.WithBrief(modelPath.BriefRanking),
+		compose.WithAccountBrief(modelPath.Summarize, routingVersion),
 		compose.WithReplyDraft(modelPath.DraftReply),
 	}
 }

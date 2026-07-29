@@ -117,3 +117,38 @@
 .co-field {
   margin-bottom: var(--space-3);
 }
+
+/* The brief leads the middle column: prose, so it reads at body size with
+   its citations inline rather than as a footer of chips. */
+.co-brief {
+  padding: 12px 14px;
+  margin-bottom: var(--space-3);
+}
+.co-brief-lines {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 13.5px;
+  color: var(--textContent);
+}
+.co-brief-cite {
+  background: none;
+  border: 0;
+  padding: 0 0 0 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--textMeta);
+  cursor: pointer;
+  text-decoration: underline dotted var(--borderStrong);
+  text-underline-offset: 3px;
+}
+.co-brief-cite:hover {
+  text-decoration-color: var(--accent);
+}
+.co-brief-cite:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}

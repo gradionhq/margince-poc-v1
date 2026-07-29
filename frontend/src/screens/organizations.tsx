@@ -39,6 +39,7 @@ import {
   useSorMode,
 } from "./common";
 import {
+  BriefCard,
   DealsCard,
   NextSteps,
   type Org360Result,
@@ -1474,6 +1475,18 @@ function CompanyOverview({
       {tabs}
       {overlay && <OverlayFallback />}
       {failed && <EmptyState>{t("co.partial")}</EmptyState>}
+      <BriefCard
+        orgId={org.id}
+        enabled={!overlay}
+        onOpenRecord={(entityType, entityId) => {
+          if (entityType === "deal") {
+            navigate({ screen: "deals", id: entityId });
+          }
+          if (entityType === "person") {
+            navigate({ screen: "contacts", id: entityId });
+          }
+        }}
+      />
       {view && (
         <>
           <SinceLastVisit view={view} />

@@ -11,9 +11,11 @@ package compose
 
 import (
 	"context"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -258,5 +260,21 @@ func WithExtractor(extractor extraction.Extractor) Option {
 func WithBrief(brain completer) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.WithL2Ranker(brain, s.log)
+	}
+}
+
+// WithAccountBrief binds the summarize lane the company view's standing
+// brief is written by, and the routing version that identifies the binding
+// in every cached brief's fingerprint.
+//
+// Without it the brief serves its deterministic floor rather than failing:
+// a role that runs no model still answers the endpoint, and generated_by
+// tells the reader which of the two they have. routingVersion rides the
+// fingerprint so re-pointing this lane rewrites cached briefs instead of
+// leaving text attributed to a model that no longer writes it.
+func WithAccountBrief(brain completer, routingVersion string) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, brain, routingVersion, time.Now)
+		s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc)
 	}
 }

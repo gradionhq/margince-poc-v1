@@ -183,6 +183,9 @@ var tableOwners = map[string]string{
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
 	"user_record_view": "internal/compose/org360",
+	// The account brief's per-user cache: derived content, regenerable at
+	// any time, readable by nobody but its own user. Same ruling.
+	"org_brief": "internal/compose/orgbrief",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through

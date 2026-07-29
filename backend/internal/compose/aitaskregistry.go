@@ -49,6 +49,7 @@ func NewTaskCensus() (*aitasks.Registry, error) {
 	oneShot(ai.TaskOfferDraft, "draft", offerDraftCases{})
 	oneShot(ai.TaskSiteExtract, "profile", siteProfileCases{})
 	oneShot(ai.TaskSiteFactExtract, "page_facts", sitePageFactsCases{})
+	oneShot(ai.TaskSummarize, "org_brief", orgBriefCases{})
 	oneShot(ai.TaskCertJudge, "judge", certJudgeCases{})
 	oneShot(ai.TaskRateExtract, "pricing", ratePricingCases{})
 	oneShot(ai.TaskRateExtract, "fx", rateFxCases{})

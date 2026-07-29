@@ -1,0 +1,131 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+package orgbrief
+
+// The deterministic brief: the floor every deployment gets, and the shape
+// the model lane is asked to rewrite rather than exceed.
+//
+// It states facts already on the page, in the order a rep reads them:
+// what this account is, what is open, what is stuck, what happened last.
+// It never infers — no "they seem interested", no "worth a call" — because
+// a sentence nobody can check is worth less than the number it paraphrases.
+
+import (
+	"fmt"
+	"strings"
+)
+
+// Deterministic writes the brief without a model. Every sentence cites the
+// record it came from, exactly as the model path's do, so the card renders
+// and behaves identically whichever wrote it.
+func Deterministic(orgID string, in Input) []Sentence {
+	account := []Evidence{{EntityType: "organization", EntityID: orgID}}
+	sentences := make([]Sentence, 0, 4)
+
+	sentences = append(sentences, Sentence{Text: identityLine(in), Evidence: account})
+
+	if len(in.OpenDeals) > 0 {
+		sentences = append(sentences, Sentence{
+			Text:     pipelineLine(in),
+			Evidence: dealEvidence(in),
+		})
+	}
+	if stalled := stalledNames(in); len(stalled) > 0 {
+		sentences = append(sentences, Sentence{
+			Text:     fmt.Sprintf("Stalled with no recent activity: %s.", strings.Join(stalled, ", ")),
+			Evidence: stalledEvidence(in),
+		})
+	}
+	if len(in.Recent) > 0 {
+		last := in.Recent[0]
+		sentences = append(sentences, Sentence{
+			Text:     lastTouchLine(last),
+			Evidence: []Evidence{{EntityType: "activity", EntityID: last.ID}},
+		})
+	}
+	if len(in.OpenTasks) > 0 {
+		sentences = append(sentences, Sentence{
+			Text:     fmt.Sprintf("%d open task(s), starting with %q.", len(in.OpenTasks), in.OpenTasks[0]),
+			Evidence: account,
+		})
+	}
+	return sentences
+}
+
+func identityLine(in Input) string {
+	parts := []string{in.Name}
+	if in.Industry != "" {
+		parts = append(parts, in.Industry)
+	}
+	if in.SizeBand != "" {
+		parts = append(parts, in.SizeBand+" people")
+	}
+	line := strings.Join(parts, ", ") + "."
+	if in.ContactCount > 0 {
+		// The score is reported with the contact count it was taken over, so
+		// a strong number from one contact never reads like a broad
+		// relationship.
+		line += fmt.Sprintf(" Relationship strength %d across %d known contact(s).",
+			in.Strength, in.ContactCount)
+	}
+	return line
+}
+
+func pipelineLine(in Input) string {
+	var total int64
+	currency := ""
+	for _, deal := range in.OpenDeals {
+		total += deal.AmountMinor
+		if currency == "" {
+			currency = deal.Currency
+		}
+	}
+	line := fmt.Sprintf("%d open deal(s)", len(in.OpenDeals))
+	if total > 0 && currency != "" {
+		// Minor units are rendered as a plain major-unit figure; the card
+		// formats money properly, and this text is the fallback.
+		line += fmt.Sprintf(" worth about %d %s", total/100, currency)
+	}
+	if in.WonLifetime > 0 {
+		line += fmt.Sprintf("; %d %s won to date", in.WonLifetime/100, currency)
+	}
+	return line + "."
+}
+
+func stalledNames(in Input) []string {
+	var names []string
+	for _, deal := range in.OpenDeals {
+		if deal.Stalled {
+			names = append(names, deal.Name)
+		}
+	}
+	return names
+}
+
+func dealEvidence(in Input) []Evidence {
+	out := make([]Evidence, 0, len(in.OpenDeals))
+	for _, deal := range in.OpenDeals {
+		out = append(out, Evidence{EntityType: "deal", EntityID: deal.ID})
+	}
+	return out
+}
+
+func stalledEvidence(in Input) []Evidence {
+	out := make([]Evidence, 0)
+	for _, deal := range in.OpenDeals {
+		if deal.Stalled {
+			out = append(out, Evidence{EntityType: "deal", EntityID: deal.ID})
+		}
+	}
+	return out
+}
+
+func lastTouchLine(last ActIn) string {
+	if last.Subject == "" {
+		return fmt.Sprintf("Last contact was a %s on %s.", last.Kind, last.At)
+	}
+	// The subject is quoted rather than woven into the sentence: it is text
+	// from outside the workspace, and it must read as theirs, not ours.
+	return fmt.Sprintf("Last contact was a %s on %s: %q.", last.Kind, last.At, last.Subject)
+}

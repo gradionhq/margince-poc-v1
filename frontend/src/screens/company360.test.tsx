@@ -81,6 +81,14 @@ const emptyRollup = {
   computed_at: "2026-06-01T09:00:00Z",
 };
 
+let briefBody: unknown = {
+  organization_id: "o-1",
+  generated_at: "2026-06-01T09:00:00Z",
+  generated_by: "deterministic",
+  stale: false,
+  sentences: [],
+};
+
 function stub(three60: unknown, status = 200) {
   vi.stubGlobal(
     "fetch",
@@ -91,6 +99,9 @@ function stub(three60: unknown, status = 200) {
       }
       if (pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
+      }
+      if (pathname.endsWith("/brief")) {
+        return jsonResponse(briefBody);
       }
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -439,5 +450,75 @@ describe("company view — figures that outlive the list they sit under", () => 
     ).toBeTruthy();
     expect(within(rail).getByText(/120,000/)).toBeTruthy();
     expect(within(rail).getByText("3 lost")).toBeTruthy();
+  });
+});
+
+describe("company view — the account brief", () => {
+  it("says which of the two wrote it, and never leaves that implied", async () => {
+    briefBody = {
+      organization_id: "o-1",
+      generated_at: "2026-06-01T09:00:00Z",
+      generated_by: "deterministic",
+      stale: false,
+      sentences: [
+        {
+          text: "Fleet retrofit has stalled.",
+          evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+        },
+      ],
+    };
+    stub(view());
+    renderCompany();
+
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit has stalled.")).toBeTruthy(),
+    );
+    // The deterministic floor and a model-written brief are not
+    // interchangeable, and a reader weighing a sentence needs to know which.
+    expect(screen.getByText("Assembled from your records")).toBeTruthy();
+    expect(screen.queryByText("Written by Margince")).toBeNull();
+    // Each sentence carries the record it was written from.
+    expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
+  });
+
+  it("marks an out-of-date brief rather than hiding it", async () => {
+    briefBody = {
+      organization_id: "o-1",
+      generated_at: "2026-06-01T09:00:00Z",
+      generated_by: "model",
+      stale: true,
+      sentences: [
+        {
+          text: "Two open deals.",
+          evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+        },
+      ],
+    };
+    stub(view());
+    renderCompany();
+
+    await waitFor(() => expect(screen.getByText("Outdated")).toBeTruthy());
+    // Still shown: an out-of-date brief beats a blank card, as long as it
+    // says it is out of date.
+    expect(screen.getByText("Two open deals.")).toBeTruthy();
+    expect(screen.getByText("Written by Margince")).toBeTruthy();
+  });
+
+  it("reports a payload it cannot read as unreadable, not as an empty brief", async () => {
+    briefBody = { data: [], page: emptyPage };
+    stub(view());
+    renderCompany();
+
+    const card = await waitFor(() => {
+      const section = screen.getByText("Account brief").closest("section");
+      if (!section) {
+        throw new Error("the brief card has no section wrapper");
+      }
+      // Waits for the read to finish, so "unreadable" is asserted about a
+      // settled query rather than about one still in flight.
+      within(section).getByText(/Could not be loaded/);
+      return section;
+    });
+    expect(within(card).getByText(/Could not be loaded/)).toBeTruthy();
   });
 });

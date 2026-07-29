@@ -596,6 +596,14 @@ func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "GetOrganization360")
 }
 
+func (stubs) GetOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationBrief")
+}
+
+func (stubs) RegenerateOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "RegenerateOrganizationBrief")
+}
+
 func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "DeepReadCompany")
 }
