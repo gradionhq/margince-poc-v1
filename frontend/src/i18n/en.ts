@@ -773,6 +773,16 @@ export const en = {
   "compose.relink": "Relink",
   "compose.draftWithAi": "Draft with AI",
   "compose.drafting": "Drafting…",
+  "compose.discardDraft": "Discard draft",
+  "compose.discardDraftHint":
+    "Tells your Voice DNA this draft missed. The generated text is never kept.",
+  "compose.aiDisclosureTitle": "AI-assisted draft",
+  "compose.aiDisclosureFallback":
+    "This draft was produced by AI. Read it and edit it before you send.",
+  "compose.voiceVersion": "Built from your corpus · v{n}",
+  "compose.provisional": "Provisional voice",
+  "compose.provisionalHint":
+    "Your Voice DNA is still being built. It already shapes this draft exactly as a finished one would — nothing is held back.",
   "compose.intent": 'Steer the draft (optional), e.g. "polite follow-up"',
   "compose.to": "To",
   "compose.cc": "Cc",
@@ -793,6 +803,13 @@ export const en = {
     "AI drafting is unavailable (the model is not configured). You can still write the email yourself.",
   "compose.sendUnavailable":
     "Sending is unavailable (no mailer is configured).",
+  "compose.mailboxNotSendCapable":
+    "Your mailbox is connected for capture but was never granted permission to send. Reconnect it and approve sending — a mailbox connected before sending existed cannot be upgraded in place.",
+  "compose.mailboxNotSendCapableGoto": "Reconnect your mailbox",
+  "compose.sharedUnsubscribeToken":
+    "A message carrying an unsubscribe link reaches one addressee at a time, because that link is the recipient's own consent record. Send it once per recipient, with no Cc.",
+  "compose.multiRecipientWarning":
+    "This purpose carries an unsubscribe link, so a send to more than one addressee will be refused. Send it once per recipient, with no Cc.",
   "compose.relinkTitle": "Relink this activity",
   "compose.relinkTarget": "Search a person, organization, deal, or lead",
   "compose.relinkReplace": "Move instead of also-link",
@@ -1322,6 +1339,9 @@ export const en = {
   "connectors.statusReauth": "Needs reconnect",
   "connectors.statusError": "Sync error",
   "connectors.statusDisconnected": "Disconnected",
+  "connectors.cannotSend": "Capturing only — cannot send",
+  "connectors.reconnectToSend":
+    "Reconnect this mailbox to send from it. A mailbox connected before sending existed cannot be upgraded in place — the provider only grants sending on a fresh connection.",
   "connectors.lastSynced": "Last synced {at}",
   "connectors.neverSynced": "Waiting for the first sync",
   "connectors.nextCheck": "Next check ~{at}",

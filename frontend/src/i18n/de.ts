@@ -791,6 +791,16 @@ export const de = {
   "compose.relink": "Neu verknüpfen",
   "compose.draftWithAi": "Mit KI entwerfen",
   "compose.drafting": "Wird entworfen…",
+  "compose.discardDraft": "Entwurf verwerfen",
+  "compose.discardDraftHint":
+    "Meldet Ihrer Voice DNA, dass dieser Entwurf danebenlag. Der erzeugte Text wird nie gespeichert.",
+  "compose.aiDisclosureTitle": "KI-gestützter Entwurf",
+  "compose.aiDisclosureFallback":
+    "Dieser Entwurf stammt von einer KI. Lesen und überarbeiten Sie ihn, bevor Sie senden.",
+  "compose.voiceVersion": "Aus Ihrem Korpus gebaut · v{n}",
+  "compose.provisional": "Vorläufige Stimme",
+  "compose.provisionalHint":
+    "Ihre Voice DNA wird noch aufgebaut. Sie prägt diesen Entwurf schon genauso wie eine fertige — es wird nichts zurückgehalten.",
   "compose.intent": 'Entwurf steuern (optional), z. B. "höfliche Nachfrage"',
   "compose.to": "An",
   "compose.cc": "Cc",
@@ -811,6 +821,13 @@ export const de = {
     "KI-Entwurf ist nicht verfügbar (das Modell ist nicht konfiguriert). Sie können die E-Mail weiterhin selbst schreiben.",
   "compose.sendUnavailable":
     "Versand ist nicht verfügbar (kein Mailer konfiguriert).",
+  "compose.mailboxNotSendCapable":
+    "Ihr Postfach ist zum Erfassen verbunden, hat aber nie die Erlaubnis zum Senden erhalten. Verbinden Sie es neu und stimmen Sie dem Versand zu — ein Postfach, das vor der Versandfunktion verbunden wurde, lässt sich nicht nachträglich erweitern.",
+  "compose.mailboxNotSendCapableGoto": "Postfach neu verbinden",
+  "compose.sharedUnsubscribeToken":
+    "Eine Nachricht mit Abmeldelink erreicht immer nur eine Adresse, denn dieser Link ist der Einwilligungsnachweis genau dieses Empfängers. Senden Sie sie einzeln, ohne Cc.",
+  "compose.multiRecipientWarning":
+    "Dieser Zweck führt einen Abmeldelink mit sich; ein Versand an mehr als eine Adresse wird deshalb abgelehnt. Senden Sie einzeln, ohne Cc.",
   "compose.relinkTitle": "Diese Aktivität neu verknüpfen",
   "compose.relinkTarget": "Person, Organisation, Deal oder Lead suchen",
   "compose.relinkReplace": "Verschieben statt zusätzlich verknüpfen",
@@ -1350,6 +1367,9 @@ export const de = {
   "connectors.statusReauth": "Neu verbinden nötig",
   "connectors.statusError": "Sync-Fehler",
   "connectors.statusDisconnected": "Getrennt",
+  "connectors.cannotSend": "Nur Erfassung — kein Versand",
+  "connectors.reconnectToSend":
+    "Verbinden Sie dieses Postfach neu, um daraus zu senden. Ein Postfach, das vor der Versandfunktion verbunden wurde, lässt sich nicht nachträglich erweitern — der Anbieter erteilt die Sendeerlaubnis nur bei einer neuen Verbindung.",
   "connectors.lastSynced": "Zuletzt synchronisiert {at}",
   "connectors.neverSynced": "Wartet auf die erste Synchronisierung",
   "connectors.nextCheck": "Nächste Prüfung ~{at}",
