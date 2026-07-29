@@ -67,10 +67,29 @@ export function useOrganization360(id: string) {
 
 // isOverlayRefusal distinguishes "this workspace reads elsewhere" from every
 // other 422 (a malformed id, say), which stays an error the caller sees.
+//
+// It narrows by checking rather than asserting: a problem body that is not
+// the shape we expect — null, a string, an older server's payload — is not
+// an overlay refusal, and must read as one failure rather than throwing a
+// second one on the way to saying so.
 function isOverlayRefusal(problem: unknown): boolean {
-  const details = (problem as { details?: { errors?: { code?: string }[] } })
-    .details;
-  return (details?.errors ?? []).some((e) => e.code === OVERLAY_REFUSAL);
+  if (typeof problem !== "object" || problem === null) {
+    return false;
+  }
+  const details = (problem as Record<string, unknown>).details;
+  if (typeof details !== "object" || details === null) {
+    return false;
+  }
+  const errors = (details as Record<string, unknown>).errors;
+  if (!Array.isArray(errors)) {
+    return false;
+  }
+  return errors.some(
+    (entry) =>
+      typeof entry === "object" &&
+      entry !== null &&
+      (entry as Record<string, unknown>).code === OVERLAY_REFUSAL,
+  );
 }
 
 /**

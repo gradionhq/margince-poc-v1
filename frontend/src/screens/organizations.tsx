@@ -1225,8 +1225,13 @@ function CompanyRecord({
   onTab: (next: CompanyTab) => void;
   t: ReturnType<typeof useT>;
 }>) {
+  const sorMode = useSorMode();
   const assembled = view.data?.state === "ready" ? view.data.view : undefined;
-  const overlay = view.data?.state === "overlay";
+  // Two sources say "this workspace reads elsewhere", and either is enough.
+  // The 360 refuses with a 422, and /me reports the mode directly — a
+  // workspace that flipped mode after this page cached its read would
+  // otherwise keep serving a native-looking company view.
+  const overlay = view.data?.state === "overlay" || sorMode === "overlay";
   const tabs = (
     <div className="co-tabs">
       <SegmentedControl
@@ -1242,19 +1247,21 @@ function CompanyRecord({
     </div>
   );
 
-  if (tab === "partner") {
+  if (tab === "partner" || tab === "history") {
     return (
       <CompanyShell org={org} view={assembled}>
         {tabs}
-        <PartnerTab organizationId={org.id} />
-      </CompanyShell>
-    );
-  }
-  if (tab === "history") {
-    return (
-      <CompanyShell org={org} view={assembled}>
-        {tabs}
-        <RecordHistoryTab kind="organization" id={org.id} />
+        {/* Overlay refuses the whole company page, not just its overview:
+            the partner extension and the field history are native records
+            the mirror does not hold, so switching tabs must not walk around
+            the refusal into reads that can only fail. */}
+        {overlay ? (
+          <OverlayFallback />
+        ) : tab === "partner" ? (
+          <PartnerTab organizationId={org.id} />
+        ) : (
+          <RecordHistoryTab kind="organization" id={org.id} />
+        )}
       </CompanyShell>
     );
   }
@@ -1321,32 +1328,29 @@ function CompanyPulse({
   const t = useT();
   const { locale } = useLocale();
   const strength = view?.strength;
+  // The strength section is what carries BOTH the score and the last touch.
+  // Withheld or absent, the line says nothing about either: "never
+  // contacted" read off missing data is a business conclusion the page has
+  // no basis for, and it is the one a rep would act on.
+  const strengthKnown = Boolean(
+    view && !view.sections_omitted?.includes("strength"),
+  );
   return (
     <>
-      {strength &&
-        (strength.contributor_person_id ? (
-          <span>
-            {t("co.pulse.strength", {
-              score: strength.score,
-              who: "",
-              count: strength.contact_count,
-            })}
-            <EntityRef kind="person" id={strength.contributor_person_id} />
-          </span>
-        ) : (
-          <span>{t("co.pulse.noStrength")}</span>
-        ))}
-      <span>
-        {strength?.last_interaction
-          ? t("co.pulse.lastTouch", {
-              when: formatDateTime(
-                strength.last_interaction,
-                locale,
-                RECORD_ZONE,
-              ),
-            })
-          : t("co.pulse.neverTouched")}
-      </span>
+      {strength && <StrengthPulse strength={strength} />}
+      {strengthKnown && (
+        <span>
+          {strength?.last_interaction
+            ? t("co.pulse.lastTouch", {
+                when: formatDateTime(
+                  strength.last_interaction,
+                  locale,
+                  RECORD_ZONE,
+                ),
+              })
+            : t("co.pulse.neverTouched")}
+        </span>
+      )}
       <span>
         {org.owner_id ? (
           <EntityRef kind="user" id={org.owner_id} />
@@ -1356,6 +1360,29 @@ function CompanyPulse({
       </span>
       <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
     </>
+  );
+}
+
+// StrengthPulse renders the score and, when there is one, the contact who
+// carries it. The contributor's NAME is a live lookup, so the sentence is
+// assembled from two translated halves around it rather than interpolating
+// an empty placeholder and appending the name after the full stop — which
+// broke word order in English and worse in German.
+function StrengthPulse({
+  strength,
+}: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
+  const t = useT();
+  if (!strength.contributor_person_id) {
+    // A dormant account: no contact has ever interacted, so there is no
+    // relationship to attribute and no number worth leading with.
+    return <span>{t("co.pulse.noStrength")}</span>;
+  }
+  return (
+    <span>
+      {t("co.pulse.strengthLead", { score: strength.score })}{" "}
+      <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
+      {t("co.pulse.strengthTail", { count: strength.contact_count })}
+    </span>
   );
 }
 

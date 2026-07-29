@@ -902,11 +902,13 @@ describe("CompanyScreen — overlay mode write affordances", () => {
 
     await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
     expect(screen.getByTestId("archive-record")).toBeTruthy();
-    // The page renders before the /me probe lands, so Merge is asserted
-    // absent once the mode is known rather than on the first paint.
+    // Anchor on something only overlay mode produces, so the absence below
+    // is asserted AFTER /me landed. Waiting on the absence alone passes on
+    // the first tick and would still pass if Merge were rendered in overlay.
     await waitFor(() =>
-      expect(screen.queryByTestId("merge-record")).toBeNull(),
+      expect(screen.getByText(/not assembled here/)).toBeTruthy(),
     );
+    expect(screen.queryByTestId("merge-record")).toBeNull();
   });
 
   it("Edit's real click path PATCHes and the 360 shows the saved industry", async () => {

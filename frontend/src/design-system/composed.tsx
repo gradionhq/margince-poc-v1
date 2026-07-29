@@ -286,7 +286,11 @@ export function RecordView({
   children?: ReactNode;
 }>) {
   const t = useT();
-  const zoned = rail || aside;
+  // The grid follows which slots are actually filled. One class per shape,
+  // because a three-column template with an empty column does not collapse:
+  // it reserves the space and leaves the story narrower than the rail
+  // beside it.
+  const zones = zoneClass(Boolean(rail), Boolean(aside));
   return (
     <div>
       <header className="record-head">
@@ -299,7 +303,7 @@ export function RecordView({
         {badges && <div className="record-badges">{badges}</div>}
       </header>
       {actions && <div className="record-actions">{actions}</div>}
-      <div className={zoned ? "record-zones" : undefined}>
+      <div className={zones}>
         {rail && (
           <aside className="record-rail" aria-label={t("record.profile")}>
             {rail}
@@ -322,6 +326,20 @@ export function RecordView({
       </div>
     </div>
   );
+}
+
+// zoneClass names the layout for the slots this record actually has.
+function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
+  if (hasRail && hasAside) {
+    return "record-zones record-zones-both";
+  }
+  if (hasRail) {
+    return "record-zones record-zones-rail";
+  }
+  if (hasAside) {
+    return "record-zones record-zones-aside";
+  }
+  return undefined;
 }
 
 function TimelineList({

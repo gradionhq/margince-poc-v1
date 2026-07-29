@@ -174,9 +174,18 @@
    layout folds to one column before either becomes unreadably narrow. */
 .record-zones {
   display: grid;
-  grid-template-columns: minmax(0, 3fr) minmax(0, 5fr) minmax(0, 3fr);
   gap: 16px;
   align-items: start;
+}
+/* The story always gets the largest share, whichever rails exist. */
+.record-zones-both {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 5fr) minmax(0, 3fr);
+}
+.record-zones-rail {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
+}
+.record-zones-aside {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
 }
 .record-zones .record-rail,
 .record-zones .record-aside,

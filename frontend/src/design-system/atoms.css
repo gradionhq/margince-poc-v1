@@ -76,6 +76,23 @@
   cursor: pointer;
 }
 
+.avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-full);
+  background: var(--accentMed);
+  color: var(--accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  flex: none;
+}
+
+/* The per-name tints come AFTER the base rule: same specificity, so the
+   later declaration is the one that wins. Defined before it, they were
+   silently overridden and every monogram rendered in the accent colour. */
 .avatar-t0 {
   background: var(--mono0Fill);
   color: var(--mono0Text);
@@ -99,20 +116,6 @@
 .avatar-t5 {
   background: var(--mono5Fill);
   color: var(--mono5Text);
-}
-
-.avatar {
-  width: 28px;
-  height: 28px;
-  border-radius: var(--r-full);
-  background: var(--accentMed);
-  color: var(--accent);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  flex: none;
 }
 
 .skeleton {
