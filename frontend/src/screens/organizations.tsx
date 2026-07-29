@@ -16,13 +16,17 @@ import {
 } from "../design-system/atoms";
 import { RecordView } from "../design-system/composed";
 import {
+  EvidenceMark,
+  type EvidenceMarkSource,
+} from "../design-system/evidencemark";
+import {
   AutonomyDot,
   ConfidenceMeter,
   EvidenceChip,
   ProvenanceTag,
 } from "../design-system/trust";
 import { formatDateTime, formatMoney } from "../format/format";
-import { useLocale, useT } from "../i18n";
+import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
@@ -863,51 +867,51 @@ function HierarchyRollupCard({ orgId }: Readonly<{ orgId: string }>) {
 // always, confidence whenever graded, and the evidence snippet when present.
 // One spelling for profile fields and facts so the "confidence is never
 // hidden" convention can't drift between them.
-function TrustSignals({
-  capturedBy,
-  confidence,
-  evidenceSnippet,
-  sourceUrl,
-}: Readonly<{
-  capturedBy?: string;
-  confidence?: number | null;
-  evidenceSnippet?: string | null;
-  sourceUrl?: string | null;
-}>) {
-  const level = confidenceLevel(confidence);
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        flexWrap: "wrap",
-        marginTop: 4,
-      }}
-    >
-      <ProvenanceTag provenance={provenanceOf(capturedBy)} />
-      {level && <ConfidenceMeter level={level} />}
-      {evidenceSnippet && (
-        <EvidenceChip
-          evidence={{ snippet: evidenceSnippet, source: sourceUrl ?? "" }}
-        />
-      )}
-    </div>
-  );
+// derivedSource builds the evidence mark's payload for a value the system
+// read rather than a person typed. A value a HUMAN entered gets no mark: the
+// record is full of human-entered values, and marking them all would make
+// the underline mean nothing.
+function derivedSource(
+  row: Readonly<{
+    captured_by?: string;
+    confidence?: number | null;
+    evidence_snippet?: string | null;
+    source_url?: string | null;
+    updated_at?: string;
+  }>,
+  locale: Locale,
+): EvidenceMarkSource | undefined {
+  const provenance = provenanceOf(row.captured_by);
+  if (provenance.kind === "human") {
+    return undefined;
+  }
+  return {
+    provenance,
+    confidence: confidenceLevel(row.confidence) ?? undefined,
+    snippet: row.evidence_snippet,
+    sourceUrl: row.source_url,
+    at: row.updated_at
+      ? formatDateTime(row.updated_at, locale, RECORD_ZONE)
+      : undefined,
+  };
 }
 
-function ProfileFieldRow({ field }: Readonly<{ field: CompanyProfileField }>) {
+function ProfileFieldRow({
+  field,
+  onOpenHistory,
+}: Readonly<{ field: CompanyProfileField; onOpenHistory?: () => void }>) {
   const t = useT();
+  const { locale } = useLocale();
   return (
-    <div style={{ marginBottom: 12 }}>
+    <div className="co-field">
       <span className="t-label">{coldFieldLabel(field.field, t)}</span>
-      <div>{field.value}</div>
-      <TrustSignals
-        capturedBy={field.captured_by}
-        confidence={field.confidence}
-        evidenceSnippet={field.evidence_snippet}
-        sourceUrl={field.source_url}
-      />
+      <div>
+        <EvidenceMark
+          value={field.value}
+          source={derivedSource(field, locale)}
+          onOpenHistory={onOpenHistory}
+        />
+      </div>
     </div>
   );
 }
@@ -917,7 +921,10 @@ function ProfileFieldRow({ field }: Readonly<{ field: CompanyProfileField }>) {
 // guessed. An empty read is stated honestly ("nothing read yet"), never
 // fabricated into blank rows. This card carries the region's loading/error
 // surface; the sibling facts card stays silent when it has nothing to add.
-function ProfileFieldsCard({ orgId }: Readonly<{ orgId: string }>) {
+function ProfileFieldsCard({
+  orgId,
+  onOpenHistory,
+}: Readonly<{ orgId: string; onOpenHistory?: () => void }>) {
   const t = useT();
   const fieldsQuery = useQuery({
     queryKey: ["org-profile-fields", orgId],
@@ -944,7 +951,11 @@ function ProfileFieldsCard({ orgId }: Readonly<{ orgId: string }>) {
           <p className="t-caption">{t("org.firmographicsEmpty")}</p>
         ) : (
           (fieldsQuery.data ?? []).map((field) => (
-            <ProfileFieldRow key={field.field} field={field} />
+            <ProfileFieldRow
+              key={field.field}
+              field={field}
+              onOpenHistory={onOpenHistory}
+            />
           ))
         )}
       </QueryStates>
@@ -970,29 +981,32 @@ const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
   signal: "org.factCategory.signal",
 };
 
-// One fact row: value plus its trust signals — provenance always, confidence
-// whenever graded, and the evidence snippet — the same "confidence is never
-// hidden" convention as ProfileFieldRow.
-// A fact row shares ProfileFieldRow's vertical label/value/trust-signals
-// layout (NOT the horizontal `.firmo` key/value grid, whose `flex-direction:
-// column` descendant rule would collapse the TrustSignals footer).
-function FactRow({ fact }: Readonly<{ fact: OrganizationFact }>) {
+// One fact row: the value carries its own evidence mark, the same
+// affordance every derived value on this page uses.
+function FactRow({
+  fact,
+  onOpenHistory,
+}: Readonly<{ fact: OrganizationFact; onOpenHistory?: () => void }>) {
   const t = useT();
+  const { locale } = useLocale();
   return (
-    <div style={{ marginBottom: 12 }}>
+    <div className="co-field">
       <span className="t-label">{coldFieldLabel(fact.field, t)}</span>
-      <div>{fact.value}</div>
-      <TrustSignals
-        capturedBy={fact.captured_by}
-        confidence={fact.confidence}
-        evidenceSnippet={fact.evidence_snippet}
-        sourceUrl={fact.source_url}
-      />
+      <div>
+        <EvidenceMark
+          value={fact.value}
+          source={derivedSource(fact, locale)}
+          onOpenHistory={onOpenHistory}
+        />
+      </div>
     </div>
   );
 }
 
-function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
+function FactsCard({
+  orgId,
+  onOpenHistory,
+}: Readonly<{ orgId: string; onOpenHistory?: () => void }>) {
   const t = useT();
   const factsQuery = useQuery({
     queryKey: ["org-facts", orgId],
@@ -1040,7 +1054,11 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
               {t(FACT_CATEGORY_LABELS[category])}
             </div>
             {group.map((fact) => (
-              <FactRow key={`${fact.field}:${fact.value_key}`} fact={fact} />
+              <FactRow
+                key={`${fact.field}:${fact.value_key}`}
+                fact={fact}
+                onOpenHistory={onOpenHistory}
+              />
             ))}
           </div>
         );
@@ -1273,6 +1291,7 @@ function CompanyRecord({
       loading={view.isPending}
       failed={view.isError}
       tabs={tabs}
+      onOpenHistory={() => onTab("history")}
     />
   );
 }
@@ -1396,6 +1415,7 @@ function CompanyOverview({
   loading,
   failed,
   tabs,
+  onOpenHistory,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
@@ -1406,6 +1426,10 @@ function CompanyOverview({
   // blank page and only one of them is a fact about the account.
   failed: boolean;
   tabs: ReactNode;
+  // An evidence mark's "full history" opens the record's History tab, which
+  // is local state on this screen rather than a route — so the mark is
+  // handed the switch instead of a link it could not build.
+  onOpenHistory: () => void;
 }>) {
   const t = useT();
   const timeline = view?.activities?.data ?? [];
@@ -1420,8 +1444,8 @@ function CompanyOverview({
       rail={
         overlay ? undefined : (
           <>
-            <ProfileFieldsCard orgId={org.id} />
-            <FactsCard orgId={org.id} />
+            <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+            <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
             <CustomFieldsCard object="organization" record={org} />
             <HierarchyRollupCard orgId={org.id} />
             <RelationshipsTab scope={{ organization_id: org.id }} />

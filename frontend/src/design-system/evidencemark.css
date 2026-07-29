@@ -1,0 +1,75 @@
+/* The evidence mark: a dotted underline on a derived value, and the panel
+   that says where the value came from.
+
+   The underline is the affordance — never colour alone, so the mark is
+   legible without colour vision and against every theme. */
+
+.evmark {
+  position: relative;
+  display: inline-block;
+}
+
+.evmark-trigger {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: help;
+  text-decoration: underline dotted var(--borderStrong);
+  text-underline-offset: 3px;
+}
+.evmark-trigger:hover {
+  text-decoration-color: var(--accent);
+}
+.evmark-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.evmark-panel {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 240px;
+  max-width: min(340px, 80vw);
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  white-space: normal;
+}
+
+.evmark-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.evmark-confidence {
+  font-size: 12px;
+  color: var(--textMeta);
+}
+
+/* The quoted source text, set apart so it never reads as our own words. */
+.evmark-snippet {
+  border-left: 2px solid var(--borderStrong);
+  padding-left: 8px;
+  font-size: 12.5px;
+  color: var(--textContent);
+}
+
+.evmark-source,
+.evmark-at {
+  font-size: 11.5px;
+  color: var(--textMeta);
+  overflow-wrap: anywhere;
+}

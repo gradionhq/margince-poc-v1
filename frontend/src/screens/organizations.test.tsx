@@ -752,6 +752,15 @@ describe("CompanyScreen — profile fields card (B5)", () => {
       expect(screen.getByText("Value proposition")).toBeTruthy(),
     );
     expect(screen.getByText("Fleet retrofits without downtime")).toBeTruthy();
+    // The value carries ONE affordance now: an evidence mark on the value
+    // itself. The old footer — a provenance tag, a confidence meter and an
+    // evidence chip stacked under every row — is gone, because three chips
+    // under a value read as clutter rather than as "this was derived".
+    const marked = screen.getByRole("button", {
+      name: /Fleet retrofits without downtime/,
+    });
+    expect(marked.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(/^High$|^Medium$|^Low$/)).toBeNull();
     // A field the read never grounded (legal name) must not be invented.
     expect(screen.queryByText("Registered legal name")).toBeNull();
     // The empty-state copy only shows when nothing was read.
