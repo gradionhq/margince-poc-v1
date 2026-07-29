@@ -81,10 +81,20 @@ func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
 // the empty case is the contract every non-reporting provider rides.
 func TestSendReceiptCarriesTheStampedRFC822Identity(t *testing.T) {
 	stamped := connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "CAF@mail.gmail.com"}
+	// The two identities live in different namespaces and both travel: the
+	// provider's own id closes the delivery, the RFC822 one re-keys the
+	// timeline row. A receipt that carried one in the other's field would be
+	// read by both readers, wrongly.
+	if stamped.ProviderMessageID != "gmsg1" {
+		t.Errorf("ProviderMessageID = %q, want the provider's own message id", stamped.ProviderMessageID)
+	}
 	if stamped.RFC822MessageID != "CAF@mail.gmail.com" {
 		t.Errorf("RFC822MessageID = %q, want the identity the provider stamped", stamped.RFC822MessageID)
 	}
 	honoured := connector.SendReceipt{ProviderMessageID: "gmsg1"}
+	if honoured.ProviderMessageID != "gmsg1" {
+		t.Errorf("ProviderMessageID = %q, want the provider's own message id", honoured.ProviderMessageID)
+	}
 	if honoured.RFC822MessageID != "" {
 		t.Errorf("RFC822MessageID = %q, want empty when the provider reports none", honoured.RFC822MessageID)
 	}

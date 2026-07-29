@@ -209,7 +209,7 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID) (comms.Ou
 	// would not be exercised by these tests, and the pacing knobs below are
 	// deliberately inert (no policies, a bound nothing here reaches).
 	dispatcher := comms.NewDispatcher(
-		comms.NewStore(p.pool, time.Now),
+		comms.NewStore(p.pool, time.Now, activities.NewStore(p.pool)),
 		stubMailbox{sender: gmailConnector, auth: auth},
 		compose.NewSendSeatAuthority(p.pool),
 		consent.NewGate(consent.NewStore(p.pool)),

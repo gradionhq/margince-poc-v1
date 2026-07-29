@@ -44,8 +44,10 @@ type sentRow struct {
 
 // seedSentEmail writes the row the send path leaves behind: outbound, filed
 // under the provider whose echo must collapse onto it, keyed on the identity
-// this system minted, and authored by a human ('manual').
-func (e *sendEnv) seedSentEmail(t *testing.T, sourceID, threadKey string) ids.ActivityID {
+// this system minted, and authored by a human ('manual'). Only threadKey
+// varies, because that is the one column that tells a conversation root from a
+// reply.
+func (e *sendEnv) seedSentEmail(t *testing.T, threadKey string) ids.ActivityID {
 	t.Helper()
 	id := ids.New[ids.ActivityKind]()
 	if _, err := e.owner.Exec(context.Background(), `
@@ -53,7 +55,7 @@ func (e *sendEnv) seedSentEmail(t *testing.T, sourceID, threadKey string) ids.Ac
 		                      source_system, source_id, source, captured_by, thread_key)
 		VALUES ($1, $2, 'email', 'Re: pricing', now(), 'outbound',
 		        'gmail', $3, 'manual', 'human:x', NULLIF($4, ''))`,
-		id, e.ws, sourceID, threadKey); err != nil {
+		id, e.ws, mintedIdentity, threadKey); err != nil {
 		t.Fatalf("seeding the sent email: %v", err)
 	}
 	return id
@@ -85,13 +87,15 @@ func (e *sendEnv) asSendWorker() context.Context {
 }
 
 // reconcile drives the seam the way comms drives it: inside a workspace-bound
-// transaction the caller owns.
-func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, previous, stamped string) {
+// transaction the caller owns. Every case here stages under mintedIdentity, so
+// only the stamped identity varies — stamped == mintedIdentity is the provider
+// that honoured it.
+func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, stamped string) {
 	t.Helper()
 	ctx := e.asSendWorker()
 	store := NewStore(e.pool)
 	if err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
-		return store.ReconcileMessageIdentityTx(ctx, tx, id, previous, stamped)
+		return store.ReconcileMessageIdentityTx(ctx, tx, id, mintedIdentity, stamped)
 	}); err != nil {
 		t.Fatalf("ReconcileMessageIdentityTx: %v", err)
 	}
@@ -102,9 +106,9 @@ func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, previous, stamped s
 // stamped one — reply detection joins outbound activities on thread_key.
 func TestReconcileReKeysARootSendOntoTheStampedIdentity(t *testing.T) {
 	e := setupSend(t)
-	id := e.seedSentEmail(t, mintedIdentity, mintedIdentity)
+	id := e.seedSentEmail(t, mintedIdentity)
 
-	e.reconcile(t, id, mintedIdentity, stampedIdentity)
+	e.reconcile(t, id, stampedIdentity)
 
 	row := e.sentRow(t, id)
 	if row.sourceID != stampedIdentity {
@@ -147,9 +151,9 @@ func TestReconcileReKeysARootSendOntoTheStampedIdentity(t *testing.T) {
 func TestReconcileLeavesAReplysThreadKeyOnItsAnchorsRoot(t *testing.T) {
 	e := setupSend(t)
 	const root = "root@buyer.test"
-	id := e.seedSentEmail(t, mintedIdentity, root)
+	id := e.seedSentEmail(t, root)
 
-	e.reconcile(t, id, mintedIdentity, stampedIdentity)
+	e.reconcile(t, id, stampedIdentity)
 
 	row := e.sentRow(t, id)
 	if row.sourceID != stampedIdentity {
@@ -165,9 +169,9 @@ func TestReconcileLeavesAReplysThreadKeyOnItsAnchorsRoot(t *testing.T) {
 // connector-ingested.
 func TestReconcileLeavesSourceManual(t *testing.T) {
 	e := setupSend(t)
-	id := e.seedSentEmail(t, mintedIdentity, mintedIdentity)
+	id := e.seedSentEmail(t, mintedIdentity)
 
-	e.reconcile(t, id, mintedIdentity, stampedIdentity)
+	e.reconcile(t, id, stampedIdentity)
 
 	row := e.sentRow(t, id)
 	if row.source != "manual" {
@@ -184,10 +188,10 @@ func TestReconcileLeavesSourceManual(t *testing.T) {
 // event about a change nobody made.
 func TestReconcileIsANoOpWhenTheProviderHonouredTheIdentity(t *testing.T) {
 	e := setupSend(t)
-	id := e.seedSentEmail(t, mintedIdentity, mintedIdentity)
+	id := e.seedSentEmail(t, mintedIdentity)
 	before := e.sentRow(t, id)
 
-	e.reconcile(t, id, mintedIdentity, mintedIdentity)
+	e.reconcile(t, id, mintedIdentity)
 
 	if after := e.sentRow(t, id); after != before {
 		t.Errorf("row = %+v, want it untouched (%+v)", after, before)

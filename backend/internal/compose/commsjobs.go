@@ -111,6 +111,27 @@ type commsSendWorker struct {
 // Timeout gives one transmission room to finish over a live provider.
 func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { return sendTimeout }
 
+// sendWorkerCtx is the scope one dispatch attempt runs under. RecordSent's
+// identity reconcile writes an audit row and an outbox event, and storekit
+// demands an actor for the first and an actor AND a correlation id for the
+// second — the workspace alone is not enough, and a reconcile that cannot
+// audit itself leaves the operator no record that this mailbox rewrites
+// message identities at all.
+//
+// It is the SYSTEM completing a send a human already authorized, not that
+// human acting again: running the completion under the sender's seat would let
+// a seat revoked between staging and transmit strand the message's identity,
+// which is a governance rule applied where no governance decision is being
+// made. Extracted from Work so a unit test can assert the binding without
+// standing up River.
+func sendWorkerCtx(ctx context.Context, workspaceID ids.UUID) context.Context {
+	wsCtx := principal.WithWorkspaceID(ctx, workspaceID)
+	wsCtx = principal.WithActor(wsCtx, principal.Principal{
+		Type: principal.PrincipalSystem, ID: "system:comms-send",
+	})
+	return principal.WithCorrelationID(wsCtx, ids.NewV7())
+}
+
 func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs]) error {
 	ws, err := ids.Parse(job.Args.Workspace)
 	if err != nil {
@@ -121,7 +142,7 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		return fmt.Errorf("comms_send_email: delivery id: %w", err)
 	}
 
-	outcome, wait, err := w.dispatcher.DispatchWithWait(principal.WithWorkspaceID(ctx, ws), deliveryID)
+	outcome, wait, err := w.dispatcher.DispatchWithWait(sendWorkerCtx(ctx, ws), deliveryID)
 	switch outcome {
 	case comms.OutcomePostponed:
 		// A SNOOZE, never a returned error. River restores the attempt on a
@@ -338,7 +359,7 @@ var _ activities.DeliveryStager = commsStager{}
 //
 //nolint:ireturn // returns the activities.DeliveryStager seam by design: the concrete type is unexported and every caller holds the interface
 func NewDeliveryStager(pool *pgxpool.Pool, runner *jobs.Runner) activities.DeliveryStager {
-	return commsStager{store: comms.NewStore(pool, time.Now), runner: runner}
+	return commsStager{store: comms.NewStore(pool, time.Now, activities.NewStore(pool)), runner: runner}
 }
 
 func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.DeliveryRequest) error {
@@ -412,7 +433,10 @@ func (p SendPacing) withDefaults() SendPacing {
 func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPacing) *commsSendWorker {
 	p := pacing.withDefaults()
 	return &commsSendWorker{dispatcher: comms.NewDispatcher(
-		comms.NewStore(pool, time.Now),
+		// The reconcile seam is the cross-module edge comms must not hold
+		// itself: activities owns the timeline row, comms owns the delivery,
+		// and the two meet here.
+		comms.NewStore(pool, time.Now, activities.NewStore(pool)),
 		commsResolver{registry: registry},
 		NewSendSeatAuthority(pool),
 		consent.NewGate(consent.NewStore(pool)),

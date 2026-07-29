@@ -26,7 +26,7 @@ import (
 // database, not to invite a second store.
 type deliveryStore interface {
 	Load(ctx context.Context, id ids.UUID) (Delivery, error)
-	RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error
+	RecordSent(ctx context.Context, id ids.UUID, receipt connector.SendReceipt) error
 	Park(ctx context.Context, id ids.UUID, reason string) error
 	RecordFailure(ctx context.Context, id ids.UUID, reason string) error
 	RecordDeferral(ctx context.Context, id ids.UUID, reason string) error
