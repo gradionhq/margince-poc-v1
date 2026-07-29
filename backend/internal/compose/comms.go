@@ -55,6 +55,11 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 	return subject, body, nil
 }
 
+// SendEmail carries no DraftRef, and that absence is a statement: a voice
+// outcome is the OWNER's judgment of the machine's draft (ADR-0066 §4), so an
+// agent's send resolves none — the recorder refuses a non-human principal
+// anyway, and naming a reference here would only make that refusal look like
+// an accident of wiring.
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (json.RawMessage, error) {
 	sent, err := c.store.SendEmail(ctx, ids.From[ids.ActivityKind](anchor), activities.SendEmailInput{
 		Recipients:     append(append([]string{}, in.To...), in.Cc...),

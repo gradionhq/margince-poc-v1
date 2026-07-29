@@ -28,6 +28,15 @@ import (
 type piiHandling struct {
 	// erasureWrite: erasure.go must UPDATE/DELETE this table (redact or purge).
 	erasureWrite bool
+	// retentionErase: the nightly retention sweep is this table's ONLY
+	// eraser. True only where the row carries no linkage back to a subject
+	// for the Art. 17 cascade to walk — the cascade starts at a person, so a
+	// table it structurally cannot reach must still be erased by SOMETHING,
+	// and the sweep is that something. It is a separate field rather than a
+	// second way to satisfy erasureWrite because the two are different
+	// promises: "erased when the subject asks" and "erased when the clock
+	// says", and only the first answers an Art. 17 request.
+	retentionErase bool
 	// sarRead: SAR assembly must read this table into the export package.
 	// False only for opaque derived artifacts (vectors) that carry no
 	// human-readable PII to hand back — they are purged, never exported.
@@ -63,6 +72,19 @@ var piiTables = map[string]piiHandling{
 	// addresses, subject line and body, scrubbed with the activity it
 	// transmitted and exported alongside it.
 	"comms_outbound": {erasureWrite: true, sarRead: true},
+	// The voice learning signal keeps the model's drafted text
+	// (generated_original) in plaintext, which is correspondence about a
+	// subject. It names no person, activity or subject, deliberately: the row
+	// exists to say whether the owner sent the machine's words or reworded
+	// them, and linking it to the recipient would put a second copy of their
+	// mail behind a join Art. 17 would have to find. So the time-based sweep
+	// (privacy/retention.go, 180 days) is its eraser, not the cascade.
+	//
+	// SAR is a DOCUMENTED EXCLUSION rather than a gap: the subject's copy of
+	// the correspondence is the activity, which AssembleSAR already exports,
+	// and this row holds no content the subject does not receive there — the
+	// sent body is classified and discarded, never stored.
+	"voice_learning_signal": {retentionErase: true, sarRead: false},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are
@@ -105,6 +127,11 @@ var erasureCascadeFiles = []string{
 	"internal/modules/privacy/deliveries.go",
 }
 
+// retentionSweepFile is the nightly time-based evaluator — the only eraser a
+// subject-unlinked PII table has. Kept apart from the cascade above so a
+// retention sweep can never be mistaken for an answer to an Art. 17 request.
+const retentionSweepFile = "internal/modules/privacy/retention.go"
+
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 	writes := map[string]bool{}
 	for _, path := range erasureCascadeFiles {
@@ -112,6 +139,12 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 			for _, table := range sqlWriteTargets(lit) {
 				writes[table] = true
 			}
+		}
+	}
+	sweeps := map[string]bool{}
+	for _, lit := range sqlLiterals(t, retentionSweepFile) {
+		for _, table := range sqlWriteTargets(lit) {
+			sweeps[table] = true
 		}
 	}
 	reads := map[string]bool{}
@@ -123,9 +156,17 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 
 	var missing []string
 	for table, h := range piiTables {
+		if !h.erasureWrite && !h.retentionErase {
+			missing = append(missing, "PII table "+table+
+				" is registered with no eraser at all — declare erasureWrite (the Art. 17 cascade) or retentionErase (the time-based sweep)")
+		}
 		if h.erasureWrite && !writes[table] {
 			missing = append(missing, "erasure never writes PII table "+table+
 				" — Art. 17 leaves it intact; redact/purge it in ErasePerson")
+		}
+		if h.retentionErase && !sweeps[table] {
+			missing = append(missing, "the retention sweep never writes PII table "+table+
+				" — its only eraser is gone; erase it in the nightly evaluator or move it onto the Art. 17 cascade")
 		}
 		if h.sarRead && !reads[table] {
 			missing = append(missing, "SAR never reads PII table "+table+
