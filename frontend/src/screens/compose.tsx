@@ -263,6 +263,67 @@ function DraftDisclosure({
   );
 }
 
+// One control's worth of mutation state, flattened so a presentational child
+// renders a pending/failed action without speaking react-query.
+type PendingAction = Readonly<{
+  run: () => void;
+  pending: boolean;
+  error: string | null;
+}>;
+
+// The drafting controls: steer the model, draft, and — only once a served voice
+// draft is on screen — reject it. `discard` is null when there is nothing a
+// rejection could name, which is what keeps the judgment from being offered
+// where it would have no subject.
+function DraftBar({
+  intent,
+  onIntentChange,
+  draft,
+  discard,
+  unavailable,
+}: Readonly<{
+  intent: string;
+  onIntentChange: (next: string) => void;
+  draft: PendingAction;
+  discard: PendingAction | null;
+  unavailable: boolean;
+}>) {
+  const t = useT();
+  return (
+    <>
+      <div className="compose-draftbar">
+        <TextInput
+          placeholder={t("compose.intent")}
+          value={intent}
+          onChange={(event) => onIntentChange(event.target.value)}
+        />
+        <Button small onClick={draft.run} disabled={draft.pending}>
+          {draft.pending ? t("compose.drafting") : t("compose.draftWithAi")}
+        </Button>
+        {discard && (
+          <Button small onClick={discard.run} disabled={discard.pending}>
+            {t("compose.discardDraft")}
+          </Button>
+        )}
+      </div>
+      {discard && <p className="t-caption">{t("compose.discardDraftHint")}</p>}
+      {unavailable && (
+        <p className="t-caption">{t("compose.draftUnavailable")}</p>
+      )}
+      {!unavailable && draft.error && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {draft.error}
+        </p>
+      )}
+      {discard?.error && (
+        <p className="t-caption" style={{ color: "var(--danger)" }}>
+          {discard.error}
+        </p>
+      )}
+    </>
+  );
+}
+
 // The 🟡 confirm-first composer (draftEmail + sendEmail). Draft with AI fills
 // the fields; the human edits and confirms; the human's own click IS the
 // approval (ADR-0055), so the human REST path sends no X-Approval-Token and no
@@ -295,6 +356,10 @@ export function ComposeModal({
   const [intent, setIntent] = useState("");
   const [purpose, setPurpose] = useState("");
   const [provenance, setProvenance] = useState<DraftProvenance | null>(null);
+  // The served voice draft the body in this form came from. It is what lets the
+  // server say whether the rep sent the draft or rewrote it, so it may only ever
+  // name the text actually on screen.
+  const [draftRef, setDraftRef] = useState<string | null>(null);
   // Two honest non-error outcomes, kept OUT of react-query's error channel so
   // the form stays usable: the model / mailer simply isn't configured (501).
   const [draftUnavailable, setDraftUnavailable] = useState(false);
@@ -336,8 +401,49 @@ export function ComposeModal({
       });
       // Never clobber a field the user already edited.
       if (!subject) setSubject(drafted.subject);
-      if (!body) setBody(drafted.body);
+      if (!body) {
+        // The reference names the words it was served with, so it rides on
+        // exactly the condition that applies them. A re-draft over text the rep
+        // already wrote keeps that text — adopting the newer reference here
+        // would report a stranger's draft as the rep's own edit of it.
+        setBody(drafted.body);
+        setDraftRef(drafted.draft_ref ?? null);
+      }
       if (to.length === 0 && drafted.to?.length) setTo(drafted.to);
+    },
+  });
+
+  // Rejecting a draft is a judgment the rep makes, so it has its own control
+  // and never rides on closing the dialog. It also may not be guessed at: the
+  // reference is deterministic and the drafted signal is inserted once, so a
+  // rejection recorded because someone navigated away would silently stand in
+  // for the real outcome of an identical draft that is later sent.
+  const voiceProfileId = voiceProfile.data?.id ?? null;
+  // A rejection needs both a draft to name and the profile that served it.
+  const rejectable = draftRef !== null && voiceProfileId !== null;
+  const discard = useMutation({
+    mutationFn: async () => {
+      if (!voiceProfileId || !draftRef) {
+        // The control is only offered with both in hand; reaching here means
+        // the profile query answered differently mid-edit.
+        throw new Error(t("compose.actionFailed"));
+      }
+      const { error } = await api.POST(
+        "/voice-profiles/{id}/draft-rejections",
+        {
+          params: { path: { id: voiceProfileId } },
+          body: { draft_ref: draftRef },
+        },
+      );
+      if (error) throw new Error(problemMessage(error));
+    },
+    onSuccess: () => {
+      // The rejected words leave with the judgment; the recipients the rep
+      // addressed are their own work and stay.
+      setSubject("");
+      setBody("");
+      setDraftRef(null);
+      setProvenance(null);
     },
   });
 
@@ -355,6 +461,7 @@ export function ComposeModal({
             body,
             to,
             cc: cc.length ? cc : undefined,
+            draft_ref: draftRef ?? undefined,
             consent_purpose: purpose,
           },
         },
@@ -408,28 +515,25 @@ export function ComposeModal({
       error={sendError}
     >
       <div className="compose-fields">
-        <div className="compose-draftbar">
-          <TextInput
-            placeholder={t("compose.intent")}
-            value={intent}
-            onChange={(event) => setIntent(event.target.value)}
-          />
-          <Button
-            small
-            onClick={() => draft.mutate()}
-            disabled={draft.isPending}
-          >
-            {draft.isPending ? t("compose.drafting") : t("compose.draftWithAi")}
-          </Button>
-        </div>
-        {draftUnavailable && (
-          <p className="t-caption">{t("compose.draftUnavailable")}</p>
-        )}
-        {draft.isError && !draftUnavailable && (
-          <p className="t-caption" style={{ color: "var(--danger)" }}>
-            {draft.error?.message}
-          </p>
-        )}
+        <DraftBar
+          intent={intent}
+          onIntentChange={setIntent}
+          draft={{
+            run: () => draft.mutate(),
+            pending: draft.isPending,
+            error: draft.isError ? draft.error.message : null,
+          }}
+          discard={
+            rejectable
+              ? {
+                  run: () => discard.mutate(),
+                  pending: discard.isPending,
+                  error: discard.isError ? discard.error.message : null,
+                }
+              : null
+          }
+          unavailable={draftUnavailable}
+        />
         {provenance && (
           <DraftDisclosure
             provenance={provenance}
@@ -448,7 +552,15 @@ export function ComposeModal({
           className="textarea compose-body"
           placeholder={t("compose.body")}
           value={body}
-          onChange={(event) => setBody(event.target.value)}
+          onChange={(event) => {
+            const next = event.target.value;
+            setBody(next);
+            // An emptied body no longer holds the served draft, and the fill
+            // rule above will re-adopt on the next draft. Keeping the old
+            // reference across the gap would bind the next send's outcome to
+            // words the rep deleted.
+            if (!next) setDraftRef(null);
+          }}
         />
 
         <label className="t-body compose-check">

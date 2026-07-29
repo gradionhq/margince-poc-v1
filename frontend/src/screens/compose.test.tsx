@@ -95,6 +95,18 @@ const PROVISIONAL_VOICE_PROFILE = {
   page: { next_cursor: null, has_more: false },
 };
 
+// rejectVoiceDraft answers the owner's updated learning aggregate; the composer
+// only needs the call to have succeeded.
+const LEARNING_SUMMARY = {
+  drafted: 4,
+  accepted: 1,
+  edited_sent: 2,
+  rejected: 1,
+  qualifying_source_count: 0,
+  qualifying_words: 0,
+  transformations: [],
+};
+
 // Records every request so a test can assert what actually went to the server
 // — the request body and headers ARE the contract for a send/relink.
 type Sent = { key: string; body: unknown; headers: Headers };
@@ -532,6 +544,9 @@ describe("ComposeModal", () => {
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    // Nothing was drafted, so no voice-learning outcome may be inferred: the
+    // exact-match assertion is what keeps `draft_ref` off an independently
+    // composed send rather than riding along as null.
     expect(req?.body).toEqual({
       subject: "Hi there",
       body: "Body content",
@@ -644,6 +659,212 @@ describe("ComposeModal", () => {
     );
 
     expect(await screen.findByText(/The request failed/i)).toBeTruthy();
+  });
+});
+
+// A voice-styled draft, served with the reference the server keys a learning
+// outcome against.
+function voiceDraft(ref: string, subject: string, body: string) {
+  return {
+    subject,
+    body,
+    to: ["buyer@acme.test"],
+    ai_generated: true,
+    ai_disclosure: "AI-assisted draft (Art. 50).",
+    voice_profile_version: 3,
+    draft_ref: ref,
+  };
+}
+
+// Serves a different draft per call, so a test can re-draft and see which of
+// the two references the composer is still holding.
+function draftsInTurn(...drafts: object[]) {
+  let call = 0;
+  return () => {
+    const drafted = drafts[Math.min(call, drafts.length - 1)];
+    call += 1;
+    return jsonResponse(drafted);
+  };
+}
+
+function renderComposer(onClose = vi.fn()) {
+  render(
+    <ComposeModal
+      activityId="act-1"
+      entityType="person"
+      entityId="p-1"
+      open
+      onClose={onClose}
+    />,
+  );
+  return onClose;
+}
+
+// The send-time binding to the voice draft: `draft_ref` is what makes the
+// server's accepted/edited_sent verdict about the rep's own words.
+describe("ComposeModal draft binding", () => {
+  it("sends the reference of the draft whose text it is sending", async () => {
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+      ).toBe(true),
+    );
+    const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    expect(req?.body).toMatchObject({
+      body: "Draft A body.",
+      draft_ref: "vd-a",
+    });
+  });
+
+  it("keeps the earlier reference when a re-draft leaves the typed body alone", async () => {
+    // The fill rule never clobbers text the rep has touched, so the second
+    // draft's words are discarded. Adopting its reference anyway would submit
+    // draft B's identity with draft A's text plus the rep's edit — an
+    // edited_sent whose "edit" is a draft the rep never saw.
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": draftsInTurn(
+        voiceDraft("vd-a", "Re: Q3", "Draft A body."),
+        voiceDraft("vd-b", "Re: Q3 again", "Draft B body."),
+      ),
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    const bodyField = await screen.findByDisplayValue("Draft A body.");
+    await userEvent.type(bodyField, " And my own line.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await waitFor(() =>
+      expect(
+        sent.filter((r) => r.key === "POST /activities/act-1/draft-email")
+          .length,
+      ).toBe(2),
+    );
+
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+      ).toBe(true),
+    );
+    const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    expect(req?.body).toMatchObject({
+      body: "Draft A body. And my own line.",
+      draft_ref: "vd-a",
+    });
+  });
+
+  it("drops the reference once the body it named is cleared", async () => {
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /activities/act-1/send-email": () => jsonResponse(activity202, 202),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    const bodyField = await screen.findByDisplayValue("Draft A body.");
+    await userEvent.clear(bodyField);
+    await userEvent.type(bodyField, "Written from scratch.");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() =>
+      expect(
+        sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+      ).toBe(true),
+    );
+    const req = sent.find((r) => r.key === "POST /activities/act-1/send-email");
+    expect(req?.body).not.toHaveProperty("draft_ref");
+  });
+
+  it("records exactly one rejection when the rep discards the draft", async () => {
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+      "POST /voice-profiles/vp-1/draft-rejections": () =>
+        jsonResponse(LEARNING_SUMMARY),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.click(
+      screen.getByRole("button", { name: "Discard draft" }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByDisplayValue("Draft A body.")).toBeNull(),
+    );
+    const rejections = sent.filter(
+      (r) => r.key === "POST /voice-profiles/vp-1/draft-rejections",
+    );
+    expect(rejections).toHaveLength(1);
+    expect(rejections[0].body).toEqual({ draft_ref: "vd-a" });
+  });
+
+  it("records no rejection when the composer is merely closed", async () => {
+    // `rejected` is a judgment, not an accident of navigation — and because the
+    // reference is deterministic and the drafted signal inserts once, a
+    // rejection logged on a close would stand in for the real outcome of an
+    // identical draft that is later sent.
+    const sent = stubRoutes({
+      "GET /voice-profiles": () => jsonResponse(PROVISIONAL_VOICE_PROFILE),
+      "POST /activities/act-1/draft-email": () =>
+        jsonResponse(voiceDraft("vd-a", "Re: Q3", "Draft A body.")),
+    });
+    const onClose = renderComposer();
+    await screen.findByRole("combobox");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Draft with AI" }),
+    );
+    await screen.findByDisplayValue("Draft A body.");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(onClose).toHaveBeenCalled();
+    expect(sent.some((r) => r.key.includes("draft-rejections"))).toBe(false);
   });
 });
 
