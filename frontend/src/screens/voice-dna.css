@@ -28,6 +28,13 @@
   flex-wrap: wrap;
 }
 
+/* Wraps the build button so a tooltip has something that still receives
+   pointer events while the button itself is disabled. */
+.vdna-build {
+  display: inline-flex;
+  align-self: flex-start;
+}
+
 .vdna-list {
   list-style: none;
   padding: 0;

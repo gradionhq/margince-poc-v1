@@ -39,6 +39,12 @@ function useVoiceSources(profileId: string) {
   });
 }
 
+// The two ADR-0066 maturity thresholds, mirrored so the build control can say
+// how far a corpus still has to go. The SERVER decides what state a profile is
+// in (VoiceProfile.maturity); these only phrase the distance to the next one.
+const VOICE_FIRST_BUILD_WORDS = 800;
+const VOICE_FULL_BUILD_WORDS = 4000;
+
 // bandFor mirrors the server's §B1.4 thresholds so the removal warning can
 // predict a drop before it happens; the server remains the authority.
 function bandFor(totalWords: number): string {
@@ -523,29 +529,49 @@ function BuildControls({
     onError: (e: Error) => setError(e.message),
   });
 
+  // The corpus summary rides the same query key CorpusManifest already read,
+  // so asking for the word total here costs no extra request.
+  const corpus = useVoiceSources(profile.id);
+  const words = corpus.data?.summary.total_words ?? 0;
+  // maturity is the SERVER's verdict on whether a build can say anything, so
+  // it — not a locally recomputed threshold — decides whether the button is
+  // offered. The word counts below only phrase the distance to the next state.
+  const tooThin = profile.maturity === "collecting";
+  const blocked = tooThin
+    ? t("settings.voice.buildNeedsWords", {
+        n: Math.max(0, VOICE_FIRST_BUILD_WORDS - words),
+      })
+    : null;
+  const reach =
+    profile.maturity === "provisional"
+      ? t("settings.voice.buildProvisional", {
+          n: Math.max(0, VOICE_FULL_BUILD_WORDS - words),
+        })
+      : null;
+
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
-      <Button
-        variant="primary"
-        small
-        disabled={build.isPending}
-        onClick={() => build.mutate()}
-      >
-        <Sparkles aria-hidden />{" "}
-        {build.isPending
-          ? t("settings.voice.building")
-          : t("settings.voice.rebuild")}
-      </Button>
+    <div className="vdna-composer">
+      {/* The title rides the wrapper, not the button: a disabled control fires
+          no pointer events, so a tooltip on it would never appear at the exact
+          moment someone is asking why they cannot click. */}
+      <span className="vdna-build" title={blocked ?? undefined}>
+        <Button
+          variant="primary"
+          small
+          disabled={build.isPending || tooThin}
+          onClick={() => build.mutate()}
+        >
+          <Sparkles aria-hidden />{" "}
+          {build.isPending
+            ? t("settings.voice.building")
+            : t("settings.voice.rebuild")}
+        </Button>
+      </span>
+      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
       {status && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {t(`settings.voice.buildStatus.${status}`)}
-        </p>
+        <p className="t-small">{t(`settings.voice.buildStatus.${status}`)}</p>
       )}
-      {error && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {error}
-        </p>
-      )}
+      {error && <p className="t-small">{error}</p>}
     </div>
   );
 }

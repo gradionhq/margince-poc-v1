@@ -2096,6 +2096,10 @@ export const de = {
   "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
   "settings.voice.building": "Baue…",
   "settings.voice.rebuild": "Voice DNA neu bauen",
+  "settings.voice.buildNeedsWords":
+    "Noch etwa {n} Wörter, dann kann ich deine erste Voice DNA bauen. Darunter liegt zu wenig von deinem Schreiben vor, um ehrlich etwas daraus zu lernen.",
+  "settings.voice.buildProvisional":
+    "Genug, um daraus zu bauen. Etwa {n} Wörter mehr geben dem Build ein vollständigeres Bild davon, wie du schreibst.",
   "settings.voice.buildStatus.succeeded": "Voice DNA aktualisiert.",
   "settings.voice.buildStatus.failed":
     "Der Aufbau ist nicht fertig geworden — versuch es noch mal.",
