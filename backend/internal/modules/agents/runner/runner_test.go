@@ -747,8 +747,11 @@ func TestALongRefusalDoesNotCrowdTheTerminalFindingOutOfTheTrace(t *testing.T) {
 func TestTruncateToNeverExceedsItsLimit(t *testing.T) {
 	long := strings.Repeat("x", 500)
 	for _, limit := range []int{-5, 0, 1, len(truncationMarker) - 1, len(truncationMarker), len(truncationMarker) + 1, 100} {
-		if got := len(truncateTo(long, limit)); limit >= 0 && got > limit {
-			t.Errorf("truncateTo(limit=%d) returned %d bytes", limit, got)
+		// A negative limit clamps to zero rather than slicing from the end,
+		// so every limit has a bound the result must respect.
+		bound := max(limit, 0)
+		if got := len(truncateTo(long, limit)); got > bound {
+			t.Errorf("truncateTo(limit=%d) returned %d bytes, over its %d-byte bound", limit, got, bound)
 		}
 	}
 	if got := truncateTo("short", 100); got != "short" {

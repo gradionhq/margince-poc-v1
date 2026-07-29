@@ -47,9 +47,9 @@ import (
 // unresolved mode refuses the call rather than defaulting to native.
 type sorModeProbe func(ctx context.Context) (bool, error)
 
-// nativeOnlyModeProbe is the probe every native-only guard takes. Named so the
-// choice of the UNCACHED read is a thing a test can hold, not a comment: for
-// these guards a stale 'native' answer is a wrong ANSWER, not a stale screen.
+// nativeOnlyModeProbe is the one place the native-only guards' probe is chosen,
+// so the choice is a line a reviewer sees change rather than a spelling repeated
+// at each call site. Why it must be the uncached read: see sorModeProbe.
 func nativeOnlyModeProbe(d *Dispatcher) sorModeProbe { return d.isOverlayUncached }
 
 // nativeOnlyReportRunner guards run_report. The spec names this capability
