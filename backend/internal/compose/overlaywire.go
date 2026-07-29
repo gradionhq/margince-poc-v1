@@ -17,6 +17,7 @@ package compose
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"math"
@@ -144,7 +145,53 @@ func overlayWireOrganization(ctx context.Context, rec datasource.Record) (crmcon
 	if band := crmcontracts.OrganizationSizeBand(fieldString(fields, "size_band")); band.Valid() {
 		org.SizeBand = &band
 	}
+	if domain := overlayOrgDomain(fields); domain != "" {
+		org.Domains = &[]crmcontracts.OrganizationDomain{{
+			Id:         overlayDomainID(openapi_types.UUID(rec.Ref.ID), domain),
+			Domain:     domain,
+			IsPrimary:  true,
+			Source:     overlaySource,
+			CapturedBy: ptrString(overlayCapturedByValue),
+		}}
+	}
 	return org, nil
+}
+
+// overlayOrgDomain digs the mapped domain out of the organization_domain
+// child payload (the mapper's "organization_domain.domain" child target lands
+// as a nested object in the canonical fields), mirroring overlayPersonEmail.
+func overlayOrgDomain(fields map[string]any) string {
+	child, ok := fields["organization_domain"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	domain, ok := child["domain"].(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(domain)
+}
+
+// overlayDomainID derives a STABLE synthesized id for a mirrored domain from
+// its org id and the domain string. An overlay domain has no native row of its
+// own to carry an id, and the contract's OrganizationDomain.Id is required, so
+// a churning id would hand the SPA a fresh identity on every read; hashing the
+// two stable inputs keeps it fixed for a given (org, domain). The 16-byte org
+// id is a fixed-length prefix, so no separator is needed to keep (org, domain)
+// unambiguous. The version/variant nibbles are stamped to RFC 9562 v8
+// (application-defined — the honest label for a custom hash-derived id) so the
+// value is a well-formed UUID. This layer stays off the `github.com/google/uuid`
+// package by arch rule, so the bits are set by hand. Non-authoritative like
+// every overlay wire value — it is never persisted or resolved back to a row.
+func overlayDomainID(orgID openapi_types.UUID, domain string) openapi_types.UUID {
+	h := sha256.New()
+	h.Write(orgID[:])
+	h.Write([]byte(domain))
+	var id openapi_types.UUID
+	copy(id[:], h.Sum(nil))
+	id[6] = (id[6] & 0x0f) | 0x80 // RFC 9562 version 8 (application-defined)
+	id[8] = (id[8] & 0x3f) | 0x80 // RFC 4122 variant
+	return id
 }
 
 // overlayWireDeal assembles the contract Deal from a mirror record.
