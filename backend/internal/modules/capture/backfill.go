@@ -227,7 +227,7 @@ func (r *Registry) BackfillStatus(ctx context.Context, provider string, userID i
 func latestBackfill(ctx context.Context, tx pgx.Tx, connID ids.UUID) (*BackfillRun, error) {
 	row := tx.QueryRow(ctx, `
 		SELECT b.id, b.connection_id, b.window_months, b.after_date, b.status, b.cursor, b.total_estimate,
-		       b.scanned + b.inflight_scanned, b.captured + b.inflight_captured, b.skipped,
+		       b.scanned + b.inflight_scanned, b.captured + b.inflight_captured, b.skipped + b.inflight_skipped,
 		       b.people_created + b.inflight_people, b.organizations_created + b.inflight_organizations,
 		       b.dedupe_candidates,
 		       b.started_at, b.completed_at, b.updated_at, b.last_error_class

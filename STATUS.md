@@ -32,23 +32,29 @@ panel were both correct, the data simply had nothing new to say.
 
 The page now reports as it walks. `connector.BackfillProgress` is a new
 optional seam (installed by the engine, read from the context, ignored by any
-connector that does not call it); Gmail reports the absolute page tally after
-each message; `capture.pageProgress` folds that together with the
-counterparty creations the Sink already counted and writes both to four new
-`capture_backfill.inflight_*` columns (migration 0141), which the status read
-adds to the committed counters. The run also flips `queued`→`running` on the
-first reported message, so the title stops contradicting numbers that are
-climbing.
+connector that does not call it); both `Backfiller` connectors — Gmail and
+Graph — report the absolute page tally after each message; `capture.pageProgress`
+folds that together with the counterparty creations the Sink already counted
+and writes both to five new `capture_backfill.inflight_*` columns
+(migration 0141), which the status read adds to the committed counters. The
+run also flips `queued`→`running` on the first reported message, so the title
+stops contradicting numbers that are climbing. The live write is paced
+(`WithProgressPacing`, 500ms) so a 20k-message import does not become 20k row
+updates, and it carries the same connection-generation fence the commit
+carries.
 
 The invariant that made this safe to do: **the committed columns still move
 only at commit.** The in-flight copy is advisory and is cleared by every write
 that ends a page — commit, transient fault, terminal failure, cancel — so a
-page walked twice is still counted once. Three integration tests hold that
-line, including a cancel issued mid-page that the still-running page must not
-resurrect.
+page walked twice is still counted once. Five integration tests hold that
+line, including a cancel and a disconnect issued mid-page that the
+still-running page must not write back. The obligation itself is a fitness
+test (`TestEveryBackfillRunWriteSettlesTheInFlightTally`) rather than five
+call sites kept correct by hand: a new terminal write that forgets the reset
+would not fail any behavioural test, it would quietly double-report a page.
 
 **Two upstream spec raises from this (not worked around here):**
-CAP-DDL-4's pinned `capture_backfill` DDL gains the four `inflight_*` columns,
+CAP-DDL-4's pinned `capture_backfill` DDL gains the five `inflight_*` columns,
 and `interfaces.md` §1 gains the optional `BackfillProgress` seam next to
 `Backfiller`/`Watcher`/`Sender`. Both need reconciling into
 `margince-foundation`.

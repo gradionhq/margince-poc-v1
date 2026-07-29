@@ -293,13 +293,13 @@ type BackfillPageResult struct {
 // What a reporter records is advisory and transient — the page's own commit
 // remains the one authority on a run's counters.
 type BackfillProgress interface {
-	// Observed reports how many messages THIS page has walked and how many
-	// of them it captured. The numbers are absolute since the page began,
-	// never deltas: a reporter that misses a call is corrected by the next
-	// one instead of drifting, and a retried page restates rather than
-	// double-counts. What was skipped stays the committed result's to
-	// report — no live surface shows it.
-	Observed(ctx context.Context, scanned, captured int)
+	// Observed reports THIS page's tally so far — the same three counts the
+	// page's result carries, so a caller reading them mid-page still finds
+	// scanned - captured = skipped. The numbers are absolute since the page
+	// began, never deltas: a reporter that misses a call is corrected by the
+	// next one instead of drifting, and a retried page restates rather than
+	// double-counts.
+	Observed(ctx context.Context, scanned, captured, skipped int)
 }
 
 // backfillProgressKey is the private context key — unexported and typed, so
@@ -319,9 +319,9 @@ type BackfillReporter struct{ to BackfillProgress }
 
 // Observed forwards the page's tally, or discards it when nothing is
 // listening.
-func (r BackfillReporter) Observed(ctx context.Context, scanned, captured int) {
+func (r BackfillReporter) Observed(ctx context.Context, scanned, captured, skipped int) {
 	if r.to != nil {
-		r.to.Observed(ctx, scanned, captured)
+		r.to.Observed(ctx, scanned, captured, skipped)
 	}
 }
 

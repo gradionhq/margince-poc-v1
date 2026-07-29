@@ -104,7 +104,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	// persists them to the run's inflight_* columns as the page runs. The
 	// commit below folds the yields into the run's own counter columns and
 	// clears the transient copy.
-	pageCtx, progress := withPageProgress(runCtx, r, backfillID)
+	pageCtx, progress := withPageProgress(runCtx, r, backfillID, generation)
 	res, err := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
 	if err != nil {
 		return r.recordPageFault(ctx, backfillID, err)

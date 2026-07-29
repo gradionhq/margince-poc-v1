@@ -18,6 +18,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -32,9 +33,18 @@ import (
 type pageTally struct {
 	scanned       int
 	captured      int
+	skipped       int
 	people        int
 	organizations int
 }
+
+// defaultProgressPacing paces the live write. A real import is thousands of
+// messages, and one row update per message would be tens of thousands of
+// writes to a single row so a number can move faster than anyone can read it.
+// Half a second still reads as continuous motion; what the pacing drops is
+// only ever an intermediate value, because the tally is absolute and the
+// page's commit reconciles regardless.
+const defaultProgressPacing = 500 * time.Millisecond
 
 // pageProgress accumulates what ONE backfill page walks and creates, and
 // persists it as it goes. Its two sources arrive on different seams: the
@@ -45,12 +55,19 @@ type pageTally struct {
 // them can produce.
 type pageProgress struct {
 	// A page is a batch of independent messages and nothing promises a
-	// connector walks it serially. The lock is held ACROSS the flush on
-	// purpose: released earlier, two writes could land out of order and the
-	// screen would show a count going backwards.
-	mu         sync.Mutex
-	tally      pageTally
+	// connector walks it serially. The lock is held ACROSS the flush so the
+	// row cannot take an older write after a newer one; the tally itself only
+	// ever moves forward (Observed refuses a report behind the one it holds),
+	// so the two together are what keep an on-screen count from going
+	// backwards.
+	mu        sync.Mutex
+	tally     pageTally
+	lastFlush time.Time
+
 	backfillID ids.UUID
+	// generation fences every write against a connection rebound under the
+	// running page — the same fence the page's commit carries.
+	generation int
 	registry   *Registry
 }
 
@@ -63,8 +80,8 @@ type pageProgressKey struct{}
 // withPageProgress installs a fresh collector for one page. Fresh per page,
 // because the counters are folded in at page commit: a shared collector would
 // double-count every page after the first.
-func withPageProgress(ctx context.Context, r *Registry, backfillID ids.UUID) (context.Context, *pageProgress) {
-	p := &pageProgress{backfillID: backfillID, registry: r}
+func withPageProgress(ctx context.Context, r *Registry, backfillID ids.UUID, generation int) (context.Context, *pageProgress) {
+	p := &pageProgress{backfillID: backfillID, generation: generation, registry: r}
 	ctx = context.WithValue(ctx, pageProgressKey{}, p)
 	return connector.WithBackfillProgress(ctx, p), p
 }
@@ -78,20 +95,28 @@ func pageProgressFrom(ctx context.Context) *pageProgress {
 	return c
 }
 
-// Observed takes the connector's running count for this page.
-func (c *pageProgress) Observed(ctx context.Context, scanned, captured int) {
-	if c == nil {
-		return
-	}
+// Observed takes the connector's running count for this page. A report behind
+// the one already held is dropped: a page walked concurrently can deliver two
+// reports out of order, and the later-arriving lower number would make the
+// count on screen go backwards.
+func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.tally.scanned, c.tally.captured = scanned, captured
+	if scanned <= c.tally.scanned {
+		return
+	}
+	c.tally.scanned, c.tally.captured, c.tally.skipped = scanned, captured, skipped
 	c.persist(ctx)
 }
 
-// counted folds one ensure's outcome into the page's yield.
+// counted folds one ensure's outcome into the page's yield. An ensure that
+// resolved onto records that already exist moves no counter and writes
+// nothing — on a widen re-import that is nearly every message.
 func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if c == nil {
+		return
+	}
+	if !outcome.PersonCreated && !outcome.OrganizationCreated {
 		return
 	}
 	c.mu.Lock()
@@ -116,19 +141,33 @@ func (c *pageProgress) totals() (people, organizations int) {
 	return c.tally.people, c.tally.organizations
 }
 
-// persist writes the current tally to the run row. Caller holds the lock.
+// persist writes the current tally to the run row, at most once per
+// progressFlushInterval. Caller holds the lock.
 //
-// A failure here is logged and dropped rather than returned, and that is the
+// A failure is logged and dropped rather than returned, and that is the
 // deliberate call: this write exists so a screen can move, and failing a
 // captured message — a real, committed CRM row — because its progress ping
 // did not land would trade the product for the indicator. The next message
 // restates the absolute tally, and the page's own commit reconciles
 // regardless, so a lost flush costs one frame of animation and nothing else.
 func (c *pageProgress) persist(ctx context.Context) {
-	if err := c.registry.flushBackfillProgress(ctx, c.backfillID, c.tally); err != nil {
-		slog.WarnContext(ctx, "capture: the backfill's live progress was not written — the import is unaffected and the page's commit will reconcile it",
-			"backfill_id", c.backfillID, "err", err)
+	now := c.registry.now()
+	if !c.lastFlush.IsZero() && now.Sub(c.lastFlush) < c.registry.progressPacing {
+		return
 	}
+	c.lastFlush = now
+	err := c.registry.flushBackfillProgress(ctx, c.backfillID, c.generation, c.tally)
+	if err == nil {
+		return
+	}
+	if ctx.Err() != nil {
+		// The worker is shutting down or the job timed out. Every remaining
+		// message in the page would fail the same way, and "the import is
+		// unaffected" would be a lie — the page is ending too.
+		return
+	}
+	slog.WarnContext(ctx, "capture: the backfill's live progress was not written — the import is unaffected and the page's commit will reconcile it",
+		"backfill_id", c.backfillID, "err", err)
 }
 
 // flushBackfillProgress stores the running page's tally on the run row.
@@ -137,17 +176,24 @@ func (c *pageProgress) persist(ctx context.Context) {
 // walked a message the run demonstrably IS running — leaving it queued would
 // put "Import queued" above a set of numbers that are climbing.
 //
-// Guarded on the live states: a run someone cancelled, or one a fault already
-// ended, must not be resurrected by a page that has not noticed yet.
-func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUID, t pageTally) error {
+// It carries BOTH fences the commit carries, for the same reasons. The live
+// states, so a run someone cancelled — or one a fault already ended — is not
+// resurrected by a page that has not noticed yet. And the connection
+// generation, so a page still walking the account the connection was rebound
+// away from cannot report that account's mail as this run's progress: the
+// commit will refuse the same page and cancel the run, and until it does the
+// screen must not show work that is about to be thrown away.
+func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUID, generation int, t pageTally) error {
 	return database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
-			SET inflight_scanned = $2, inflight_captured = $3,
-			    inflight_people = $4, inflight_organizations = $5,
+			SET inflight_scanned = $2, inflight_captured = $3, inflight_skipped = $4,
+			    inflight_people = $5, inflight_organizations = $6,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
-			WHERE id = $1 AND status IN ('queued','running')`,
-			backfillID, t.scanned, t.captured, t.people, t.organizations)
+			WHERE id = $1 AND status IN ('queued','running')
+			  AND EXISTS (SELECT 1 FROM capture_connection c
+			              WHERE c.id = capture_backfill.connection_id AND c.generation = $7)`,
+			backfillID, t.scanned, t.captured, t.skipped, t.people, t.organizations, generation)
 		return err
 	})
 }
@@ -157,5 +203,5 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 // fails, or is cancelled, what it walked is either in the committed columns or
 // about to be walked again by a retry — either way the transient copy must go,
 // or the status read would count it twice.
-const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0,
+const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
 	    inflight_people = 0, inflight_organizations = 0`

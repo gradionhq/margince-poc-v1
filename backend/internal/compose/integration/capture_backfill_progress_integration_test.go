@@ -44,7 +44,7 @@ func (c *reportingConnector) BackfillPage(ctx context.Context, _ connector.Auth,
 		res.NextToken = "off:page2"
 	}
 	for walked := 1; walked <= c.pageSize; walked++ {
-		progress.Observed(ctx, walked, walked)
+		progress.Observed(ctx, walked, walked, 0)
 		if c.perMessage != nil {
 			c.perMessage(walked, walked)
 		}
@@ -71,10 +71,12 @@ func readInflight(t *testing.T, e *searchEnv, id ids.UUID) (scanned, captured in
 }
 
 // startReportingBackfill connects gmail for Rep1 over the given connector and
-// opens a run against it.
-func startReportingBackfill(t *testing.T, e *searchEnv, prov *reportingConnector) (*capture.Registry, context.Context, ids.UUID) {
+// opens a run against it. pacing is the live-tally write pacing: 0 writes every
+// report, which is what a test walking a page in microseconds needs to observe
+// the tally at all.
+func startReportingBackfill(t *testing.T, e *searchEnv, prov *reportingConnector, pacing time.Duration) (*capture.Registry, context.Context, ids.UUID) {
 	t.Helper()
-	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e))
+	registry := newTestCaptureRegistry(e, newTestKeyvault(t, e)).WithProgressPacing(pacing)
 	registry.Register(prov)
 	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
 	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
@@ -90,7 +92,7 @@ func startReportingBackfill(t *testing.T, e *searchEnv, prov *reportingConnector
 func TestBackfillProgressIsVisibleWhileThePageRuns(t *testing.T) {
 	e := setupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
-	registry, grantCtx, runID := startReportingBackfill(t, e, prov)
+	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
 	rep := ids.From[ids.UserKind](e.Rep1)
 
 	// Every mid-page status read the walk produced, so the assertions below can
@@ -98,13 +100,11 @@ func TestBackfillProgressIsVisibleWhileThePageRuns(t *testing.T) {
 	var seen []capture.BackfillRun
 	prov.perMessage = func(int, int) {
 		run, err := registry.BackfillStatus(grantCtx, "gmail", rep)
-		if err != nil {
-			t.Errorf("mid-page status read: %v", err)
-			return
-		}
-		if run == nil {
-			t.Error("a started run must be readable mid-page")
-			return
+		switch {
+		case err != nil:
+			t.Fatalf("mid-page status read: %v", err)
+		case run == nil:
+			t.Fatal("a started run must be readable mid-page")
 		}
 		seen = append(seen, *run)
 	}
@@ -147,13 +147,46 @@ func TestBackfillProgressIsVisibleWhileThePageRuns(t *testing.T) {
 	}
 }
 
+func TestBackfillProgressIsPacedRatherThanWrittenPerMessage(t *testing.T) {
+	// A real import is thousands of messages. Written unpaced, that is one row
+	// update per message purely so a number can move faster than anyone reads
+	// it. Under a pacing longer than the page takes, only the first report is
+	// written — and the page's commit still reports every message.
+	e := setupSearch(t)
+	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
+	registry, grantCtx, runID := startReportingBackfill(t, e, prov, time.Hour)
+	rep := ids.From[ids.UserKind](e.Rep1)
+
+	var highWater int
+	prov.perMessage = func(int, int) {
+		if s, _ := readInflight(t, e, runID); s > highWater {
+			highWater = s
+		}
+	}
+
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if _, _, _, err := registry.RunBackfillStep(wsCtx, runID); err != nil {
+		t.Fatalf("page 1: %v", err)
+	}
+	if highWater != 1 {
+		t.Fatalf("the paced page wrote its tally up to %d, want only the first report — the rest were inside the pacing window", highWater)
+	}
+	after, err := registry.BackfillStatus(grantCtx, "gmail", rep)
+	if err != nil {
+		t.Fatalf("status after page 1: %v", err)
+	}
+	if after.Scanned != 10 || after.Captured != 10 {
+		t.Fatalf("after page 1 = scanned %d / captured %d, want the commit's full 10/10 — pacing drops frames, never work", after.Scanned, after.Captured)
+	}
+}
+
 func TestBackfillProgressDiesWithTheFailedPage(t *testing.T) {
 	// A page that fails transiently is retried from the committed cursor, so
 	// its partial tally must not survive — kept, it would be added to the same
 	// messages when the retry counts them for real.
 	e := setupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}, failAfter: 4}
-	registry, grantCtx, runID := startReportingBackfill(t, e, prov)
+	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
 	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
 
 	done, _, retryAfter, err := registry.RunBackfillStep(wsCtx, runID)
@@ -175,14 +208,56 @@ func TestBackfillProgressDiesWithTheFailedPage(t *testing.T) {
 	}
 }
 
-func TestCancelEndsTheRunTheRunningPageCannotResurrect(t *testing.T) {
+func TestBackfillProgressIsFencedByTheConnectionGeneration(t *testing.T) {
+	// The connection goes away under the running page. Its commit is already
+	// fenced off, and the live tally must be fenced the same way — otherwise
+	// the screen keeps counting up mail from an account this run no longer has,
+	// right until the commit cancels it.
+	e := setupSearch(t)
+	seedCaptureRole(t, e)
+	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
+	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
+
+	// What the row held at the moment the connection went away. The fence stops
+	// LATER writes; it does not reach back and undo the ones already committed,
+	// which is the commit's job.
+	var frozen int
+	prov.perMessage = func(scanned, _ int) {
+		switch {
+		case scanned == 3:
+			if err := registry.Disconnect(grantCtx, "gmail"); err != nil {
+				t.Errorf("mid-page disconnect: %v", err)
+				return
+			}
+			frozen, _ = readInflight(t, e, runID)
+		case scanned > 3:
+			if s, _ := readInflight(t, e, runID); s != frozen {
+				t.Errorf("message %d moved inflight to %d — a superseded page must stop reporting, it was frozen at %d", scanned, s, frozen)
+			}
+		}
+	}
+
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if _, _, _, err := registry.RunBackfillStep(wsCtx, runID); err != nil {
+		t.Fatalf("the superseded page's step: %v", err)
+	}
+	status, scanned, captured, _ := readBackfillRow(t, e, runID)
+	if status != "cancelled" || scanned != 0 || captured != 0 {
+		t.Fatalf("superseded run = %s scanned %d captured %d, want cancelled with nothing credited", status, scanned, captured)
+	}
+	if s, c := readInflight(t, e, runID); s != 0 || c != 0 {
+		t.Fatalf("the superseded page left inflight = %d/%d behind", s, c)
+	}
+}
+
+func TestCancelClearsTheLiveTallyAndTheRunningPageCannotWriteItBack(t *testing.T) {
 	// The user stops the import while a page is still walking. Cancel is
 	// terminal and its counts are what they keep, so the page's live tally must
 	// go with it — and the messages the page keeps walking afterwards must not
 	// write it back.
 	e := setupSearch(t)
 	prov := &reportingConnector{pagedConnector: &pagedConnector{messages: 20, pageSize: 10}}
-	registry, grantCtx, runID := startReportingBackfill(t, e, prov)
+	registry, grantCtx, runID := startReportingBackfill(t, e, prov, 0)
 	rep := ids.From[ids.UserKind](e.Rep1)
 
 	prov.perMessage = func(scanned, _ int) {

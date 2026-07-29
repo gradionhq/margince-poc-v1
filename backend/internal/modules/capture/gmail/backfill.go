@@ -80,7 +80,7 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 		} else {
 			res.Skipped++
 		}
-		progress.Observed(ctx, walked+1, res.Captured)
+		progress.Observed(ctx, walked+1, res.Captured, res.Skipped)
 	}
 	return res, nil
 }

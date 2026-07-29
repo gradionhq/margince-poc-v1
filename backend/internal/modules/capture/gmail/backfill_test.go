@@ -140,10 +140,10 @@ func TestBackfillPageCapturesAndCountsHonestly(t *testing.T) {
 }
 
 // observedProgress records every live report a page makes, in order.
-type observedProgress struct{ calls [][2]int }
+type observedProgress struct{ calls [][3]int }
 
-func (p *observedProgress) Observed(_ context.Context, scanned, captured int) {
-	p.calls = append(p.calls, [2]int{scanned, captured})
+func (p *observedProgress) Observed(_ context.Context, scanned, captured, skipped int) {
+	p.calls = append(p.calls, [3]int{scanned, captured, skipped})
 }
 
 func TestBackfillPageReportsProgressAfterEveryMessage(t *testing.T) {
@@ -166,17 +166,17 @@ func TestBackfillPageReportsProgressAfterEveryMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("page: %v", err)
 	}
-	want := [][2]int{{1, 1}, {2, 1}, {3, 2}}
+	want := [][3]int{{1, 1, 0}, {2, 1, 1}, {3, 2, 1}}
 	if len(progress.calls) != len(want) {
 		t.Fatalf("progress reported %d times, want one report per message: %v", len(progress.calls), progress.calls)
 	}
 	for i, w := range want {
 		if progress.calls[i] != w {
-			t.Fatalf("report %d = scanned %d / captured %d, want %d / %d", i, progress.calls[i][0], progress.calls[i][1], w[0], w[1])
+			t.Fatalf("report %d = scanned %d / captured %d / skipped %d, want %d / %d / %d", i, progress.calls[i][0], progress.calls[i][1], progress.calls[i][2], w[0], w[1], w[2])
 		}
 	}
-	if last := progress.calls[len(progress.calls)-1]; last[0] != res.Scanned || last[1] != res.Captured {
-		t.Fatalf("last report = %v, want it to agree with the page result scanned %d / captured %d", last, res.Scanned, res.Captured)
+	if last := progress.calls[len(progress.calls)-1]; last[0] != res.Scanned || last[1] != res.Captured || last[2] != res.Skipped {
+		t.Fatalf("last report = %v, want it to agree with the page result %+v", last, res)
 	}
 }
 
