@@ -13,8 +13,9 @@ import {
 import { VoiceDnaCard } from "./voice-dna";
 
 // The Settings Voice DNA card off canned profile/corpus reads — never a live
-// call. The two states worth capturing are the owner who has no profile yet and
-// the owner whose corpus is already feeding a built voice.
+// call. Covers the owner with no profile yet, the owner still collecting (no
+// derived voice text to show), a ready profile with a full corpus, and a
+// corpus row the build excluded from that corpus.
 
 type VoiceProfile = components["schemas"]["VoiceProfile"];
 type VoiceCorpusSource = components["schemas"]["VoiceCorpusSource"];
@@ -73,6 +74,47 @@ const SOURCE: VoiceCorpusSource = {
   archived_at: null,
 };
 
+// A profile that exists but has not built a derived voice yet: status isn't
+// "ready", so the card falls back to DerivedVoice's empty placeholder instead
+// of quoting a voice_profile_md nobody has produced.
+const COLLECTING_PROFILE: VoiceProfile = {
+  ...PROFILE,
+  status: "collecting",
+  maturity: "collecting",
+  quality_band: "thin",
+  voice_profile_md: "",
+  profile_version: 0,
+  active_source_hash: null,
+  last_built_at: null,
+};
+
+const COLLECTING_SUMMARY: VoiceCorpusSummary = {
+  total_words: 420,
+  target_words: 30000,
+  maturity: "collecting",
+  quality_band: "thin",
+  source_count: 1,
+  register_words: { general: 420 },
+};
+
+const COLLECTING_SOURCE: VoiceCorpusSource = {
+  ...SOURCE,
+  register: "general",
+  word_count: 420,
+};
+
+// A source the build dropped (too short, a duplicate, …): still listed so its
+// owner can see why it isn't counted, marked "excluded" rather than removed
+// from the manifest outright.
+const EXCLUDED_SOURCE: VoiceCorpusSource = {
+  ...SOURCE,
+  id: "vs-2",
+  source_label: "Old boilerplate signature",
+  included: false,
+  exclusion_reason: "too_short",
+  word_count: 40,
+};
+
 const LEARNING = {
   drafted: 6,
   accepted: 2,
@@ -126,5 +168,33 @@ export const Ready: Story = {
       jsonResponse({ data: [PROFILE], page: emptyPage.page }),
     "GET /voice-profiles/vp-1/sources": () =>
       jsonResponse({ data: [SOURCE], summary: SUMMARY }),
+  }),
+};
+
+// A profile that exists but hasn't built a voice yet: the derived-voice panel
+// falls back to its empty placeholder (voice_profile_md is "" pre-build)
+// instead of quoting text nobody produced, while the corpus/build controls
+// underneath are already live.
+export const Collecting: Story = {
+  render: voiceStory({
+    "GET /voice-profiles": () =>
+      jsonResponse({ data: [COLLECTING_PROFILE], page: emptyPage.page }),
+    "GET /voice-profiles/vp-1/sources": () =>
+      jsonResponse({
+        data: [COLLECTING_SOURCE],
+        summary: COLLECTING_SUMMARY,
+      }),
+  }),
+};
+
+// A corpus row the build excluded (too short, a duplicate, …): still listed
+// — never silently dropped — and marked so its owner can see why it doesn't
+// count toward the meter.
+export const ExcludedSource: Story = {
+  render: voiceStory({
+    "GET /voice-profiles": () =>
+      jsonResponse({ data: [PROFILE], page: emptyPage.page }),
+    "GET /voice-profiles/vp-1/sources": () =>
+      jsonResponse({ data: [SOURCE, EXCLUDED_SOURCE], summary: SUMMARY }),
   }),
 };

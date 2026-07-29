@@ -181,6 +181,27 @@ export const MailboxNotSendCapable: Story = {
   },
 };
 
+// An unsubscribe link carries one recipient's own consent credential, so a
+// send addressed to more than one recipient is refused outright (422). The
+// refusal states the one-address-at-a-time rule instead of the opaque server
+// wording.
+export const SharedUnsubscribeToken: Story = {
+  render: composeStory({
+    "POST /activities/act-1/send-email": () =>
+      jsonResponse(
+        {
+          code: "shared_unsubscribe_token",
+          title: "Unprocessable Entity",
+          detail: "reaches one addressee at a time",
+        },
+        422,
+      ),
+  }),
+  play: async ({ canvasElement }) => {
+    await fillAndSend(canvasElement);
+  },
+};
+
 // No mailer configured: the send answers 501, surfaced as an honest inline
 // "Sending is unavailable" note, never thrown into the error channel.
 export const SendUnavailable: Story = {
