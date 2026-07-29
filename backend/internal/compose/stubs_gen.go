@@ -592,6 +592,10 @@ func (stubs) UpdateOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "UpdateOrganization")
 }
 
+func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganization360")
+}
+
 func (stubs) DeepReadCompany(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "DeepReadCompany")
 }
@@ -630,6 +634,10 @@ func (stubs) GetSiteRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) GetOrganizationStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetOrganizationStrength")
+}
+
+func (stubs) AcknowledgeOrganizationView(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "AcknowledgeOrganizationView")
 }
 
 func (stubs) GetOverlayBudget(w nethttp.ResponseWriter, r *nethttp.Request) {

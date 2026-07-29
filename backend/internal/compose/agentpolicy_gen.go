@@ -259,6 +259,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/organizations/{id}/deep-read":                              {Op: "deepReadCompany", Access: "tool", Tool: "enrich", RecordType: "organization", Tier: "confirmation_required"},
 	"POST /v1/organizations/{id}/enrich":                                 {Op: "scrapeCompany", Access: "tool", Tool: "enrich", RecordType: "organization", Tier: "confirmation_required"},
 	"POST /v1/organizations/{id}/merge":                                  {Op: "mergeOrganization", Access: "tool", Tool: "merge_records", RecordType: "organization", Tier: "confirmation_required"},
+	"POST /v1/organizations/{id}/view-ack":                               {Op: "acknowledgeOrganizationView", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/overlay/connection":                                        {Op: "connectOverlay", Access: "tool", Tool: "connect_incumbent", RecordType: "overlay_connection", Tier: "confirmation_required"},
 	"POST /v1/overlay/flip":                                              {Op: "executeOverlayFlip", Access: "tool", Tool: "execute_overlay_flip", RecordType: "overlay_connection", Tier: "confirmation_required"},
 	"POST /v1/overlay/flip:preflight":                                    {Op: "preflightOverlayFlip", Access: "tool", Tool: "preflight_overlay_flip", RecordType: "overlay_connection", Tier: "auto_execute"},

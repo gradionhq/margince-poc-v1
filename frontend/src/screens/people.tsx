@@ -282,14 +282,24 @@ function useTimeline(
   });
 }
 
+// TIMELINE_KINDS is the backend's activity vocabulary, and the adapter
+// passes a kind straight through when the timeline can draw it. Collapsing
+// everything but email and meeting into "note" told the reader a call was a
+// note; anything genuinely outside the set still falls back to note rather
+// than rendering no icon at all.
+const TIMELINE_KINDS: readonly TimelineEntry["kind"][] = [
+  "email",
+  "meeting",
+  "note",
+  "call",
+  "task",
+  "whatsapp",
+  "telegram",
+];
+
 function timelineKind(kind: string): TimelineEntry["kind"] {
-  if (kind === "email") {
-    return "email";
-  }
-  if (kind === "meeting") {
-    return "meeting";
-  }
-  return "note";
+  const known = TIMELINE_KINDS.find((candidate) => candidate === kind);
+  return known ?? "note";
 }
 
 export function activityTimeline(

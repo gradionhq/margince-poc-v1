@@ -1,4 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -26,7 +27,6 @@ import type { MessageKey } from "../i18n/en";
 import { ArchiveAction } from "./archive";
 import {
   coldFieldLabel,
-  OverlayUnavailable,
   problemMessage,
   provenanceOf,
   QueryGate,
@@ -34,12 +34,23 @@ import {
   throwProblem,
   useSorMode,
 } from "./common";
-import { TimelineActions } from "./compose";
-import { RecordContextPanel } from "./context";
+import {
+  DealsCard,
+  NextSteps,
+  type Org360Result,
+  OverlayFallback,
+  PeopleCard,
+  RECORD_ZONE,
+  SignalsCard,
+  SinceLastVisit,
+  TagsCard,
+  useOrganization360,
+} from "./company360";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
+import { EntityRef } from "./entityref";
 import { RecordHistoryTab } from "./history";
 import { confidenceLevel } from "./inbox";
 import {
@@ -55,7 +66,6 @@ import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
-import { StrengthCard } from "./strength";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
@@ -70,6 +80,7 @@ type CreateOrganizationRequest =
 type UpdateOrganizationRequest =
   components["schemas"]["UpdateOrganizationRequest"];
 type CompanyProfileField = components["schemas"]["CompanyProfileField"];
+type Organization360View = components["schemas"]["Organization360"];
 type OrganizationFact = components["schemas"]["OrganizationFact"];
 
 const SIZE_BAND_OPTIONS = [
@@ -1038,13 +1049,12 @@ function FactsCard({ orgId }: Readonly<{ orgId: string }>) {
   );
 }
 
-const COMPANY_TABS = [
-  "overview",
-  "relationships",
-  "partner",
-  "rollup",
-  "history",
-] as const;
+// Three tabs, not five. The company view is ONE scrolling page: the
+// relationship edges and the hierarchy roll-up moved into its rails, where a
+// rep reads them alongside everything else instead of hunting for them.
+// History and Partner stay tabs because each is a different question, asked
+// rarely, with its own surface.
+const COMPANY_TABS = ["overview", "partner", "history"] as const;
 type CompanyTab = (typeof COMPANY_TABS)[number];
 
 // The company 360 badge/action bar. Archived records are read-only: the
@@ -1171,6 +1181,9 @@ function CompanyActionBadges({ org }: Readonly<{ org: Organization }>) {
 export function CompanyScreen({ id }: Readonly<{ id: string }>) {
   const t = useT();
   const [tab, setTab] = useState<CompanyTab>("overview");
+  const view = useOrganization360(id);
+  // The account itself still comes from its own read: the 360 refuses
+  // entirely in overlay mode, and the header must render either way.
   const orgQuery = useQuery({
     queryKey: ["organization", id],
     queryFn: async () => {
@@ -1183,114 +1196,333 @@ export function CompanyScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
-  // Entity-scoped activity reads are a dial the overlay mirror refuses (422);
-  // skip the fetch and show the honest unavailable notice in the timeline slot.
-  const overlay = useSorMode() === "overlay";
-  const timelineQuery = useQuery({
-    queryKey: ["activities", "organization", id],
-    enabled: !overlay,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/activities", {
-        params: {
-          query: { entity_type: "organization", entity_id: id, limit: 20 },
-        },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
 
   return (
     <div className="wrap">
       <QueryGate query={orgQuery}>
         {(org) => (
-          <RecordView
-            name={org.display_name}
-            subtitle={org.legal_name ?? undefined}
-            zone="Europe/Berlin"
-            badges={<CompanyActionBadges org={org} />}
-            timeline={
-              timelineQuery.isSuccess
-                ? activityTimeline(timelineQuery.data.data, (activity) => (
-                    <TimelineActions
-                      activity={activity}
-                      entityType="organization"
-                      entityId={id}
-                    />
-                  ))
-                : []
-            }
-            timelineNotice={overlay ? <OverlayUnavailable /> : undefined}
-          >
-            <div style={{ marginBottom: 16 }}>
-              <SegmentedControl
-                options={COMPANY_TABS}
-                value={tab}
-                onChange={setTab}
-                labels={{
-                  overview: t("tab.overview"),
-                  relationships: t("tab.relationships"),
-                  partner: t("tab.partner"),
-                  rollup: t("tab.rollup"),
-                  history: t("tab.history"),
-                }}
-              />
-            </div>
-            {tab === "overview" && (
-              <>
-                <StrengthCard kind="organization" id={org.id} />
-                <section className="card" style={{ marginBottom: 16 }}>
-                  <SectionHeader
-                    title={t("org.firmographics")}
-                    sub={t("org.evidenceOrOmit")}
-                  />
-                  <dl className="firmo">
-                    {org.industry && (
-                      <div>
-                        <dt>{t("org.industry")}</dt>
-                        <dd>{org.industry}</dd>
-                      </div>
-                    )}
-                    {org.size_band && (
-                      <div>
-                        <dt>{t("org.size")}</dt>
-                        <dd>{org.size_band}</dd>
-                      </div>
-                    )}
-                    {org.domains && org.domains.length > 0 && (
-                      <div>
-                        <dt>{t("org.domains")}</dt>
-                        <dd className="t-mono">
-                          {org.domains
-                            .map((domain) => domain.domain)
-                            .join(", ")}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                </section>
-                <ProfileFieldsCard orgId={org.id} />
-                <FactsCard orgId={org.id} />
-                <CustomFieldsCard object="organization" record={org} />
-                <EnrichCard orgId={org.id} />
-                <DeepReadCard orgId={org.id} />
-                <RecordContextPanel entityType="organization" id={org.id} />
-                <LogActivity entityType="organization" entityId={org.id} />
-              </>
-            )}
-            {tab === "relationships" && (
-              <RelationshipsTab scope={{ organization_id: org.id }} />
-            )}
-            {tab === "partner" && <PartnerTab organizationId={org.id} />}
-            {tab === "rollup" && <HierarchyRollupCard orgId={org.id} />}
-            {tab === "history" && (
-              <RecordHistoryTab kind="organization" id={org.id} />
-            )}
-          </RecordView>
+          <CompanyRecord org={org} view={view} tab={tab} onTab={setTab} t={t} />
         )}
       </QueryGate>
     </div>
   );
+}
+
+// CompanyRecord renders the page once the account itself has loaded. Split
+// out so the 360's three states — assembling, assembled, refused because the
+// workspace reads elsewhere — are handled in one place rather than nested
+// inside the account gate.
+function CompanyRecord({
+  org,
+  view,
+  tab,
+  onTab,
+  t,
+}: Readonly<{
+  org: Organization;
+  view: { data?: Org360Result; isPending: boolean; isError: boolean };
+  tab: CompanyTab;
+  onTab: (next: CompanyTab) => void;
+  t: ReturnType<typeof useT>;
+}>) {
+  const sorMode = useSorMode();
+  const assembled = view.data?.state === "ready" ? view.data.view : undefined;
+  // Two sources say "this workspace reads elsewhere", and either is enough.
+  // The 360 refuses with a 422, and /me reports the mode directly — a
+  // workspace that flipped mode after this page cached its read would
+  // otherwise keep serving a native-looking company view.
+  const overlay = view.data?.state === "overlay" || sorMode === "overlay";
+  const tabs = (
+    <div className="co-tabs">
+      <SegmentedControl
+        options={COMPANY_TABS}
+        value={tab}
+        onChange={onTab}
+        labels={{
+          overview: t("tab.overview"),
+          partner: t("tab.partner"),
+          history: t("tab.history"),
+        }}
+      />
+    </div>
+  );
+
+  if (tab === "partner" || tab === "history") {
+    return (
+      <CompanyShell org={org} view={assembled}>
+        {tabs}
+        {/* Overlay refuses the whole company page, not just its overview:
+            the partner extension and the field history are native records
+            the mirror does not hold, so switching tabs must not walk around
+            the refusal into reads that can only fail. */}
+        {overlay ? (
+          <OverlayFallback />
+        ) : tab === "partner" ? (
+          <PartnerTab organizationId={org.id} />
+        ) : (
+          <RecordHistoryTab kind="organization" id={org.id} />
+        )}
+      </CompanyShell>
+    );
+  }
+  return (
+    <CompanyOverview
+      org={org}
+      view={assembled}
+      overlay={overlay}
+      loading={view.isPending}
+      failed={view.isError}
+      tabs={tabs}
+    />
+  );
+}
+
+// CompanyShell is the header-only frame the non-overview tabs render inside,
+// so the identity, pulse line and action bar stay put as the rep switches.
+function CompanyShell({
+  org,
+  view,
+  children,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  children: ReactNode;
+}>) {
+  return (
+    <RecordView
+      name={org.display_name}
+      subtitle={companySubtitle(org)}
+      zone={RECORD_ZONE}
+      badges={<CompanyActionBadges org={org} />}
+      pulse={<CompanyPulse org={org} view={view} />}
+      timeline={[]}
+      timelineNotice={<span />}
+    >
+      {children}
+    </RecordView>
+  );
+}
+
+// companySubtitle is the meta line under the name: what this company is,
+// in the words the record already holds. Absent facts are absent, never
+// guessed — the same evidence-or-omit rule the firmographics card follows.
+function companySubtitle(org: Organization): string | undefined {
+  const primary = (org.domains ?? []).find((domain) => domain.is_primary);
+  const parts = [
+    org.industry,
+    primary?.domain,
+    org.size_band,
+    org.legal_name,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+}
+
+// CompanyPulse is the one-line state of the relationship: how warm it is and
+// who carries it, when it was last touched, and who owns it. Each part is
+// omitted when the 360 could not answer it, so the line never implies a
+// number the reader was not allowed to see.
+function CompanyPulse({
+  org,
+  view,
+}: Readonly<{ org: Organization; view?: Organization360View }>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const strength = view?.strength;
+  // The strength section is what carries BOTH the score and the last touch.
+  // Withheld or absent, the line says nothing about either: "never
+  // contacted" read off missing data is a business conclusion the page has
+  // no basis for, and it is the one a rep would act on.
+  const strengthKnown = Boolean(
+    view && !view.sections_omitted?.includes("strength"),
+  );
+  return (
+    <>
+      {strength && <StrengthPulse strength={strength} />}
+      {strengthKnown && (
+        <span>
+          {strength?.last_interaction
+            ? t("co.pulse.lastTouch", {
+                when: formatDateTime(
+                  strength.last_interaction,
+                  locale,
+                  RECORD_ZONE,
+                ),
+              })
+            : t("co.pulse.neverTouched")}
+        </span>
+      )}
+      <span>
+        {org.owner_id ? (
+          <EntityRef kind="user" id={org.owner_id} />
+        ) : (
+          t("co.pulse.unowned")
+        )}
+      </span>
+      <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+    </>
+  );
+}
+
+// StrengthPulse renders the score and, when there is one, the contact who
+// carries it. The contributor's NAME is a live lookup, so the sentence is
+// assembled from two translated halves around it rather than interpolating
+// an empty placeholder and appending the name after the full stop — which
+// broke word order in English and worse in German.
+function StrengthPulse({
+  strength,
+}: Readonly<{ strength: NonNullable<Organization360View["strength"]> }>) {
+  const t = useT();
+  if (!strength.contributor_person_id) {
+    // A dormant account: no contact has ever interacted, so there is no
+    // relationship to attribute and no number worth leading with.
+    return <span>{t("co.pulse.noStrength")}</span>;
+  }
+  return (
+    <span>
+      {t("co.pulse.strengthLead", { score: strength.score })}{" "}
+      <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
+      {t("co.pulse.strengthTail", { count: strength.contact_count })}
+    </span>
+  );
+}
+
+// CompanyOverview is the page itself: identity and verbs at the top, then
+// three zones — what this company IS on the left, what is HAPPENING in the
+// middle, the BUSINESS around it on the right.
+function CompanyOverview({
+  org,
+  view,
+  overlay,
+  loading,
+  failed,
+  tabs,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  loading: boolean;
+  // The composite read failed. Distinct from "still loading" and from "the
+  // account is empty", because all three would otherwise draw the same
+  // blank page and only one of them is a fact about the account.
+  failed: boolean;
+  tabs: ReactNode;
+}>) {
+  const t = useT();
+  const timeline = view?.activities?.data ?? [];
+  return (
+    <RecordView
+      name={org.display_name}
+      subtitle={companySubtitle(org)}
+      zone={RECORD_ZONE}
+      badges={<CompanyActionBadges org={org} />}
+      pulse={<CompanyPulse org={org} view={view} />}
+      actions={<LogActivity entityType="organization" entityId={org.id} />}
+      rail={
+        overlay ? undefined : (
+          <>
+            <ProfileFieldsCard orgId={org.id} />
+            <FactsCard orgId={org.id} />
+            <CustomFieldsCard object="organization" record={org} />
+            <HierarchyRollupCard orgId={org.id} />
+            <RelationshipsTab scope={{ organization_id: org.id }} />
+            <EnrichCard orgId={org.id} />
+            <DeepReadCard orgId={org.id} />
+          </>
+        )
+      }
+      aside={businessRail({ org, view, overlay, failed })}
+      timeline={view ? activityTimeline(timeline) : []}
+      // In overlay mode the refusal is stated once, in the body: repeating it
+      // over the timeline would read as two separate things being
+      // unavailable rather than one page not being assembled.
+      timelineNotice={
+        overlay ? (
+          <span />
+        ) : (
+          timelineNoticeFor(
+            { loading, failed, assembled: Boolean(view?.activities) },
+            timeline.length,
+            t,
+          )
+        )
+      }
+    >
+      {tabs}
+      {overlay && <OverlayFallback />}
+      {failed && <EmptyState>{t("co.partial")}</EmptyState>}
+      {view && (
+        <>
+          <SinceLastVisit view={view} />
+          <NextSteps view={view} />
+        </>
+      )}
+    </RecordView>
+  );
+}
+
+// businessRail is the right column. A failed composite read must not simply
+// remove it: an account page with no people, no deals and no signals reads
+// as an account with none of those, which is the one thing the page does not
+// know. The rail stays and each card says it could not be loaded — except in
+// overlay mode, where the single page-level refusal already covers it.
+function businessRail({
+  org,
+  view,
+  overlay,
+  failed,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  failed: boolean;
+}>): ReactNode {
+  if (overlay) {
+    return undefined;
+  }
+  if (view) {
+    return (
+      <>
+        <PeopleCard view={view} />
+        <DealsCard view={view} />
+        <SignalsCard orgId={org.id} />
+        <TagsCard view={view} />
+      </>
+    );
+  }
+  if (!failed) {
+    return undefined; // still loading: the rail arrives with the read
+  }
+  // The read failed, so the cards get NO payload and say so themselves.
+  // Handing them a fabricated empty one would mean inventing an as_of the
+  // page does not have, and would be indistinguishable from a real answer
+  // one refactor later.
+  return (
+    <>
+      <PeopleCard />
+      <DealsCard />
+      <SignalsCard orgId={org.id} />
+      <TagsCard />
+    </>
+  );
+}
+
+// timelineNoticeFor keeps four things apart that all render as an empty
+// list if you let them: still loading, the read failed, the section was
+// never in the payload, and the account genuinely has nothing logged. Only
+// the last one may say so — the other three would have a rep conclude
+// nobody has ever touched this account.
+function timelineNoticeFor(
+  timeline: { loading: boolean; failed: boolean; assembled: boolean },
+  count: number,
+  t: ReturnType<typeof useT>,
+): ReactNode {
+  if (timeline.loading) {
+    return <Skeleton width="100%" height={48} />;
+  }
+  if (timeline.failed || !timeline.assembled) {
+    return <EmptyState>{t("co.section.unavailable")}</EmptyState>;
+  }
+  return count === 0 ? (
+    <EmptyState>{t("co.timeline.empty")}</EmptyState>
+  ) : undefined;
 }

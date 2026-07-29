@@ -490,6 +490,20 @@ this build repo.
   0141), and `interfaces.md` §1 gains an optional `BackfillProgress` seam
   beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
   what a committed run reports.
+- **The company view's five new surfaces are build-side, not yet in the spec.**
+  `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`, the
+  `organization_id` filter on `GET /signals`, the `OrganizationStrength` schema,
+  and the `user_record_view` table were built from the reviewed company-view
+  concept, not from a spec chapter. Raise all five upstream so the contract and
+  the spec agree before the frontend depends on them. The 360's deliberate V1
+  limits belong in the same raise: it is native-system-of-record only (an
+  overlay workspace gets `422 unsupported_in_overlay_mode`), and its nested
+  collections are truncated summaries, not paging surfaces — follow-up pages come
+  from the dedicated endpoint for each collection.
+- **The company view's "New deal" action needs a staged approval kind.** The
+  concept calls for a 🟡 `create_deal` staging; the approval catalog has no such
+  kind, so the interim build creates the deal directly under a confirm modal.
+  Raise the kind upstream, then move the action behind it.
 
 - **`/me`'s `system_of_record` description promises a code this build never
   emits at top level.** It tells clients that unservable reads answer 422
