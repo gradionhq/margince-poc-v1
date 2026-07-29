@@ -214,6 +214,15 @@ var crossStoreWrites = map[string]string{
 	// as the activity insert or the two drift.
 	"internal/modules/activities:deal": "deal.last_activity_at is denormalized from the timeline; it must move in the activity's own transaction",
 
+	// The outbound-send reconcile folds the provider's own captured echo of a
+	// message this workspace sent into the send's own row. That fold is one
+	// indivisible act — links copied, review moved, key released, row archived
+	// — run in one best-effort transaction the delivery store may roll back
+	// whole. The queued counterparty review is part of it: a human verdict the
+	// survivor does not re-queue, which must not be left asking about a message
+	// the workspace can no longer see.
+	"internal/modules/activities:capture_pending_counterparty": "the message-identity absorb re-points the archived echo's queued counterparty dispositions onto the surviving send, in the same transaction as the rest of the fold — a sibling call would have to write on this very transaction anyway, so routing it through capture would buy a hop and no isolation, while splitting the fold across two owners would let half of it survive a rollback",
+
 	// capture is the ONE connector.Sink (interfaces.md §1): one transaction
 	// per inbound record writes raw original + normalized domain row, so a
 	// crash can never keep evidence without the record or vice versa.

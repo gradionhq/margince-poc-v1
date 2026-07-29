@@ -27,9 +27,14 @@ type fakeStore struct {
 	delivery Delivery
 	loadErr  error
 
-	sent     string
-	parked   string
-	failed   string
+	sent   string
+	parked string
+	failed string
+	// stamped is the RFC822 identity the receipt carried through to the store.
+	// The dispatcher must hand the WHOLE receipt on: dropping this field on
+	// the floor here is invisible until a sent message is filed under an
+	// identity no reply will ever quote.
+	stamped  string
 	deferred string
 
 	// Per-transition faults. ErrTerminal from any of them is the benign
@@ -42,8 +47,9 @@ type fakeStore struct {
 
 func (f *fakeStore) Load(context.Context, ids.UUID) (Delivery, error) { return f.delivery, f.loadErr }
 
-func (f *fakeStore) RecordSent(_ context.Context, _ ids.UUID, p string) error {
-	f.sent = p
+func (f *fakeStore) RecordSent(_ context.Context, _ ids.UUID, receipt connector.SendReceipt) error {
+	f.sent = receipt.ProviderMessageID
+	f.stamped = receipt.RFC822MessageID
 	return f.sentErr
 }
 
@@ -78,7 +84,7 @@ type fakeSender struct {
 func (f *fakeSender) Send(_ context.Context, _ connector.Auth, m connector.OutboundMessage) (connector.SendReceipt, error) {
 	f.calls++
 	f.seen = m
-	return connector.SendReceipt{ProviderMessageID: "gmsg1"}, f.err
+	return connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "stamped@mail.gmail.com"}, f.err
 }
 
 type fakeResolver struct {

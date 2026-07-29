@@ -24,7 +24,7 @@ import (
 // no delivery timestamps. NewStore must still hand back a usable clock
 // rather than a nil func that panics on first call.
 func TestNewStoreDefaultsANilClockToTheRealOne(t *testing.T) {
-	s := NewStore(nil, nil)
+	s := NewStore(nil, nil, nil)
 	before := time.Now()
 	got := s.now()
 	after := time.Now()
@@ -36,7 +36,7 @@ func TestNewStoreDefaultsANilClockToTheRealOne(t *testing.T) {
 // An injected clock is used as given, never silently replaced.
 func TestNewStoreKeepsAnInjectedClock(t *testing.T) {
 	fixed := time.Date(2026, 7, 28, 12, 0, 0, 0, time.UTC)
-	s := NewStore(nil, func() time.Time { return fixed })
+	s := NewStore(nil, func() time.Time { return fixed }, nil)
 	if got := s.now(); !got.Equal(fixed) {
 		t.Fatalf("now() = %s, want the injected %s", got, fixed)
 	}

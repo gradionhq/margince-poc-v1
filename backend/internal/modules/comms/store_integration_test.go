@@ -35,11 +35,22 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // errTestRollback forces WithWorkspaceTx to roll back after a successful
 // StageTx, so the rollback test can assert the row never committed.
 var errTestRollback = errors.New("comms test: forced rollback")
+
+// honouredIdentity is the reconciler every fixture-built store carries: the
+// receipts driven from this file report no rewritten identity, so the seam is
+// never reached. The cases that need it to do — or refuse — something build
+// their own store (store_recordsent_integration_test.go).
+type honouredIdentity struct{}
+
+func (honouredIdentity) ReconcileMessageIdentityTx(context.Context, pgx.Tx, ids.ActivityID, string, string) error {
+	return nil
+}
 
 type storeEnv struct {
 	owner      *pgx.Conn
@@ -101,7 +112,7 @@ func setupStore(t *testing.T) *storeEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(pool.Close)
-	e.store = NewStore(pool, func() time.Time { return e.clockValue })
+	e.store = NewStore(pool, func() time.Time { return e.clockValue }, honouredIdentity{})
 	e.ctx = actorCtx(e.ws, e.user)
 	return e
 }
@@ -285,7 +296,7 @@ func TestRecordSentClosesTheDeliveryAndLoadThenReportsTerminal(t *testing.T) {
 	if _, err := e.store.Load(e.ctx, id); err != nil {
 		t.Fatalf("Load before send: %v", err)
 	}
-	if err := e.store.RecordSent(e.ctx, id, "provider-receipt-1"); err != nil {
+	if err := e.store.RecordSent(e.ctx, id, connector.SendReceipt{ProviderMessageID: "provider-receipt-1"}); err != nil {
 		t.Fatalf("RecordSent: %v", err)
 	}
 

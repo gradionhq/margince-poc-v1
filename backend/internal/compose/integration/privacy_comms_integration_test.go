@@ -365,9 +365,9 @@ func TestErasureParksAPendingDeliveryInsteadOfLeavingItToTransmit(t *testing.T) 
 	}
 
 	// The status is only as good as what the dispatcher makes of it: its load
-	// is guarded on `pending`, so the parked row stops the redelivered job here
-	// rather than reaching a provider.
-	if _, err := comms.NewStore(e.Pool, nil).Load(e.Admin(), pending.delivery); !errors.Is(err, comms.ErrTerminal) {
+	// is guarded on `pending`, so the parked row stops the redelivered job
+	// here rather than reaching a provider. Nothing sends, so no reconciler.
+	if _, err := comms.NewStore(e.Pool, nil, nil).Load(e.Admin(), pending.delivery); !errors.Is(err, comms.ErrTerminal) {
 		t.Errorf("the dispatcher's load of the closed delivery returned %v, want ErrTerminal", err)
 	}
 }

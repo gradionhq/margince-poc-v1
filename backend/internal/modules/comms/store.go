@@ -17,6 +17,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // Delivery status. There is no in-flight status on purpose: a crash mid-send
@@ -56,15 +57,22 @@ var ErrNoAddressee = errors.New("comms: a delivery needs at least one recipient 
 type Store struct {
 	pool *pgxpool.Pool
 	now  func() time.Time
+	// identity re-keys the timeline row of a message whose provider stamped
+	// an identity other than the one this system minted. It is a REQUIRED
+	// constructor parameter rather than an option, because there is no safe
+	// default: a role that transmits without one files every sent message
+	// under an identity that exists nowhere on the wire, and duplicates it on
+	// the timeline, silently.
+	identity MessageIdentityReconciler
 }
 
 // NewStore builds the store. The clock is injected so age arithmetic is asserted
 // by advancing time, never by sleeping.
-func NewStore(pool *pgxpool.Pool, now func() time.Time) *Store {
+func NewStore(pool *pgxpool.Pool, now func() time.Time, identity MessageIdentityReconciler) *Store {
 	if now == nil {
 		now = time.Now
 	}
-	return &Store{pool: pool, now: now}
+	return &Store{pool: pool, now: now, identity: identity}
 }
 
 // StageInput is one message staged for transmission, written in the caller's
@@ -231,19 +239,99 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	return d, nil
 }
 
-// RecordSent closes a delivery against the provider's receipt. Guarded on
-// status = 'pending': a stale attempt (network partition, GC pause) can lose
-// a race against a newer attempt that already closed the same row. Rather
-// than clobber a 'sent' or 'parked' row — a real receipt overwritten, or
-// worse, un-sent by a stale park — a delivery that is no longer pending
+// RecordSent closes a delivery against the provider's receipt, and — only once
+// that receipt has COMMITTED — re-keys the message onto the identity the
+// provider actually stamped.
+//
+// TWO transactions, and which fact is in which is the safety property rather
+// than an implementation detail. By the time this is called the provider has
+// accepted the message, so an obligation exists that nothing here may revoke:
+// leaving the delivery pending sends it back to River, and the connector's
+// prior-send lookup cannot see an identity the provider discarded — it finds
+// nothing and transmits again. The receipt therefore goes in first, alone, in a
+// transaction that carries no bookkeeping it could fail with. Everything after
+// it is best effort and reports nothing: a reconcile fault degrades to "receipt
+// recorded, one duplicate timeline row", which is exactly the behaviour that
+// existed before the re-key did.
+//
+// One transaction with the re-key under a savepoint is NOT the same guarantee,
+// which is why it is not what this does. A savepoint isolates a refused
+// statement; it does not isolate a failed RELEASE, a rollback that cannot be
+// issued, a dropped connection, or a panic raised outside the guarded call. Any
+// of those leaves the receipt as an uncommitted UPDATE in a transaction that
+// then fails to commit — the error reaches the dispatcher, and the double-send
+// is back. Committed first, the receipt cannot be taken back by anything the
+// reconcile does.
+//
+// Both run under a context DETACHED from the caller's (detachedWrite): the job
+// deadline expiring, or the worker being cancelled, mid-send is not permission
+// to forget that a real message left the building.
+//
+// Guarded on status = 'pending': a stale attempt (network partition, GC pause)
+// can lose a race against a newer attempt that already closed the same row.
+// Rather than clobber a 'sent' or 'parked' row — a real receipt overwritten,
+// or worse, un-sent by a stale park — a delivery that is no longer pending
 // reports ErrTerminal. That is a benign no-op, the same fact Load already
 // reports the same way: the dispatcher must treat it as "already handled,"
-// never as retryable.
-func (s *Store) RecordSent(ctx context.Context, id ids.UUID, providerMessageID string) error {
-	return s.update(ctx, `
-		UPDATE comms_outbound
-		   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL
-		 WHERE id = $1 AND status = 'pending'`, id, providerMessageID, s.now().UTC())
+// never as retryable. Zero rows also means no re-key: there is no receipt here
+// to correct the identity of.
+//
+// It reads the staged identity back from the receipt's own UPDATE rather than
+// with a second query: the row is already being written, and a separate read
+// would be a second chance for the two to disagree.
+func (s *Store) RecordSent(ctx context.Context, id ids.UUID, receipt connector.SendReceipt) error {
+	activityID, staged, err := s.commitReceipt(ctx, id, receipt)
+	if err != nil {
+		return err
+	}
+	s.reconcileIdentity(ctx, id, activityID, staged, receipt.RFC822MessageID)
+	return nil
+}
+
+// commitReceipt writes the receipt and nothing else, and returns only once it
+// is durable. It reports ErrTerminal for a delivery a newer attempt already
+// closed, and a wrapped error for the one failure that IS the dispatcher's to
+// act on: a receipt that did not land at all.
+func (s *Store) commitReceipt(ctx context.Context, id ids.UUID, receipt connector.SendReceipt) (ids.ActivityID, string, error) {
+	ctx, cancel := detachedWrite(ctx)
+	defer cancel()
+
+	var activityID ids.ActivityID
+	var staged string
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			UPDATE comms_outbound
+			   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL
+			 WHERE id = $1 AND status = 'pending'
+			RETURNING activity_id, message_id`,
+			id, receipt.ProviderMessageID, s.now().UTC()).Scan(&activityID, &staged)
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.ActivityID{}, "", ErrTerminal
+	}
+	if err != nil {
+		return ids.ActivityID{}, "", fmt.Errorf("comms: recording the send receipt: %w", err)
+	}
+	return activityID, staged, nil
+}
+
+// detachedWriteTimeout bounds a write the caller's cancellation no longer
+// governs. It is generous next to the statements it covers — one guarded UPDATE
+// and, for the reconcile, a handful more — and small next to the job timeout
+// that would otherwise be reached, because the point of the bound is that a
+// database that has stopped answering cannot hold a worker's shutdown open
+// indefinitely. Without a deadline of its own, detaching from cancellation
+// would trade one hazard for another.
+const detachedWriteTimeout = 30 * time.Second
+
+// detachedWrite carries a write past the death of the job that triggered it,
+// with a deadline of its own. It is for the writes that record something the outside
+// world has ALREADY been told — here, that a provider accepted a message.
+// Cancelling the job cannot un-send that mail, so it must not be able to
+// un-record it either: the dispatcher would see a failed receipt, retry, and
+// mail the recipient a second time.
+func detachedWrite(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), detachedWriteTimeout)
 }
 
 // Park ends a delivery that no retry repairs, recording why in words an
