@@ -122,6 +122,16 @@ type API interface {
 	// topic and returns the mailbox's historyId at watch time plus the watch's
 	// expiration (Gmail caps a watch at 7 days).
 	Watch(ctx context.Context, accessToken, topic string) (historyID string, expiration time.Time, err error)
+
+	// Send transmits one base64url-encoded RFC822 message. Threading is carried
+	// by the message's own In-Reply-To/References headers, which is the identity
+	// this system threads on; Gmail's threadId is not passed and not read.
+	Send(ctx context.Context, accessToken, rawBase64URL string) (msgID string, err error)
+
+	// FindByMessageID resolves a message by its RFC822 message identity, given
+	// UNBRACKETED. It is how a retry tells "already transmitted" from "never
+	// sent" without mailing the recipient a second time.
+	FindByMessageID(ctx context.Context, accessToken, unbracketedMessageID string) (msgID string, found bool, err error)
 }
 
 // OAuthConfig wires the OAuth client. AuthURL/TokenURL default to Google's

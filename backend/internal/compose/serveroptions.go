@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
@@ -171,14 +172,42 @@ func WithSchemaPool(schemaPool *pgxpool.Pool) Option {
 	}
 }
 
+// Every send option below records onto s.send and NOTHING else. The HTTP
+// handlers' own store is reconciled from that one value once every option has
+// run (New's applySendPath), and the tool surface is rebuilt over it here, so
+// no option can configure one transport and leave the others silently
+// without.
+
 // WithPublicBaseURL sets the canonical scheme+host the buyer-facing
 // unsubscribe/preference links resolve to (B-E11.32). It is configured at
 // boot, never derived from a request: the link carries the recipient's
 // unsubscribe token. Without it a marketing send refuses rather than emit
 // a forgeable link.
 func WithPublicBaseURL(base string) Option {
-	return func(s *Server, _ *pgxpool.Pool) {
-		s.activitiesHandlers = s.WithPublicBaseURL(base)
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.send.PublicBaseURL = base
+		s.rebuildToolRegistry(pool)
+	}
+}
+
+// WithDelivery wires the machinery an accepted send is staged for
+// transmission with, onto BOTH send transports this role serves: the HTTP
+// handler and the MCP send_email tool. Without it a send refuses rather than
+// log an activity claiming a message went out.
+func WithDelivery(stager activities.DeliveryStager) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.send.Delivery = stager
+		s.rebuildToolRegistry(pool)
+	}
+}
+
+// WithMailbox wires the send-grant pre-flight onto the same transports, so a
+// user with no send-capable mailbox is told to reconnect it instead of being
+// handed a 202 for a message that can only park.
+func WithMailbox(authority activities.MailboxAuthority) Option {
+	return func(s *Server, pool *pgxpool.Pool) {
+		s.send.Mailbox = authority
+		s.rebuildToolRegistry(pool)
 	}
 }
 

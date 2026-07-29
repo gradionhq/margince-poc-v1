@@ -187,6 +187,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		opts = append(opts, compose.WithBackfillEstimator(modelPath.Router()))
 	}
 
+	// The outbound send path: an accepted message stages a delivery row and
+	// its transmit job on ONE transaction, so the 202 the caller gets means
+	// something durable will actually carry it. Insert-only here (the worker
+	// role works the queue) — the same shape as every other api-enqueued job.
+	sendInserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return err
+	}
+	opts = append(opts, compose.WithDelivery(compose.NewDeliveryStager(pool, sendInserter)))
+
 	enqueueOpts, err := jobEnqueueOptions(pool, logger, modelPath)
 	if err != nil {
 		return err

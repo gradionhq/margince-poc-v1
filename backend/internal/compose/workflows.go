@@ -16,7 +16,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
-	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -64,11 +63,11 @@ func workflowEngineWithDrafter(pool *pgxpool.Pool, drafter activities.EmailDraft
 		Provider:  NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), nil), pool),
 		Approvals: automationApprovalsAdapter{svc: approvals.NewService(pool)},
 		Lists:     listsAdapter{store: collections.NewStore(pool)},
-		Comms: commsAdapter{
-			store: activities.NewStore(pool),
-			gate:  consent.NewGate(consent.NewStore(pool)),
-			draft: drafter,
-		},
+		// The zero SendPath is the honest one here: a send_email action
+		// stages an approval instead of sending, and automation.Comms
+		// declares DraftEmail alone, so no send is reachable from this
+		// surface to configure.
+		Comms: newCommsAdapter(pool, drafter, SendPath{}),
 		// Notifier stays nil: this repo wires no notification transport
 		// (no notification table, the inbox is approvals-only) — a
 		// notify firing surfaces as a visible 'skipped' run instead

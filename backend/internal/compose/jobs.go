@@ -134,6 +134,16 @@ func sweepInsertOpts() *river.InsertOpts {
 // GmailWatch.Topic is set), and the optional overlay reconcile poller
 // (added only when OverlayVault is non-nil).
 type JobRunnerConfig struct {
+	// SendPacing bounds how fast one mailbox transmits and how long a
+	// delivery may be deferred before it parks; the zero value takes the
+	// documented defaults (SendPacing.withDefaults).
+	SendPacing SendPacing
+	// SendRegistry resolves the transmitting mailbox for a staged delivery.
+	// Nil means this role registers no send worker at all: a delivery it
+	// picked up could only fail on every attempt, and a queued send is better
+	// left for a role that can actually resolve a mailbox.
+	SendRegistry *capture.Registry
+
 	CloseDateInterval time.Duration
 	ReconcileInterval time.Duration
 	TimeScanInterval  time.Duration
@@ -261,6 +271,12 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
 	// registered, it enqueues system deep reads the worker above applies.
 	river.AddWorker(workers, newCaptureAutoEnrichSweepWorker(pool, log))
+	// The outbound send is not periodic — the api stages one job per accepted
+	// message, in the same transaction as the activity; this role only needs
+	// the worker registered.
+	if cfg.SendRegistry != nil {
+		river.AddWorker(workers, newSendWorker(pool, cfg.SendRegistry, cfg.SendPacing))
+	}
 
 	periodic := []*river.PeriodicJob{
 		river.NewPeriodicJob(

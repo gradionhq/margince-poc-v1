@@ -17,7 +17,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
-	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
@@ -29,26 +28,26 @@ import (
 // The admission gate re-derives authority through the shared/ports/authz
 // seam, which identity implements — injected here so platform/auth never
 // imports a module (ADR-0054 §5).
-func NewRegistry(pool *pgxpool.Pool) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil)
+func NewRegistry(pool *pgxpool.Pool, send SendPath) *agents.Registry {
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, nil, send)
 }
 
 // NewRegistryWithIncumbent is NewRegistry plus the per-workspace live-incumbent
 // resolver the overlay write-back path (Create/Update/Archive) reaches HubSpot
 // through — the wiring a role with a vault (the api server) installs so the MCP
 // tool surface can actually write back, not just answer errNoWriteIncumbent.
-func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *agents.Registry {
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent)
+func NewRegistryWithIncumbent(pool *pgxpool.Pool, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send)
 }
 
-func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *agents.Registry {
+func registryWithDraftBrain(pool *pgxpool.Pool, brain completer, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	if brain == nil {
-		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent)
+		return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), nil, resolveIncumbent, send)
 	}
-	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent)
+	return registryWithGate(pool, auth.NewGate(identity.NewService(pool)), newReplyDrafter(pool, brain, nil), resolveIncumbent, send)
 }
 
-func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error)) *agents.Registry {
+func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.EmailDrafter, resolveIncumbent func(context.Context) (overlay.Incumbent, error), send SendPath) *agents.Registry {
 	// The Dispatcher is the datasource seam every core/slipping tool
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
@@ -70,11 +69,7 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, slippingLister(pool), followUpDrafter(provider))
-	agents.RegisterCommsTools(registry, commsAdapter{
-		store: activities.NewStore(pool),
-		gate:  consent.NewGate(consent.NewStore(pool)),
-		draft: drafter,
-	})
+	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that
 	// collides with a core verb fails loudly (RegisterExtensions stashed

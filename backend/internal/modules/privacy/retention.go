@@ -46,6 +46,12 @@ func retentionAppliedPayload(action string, policyID *ids.UUID, reason *string) 
 	return payload
 }
 
+// erasedActivitySubject is the tombstone the retention erase action leaves in
+// an over-age activity's subject line — and, through redactDeliveries, in the
+// subject line of the delivery that transmitted it. One spelling, because the
+// two rows describe one message and must never read differently about it.
+const erasedActivitySubject = "Erased"
+
 // retentionBatch bounds how many rows one policy acts on per pass — a
 // first run against years of backlog drains over successive nights
 // instead of one giant transaction.
@@ -351,13 +357,21 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			// attached recording/transcript file (objects first, so the
 			// purge shares the person-erase durability guarantee).
 			_, err = tx.Exec(ctx,
-				`UPDATE activity SET body = NULL, subject = 'Erased', archived_at = coalesce(archived_at, now()) WHERE id = $1`, id)
+				`UPDATE activity SET body = NULL, subject = $2, archived_at = coalesce(archived_at, now()) WHERE id = $1`,
+				id, erasedActivitySubject)
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
 			}
 			if err == nil {
 				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
+			}
+			if err == nil {
+				// An outbound message ages out on the schedule of the activity
+				// it belongs to: the send log holds the same recipients,
+				// subject and body, and a policy that emptied one while the
+				// other kept serving them would age out nothing.
+				err = redactDeliveries(ctx, tx, []ids.UUID{id}, erasedActivitySubject)
 			}
 		case "deal/archive":
 			_, err = tx.Exec(ctx, `UPDATE deal SET archived_at = now() WHERE id = $1`, id)

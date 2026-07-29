@@ -31,9 +31,12 @@ const testStateKey = "a-32-byte-or-longer-signing-key!!"
 // The registry's DB methods are never reached on these paths.
 func wiredHandlers() connectorHandlers {
 	return connectorHandlers{
-		registry:      capture.NewRegistry(nil, nil, liveAuthority{}, nil),
-		authority:     liveAuthority{},
-		oauth:         gmail.NewOAuth(gmail.OAuthConfig{ClientID: "cid", ClientSecret: "sec", Scopes: []string{"https://www.googleapis.com/auth/gmail.readonly"}}),
+		registry:  capture.NewRegistry(nil, nil, liveAuthority{}, nil),
+		authority: liveAuthority{},
+		// Built through the same newGmailOAuth the production wiring uses, so
+		// a change to the scopes it requests is exercised here too — not
+		// duplicated as a second, driftable literal.
+		oauth:         newGmailOAuth(GmailConfig{ClientID: "cid", ClientSecret: "sec"}),
 		gmailAPI:      gmail.NewAPI(nil, ""),
 		gcalOAuth:     gcal.NewOAuth(gcal.OAuthConfig{ClientID: "cid", ClientSecret: "sec"}),
 		gcalAPI:       gcal.NewAPI(nil, ""),
@@ -41,6 +44,34 @@ func wiredHandlers() connectorHandlers {
 		publicBaseURL: "https://app.test", // the SPA/front origin — landing
 		apiBaseURL:    "https://api.test", // the api origin — callback redirect_uri
 	}
+}
+
+// gmailAuthCodeURLForTest drives the real ConnectConnector handler for gmail
+// and returns the decoded `scope` query parameter of the resulting consent
+// URL, so a test can assert on exactly what Google will be asked to grant.
+func gmailAuthCodeURLForTest(t *testing.T) string {
+	t.Helper()
+	h := wiredHandlers()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/connectors/gmail/connect", nil).WithContext(humanCtx())
+
+	h.ConnectConnector(rec, req, "gmail")
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body %s)", rec.Code, rec.Body)
+	}
+	var resp crmcontracts.ConnectConnectorResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.AuthorizeUrl == nil {
+		t.Fatal("authorize_url missing")
+	}
+	u, err := url.Parse(*resp.AuthorizeUrl)
+	if err != nil {
+		t.Fatalf("authorize_url not a URL: %v", err)
+	}
+	return u.Query().Get("scope")
 }
 
 func humanCtx() context.Context {
@@ -84,6 +115,20 @@ func TestConnectConnectorReturnsSignedAuthorizeURL(t *testing.T) {
 	}
 	if st.Provider != "gmail" || st.User != ids.MustParse("22222222-2222-2222-2222-222222222222") {
 		t.Errorf("state = %+v, want gmail + the acting user", st)
+	}
+}
+
+// Google will not add a scope to an existing refresh token, so both permissions
+// must ride ONE consent — otherwise sending needs a second connection.
+func TestGmailConsentRequestsReadAndSendScopes(t *testing.T) {
+	got := gmailAuthCodeURLForTest(t)
+	for _, want := range []string{
+		"gmail.readonly",
+		"gmail.send",
+	} {
+		if !strings.Contains(got, want) && !strings.Contains(got, url.QueryEscape("https://www.googleapis.com/auth/"+want)) {
+			t.Errorf("consent URL missing scope %q\nurl: %s", want, got)
+		}
 	}
 }
 

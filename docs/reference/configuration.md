@@ -49,9 +49,17 @@ Operational endpoints (served next to `/v1`):
 
 ## cmd/worker — the background process role
 
+**Outbound mail does not leave without this process.** Every role that accepts
+a send stages it — the api's HTTP handler and the MCP `send_email` tool — but
+only `cmd/worker` registers the worker that transmits (`comms_send_email`). In an api-only deployment an accepted send is
+recorded on the timeline, answers `202`, and then sits `pending` in
+`comms_outbound` indefinitely with no reason string, because nothing has yet
+tried and failed. Run a worker, or accept that mail is queued and not sent.
+
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send originated by this role's Surface-B agent run — without it that send refuses rather than emit a forgeable link |
 | `--config` | `MARGINCE_CONFIG` | `margince.yaml` | the deployment configuration file; the worker reads it for the `ai.capture_payloads` posture the Surface-B runner honors (capture applies to **both** the api and worker roles — the worker runs the richest content source, the agent runs). A missing file boots with capture off |
 | `--redis` | `MARGINCE_REDIS` | `localhost:56379` | Redis address (event bus) |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the Surface-B runner + embeddings |
@@ -65,6 +73,9 @@ Operational endpoints (served next to `/v1`):
 | `--reconcile-interval` | — | `24h` | overnight follow-up reconciliation pass interval |
 | `--overlay-reconcile-interval` | — | `2m` | overlay-mode incumbent mirror sweep interval. Every tick spends incumbent API quota per object class even when nothing changed (9 classes ≈ 11 REST calls/tick against HubSpot's 90k/day), so lengthen it on a dev box. `POST /overlay/reconcile` ("Sync now") only marks the workspace due — the sweep still waits for the next tick, so a long interval makes that button feel slow |
 | `--overlay-backfill-limit` | `MARGINCE_OVERLAY_BACKFILL_LIMIT` | `0` (uncapped) | cap the overlay INITIAL mirror backfill at N records per object class — dev/demo, so connecting a real portal doesn't pull it all onto a laptop. Only the backfill is capped: later incremental sweeps still bring in anything edited after the sweep window, which opens shortly before the connect instant (a clock-skew grace). A class the cap actually cuts short reports `backfillComplete: false` permanently (`overlay_backfill_cursor.truncated`) — unsetting the limit does NOT resume it, since the cursor is already `done`; reset that class's `overlay_backfill_cursor` row (or reconnect, which purges it) to backfill it for real. Don't change the limit mid-backfill either — the running count rides in `overlay_backfill_cursor` as a `<count>\|<inner>` prefix the uncapped adapter rejects, which fails that class every sweep until the cursor row is cleared |
+| `--send-rate-limit` | — | `0` (= built-in 30) | outbound messages ONE mailbox may transmit per `--send-rate-window`. Burst pacing, not a quota: the provider enforces its own daily cap and throttles an account that bursts past it. The limiter is in-process, so a multi-worker deployment paces each replica's view of the mailbox independently |
+| `--send-rate-window` | — | `0` (= built-in 1m) | the window the per-mailbox send rate is measured over |
+| `--send-max-age` | — | `0` (= built-in 24h) | how long a staged send may be deferred by the pacing chain before it parks with a reason instead. Without a bound a permanently saturated policy would defer a message forever, silently |
 | `--deepread-max-pages` | `MARGINCE_DEEPREAD_MAX_PAGES` | `0` (= built-in 40) | deep-read crawl page cap |
 | `--deepread-max-bytes` | `MARGINCE_DEEPREAD_MAX_BYTES` | `0` (= built-in 32 MiB) | deep-read crawl aggregate byte cap |
 | `--deepread-wall` | `MARGINCE_DEEPREAD_WALL` | `0` (= built-in 4m) | deep-read crawl wall clock |
@@ -191,6 +202,7 @@ probe.
 | Flag | Env | Default | Meaning |
 |---|---|---|---|
 | `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send through the `send_email` tool — without it that send refuses rather than emit a forgeable link |
 | `--listen` | — | — | serve the hosted A2 transport on this address instead of stdio |
 
 The stdio transport additionally requires the env var

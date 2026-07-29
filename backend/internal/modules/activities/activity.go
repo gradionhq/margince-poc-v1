@@ -53,8 +53,21 @@ type LogActivityInput struct {
 	HostUserID   *ids.UserID
 	SourceSystem *string
 	SourceID     *string
-	Links        []ActivityLinkInput
-	Source       string
+	// ThreadKey files this activity under a conversation. Empty stores NULL.
+	// It is written at insert time or not at all: the (source_system,
+	// source_id) upsert both capture and this path key on does nothing when
+	// the row already exists, so neither leg can revise the other's value.
+	ThreadKey string
+	// CounterpartyEmail is the address this message was with, normalized —
+	// the column capture's correspondence-positive gate (ADR-0072 §1) reads.
+	// CounterpartyOutboundAttested says the workspace itself sent to that
+	// address; it is affirmative intent toward them, and it is what spares
+	// their later mail from suppression. Both obey the same write-once rule
+	// as ThreadKey, for the same reason.
+	CounterpartyEmail            string
+	CounterpartyOutboundAttested bool
+	Links                        []ActivityLinkInput
+	Source                       string
 }
 
 // LogActivity writes the activity + links and maintains
@@ -114,10 +127,13 @@ func logActivityInTx(ctx context.Context, tx pgx.Tx, in LogActivityInput) (crmco
 	id := ids.New[ids.ActivityKind]()
 	_, err = tx.Exec(ctx,
 		`INSERT INTO activity (id, workspace_id, kind, subject, body, occurred_at, direction,
-		                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)`,
+		                       due_at, remind_at, assignee_id, host_user_id, source_system, source_id, source, captured_by,
+		                       thread_key, counterparty_email, counterparty_outbound_attested)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NULLIF($16, ''),
+		         NULLIF($17, ''), $18)`,
 		id, wsID, in.Kind, in.Subject, in.Body, occurredAt, in.Direction,
-		in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by)
+		in.DueAt, in.RemindAt, in.AssigneeID, in.HostUserID, in.SourceSystem, in.SourceID, in.Source, by,
+		in.ThreadKey, in.CounterpartyEmail, in.CounterpartyOutboundAttested)
 	if err != nil {
 		if storekit.IsUniqueViolation(err) {
 			return crmcontracts.Activity{}, false, apperrors.ErrConflict

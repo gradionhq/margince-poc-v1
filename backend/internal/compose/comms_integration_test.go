@@ -45,11 +45,34 @@ func (b integrationReplyBrain) Complete(context.Context, model.Request) (model.R
 	return model.Response{Text: b.response}, b.err
 }
 
+// recordingStager stands in for the delivery machinery so these suites can
+// assert what the GOVERNED decision did: a send only reaches staging once the
+// gates have let it through, and what it hands over is what would be
+// transmitted.
+type recordingStager struct{ staged []activities.DeliveryRequest }
+
+func (s *recordingStager) StageTx(_ context.Context, _ pgx.Tx, in activities.DeliveryRequest) error {
+	s.staged = append(s.staged, in)
+	return nil
+}
+
+// assertStaged pins how many deliveries reached the machinery — the only
+// way to tell "the gate refused" from "the gate let it through and the send
+// went nowhere".
+func assertStaged(t *testing.T, stager *recordingStager, want int, when string) {
+	t.Helper()
+	if len(stager.staged) != want {
+		t.Fatalf("%s staged %d deliveries, want %d", when, len(stager.staged), want)
+	}
+}
+
 func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	e := integration.Setup(t)
+	stager := &recordingStager{}
 	adapter := commsAdapter{
-		store: activities.NewStore(e.Pool),
-		gate:  consent.NewGate(consent.NewStore(e.Pool)),
+		store:  activities.NewStore(e.Pool),
+		gate:   consent.NewGate(consent.NewStore(e.Pool)),
+		stager: stager,
 	}
 	ctx := e.As(e.Rep1, []ids.UUID{e.Team1}, integration.SchedulerPerms)
 
@@ -83,6 +106,7 @@ func TestCommsAdapterSharesTheGovernedPaths(t *testing.T) {
 	if !errors.Is(err, apperrors.ErrConsentNotGranted) {
 		t.Fatalf("unconsented MCP send → %v, want ErrConsentNotGranted", err)
 	}
+	assertStaged(t, stager, 0, "the suppressed MCP send")
 
 	from := time.Date(2026, 7, 7, 8, 0, 0, 0, time.UTC)
 	raw, err := adapter.Availability(ctx, nil, from, from.Add(10*time.Hour), 60)

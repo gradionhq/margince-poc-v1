@@ -22,6 +22,38 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Recently landed
 
+**The first outbound channel (`feat/gmail-send`, #303).** Until this, nothing
+the product sent ever reached a contact: `POST /activities/{id}/send-email` ran
+the full governance chain — anchor visibility, write grant, consent gate — and
+then terminated in an `INSERT INTO activity`, so its `202 Accepted` was not
+true. The connector seam was pull-only. It is now bidirectional: an optional,
+type-asserted `connector.Sender` on the frozen port, implemented by
+`capture/gmail` over `messages.send`; the Gmail consent widened to request
+`gmail.send` on the same screen as `gmail.readonly`, because Google will not
+add a scope to an existing refresh token; and a new `modules/comms` owning
+`comms_outbound` and a River-driven dispatcher. `activities.SendEmail` keeps
+its entry point and its authorization-before-consent ordering, and stages the
+delivery and its job in the same transaction as the activity.
+
+The shape worth carrying forward is **gates refuse, policies postpone** — two
+mechanisms rather than one verdict type. A gate says *never* (a revoked grant,
+a withdrawn consent) and is fixed and inline; a policy says *not yet* and is an
+ordered chain where the first non-zero wait snoozes the job. The companion rule
+is that a refusal must be a verdict and never an outage: the consent gate parks
+on `ErrConsentNotGranted` alone, and a consent service that is merely down
+retries, because parking on any error would silently destroy consented mail.
+
+Also here: the provider's echo of a sent message now collapses onto the same
+activity (the RFC822 Message-ID is minted at send, stored unbracketed, and
+stamped as the natural key), and `privacy` reaches `comms_outbound` for Art. 17
+erasure, Art. 15 SAR and retention.
+
+**One thing no test on the branch can settle:** whether Gmail preserves a
+client-supplied `Message-ID`. The echo collapse rests on it and every test
+asserts our own encoding, not Google's behaviour — it needs one send through a
+real account. If Gmail rewrites the identity, the fallback is to reconcile on
+`provider_message_id` from the send receipt, which is already recorded.
+
 **Two post-paint races closed (`fix/overlay-carried-forward`).** Both were
 carried forward from the overlay-UI PR (#258) rather than worked around.
 *Forms:* the create and edit modals seeded their fields in a passive effect,

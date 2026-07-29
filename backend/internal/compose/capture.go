@@ -18,6 +18,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
@@ -31,10 +32,25 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// gmailReadonlyScope is the single Google scope the read-only Gmail capture
-// connector requests (mail read; no send, no modify). The calendar connector
-// owns its own calendar-read scope inside the gcal package.
-const gmailReadonlyScope = "https://www.googleapis.com/auth/gmail.readonly"
+// gmailScopes are the Google scopes a Gmail connection requests: mail read for
+// capture, and send for the governed outbound path. They ride ONE consent
+// because Google will not add a scope to an existing refresh token — a second
+// grant would mean a second connection for the same mailbox.
+//
+// The send scope permits transmission only; it cannot read, modify, or delete.
+// The pair is still least-privilege: no gmail.modify, no settings, no delete.
+// The calendar connector owns its own calendar-read scope inside the gcal
+// package.
+//
+// The send entry is the connector's OWN constant, not a copy of its text: what
+// the consent requests and what the connector re-checks are then one string by
+// construction. The second literal — the scope comms demands at the authority
+// gate — cannot be imported by either (comms must not reach into a capture
+// provider), so a fitness test binds it here instead: sendscope_test.go.
+var gmailScopes = []string{
+	"https://www.googleapis.com/auth/gmail.readonly",
+	gmail.SendScope,
+}
 
 // graphScopes are the Microsoft identity platform scopes the read-only Graph
 // capture connector requests: mail read + the signed-in user's profile (the
@@ -209,7 +225,7 @@ func newGmailOAuth(c GmailConfig) gmail.OAuth {
 	return gmail.NewOAuth(gmail.OAuthConfig{
 		ClientID:     c.ClientID,
 		ClientSecret: c.ClientSecret,
-		Scopes:       []string{gmailReadonlyScope},
+		Scopes:       gmailScopes,
 	})
 }
 
@@ -346,6 +362,13 @@ func WithGraphCapture(c GraphConfig) Option {
 // transport (api role). It requires the vault (so WithKeyvault must precede it
 // in the option list) and a fully-configured app; absent any of those the
 // connector surface keeps its declared-but-unimplemented 501 by omission.
+//
+// It ALSO installs the outbound send-grant pre-flight (WithMailbox) over the
+// registry it builds, so this option governs part of the send path too: with
+// it, a user whose mailbox holds no send scope is refused at request time with
+// an actionable 422; without it that check is simply absent and the refusal
+// happens later, at transmission, where only an operator sees it. The
+// placement is not incidental — see the comment at the wiring below.
 func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		// Without a vault the connect flow can't seal the refresh token, so
@@ -365,6 +388,17 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 			publicBaseURL: c.PublicBaseURL,
 			apiBaseURL:    c.APIBaseURL,
 		}
+		// The send-grant pre-flight reads the registry the connect flow just
+		// wrote to — the same one, not a second construction: a mailbox the
+		// user connects here must be the mailbox the check asks about, and
+		// two registries could answer from different connector sets. A role
+		// without the Google app configured registers no gmail connector, so
+		// there is no grant to pre-flight and the check is absent by
+		// omission, exactly as the connect surface is.
+		WithMailbox(mailboxAuthority{
+			grants:   s.connectorHandlers.registry,
+			provider: activities.SendProvider,
+		})(s, pool)
 	}
 }
 

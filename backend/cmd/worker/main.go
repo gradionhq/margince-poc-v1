@@ -41,6 +41,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
 	"github.com/gradionhq/margince/backend/internal/platform/events"
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
+	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
 	kevents "github.com/gradionhq/margince/backend/internal/shared/kernel/events"
@@ -127,6 +128,18 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
+	// The Surface-B runner is this role's sending lane, and it stages through
+	// the SAME delivery machinery the api does — built before the lane so it
+	// cannot be composed without one. Insert-only, like the api's: the staged
+	// job is worked by this role's own River runner (startJobRunner below), and
+	// a lane that staged onto the runner it is itself being wired into would
+	// need the runner to exist before the lanes do.
+	sendInserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return err
+	}
+	send := sendPath(cfg, compose.NewDeliveryStager(pool, sendInserter))
+
 	// Every background lane joins the WaitGroup so run() returns only
 	// after in-flight handlers finish their ack — the same shape as
 	// cmd/api's relay group; a bare goroutine would be killed mid-handler
@@ -142,7 +155,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		if rverr != nil {
 			return rverr
 		}
-		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault))
+		svc := compose.NewRunnerService(pool, modelPath.AgentLoop, modelPath.DraftReply, grounding, logger, compose.OverlayIncumbentResolver(pool, runnerVault), send)
 		_, _ = fmt.Fprintf(stdout, "worker running the Surface-B scheduler every %s\n", cfg.runnerInterval)
 		background.Go(func() { runScheduler(ctx, svc, cfg.runnerInterval, logger) })
 		background.Go(func() { runResumeSubscriber(ctx, rdb, svc, logger) })
@@ -271,14 +284,20 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		ClientSecret: cfg.graphClientSecret,
 		Tenant:       cfg.graphTenant,
 	}, cfg.captureConfig).WithSyncInterval(cfg.gmailSyncInterval)
-	gmailWired := cfg.gmailClientID != "" && cfg.gmailClientSecret != ""
-	watchCfg := gmailWatchConfig(cfg, gmailWired)
+	watchCfg := gmailWatchConfig(cfg, cfg.gmailAppWired())
 	overlayVault := vault
 	if !vaultConfigured {
 		overlayVault = nil
 	}
 
 	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
+		// The registry that resolves a staged delivery's mailbox: the SAME
+		// sweep registry the capture polls use, so the connector set that
+		// syncs a mailbox is the one that transmits from it.
+		SendRegistry: captureReg,
+		SendPacing: compose.SendPacing{
+			Limit: cfg.sendRateLimit, Window: cfg.sendRateWindow, MaxAge: cfg.sendMaxAge,
+		},
 		CloseDateInterval: cfg.closeDateInterval,
 		ReconcileInterval: cfg.reconcileInterval,
 		TimeScanInterval:  cfg.timeScanInterval,
@@ -331,6 +350,24 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
+	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, overlayVault))
+	return func() {
+		// The run context is already cancelled at shutdown, so give the
+		// drain its own bounded window.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+		defer cancel()
+		if err := runner.Stop(stopCtx); err != nil {
+			logger.Warn("stopping job runner", "err", err)
+		}
+	}, nil
+}
+
+// jobRunnerBanner is the one line an operator reads to see which lanes this
+// worker actually came up with — each one naming the configuration that
+// enabled it, or the reason it is off. Split out of startJobRunner so that
+// function stays the lane wiring rather than its prose.
+func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, overlayVault keyvault.Vault) string {
+	gmailWired := cfg.gmailAppWired()
 	providers := "imap"
 	if gmailWired {
 		providers += "+gmail"
@@ -353,17 +390,8 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	if modelPath.SiteExtract == nil {
 		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
 	}
-	_, _ = fmt.Fprintf(stdout, "worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s, %s)\n",
+	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s, %s)",
 		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, overlayNote, deepReadNote)
-	return func() {
-		// The run context is already cancelled at shutdown, so give the
-		// drain its own bounded window.
-		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
-		defer cancel()
-		if err := runner.Stop(stopCtx); err != nil {
-			logger.Warn("stopping job runner", "err", err)
-		}
-	}, nil
 }
 
 // selectModelPath resolves the model path: a routing config for real

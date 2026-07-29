@@ -35,8 +35,10 @@ func gmailStub(t *testing.T, owner string) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		//craft:ignore swallowed-errors test stub; ParseForm on the recorded request can't fail
-		_ = r.ParseForm()
+		if err := r.ParseForm(); err != nil {
+			t.Errorf("decoding the token request form: %v", err)
+			return
+		}
 		body := map[string]any{"access_token": "access-tok", "expires_in": 3599}
 		if r.Form.Get("grant_type") == "authorization_code" {
 			body["refresh_token"] = "refresh-tok"

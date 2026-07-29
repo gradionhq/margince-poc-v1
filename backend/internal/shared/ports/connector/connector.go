@@ -13,6 +13,7 @@ package connector
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -147,10 +148,15 @@ type NormalizedRecord struct {
 	// resolver never runs for those.
 	Counterparty Counterparty
 
-	// ThreadKey is the provider's conversation identity (Gmail threadId /
-	// Graph conversationId / RFC822 References root) — the CAP-FORMULA-1
-	// reply-detection join key and activity.thread_key's source. Empty when
-	// the provider knows no thread.
+	// ThreadKey is the RFC822 conversation identity: a MESSAGE id — the
+	// References root, else In-Reply-To, else the message's own id — never a
+	// provider's private conversation id, which lives in a different namespace
+	// and joins nothing here (see SendReceipt). It is the CAP-FORMULA-1
+	// reply-detection join key and activity.thread_key's source. A freshly
+	// captured message with no reply headers is rooted at its OWN Message-ID,
+	// not left empty, so a later reply that references it joins the thread
+	// from the first message onward. Empty only when the record carries none
+	// of the three sources — References, In-Reply-To, nor its own Message-ID.
 	ThreadKey string
 }
 
@@ -273,4 +279,117 @@ type BackfillPageResult struct {
 	Scanned   int
 	Captured  int
 	Skipped   int
+}
+
+// Sender is the OPTIONAL outbound seam a connector implements when its provider
+// can transmit a message as the connected user. Type-asserted like Watcher and
+// Backfiller, so the frozen Connector interface is unchanged and a capture-only
+// provider simply does not implement it.
+//
+// Send MUST be idempotent on msg.MessageID. Job delivery is at-least-once, so a
+// provider that retransmits on a retry mails the recipient twice; a connector
+// whose provider can look up a prior send by RFC822 Message-ID must do so
+// whenever msg.Attempt > 0 and return the existing receipt instead.
+//
+// That obligation has a precondition, and an implementation MUST refuse a
+// message that fails it (OutboundMessage.Validate) before any provider I/O: an
+// identity the prior-send lookup cannot search for makes the idempotency
+// guarantee unkeepable, and transmitting anyway is the double-send this seam
+// exists to prevent.
+type Sender interface {
+	Send(ctx context.Context, auth Auth, msg OutboundMessage) (SendReceipt, error)
+}
+
+// OutboundMessage is one message to transmit, in provider-NEUTRAL form. The
+// connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
+// JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
+// owns decoding on the way in.
+type OutboundMessage struct {
+	To      []string
+	Cc      []string
+	Subject string
+	Body    string // text/plain; the only body shape sent today
+
+	// MessageID is the RFC822 message identity WITHOUT angle brackets —
+	// "abc@host", never "<abc@host>". Stored and compared in this form because
+	// that is how mail parsing yields it, so the copy the provider files back
+	// into the mailbox carries a key that matches the one recorded at send.
+	// The connector adds the brackets when it renders the header.
+	MessageID string
+
+	// InReplyTo threads onto an existing conversation, also unbracketed. Empty
+	// starts a new thread.
+	InReplyTo string
+
+	// References is the unbracketed ancestry chain, oldest first.
+	References []string
+
+	// ListUnsubscribe and ListUnsubscribePost carry the RFC 8058 header pair for
+	// a marketing send; both empty for a transactional purpose, which has nothing
+	// to unsubscribe from.
+	ListUnsubscribe     string
+	ListUnsubscribePost string
+
+	// Attempt is 0 on the first transmission and increments on every retry. It is
+	// how a connector knows to run the prior-send lookup the contract requires.
+	Attempt int
+}
+
+// ErrInvalidMessageID marks an outbound message carrying no usable RFC822
+// identity. It is the idempotency contract failing its precondition: Send is
+// required to be idempotent on MessageID, and an identity the provider's
+// prior-send lookup cannot search for makes that guarantee unkeepable. A
+// message sent under one would mail its recipient again on every retry, and
+// the copy the provider files back would key onto no activity.
+var ErrInvalidMessageID = errors.New("connector: outbound message carries no usable RFC822 message identity")
+
+// ValidMessageID reports whether id is a usable RFC822 message identity in the
+// UNBRACKETED form this system stores and compares: an addr-spec with exactly
+// one '@', both sides non-empty, and no whitespace, angle brackets, or ASCII
+// control character (the connector adds the brackets at the wire). Control
+// characters are rejected wholesale, not just the tab/CR/LF an editor is
+// likely to type: any of them would render a malformed Message-ID header on
+// the wire, and a provider that mangles or strips one on receipt breaks the
+// retry path's rfc822msgid: lookup — the search that stops an at-least-once
+// redelivery from mailing the recipient twice.
+//
+// It is the ONE spelling of that question, so the identity a send transmits
+// under and the identity a threading header is derived from cannot disagree
+// about what counts.
+func ValidMessageID(id string) bool {
+	local, domain, found := strings.Cut(id, "@")
+	if !found || local == "" || domain == "" || strings.Contains(domain, "@") {
+		return false
+	}
+	for _, r := range id {
+		switch {
+		case r == ' ' || r == '<' || r == '>':
+			return false
+		case r <= 0x1F || r == 0x7F: // the full ASCII control range (C0 + DEL)
+			return false
+		}
+	}
+	return true
+}
+
+// Validate refuses a message no provider should be handed. It is the sender
+// boundary's own precondition — checked before any provider I/O, so a message
+// that cannot be retried safely is never transmitted a first time.
+func (m OutboundMessage) Validate() error {
+	if !ValidMessageID(m.MessageID) {
+		return ErrInvalidMessageID
+	}
+	return nil
+}
+
+// SendReceipt is what the provider confirmed: its own message identity.
+//
+// The provider's CONVERSATION id is deliberately absent. This system threads on
+// the RFC822 message identity — comms_outbound.thread_key and activity.thread_key
+// both hold a Message-ID derived from References/In-Reply-To, which is what
+// capture keys reply detection on. A provider's own conversation id (Gmail's
+// threadId) lives in a different namespace, joins nothing here, and carrying it
+// would invite a reader to key on a value no query reads.
+type SendReceipt struct {
+	ProviderMessageID string
 }

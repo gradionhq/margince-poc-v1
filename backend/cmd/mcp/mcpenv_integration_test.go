@@ -44,7 +44,7 @@ type mcpClient struct {
 
 func startMCP(t *testing.T, token, slug string, svc *identity.Service, pool *pgxpool.Pool) *mcpClient {
 	t.Helper()
-	registry := compose.NewRegistry(pool)
+	registry := compose.NewRegistry(pool, compose.SendPath{})
 
 	bind := func(ctx context.Context) (context.Context, error) {
 		wsID, err := svc.InstallationWorkspace(ctx)

@@ -16,12 +16,14 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
 type workerConfig struct {
 	dsn                  string
 	configPath           string
+	publicBaseURL        string
 	captureConfig        compose.CaptureConfig
 	ratesFx              string
 	ratesCurrencies      []string
@@ -45,6 +47,9 @@ type workerConfig struct {
 	gmailWatchRenew      time.Duration
 	overlayInterval      time.Duration
 	overlayBackfillLimit int
+	sendRateLimit        int
+	sendRateWindow       time.Duration
+	sendMaxAge           time.Duration
 	webhookKey           string
 	webhookRetryInterval time.Duration
 	deepReadMaxPages     int
@@ -61,6 +66,12 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs := flag.NewFlagSet("worker", flag.ContinueOnError)
 	var cfg workerConfig
 	fs.StringVar(&cfg.dsn, "dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
+	// The same canonical origin the api serves: a marketing send from this
+	// role's Surface-B agent run builds the recipient's tokenized unsubscribe
+	// link from it, and without one that send refuses rather than go out
+	// unlinkable.
+	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"),
+		"canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required for a marketing send from the Surface-B agent run")
 	fs.StringVar(&cfg.configPath, "config", envOr("MARGINCE_CONFIG", "margince.yaml"),
 		"path to the deployment configuration file (A107/ADR-0061); read for the ai.capture_payloads posture the Surface-B runner honors and the capture pipeline tuning (capture.freemail_extra). A missing file boots with defaults")
 	fs.StringVar(&cfg.redisAddr, "redis", envOr("MARGINCE_REDIS", "localhost:56379"), "Redis address (event bus)")
@@ -97,6 +108,12 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	fs.IntVar(&cfg.deepReadMaxPages, "deepread-max-pages", maxPagesDefault, "deep-read crawl page cap; 0 takes the built-in default")
 	fs.IntVar(&cfg.deepReadMaxBytes, "deepread-max-bytes", maxBytesDefault, "deep-read crawl aggregate byte cap; 0 takes the built-in default")
 	fs.DurationVar(&cfg.deepReadWall, "deepread-wall", wallDefault, "deep-read crawl wall clock; 0 takes the built-in default")
+	// Outbound pacing. Zero on any of the three takes the compose default —
+	// a forgotten flag must degrade to the conservative rule, never to "no
+	// limit" or "defer forever".
+	fs.IntVar(&cfg.sendRateLimit, "send-rate-limit", 0, "outbound messages one mailbox may transmit per --send-rate-window; 0 takes the built-in default")
+	fs.DurationVar(&cfg.sendRateWindow, "send-rate-window", 0, "window the outbound per-mailbox rate limit is measured over; 0 takes the built-in default")
+	fs.DurationVar(&cfg.sendMaxAge, "send-max-age", 0, "how long a staged send may be deferred before it parks with a reason; 0 takes the built-in default")
 	fs.StringVar(&cfg.webhookKey, "webhook-key", os.Getenv("MARGINCE_WEBHOOK_KEY"), "base64 32-byte key sealing outbound-webhook signing secrets; enables the cg:webhooks delivery consumer + retry sweep. Empty leaves the delivery worker off.")
 	fs.DurationVar(&cfg.webhookRetryInterval, "webhook-retry-interval", 5*time.Second, "outbound-webhook retry-sweep tick interval")
 	fs.StringVar(&cfg.logLevel, "log-level", envOr("MARGINCE_LOG_LEVEL", "info"), "log level: debug|info|warn|error")
@@ -112,6 +129,11 @@ func parseWorkerFlags(args []string) (workerConfig, error) {
 	}
 	if cfg.deepReadMaxPages < 0 || cfg.deepReadMaxBytes < 0 || cfg.deepReadWall < 0 || cfg.overlayBackfillLimit < 0 {
 		return workerConfig{}, errors.New("worker: the deep-read caps and the overlay backfill limit must be zero (default/uncapped) or positive")
+	}
+	// A negative pacing value would read as "take the default" downstream,
+	// which quietly ignores what the operator actually typed.
+	if cfg.sendRateLimit < 0 || cfg.sendRateWindow < 0 || cfg.sendMaxAge < 0 {
+		return workerConfig{}, errors.New("worker: the outbound send pacing values must be zero (default) or positive")
 	}
 	if err := validateSchedulerIntervals(cfg); err != nil {
 		return workerConfig{}, err
@@ -226,4 +248,30 @@ func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
 		return 0, fmt.Errorf("worker: %s=%q is not a duration: %w", key, v, err)
 	}
 	return parsed, nil
+}
+
+// sendPath is the worker's outbound-send configuration. The Surface-B agent
+// runner is this role's one sending lane — its governed tool surface carries
+// send_email — and it stages through the same delivery machinery the api does:
+// a lane that could accept a send but never queue one is a silent hole, and
+// this role is the one that transmits.
+//
+// The deterministic automation lanes take none of it. A send_email action
+// stages an approval rather than transmitting, and the automation module's
+// Comms seam declares DraftEmail alone, so there is no send to configure for
+// the workflow engine or the clock-trigger scanner.
+//
+// No mailbox pre-flight: that check is advisory and needs the connect
+// registry, which only the api role builds. The transmit-time authority gate
+// still refuses a grant that cannot send, so its absence costs a clearer
+// message, never a message that should not have gone.
+func sendPath(cfg workerConfig, delivery activities.DeliveryStager) compose.SendPath {
+	return compose.SendPath{PublicBaseURL: cfg.publicBaseURL, Delivery: delivery}
+}
+
+// gmailAppWired reports whether the deployment configured the Google OAuth
+// app: without both halves the gmail connector is never registered, so the
+// poll, the push-watch job, and the send lane are all absent by omission.
+func (c workerConfig) gmailAppWired() bool {
+	return c.gmailClientID != "" && c.gmailClientSecret != ""
 }

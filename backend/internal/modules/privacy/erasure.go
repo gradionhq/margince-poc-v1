@@ -122,7 +122,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		}
 		// The vectors go with the text they were built from. purgeDerivedTraces
 		// reaches embeddings through activity_link, which by construction cannot
-		// see the unlinked captured mail redactSubjectTimeline now covers — and
+		// see the unlinked mail redactSubjectTimeline now covers — and
 		// an embedding of erased text is the erased text in another shape, which
 		// a similarity probe can still reach.
 		if len(activitiesRedacted) > 0 {
@@ -133,6 +133,12 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 			}
 		}
 		if err := tombstoneCollateralScrubs(ctx, tx, "activity", activitiesRedacted, reason); err != nil {
+			return err
+		}
+		// The transmitted copy of every activity just redacted. Without this
+		// the timeline row is a tombstone while the send log still holds the
+		// address, the subject line and the body of the same message.
+		if err := redactDeliveries(ctx, tx, activitiesRedacted, erasedName); err != nil {
 			return err
 		}
 		// Purge the subject's attachment bytes and rows together, inside the
@@ -332,8 +338,9 @@ func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
 func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
-	// Redact the subject's own timeline rows AND the unlinked captured mail
-	// about them, but shield commercial correspondence younger than the
+	// Redact the subject's own timeline rows AND the unlinked mail about them —
+	// in both directions, captured and sent (unlinkedSubjectMail) — but shield
+	// commercial correspondence younger than the
 	// statutory floor: the floor filters the row being updated (aliased `a`),
 	// so it covers both id sets in one pass. $1 person, $2 addresses, $3/$4
 	// the floor interval + anchor, $5 the tombstone name.
@@ -341,7 +348,7 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 		UPDATE activity a SET subject = $5, body = NULL, raw = NULL,
 		  counterparty_email = NULL,
 		  archived_at = coalesce(a.archived_at, now())
-		WHERE (a.id IN (`+subjectOnlyActivities+`) OR a.id IN (`+unlinkedCapturedMail+`))
+		WHERE (a.id IN (`+subjectOnlyActivities+`) OR a.id IN (`+unlinkedSubjectMail+`))
 		  `+correspondenceFloorPredicate(3, 4)+`
 		RETURNING a.id`, personID, emails, floorInterval, floorAnchor, erasedName)
 	if err != nil {

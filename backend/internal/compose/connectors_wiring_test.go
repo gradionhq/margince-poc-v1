@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 	"time"
 
@@ -67,6 +68,14 @@ func (stubGmailAPI) GetRaw(context.Context, string, string) (gmail.Message, erro
 
 func (stubGmailAPI) Watch(context.Context, string, string) (string, time.Time, error) {
 	return "1", time.Time{}, nil
+}
+
+func (stubGmailAPI) Send(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (stubGmailAPI) FindByMessageID(context.Context, string, string) (string, bool, error) {
+	return "", false, nil
 }
 
 // The account-linking-CSRF defence: the callback must have the provider's
@@ -193,7 +202,10 @@ func TestContractMapping(t *testing.T) {
 	watch := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	c := toContractConnection(capture.ConnectionView{
 		ID: id, Provider: "gmail", Status: "connected",
-		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, ProviderScopes: []string{"https://www.googleapis.com/auth/gmail.readonly"},
+		Cursor: []byte(`{"history_id":"7"}`), WatchExpiresAt: &watch, ProviderScopes: []string{
+			"https://www.googleapis.com/auth/gmail.readonly",
+			"https://www.googleapis.com/auth/gmail.send",
+		},
 	})
 	if c.Provider != "gmail" || c.Status != crmcontracts.CaptureConnectionStatusConnected || c.SyncCursor == nil || *c.SyncCursor != `{"history_id":"7"}` {
 		t.Errorf("mapping wrong: %+v", c)
@@ -205,9 +217,14 @@ func TestContractMapping(t *testing.T) {
 	if got := toContractConnection(capture.ConnectionView{Provider: "gmail", Status: "reauth_required"}); got.Status != crmcontracts.CaptureConnectionStatusReauthRequired {
 		t.Errorf("reauth_required → %q, want reauth_required", got.Status)
 	}
-	// The wire `scopes` is the PROVIDER's vocabulary, not the internal one.
-	if len(c.Scopes) != 1 || c.Scopes[0] != "https://www.googleapis.com/auth/gmail.readonly" {
-		t.Errorf("scopes = %v, want the provider-granted set", c.Scopes)
+	// The wire `scopes` is the PROVIDER's vocabulary, not the internal one —
+	// and it freezes what Google actually granted, read + send both.
+	wantScopes := []string{
+		"https://www.googleapis.com/auth/gmail.readonly",
+		"https://www.googleapis.com/auth/gmail.send",
+	}
+	if !slices.Equal(c.Scopes, wantScopes) {
+		t.Errorf("scopes = %v, want %v", c.Scopes, wantScopes)
 	}
 	// A connection whose grant was never recorded maps to an empty slice,
 	// never null.

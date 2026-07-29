@@ -84,6 +84,9 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/people:UpdateSiteReadDraft":             "worker-loop grounded-draft update on a still-running dossier, same seam as progress: admission happened at start and RLS scopes the versioned operational write",
 	"internal/modules/approvals:WithEffect":                   "composition-root wiring (registers the confirm effect); no data access",
 	"internal/modules/activities:WithBlobstore":               "composition-root wiring (injects the object store the attachment handlers use); no data access",
+	"internal/modules/activities:WithUnsubscribe":             "composition-root wiring (injects the RFC 8058 preference-token linker the send path derives its List-Unsubscribe from); returns a copy of the store, reads and writes nothing",
+	"internal/modules/activities:WithPublicBaseURL":           "composition-root wiring (the boot-configured public scheme+host the tokenized unsubscribe link and the minted Message-ID domain are built from); returns a copy of the store, reads and writes nothing",
+	"internal/modules/activities:WithMailbox":                 "composition-root wiring (injects the send-grant pre-flight the send path consults); returns a copy of the store, reads and writes nothing",
 	"internal/modules/approvals:Stage":                        "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",
 	"internal/modules/approvals:StageInTx":                    "transactional form of Stage used by an admitted compose orchestration; it records the same actor and differs only in commit ownership",
 	"internal/modules/approvals:StageUnlessDeclined":          "Stage with one added refusal — it declines to re-offer a proposal a human already rejected — so it is admitted exactly as Stage is, by the gated mutation that reached it; the extra read is of the offers this same proposal produced, never record data",
@@ -128,6 +131,28 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/overlay:WithLogger":                     "composition-root wiring (injects the logger Connect's best-effort seeding reports through); no data access",
 	"internal/modules/overlay:WithModeFlipObserver":           "composition-root wiring (injects the dispatcher-cache invalidation Connect/Disconnect notify after commit); no data access — both flip paths remain auth.Require-gated",
 	"internal/modules/webhooks:DeliveryEnabled":               "deployment-capability flag (is a signing key configured?): reads no tenant rows, returns a single boolean the gated ListWebhookSubscriptions handler surfaces so the UI can render a not-enabled state — a config posture with nothing for object-RBAC to narrow",
+
+	// comms: delivery machinery, not the message. StageTx runs inside the
+	// caller's own transaction, alongside the activity write that already
+	// passed the gated activity:create check — the outbound send itself was
+	// admitted there. But activity:create alone would only prove the actor
+	// may create an activity, not that the delivery may send through THEIR
+	// mailbox — the security-relevant fact this store owns — so StageTx
+	// itself derives user_id from the authenticated principal on ctx
+	// (storekit.Actor) and fails closed when none resolves to an app_user;
+	// no caller input can name a different sender. Object-RBAC has nothing
+	// left to narrow once that derivation stands. Load/RecordSent/Park/
+	// RecordFailure/RecordDeferral are the dispatcher's own state-machine
+	// steps, driven by the outbox/River worker under the system principal
+	// with no human principal in the call at all; nothing here discloses a
+	// record to anyone — the reason each of them writes is an operator-facing
+	// transport diagnosis, not tenant data.
+	"internal/modules/comms:StageTx":        "derives user_id from the authenticated principal (storekit.Actor) and fails closed with no caller-suppliable override; the activity:create check on the shared transaction admits the send action itself, but the sending IDENTITY is enforced here, in the store, not inherited from that check",
+	"internal/modules/comms:Load":           "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
+	"internal/modules/comms:RecordSent":     "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",
+	"internal/modules/comms:Park":           "worker-loop terminal transition on an unretryable provider failure, system principal, same posture as Load",
+	"internal/modules/comms:RecordFailure":  "worker-loop retry-bookkeeping transition on a transient provider failure, system principal, same posture as Load",
+	"internal/modules/comms:RecordDeferral": "worker-loop pacing transition, system principal, same posture as Load: it notes which rule is holding a delivery back and gives back the attempt that dispatch counted, because a deferral reached no provider. It discloses nothing and can only ever leave a pending delivery pending",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

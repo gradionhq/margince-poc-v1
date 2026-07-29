@@ -25,6 +25,10 @@ type commsAdapter struct {
 	store *activities.Store
 	gate  activities.ConsentGate
 	draft activities.EmailDrafter
+	// stager records an accepted send for transmission. It is the same seam
+	// the HTTP transport passes, so the tool surface cannot accept a message
+	// nothing will carry.
+	stager activities.DeliveryStager
 }
 
 var _ agents.Comms = commsAdapter{}
@@ -54,10 +58,11 @@ func (c commsAdapter) DraftEmail(ctx context.Context, anchor ids.UUID, intent st
 func (c commsAdapter) SendEmail(ctx context.Context, anchor ids.UUID, in agents.SendEmailArgs) (json.RawMessage, error) {
 	sent, err := c.store.SendEmail(ctx, ids.From[ids.ActivityKind](anchor), activities.SendEmailInput{
 		Recipients:     append(append([]string{}, in.To...), in.Cc...),
+		Cc:             append([]string{}, in.Cc...),
 		Subject:        in.Subject,
 		Body:           in.Body,
 		ConsentPurpose: in.ConsentPurpose,
-	}, c.gate)
+	}, c.gate, c.stager)
 	if err != nil {
 		return nil, err
 	}

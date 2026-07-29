@@ -157,6 +157,9 @@ var tableOwners = map[string]string{
 	"quota":                "internal/modules/quotas",
 	"webhook_subscription": "internal/modules/webhooks",
 	"webhook_delivery":     "internal/modules/webhooks",
+	// comms (outbound delivery machinery; the activity row is the
+	// user-visible fact and stays owned by activities)
+	"comms_outbound": "internal/modules/comms",
 	// overlay (the HubSpot mirror cluster, ADR-0017 custom namespace —
 	// design.md §4.2)
 	"incumbent_connection":        "internal/modules/overlay",
@@ -245,6 +248,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:ai_call_payload":              "erasure purges captured AI payloads mentioning the subject's identifiers, and retention ages every payload out at 365d — the special-category-adjacent content, deleted in the single erasure/per-record transaction while the ai_call metadata row survives",
 	"internal/modules/privacy:ai_call":                      "retention erases embedding-kind ai_call trace rows past their fixed 90-day cap (spec §4) in the single erasure/per-record transaction — a fixed operational cap, not an admin-editable retention_policy row",
 	"internal/modules/privacy:field_provenance":             "Art. 17 erasure deletes the subject's field-origin metadata in the single erasure transaction — provenance must not outlive the fields it annotates",
+	"internal/modules/privacy:comms_outbound":               "the send log stores a second copy of an outbound message's recipients, subject and body, so Art. 17 erasure and the retention erase action scrub it in the SAME transaction that scrubs the activity it belongs to — routing it through comms would let the timeline row commit as a tombstone while the delivery still served the whole message",
 
 	// direct audit_log/event_outbox writers: storekit.Audit stamps
 	// captured_by from an authenticated principal, which these paths do

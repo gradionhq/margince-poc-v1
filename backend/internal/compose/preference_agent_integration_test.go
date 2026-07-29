@@ -21,7 +21,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
@@ -33,7 +32,16 @@ import (
 func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 	e := integration.Setup(t)
 	consentStore := consent.NewStore(e.Pool)
-	adapter := commsAdapter{store: activities.NewStore(e.Pool), gate: consent.NewGate(consentStore)}
+	stager := &recordingStager{}
+	// Built through the composition root, not by hand: a marketing send is
+	// exactly the case whose derivation depends on the unsubscribe linker and
+	// the public base URL that only newCommsAdapter wires. Assembled field by
+	// field the send would take a path no deployment has, and the opt-out this
+	// suite is about would be proven against the wrong one.
+	adapter := newCommsAdapter(e.Pool, nil, SendPath{
+		PublicBaseURL: "https://crm.margince.test",
+		Delivery:      stager,
+	})
 
 	admin := e.Admin()
 	personID := e.SeedPerson(t, "Opt Out Target", &e.Rep1)
@@ -51,17 +59,7 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 		t.Fatalf("grant: %v", err)
 	}
 
-	// The reply anchor the MCP send threads onto.
-	anchorID := ids.NewV7()
-	if err := database.WithWorkspaceTx(admin, e.Pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(context.Background(), `
-			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
-			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        'email', 'Pricing question', now(), 'manual', 'human:x')`, anchorID)
-		return err
-	}); err != nil {
-		t.Fatalf("seed anchor: %v", err)
-	}
+	anchorID := seedReplyAnchor(t, e)
 
 	// An agent principal with the send-adjacent grants; the gate does not
 	// consult it, which is the point — suppression is principal-independent.
@@ -85,10 +83,11 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 		return err
 	}
 
-	// Before opt-out the agent send is allowed.
+	// Before opt-out the agent send is allowed, and reaches delivery.
 	if err := send(); err != nil {
 		t.Fatalf("granted agent send → %v, want success", err)
 	}
+	assertStaged(t, stager, 1, "the granted agent send")
 
 	// The buyer one-click unsubscribes through the PUBLIC preference surface,
 	// exactly as the anonymous middleware binds it (system principal).
@@ -101,10 +100,28 @@ func TestPreferenceCenterOptOutBlocksAgentSend(t *testing.T) {
 		t.Fatalf("one-click withdrawal: %v", err)
 	}
 
-	// After opt-out the SAME agent send is refused at the shared gate.
+	// After opt-out the SAME agent send is refused at the shared gate, and
+	// nothing further reaches delivery.
 	if err := send(); !errors.Is(err, apperrors.ErrConsentNotGranted) {
 		t.Fatalf("agent send after opt-out → %v, want ErrConsentNotGranted", err)
 	}
+	assertStaged(t, stager, 1, "the send after opt-out (still only the pre-opt-out one)")
+}
+
+// seedReplyAnchor writes the mail activity the send threads onto.
+func seedReplyAnchor(t *testing.T, e *integration.Env) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, source, captured_by)
+			VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        'email', 'Pricing question', now(), 'manual', 'human:x')`, id)
+		return err
+	}); err != nil {
+		t.Fatalf("seed anchor: %v", err)
+	}
+	return id
 }
 
 // addPersonEmail attaches an email channel to a person as admin, so the
