@@ -19,7 +19,7 @@ type unitRule struct {
 	// observedUnits computes the expected units for scanned messages from a
 	// COMPLETED backfill yield (the caller guarantees y.Scanned > 0). ok=false
 	// means the yield cannot anchor this task's ratio, so the caller floors and
-	// marks the estimate heuristic — this is where enrich's C1 guard lives.
+	// marks the estimate heuristic — this is where enrich's zero-people guard lives.
 	observedUnits func(scanned int64, y capture.BackfillYields) (units int64, ok bool)
 	// observedDenom is the observed-unit count the window's served slices are
 	// divided by for the priced-slice cost: classify's exact labeled-message
@@ -68,8 +68,8 @@ var unitRulesByName = map[string]unitRule{
 	"per_person": {
 		// A zero people_created is "ratio unavailable", not "zero people": a run
 		// counts only the counterparties its own pages minted, so a window whose
-		// senders were all already known — or all deferred to the verdict engine —
-		// reads zero while a wider window would still create plenty. Reporting
+		// senders were all already known, suppressed, or deferred to the verdict
+		// engine reads zero while a wider window would still create plenty. Reporting
 		// ok=false floors to the named default, which is honest; a silent
 		// observed-0 on a consent number — quoting $0 enrich to the user — is not.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
@@ -88,12 +88,12 @@ var unitRulesByName = map[string]unitRule{
 		},
 	},
 	"per_entity": {
-		// person/org embed entities are UNDER-counted while people_created /
-		// organizations_created are unpopulated by the backfill loop (they are
-		// created asynchronously downstream, not at page-commit), so this degrades
-		// to a captured-only figure — a labeled, conservative underestimate.
-		// Embeddings is NOT floored: captured is real and dominates the entity mix,
-		// so the observed ratio stays the honest anchor.
+		// person/org embed entities are counted from the run's own committed
+		// yields, which are an honest UNDER-count: a sender the tier gate deferred
+		// is resolved by the verdict engine long after the page that saw it, and
+		// the person it may eventually mint is nobody's page to claim. Embeddings
+		// is NOT floored on that shortfall: captured is exact and dominates the
+		// entity mix, so the observed ratio stays the honest anchor.
 		observedUnits: func(scanned int64, y capture.BackfillYields) (int64, bool) {
 			return scanned * (y.Captured + y.PeopleCreated + y.OrganizationsCreated) / y.Scanned, true // entities
 		},
