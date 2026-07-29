@@ -76,3 +76,16 @@ func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
 		}
 	}
 }
+
+// A provider that rewrote the client's identity reports the one it stamped;
+// the empty case is the contract every non-reporting provider rides.
+func TestSendReceiptCarriesTheStampedRFC822Identity(t *testing.T) {
+	stamped := connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "CAF@mail.gmail.com"}
+	if stamped.RFC822MessageID != "CAF@mail.gmail.com" {
+		t.Errorf("RFC822MessageID = %q, want the identity the provider stamped", stamped.RFC822MessageID)
+	}
+	honoured := connector.SendReceipt{ProviderMessageID: "gmsg1"}
+	if honoured.RFC822MessageID != "" {
+		t.Errorf("RFC822MessageID = %q, want empty when the provider reports none", honoured.RFC822MessageID)
+	}
+}

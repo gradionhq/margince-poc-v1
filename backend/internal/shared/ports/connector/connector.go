@@ -435,7 +435,8 @@ func (m OutboundMessage) Validate() error {
 	return nil
 }
 
-// SendReceipt is what the provider confirmed: its own message identity.
+// SendReceipt is what the provider confirmed: its own message identity, and
+// the RFC822 identity the transmitted copy actually carries.
 //
 // The provider's CONVERSATION id is deliberately absent. This system threads on
 // the RFC822 message identity — comms_outbound.thread_key and activity.thread_key
@@ -443,6 +444,19 @@ func (m OutboundMessage) Validate() error {
 // capture keys reply detection on. A provider's own conversation id (Gmail's
 // threadId) lives in a different namespace, joins nothing here, and carrying it
 // would invite a reader to key on a value no query reads.
+//
+// The RFC822 identity is the opposite case, and the distinction is worth
+// holding onto: it joins everything here. A Message-ID is a REQUEST, not a
+// guarantee — Gmail discards the client's and mints its own — so the identity
+// this system records has to be the one the wire carries, not the one it asked
+// for.
 type SendReceipt struct {
 	ProviderMessageID string
+	// RFC822MessageID is the unbracketed Message-ID on the transmitted copy.
+	//
+	// EMPTY means "no re-key needed": the provider honoured the identity it was
+	// given, does not report one, or could not be asked. All three degrade to
+	// the same correct no-op, so a provider that never sets this field is
+	// wrong about nothing.
+	RFC822MessageID string
 }
