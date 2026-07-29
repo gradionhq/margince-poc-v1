@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -44,20 +43,6 @@ var ErrTerminal = errors.New("comms: delivery is already terminal")
 // table names, and a client is owed neither.
 var ErrDuplicateMessage = fmt.Errorf(
 	"comms: this message identity is already staged for delivery in this workspace: %w", apperrors.ErrConflict)
-
-// errNoReconciler names a store built with no message-identity seam at all.
-// nil stays constructible because a role that only READS deliveries has no
-// timeline row to re-key and should not have to drag the seam in to say so —
-// but a role that TRANSMITS and cannot reconcile is a wiring mistake, which
-// the composition's own fitness test is what catches before it ships.
-//
-// At runtime it is treated as what it is: one more reconcile fault, degrading
-// to "receipt recorded, one duplicate timeline row" like every other. Letting
-// it reach the savepoint instead would dereference nil INSIDE the transaction;
-// the panic would escape RecordSent, fail the job, and the redelivery would
-// transmit the message a second time — the double-send this whole ordering
-// exists to prevent, arriving through the back door.
-var errNoReconciler = errors.New("comms: this delivery store was built with no message-identity reconciler")
 
 // ErrNoAddressee marks a delivery staged with nobody to reach. A message with
 // neither a To nor a Cc address can only be refused later — the consent gate
@@ -298,88 +283,6 @@ func (s *Store) RecordSent(ctx context.Context, id ids.UUID, receipt connector.S
 		s.reconcileIdentity(ctx, tx, id, activityID, staged, receipt.RFC822MessageID)
 		return nil
 	})
-}
-
-// reconcileIdentity moves the delivery and its timeline row onto the identity
-// the provider stamped, and reports nothing: by construction there is no
-// failure here the caller may act on, because the only action available —
-// failing the receipt — is the one thing that must never happen. The savepoint
-// returns the transaction to a usable state so the receipt still commits, and
-// the breadcrumb is what an operator reads.
-func (s *Store) reconcileIdentity(ctx context.Context, tx pgx.Tx, deliveryID ids.UUID, activityID ids.ActivityID, staged, stamped string) {
-	if stamped == "" || stamped == staged {
-		// The provider honoured the identity, reports none, or could not be
-		// asked. All three mean the staged key is already the key the wire
-		// carries, so there is nothing to move.
-		return
-	}
-	if s.identity == nil {
-		// Checked BEFORE the savepoint, because the fault is in this store's
-		// construction rather than in anything the database is about to be
-		// asked. Recording it the same way every other reconcile fault is
-		// recorded is what keeps a misconfigured role from turning a
-		// bookkeeping gap into a second email.
-		s.breadcrumb(ctx, tx, deliveryID, staged, stamped, errNoReconciler)
-		return
-	}
-	sp, err := tx.Begin(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "comms: opening the identity-reconcile savepoint",
-			"err", err, "delivery_id", deliveryID)
-		return
-	}
-	if reKeyErr := s.reKey(ctx, sp, deliveryID, activityID, staged, stamped); reKeyErr != nil {
-		if rbErr := sp.Rollback(ctx); rbErr != nil {
-			// Without a clean rollback the transaction stays poisoned and the
-			// receipt cannot commit either — there is nothing left to record
-			// the fault on, so the log is the whole record.
-			slog.ErrorContext(ctx, "comms: rolling back the identity reconcile",
-				"err", rbErr, "cause", reKeyErr, "delivery_id", deliveryID)
-			return
-		}
-		s.breadcrumb(ctx, tx, deliveryID, staged, stamped, reKeyErr)
-		return
-	}
-	if err := sp.Commit(ctx); err != nil {
-		slog.ErrorContext(ctx, "comms: committing the identity reconcile",
-			"err", err, "delivery_id", deliveryID)
-	}
-}
-
-// reKey writes the stamped identity onto the delivery and then hands the
-// timeline row to the module that owns it.
-//
-// thread_key moves ONLY when it equalled the message's own identity, the same
-// condition the activity side applies and for the same reason: a conversation
-// ROOT re-roots onto the identity the world will reply to, while a REPLY's
-// thread key is the root of the conversation it joined and belongs to that
-// conversation, not to this message.
-func (s *Store) reKey(ctx context.Context, tx pgx.Tx, deliveryID ids.UUID, activityID ids.ActivityID, staged, stamped string) error {
-	if _, err := tx.Exec(ctx, `
-		UPDATE comms_outbound
-		   SET message_id  = $2,
-		       thread_key  = CASE WHEN thread_key = $3 THEN $2 ELSE thread_key END
-		 WHERE id = $1`, deliveryID, stamped, staged); err != nil {
-		return fmt.Errorf("comms: re-keying the delivery: %w", err)
-	}
-	return s.identity.ReconcileMessageIdentityTx(ctx, tx, activityID, staged, stamped)
-}
-
-// breadcrumb records a re-key this installation could not complete, on the
-// caller's transaction AFTER the savepoint has been rolled back — writing it
-// on the poisoned savepoint would fail with the fault it is trying to report.
-// The delivery keeps the identity it was staged under, so the operator reading
-// this row is reading why one message will appear on the timeline twice.
-func (s *Store) breadcrumb(ctx context.Context, tx pgx.Tx, deliveryID ids.UUID, staged, stamped string, cause error) {
-	if _, err := storekit.LogSystem(ctx, tx, "comms_identity_reconcile_failed", map[string]any{
-		"delivery_id":         deliveryID.String(),
-		"staged_message_id":   staged,
-		"provider_message_id": stamped,
-		"reason":              cause.Error(),
-	}); err != nil {
-		slog.ErrorContext(ctx, "comms: recording the identity-reconcile fault",
-			"err", err, "cause", cause, "delivery_id", deliveryID)
-	}
 }
 
 // Park ends a delivery that no retry repairs, recording why in words an

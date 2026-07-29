@@ -50,15 +50,16 @@ func replyFrom(quoting string) []byte {
 		"That works for us.\r\n")
 }
 
-// activityKeyedOn resolves the one activity holding a natural key, and insists
-// there is exactly one. The count IS the assertion in most of what follows: two
-// rows on one message is the defect, and zero means the key never moved.
-func (p *preflightEnv) activityKeyedOn(t *testing.T, sourceID string) ids.UUID {
+// activityOnTheStampedIdentity resolves the one activity holding the identity
+// the provider minted, and insists there is exactly one. The count IS the
+// assertion in most of what follows: two rows on one message is the defect, and
+// zero means the key never moved.
+func (p *preflightEnv) activityOnTheStampedIdentity(t *testing.T) ids.UUID {
 	t.Helper()
 	var found []ids.UUID
 	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
 		rows, err := tx.Query(context.Background(),
-			`SELECT id FROM activity WHERE source_system = 'gmail' AND source_id = $1`, sourceID)
+			`SELECT id FROM activity WHERE source_system = 'gmail' AND source_id = $1`, gmailStamped)
 		if err != nil {
 			return err
 		}
@@ -72,12 +73,26 @@ func (p *preflightEnv) activityKeyedOn(t *testing.T, sourceID string) ids.UUID {
 		}
 		return rows.Err()
 	}); err != nil {
-		t.Fatalf("reading the activities keyed on %q: %v", sourceID, err)
+		t.Fatalf("reading the activities keyed on %q: %v", gmailStamped, err)
 	}
 	if len(found) != 1 {
-		t.Fatalf("%d activities are keyed on %q, want exactly 1: %v", len(found), sourceID, found)
+		t.Fatalf("%d activities are keyed on %q, want exactly 1: %v", len(found), gmailStamped, found)
 	}
 	return found[0]
+}
+
+// countActivities counts the workspace's activities matching one predicate —
+// the shape both cases here use to insist a discarded identity is left behind
+// on nothing.
+func (p *preflightEnv) countActivities(t *testing.T, where string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM activity WHERE `+where, args...).Scan(&n)
+	}); err != nil {
+		t.Fatalf("counting the activities matching %q: %v", where, err)
+	}
+	return n
 }
 
 // captureEcho drives the real sink with the provider's own copy of a message,
@@ -91,6 +106,86 @@ func (p *preflightEnv) captureEcho(t *testing.T, stored []byte) {
 	if _, err := capture.NewSink(p.pool).Upsert(p.connectorCtx(t),
 		msg.AttestSentByOwner(true).ToRecord("gmail", stored)); err != nil {
 		t.Fatalf("capturing the provider's own copy: %v", err)
+	}
+}
+
+// echoAlreadyCaptured is the provider's own copy of a message it has not been
+// asked to send yet — the race the absorb exists for, written as bytes rather
+// than as rows so the sink derives the natural key the way it always does.
+// Same From/To as the send, so mailmap reads it as this mailbox's outbound
+// correspondence, and keyed on the identity the provider is about to stamp.
+func echoAlreadyCaptured(subject, stamped string) []byte {
+	return []byte("From: " + sendingMailbox + "\r\n" +
+		"To: buyer@preflight.test\r\n" +
+		"Subject: " + subject + "\r\n" +
+		"Message-ID: <" + stamped + ">\r\n" +
+		"\r\n" +
+		"As discussed.\r\n")
+}
+
+// THE ABSORB, in the shape production actually runs it: the echo wins the race,
+// so the unique violation fires two savepoints deep — inside the activities
+// re-key savepoint, inside the delivery store's reconcile savepoint, inside the
+// receipt's transaction — with the real reconciler rather than a stub. The
+// module-level suite drives one savepoint shallower and the stubbed comms case
+// proves only degradation, so this composition of the machinery is not
+// otherwise run by anything.
+//
+// The breadcrumb count is what separates the two outcomes: an absorb that
+// worked and a savepoint that quietly gave up both leave one row on the key.
+func TestAnEchoCapturedBeforeTransmitIsAbsorbedByTheReceiptItself(t *testing.T) {
+	p := setupPreflight(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	const subject = "Re: Inbound question"
+	sentActivity := p.sendExpectingAcceptance(t, "transactional", subject, "As discussed.")
+	deliveryID, mintedIdentity := p.deliveryFor(t, sentActivity)
+	// Captured BEFORE the transmission is recorded, which is the whole race:
+	// the row the re-key is about to claim the identity of already exists.
+	p.captureEcho(t, echoAlreadyCaptured(subject, gmailStamped))
+	echo := p.activityOnTheStampedIdentity(t)
+	if echo == sentActivity {
+		t.Fatal("the seeded echo IS the send's row — nothing would collide and this case would prove nothing")
+	}
+
+	p.transmit(t, deliveryID, gmailStamped)
+
+	if id := p.activityOnTheStampedIdentity(t); id != sentActivity {
+		t.Fatalf("the stamped identity resolves to %s, want the send's own activity %s — the absorb did not happen", id, sentActivity)
+	}
+	if stale := p.countActivities(t, `source_id = $1`, mintedIdentity); stale != 0 {
+		t.Errorf("%d activities still carry the minted identity %q, which exists in no mailbox", stale, mintedIdentity)
+	}
+	// The echo is folded in, not destroyed: its attachments, provenance and
+	// embeddings stay reachable through a row that still exists, and a sent
+	// email under a statutory retention floor is not something a de-duplication
+	// may destroy.
+	var archived bool
+	var released bool
+	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT archived_at IS NOT NULL, source_id IS NULL FROM activity WHERE id = $1`, echo).
+			Scan(&archived, &released)
+	}); err != nil {
+		t.Fatalf("reading the absorbed echo back: %v — the absorb destroyed a row it may only fold in", err)
+	}
+	if !archived {
+		t.Error("the absorbed echo is still on the timeline — the send appears twice")
+	}
+	if !released {
+		t.Error("the absorbed echo still holds the natural key it was folded in over")
+	}
+	// Zero breadcrumbs is what distinguishes an absorb that worked from a
+	// savepoint that silently degraded to "receipt recorded, one duplicate".
+	var faults int
+	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT count(*) FROM system_log WHERE action = 'comms_identity_reconcile_failed'`).Scan(&faults)
+	}); err != nil {
+		t.Fatalf("counting reconcile-fault breadcrumbs: %v", err)
+	}
+	if faults != 0 {
+		t.Errorf("%d reconcile-fault breadcrumbs, want 0 — the reconcile degraded instead of absorbing", faults)
 	}
 }
 
@@ -110,7 +205,7 @@ func TestAGmailRewrittenIdentityStillYieldsOneActivityAndOneReplyTarget(t *testi
 
 	// The reconcile ran inside RecordSent: the row the human reads is now keyed
 	// on the identity the world can see, and the delivery agrees with it.
-	if id := p.activityKeyedOn(t, gmailStamped); id != sentActivity {
+	if id := p.activityOnTheStampedIdentity(t); id != sentActivity {
 		t.Fatalf("the stamped identity resolves to %s, want the send's own activity %s", id, sentActivity)
 	}
 	var deliveryMessageID string
@@ -129,18 +224,11 @@ func TestAGmailRewrittenIdentityStillYieldsOneActivityAndOneReplyTarget(t *testi
 	// the sync re-reads it; the bytes are the ones the provider stored, and the
 	// key comes out of them through the connector's own mapping.
 	p.captureEcho(t, storedCopy(t, transmitted, gmailStamped))
-	if id := p.activityKeyedOn(t, gmailStamped); id != sentActivity {
+	if id := p.activityOnTheStampedIdentity(t); id != sentActivity {
 		t.Fatalf("after capturing the echo, the stamped identity resolves to %s, want the send's own activity %s — the send appears twice", id, sentActivity)
 	}
 	// And nothing is left behind under the identity the provider discarded.
-	var stale int
-	if err := p.inWorkspace(t, p.slug, func(tx pgx.Tx) error {
-		return tx.QueryRow(context.Background(),
-			`SELECT count(*) FROM activity WHERE source_id = $1`, mintedIdentity).Scan(&stale)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if stale != 0 {
+	if stale := p.countActivities(t, `source_id = $1`, mintedIdentity); stale != 0 {
 		t.Errorf("%d activities still carry the minted identity %q, which exists in no mailbox", stale, mintedIdentity)
 	}
 
