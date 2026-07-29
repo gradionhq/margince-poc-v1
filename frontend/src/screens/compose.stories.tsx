@@ -41,6 +41,9 @@ const DRAFT: components["schemas"]["EmailDraft"] = {
   to: ["buyer@acme.test"],
   ai_generated: true,
   ai_disclosure: "AI-assisted draft (Art. 50): reviewed and sent by a human.",
+  // No voice profile shaped this draft (voice_profile_version stays unset),
+  // so there is no served voice draft to key a learning outcome against.
+  draft_ref: null,
 };
 
 // Renders the composer over a given route map, always serving the consent

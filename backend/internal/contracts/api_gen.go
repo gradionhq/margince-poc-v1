@@ -11049,9 +11049,16 @@ type SendEmailRequest struct {
 	// ConsentPurpose The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
 	// The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
 	// `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
-	ConsentPurpose string                `json:"consent_purpose"`
-	Subject        string                `json:"subject"`
-	To             []openapi_types.Email `json:"to"`
+	ConsentPurpose string `json:"consent_purpose"`
+
+	// DraftRef Opaque reference returned by the drafting operation. After a successful send, the
+	// server compares this protected original with the final body and records accepted or
+	// edited-and-sent metadata. Only a guarded, human-authored final edit may become a
+	// `draft_signal` corpus source. Omit for independently composed mail; no voice-learning
+	// outcome is inferred without a valid reference.
+	DraftRef *string               `json:"draft_ref,omitempty"`
+	Subject  string                `json:"subject"`
+	To       []openapi_types.Email `json:"to"`
 }
 
 // SetAiModelRateRequest defines model for SetAiModelRateRequest.
