@@ -41,7 +41,53 @@ const DRAFT: components["schemas"]["EmailDraft"] = {
   to: ["buyer@acme.test"],
   ai_generated: true,
   ai_disclosure: "AI-assisted draft (Art. 50): reviewed and sent by a human.",
+  // A voice-styled draft: the profile version is the provenance the banner
+  // reports, and the reference is what a send or a discard binds its outcome
+  // to. Both are null on a draft no voice profile shaped.
+  voice_profile_version: 3,
+  draft_ref: "vd-1",
 };
+
+// The owner's profile behind that draft, in the middle maturity band — the
+// state that adds the provisional label to the disclosure banner.
+const VOICE_PROFILE = {
+  data: [
+    {
+      id: "vp-1",
+      owner_id: "u1",
+      status: "ready",
+      maturity: "provisional",
+      quality_band: "thin",
+      voice_profile_md: "Short sentences. Concrete nouns.",
+      profile_version: 3,
+      personality_md: "",
+      auto_learning_enabled: false,
+      active_source_hash: null,
+      candidate_version: null,
+      last_built_at: null,
+      source: "manual",
+      captured_by: "human:u1",
+      version: 1,
+      created_at: "2026-07-01T00:00:00Z",
+      updated_at: "2026-07-01T00:00:00Z",
+      archived_at: null,
+    },
+  ],
+  page: { next_cursor: null, has_more: false },
+};
+
+// The 422 body httperr.Validation actually emits: the top-level `code` is the
+// same for every validation problem, and the rule that fired is named per
+// field under details.errors. A story that hoisted the specific code to the
+// top level would frame a refusal the server cannot produce.
+function validationProblem(field: string, code: string, message: string) {
+  return {
+    code: "validation_error",
+    title: "Unprocessable Entity",
+    detail: message,
+    details: { errors: [{ field, code, message }] },
+  };
+}
 
 // Renders the composer over a given route map, always serving the consent
 // purposes the purpose selector needs on top of the story's own routes.
@@ -92,9 +138,12 @@ export const Empty: Story = {
   render: composeStory({}),
 };
 
-// "Draft with AI" fills To/Subject/Body from the returned EmailDraft.
+// "Draft with AI" fills To/Subject/Body from the returned EmailDraft and
+// discloses it: the Art. 50 banner, the voice version that styled it, and the
+// provisional label its profile currently carries.
 export const Drafted: Story = {
   render: composeStory({
+    "GET /voice-profiles": () => jsonResponse(VOICE_PROFILE),
     "POST /activities/act-1/draft-email": () => jsonResponse(DRAFT),
   }),
   play: async ({ canvasElement }) => {
@@ -118,6 +167,47 @@ export const ConsentBlocked: Story = {
           detail: "suppressed",
         },
         409,
+      ),
+  }),
+  play: async ({ canvasElement }) => {
+    await fillAndSend(canvasElement);
+  },
+};
+
+// The mailbox is connected for capture but holds no send grant (422). The
+// refusal names the only fix — reconnect — and links to the connect surface,
+// because the provider will not widen an existing grant in place.
+export const MailboxNotSendCapable: Story = {
+  render: composeStory({
+    "POST /activities/act-1/send-email": () =>
+      jsonResponse(
+        validationProblem(
+          "from",
+          "mailbox_not_send_capable",
+          "reconnect your mailbox to enable sending",
+        ),
+        422,
+      ),
+  }),
+  play: async ({ canvasElement }) => {
+    await fillAndSend(canvasElement);
+  },
+};
+
+// An unsubscribe link carries one recipient's own consent credential, so a
+// send addressed to more than one recipient is refused outright (422). The
+// refusal states the one-address-at-a-time rule instead of the opaque server
+// wording.
+export const SharedUnsubscribeToken: Story = {
+  render: composeStory({
+    "POST /activities/act-1/send-email": () =>
+      jsonResponse(
+        validationProblem(
+          "recipients",
+          "shared_unsubscribe_token",
+          "reaches one addressee at a time",
+        ),
+        422,
       ),
   }),
   play: async ({ canvasElement }) => {

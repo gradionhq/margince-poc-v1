@@ -40,6 +40,10 @@ func (h Handlers) ListSignals(w http.ResponseWriter, r *http.Request, params crm
 		ResolutionState: (*string)(params.ResolutionState),
 		IncludeArchived: params.IncludeArchived != nil && *params.IncludeArchived,
 	}
+	if params.OrganizationId != nil {
+		orgID := ids.UUID(*params.OrganizationId)
+		in.OrganizationID = &orgID
+	}
 	signals, page, err := h.store.ListSignals(r.Context(), in)
 	if err != nil {
 		writeStoreErr(w, r, err)

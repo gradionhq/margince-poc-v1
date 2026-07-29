@@ -17,6 +17,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // foreignWorkspaceCtx seeds a second, unrelated workspace and returns a
@@ -41,7 +42,7 @@ func TestDeliveryIsInvisibleAndUnmutableFromAnotherWorkspace(t *testing.T) {
 	if _, err := e.store.Load(other, id); err != ErrTerminal {
 		t.Fatalf("Load from another workspace: got %v, want ErrTerminal (RLS must hide the row entirely)", err)
 	}
-	if err := e.store.RecordSent(other, id, "stolen-receipt"); err != ErrTerminal {
+	if err := e.store.RecordSent(other, id, connector.SendReceipt{ProviderMessageID: "stolen-receipt"}); err != ErrTerminal {
 		t.Fatalf("RecordSent from another workspace: got %v, want ErrTerminal", err)
 	}
 	if err := e.store.Park(other, id, "stolen-park"); err != ErrTerminal {

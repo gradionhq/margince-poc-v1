@@ -40,6 +40,12 @@ type Store struct {
 	// (WithMailbox wires it) and the delivery path still refuses at
 	// transmission.
 	mailbox MailboxAuthority
+	// draftOutcome resolves the voice learning signal a served AI draft
+	// opened; nil records nothing (WithDraftOutcome wires it). On the STORE
+	// for the same reason unsubscribe is: the MCP send tool calls the store
+	// directly, and a signal closed on one transport only is a corpus built
+	// from half the sends.
+	draftOutcome DraftOutcomeRecorder
 }
 
 func NewStore(pool *pgxpool.Pool) *Store {

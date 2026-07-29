@@ -396,20 +396,36 @@ type OutboundMessage struct {
 // the copy the provider files back would key onto no activity.
 var ErrInvalidMessageID = errors.New("connector: outbound message carries no usable RFC822 message identity")
 
+// maxMessageIDLen bounds a message identity at a length a header can actually
+// carry. RFC 5322 caps a header line at 998 octets, and this system renders the
+// identity into Message-ID, In-Reply-To and a References chain that holds
+// several of them at once, so the usable ceiling is far below that line limit
+// — 512 is already an order of magnitude above what any provider mints (a
+// Gmail identity is around forty characters). The bound matters because an
+// identity is not only rendered: it is READ BACK out of a provider response of
+// up to 96 MiB and adopted as a natural key, a thread key and a log field. An
+// unbounded "valid" identity is a remote party choosing how many bytes this
+// installation stores per sent message.
+const maxMessageIDLen = 512
+
 // ValidMessageID reports whether id is a usable RFC822 message identity in the
 // UNBRACKETED form this system stores and compares: an addr-spec with exactly
-// one '@', both sides non-empty, and no whitespace, angle brackets, or ASCII
-// control character (the connector adds the brackets at the wire). Control
-// characters are rejected wholesale, not just the tab/CR/LF an editor is
-// likely to type: any of them would render a malformed Message-ID header on
-// the wire, and a provider that mangles or strips one on receipt breaks the
-// retry path's rfc822msgid: lookup — the search that stops an at-least-once
-// redelivery from mailing the recipient twice.
+// one '@', both sides non-empty, no whitespace, angle brackets, or ASCII
+// control character (the connector adds the brackets at the wire), and no
+// longer than a header line can carry. Control characters are rejected
+// wholesale, not just the tab/CR/LF an editor is likely to type: any of them
+// would render a malformed Message-ID header on the wire, and a provider that
+// mangles or strips one on receipt breaks the retry path's rfc822msgid: lookup
+// — the search that stops an at-least-once redelivery from mailing the
+// recipient twice.
 //
 // It is the ONE spelling of that question, so the identity a send transmits
-// under and the identity a threading header is derived from cannot disagree
-// about what counts.
+// under, the identity a threading header is derived from, and the identity a
+// provider reports back cannot disagree about what counts.
 func ValidMessageID(id string) bool {
+	if len(id) > maxMessageIDLen {
+		return false
+	}
 	local, domain, found := strings.Cut(id, "@")
 	if !found || local == "" || domain == "" || strings.Contains(domain, "@") {
 		return false
@@ -435,7 +451,8 @@ func (m OutboundMessage) Validate() error {
 	return nil
 }
 
-// SendReceipt is what the provider confirmed: its own message identity.
+// SendReceipt is what the provider confirmed: its own message identity, and
+// the RFC822 identity the transmitted copy actually carries.
 //
 // The provider's CONVERSATION id is deliberately absent. This system threads on
 // the RFC822 message identity — comms_outbound.thread_key and activity.thread_key
@@ -443,6 +460,29 @@ func (m OutboundMessage) Validate() error {
 // capture keys reply detection on. A provider's own conversation id (Gmail's
 // threadId) lives in a different namespace, joins nothing here, and carrying it
 // would invite a reader to key on a value no query reads.
+//
+// The RFC822 identity is the opposite case, and the distinction is worth
+// holding onto: it joins everything here. A Message-ID is a REQUEST, not a
+// guarantee — Gmail discards the client's and mints its own — so the identity
+// this system records has to be the one the wire carries, not the one it asked
+// for.
 type SendReceipt struct {
 	ProviderMessageID string
+	// RFC822MessageID is the unbracketed Message-ID on the transmitted copy.
+	//
+	// EMPTY covers two different facts, and they are deliberately not
+	// distinguished HERE. No re-key is OWED — the provider honoured the
+	// identity it was given, or reports none — or no re-key is POSSIBLE,
+	// because the read-back could not be answered. The first is a correct
+	// no-op. The second is a degradation: on a provider that rewrites, the
+	// message stays keyed on an identity the wire does not carry, and its
+	// captured echo lands as a second timeline row.
+	//
+	// The field stays a plain identity because the alternative is worse at this
+	// seam: a receipt that reported "unknown" would be asking every caller to
+	// carry a recovery path, and the recovery does not belong to the caller.
+	// ProviderMessageID is durable on the delivery, so a later pass can re-ask
+	// the provider for the identity of a message it already accepted — that
+	// pass is the fix for the degradation, and it is not in this change.
+	RFC822MessageID string
 }

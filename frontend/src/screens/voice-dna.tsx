@@ -11,6 +11,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
+import { ensureProfileId, useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
 
@@ -18,34 +19,17 @@ type VoiceProfile = components["schemas"]["VoiceProfile"];
 type VoiceCorpusSource = components["schemas"]["VoiceCorpusSource"];
 type VoiceCorpusSummary = components["schemas"]["VoiceCorpusSummary"];
 
-// The owner's single Voice DNA (listVoiceProfiles caps at one). Owner-private
-// and human-only server-side; this card is the "…later in Settings" surface the
-// onboarding Voice step promises.
-function useVoiceProfile() {
-  return useQuery({
-    queryKey: ["voice-profile"],
-    queryFn: async (): Promise<VoiceProfile | null> => {
-      const { data, error } = await api.GET("/voice-profiles");
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data.data[0] ?? null;
-    },
-  });
-}
-
 type CorpusManifest = {
   sources: VoiceCorpusSource[];
   summary: VoiceCorpusSummary;
 };
 
-function useVoiceSources(profileId: string | undefined) {
+function useVoiceSources(profileId: string) {
   return useQuery({
     queryKey: ["voice-sources", profileId],
-    enabled: Boolean(profileId),
     queryFn: async (): Promise<CorpusManifest> => {
       const { data, error } = await api.GET("/voice-profiles/{id}/sources", {
-        params: { path: { id: profileId as string } },
+        params: { path: { id: profileId } },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -54,6 +38,12 @@ function useVoiceSources(profileId: string | undefined) {
     },
   });
 }
+
+// The two ADR-0066 maturity thresholds, mirrored so the build control can say
+// how far a corpus still has to go. The SERVER decides what state a profile is
+// in (VoiceProfile.maturity); these only phrase the distance to the next one.
+const VOICE_FIRST_BUILD_WORDS = 800;
+const VOICE_FULL_BUILD_WORDS = 4000;
 
 // bandFor mirrors the server's §B1.4 thresholds so the removal warning can
 // predict a drop before it happens; the server remains the authority.
@@ -70,8 +60,11 @@ function bandFor(totalWords: number): string {
   return "sharp";
 }
 
+// The "…later in Settings" surface the onboarding Voice step promises: the
+// owner's own profile, its corpus, and its builds.
 export function VoiceDnaCard() {
   const t = useT();
+  const qc = useQueryClient();
   const profile = useVoiceProfile();
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
@@ -84,10 +77,24 @@ export function VoiceDnaCard() {
           data ? (
             <VoiceDnaBody profile={data} />
           ) : (
-            <EmptyState>
-              <b>{t("settings.voice.emptyTitle")}</b>
-              <p className="t-small">{t("settings.voice.emptyBody")}</p>
-            </EmptyState>
+            // The empty state promises samples can be added "below", and a
+            // profile is minted by the first add rather than by a step of its
+            // own — so the add control has to render here too. Without it an
+            // owner who skipped the onboarding voice step could never start a
+            // Voice DNA at all, and the whole card below (corpus, builds,
+            // sample drafts) stayed unreachable.
+            <>
+              <EmptyState>
+                <b>{t("settings.voice.emptyTitle")}</b>
+                <p className="t-small">{t("settings.voice.emptyBody")}</p>
+              </EmptyState>
+              <CorpusSources
+                profileId={null}
+                onChanged={() =>
+                  qc.invalidateQueries({ queryKey: ["voice-profile"] })
+                }
+              />
+            </>
           )
         }
       </QueryGate>
@@ -145,15 +152,12 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
       {/* The insights panel also carries the candidate-review banner, so it
           renders for EVERY profile state: a review-required first build must
           be actionable while the profile is still collecting. */}
-      <ActiveVoiceInsights
-        profileId={profile.id as string}
-        onChanged={invalidate}
-      />
+      <ActiveVoiceInsights profileId={profile.id} onChanged={invalidate} />
       {profile.status !== "ready" && <DerivedVoice profile={profile} />}
       <PersonalityEditor profile={profile} onSaved={invalidate} />
-      <CorpusSources profileId={profile.id as string} onChanged={invalidate} />
+      <CorpusSources profileId={profile.id} onChanged={invalidate} />
       <BuildControls profile={profile} onBuilt={invalidate} />
-      <VoiceHistory profileId={profile.id as string} onChanged={invalidate} />
+      <VoiceHistory profileId={profile.id} onChanged={invalidate} />
     </div>
   );
 }
@@ -187,7 +191,7 @@ function PersonalityEditor({
     mutationFn: async () => {
       const { error: err } = await api.PATCH("/voice-profiles/{id}", {
         params: {
-          path: { id: profile.id as string },
+          path: { id: profile.id },
           header: { "If-Match": String(profile.version) },
         },
         body: { personality_md: text },
@@ -204,7 +208,7 @@ function PersonalityEditor({
   });
   const dirty = text !== profile.personality_md;
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
+    <div className="vdna-composer">
       <div className="vdna-label">{t("settings.voice.personalityLabel")}</div>
       <textarea
         className="textarea"
@@ -213,57 +217,31 @@ function PersonalityEditor({
         placeholder={t("settings.voice.personalityPlaceholder")}
         onChange={(e) => setText(e.target.value)}
       />
-      {error && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {error}
-        </p>
-      )}
-      <Button
-        small
-        disabled={!dirty || save.isPending}
-        onClick={() => save.mutate()}
-        style={{ marginTop: "var(--space-2)" }}
-      >
-        {t("settings.voice.savePreferences")}
-      </Button>
+      <div className="vdna-composer-actions">
+        <Button
+          small
+          disabled={!dirty || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {t("settings.voice.savePreferences")}
+        </Button>
+        {error && <span className="t-small">{error}</span>}
+      </div>
     </div>
   );
 }
 
-function CorpusSources({
+// The corpus a profile already holds: the meter, its register mix, and the
+// removable rows. It renders only once a profile exists — before that there is
+// no corpus to read, and asking for one would be a request against an id
+// nobody has minted yet.
+function CorpusManifest({
   profileId,
   onChanged,
 }: Readonly<{ profileId: string; onChanged: () => void }>) {
   const t = useT();
   const sources = useVoiceSources(profileId);
-  const [paste, setPaste] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  const add = useMutation({
-    mutationFn: async () => {
-      const { error: err } = await api.POST("/voice-profiles/{id}/sources", {
-        params: { path: { id: profileId } },
-        body: {
-          kind: "other",
-          register: "general",
-          weight: 1,
-          source_label: t("settings.voice.pastedLabel"),
-          source_ref: `settings:paste:${Date.now()}`,
-          format: "text",
-          content: paste,
-        },
-      });
-      if (err) {
-        throw new Error(problemMessage(err));
-      }
-    },
-    onSuccess: () => {
-      setPaste("");
-      setError(null);
-      onChanged();
-    },
-    onError: (e: Error) => setError(e.message),
-  });
 
   const remove = useMutation({
     mutationFn: async (sourceId: string) => {
@@ -275,13 +253,15 @@ function CorpusSources({
         throw new Error(problemMessage(err));
       }
     },
-    onSuccess: onChanged,
+    onSuccess: () => {
+      setError(null);
+      onChanged();
+    },
     onError: (e: Error) => setError(e.message),
   });
 
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
-      <div className="vdna-label">{t("settings.voice.corpusLabel")}</div>
+    <>
       <QueryGate query={sources}>
         {(manifest) => (
           <div>
@@ -310,27 +290,88 @@ function CorpusSources({
           </div>
         )}
       </QueryGate>
-      <textarea
-        className="textarea"
-        rows={3}
-        value={paste}
-        placeholder={t("settings.voice.addPlaceholder")}
-        onChange={(e) => setPaste(e.target.value)}
-        style={{ marginTop: "var(--space-2)" }}
-      />
       {error && (
         <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
           {error}
         </p>
       )}
-      <Button
-        small
-        disabled={paste.trim().length === 0 || add.isPending}
-        onClick={() => add.mutate()}
-        style={{ marginTop: "var(--space-2)" }}
-      >
-        {t("settings.voice.addSource")}
-      </Button>
+    </>
+  );
+}
+
+// A null profileId is the owner who has never built a voice: the paste box is
+// the same one, but the add resolves the profile through the shared
+// ensureProfileId first, so the very first sample mints the one profile the
+// onboarding step would have minted — never a second one beside it.
+function CorpusSources({
+  profileId,
+  onChanged,
+}: Readonly<{ profileId: string | null; onChanged: () => void }>) {
+  const t = useT();
+  const [paste, setPaste] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const first = profileId === null;
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const id = profileId ?? (await ensureProfileId());
+      const { error: err } = await api.POST("/voice-profiles/{id}/sources", {
+        params: { path: { id } },
+        body: {
+          kind: "other",
+          register: "general",
+          weight: 1,
+          source_label: t("settings.voice.pastedLabel"),
+          source_ref: `settings:paste:${Date.now()}`,
+          format: "text",
+          content: paste,
+        },
+      });
+      if (err) {
+        throw new Error(problemMessage(err));
+      }
+    },
+    onSuccess: () => {
+      setPaste("");
+      setError(null);
+      onChanged();
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  return (
+    <div className="vdna-composer">
+      <div className="vdna-label">
+        {first
+          ? t("settings.voice.addFirstLabel")
+          : t("settings.voice.corpusLabel")}
+      </div>
+      {profileId !== null && (
+        <CorpusManifest profileId={profileId} onChanged={onChanged} />
+      )}
+      {/* The first sample is the one a user pastes a whole email into, so it
+          opens tall enough to show one without scrolling; a later addition to
+          an established corpus is a smaller act and gets a smaller box. */}
+      <textarea
+        className="textarea"
+        rows={first ? 8 : 4}
+        value={paste}
+        placeholder={t("settings.voice.addPlaceholder")}
+        onChange={(e) => setPaste(e.target.value)}
+      />
+      <div className="vdna-composer-actions">
+        <Button
+          small
+          variant={first ? "primary" : undefined}
+          disabled={paste.trim().length === 0 || add.isPending}
+          onClick={() => add.mutate()}
+        >
+          {first
+            ? t("settings.voice.addFirstCta")
+            : t("settings.voice.addSource")}
+        </Button>
+        {error && <span className="t-small">{error}</span>}
+      </div>
     </div>
   );
 }
@@ -450,7 +491,7 @@ function BuildControls({
       "succeeded" | "failed" | "deferred" | "pending"
     > => {
       const created = await api.POST("/voice-profiles/{id}/builds", {
-        params: { path: { id: profile.id as string } },
+        params: { path: { id: profile.id } },
         body: { reason: "manual" },
       });
       if (created.error) {
@@ -460,7 +501,7 @@ function BuildControls({
       for (let attempt = 0; attempt < 40; attempt++) {
         const { data, error: err } = await api.GET(
           "/voice-profiles/{id}/builds/{buildId}",
-          { params: { path: { id: profile.id as string, buildId } } },
+          { params: { path: { id: profile.id, buildId } } },
         );
         if (err) {
           throw new Error(problemMessage(err));
@@ -488,29 +529,54 @@ function BuildControls({
     onError: (e: Error) => setError(e.message),
   });
 
+  // The corpus summary rides the same query key CorpusManifest already read,
+  // so asking for the word total here costs no extra request.
+  const corpus = useVoiceSources(profile.id);
+  // maturity is the SERVER's verdict on whether a build can say anything, so
+  // it — not a locally recomputed threshold — decides whether the button is
+  // offered. The word counts below only phrase the distance to the next state.
+  const tooThin = profile.maturity === "collecting";
+  // The distance is quoted only from a corpus total that actually loaded. A
+  // failed fetch would otherwise read as zero words and announce a confident
+  // "about 800 more words" whose real cause was the failure — the button's
+  // state still follows maturity, which comes from a different request.
+  const words = corpus.isSuccess ? corpus.data.summary.total_words : null;
+  const blocked =
+    tooThin && words !== null
+      ? t("settings.voice.buildNeedsWords", {
+          n: Math.max(0, VOICE_FIRST_BUILD_WORDS - words),
+        })
+      : null;
+  const reach =
+    profile.maturity === "provisional" && words !== null
+      ? t("settings.voice.buildProvisional", {
+          n: Math.max(0, VOICE_FULL_BUILD_WORDS - words),
+        })
+      : null;
+
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
-      <Button
-        variant="primary"
-        small
-        disabled={build.isPending}
-        onClick={() => build.mutate()}
-      >
-        <Sparkles aria-hidden />{" "}
-        {build.isPending
-          ? t("settings.voice.building")
-          : t("settings.voice.rebuild")}
-      </Button>
+    <div className="vdna-composer">
+      {/* The title rides the wrapper, not the button: a disabled control fires
+          no pointer events, so a tooltip on it would never appear at the exact
+          moment someone is asking why they cannot click. */}
+      <span className="vdna-build" title={blocked ?? undefined}>
+        <Button
+          variant="primary"
+          small
+          disabled={build.isPending || tooThin}
+          onClick={() => build.mutate()}
+        >
+          <Sparkles aria-hidden />{" "}
+          {build.isPending
+            ? t("settings.voice.building")
+            : t("settings.voice.rebuild")}
+        </Button>
+      </span>
+      {(blocked ?? reach) && <p className="t-small">{blocked ?? reach}</p>}
       {status && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {t(`settings.voice.buildStatus.${status}`)}
-        </p>
+        <p className="t-small">{t(`settings.voice.buildStatus.${status}`)}</p>
       )}
-      {error && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {error}
-        </p>
-      )}
+      {error && <p className="t-small">{error}</p>}
     </div>
   );
 }

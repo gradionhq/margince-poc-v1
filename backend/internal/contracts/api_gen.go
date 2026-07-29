@@ -3618,6 +3618,87 @@ func (e OrganizationSizeBand) Valid() bool {
 	}
 }
 
+// Defines values for Organization360SectionsOmitted.
+const (
+	Organization360SectionsOmittedActivities       Organization360SectionsOmitted = "activities"
+	Organization360SectionsOmittedDeals            Organization360SectionsOmitted = "deals"
+	Organization360SectionsOmittedListMemberships  Organization360SectionsOmitted = "list_memberships"
+	Organization360SectionsOmittedNextSteps        Organization360SectionsOmitted = "next_steps"
+	Organization360SectionsOmittedPendingApprovals Organization360SectionsOmitted = "pending_approvals"
+	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
+	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
+	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
+	Organization360SectionsOmittedTags             Organization360SectionsOmitted = "tags"
+)
+
+// Valid indicates whether the value is a known member of the Organization360SectionsOmitted enum.
+func (e Organization360SectionsOmitted) Valid() bool {
+	switch e {
+	case Organization360SectionsOmittedActivities:
+		return true
+	case Organization360SectionsOmittedDeals:
+		return true
+	case Organization360SectionsOmittedListMemberships:
+		return true
+	case Organization360SectionsOmittedNextSteps:
+		return true
+	case Organization360SectionsOmittedPendingApprovals:
+		return true
+	case Organization360SectionsOmittedPeople:
+		return true
+	case Organization360SectionsOmittedSinceLastVisit:
+		return true
+	case Organization360SectionsOmittedStrength:
+		return true
+	case Organization360SectionsOmittedTags:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360ContactConsent.
+const (
+	Organization360ContactConsentGranted   Organization360ContactConsent = "granted"
+	Organization360ContactConsentUnknown   Organization360ContactConsent = "unknown"
+	Organization360ContactConsentWithdrawn Organization360ContactConsent = "withdrawn"
+)
+
+// Valid indicates whether the value is a known member of the Organization360ContactConsent enum.
+func (e Organization360ContactConsent) Valid() bool {
+	switch e {
+	case Organization360ContactConsentGranted:
+		return true
+	case Organization360ContactConsentUnknown:
+		return true
+	case Organization360ContactConsentWithdrawn:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360DealStatus.
+const (
+	Organization360DealStatusLost Organization360DealStatus = "lost"
+	Organization360DealStatusOpen Organization360DealStatus = "open"
+	Organization360DealStatusWon  Organization360DealStatus = "won"
+)
+
+// Valid indicates whether the value is a known member of the Organization360DealStatus enum.
+func (e Organization360DealStatus) Valid() bool {
+	switch e {
+	case Organization360DealStatusLost:
+		return true
+	case Organization360DealStatusOpen:
+		return true
+	case Organization360DealStatusWon:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationFactCategory.
 const (
 	OrganizationFactCategoryCompany  OrganizationFactCategory = "company"
@@ -3741,6 +3822,30 @@ func (e OrganizationHierarchyRollupScope) Valid() bool {
 	case OrganizationHierarchyRollupScopeSelf:
 		return true
 	case OrganizationHierarchyRollupScopeTree:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationStrengthBucket.
+const (
+	OrganizationStrengthBucketDormant OrganizationStrengthBucket = "dormant"
+	OrganizationStrengthBucketStrong  OrganizationStrengthBucket = "strong"
+	OrganizationStrengthBucketWarm    OrganizationStrengthBucket = "warm"
+	OrganizationStrengthBucketWeak    OrganizationStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationStrengthBucket enum.
+func (e OrganizationStrengthBucket) Valid() bool {
+	switch e {
+	case OrganizationStrengthBucketDormant:
+		return true
+	case OrganizationStrengthBucketStrong:
+		return true
+	case OrganizationStrengthBucketWarm:
+		return true
+	case OrganizationStrengthBucketWeak:
 		return true
 	default:
 		return false
@@ -4275,6 +4380,21 @@ func (e RecordGrantSubjectType) Valid() bool {
 	case RecordGrantSubjectTypeTeam:
 		return true
 	case RecordGrantSubjectTypeUser:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RecordViewAckEntityType.
+const (
+	RecordViewAckEntityTypeOrganization RecordViewAckEntityType = "organization"
+)
+
+// Valid indicates whether the value is a known member of the RecordViewAckEntityType enum.
+func (e RecordViewAckEntityType) Valid() bool {
+	switch e {
+	case RecordViewAckEntityTypeOrganization:
 		return true
 	default:
 		return false
@@ -6242,16 +6362,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
-	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
+	Active  ListCustomFieldsParamsStatus = "active"
+	Retired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case ListCustomFieldsParamsStatusActive:
+	case Active:
 		return true
-	case ListCustomFieldsParamsStatusRetired:
+	case Retired:
 		return true
 	default:
 		return false
@@ -6647,16 +6767,16 @@ func (e ListProjectsParamsPhase) Valid() bool {
 
 // Defines values for UpdatePreferencesJSONBodyChoicesState.
 const (
-	Granted   UpdatePreferencesJSONBodyChoicesState = "granted"
-	Withdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
+	UpdatePreferencesJSONBodyChoicesStateGranted   UpdatePreferencesJSONBodyChoicesState = "granted"
+	UpdatePreferencesJSONBodyChoicesStateWithdrawn UpdatePreferencesJSONBodyChoicesState = "withdrawn"
 )
 
 // Valid indicates whether the value is a known member of the UpdatePreferencesJSONBodyChoicesState enum.
 func (e UpdatePreferencesJSONBodyChoicesState) Valid() bool {
 	switch e {
-	case Granted:
+	case UpdatePreferencesJSONBodyChoicesStateGranted:
 		return true
-	case Withdrawn:
+	case UpdatePreferencesJSONBodyChoicesStateWithdrawn:
 		return true
 	default:
 		return false
@@ -6821,22 +6941,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	Dropped       ListSignalsParamsResolutionState = "dropped"
-	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	Resolved      ListSignalsParamsResolutionState = "resolved"
-	Unresolved    ListSignalsParamsResolutionState = "unresolved"
+	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
+	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
+	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case Dropped:
+	case ListSignalsParamsResolutionStateDropped:
 		return true
-	case LowConfidence:
+	case ListSignalsParamsResolutionStateLowConfidence:
 		return true
-	case Resolved:
+	case ListSignalsParamsResolutionStateResolved:
 		return true
-	case Unresolved:
+	case ListSignalsParamsResolutionStateUnresolved:
 		return true
 	default:
 		return false
@@ -6845,31 +6965,31 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 
 // Defines values for ListSavedViewsParamsResource.
 const (
-	Activities    ListSavedViewsParamsResource = "activities"
-	Deals         ListSavedViewsParamsResource = "deals"
-	Leads         ListSavedViewsParamsResource = "leads"
-	Organizations ListSavedViewsParamsResource = "organizations"
-	Partners      ListSavedViewsParamsResource = "partners"
-	People        ListSavedViewsParamsResource = "people"
-	Projects      ListSavedViewsParamsResource = "projects"
+	ListSavedViewsParamsResourceActivities    ListSavedViewsParamsResource = "activities"
+	ListSavedViewsParamsResourceDeals         ListSavedViewsParamsResource = "deals"
+	ListSavedViewsParamsResourceLeads         ListSavedViewsParamsResource = "leads"
+	ListSavedViewsParamsResourceOrganizations ListSavedViewsParamsResource = "organizations"
+	ListSavedViewsParamsResourcePartners      ListSavedViewsParamsResource = "partners"
+	ListSavedViewsParamsResourcePeople        ListSavedViewsParamsResource = "people"
+	ListSavedViewsParamsResourceProjects      ListSavedViewsParamsResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
 func (e ListSavedViewsParamsResource) Valid() bool {
 	switch e {
-	case Activities:
+	case ListSavedViewsParamsResourceActivities:
 		return true
-	case Deals:
+	case ListSavedViewsParamsResourceDeals:
 		return true
-	case Leads:
+	case ListSavedViewsParamsResourceLeads:
 		return true
-	case Organizations:
+	case ListSavedViewsParamsResourceOrganizations:
 		return true
-	case Partners:
+	case ListSavedViewsParamsResourcePartners:
 		return true
-	case People:
+	case ListSavedViewsParamsResourcePeople:
 		return true
-	case Projects:
+	case ListSavedViewsParamsResourceProjects:
 		return true
 	default:
 		return false
@@ -10020,6 +10140,146 @@ type OrganizationClassification string
 // OrganizationSizeBand defines model for Organization.SizeBand.
 type OrganizationSizeBand string
 
+// Organization360 The company record page in one payload. Every section except `organization` is
+// optional: absent means the caller lacks its grant, and `sections_omitted` names it.
+type Organization360 struct {
+	Activities *ActivityListResponse `json:"activities,omitempty"`
+
+	// AsOf The instant the assembling transaction read. Sections are consistent to this moment under Read Committed.
+	AsOf time.Time `json:"as_of"`
+
+	// Deals The account's open deals plus the two lifetime figures the header needs.
+	Deals           *Organization360Deals `json:"deals,omitempty"`
+	ListMemberships *[]List               `json:"list_memberships,omitempty"`
+	NextSteps       *struct {
+		Data []Organization360NextStep `json:"data"`
+		Page PageInfo                  `json:"page"`
+	} `json:"next_steps,omitempty"`
+
+	// Organization A company. Mirrors the `organization` table.
+	Organization     Organization `json:"organization"`
+	PendingApprovals *struct {
+		Data []Approval `json:"data"`
+		Page PageInfo   `json:"page"`
+	} `json:"pending_approvals,omitempty"`
+	People *struct {
+		Data []Organization360Contact `json:"data"`
+		Page PageInfo                 `json:"page"`
+	} `json:"people,omitempty"`
+
+	// SectionsOmitted The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
+	SectionsOmitted []Organization360SectionsOmitted `json:"sections_omitted"`
+
+	// SinceLastVisit What changed on this account since the caller last acknowledged seeing it. Read-only:
+	// the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.
+	SinceLastVisit *Organization360SinceLastVisit `json:"since_last_visit,omitempty"`
+
+	// Strength Relationship strength for an ACCOUNT: the §4 score of its strongest current
+	// contact (one strong relationship makes an account warm; an average would dilute
+	// it), plus who carries it and how many contacts it was chosen from. A separate
+	// schema from the person-facing `RelationshipStrength` because those two extra
+	// facts are meaningless on a person.
+	Strength *OrganizationStrength `json:"strength,omitempty"`
+	Tags     *[]Tag                `json:"tags,omitempty"`
+}
+
+// Organization360SectionsOmitted defines model for Organization360.SectionsOmitted.
+type Organization360SectionsOmitted string
+
+// Organization360Contact One current employee of the account, as the company view shows them.
+type Organization360Contact struct {
+	// Consent Consent state keyed by purpose key — per purpose, never one boolean. A purpose
+	// the person has no row for reads `unknown`, which is default-deny for outbound,
+	// not "not applicable".
+	Consent map[string]Organization360ContactConsent `json:"consent"`
+
+	// DealRoles This contact's stakeholder roles on the account's deals (champion, economic_buyer, …).
+	DealRoles    []Organization360DealRole `json:"deal_roles"`
+	FullName     string                    `json:"full_name"`
+	PersonId     openapi_types.UUID        `json:"person_id"`
+	PrimaryEmail *string                   `json:"primary_email,omitempty"`
+
+	// Strength Deterministic relationship-strength (features/07 §4) — a transparent function over captured
+	// interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
+	// interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
+	// `contributing_activity_ids` are the receipts, so the UI can show its inputs — no mystery number.
+	Strength RelationshipStrength `json:"strength"`
+	Title    *string              `json:"title,omitempty"`
+}
+
+// Organization360ContactConsent defines model for Organization360Contact.Consent.
+type Organization360ContactConsent string
+
+// Organization360Deal defines model for Organization360Deal.
+type Organization360Deal struct {
+	// Amount Money as integer minor-units + ISO-4217 currency. Never a float.
+	Amount            *Money              `json:"amount,omitempty"`
+	DealId            openapi_types.UUID  `json:"deal_id"`
+	ExpectedCloseDate *openapi_types.Date `json:"expected_close_date,omitempty"`
+	Name              string              `json:"name"`
+	StageId           *openapi_types.UUID `json:"stage_id,omitempty"`
+	StageName         *string             `json:"stage_name,omitempty"`
+
+	// Stalled No linked activity inside the pipeline's stall window.
+	Stalled bool `json:"stalled"`
+
+	// Status Always `open` in the 360's `deals.data` — closed deals are reported by
+	// `won_lifetime` and `lost_count`, not listed. The full vocabulary is declared
+	// because this is the deal's own status field, not a filter echo.
+	Status Organization360DealStatus `json:"status"`
+}
+
+// Organization360DealStatus Always `open` in the 360's `deals.data` — closed deals are reported by
+// `won_lifetime` and `lost_count`, not listed. The full vocabulary is declared
+// because this is the deal's own status field, not a filter echo.
+type Organization360DealStatus string
+
+// Organization360DealRole One contact's stakeholder role on one of the account's deals.
+type Organization360DealRole struct {
+	DealId openapi_types.UUID `json:"deal_id"`
+
+	// Role champion | economic_buyer | blocker | influencer | user; empty when the edge records no role.
+	Role string `json:"role"`
+}
+
+// Organization360Deals The account's open deals plus the two lifetime figures the header needs.
+type Organization360Deals struct {
+	Data      []Organization360Deal `json:"data"`
+	LostCount int                   `json:"lost_count"`
+	Page      PageInfo              `json:"page"`
+
+	// WonLifetime Every won deal on this account, converted at each deal's frozen close-time rate. Never a live re-conversion.
+	WonLifetime Money `json:"won_lifetime"`
+}
+
+// Organization360NextStep One open task on the account, ordered overdue → due → undated.
+type Organization360NextStep struct {
+	ActivityId     openapi_types.UUID  `json:"activity_id"`
+	AssigneeId     *openapi_types.UUID `json:"assignee_id,omitempty"`
+	DueAt          *time.Time          `json:"due_at,omitempty"`
+	LinkedDealId   *openapi_types.UUID `json:"linked_deal_id,omitempty"`
+	LinkedPersonId *openapi_types.UUID `json:"linked_person_id,omitempty"`
+	Overdue        bool                `json:"overdue"`
+	Subject        string              `json:"subject"`
+}
+
+// Organization360SinceLastVisit What changed on this account since the caller last acknowledged seeing it. Read-only:
+// the 360 never advances the baseline — `POST /organizations/{id}/view-ack` does.
+type Organization360SinceLastVisit struct {
+	// BaselineAt The caller's last acknowledged visit, or null if they have never acknowledged one (first visit — counts run from the account's whole history).
+	BaselineAt *time.Time `json:"baseline_at,omitempty"`
+
+	// DealStageMoves Null when the caller has no deal read grant — not counted, as opposed to counted as zero.
+	DealStageMoves *int `json:"deal_stage_moves,omitempty"`
+	NewActivities  int  `json:"new_activities"`
+
+	// PendingProposals Null when the caller cannot triage approvals (an agent principal) — not
+	// counted, as opposed to counted as zero. Saturates at 200: deciding who may
+	// see a staged change is a per-row check, and a badge is not worth making one
+	// record page pay for an unbounded backlog.
+	PendingProposals *int `json:"pending_proposals,omitempty"`
+}
+
 // OrganizationDomain defines model for OrganizationDomain.
 type OrganizationDomain struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
@@ -10109,6 +10369,49 @@ type OrganizationListResponse struct {
 type OrganizationProfileFieldListResponse struct {
 	Data []CompanyProfileField `json:"data"`
 }
+
+// OrganizationStrength defines model for OrganizationStrength.
+type OrganizationStrength struct {
+	// Bucket Coarse band derived from score for display.
+	Bucket OrganizationStrengthBucket `json:"bucket"`
+
+	// ComputedAt When this value was last recomputed (fixed-clock reproducible).
+	ComputedAt *time.Time `json:"computed_at,omitempty"`
+
+	// ContactCount How many current contacts of this account the caller can see and the score was chosen from.
+	ContactCount int `json:"contact_count"`
+
+	// ContributingActivityIds The activities the score was computed from (the receipts behind the number).
+	ContributingActivityIds *[]openapi_types.UUID `json:"contributing_activity_ids,omitempty"`
+
+	// ContributorPersonId The contact whose score this is. Null when the account has no contact the
+	// caller can read — the roll-up is taken over visible contacts only, so a
+	// score that exists always has a nameable contributor behind it.
+	ContributorPersonId *openapi_types.UUID `json:"contributor_person_id,omitempty"`
+
+	// Factors The 0..1 sub-scores the composite was built from (the explanation).
+	Factors struct {
+		Direction   float32 `json:"direction"`
+		Frequency   float32 `json:"frequency"`
+		Recency     float32 `json:"recency"`
+		Reciprocity float32 `json:"reciprocity"`
+	} `json:"factors"`
+
+	// Inbound90d Count of qualifying inbound interactions in the trailing 90-day window.
+	Inbound90d *int `json:"inbound_90d,omitempty"`
+
+	// LastInteraction Timestamp of the most recent qualifying interaction; null when there are none.
+	LastInteraction *time.Time `json:"last_interaction,omitempty"`
+
+	// Outbound90d Count of qualifying outbound interactions in the trailing 90-day window.
+	Outbound90d *int `json:"outbound_90d,omitempty"`
+
+	// Score 0..100 composite.
+	Score int `json:"score"`
+}
+
+// OrganizationStrengthBucket Coarse band derived from score for display.
+type OrganizationStrengthBucket string
 
 // OverlayBudget The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5).
 type OverlayBudget struct {
@@ -10784,6 +11087,16 @@ type RecordGrantRecordType string
 // RecordGrantSubjectType defines model for RecordGrant.SubjectType.
 type RecordGrantSubjectType string
 
+// RecordViewAck The per-user "I have seen this record" baseline, after an acknowledgment.
+type RecordViewAck struct {
+	EntityId     openapi_types.UUID      `json:"entity_id"`
+	EntityType   RecordViewAckEntityType `json:"entity_type"`
+	LastViewedAt time.Time               `json:"last_viewed_at"`
+}
+
+// RecordViewAckEntityType defines model for RecordViewAck.EntityType.
+type RecordViewAckEntityType string
+
 // RefreshAccepted An async refresh was enqueued; proposals will appear in the approvals inbox.
 type RefreshAccepted struct {
 	Status RefreshAcceptedStatus `json:"status"`
@@ -11049,9 +11362,16 @@ type SendEmailRequest struct {
 	// ConsentPurpose The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
 	// The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
 	// `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
-	ConsentPurpose string                `json:"consent_purpose"`
-	Subject        string                `json:"subject"`
-	To             []openapi_types.Email `json:"to"`
+	ConsentPurpose string `json:"consent_purpose"`
+
+	// DraftRef Opaque reference returned by the drafting operation. After a successful send, the
+	// server compares this protected original with the final body and records accepted or
+	// edited-and-sent metadata. Only a guarded, human-authored final edit may become a
+	// `draft_signal` corpus source. Omit for independently composed mail; no voice-learning
+	// outcome is inferred without a valid reference.
+	DraftRef *string               `json:"draft_ref,omitempty"`
+	Subject  string                `json:"subject"`
+	To       []openapi_types.Email `json:"to"`
 }
 
 // SetAiModelRateRequest defines model for SetAiModelRateRequest.
@@ -14510,6 +14830,15 @@ type ListSignalsParams struct {
 	Status          *ListSignalsParamsStatus          `form:"status,omitempty" json:"status,omitempty"`
 	Kind            *ListSignalsParamsKind            `form:"kind,omitempty" json:"kind,omitempty"`
 	ResolutionState *ListSignalsParamsResolutionState `form:"resolution_state,omitempty" json:"resolution_state,omitempty"`
+
+	// OrganizationId Signals about one organization, matched two ways because a signal reaches an
+	// account two ways: the resolver stamps `resolved_org_id` (a contact-subject
+	// signal attributed to the contact's account), and a signal created directly
+	// about the organization carries the `entity_type=organization` subject pair.
+	// Matching only the first arm hides every hand-created account signal.
+	// Deal-subject signals are NOT folded in — a signal about a deal is reported on
+	// that deal, not silently re-attributed to its account.
+	OrganizationId *openapi_types.UUID `form:"organization_id,omitempty" json:"organization_id,omitempty"`
 }
 
 // ListSignalsParamsStatus defines parameters for ListSignals.
@@ -21353,6 +21682,9 @@ type ServerInterface interface {
 	// Update an organization (partial).
 	// (PATCH /organizations/{id})
 	UpdateOrganization(w http.ResponseWriter, r *http.Request, id Id, params UpdateOrganizationParams)
+	// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
+	// (GET /organizations/{id}/360)
+	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id)
 	// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
 	// (POST /organizations/{id}/deep-read)
 	DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -21383,6 +21715,9 @@ type ServerInterface interface {
 	// Relationship strength for an organization (max over current employees).
 	// (GET /organizations/{id}/strength)
 	GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id)
+	// Record that the calling human has now seen this organization — the baseline `since_last_visit` counts from.
+	// (POST /organizations/{id}/view-ack)
+	AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request, id Id)
 	// The incumbent API budget window's consumption and band (ok/warn/shed).
 	// (GET /overlay/budget)
 	GetOverlayBudget(w http.ResponseWriter, r *http.Request)
@@ -22613,6 +22948,12 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
+// (GET /organizations/{id}/360)
+func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
 // (POST /organizations/{id}/deep-read)
 func (_ Unimplemented) DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id) {
@@ -22670,6 +23011,12 @@ func (_ Unimplemented) GetSiteRead(w http.ResponseWriter, r *http.Request, id Id
 // Relationship strength for an organization (max over current employees).
 // (GET /organizations/{id}/strength)
 func (_ Unimplemented) GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Record that the calling human has now seen this organization — the baseline `since_last_visit` counts from.
+// (POST /organizations/{id}/view-ack)
+func (_ Unimplemented) AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29992,6 +30339,40 @@ func (siw *ServerInterfaceWrapper) UpdateOrganization(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganization360 operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganization360(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganization360(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeepReadCompany operation middleware
 func (siw *ServerInterfaceWrapper) DeepReadCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -30434,6 +30815,40 @@ func (siw *ServerInterfaceWrapper) GetOrganizationStrength(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOrganizationStrength(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AcknowledgeOrganizationView operation middleware
+func (siw *ServerInterfaceWrapper) AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AcknowledgeOrganizationView(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -34049,6 +34464,19 @@ func (siw *ServerInterfaceWrapper) ListSignals(w http.ResponseWriter, r *http.Re
 		return
 	}
 
+	// ------------- Optional query parameter "organization_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization_id", r.URL.Query(), &params.OrganizationId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "organization_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "organization_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListSignals(w, r, params)
 	}))
@@ -37173,6 +37601,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Patch(options.BaseURL+"/organizations/{id}", wrapper.UpdateOrganization)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/360", wrapper.GetOrganization360)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/deep-read", wrapper.DeepReadCompany)
 	})
 	r.Group(func(r chi.Router) {
@@ -37201,6 +37632,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/strength", wrapper.GetOrganizationStrength)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/view-ack", wrapper.AcknowledgeOrganizationView)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/overlay/budget", wrapper.GetOverlayBudget)
