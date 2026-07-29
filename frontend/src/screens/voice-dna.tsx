@@ -202,7 +202,7 @@ function PersonalityEditor({
   });
   const dirty = text !== profile.personality_md;
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
+    <div className="vdna-composer">
       <div className="vdna-label">{t("settings.voice.personalityLabel")}</div>
       <textarea
         className="textarea"
@@ -211,19 +211,16 @@ function PersonalityEditor({
         placeholder={t("settings.voice.personalityPlaceholder")}
         onChange={(e) => setText(e.target.value)}
       />
-      {error && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {error}
-        </p>
-      )}
-      <Button
-        small
-        disabled={!dirty || save.isPending}
-        onClick={() => save.mutate()}
-        style={{ marginTop: "var(--space-2)" }}
-      >
-        {t("settings.voice.savePreferences")}
-      </Button>
+      <div className="vdna-composer-actions">
+        <Button
+          small
+          disabled={!dirty || save.isPending}
+          onClick={() => save.mutate()}
+        >
+          {t("settings.voice.savePreferences")}
+        </Button>
+        {error && <span className="t-small">{error}</span>}
+      </div>
     </div>
   );
 }
@@ -337,7 +334,7 @@ function CorpusSources({
   });
 
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
+    <div className="vdna-composer">
       <div className="vdna-label">
         {first
           ? t("settings.voice.addFirstLabel")
@@ -346,30 +343,29 @@ function CorpusSources({
       {profileId !== null && (
         <CorpusManifest profileId={profileId} onChanged={onChanged} />
       )}
+      {/* The first sample is the one a user pastes a whole email into, so it
+          opens tall enough to show one without scrolling; a later addition to
+          an established corpus is a smaller act and gets a smaller box. */}
       <textarea
         className="textarea"
-        rows={3}
+        rows={first ? 8 : 4}
         value={paste}
         placeholder={t("settings.voice.addPlaceholder")}
         onChange={(e) => setPaste(e.target.value)}
-        style={{ marginTop: "var(--space-2)" }}
       />
-      {error && (
-        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
-          {error}
-        </p>
-      )}
-      <Button
-        small
-        variant={first ? "primary" : undefined}
-        disabled={paste.trim().length === 0 || add.isPending}
-        onClick={() => add.mutate()}
-        style={{ marginTop: "var(--space-2)" }}
-      >
-        {first
-          ? t("settings.voice.addFirstCta")
-          : t("settings.voice.addSource")}
-      </Button>
+      <div className="vdna-composer-actions">
+        <Button
+          small
+          variant={first ? "primary" : undefined}
+          disabled={paste.trim().length === 0 || add.isPending}
+          onClick={() => add.mutate()}
+        >
+          {first
+            ? t("settings.voice.addFirstCta")
+            : t("settings.voice.addSource")}
+        </Button>
+        {error && <span className="t-small">{error}</span>}
+      </div>
     </div>
   );
 }
