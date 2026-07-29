@@ -119,6 +119,14 @@ func (c *Connector) Send(ctx context.Context, auth connector.Auth, msg connector
 // eventually-consistent search index the retransmission guard is warned about
 // above. The ordering is already right; it does not need "fixing".
 //
+// What comes back is CHECKED before it is reported. These are remote bytes —
+// up to the response cap — and the string parsed out of them becomes a natural
+// key, a thread key and a log field on the strength of this return alone. So it
+// must satisfy connector.ValidMessageID, the same predicate Send refuses to
+// transmit an outbound message without: one addr-spec, no control characters,
+// bounded length. Anything else is reported as no identity at all rather than
+// adopted, which is the already-ratified no-op.
+//
 // EVERY failure returns "". The message has already been transmitted when this
 // runs, and returning an error would hand the delivery back to a retry whose
 // prior-send lookup cannot find a rewritten identity — mailing the recipient a
@@ -141,7 +149,17 @@ func (c *Connector) stampedIdentity(ctx context.Context, access, owner, provider
 		slog.WarnContext(ctx, "gmail: parsing the sent message identity", "err", err)
 		return ""
 	}
-	return parsed.ID()
+	id := parsed.ID()
+	if !connector.ValidMessageID(id) {
+		// The rejected value is deliberately NOT logged: it is unbounded
+		// provider input, and the two facts that diagnose this — that the
+		// read-back answered with something unusable, and how big it was —
+		// carry no risk of writing megabytes or control bytes into a log line.
+		slog.WarnContext(ctx, "gmail: the sent copy carries no usable message identity",
+			"provider_message_id", providerMessageID, "identity_bytes", len(id))
+		return ""
+	}
+	return id
 }
 
 // bracket renders a message identity as RFC 5322 requires it on the wire. The

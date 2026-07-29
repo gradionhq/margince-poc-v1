@@ -417,6 +417,41 @@ func TestSendSucceedsWithNoIdentityWhenTheReadBackFails(t *testing.T) {
 	}
 }
 
+// The read-back is a response from somebody else's server, and what it yields
+// is adopted as this message's natural key, its thread key and a log field. So
+// an answer that is not a shape a message could carry must be reported as NO
+// identity — never propagated, because the message has already been sent, and
+// never adopted, because the caller would key a timeline row on it.
+func TestSendReportsNoIdentityWhenTheReadBackIsNotAUsableOne(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		messageID string
+	}{
+		// Long enough to be a denial-of-storage rather than an identity: it
+		// would be written to two rows and a system_log detail per send.
+		{"absurdly long", strings.Repeat("a", 100_000) + "@mail.gmail.com"},
+		// A control byte inside the identity: on the wire it renders a
+		// malformed header, and stored it is a key nothing can search for.
+		{"control character", "CAF\x01AR1tx@mail.gmail.com"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := sendThenGet(t, sentMessage(tc.messageID))
+			defer srv.Close()
+
+			got, err := sendOne(t, srv)
+			if err != nil {
+				t.Fatalf("Send returned an error after the message was already transmitted: %v", err)
+			}
+			if got.ProviderMessageID != "gmsg1" {
+				t.Errorf("ProviderMessageID = %q, want the receipt to survive an unusable read-back", got.ProviderMessageID)
+			}
+			if got.RFC822MessageID != "" {
+				t.Errorf("RFC822MessageID = %d bytes, want empty: an unusable identity is no identity", len(got.RFC822MessageID))
+			}
+		})
+	}
+}
+
 // Finding a prior send by rfc822msgid: proves the identity was honoured, so
 // the retry path owes no read-back at all.
 func TestSendOnRetryFindsThePriorSendAndReadsNothingBack(t *testing.T) {
