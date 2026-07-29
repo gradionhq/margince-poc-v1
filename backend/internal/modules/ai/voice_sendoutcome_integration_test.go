@@ -420,6 +420,76 @@ func TestRecordSendOutcomeRefusesAForeignOwnersSignalLikeAnAbsentOne(t *testing.
 	env.assertUntouched(t, f)
 }
 
+// The same indistinguishability, one layer down. Draft references are
+// deterministic, so a colleague can compute one for a row they may not touch;
+// answering "nothing to record" is not enough if the row was locked on the way
+// to that answer. That lock waits for the owner's own in-flight send, and a
+// wait is observable — it separates "absent" from "someone else's" exactly as
+// loudly as an error would.
+func TestRecordSendOutcomeNeverLocksAForeignOwnersSignal(t *testing.T) {
+	env := setupSendOutcomeStore(t)
+	f := env.seedDraft(t, draftOptions{foreignOwner: true})
+	env.holdSignalLock(t, f.signal)
+
+	recorded, err := env.recordUnderLockTimeout(f.ctx, t, f.draftRef, seededDraftBody)
+	if err != nil {
+		t.Fatalf("RecordSendOutcomeTx: %v — a foreign reference queued behind the owner's lock instead of reading as absent", err)
+	}
+	if recorded {
+		t.Error("recorded = true for a signal on another human's voice profile")
+	}
+	env.assertUntouched(t, f)
+}
+
+// holdSignalLock takes a row lock on the signal from its own connection and
+// holds it for the rest of the test, standing in for the owner's concurrent
+// send. Plain reads are unaffected, so the assertions still see the row.
+func (e *sendOutcomeEnv) holdSignalLock(t *testing.T, signal ids.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	conn, err := pgx.Connect(ctx, os.Getenv("MARGINCE_TEST_DSN"))
+	if err != nil {
+		t.Fatalf("opening the lock holder's connection: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := conn.Close(context.Background()); err != nil {
+			t.Errorf("closing the lock holder's connection: %v", err)
+		}
+	})
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatalf("opening the lock holder's transaction: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := tx.Rollback(context.Background()); err != nil {
+			t.Errorf("releasing the held lock: %v", err)
+		}
+	})
+	var locked ids.UUID
+	if err := tx.QueryRow(ctx,
+		`SELECT id FROM voice_learning_signal WHERE id = $1 FOR UPDATE`, signal).Scan(&locked); err != nil {
+		t.Fatalf("taking the lock on the signal: %v", err)
+	}
+}
+
+// recordUnderLockTimeout runs the method with a bound on how long any lock it
+// takes may block. A call that must take no lock never spends the bound, so
+// the proof is a returned value rather than a test that waits on the clock; a
+// call that does take one surfaces as an error instead of a hang.
+func (e *sendOutcomeEnv) recordUnderLockTimeout(ctx context.Context, t *testing.T, draftRef, finalBody string) (bool, error) {
+	t.Helper()
+	var recorded bool
+	err := database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '2s'`); err != nil {
+			return err
+		}
+		var err error
+		recorded, err = e.store.RecordSendOutcomeTx(ctx, tx, draftRef, finalBody)
+		return err
+	})
+	return recorded, err
+}
+
 // The outcome is the OWNER's judgment (ADR-0066 §4): an agent's edit is
 // not the owner's authored text, so a non-human principal records nothing.
 func TestRecordSendOutcomeRefusesANonHumanPrincipal(t *testing.T) {

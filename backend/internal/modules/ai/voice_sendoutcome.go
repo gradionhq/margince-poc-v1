@@ -56,7 +56,7 @@ func (s *VoiceStore) RecordSendOutcomeTx(ctx context.Context, tx pgx.Tx, draftRe
 		return false, err
 	}
 
-	signal, judgeable, err := s.lockJudgeableSignal(ctx, tx, draftRef)
+	signal, judgeable, err := s.lockJudgeableSignal(ctx, tx, draftRef, actor.UserID)
 	if err != nil || !judgeable {
 		return false, err
 	}
@@ -108,21 +108,34 @@ type judgeableSignal struct {
 // lockJudgeableSignal finds and locks the signal a draft reference opened.
 // ok=false is every "nothing to record" case, all indistinguishable from
 // each other by design.
-func (s *VoiceStore) lockJudgeableSignal(ctx context.Context, tx pgx.Tx, draftRef string) (judgeableSignal, bool, error) {
+func (s *VoiceStore) lockJudgeableSignal(ctx context.Context, tx pgx.Tx, draftRef string, owner ids.UUID) (judgeableSignal, bool, error) {
 	hash := sha256.Sum256([]byte(draftRef))
 	var (
 		signal            judgeableSignal
 		generatedOriginal *string
 	)
+	// The ownership predicate rides in the lookup rather than following it,
+	// and only the signal is locked: a draft reference is deterministic, so
+	// a colleague who computes one must not be able to take a lock on
+	// another human's row and serialize against that owner's own send. That
+	// wait is observable, and it would tell "absent" and "someone else's"
+	// apart — the oracle over another human's drafts this whole path is
+	// written to deny. The owner match is the same row scope every profile
+	// read goes through, restated here as defence in depth on top of RLS.
+	//
 	// Both the erasure and the archive filter matter. Art. 17 erasure and
 	// the retention sweep NULL the content IN PLACE and leave the row
 	// drafted, so a lookup that ignored content_erased_at would find it,
 	// compare the sent body against a missing original, call that an edit,
 	// and write a fresh judgment over text an erasure already removed.
 	err := tx.QueryRow(ctx, `
-		SELECT id, voice_profile_id, generated_original FROM voice_learning_signal
-		WHERE draft_ref_hash = $1 AND content_erased_at IS NULL AND archived_at IS NULL
-		FOR UPDATE`, hash[:]).Scan(&signal.id, &signal.profileID, &generatedOriginal)
+		SELECT s.id, s.voice_profile_id, s.generated_original
+		FROM voice_learning_signal s
+		JOIN voice_profile p ON p.id = s.voice_profile_id
+		WHERE s.draft_ref_hash = $1 AND s.content_erased_at IS NULL AND s.archived_at IS NULL
+		  AND p.archived_at IS NULL AND p.scope = 'user' AND p.owner_id = $2
+		FOR UPDATE OF s`, hash[:], owner).
+		Scan(&signal.id, &signal.profileID, &generatedOriginal)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return judgeableSignal{}, false, nil
 	}
@@ -133,16 +146,6 @@ func (s *VoiceStore) lockJudgeableSignal(ctx context.Context, tx pgx.Tx, draftRe
 		// A live row without the served text cannot be judged at all: the
 		// erased row's reasoning, one step further.
 		return judgeableSignal{}, false, nil
-	}
-	// The owner check is defence in depth on top of RLS, and its miss is
-	// deliberately the same answer as an absent row: failing the send for a
-	// foreign reference would tell "absent" and "someone else's" apart,
-	// which is an oracle over another human's drafts.
-	if _, err := s.visibleProfile(ctx, tx, signal.profileID); err != nil {
-		if errors.Is(err, apperrors.ErrNotFound) {
-			return judgeableSignal{}, false, nil
-		}
-		return judgeableSignal{}, false, err
 	}
 	signal.generatedOriginal = *generatedOriginal
 	return signal, true, nil
