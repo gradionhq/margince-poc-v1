@@ -112,8 +112,9 @@ export function ReportsScreen() {
   // report/pipeline queries are disabled, so this fallback key is inert.
   const report: ReportKey = segment === "quotas" ? "deals-by-stage" : segment;
   // Deal reports aggregate over the pipeline/stage structure the overlay mirror
-  // does not hold (the report endpoints 404 in overlay), so the report segments
-  // show the honest unavailable state; the native quotas tab still works.
+  // does not hold (the report endpoints answer 422 unsupported_by_sor in
+  // overlay), so the report segments show the honest unavailable state; the
+  // native quotas tab still works.
   const overlay = useSorMode() === "overlay";
   const reportActive = segment !== "quotas" && !overlay;
 

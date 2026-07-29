@@ -99,14 +99,17 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
 
-	// The Sink counts the counterparties it mints into this collector as the
-	// page runs; the commit below folds the totals into the run's own columns.
-	pageCtx, yields := withYieldCollector(runCtx)
+	// The page's live tally: the connector reports what it has walked and the
+	// Sink counts the counterparties it mints, both into this collector, which
+	// persists them to the run's inflight_* columns as the page runs. The
+	// commit below folds the yields into the run's own counter columns and
+	// clears the transient copy.
+	pageCtx, progress := withPageProgress(runCtx, r, backfillID, generation)
 	res, err := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
 	if err != nil {
 		return r.recordPageFault(ctx, backfillID, err)
 	}
-	done, completed, err = r.commitBackfillPage(ctx, backfillID, generation, res, yields)
+	done, completed, err = r.commitBackfillPage(ctx, backfillID, generation, res, progress)
 	return done, completed, 0, err
 }
 
@@ -169,7 +172,7 @@ func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID
 		// leaving it 'queued' would misreport a live import as one never begun.
 		scanErr := tx.QueryRow(countCtx, `
 			UPDATE capture_backfill
-			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2,
+			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2`+resetInflightProgress+`,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
 			WHERE id = $1 AND status IN ('queued','running')
 			RETURNING consecutive_failures`, backfillID, string(class)).Scan(&failures)
@@ -216,9 +219,9 @@ func backfillRetryDelay(failures int, cause error) time.Duration {
 // undercount rather than an estimate: a sender the tier gate deferred is
 // resolved by the verdict engine long after this page, and the person it may
 // eventually mint is nobody's page to claim.
-func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, generation int, res connector.BackfillPageResult, yields *yieldCollector) (done, completed bool, err error) {
+func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, generation int, res connector.BackfillPageResult, progress *pageProgress) (done, completed bool, err error) {
 	finishing := res.NextToken == ""
-	peopleCreated, orgsCreated := yields.totals()
+	peopleCreated, orgsCreated := progress.totals()
 	var rowsAffected int64
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var cur []byte
@@ -237,7 +240,7 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 			UPDATE capture_backfill
 			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
 			    people_created = people_created + $6, organizations_created = organizations_created + $7,
-			    consecutive_failures = 0,
+			    consecutive_failures = 0`+resetInflightProgress+`,
 			    status = `+statusExpr+terminal+`
 			WHERE id = $1 AND status IN ('queued','running')
 			  AND EXISTS (SELECT 1 FROM capture_connection c
@@ -258,7 +261,7 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 		// what happened — the import stopped, and what it already captured is
 		// kept.
 		_, err = tx.Exec(ctx, `
-			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+resetInflightProgress+`
 			WHERE id = $1 AND status IN ('queued','running')`, backfillID)
 		return err
 	})
@@ -292,7 +295,7 @@ func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause 
 	defer cancel()
 	return database.WithWorkspaceTx(failCtx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(failCtx, `
-			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()
+			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()`+resetInflightProgress+`
 			WHERE id = $1 AND status IN ('queued','running')`, backfillID, string(class))
 		return err
 	})

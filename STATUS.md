@@ -30,6 +30,54 @@ Open work, roughly in priority order.
 
 ### Correctness and security
 
+- **Overlay: 45 of 49 pre-open-source review findings are still open.** The two
+  Critical ones are fixed (the agent surface answering from native tables for an
+  overlay workspace, and ungoverned agent write-back into the incumbent). What
+  remains, in the order worth taking: `docs/explanation/overlay-augmentation.md`
+  carries nine verifiably false claims and is the first thing an OSS reader meets
+  (cheapest, highest exposure); a single unmappable incumbent record freezes its
+  object class forever, because a mapping failure aborts the whole page and the
+  cursor is never saved; `Reconcile` discards the partial watermark it returns on
+  error, so a portal past HubSpot's 10k search window livelocks; backfill is
+  entirely unmetered and nothing paces the 4 req/s bound `meter.go`'s own doc
+  claims it enforces; every closed deal in a custom pipeline reads
+  `status: "open"` because only the default pipeline's stage keys are recognised;
+  ADR-0044's 2×SLO fail-closed visibility floor is unimplemented (`snapshot_at`
+  is written and never read); and Art. 17 erasure never reaches the mirror while
+  the explanation doc says it does. The last two are compliance-shaped.
+
+- **The released-approval marker is context-wide, and one transport forwards
+  its pin while the other does not.** `agents.RedeemAndMark` returns a context
+  marked as released, and `egressbackstop.go` acts on that marker — but it
+  authorizes every external write inside that request or `Handle`, not the one
+  `(tool, diff_hash)` the human released, and a workspace flipped to overlay
+  inside the redemption TTL turns a change approved as local into third-party
+  egress. Separately, the REST gate forwards the redeemed version pin as its own
+  `If-Match` (closing the redeem-tx→write-tx window) while the MCP registry
+  discards it, so that window is shut on one transport and open on the other.
+  Both are pre-existing and bounded; binding the marker to the redeemed call
+  rather than to the context would remove the class.
+
+- **The REST merge twin stages a mirrored target without the authority guard.**
+  `POST /v1/{people,organizations}/{id}/merge` reaches `stageRefusal`, which
+  never calls `refuseStagingElsewhere` for either record — the MCP twin does. It
+  fails closed today only as a side effect: resolving the version pin reads the
+  native row, which a mirrored record does not have. That is the pin's doing, not
+  a guard, so a target type with no version column would open it. Worth the pin.
+
+- **Overlay: agent write-back is a declared refusal, not confirm-first.** A
+  mirrored target has no authority object a human can see and release — the
+  approvals decidability probe and the redemption version pin both read our own
+  tables, which the record has no row in — so staging one would name a release
+  path that dead-ends. `egressbackstop.go` therefore answers
+  `unsupported_by_sor`, which is stricter than AC-OV-5's confirm-first intent.
+  Reconciled against ADR-0075 §3 in PR #304: §3's posture (direct apply,
+  attributed, reversible, findable) governs writes to OUR records, and two of its
+  three legs are weakened by construction across a boundary we do not own. The
+  released-approval check in that file is the seam a real confirm-first
+  implementation plugs into once approvals can describe a non-authoritative
+  target.
+
 - **Recorded idempotency bodies survive Art. 17 erasure.**
   `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
   `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that
@@ -386,6 +434,29 @@ principle ("agent-readable by construction"), and the collision has already
 caused confusion in commits and comments. These are raised against
 `gradionhq/margince-foundation`, never worked around here, and never edited from
 this build repo.
+
+- **The backfill's live-progress columns and seam** — two raises from
+  `feat/backfill-live-progress` (#307), which made a running backfill page
+  report progress per message instead of only at page commit. CAP-DDL-4's
+  pinned `capture_backfill` DDL gains five `inflight_*` columns (migration
+  0141), and `interfaces.md` §1 gains an optional `BackfillProgress` seam
+  beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
+  what a committed run reports.
+
+- **`/me`'s `system_of_record` description promises a code this build never
+  emits at top level.** It tells clients that unservable reads answer 422
+  `unsupported_in_overlay_mode`, but that spelling only ever appears nested in
+  `details.errors[].code` under a top-level `validation_error`; the overlay read
+  shadows and the report shadows answer top-level `unsupported_by_sor`. Either
+  the description or the split needs to move, and the choice is the contract's.
+
+- **Overlay lifecycle ops are agent-reachable.** `connectOverlay`,
+  `disconnectOverlay` and `executeOverlayFlip` carry `x-agent-access: tool`
+  rather than `human-only`, so an agent acting for an admin can command a
+  system-of-record posture change (connect, or revoke-and-purge). That reads like
+  ADR-0055's human-only governance class, alongside approval decisions and
+  pipeline config. Raised from the overlay review; the annotation source is the
+  contract.
 
 - **ADR-0072 §1 ladder wording** — the ladder reads T1 → "ensure person+org
   NOW", which taken literally would mint a "Gmail" organization for a free-mail

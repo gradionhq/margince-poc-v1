@@ -49,9 +49,11 @@ type Registry struct {
 
 	// The scheduling state machine's knobs (ADR-0063): now is injected so
 	// the backoff/pacing arithmetic is testable; syncInterval paces a
-	// healthy connection (next_sync_at = success + interval).
-	now          func() time.Time
-	syncInterval time.Duration
+	// healthy connection (next_sync_at = success + interval);
+	// progressPacing paces the running page's live tally write.
+	now            func() time.Time
+	syncInterval   time.Duration
+	progressPacing time.Duration
 }
 
 // defaultSyncInterval paces a healthy connection between syncs; the push
@@ -64,13 +66,14 @@ const defaultSyncInterval = 2 * time.Minute
 // custodian is wired (WithKeyvault rebuilds the registry once it is).
 func NewRegistry(pool *pgxpool.Pool, sink *Sink, authority authz.Resolver, vault keyvault.Vault) *Registry {
 	return &Registry{
-		connectors:   map[string]connector.Connector{},
-		pool:         pool,
-		sink:         sink,
-		authority:    authority,
-		vault:        vault,
-		now:          time.Now,
-		syncInterval: defaultSyncInterval,
+		connectors:     map[string]connector.Connector{},
+		pool:           pool,
+		sink:           sink,
+		authority:      authority,
+		vault:          vault,
+		now:            time.Now,
+		syncInterval:   defaultSyncInterval,
+		progressPacing: defaultProgressPacing,
 	}
 }
 
@@ -80,6 +83,15 @@ func (r *Registry) WithSyncInterval(d time.Duration) *Registry {
 	if d > 0 {
 		r.syncInterval = d
 	}
+	return r
+}
+
+// WithProgressPacing overrides how often a running backfill page writes its
+// live tally. Zero means every report is written — the pacing exists to keep a
+// long import from writing one row update per message, so removing it is only
+// sensible when the pages are short enough that the volume is not the point.
+func (r *Registry) WithProgressPacing(d time.Duration) *Registry {
+	r.progressPacing = d
 	return r
 }
 

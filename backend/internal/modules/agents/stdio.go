@@ -223,6 +223,15 @@ func (s *StdioServer) explain(tool string, err error) string {
 	case errors.Is(err, apperrors.ErrApprovalTokenInvalid):
 		return "The approval token was not accepted — it may be consumed, expired, or for a different call. " +
 			"Ask for a fresh approval and retry. (" + err.Error() + ")"
+	case errors.Is(err, apperrors.ErrUnsupportedBySoR):
+		// A DECLARED capability gap (AC-OV-2), not a fault: this workspace's
+		// records live in a system that cannot answer this tool. Saying so —
+		// and saying do-not-retry — is the whole point of declaring it;
+		// falling through to the generic branch would tell the agent to retry
+		// a permanent refusal and burn a scheduled run's whole step budget on
+		// it.
+		return "This workspace's system of record cannot serve this tool, and no retry will change that. " +
+			"Do not retry it; use another tool, or tell the user this capability is unavailable here. (" + err.Error() + ")"
 	default:
 		s.log.Error("mcp: tool call failed", "tool", tool, "err", err)
 		return "The tool failed for an internal reason; nothing may have changed. " +

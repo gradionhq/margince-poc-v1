@@ -5,6 +5,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -17,16 +18,24 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
-// fakeMode is an overlayModeChecker stub returning a fixed answer.
+// fakeMode is an overlayModeChecker stub returning a fixed answer. It counts
+// reads so a test can assert the workspace row was NOT consulted, which is the
+// only way to state that claim rather than infer it from an outcome.
 type fakeMode struct {
 	overlay bool
 	err     error
+	reads   int
 }
 
-func (f fakeMode) isOverlayForWrite(context.Context) (bool, error) { return f.overlay, f.err }
+func (f *fakeMode) isOverlayUncached(context.Context) (bool, error) {
+	f.reads++
+	return f.overlay, f.err
+}
 
 // guardRequest builds a request carrying the chi route pattern the guard
 // keys on — the same shape the contract router populates before running
@@ -82,7 +91,7 @@ func TestOverlayWriteGuard(t *testing.T) {
 				nextCalled = true
 				w.WriteHeader(http.StatusOK)
 			})
-			h := overlayWriteGuard(fakeMode{overlay: tc.overlay})(next)
+			h := overlayWriteGuard(&fakeMode{overlay: tc.overlay})(next)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, guardRequest(tc.method, tc.pattern))
 
@@ -105,7 +114,7 @@ func runOverlayWriteGuard(method, pattern string) (nextCalled bool, status int) 
 		nextCalled = true
 		w.WriteHeader(http.StatusOK)
 	})
-	h := overlayWriteGuard(fakeMode{overlay: true})(next)
+	h := overlayWriteGuard(&fakeMode{overlay: true})(next)
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, guardRequest(method, pattern))
 	return nextCalled, rec.Code
@@ -255,6 +264,7 @@ var overlayEntityTitles = map[string]string{
 func TestOverlayWriteShadowsCoverEverySupportedWrite(t *testing.T) {
 	declared := serverDeclaredMethods(t)
 	verbPrefixes := map[overlay.WriteVerb]string{
+		overlay.WriteCreate:  "Create",
 		overlay.WriteUpdate:  "Update",
 		overlay.WriteArchive: "Archive",
 	}
@@ -276,3 +286,104 @@ func TestOverlayWriteShadowsCoverEverySupportedWrite(t *testing.T) {
 		}
 	}
 }
+
+// guardRequestAs is guardRequest with a principal bound — the state the
+// identity middleware leaves before the router runs. It is needed because
+// isAgentPrincipal is the ONLY discriminator for a verb the seam can serve: a
+// principal-less request takes the human path, so the agent branch has to be
+// driven explicitly or it is untested. What that branch closes is a live
+// chain — staged from a nil version pin, redeemed with nothing re-checked,
+// archived in the customer's CRM.
+func guardRequestAs(method, pattern string, p principal.Principal) *http.Request {
+	r := guardRequest(method, pattern)
+	return r.WithContext(principal.WithActor(r.Context(), p))
+}
+
+func guardAgent() principal.Principal {
+	return principal.Principal{
+		Type: principal.PrincipalAgent, ID: "agent:t", OnBehalfOf: ids.NewV7(),
+		PassportID: ids.NewV7(), Scopes: principal.NewScopeSet(principal.ScopeWrite),
+	}
+}
+
+func guardHuman() principal.Principal {
+	return principal.Principal{Type: principal.PrincipalHuman, ID: "human:t", UserID: ids.NewV7()}
+}
+
+func TestOverlayWriteGuardRefusesAnAgentEvenForASeamServedVerb(t *testing.T) {
+	// Both are verbs the seam DOES serve, so only the principal decides.
+	for _, tc := range []struct{ method, pattern string }{
+		{"PATCH", "/v1/people/{id}"},
+		{"DELETE", "/v1/people/{id}"},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			nexted := false
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nexted = true })
+			rec := httptest.NewRecorder()
+
+			overlayWriteGuard(&fakeMode{overlay: true})(next).
+				ServeHTTP(rec, guardRequestAs(tc.method, tc.pattern, guardAgent()))
+
+			if nexted {
+				t.Error("an agent write reached the handler — it would be staged, then released past the seam backstop")
+			}
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Errorf("status = %d, want 422", rec.Code)
+			}
+		})
+	}
+}
+
+// The other direction of the same clause: a human keeps the write it always
+// had, and takes the fast path without a mode read.
+func TestOverlayWriteGuardPassesAHumanSeamServedWrite(t *testing.T) {
+	for _, tc := range []struct{ method, pattern string }{
+		{"PATCH", "/v1/people/{id}"},
+		{"DELETE", "/v1/people/{id}"},
+	} {
+		t.Run(tc.method, func(t *testing.T) {
+			nexted := false
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nexted = true })
+			rec := httptest.NewRecorder()
+
+			mode := &fakeMode{overlay: true}
+			overlayWriteGuard(mode)(next).
+				ServeHTTP(rec, guardRequestAs(tc.method, tc.pattern, guardHuman()))
+
+			if !nexted {
+				t.Errorf("a human seam-served write was blocked (status %d)", rec.Code)
+			}
+			// The fast path exists to spare a second workspace-row read per
+			// mutation; the dispatch resolves the mode fresh either way.
+			if mode.reads != 0 {
+				t.Errorf("the guard read the mode %d time(s) on a human seam-served write, want 0", mode.reads)
+			}
+		})
+	}
+}
+
+// The guard's fail-closed branch: it cannot tell whether this workspace reads
+// from the incumbent, so it must refuse rather than let a write through on a
+// guess. Nothing else asserts this, and it is the one path where guessing
+// wrong sends a mutation to the wrong system of record.
+func TestOverlayWriteGuardRefusesWhenTheModeCannotBeResolved(t *testing.T) {
+	nexted := false
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { nexted = true })
+	rec := httptest.NewRecorder()
+
+	// A verb the seam does NOT serve, so the guard reaches the mode read.
+	mode := &fakeMode{err: errModeUnresolvable}
+	overlayWriteGuard(mode)(next).ServeHTTP(rec, guardRequest("POST", "/v1/people"))
+
+	if nexted {
+		t.Error("the guard admitted a write without resolving the system-of-record mode")
+	}
+	if rec.Code == http.StatusOK {
+		t.Errorf("status = %d, want a refusal", rec.Code)
+	}
+	if mode.reads != 1 {
+		t.Errorf("mode reads = %d, want 1", mode.reads)
+	}
+}
+
+var errModeUnresolvable = errors.New("the workspace row could not be read")
