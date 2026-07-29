@@ -108,19 +108,21 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			if r.approvals == nil {
 				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
 			}
-			if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
-				return nil, err
+			marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+			if rErr != nil {
+				return nil, rErr
 			}
-			ctx = withApprovalRedeemed(ctx)
+			ctx = marked
 		}
 		return t.Handle(ctx, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
-		if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
-			return nil, err
+		marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+		if rErr != nil {
+			return nil, rErr
 		}
-		return t.Handle(ctx, args)
+		return t.Handle(marked, args)
 	default:
 		stageable, ok := t.(stageableTool)
 		if !ok {

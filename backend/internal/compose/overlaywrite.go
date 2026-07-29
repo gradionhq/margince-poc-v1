@@ -82,12 +82,12 @@ var overlayRecordWriteTools = map[string]bool{
 // interface so the guard is unit-testable without the full dispatch.
 //
 // It is deliberately the UNCACHED resolver (dispatcher.go's
-// isOverlayForWrite), not the read path's cached one: this guard runs only on
+// isOverlayUncached), not the read path's cached one: this guard runs only on
 // mutating requests, and a mutation routed on a stale mode is the silent
-// divergence the guard exists to prevent — see isOverlayForWrite's own doc
+// divergence the guard exists to prevent — see isOverlayUncached's own doc
 // for what that costs and what it still cannot promise.
 type overlayModeChecker interface {
-	isOverlayForWrite(ctx context.Context) (bool, error)
+	isOverlayUncached(ctx context.Context) (bool, error)
 }
 
 // overlayWriteGuard refuses a mutating REST request whose native module
@@ -132,16 +132,38 @@ func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler 
 				return
 			}
 			verb, isSeamVerb := overlayWriteVerbs[pol.Tool]
-			if isSeamVerb && overlay.SupportsWrite(verb, datasource.EntityType(pol.RecordType)) {
+			servedBySeam := isSeamVerb && overlay.SupportsWrite(verb, datasource.EntityType(pol.RecordType))
+			// A seam-served verb by a HUMAN cannot be refused here, so it needs
+			// no mode read at this layer — the dispatch resolves the mode fresh
+			// anyway, and paying for it twice per mutation buys nothing. Reading
+			// the principal is free; reading the workspace row is not.
+			if servedBySeam && !isAgentPrincipal(r.Context()) {
 				next.ServeHTTP(w, r)
 				return
 			}
-			inOverlay, err := mode.isOverlayForWrite(r.Context())
+			inOverlay, err := mode.isOverlayUncached(r.Context())
 			if err != nil {
 				httperr.Write(w, r, err)
 				return
 			}
 			if inOverlay {
+				// A verb the seam cannot serve is refused, as before. An AGENT
+				// principal is refused even for a verb it CAN serve, and refused
+				// HERE — outside the agent gate — for two reasons that outlive
+				// the mechanism downstream.
+				//
+				// It answers the DECLARED sentinel. Left to the agent gate, a 🟡
+				// twin would try to stage, and staging a mirrored target fails
+				// while resolving the version pin (no native row), so the agent
+				// would learn "not found" about a record it can read rather than
+				// "this system of record cannot do this". And the refusal lands
+				// before the idempotency layer can record it under a key, so the
+				// approved retry is not answered from a cached refusal.
+				//
+				// The seam gate (egressbackstop.go) is the backstop for every
+				// route including this one; this keeps REST's ANSWER agreeing
+				// with it rather than leaving the transport to say something
+				// else on the way there.
 				httperr.Write(w, r, apperrors.ErrUnsupportedBySoR)
 				return
 			}
