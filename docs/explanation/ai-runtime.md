@@ -255,7 +255,10 @@ model-call hot path.
   price a whole window in one round-trip — while the backfill preview and the
   certification record both call `PriceCall` directly, for a **pre-flight
   estimate** and a per-run cost stamp. One formula, so the numbers can't drift.
-- **The pre-flight estimate (`compose/costestimate`).** Before a backfill runs,
+- **The pre-flight estimate (`compose/costestimate`).** The same estimate told as one
+  end-to-end story — the consent screen, the scope count, and the spend that lands after the
+  import finishes — is [mail-history-import.md](mail-history-import.md); the formula is here.
+  Before a backfill runs,
   the preview estimates its cost as `Σ per-task (per-unit cost × expected units)`:
   - **Per-unit cost** comes from the last 7 days of `ai_call` history, grouped
     into `(task, tier, provider, model)` slices. Each slice is priced at whichever
@@ -263,7 +266,11 @@ model-call hot path.
     else its own tier's current binding (so a rebind re-prices instantly), else
     the ladder head if that tier is now unbound.
   - **Expected units** come from the connection's completed backfill yields:
-    messages to classify, people to enrich, entities to embed.
+    messages to classify, people to enrich, entities to embed. A run measures its
+    own yield as it pages — the counterparty resolver reports whether an ensure
+    *minted* a person/organization or merely resolved onto rows that already
+    existed, and those counts commit in the same statement as `scanned`/`captured`,
+    so a page that fails to commit counts nothing.
   - **When there's nothing to price from, the preview says so instead of
     guessing.** With no history it falls back to a priced **work-shape floor** and
     labels the estimate `heuristic` (vs `observed`). If the whole preview would be
@@ -271,12 +278,13 @@ model-call hot path.
     cost-read failure degrades it to a plain message count — never a block on the
     consent flow.
 
-  *(Known rough edge, tracked: the backfill loop doesn't populate the people/org
-  unit counters yet, so anything keyed on them under-counts today — the enrich
-  line floors as `heuristic`, and the embed estimate counts captured-message
-  embeds only, under-counting person/org entities. The cold-start floor also
-  counts message embeds by design: person/org embeds would over-quote at its
-  full-email unit size.)*
+  *(Two deliberate under-counts. The people/org yields count only what a run's own
+  pages minted: a sender the tier gate defers is resolved by the verdict engine
+  long after that page, and the person it may eventually mint is nobody's page to
+  claim. So a run that minted nobody reports "ratio unavailable" rather than zero
+  people, floating the enrich line to its `heuristic` floor instead of quoting a
+  confident $0. And the cold-start floor counts message embeds only: person/org
+  embeds would over-quote at its full-email unit size.)*
 
 ## Certification — proving a binding is good enough
 

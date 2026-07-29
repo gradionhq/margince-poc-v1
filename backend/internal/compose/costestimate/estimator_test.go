@@ -407,9 +407,10 @@ func TestEstimateClassifyUnpricedSliceDoesNotOverquote(t *testing.T) {
 	}
 }
 
-// C1 — a zero people_created is NOT a zero-people observed enrich line. The
-// backfill loop never populates capture_backfill.people_created (people/orgs are
-// created asynchronously downstream, not at page-commit), so a 0 means "ratio
+// A zero people_created is NOT a zero-people observed enrich line. A run
+// counts only the counterparties its own pages minted, so a window whose senders
+// were all already known, suppressed, or deferred to the verdict engine reads 0
+// while a wider window would still create plenty. A 0 therefore means "ratio
 // unavailable": enrich must FLOOR (heuristic) and price the floor units, never
 // silently quote an observed $0 enrich cost.
 func TestEstimateEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
@@ -424,8 +425,8 @@ func TestEstimateEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	}
 
 	// End to end: classify + embeddings price observed from the same yields, but
-	// the zero-people enrich forces the WHOLE estimate heuristic. Under the old
-	// silent observed-0 (units = scanned×0/scanned) it would have read "observed".
+	// the zero-people enrich forces the WHOLE estimate heuristic — a per-task
+	// fallback is never confined to its own task's line.
 	classify := ai.ServedTaskTotal{
 		Task: ai.TaskCaptureClassify, Tier: ai.TierCheapCloud, Provider: "gemini", ModelID: "flash",
 		TokensIn: 1_000_000, TokensOut: 100_000, Calls: 5, CompletedCalls: 5,

@@ -178,13 +178,9 @@ Open work, roughly in priority order.
   earlier version of this list wrongly named all seven.) Natural-language search
   in particular stays dormant until its surface is ratified.
 
-- **AI cost estimation follow-ups** —
-  `capture_backfill.people_created`/`organizations_created` are not written by
-  the backfill loop, so enrich floors to an honest `heuristic` instead of pricing
-  per-person (and leaves the backfill status payload's people/org counts at 0);
-  and the FE consent screen renders cost only when `> 0` and ignores
-  `estimate_quality`, so an honest `$0` and the quality signal don't reach the
-  human.
+- **AI cost estimation follow-ups** — the FE consent screen renders cost only
+  when `> 0` and ignores `estimate_quality`, so an honest `$0` and the quality
+  signal don't reach the human.
 
 - **`fx_source` default is EUR-based.** api.frankfurter.dev returns EUR-based
   rates with no query params, so a non-EUR-base workspace must configure a
