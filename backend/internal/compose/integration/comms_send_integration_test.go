@@ -25,14 +25,14 @@ package integration
 //
 // Only the mailbox credential lookup is stubbed (there is no real Google
 // here); the store, the dispatcher, the connector, the consent gate, the
-// normalization and the sink are all the production objects.
+// normalization and the sink are all the production objects. The stub itself —
+// including what a provider does to a message identity before storing its own
+// copy — lives in comms_send_provider_test.go.
 
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -50,50 +50,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
-
-// sendingMailbox is the address the stubbed Google reports as the connected
-// mailbox owner. It is the From: line the connector stamps, so it is also the
-// owner mailmap must be given when the same bytes come back — a different one
-// would read the message as inbound.
-const sendingMailbox = "sender@fable.test"
-
-// sentMail holds the base64url RFC822 one transmission handed to Gmail.
-type sentMail struct{ raw string }
-
-// gmailSendStub answers the endpoints one connect-and-transmit touches and
-// keeps the raw MIME it was asked to send.
-func gmailSendStub(t *testing.T, captured *sentMail) *httptest.Server {
-	t.Helper()
-	mux := http.NewServeMux()
-	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			t.Errorf("decoding the token request form: %v", err)
-			return
-		}
-		body := map[string]any{"access_token": "access-tok", "expires_in": 3599}
-		if r.Form.Get("grant_type") == "authorization_code" {
-			body["refresh_token"] = "refresh-tok"
-		}
-		writeJSON(w, body)
-	})
-	mux.HandleFunc("/profile", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, map[string]any{"emailAddress": sendingMailbox, "historyId": "1001"})
-	})
-	mux.HandleFunc("/messages/send", func(w http.ResponseWriter, r *http.Request) {
-		var body struct {
-			Raw string `json:"raw"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			t.Errorf("decoding the send body: %v", err)
-			return
-		}
-		captured.raw = body.Raw
-		writeJSON(w, map[string]any{"id": "gmail-msg-1", "threadId": "gmail-thread-1"})
-	})
-	srv := httptest.NewServer(mux)
-	t.Cleanup(srv.Close)
-	return srv
-}
 
 // stubMailbox stands in for the capture registry's credential resolution — the
 // one seam that cannot run without a real Google. It hands back the REAL Gmail
@@ -162,9 +118,12 @@ func (p *preflightEnv) deliveryFor(t *testing.T, activityID ids.UUID) (ids.UUID,
 // itself — the echo test derives the captured message's source_system from its
 // descriptor rather than restating the send path's own constant. It insists on
 // a completed send, so a case ABOUT a refusal calls dispatchOnce instead.
-func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) ([]byte, *gmail.Connector) {
+//
+// stampAs names the identity the provider puts on its stored copy; empty is a
+// provider that honoured the client's.
+func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID, stampAs string) ([]byte, *gmail.Connector) {
 	t.Helper()
-	outcome, captured, gmailConnector := p.dispatchOnce(t, deliveryID)
+	outcome, captured, gmailConnector := p.dispatchOnce(t, deliveryID, stampAs)
 	if outcome != comms.OutcomeSent {
 		t.Fatalf("dispatch outcome = %q, want sent", outcome)
 	}
@@ -178,10 +137,10 @@ func (p *preflightEnv) transmit(t *testing.T, deliveryID ids.UUID) ([]byte, *gma
 // dispatchOnce runs one real dispatch and reports its verdict plus whatever
 // reached the stub provider — which is how a refusal is proven to have
 // transmitted NOTHING rather than merely to have been recorded.
-func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID) (comms.Outcome, sentMail, *gmail.Connector) {
+func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID, stampAs string) (comms.Outcome, sentMail, *gmail.Connector) {
 	t.Helper()
 	var captured sentMail
-	stub := gmailSendStub(t, &captured)
+	stub := gmailSendStub(t, &captured, stampAs)
 
 	// The credential is built the way the OAuth callback builds it, so the
 	// grant the dispatcher's authority gate reads is a real exchange result
@@ -215,10 +174,13 @@ func (p *preflightEnv) dispatchOnce(t *testing.T, deliveryID ids.UUID) (comms.Ou
 		consent.NewGate(consent.NewStore(p.pool)),
 		nil, time.Now, 24*time.Hour, 10,
 	)
-	// A job carries no session, only the workspace — the same context the
-	// send worker builds.
+	// A job carries no session. The scope comes from the composition rather
+	// than being rebuilt here: it binds the system actor and the correlation id
+	// the identity reconcile's audit row and outbox event both require, and a
+	// hand-rolled workspace-only context would drive a dispatch that silently
+	// cannot record what it did.
 	outcome, _, err := dispatcher.DispatchWithWait(
-		principal.WithWorkspaceID(context.Background(), p.workspaceID(t)), deliveryID,
+		compose.SendWorkerContext(context.Background(), p.workspaceID(t)), deliveryID,
 	)
 	if err != nil {
 		t.Fatalf("dispatch: %v", err)
@@ -250,7 +212,7 @@ func TestCapturedCopyOfASentEmailCollapsesOntoTheSameActivity(t *testing.T) {
 
 	sentActivity := p.sendExpectingAcceptance(t, "transactional", "Re: Inbound question", "As discussed.")
 	deliveryID, messageID := p.deliveryFor(t, sentActivity)
-	rfc822, capturingConnector := p.transmit(t, deliveryID)
+	rfc822, capturingConnector := p.transmit(t, deliveryID, "")
 
 	// BOTH halves of the natural key come from the capture side, never from the
 	// send side. source_system is the connector's own declared name — two
@@ -324,7 +286,7 @@ func TestAMarketingSendRendersBothOneClickUnsubscribeHeaders(t *testing.T) {
 
 	sentActivity := p.sendExpectingAcceptance(t, "marketing_email", "Spring pricing", "Here is what changed.")
 	deliveryID, _ := p.deliveryFor(t, sentActivity)
-	rfc822, _ := p.transmit(t, deliveryID)
+	rfc822, _ := p.transmit(t, deliveryID, "")
 	mime := string(rfc822)
 
 	if !strings.Contains(mime, "List-Unsubscribe: <"+preflightBaseURL+"/") {
@@ -388,7 +350,7 @@ func TestDeactivatingTheSenderParksAStagedDelivery(t *testing.T) {
 	deliveryID, _ := p.deliveryFor(t, sentActivity)
 	p.deactivateSender(t)
 
-	outcome, captured, _ := p.dispatchOnce(t, deliveryID)
+	outcome, captured, _ := p.dispatchOnce(t, deliveryID, "")
 
 	if outcome != comms.OutcomeParked {
 		t.Fatalf("dispatch after the sender was deactivated → %q, want parked", outcome)
@@ -416,7 +378,7 @@ func TestASenderDowngradedToAReadSeatParksAStagedDelivery(t *testing.T) {
 	deliveryID, _ := p.deliveryFor(t, sentActivity)
 	p.downgradeSenderToReadSeat(t)
 
-	outcome, captured, _ := p.dispatchOnce(t, deliveryID)
+	outcome, captured, _ := p.dispatchOnce(t, deliveryID, "")
 
 	if outcome != comms.OutcomeParked {
 		t.Fatalf("dispatch after the sender was downgraded to a read seat → %q, want parked", outcome)

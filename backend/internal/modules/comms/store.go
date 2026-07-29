@@ -45,6 +45,20 @@ var ErrTerminal = errors.New("comms: delivery is already terminal")
 var ErrDuplicateMessage = fmt.Errorf(
 	"comms: this message identity is already staged for delivery in this workspace: %w", apperrors.ErrConflict)
 
+// errNoReconciler names a store built with no message-identity seam at all.
+// nil stays constructible because a role that only READS deliveries has no
+// timeline row to re-key and should not have to drag the seam in to say so —
+// but a role that TRANSMITS and cannot reconcile is a wiring mistake, which
+// the composition's own fitness test is what catches before it ships.
+//
+// At runtime it is treated as what it is: one more reconcile fault, degrading
+// to "receipt recorded, one duplicate timeline row" like every other. Letting
+// it reach the savepoint instead would dereference nil INSIDE the transaction;
+// the panic would escape RecordSent, fail the job, and the redelivery would
+// transmit the message a second time — the double-send this whole ordering
+// exists to prevent, arriving through the back door.
+var errNoReconciler = errors.New("comms: this delivery store was built with no message-identity reconciler")
+
 // ErrNoAddressee marks a delivery staged with nobody to reach. A message with
 // neither a To nor a Cc address can only be refused later — the consent gate
 // asks about an empty list and answers no — so it is refused here, where the
@@ -297,6 +311,15 @@ func (s *Store) reconcileIdentity(ctx context.Context, tx pgx.Tx, deliveryID ids
 		// The provider honoured the identity, reports none, or could not be
 		// asked. All three mean the staged key is already the key the wire
 		// carries, so there is nothing to move.
+		return
+	}
+	if s.identity == nil {
+		// Checked BEFORE the savepoint, because the fault is in this store's
+		// construction rather than in anything the database is about to be
+		// asked. Recording it the same way every other reconcile fault is
+		// recorded is what keeps a misconfigured role from turning a
+		// bookkeeping gap into a second email.
+		s.breadcrumb(ctx, tx, deliveryID, staged, stamped, errNoReconciler)
 		return
 	}
 	sp, err := tx.Begin(ctx)

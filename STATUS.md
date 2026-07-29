@@ -188,13 +188,35 @@ Open work, roughly in priority order.
   varies it gets a fresh activity each time. The disposition still joins the open
   question, so the cost is timeline rows for mail they sent anyway.
 
-- **Gmail `Message-ID` preservation is unverified.** The sent-mail echo collapse
-  rests on Gmail preserving a client-supplied RFC822 `Message-ID`; every test
-  asserts our own encoding, not Google's behaviour. Needs one send through a real
-  account. If Gmail rewrites the identity, the fallback is to reconcile on
-  `provider_message_id` from the send receipt, which is already recorded.
-  The UI that makes this answerable end to end now exists (the entry below); the
-  question itself is still open.
+- **Gmail rewrites a client-supplied `Message-ID` — settled, and answered.** A
+  live send through a real account produced two rows per message: ours under the
+  minted identity, the captured Sent-folder echo under Google's. The send path
+  now reads the identity back off the message the provider actually stored and
+  re-keys the delivery and its timeline row onto it, so the echo collapses and a
+  reply attributes to the send. The re-key runs inside a savepoint and can fail
+  freely: the receipt commits whenever the provider accepted the message, and
+  every reconcile fault degrades to one duplicate timeline row rather than a
+  redelivery that mails the recipient twice. Three residuals stay open:
+
+  - **The at-least-once retransmission guard is inoperative on Gmail.**
+    `gmail.Send` tells "already transmitted" from "never sent" by searching
+    `rfc822msgid:` for the identity this system minted, and against a rewritten
+    identity that search can never match — so a crash between Gmail accepting a
+    message and the receipt committing mails the recipient twice. It cannot be
+    fully fixed: Gmail exposes no idempotency key, and once the identity is
+    rewritten there is nothing left to search for. A bounded `in:sent` scan
+    matched on recipient + subject + time was considered and rejected — it can
+    swallow a user's deliberate identical re-send, trading a rare double-send
+    for a rare silent non-send.
+  - **A follow-up staged before its anchor's reconcile lands forks the thread.**
+    Threading headers are read at staging time and are immutable afterwards, so
+    a reply to our own send, staged while that send's identity was still the
+    minted one, quotes an id no mailbox holds. Reply *detection* survives; the
+    two rows sit under different thread roots.
+  - **No backfill.** Duplicate pairs already in a database keep mis-attributing
+    replies until those threads die. Deliberate: the data is disposable and a
+    migration merging historical activity rows is more dangerous than the rows
+    it would clean.
 
 - **The voice draft→send binding is half of ADR-0066 §4.** A send carrying a
   `draft_ref` now records `accepted` or `edited_sent` in the request transaction,

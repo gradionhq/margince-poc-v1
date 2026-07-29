@@ -111,7 +111,7 @@ type commsSendWorker struct {
 // Timeout gives one transmission room to finish over a live provider.
 func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { return sendTimeout }
 
-// sendWorkerCtx is the scope one dispatch attempt runs under. RecordSent's
+// SendWorkerContext is the scope one dispatch attempt runs under. RecordSent's
 // identity reconcile writes an audit row and an outbox event, and storekit
 // demands an actor for the first and an actor AND a correlation id for the
 // second — the workspace alone is not enough, and a reconcile that cannot
@@ -122,9 +122,13 @@ func (w *commsSendWorker) Timeout(*river.Job[SendEmailArgs]) time.Duration { ret
 // human acting again: running the completion under the sender's seat would let
 // a seat revoked between staging and transmit strand the message's identity,
 // which is a governance rule applied where no governance decision is being
-// made. Extracted from Work so a unit test can assert the binding without
-// standing up River.
-func sendWorkerCtx(ctx context.Context, workspaceID ids.UUID) context.Context {
+// made.
+//
+// Exported for the reason NewSendSeatAuthority is: the scope is assembled here,
+// and a suite that rebuilt it from its own parts would be driving a dispatch
+// the product does not ship — which is exactly how a binding this path depends
+// on goes missing without any test noticing.
+func SendWorkerContext(ctx context.Context, workspaceID ids.UUID) context.Context {
 	wsCtx := principal.WithWorkspaceID(ctx, workspaceID)
 	wsCtx = principal.WithActor(wsCtx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:comms-send",
@@ -142,7 +146,7 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 		return fmt.Errorf("comms_send_email: delivery id: %w", err)
 	}
 
-	outcome, wait, err := w.dispatcher.DispatchWithWait(sendWorkerCtx(ctx, ws), deliveryID)
+	outcome, wait, err := w.dispatcher.DispatchWithWait(SendWorkerContext(ctx, ws), deliveryID)
 	switch outcome {
 	case comms.OutcomePostponed:
 		// A SNOOZE, never a returned error. River restores the attempt on a

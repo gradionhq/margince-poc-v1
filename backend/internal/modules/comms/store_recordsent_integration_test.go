@@ -141,6 +141,36 @@ func TestRecordSentKeepsTheReceiptWhenTheReconcileFails(t *testing.T) {
 	}
 }
 
+// A store with NO reconciler at all is the same fault as a reconciler that
+// refuses, and must cost the same. nil is constructible so a read-only role can
+// build one without the seam; reaching the savepoint with it would dereference
+// nil inside the transaction, and that panic escaping RecordSent would fail the
+// job, redeliver it, and mail the recipient a second time over a wiring
+// mistake.
+func TestRecordSentKeepsTheReceiptWhenTheStoreHasNoReconciler(t *testing.T) {
+	e := setupStore(t)
+	id := e.stage(t, e.baseInput(e.activity, stagedIdentity))
+
+	if err := e.storeWith(nil).RecordSent(e.asSendWorker(), id,
+		connector.SendReceipt{ProviderMessageID: "gmsg-5", RFC822MessageID: stampedIdentity}); err != nil {
+		t.Fatalf("RecordSent on a store with no reconciler: %v — a wiring fault must not surface as a failed send", err)
+	}
+
+	status, providerMessageID, messageID := e.receipt(t, id)
+	if status != StatusSent {
+		t.Errorf("status = %q, want sent", status)
+	}
+	if providerMessageID != "gmsg-5" {
+		t.Errorf("provider_message_id = %q, want the receipt's", providerMessageID)
+	}
+	if messageID != stagedIdentity {
+		t.Errorf("message_id = %q, want the staged identity untouched (%q)", messageID, stagedIdentity)
+	}
+	if n := e.reconcileFaults(t); n != 1 {
+		t.Errorf("%d reconcile-fault breadcrumbs, want 1 — the role that cannot reconcile must say so where an operator reads", n)
+	}
+}
+
 // The savepoint must survive a real Postgres statement error, not only a Go
 // error: a failed statement aborts the surrounding transaction unless it is
 // rolled back to a savepoint, so without one the receipt's own UPDATE would
