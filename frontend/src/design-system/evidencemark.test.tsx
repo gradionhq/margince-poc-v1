@@ -110,4 +110,30 @@ describe("evidence mark", () => {
     // stale popover hanging over the surface they navigated to.
     expect(screen.queryByRole("region")).toBeNull();
   });
+
+  it("keeps one panel open at a time, whatever opened it", async () => {
+    show(
+      <>
+        <EvidenceMark
+          value="1998"
+          source={{ provenance: { kind: "agent", agent: "capture" } }}
+        />
+        <EvidenceMark
+          value="Stuttgart"
+          source={{ provenance: { kind: "agent", agent: "capture" } }}
+        />
+      </>,
+    );
+
+    // Keyboard only: pointer dismissal is not what should be enforcing this.
+    await userEvent.tab();
+    await userEvent.keyboard("{Enter}");
+    expect(screen.getAllByRole("region")).toHaveLength(1);
+
+    await userEvent.tab();
+    await userEvent.keyboard("{Enter}");
+    const open = screen.getAllByRole("region");
+    expect(open).toHaveLength(1);
+    expect(open[0].getAttribute("aria-label")).toContain("Stuttgart");
+  });
 });

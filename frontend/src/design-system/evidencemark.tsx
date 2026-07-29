@@ -18,6 +18,13 @@ import "./evidencemark.css";
 // mark on the value itself keeps the record readable and puts the receipts
 // one interaction away — the same information, on demand rather than always.
 
+// openMark is the one panel currently showing, across every mark on the
+// page. Opening one closes the last, so a keyboard user tabbing along a
+// column of marked values leaves a trail of one panel rather than a stack of
+// overlapping regions — the same behaviour pointer dismissal gives, made
+// true for every input method rather than assumed.
+let closeOpenMark: (() => void) | null = null;
+
 export type EvidenceMarkSource = {
   provenance: Provenance;
   confidence?: ConfidenceLevel;
@@ -45,6 +52,23 @@ export function EvidenceMark({
   const panelId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLElement>(null);
+
+  // Registered while this mark is the open one, and cleared on close or
+  // unmount so a removed mark never leaves a closer pointing at a component
+  // that is gone.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const close = () => setOpen(false);
+    closeOpenMark?.();
+    closeOpenMark = close;
+    return () => {
+      if (closeOpenMark === close) {
+        closeOpenMark = null;
+      }
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
