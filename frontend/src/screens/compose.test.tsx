@@ -46,6 +46,9 @@ function render(ui: ReactNode) {
   );
 }
 
+// Two purposes, because the send rules differ by purpose: transactional is the
+// one locked, unsubscribe-free lane; anything else renders a per-recipient
+// unsubscribe link.
 const PURPOSES = {
   data: [
     {
@@ -54,6 +57,14 @@ const PURPOSES = {
       key: "transactional",
       label: "Deal messages",
       requires_double_opt_in: false,
+      created_at: "2026-01-01T00:00:00Z",
+    },
+    {
+      id: "p2",
+      workspace_id: "w",
+      key: "marketing_email",
+      label: "Marketing email",
+      requires_double_opt_in: true,
       created_at: "2026-01-01T00:00:00Z",
     },
   ],
@@ -865,6 +876,122 @@ describe("ComposeModal draft binding", () => {
 
     expect(onClose).toHaveBeenCalled();
     expect(sent.some((r) => r.key.includes("draft-rejections"))).toBe(false);
+  });
+});
+
+// The send pre-flight's two refusals: each is a product state with a fix, so
+// each must read as its own copy rather than as the generic failure line the
+// server's detail string would otherwise land in.
+describe("ComposeModal send refusals", () => {
+  it("tells the rep to reconnect a capture-only mailbox, and where", async () => {
+    const onClose = vi.fn();
+    stubRoutes({
+      "POST /activities/act-1/send-email": () =>
+        problemResponse(
+          {
+            code: "mailbox_not_send_capable",
+            title: "Unprocessable Entity",
+            detail: "opaque server wording",
+          },
+          422,
+        ),
+    });
+    renderComposer(onClose);
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(
+      await screen.findByText(/never granted permission to send/i),
+    ).toBeTruthy();
+    expect(
+      screen
+        .getByRole("link", { name: "Reconnect your mailbox" })
+        .getAttribute("href"),
+    ).toBe("#/settings/integrations");
+    // The refusal replaces the generic line rather than joining it.
+    expect(screen.queryByText("opaque server wording")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("states the one-send-per-recipient rule on a shared unsubscribe token", async () => {
+    stubRoutes({
+      "POST /activities/act-1/send-email": () =>
+        problemResponse(
+          {
+            code: "shared_unsubscribe_token",
+            title: "Unprocessable Entity",
+            detail: "opaque server wording",
+          },
+          422,
+        ),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(
+      await screen.findByText(/reaches one addressee at a time/i),
+    ).toBeTruthy();
+    expect(screen.queryByText("opaque server wording")).toBeNull();
+  });
+
+  it("keeps the generic line for a refusal it has no copy for", async () => {
+    stubRoutes({
+      "POST /activities/act-1/send-email": () =>
+        problemResponse(
+          {
+            code: "some_future_refusal",
+            title: "Unprocessable Entity",
+            detail: "opaque server wording",
+          },
+          422,
+        ),
+    });
+    renderComposer();
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/opaque server wording/i)).toBeTruthy();
+  });
+
+  it("warns about a second addressee before the send, not after it", async () => {
+    // Every purpose but transactional renders one recipient's unsubscribe link,
+    // so the server refuses a second addressee outright. Saying so after the
+    // round trip is strictly worse than saying so while the rep can still fix it.
+    const sent = stubRoutes();
+    renderComposer();
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.type(screen.getByLabelText("Cc"), "second@x.com");
+    await userEvent.tab();
+
+    expect(screen.queryByText(/more than one addressee/i)).toBeNull();
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "marketing_email",
+    );
+
+    expect(await screen.findByText(/more than one addressee/i)).toBeTruthy();
+    // A warning, not a gate — and nothing was sent to earn it.
+    expect(
+      sent.some((r) => r.key === "POST /activities/act-1/send-email"),
+    ).toBe(false);
+  });
+
+  it("does not warn about a lone addressee under the same purpose", async () => {
+    stubRoutes();
+    renderComposer();
+    await screen.findByRole("combobox");
+    await fillSendableForm();
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "marketing_email",
+    );
+
+    expect(screen.queryByText(/more than one addressee/i)).toBeNull();
   });
 });
 

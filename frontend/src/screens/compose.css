@@ -72,7 +72,10 @@
   gap: 6px;
 }
 
-.compose-consent-block {
+/* The block a refusal lands in: the consent gate and the two send pre-flight
+ * refusals share one treatment, because to the rep they are the same thing —
+ * the send did not happen, and here is what to do about it. */
+.compose-refusal {
   display: flex;
   flex-direction: column;
   gap: 6px;

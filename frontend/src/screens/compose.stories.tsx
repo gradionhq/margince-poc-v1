@@ -161,6 +161,26 @@ export const ConsentBlocked: Story = {
   },
 };
 
+// The mailbox is connected for capture but holds no send grant (422). The
+// refusal names the only fix — reconnect — and links to the connect surface,
+// because the provider will not widen an existing grant in place.
+export const MailboxNotSendCapable: Story = {
+  render: composeStory({
+    "POST /activities/act-1/send-email": () =>
+      jsonResponse(
+        {
+          code: "mailbox_not_send_capable",
+          title: "Unprocessable Entity",
+          detail: "reconnect your mailbox to enable sending",
+        },
+        422,
+      ),
+  }),
+  play: async ({ canvasElement }) => {
+    await fillAndSend(canvasElement);
+  },
+};
+
 // No mailer configured: the send answers 501, surfaced as an honest inline
 // "Sending is unavailable" note, never thrown into the error channel.
 export const SendUnavailable: Story = {

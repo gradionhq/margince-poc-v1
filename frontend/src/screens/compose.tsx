@@ -18,6 +18,7 @@ import { useT } from "../i18n";
 import {
   isConsentNotGranted,
   ProblemError,
+  problemCodeOf,
   problemMessage,
   throwProblem,
 } from "./common";
@@ -324,6 +325,95 @@ function DraftBar({
   );
 }
 
+// The ways a send is refused for a reason the rep can act on, as opposed to
+// failing. Anything outside this list keeps the server's own message on the
+// modal's generic error line: inventing copy for a condition this surface does
+// not understand would put words in the server's mouth.
+type Refusal = "consent" | "mailbox" | "sharedUnsubscribe" | null;
+
+function refusalOf(error: unknown): Refusal {
+  if (error instanceof ProblemError && isConsentNotGranted(error.problem)) {
+    return "consent";
+  }
+  switch (problemCodeOf(error)) {
+    case "mailbox_not_send_capable":
+      return "mailbox";
+    case "shared_unsubscribe_token":
+      return "sharedUnsubscribe";
+    default:
+      return null;
+  }
+}
+
+// Each refusal states the condition and where it is resolved. The consent gate
+// is the default-deny suppression (A22/ADR-0011) this surface exists to make
+// visible. A mailbox connected before this product could send holds a read-only
+// grant and the provider will not widen one in place, so reconnecting is the
+// whole fix. And a message carrying an unsubscribe link carries ONE recipient's
+// consent credential, so it may only ever have one addressee.
+function SendRefusal({
+  refusal,
+  personId,
+}: Readonly<{ refusal: Refusal; personId?: string }>) {
+  const t = useT();
+  if (refusal === "consent") {
+    return (
+      <div className="compose-refusal" role="alert">
+        <p className="t-body">
+          <strong>{t("compose.consentBlockedTitle")}</strong>
+        </p>
+        <p className="t-body" style={{ color: "var(--danger)" }}>
+          {t("compose.consentBlocked")}
+        </p>
+        {personId && (
+          <a href={`#/contacts/${personId}`} className="link-button">
+            {t("compose.consentGoto")}
+          </a>
+        )}
+      </div>
+    );
+  }
+  if (refusal === "mailbox") {
+    return (
+      <div className="compose-refusal" role="alert">
+        <p className="t-body">{t("compose.mailboxNotSendCapable")}</p>
+        <a href="#/settings/integrations" className="link-button">
+          {t("compose.mailboxNotSendCapableGoto")}
+        </a>
+      </div>
+    );
+  }
+  if (refusal === "sharedUnsubscribe") {
+    return (
+      <div className="compose-refusal" role="alert">
+        <p className="t-body">{t("compose.sharedUnsubscribeToken")}</p>
+      </div>
+    );
+  }
+  return null;
+}
+
+// sharedUnsubscribeAhead predicts the refusal above from what is on the form.
+// Every purpose but the locked transactional one renders an unsubscribe link,
+// and that link is one addressee's own consent record, so a second addressee is
+// refused outright. This mirrors the server rule (which remains the authority)
+// only to move a certain refusal ahead of the irreversible click.
+const TRANSACTIONAL_PURPOSE = "transactional";
+
+function sharedUnsubscribeAhead(
+  to: string[],
+  cc: string[],
+  purpose: string,
+): boolean {
+  if (purpose === "" || purpose === TRANSACTIONAL_PURPOSE) {
+    return false;
+  }
+  const addressees = new Set(
+    [...to, ...cc].map((address) => address.trim().toLowerCase()),
+  );
+  return addressees.size > 1;
+}
+
 // The 🟡 confirm-first composer (draftEmail + sendEmail). Draft with AI fills
 // the fields; the human edits and confirms; the human's own click IS the
 // approval (ADR-0055), so the human REST path sends no X-Approval-Token and no
@@ -488,14 +578,12 @@ export function ComposeModal({
     },
   });
 
-  // The consent gate is a distinct product state, not a generic failure: keep
-  // it out of the modal's inline error so the form stays open with pointed
-  // default-deny copy instead of a raw server detail.
-  const blockedByConsent =
-    send.error instanceof ProblemError &&
-    isConsentNotGranted(send.error.problem);
+  // A refusal is a distinct product state, not a generic failure: it keeps the
+  // form open under copy naming the rep's next move, and the raw server detail
+  // must not appear alongside it.
+  const refusal = refusalOf(send.error);
   const sendError =
-    send.isError && !blockedByConsent ? send.error.message : null;
+    send.isError && refusal === null ? send.error.message : null;
   const canSend =
     to.length > 0 &&
     subject.trim() !== "" &&
@@ -581,27 +669,18 @@ export function ComposeModal({
         </label>
         <p className="t-caption">{t("compose.purposeHint")}</p>
 
+        {sharedUnsubscribeAhead(to, cc, purpose) && (
+          <p className="t-caption" style={{ color: "var(--danger)" }}>
+            {t("compose.multiRecipientWarning")}
+          </p>
+        )}
         {to.length === 0 && (
           <p className="t-caption">{t("compose.emptyRecipients")}</p>
         )}
         {sendUnavailable && (
           <p className="t-caption">{t("compose.sendUnavailable")}</p>
         )}
-        {blockedByConsent && (
-          <div className="compose-consent-block" role="alert">
-            <p className="t-body">
-              <strong>{t("compose.consentBlockedTitle")}</strong>
-            </p>
-            <p className="t-body" style={{ color: "var(--danger)" }}>
-              {t("compose.consentBlocked")}
-            </p>
-            {personId && (
-              <a href={`#/contacts/${personId}`} className="link-button">
-                {t("compose.consentGoto")}
-              </a>
-            )}
-          </div>
-        )}
+        <SendRefusal refusal={refusal} personId={personId} />
         <p className="t-caption">{t("compose.sendBody")}</p>
       </div>
     </ConfirmModal>
