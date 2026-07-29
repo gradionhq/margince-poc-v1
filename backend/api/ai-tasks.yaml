@@ -92,9 +92,9 @@ tasks:
     execution_mode: interactive
     on_budget_exhausted: degrade
     status: shipped
-    sites: [org_brief]
+    sites: [org_brief, org_ask]
     company_context: {scopes: [identity], token_budget: 300, conditional: true}
-    doc: "The standing account brief on the company view: what this account is, where it stands, what changed. Read-only over what the VIEWER can already see — the brief is assembled per viewer because visibility is per viewer, and it cites only records the reader could open themselves."
+    doc: "Two sites on the company view, both grounded prose over what the VIEWER can already see, assembled per viewer because visibility is per viewer. org_brief — the standing account brief: what this account is, where it stands, what changed. org_ask — the prepared questions behind Ask Margince: the question is chosen from a fixed list rather than typed, because each one names the records its answer must be written from, which is what lets every sentence cite a record the reader could open themselves."
 
   draft_reply:
     ladder: [cheap_cloud, premium]

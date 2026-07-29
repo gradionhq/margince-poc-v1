@@ -39,6 +39,7 @@ import {
   useSorMode,
 } from "./common";
 import {
+  AskCard,
   BriefCard,
   DealsCard,
   NextSteps,
@@ -48,6 +49,7 @@ import {
   RECORD_ZONE,
   SignalsCard,
   SinceLastVisit,
+  SuggestionsCard,
   TagsCard,
   useOrganization360,
 } from "./company360";
@@ -1475,26 +1477,34 @@ function CompanyOverview({
       {tabs}
       {overlay && <OverlayFallback />}
       {failed && <EmptyState>{t("co.partial")}</EmptyState>}
-      <BriefCard
-        orgId={org.id}
-        enabled={!overlay}
-        onOpenRecord={(entityType, entityId) => {
-          if (entityType === "deal") {
-            navigate({ screen: "deals", id: entityId });
-          }
-          if (entityType === "person") {
-            navigate({ screen: "contacts", id: entityId });
-          }
-        }}
-      />
+      <BriefCard orgId={org.id} enabled={!overlay} onOpenRecord={openCitation} />
       {view && (
         <>
           <SinceLastVisit view={view} />
+          <SuggestionsCard
+            orgId={org.id}
+            view={view}
+            onOpenRecord={openCitation}
+          />
           <NextSteps view={view} />
         </>
       )}
+      <AskCard orgId={org.id} enabled={!overlay} onOpenRecord={openCitation} />
     </RecordView>
   );
+}
+
+// openCitation routes a cited record to its own screen. The brief, the
+// prepared answers and the suggestions all cite the same records, so they
+// share one route — a second copy would drift and send one card's reader to
+// the wrong screen.
+function openCitation(entityType: string, entityId: string) {
+  if (entityType === "deal") {
+    navigate({ screen: "deals", id: entityId });
+  }
+  if (entityType === "person") {
+    navigate({ screen: "contacts", id: entityId });
+  }
 }
 
 // businessRail is the right column. A failed composite read must not simply

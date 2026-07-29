@@ -661,6 +661,246 @@ export function OverlayFallback() {
 }
 
 type Brief = components["schemas"]["OrganizationBrief"];
+type Answer = components["schemas"]["OrganizationAnswer"];
+type Question = components["schemas"]["OrganizationQuestion"];
+type Suggestion = components["schemas"]["Organization360Suggestion"];
+
+/**
+ * SentenceList renders grounded prose — the standing brief and the answers to
+ * the prepared questions read identically, because they are the same thing
+ * written from the same records with the same citations. One component, so a
+ * citation can never be clickable in one place and flat in the other.
+ */
+function SentenceList({
+  sentences,
+  onOpenRecord,
+}: Readonly<{
+  sentences: Brief["sentences"];
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  return (
+    <ul className="co-brief-lines">
+      {sentences.map((sentence, index) => (
+        // Indexed because two sentences may legitimately read the same;
+        // keying on the text collapses them into one row.
+        // biome-ignore lint/suspicious/noArrayIndexKey: the list is replaced wholesale on every read, never reordered in place
+        <li key={index}>
+          {sentence.text}
+          {sentence.evidence.map((cited) => (
+            <Citation
+              key={`${cited.entity_type}:${cited.entity_id}`}
+              cited={cited}
+              onOpenRecord={onOpenRecord}
+            />
+          ))}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * WrittenBy names which writer produced a piece of prose. Always shown: a
+ * reader weighing a sentence needs to know whether a model or the
+ * deterministic fallback wrote it, and the two are not interchangeable.
+ */
+function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
+  const t = useT();
+  return (
+    <Badge tone={by === "model" ? "ai" : undefined}>
+      {t(`co.brief.by.${by}`)}
+    </Badge>
+  );
+}
+
+// The prepared questions, in the order the card offers them: what is open now,
+// then what to walk in with, then what has moved. Typed against the contract's
+// enum, so a question added upstream fails to compile here until it is offered.
+const QUESTIONS: readonly Question[] = [
+  "whats_open",
+  "meeting_prep",
+  "whats_changed",
+];
+
+/**
+ * AskCard is "Ask Margince": three prepared questions, answered from this
+ * account's own records.
+ *
+ * The questions are BUTTONS, not a text box. Each one names the records its
+ * answer is written from, which is what lets every sentence carry a citation
+ * the reader can open — and a text box that quietly answered from a subset
+ * would look exactly like one that had searched everything.
+ */
+export function AskCard({
+  orgId,
+  enabled,
+  onOpenRecord,
+}: Readonly<{
+  orgId: string;
+  enabled: boolean;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const { locale } = useLocale();
+  const ask = useMutation({
+    mutationFn: async (question: Question) => {
+      const { data, error } = await api.POST("/organizations/{id}/ask", {
+        params: { path: { id: orgId } },
+        body: { question },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return data;
+    },
+  });
+
+  if (!enabled) {
+    return null;
+  }
+  const answer: Answer | undefined = ask.data;
+  // A payload without sentences is an answer this build cannot read, not an
+  // account with nothing to say — the same distinction every card here keeps.
+  const readable = Array.isArray(answer?.sentences) ? answer : undefined;
+  return (
+    <section className="card co-ask">
+      <SectionHeader title={t("co.ask.title")} />
+      <p className="co-ask-questions">
+        {QUESTIONS.map((question) => (
+          <Button
+            key={question}
+            small
+            onClick={() => ask.mutate(question)}
+            disabled={ask.isPending}
+          >
+            {t(`co.ask.q.${question}`)}
+          </Button>
+        ))}
+      </p>
+      {ask.isPending && <Skeleton width="100%" height={40} />}
+      {ask.isError && <p className="co-restricted">{t("co.ask.failed")}</p>}
+      {readable && (
+        <>
+          {/* The question is repeated above its answer: three buttons and one
+              answer block leaves the reader guessing which they pressed once
+              they have scrolled, and the wrong pairing is worse than none. */}
+          <p className="co-ask-asked">{t(`co.ask.q.${readable.question}`)}</p>
+          {readable.sentences.length === 0 ? (
+            // An empty answer is a real outcome, not a failure: the question's
+            // records are not ones this reader can see, so there is nothing to
+            // say. Saying that is honest; a sentence written around the gap
+            // would not be.
+            <p className="co-empty">{t("co.ask.nothing")}</p>
+          ) : (
+            <SentenceList
+              sentences={readable.sentences}
+              onOpenRecord={onOpenRecord}
+            />
+          )}
+          <p className="co-row-meta">
+            <WrittenBy by={readable.generated_by} />
+            <span>
+              {t("co.brief.generatedAt", {
+                when: formatDate(readable.generated_at, locale, RECORD_ZONE),
+              })}
+            </span>
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * SuggestionsCard is what this account looks like it needs next.
+ *
+ * Each row leads with the REASON the rule fired, because a rep must be able to
+ * disagree with the reason rather than with a verdict they cannot inspect. A
+ * dismissal is theirs alone and is keyed on the evidence, so the same advice
+ * stays gone while the situation holds and comes back when it changes.
+ */
+export function SuggestionsCard({
+  orgId,
+  view,
+  onOpenRecord,
+}: Readonly<{
+  orgId: string;
+  view?: Organization360;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const client = useQueryClient();
+  const dismiss = useMutation({
+    mutationFn: async (fingerprint: string) => {
+      const { error } = await api.POST(
+        "/organizations/{id}/suggestions/dismiss",
+        { params: { path: { id: orgId } }, body: { fingerprint } },
+      );
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    // The 360 is the only thing that knows which suggestions survive, so the
+    // row goes when the re-read says it does. Hiding it locally on click would
+    // hide it even when the dismissal never reached the server.
+    onSuccess: () =>
+      client.invalidateQueries({ queryKey: ["organization360", orgId] }),
+  });
+
+  const suggestions: Suggestion[] = view?.suggestions ?? [];
+  const state = sectionState(
+    view,
+    "suggestions",
+    Boolean(view?.suggestions),
+    suggestions.length,
+  );
+  // A withheld, empty or unavailable suggestion block is dropped entirely.
+  // Advice is additive: "no advice" and "we cannot advise you" are not things
+  // a rep acts on, and either would claim space above the timeline that the
+  // account's story needs.
+  if (state !== "ready") {
+    return null;
+  }
+  return (
+    <section className="card co-suggest">
+      <SectionHeader title={t("co.suggest.title")} />
+      <ul className="co-list">
+        {suggestions.map((suggestion) => (
+          <li key={suggestion.fingerprint} className="co-row">
+            <span>
+              <span className="co-suggest-kind">
+                {t(`co.suggest.kind.${suggestion.kind}`)}
+              </span>
+              {/* The reason is the suggestion. Everything else is chrome. */}
+              <span className="co-suggest-reason">{suggestion.reason}</span>
+            </span>
+            <span className="co-row-meta">
+              {suggestion.evidence.map((cited) => (
+                <Citation
+                  key={`${cited.entity_type}:${cited.entity_id}`}
+                  cited={cited}
+                  onOpenRecord={onOpenRecord}
+                />
+              ))}
+              <Button
+                small
+                onClick={() => dismiss.mutate(suggestion.fingerprint)}
+                disabled={dismiss.isPending}
+              >
+                {t("co.suggest.dismiss")}
+              </Button>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {/* A dismissal that failed must say so: the row staying put with no word
+          reads as a click that missed, and the rep clicks again. */}
+      {dismiss.isError && (
+        <p className="co-restricted">{t("co.suggest.dismissFailed")}</p>
+      )}
+    </section>
+  );
+}
 
 /** useOrganizationBrief reads the standing brief for this account. */
 export function useOrganizationBrief(id: string, enabled: boolean) {
@@ -733,30 +973,12 @@ export function BriefCard({
       )}
       {readable && (
         <>
-          <ul className="co-brief-lines">
-            {readable.sentences.map((sentence, index) => (
-              // Indexed because two sentences may legitimately read the same;
-              // keying on the text collapses them into one row.
-              // biome-ignore lint/suspicious/noArrayIndexKey: the list is replaced wholesale on every read, never reordered in place
-              <li key={index}>
-                {sentence.text}
-                {sentence.evidence.map((cited) => (
-                  <Citation
-                    key={`${cited.entity_type}:${cited.entity_id}`}
-                    cited={cited}
-                    onOpenRecord={onOpenRecord}
-                  />
-                ))}
-              </li>
-            ))}
-          </ul>
+          <SentenceList
+            sentences={readable.sentences}
+            onOpenRecord={onOpenRecord}
+          />
           <p className="co-row-meta">
-            {/* Which of the two wrote this is never implied — a reader
-                weighing a sentence needs to know, and the two are not
-                interchangeable. */}
-            <Badge tone={readable.generated_by === "model" ? "ai" : undefined}>
-              {t(`co.brief.by.${readable.generated_by}`)}
-            </Badge>
+            <WrittenBy by={readable.generated_by} />
             <span>
               {t("co.brief.generatedAt", {
                 when: formatDate(readable.generated_at, locale, RECORD_ZONE),

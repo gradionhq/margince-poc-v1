@@ -37,6 +37,7 @@ const (
 	sectionApprovals       = crmcontracts.Organization360SectionsOmitted("pending_approvals")
 	sectionNextSteps       = crmcontracts.Organization360SectionsOmitted("next_steps")
 	sectionSinceLastVisit  = crmcontracts.Organization360SectionsOmitted("since_last_visit")
+	sectionSuggestions     = crmcontracts.Organization360SectionsOmitted("suggestions")
 )
 
 // Service assembles the 360 and maintains the visit baseline.
@@ -97,6 +98,10 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionListMemberships, a.readListMemberships},
 		{sectionApprovals, a.readPendingApprovals},
 		{sectionSinceLastVisit, a.readSinceLastVisit},
+		// Last, and deliberately so: the rules read the sections above. A
+		// suggestion is derived from what this caller was actually shown, so it
+		// can never point at a record they would be refused.
+		{sectionSuggestions, a.readSuggestions},
 	}
 	for _, section := range each {
 		err := section.read()

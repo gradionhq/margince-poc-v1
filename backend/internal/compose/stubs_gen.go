@@ -596,6 +596,10 @@ func (stubs) GetOrganization360(w nethttp.ResponseWriter, r *nethttp.Request, id
 	httperr.NotImplemented(w, r, "GetOrganization360")
 }
 
+func (stubs) AskAboutOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "AskAboutOrganization")
+}
+
 func (stubs) GetOrganizationBrief(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetOrganizationBrief")
 }
@@ -642,6 +646,10 @@ func (stubs) GetSiteRead(w nethttp.ResponseWriter, r *nethttp.Request, id crmcon
 
 func (stubs) GetOrganizationStrength(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
 	httperr.NotImplemented(w, r, "GetOrganizationStrength")
+}
+
+func (stubs) DismissOrganizationSuggestion(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DismissOrganizationSuggestion")
 }
 
 func (stubs) AcknowledgeOrganizationView(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {

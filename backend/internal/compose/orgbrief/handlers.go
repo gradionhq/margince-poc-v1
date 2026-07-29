@@ -50,18 +50,47 @@ func (h Handlers) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Req
 	h.serve(w, r, id, true)
 }
 
-func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {
-	overlay, err := h.overlay(r.Context())
+// AskAboutOrganization implements POST /organizations/{id}/ask.
+func (h Handlers) AskAboutOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	if !h.native(w, r) {
+		return
+	}
+	var req crmcontracts.AskAboutOrganizationJSONRequestBody
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	answer, err := h.svc.Ask(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), req.Question)
 	if err != nil {
-		// A mode-resolution failure refuses: writing a brief from native rows
-		// because the lookup broke is the silent fallback overlay exists to
-		// prevent.
 		httperr.Write(w, r, err)
 		return
 	}
+	httperr.WriteJSON(w, http.StatusOK, answer)
+}
+
+// native reports whether this workspace reads from this system of record,
+// writing the refusal itself when it does not. Both the brief and the prepared
+// questions are written from the 360's reads, and the 360 refuses an overlay
+// workspace — but that refusal lives in ITS handler, so without this gate an
+// overlay workspace would get generated prose about native rows while its own
+// company page refuses to render at all.
+func (h Handlers) native(w http.ResponseWriter, r *http.Request) bool {
+	overlay, err := h.overlay(r.Context())
+	if err != nil {
+		// A mode-resolution failure refuses: writing from native rows because
+		// the lookup broke is the silent fallback overlay exists to prevent.
+		httperr.Write(w, r, err)
+		return false
+	}
 	if overlay {
 		httperr.Write(w, r, httperr.Validation("id", "unsupported_in_overlay_mode",
-			"the account brief is written from this system of record; while the workspace reads from the incumbent mirror, there is no brief to write"))
+			"this is written from this system of record; while the workspace reads from the incumbent mirror, there is nothing here to write from"))
+		return false
+	}
+	return true
+}
+
+func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {
+	if !h.native(w, r) {
 		return
 	}
 	brief, err := h.svc.Get(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), force)

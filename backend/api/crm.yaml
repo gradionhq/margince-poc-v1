@@ -959,6 +959,95 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/suggestions/dismiss:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations]
+      operationId: dismissOrganizationSuggestion
+      x-agent-access: human-only
+      # Session cookie only: a human-only route is not reachable with a
+      # passport bearer token, and declaring it keeps this document and the
+      # runtime gate (auth.RequireHuman) agreeing.
+      security: [{ cookieAuth: [] }]
+      summary: Dismiss one next-step suggestion for the calling human.
+      description: |
+        A dismissal is the rep saying "not this, not now" — per user, because advice one
+        rep has judged is not advice their colleague has seen.
+
+        It is keyed on the suggestion's EVIDENCE fingerprint, not on its kind, so the
+        same advice stays gone while the situation holds and re-arms by itself when the
+        evidence changes. A stalled deal that moves and stalls again is a new fact about
+        the account, and silencing it forever because someone once dismissed it would
+        make the surface less useful the longer it ran.
+
+        Human-only: an agent has no opinion to record.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fingerprint]
+              properties:
+                fingerprint:
+                  type: string
+                  description: The `fingerprint` from the suggestion being dismissed.
+      responses:
+        '204': { description: Dismissed. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
+  /organizations/{id}/ask:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Organizations]
+      operationId: askAboutOrganization
+      x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
+      summary: Ask one of the prepared questions about this account.
+      description: |
+        The company view's "Ask Margince". The question is chosen from a fixed list, not
+        typed: each prepared question names records the answer must be written from, so
+        every sentence can be cited and checked. Free-text questions need retrieval that
+        can prove what it did not find, which this endpoint does not have — a text box
+        that quietly answers from a subset would read exactly like one that searched
+        everything.
+
+        **Per viewer, like the brief.** The answer is written from the caller's own 360,
+        assembled inside the normal gates, so it can only describe records that caller
+        could open themselves and cites only those. Nothing is cached: a question is asked
+        and read once, and an answer that arrives is written from the account as it is now.
+
+        When no model lane is configured, or the workspace's AI budget is exhausted, the
+        answer degrades to a deterministic structured one rather than failing —
+        `generated_by` says which it is. Read-only: no record field changes, and nothing
+        is sent.
+
+        Human-only: an agent asking about an account has the records themselves.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [question]
+              properties:
+                question: { $ref: '#/components/schemas/OrganizationQuestion' }
+      responses:
+        '200':
+          description: The answer.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrganizationAnswer' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /organizations/{id}/view-ack:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -9506,17 +9595,50 @@ components:
       properties:
         organization_id: { type: string, format: uuid }
         generated_at: { type: string, format: date-time }
-        generated_by:
-          type: string
-          enum: [model, deterministic]
-          description: |
-            `model` — written by the configured model lane. `deterministic` — the
-            structured fallback, used when no lane is configured or the AI budget is
-            exhausted. Never silently interchangeable: a reader deciding how much to
-            trust a sentence needs to know which wrote it.
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
         sentences:
           type: array
           description: The brief itself, one claim per entry.
+          items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
+
+    WrittenBy:
+      type: string
+      enum: [model, deterministic]
+      description: |
+        Which writer produced a piece of generated prose. `model` — the configured model
+        lane. `deterministic` — the structured fallback, used when no lane is configured
+        or the workspace's AI budget is exhausted. Never silently interchangeable: a
+        reader deciding how much to trust a sentence needs to know which wrote it.
+
+    OrganizationQuestion:
+      type: string
+      enum: [whats_open, meeting_prep, whats_changed]
+      description: |
+        The prepared questions. Fixed, because each one names the records its answer is
+        written from — which is what makes the answer citable.
+
+        `whats_open` — the open deals, the open tasks and anything waiting on approval.
+        `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+        `whats_changed` — what has moved on this account recently.
+
+    OrganizationAnswer:
+      type: object
+      description: |
+        An answer to one prepared question, written from what the READER can see. Same
+        shape as the brief: every sentence carries the records it was written from, so
+        the reader can open the evidence rather than take the sentence on trust.
+      required: [organization_id, question, generated_at, generated_by, sentences]
+      properties:
+        organization_id: { type: string, format: uuid }
+        question: { $ref: '#/components/schemas/OrganizationQuestion' }
+        generated_at: { type: string, format: date-time }
+        generated_by: { $ref: '#/components/schemas/WrittenBy' }
+        sentences:
+          type: array
+          description: |
+            The answer, one claim per entry. Empty when the caller's grants leave the
+            question nothing to answer from — an honest "nothing here I can show you"
+            rather than a sentence written around the gap.
           items: { $ref: '#/components/schemas/OrganizationBriefSentence' }
 
     OrganizationBriefSentence:
@@ -9622,6 +9744,40 @@ components:
         linked_deal_id: { type: [string, 'null'], format: uuid }
         linked_person_id: { type: [string, 'null'], format: uuid }
 
+    Organization360Suggestion:
+      type: object
+      description: |
+        One deterministic next-step suggestion. It is derived, not decided: the rule
+        that fired, the records it fired on, and nothing the reader cannot check.
+
+        Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
+        it offers are the same governed endpoints the rep would have used anyway.
+      required: [kind, fingerprint, reason, evidence]
+      properties:
+        kind:
+          type: string
+          enum: [no_reply, stalled_deal, no_next_step]
+          description: |
+            `no_reply` — an outbound message on a thread nobody answered.
+            `stalled_deal` — an open deal past the pipeline's stall window.
+            `no_next_step` — an active account with no open task on it.
+        fingerprint:
+          type: string
+          description: |
+            Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
+            kind, the subject and the records it fired on. Dismissing a suggestion stores
+            this, so the same advice stays gone — and re-arms by itself when the evidence
+            changes, because the situation is then genuinely a new one.
+        reason:
+          type: string
+          description: The rule that fired, in the words the rep reads. Never a score.
+        subject_type: { type: [string, 'null'], enum: [null, deal, person, organization] }
+        subject_id: { type: [string, 'null'], format: uuid }
+        evidence:
+          type: array
+          description: The records the rule fired on — always ones this reader can open.
+          items: { $ref: '#/components/schemas/OrganizationBriefEvidence' }
+
     Organization360SinceLastVisit:
       type: object
       description: |
@@ -9662,7 +9818,7 @@ components:
           description: The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none".
           items:
             type: string
-            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit]
+            enum: [people, deals, strength, activities, tags, list_memberships, pending_approvals, next_steps, since_last_visit, suggestions]
         people:
           type: object
           required: [data, page]
@@ -9687,6 +9843,13 @@ components:
             data: { type: array, items: { $ref: '#/components/schemas/Organization360NextStep' } }
             page: { $ref: '#/components/schemas/PageInfo' }
         since_last_visit: { $ref: '#/components/schemas/Organization360SinceLastVisit' }
+        suggestions:
+          type: array
+          description: |
+            What this account looks like it needs next, computed from its own records —
+            no model involved. Each carries WHY, so a rep can disagree with the reason
+            rather than with a verdict.
+          items: { $ref: '#/components/schemas/Organization360Suggestion' }
 
     # ---- Relationship ----
     Relationship:

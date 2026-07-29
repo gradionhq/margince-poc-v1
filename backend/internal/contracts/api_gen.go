@@ -3628,6 +3628,7 @@ const (
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
+	Organization360SectionsOmittedSuggestions      Organization360SectionsOmitted = "suggestions"
 	Organization360SectionsOmittedTags             Organization360SectionsOmitted = "tags"
 )
 
@@ -3649,6 +3650,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedSinceLastVisit:
 		return true
 	case Organization360SectionsOmittedStrength:
+		return true
+	case Organization360SectionsOmittedSuggestions:
 		return true
 	case Organization360SectionsOmittedTags:
 		return true
@@ -3699,18 +3702,45 @@ func (e Organization360DealStatus) Valid() bool {
 	}
 }
 
-// Defines values for OrganizationBriefGeneratedBy.
+// Defines values for Organization360SuggestionKind.
 const (
-	Deterministic OrganizationBriefGeneratedBy = "deterministic"
-	Model         OrganizationBriefGeneratedBy = "model"
+	Organization360SuggestionKindNoNextStep  Organization360SuggestionKind = "no_next_step"
+	Organization360SuggestionKindNoReply     Organization360SuggestionKind = "no_reply"
+	Organization360SuggestionKindStalledDeal Organization360SuggestionKind = "stalled_deal"
 )
 
-// Valid indicates whether the value is a known member of the OrganizationBriefGeneratedBy enum.
-func (e OrganizationBriefGeneratedBy) Valid() bool {
+// Valid indicates whether the value is a known member of the Organization360SuggestionKind enum.
+func (e Organization360SuggestionKind) Valid() bool {
 	switch e {
-	case Deterministic:
+	case Organization360SuggestionKindNoNextStep:
 		return true
-	case Model:
+	case Organization360SuggestionKindNoReply:
+		return true
+	case Organization360SuggestionKindStalledDeal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360SuggestionSubjectType.
+const (
+	Organization360SuggestionSubjectTypeDeal         Organization360SuggestionSubjectType = "deal"
+	Organization360SuggestionSubjectTypeLessThannil  Organization360SuggestionSubjectType = "<nil>"
+	Organization360SuggestionSubjectTypeOrganization Organization360SuggestionSubjectType = "organization"
+	Organization360SuggestionSubjectTypePerson       Organization360SuggestionSubjectType = "person"
+)
+
+// Valid indicates whether the value is a known member of the Organization360SuggestionSubjectType enum.
+func (e Organization360SuggestionSubjectType) Valid() bool {
+	switch e {
+	case Organization360SuggestionSubjectTypeDeal:
+		return true
+	case Organization360SuggestionSubjectTypeLessThannil:
+		return true
+	case Organization360SuggestionSubjectTypeOrganization:
+		return true
+	case Organization360SuggestionSubjectTypePerson:
 		return true
 	default:
 		return false
@@ -3864,6 +3894,27 @@ func (e OrganizationHierarchyRollupScope) Valid() bool {
 	case OrganizationHierarchyRollupScopeSelf:
 		return true
 	case OrganizationHierarchyRollupScopeTree:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationQuestion.
+const (
+	MeetingPrep  OrganizationQuestion = "meeting_prep"
+	WhatsChanged OrganizationQuestion = "whats_changed"
+	WhatsOpen    OrganizationQuestion = "whats_open"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationQuestion enum.
+func (e OrganizationQuestion) Valid() bool {
+	switch e {
+	case MeetingPrep:
+		return true
+	case WhatsChanged:
+		return true
+	case WhatsOpen:
 		return true
 	default:
 		return false
@@ -5654,31 +5705,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	Internal          VoiceBuildStatusCode = "internal"
-	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	LessThannil       VoiceBuildStatusCode = "<nil>"
-	MaterialDrift     VoiceBuildStatusCode = "material_drift"
-	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	QualityRegression VoiceBuildStatusCode = "quality_regression"
+	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
+	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
+	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
+	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case BudgetDeferred:
+	case VoiceBuildStatusCodeBudgetDeferred:
 		return true
-	case Internal:
+	case VoiceBuildStatusCodeInternal:
 		return true
-	case InvalidOutput:
+	case VoiceBuildStatusCodeInvalidOutput:
 		return true
-	case LessThannil:
+	case VoiceBuildStatusCodeLessThannil:
 		return true
-	case MaterialDrift:
+	case VoiceBuildStatusCodeMaterialDrift:
 		return true
-	case ModelUnavailable:
+	case VoiceBuildStatusCodeModelUnavailable:
 		return true
-	case QualityRegression:
+	case VoiceBuildStatusCodeQualityRegression:
 		return true
 	default:
 		return false
@@ -5687,16 +5738,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
-	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+	Text       VoiceCorpusPreviewRequestFormat = "text"
+	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case VoiceCorpusPreviewRequestFormatText:
+	case Text:
 		return true
-	case VoiceCorpusPreviewRequestFormatTranscript:
+	case Transcript:
 		return true
 	default:
 		return false
@@ -6108,6 +6159,24 @@ func (e WebhookSubscriptionState) Valid() bool {
 	case WebhookSubscriptionStateActive:
 		return true
 	case WebhookSubscriptionStatePaused:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for WrittenBy.
+const (
+	Deterministic WrittenBy = "deterministic"
+	Model         WrittenBy = "model"
+)
+
+// Valid indicates whether the value is a known member of the WrittenBy enum.
+func (e WrittenBy) Valid() bool {
+	switch e {
+	case Deterministic:
+		return true
+	case Model:
 		return true
 	default:
 		return false
@@ -10222,7 +10291,12 @@ type Organization360 struct {
 	// schema from the person-facing `RelationshipStrength` because those two extra
 	// facts are meaningless on a person.
 	Strength *OrganizationStrength `json:"strength,omitempty"`
-	Tags     *[]Tag                `json:"tags,omitempty"`
+
+	// Suggestions What this account looks like it needs next, computed from its own records —
+	// no model involved. Each carries WHY, so a rep can disagree with the reason
+	// rather than with a verdict.
+	Suggestions *[]Organization360Suggestion `json:"suggestions,omitempty"`
+	Tags        *[]Tag                       `json:"tags,omitempty"`
 }
 
 // Organization360SectionsOmitted defines model for Organization360.SectionsOmitted.
@@ -10322,28 +10396,83 @@ type Organization360SinceLastVisit struct {
 	PendingProposals *int `json:"pending_proposals,omitempty"`
 }
 
+// Organization360Suggestion One deterministic next-step suggestion. It is derived, not decided: the rule
+// that fired, the records it fired on, and nothing the reader cannot check.
+//
+// Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
+// it offers are the same governed endpoints the rep would have used anyway.
+type Organization360Suggestion struct {
+	// Evidence The records the rule fired on — always ones this reader can open.
+	Evidence []OrganizationBriefEvidence `json:"evidence"`
+
+	// Fingerprint Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
+	// kind, the subject and the records it fired on. Dismissing a suggestion stores
+	// this, so the same advice stays gone — and re-arms by itself when the evidence
+	// changes, because the situation is then genuinely a new one.
+	Fingerprint string `json:"fingerprint"`
+
+	// Kind `no_reply` — an outbound message on a thread nobody answered.
+	// `stalled_deal` — an open deal past the pipeline's stall window.
+	// `no_next_step` — an active account with no open task on it.
+	Kind Organization360SuggestionKind `json:"kind"`
+
+	// Reason The rule that fired, in the words the rep reads. Never a score.
+	Reason      string                                `json:"reason"`
+	SubjectId   *openapi_types.UUID                   `json:"subject_id,omitempty"`
+	SubjectType *Organization360SuggestionSubjectType `json:"subject_type,omitempty"`
+}
+
+// Organization360SuggestionKind `no_reply` — an outbound message on a thread nobody answered.
+// `stalled_deal` — an open deal past the pipeline's stall window.
+// `no_next_step` — an active account with no open task on it.
+type Organization360SuggestionKind string
+
+// Organization360SuggestionSubjectType defines model for Organization360Suggestion.SubjectType.
+type Organization360SuggestionSubjectType string
+
+// OrganizationAnswer An answer to one prepared question, written from what the READER can see. Same
+// shape as the brief: every sentence carries the records it was written from, so
+// the reader can open the evidence rather than take the sentence on trust.
+type OrganizationAnswer struct {
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy    WrittenBy          `json:"generated_by"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Question The prepared questions. Fixed, because each one names the records its answer is
+	// written from — which is what makes the answer citable.
+	//
+	// `whats_open` — the open deals, the open tasks and anything waiting on approval.
+	// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+	// `whats_changed` — what has moved on this account recently.
+	Question OrganizationQuestion `json:"question"`
+
+	// Sentences The answer, one claim per entry. Empty when the caller's grants leave the
+	// question nothing to answer from — an honest "nothing here I can show you"
+	// rather than a sentence written around the gap.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
 // OrganizationBrief A written brief over one account, assembled from what the READER can see.
 // Every sentence carries the records it was written from, so the reader can open
 // the evidence rather than take the sentence on trust.
 type OrganizationBrief struct {
 	GeneratedAt time.Time `json:"generated_at"`
 
-	// GeneratedBy `model` — written by the configured model lane. `deterministic` — the
-	// structured fallback, used when no lane is configured or the AI budget is
-	// exhausted. Never silently interchangeable: a reader deciding how much to
-	// trust a sentence needs to know which wrote it.
-	GeneratedBy    OrganizationBriefGeneratedBy `json:"generated_by"`
-	OrganizationId openapi_types.UUID           `json:"organization_id"`
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy    WrittenBy          `json:"generated_by"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
 
 	// Sentences The brief itself, one claim per entry.
 	Sentences []OrganizationBriefSentence `json:"sentences"`
 }
-
-// OrganizationBriefGeneratedBy `model` — written by the configured model lane. `deterministic` — the
-// structured fallback, used when no lane is configured or the AI budget is
-// exhausted. Never silently interchangeable: a reader deciding how much to
-// trust a sentence needs to know which wrote it.
-type OrganizationBriefGeneratedBy string
 
 // OrganizationBriefEvidence One record a brief sentence was written from.
 type OrganizationBriefEvidence struct {
@@ -10451,6 +10580,14 @@ type OrganizationListResponse struct {
 type OrganizationProfileFieldListResponse struct {
 	Data []CompanyProfileField `json:"data"`
 }
+
+// OrganizationQuestion The prepared questions. Fixed, because each one names the records its answer is
+// written from — which is what makes the answer citable.
+//
+// `whats_open` — the open deals, the open tasks and anything waiting on approval.
+// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+// `whats_changed` — what has moved on this account recently.
+type OrganizationQuestion string
 
 // OrganizationStrength defines model for OrganizationStrength.
 type OrganizationStrength struct {
@@ -12497,6 +12634,12 @@ type WebhookSubscriptionListResponse struct {
 	Page            PageInfo `json:"page"`
 }
 
+// WrittenBy Which writer produced a piece of generated prose. `model` — the configured model
+// lane. `deterministic` — the structured fallback, used when no lane is configured
+// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+// reader deciding how much to trust a sentence needs to know which wrote it.
+type WrittenBy string
+
 // AiWritten defines model for AiWritten.
 type AiWritten = bool
 
@@ -13995,6 +14138,17 @@ type UpdateOrganizationParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// AskAboutOrganizationJSONBody defines parameters for AskAboutOrganization.
+type AskAboutOrganizationJSONBody struct {
+	// Question The prepared questions. Fixed, because each one names the records its answer is
+	// written from — which is what makes the answer citable.
+	//
+	// `whats_open` — the open deals, the open tasks and anything waiting on approval.
+	// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+	// `whats_changed` — what has moved on this account recently.
+	Question OrganizationQuestion `json:"question"`
+}
+
 // GetOrganizationHierarchyRollupParams defines parameters for GetOrganizationHierarchyRollup.
 type GetOrganizationHierarchyRollupParams struct {
 	// Scope tree (default): aggregate the whole subtree. self: the root's own figures alone.
@@ -14053,6 +14207,12 @@ type UpsertPartnerParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// DismissOrganizationSuggestionJSONBody defines parameters for DismissOrganizationSuggestion.
+type DismissOrganizationSuggestionJSONBody struct {
+	// Fingerprint The `fingerprint` from the suggestion being dismissed.
+	Fingerprint string `json:"fingerprint"`
 }
 
 // ListOverlayUserMapParams defines parameters for ListOverlayUserMap.
@@ -15588,6 +15748,9 @@ type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
 // UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
 type UpdateOrganizationJSONRequestBody = UpdateOrganizationRequest
 
+// AskAboutOrganizationJSONRequestBody defines body for AskAboutOrganization for application/json ContentType.
+type AskAboutOrganizationJSONRequestBody AskAboutOrganizationJSONBody
+
 // DeepReadCompanyJSONRequestBody defines body for DeepReadCompany for application/json ContentType.
 type DeepReadCompanyJSONRequestBody = EnrichCompanyRequest
 
@@ -15599,6 +15762,9 @@ type MergeOrganizationJSONRequestBody MergeOrganizationJSONBody
 
 // UpsertPartnerJSONRequestBody defines body for UpsertPartner for application/json ContentType.
 type UpsertPartnerJSONRequestBody = UpsertPartnerRequest
+
+// DismissOrganizationSuggestionJSONRequestBody defines body for DismissOrganizationSuggestion for application/json ContentType.
+type DismissOrganizationSuggestionJSONRequestBody DismissOrganizationSuggestionJSONBody
 
 // ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
 type ConnectOverlayJSONRequestBody = OverlayConnectRequest
@@ -21767,6 +21933,9 @@ type ServerInterface interface {
 	// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 	// (GET /organizations/{id}/360)
 	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id)
+	// Ask one of the prepared questions about this account.
+	// (POST /organizations/{id}/ask)
+	AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id)
 	// The standing account brief — what this account is, where it stands, and what changed.
 	// (GET /organizations/{id}/brief)
 	GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
@@ -21803,6 +21972,9 @@ type ServerInterface interface {
 	// Relationship strength for an organization (max over current employees).
 	// (GET /organizations/{id}/strength)
 	GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id)
+	// Dismiss one next-step suggestion for the calling human.
+	// (POST /organizations/{id}/suggestions/dismiss)
+	DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request, id Id)
 	// Record that the calling human has now seen this organization — the baseline `since_last_visit` counts from.
 	// (POST /organizations/{id}/view-ack)
 	AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request, id Id)
@@ -23042,6 +23214,12 @@ func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Ask one of the prepared questions about this account.
+// (POST /organizations/{id}/ask)
+func (_ Unimplemented) AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The standing account brief — what this account is, where it stands, and what changed.
 // (GET /organizations/{id}/brief)
 func (_ Unimplemented) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
@@ -23111,6 +23289,12 @@ func (_ Unimplemented) GetSiteRead(w http.ResponseWriter, r *http.Request, id Id
 // Relationship strength for an organization (max over current employees).
 // (GET /organizations/{id}/strength)
 func (_ Unimplemented) GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dismiss one next-step suggestion for the calling human.
+// (POST /organizations/{id}/suggestions/dismiss)
+func (_ Unimplemented) DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30473,6 +30657,38 @@ func (siw *ServerInterfaceWrapper) GetOrganization360(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// AskAboutOrganization operation middleware
+func (siw *ServerInterfaceWrapper) AskAboutOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AskAboutOrganization(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationBrief operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationBrief(w http.ResponseWriter, r *http.Request) {
 
@@ -30979,6 +31195,38 @@ func (siw *ServerInterfaceWrapper) GetOrganizationStrength(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOrganizationStrength(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DismissOrganizationSuggestion operation middleware
+func (siw *ServerInterfaceWrapper) DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DismissOrganizationSuggestion(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -37768,6 +38016,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/organizations/{id}/360", wrapper.GetOrganization360)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/ask", wrapper.AskAboutOrganization)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/brief", wrapper.GetOrganizationBrief)
 	})
 	r.Group(func(r chi.Router) {
@@ -37802,6 +38053,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/strength", wrapper.GetOrganizationStrength)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/suggestions/dismiss", wrapper.DismissOrganizationSuggestion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/view-ack", wrapper.AcknowledgeOrganizationView)
