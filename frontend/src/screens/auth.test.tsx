@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { AuthScreen, AvailabilityScreen } from "./auth";
+import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
 // no signup mode, no workspace field, no tenant selector on the wire — and
@@ -36,8 +36,16 @@ const render = (ui: ReactNode) => {
 
 // stubApi answers GET /auth/capabilities from `capabilities` and records
 // every other call for the test to assert on.
+//
+// `oidc_providers` defaults to [] — the running installation's own answer while
+// the OIDC flow has not shipped (§19), and what keeps every case below asserting
+// a surface with no federated block. A test that wants one passes it.
 function stubApi(
-  capabilities: { password: boolean; password_reset: boolean },
+  capabilities: {
+    password: boolean;
+    password_reset: boolean;
+    oidc_providers?: ReadonlyArray<{ key: string; label: string }>;
+  },
   respond: (request: Request) => Response | Promise<Response>,
   profile: Response = ok(200, {
     name: "Margince",
@@ -54,7 +62,7 @@ function stubApi(
       const request = input instanceof Request ? input : new Request(input);
       if (new URL(request.url).pathname.endsWith("/auth/capabilities")) {
         return new Response(
-          JSON.stringify({ ...capabilities, oidc_providers: [] }),
+          JSON.stringify({ oidc_providers: [], ...capabilities }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
@@ -273,6 +281,108 @@ describe("AuthScreen login", () => {
     stubApi({ password: true, password_reset: true }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
     expect(await screen.findByText("Forgot password?")).toBeTruthy();
+  });
+
+  // §12: the two fields keep their VISIBLE labels, which is where this build
+  // deliberately parts company with the reference artifact — it names its fields
+  // with a placeholder and an aria-label. A placeholder is not a label: it
+  // disappears the moment the field has content (WCAG 3.3.2). The bordered shell
+  // must not quietly move the accessible name onto itself either.
+  it("names both fields with a real label, not a placeholder", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    for (const name of ["Email address", "Password"]) {
+      const field = await screen.findByLabelText(name);
+      expect(field.tagName).toBe("INPUT");
+      // The accessible name comes from the <label>, so it survives typing.
+      expect(field.getAttribute("aria-label")).toBeNull();
+    }
+  });
+
+  // §6.7: the legal line states that ACCESS is restricted — never that data is
+  // safe, encrypted, sovereign or compliant, because those are outcome claims the
+  // installation's own configuration can contradict (VOICE-RULE-7).
+  it("states that access is restricted, and nothing about the data", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(
+      await screen.findByText("Access to this organization is restricted."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/encrypted|compliant|sovereign|your data is safe/i),
+    ).toBeNull();
+    // Server paths, not app routes: both documents have to be readable BEFORE
+    // anyone authenticates, so they cannot sit behind the SPA router.
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveProperty(
+      "pathname",
+      "/legal/terms",
+    );
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveProperty(
+      "pathname",
+      "/legal/privacy",
+    );
+  });
+});
+
+// §19/§11, and now the markup exists — so the gate has to be the CAPABILITY
+// rather than the absence of a component. Both directions, because only ever
+// testing the empty case is what let the block go unbuilt for so long.
+describe("federated sign-in", () => {
+  it("offers a provider only when the installation serves one", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email address");
+    expect(
+      screen.queryByRole("button", { name: "Continue with Google" }),
+    ).toBeNull();
+    expect(screen.queryByText("or with email")).toBeNull();
+    cleanup();
+
+    stubApi(
+      {
+        password: true,
+        password_reset: true,
+        oidc_providers: [
+          { key: "google", label: "Continue with Google" },
+          { key: "microsoft", label: "Continue with Microsoft" },
+        ],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(
+      await screen.findByRole("button", { name: "Continue with Google" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Continue with Microsoft" }),
+    ).toBeTruthy();
+    // The divider labels the PASSWORD path below it, not the buttons above.
+    expect(screen.getByText("or with email")).toBeTruthy();
+  });
+
+  it("renders nothing at all for an empty capability", () => {
+    const { container } = render(
+      <ProviderButtons providers={[]} onSelect={vi.fn()} />,
+    );
+    expect(container.textContent).toBe("");
+  });
+
+  // The label is the installation's string. A frontend that composed it from the
+  // key would render "Continue with corp-sso" for a provider it does not know,
+  // and the button still has to work for that provider — which is why the mark
+  // falls back to a neutral icon rather than the block disappearing.
+  it("renders an unrecognised provider with its own label and reports its key", async () => {
+    const chosen: string[] = [];
+    render(
+      <ProviderButtons
+        providers={[{ key: "corp-sso", label: "Anmeldung über Werk-IT" }]}
+        onSelect={(key) => chosen.push(key)}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anmeldung über Werk-IT" }),
+    );
+    expect(chosen).toEqual(["corp-sso"]);
   });
 });
 

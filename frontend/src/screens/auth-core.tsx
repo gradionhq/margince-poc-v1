@@ -1,4 +1,10 @@
-import { BookOpenText, Check, LockKeyhole, ShieldCheck } from "lucide-react";
+import {
+  BookOpenText,
+  Check,
+  LockKeyhole,
+  PenLine,
+  ShieldCheck,
+} from "lucide-react";
 import { type ReactNode, useId } from "react";
 import type { components } from "../api/schema";
 import {
@@ -76,8 +82,47 @@ export function AuthExperience({
     <div className="auth-surface" data-auth-phase={phase}>
       <main className="auth-task">
         <div className="auth-task-in">{children}</div>
+        <LegalFooter />
       </main>
       <IdentityRegion profile={profile} phase={phase} />
+    </div>
+  );
+}
+
+/**
+ * The legal line, in the task region and on every outcome (§6.7).
+ *
+ * It belongs to the task rather than to the identity region, and not by
+ * convenience: the identity region's copy is a closed list of four sentence
+ * kinds (ADR-0076 Decision 2), and a terms link is none of them.
+ *
+ * It is the SECOND footer in this region, and the two do not compete: the legal
+ * line is region chrome and sits in the task grid's bottom `auto` row as a
+ * sibling of `.auth-task-in`, while the locale switcher (`.auth-footer`, in
+ * `auth.tsx`) is a control and stays the last child of the card column inside
+ * `.auth-task-in`. Different grid rows, so neither can push the other around.
+ *
+ * **The hrefs are server paths, not app routes.** Both documents have to be
+ * readable BEFORE anyone authenticates, so they cannot sit behind the SPA
+ * router — the SPA is what a 401 keeps you out of. Nothing serves them yet and
+ * they 404: a missing document, which is a content gap rather than a faked
+ * capability.
+ */
+function LegalFooter() {
+  const t = useT();
+  return (
+    <div className="auth-legal">
+      {/* Plain text, and the only sentence here. §6.7: it states that ACCESS is
+          restricted and nothing about data being safe, encrypted or compliant —
+          those are outcome claims the installation's own configuration can
+          contradict (VOICE-RULE-7). It must also not read as a control, which is
+          why it is not inside the links group. */}
+      <p>{t("auth.legalProtected")}</p>
+      <span className="auth-legal-links">
+        <a href="/legal/terms">{t("auth.legalTerms")}</a>
+        <span className="auth-legal-sep" aria-hidden />
+        <a href="/legal/privacy">{t("auth.legalPrivacy")}</a>
+      </span>
     </div>
   );
 }
@@ -91,7 +136,7 @@ export function AuthExperience({
  * test is one line — *a sentence that would still be true and still desirable on
  * a marketing page is out of bounds*.
  *
- * The three limits are the VOICE-RULE-6 register: architectural guarantees the
+ * The four limits are the VOICE-RULE-6 register: architectural guarantees the
  * system enforces, stated absolutely. They are not bullets selling a feature,
  * which is the distinction the July login spec collapsed and ADR-0076 restored.
  *
@@ -124,10 +169,18 @@ export function IdentityRegion({
             renders nothing. The row reserves its height in CSS so the column
             does not jump when it arrives. */}
         {profile && <RuntimePosture profile={profile} />}
+        {/* Four, from the artifact's five, and two of the five did not travel.
+            "Enriches records from sources it names" is a capability claim and
+            Decision 2 admits only limits. "Switch it off, the CRM still works"
+            IS a limit, but it is already the second half of the runtime line
+            above when the AI is unconfigured, and that is where it belongs: it
+            is a server-read fact about this installation, not a standing
+            promise. Saying it twice on one screen weakens both. */}
         <ul className="auth-limits">
           <Limit icon={<LockKeyhole />} text={t("auth.corePermission")} />
           <Limit icon={<BookOpenText />} text={t("auth.coreCites")} />
           <Limit icon={<ShieldCheck />} text={t("auth.coreWaits")} />
+          <Limit icon={<PenLine />} text={t("auth.coreMarks")} />
         </ul>
       </div>
     </aside>

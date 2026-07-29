@@ -451,6 +451,12 @@ export type MockApiOptions = Readonly<{
   // instead — the surface a signed-out user actually meets, and the one the
   // §3.8/axe sweeps could not reach because they all start behind a session.
   session?: "authenticated" | "unauthenticated";
+  // The federated providers /auth/capabilities reports. The default is `[]` and
+  // that is a product fact, not a convenience: the OIDC flow has not shipped, so
+  // the running app must never offer a provider button (§19), and the empty list
+  // is what proves it. A test that wants to SEE the federated block seeds it
+  // here — this option is the only place in this repo where a provider exists.
+  oidcProviders?: ReadonlyArray<{ key: string; label: string }>;
 }>;
 
 export async function mockApi(
@@ -535,9 +541,16 @@ export async function mockApi(
     // before a session exists, by design: the surface has to show a stranger the
     // installation's posture and its working sign-in methods.
     if (path === "/auth/capabilities") {
-      // oidc_providers is empty because the OIDC flow does not exist (§19), and
-      // an empty list is what proves no provider button renders.
-      return json({ password: true, password_reset: true, oidc_providers: [] });
+      // oidc_providers is empty by default because the OIDC flow does not exist
+      // (§19), and an empty list is what proves no provider button renders. A
+      // test that wants the federated block on screen passes { oidcProviders }
+      // — the markup exists, so the gate has to be this capability rather than
+      // the absence of a component.
+      return json({
+        password: true,
+        password_reset: true,
+        oidc_providers: options?.oidcProviders ?? [],
+      });
     }
     if (path === "/assistant/profile") {
       return json({

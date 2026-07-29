@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeOff, Lock, Mail } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -9,10 +9,12 @@ import {
   useState,
 } from "react";
 import { api } from "../api/client";
+import type { components } from "../api/schema";
 import { navigate } from "../app/router";
 import wordmarkDark from "../assets/wordmark-dark.png";
 import wordmarkWhite from "../assets/wordmark-white.png";
 import { Button } from "../design-system/atoms";
+import { ProviderMark } from "../design-system/provider-mark";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase } from "./auth-core";
@@ -31,6 +33,13 @@ import "./auth.css";
 // deliberate sign-out or an expired session — informational, never danger
 // styling (§9.5: the user has nothing to correct).
 export type AuthNotice = "signed-out" | "session-expired" | null;
+
+// The installation's operational federated providers, exactly as
+// /auth/capabilities serves them. `label` is the SERVER's string — the contract
+// documents it as the button text, so the installation owns the wording and t()
+// is not involved. Only the MARK is ours to choose, from `key`.
+export type OidcProviders =
+  components["schemas"]["AuthCapabilities"]["oidc_providers"];
 
 type View =
   | { kind: "login" }
@@ -130,6 +139,7 @@ export function AuthScreen({
             onAuthed={onAuthed}
             onPhase={setAuthPhase}
             resetAvailable={resetAvailable}
+            providers={capabilities.data?.oidc_providers ?? []}
             onForgot={() => setView({ kind: "forgot" })}
           />
         </>
@@ -289,15 +299,95 @@ function loginErrorKey(error: unknown): MessageKey {
   return "auth.errUnreachable";
 }
 
+/**
+ * Federated sign-in, above the password form (§11).
+ *
+ * Placement is an argument, not a preference: if the installation runs SSO the
+ * password form is the FALLBACK path, and putting it first tells every user at
+ * that installation to take the slower door. Hence the divider below, which
+ * labels the form rather than the buttons.
+ *
+ * **Renders nothing when the capability is empty**, and that is the §19
+ * enforcement point rather than a convenience: `oidc_providers` is served by
+ * `/auth/capabilities`, so a control for a flow this installation cannot
+ * complete never reaches the screen. This build's server serves `[]` until the
+ * OIDC flow ships, which is why no provider button appears at runtime today. Do
+ * not "fix" this to render a disabled button, and do not seed a provider list
+ * anywhere in src/ — the empty list IS the gate.
+ *
+ * **The label is the server's string, not ours.** The contract types it as
+ * `{ key, label }` and documents `label` as the button text, so the installation
+ * owns the wording and `t()` is not involved. The consequence is real: a German
+ * reader sees the installation's English label. Only the MARK is ours to choose,
+ * from `key`.
+ */
+export function ProviderButtons({
+  providers,
+  disabled = false,
+  onSelect,
+}: Readonly<{
+  providers: OidcProviders;
+  disabled?: boolean;
+  onSelect: (providerKey: string) => void;
+}>) {
+  const t = useT();
+  if (providers.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      <div className="auth-sso">
+        {providers.map((provider) => (
+          <button
+            key={provider.key}
+            type="button"
+            className="auth-social"
+            disabled={disabled}
+            onClick={() => onSelect(provider.key)}
+          >
+            <ProviderMark providerKey={provider.key} />
+            {provider.label}
+          </button>
+        ))}
+      </div>
+      {/* Labels the path BELOW it, so a screen reader hears what the divider
+          separates rather than a decorative rule. */}
+      <p className="auth-or">
+        <span>{t("auth.orWithEmail")}</span>
+      </p>
+    </>
+  );
+}
+
+// startFederatedSignIn is the hand-off itself, and today it is deliberately
+// inert.
+//
+// The real flow is a full-page redirect to the provider and back to a callback
+// route. crm.yaml documents NEITHER path — `AuthCapabilities.oidc_providers`
+// ("empty until the OIDC flow ships") is the only OIDC thing in the contract —
+// so there is no endpoint to send the browser to, and composing a start URL out
+// of the provider key would be inventing a wire this build cannot honour.
+//
+// Nothing reaches it in this build, and that is the honest part rather than a
+// loose end: the server serves `oidc_providers: []`, so `ProviderButtons`
+// renders nothing and no user can meet this (§19). The seeded story and the
+// seeded e2e case are catalog fixtures for reviewing the DESIGN. When the flow
+// ships, this function is the one thing that changes — the markup, the copy and
+// the capability gate are already right.
+function startFederatedSignIn(_providerKey: string): void {}
+
 function LoginForm({
   onAuthed,
   onPhase,
   resetAvailable,
+  providers,
   onForgot,
 }: Readonly<{
   onAuthed: () => void | Promise<void>;
   onPhase: (phase: AuthPhase) => void;
   resetAvailable: boolean;
+  /** §11: served by /auth/capabilities. Empty means no federated block. */
+  providers: OidcProviders;
   onForgot: () => void;
 }>) {
   const t = useT();
@@ -373,8 +463,13 @@ function LoginForm({
     <form className="auth-card" onSubmit={submit}>
       <h1>{t("auth.loginTitle")}</h1>
       <p className="card-sub">{t("auth.loginSub")}</p>
+      <ProviderButtons
+        providers={providers}
+        disabled={login.isPending}
+        onSelect={startFederatedSignIn}
+      />
       <div className="auth-fields">
-        <Field id={emailId} label={t("auth.email")}>
+        <Field id={emailId} label={t("auth.email")} icon={<Mail aria-hidden />}>
           <input
             id={emailId}
             ref={emailRef}
@@ -390,6 +485,7 @@ function LoginForm({
         <Field
           id={passwordId}
           label={t("auth.password")}
+          icon={<Lock aria-hidden />}
           labelEnd={
             resetAvailable ? (
               <button type="button" className="auth-link" onClick={onForgot}>
@@ -398,20 +494,7 @@ function LoginForm({
             ) : undefined
           }
           hint={capsLock ? t("auth.capsLock") : undefined}
-        >
-          <div className="auth-password-row">
-            <input
-              id={passwordId}
-              className="auth-input auth-input-reveal"
-              type={showPassword ? "text" : "password"}
-              required
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              onKeyUp={(event) =>
-                setCapsLock(event.getModifierState?.("CapsLock") ?? false)
-              }
-            />
+          trailing={
             <button
               type="button"
               className="auth-reveal"
@@ -426,7 +509,21 @@ function LoginForm({
             >
               {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
             </button>
-          </div>
+          }
+        >
+          <input
+            id={passwordId}
+            className="auth-input"
+            type={showPassword ? "text" : "password"}
+            required
+            autoComplete="current-password"
+            placeholder={t("auth.passwordPlaceholder")}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            onKeyUp={(event) =>
+              setCapsLock(event.getModifierState?.("CapsLock") ?? false)
+            }
+          />
         </Field>
       </div>
       {login.isError && (
@@ -479,7 +576,10 @@ function ForgotForm({
       <h1>{t("auth.forgotTitle")}</h1>
       <p className="card-sub">{t("auth.forgotSub")}</p>
       <div className="auth-fields">
-        <Field id={emailId} label={t("auth.email")}>
+        {/* Same icon as the sign-in card's email field. Without it the text
+            starts 22px further left than on the screen the user just came from,
+            and the two cards stop looking like one surface. */}
+        <Field id={emailId} label={t("auth.email")} icon={<Mail aria-hidden />}>
           <input
             id={emailId}
             className="auth-input"
@@ -553,6 +653,7 @@ function ResetForm({
         <Field
           id={passwordId}
           label={t("auth.newPassword")}
+          icon={<Lock aria-hidden />}
           hint={t("auth.passwordHint")}
         >
           <input
@@ -615,23 +716,45 @@ function Field({
   label,
   labelEnd,
   hint,
+  icon,
+  trailing,
   children,
 }: Readonly<{
   id: string;
   label: string;
   labelEnd?: ReactNode;
   hint?: string;
+  /** Leading affordance inside the shell. Decorative: the label names the field. */
+  icon?: ReactNode;
+  /** In-shell control, e.g. the password reveal. */
+  trailing?: ReactNode;
   children: ReactNode;
 }>) {
   // The <label> names only the label text, so the input's accessible name is
-  // exactly the label — the hint is a sibling below the input, not part of it.
+  // exactly the label — the hint is a sibling below the shell, not part of it.
+  //
+  // The visible label STAYS, and that is a deliberate divergence from the
+  // reference artifact, which labels its fields with a placeholder and an
+  // aria-label. A placeholder is not a label: it vanishes the moment the field
+  // has content, which is WCAG 3.3.2, and ADR-0076 Decision 6 binds §12's WCAG
+  // list unamended. Where the picture and §12 disagree, §12 wins.
   return (
     <div className="auth-field">
       <div className="auth-label-row">
         <label htmlFor={id}>{label}</label>
         {labelEnd}
       </div>
-      {children}
+      {/* The border and the focus ring live on the shell, not the input, so the
+          leading icon sits inside the outline rather than beside it. */}
+      <div className="auth-shell">
+        {icon && (
+          <span className="auth-shell-icon" aria-hidden>
+            {icon}
+          </span>
+        )}
+        {children}
+        {trailing}
+      </div>
       {hint && (
         <span className="auth-hint" role="status">
           {hint}

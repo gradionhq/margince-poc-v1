@@ -48,11 +48,22 @@
 
 /* ===== the task region ================================================== */
 /* First child in the DOM; second column on screen. */
+/* Two rows rather than a centred flex column: the card centres in the 1fr, the
+   legal line sits in the `auto` beneath it. An absolutely-positioned footer
+   (which is what the artifact does) overlaps the card at 200% zoom, and §6.1
+   says nothing may be lost there.
+
+   This region carries TWO footers, in two different rows on purpose. The locale
+   switcher (`.auth-footer`) is a control and belongs to the card, so it stays
+   the last child of `.auth-task-in` in row 1; the legal line (`.auth-legal`) is
+   region chrome and takes row 2. Neither can displace the other, and the
+   switcher's `margin-top: auto` still resolves inside `.auth-task-in` exactly as
+   it did while this was a flex column. */
 .auth-task {
   order: 2;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
   align-items: center;
   padding: 48px 5vw;
   background: var(--bgElevated);
@@ -110,11 +121,88 @@
   color: var(--textMeta);
   line-height: 1.5;
 }
+
+/* ===== federated sign-in (§11) ========================================== */
+/* No wrapper element on purpose. `ProviderButtons` returns a fragment, so the
+   divider and the fields are real DOM siblings and `.auth-or + .auth-fields`
+   below can do the spacing. A `display: contents` wrapper would have looked
+   equivalent and silently broken that: sibling selectors walk the DOM tree, not
+   the box tree. */
+.auth-sso {
+  margin-top: 22px;
+  display: flex;
+  gap: 10px;
+}
+/* Not the Button atom, deliberately: `btn-ghost` contributes a background, a
+   colour, a border colour, a radius, a weight and a padding, and this control
+   overrides every one of them — reuse that survives nothing is a claim, not
+   reuse. If the DS ever wants this look it wants a new Button VARIANT, which is
+   a design-system change rather than a screen's business. */
+.auth-social {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  padding: 11px 12px;
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  cursor: pointer;
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--textPrimary);
+  transition:
+    background 0.12s,
+    border-color 0.12s;
+}
+.auth-social:hover:not(:disabled) {
+  background: var(--accentSurface);
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--borderStrong));
+}
+.auth-social:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.auth-social:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+/* Labels the path BELOW it. The rules are drawn on the element rather than as
+   two spans so the text stays the only thing in the accessibility tree. */
+.auth-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 4px;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+.auth-or::before,
+.auth-or::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--borderSubtle);
+}
+
 .auth-fields {
   display: flex;
   flex-direction: column;
   gap: 14px;
   margin-top: 20px;
+}
+/* When the federated block is present it already carries the divider's spacing,
+   so the fields must not add a second gap on top of it. */
+.auth-or + .auth-fields {
+  margin-top: 14px;
 }
 .auth-field {
   display: flex;
@@ -142,50 +230,75 @@
   font-size: 11.5px;
   color: var(--textMeta);
 }
-.auth-input {
-  width: 100%;
+/* The border and the focus ring are on the SHELL, so a leading icon and the
+   reveal control sit inside one outline instead of beside it. `:focus-within`
+   rather than `:focus` is what makes that work: the input is a child now.
+
+   This is not a third icon-in-field pattern. `.input-icon` (atoms.css) puts an
+   absolutely positioned svg over an input that still owns its own border, which
+   can carry a leading icon and nothing else — it cannot hold a trailing control
+   inside the same ring, and the reveal button needs the shell's full height to
+   meet the 44px floor. The shell REPLACES `.auth-password-row` +
+   `.auth-input-reveal`, so this surface ends with one pattern where it had two. */
+.auth-shell {
+  display: flex;
+  align-items: center;
+  gap: 9px;
   /* §6.5 / §12: 44px is the target floor, and it is a floor rather than a
      rounded-up number — a 40px control fails the same check on a phone. */
   min-height: 44px;
+  /* No right padding: the reveal control claims the full inner height so its
+     target meets the 44px floor rather than being a 24px icon with air around
+     it. The input carries its own right padding instead. */
+  padding: 0 0 0 13px;
   border: 1px solid var(--borderStrong);
-  border-radius: var(--r-sm);
-  padding: 11px 13px;
-  font-family: var(--f-body);
-  font-size: 14.5px;
-  color: var(--textPrimary);
+  border-radius: var(--r-md);
   background: var(--bgElevated);
-  outline: 0;
   transition:
     border-color 0.15s,
     box-shadow 0.15s;
 }
-.auth-input::placeholder {
-  color: var(--textMeta);
-}
-.auth-input:focus {
+.auth-shell:focus-within {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accentLight);
 }
-.auth-password-row {
-  position: relative;
+.auth-shell-icon {
+  display: flex;
+  flex: none;
+  color: var(--textMeta);
 }
-.auth-input-reveal {
-  /* Room for the in-field control, so both fields keep the same outer width. */
-  padding-right: 46px;
+.auth-shell-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.auth-input {
+  flex: 1;
+  min-width: 0;
+  /* The shell owns the box now: no border, no radius, no background. */
+  border: 0;
+  padding: 11px 13px 11px 0;
+  font-family: var(--f-body);
+  font-size: 14.5px;
+  color: var(--textPrimary);
+  background: none;
+  outline: 0;
+}
+.auth-input::placeholder {
+  color: var(--textMeta);
 }
 .auth-reveal {
-  position: absolute;
-  top: 0;
-  right: 0;
+  flex: none;
   width: 44px;
-  height: 100%;
+  align-self: stretch;
   display: grid;
   place-items: center;
   background: transparent;
   border: 0;
   cursor: pointer;
-  color: var(--textTertiary);
-  border-radius: var(--r-sm);
+  color: var(--textMeta);
+  /* Follows the shell's own corner rather than floating a smaller radius
+     inside it. */
+  border-radius: 0 var(--r-md) var(--r-md) 0;
 }
 .auth-reveal svg {
   width: 18px;
@@ -265,6 +378,9 @@
   border-radius: var(--r-sm);
   padding: 10px 13px;
 }
+/* The locale switcher: a CONTROL, so it belongs to the card column and stays
+   inside `.auth-task-in` (row 1 of the task grid). `.auth-legal` below is the
+   other footer — region chrome, row 2 — and the two never meet. */
 .auth-footer {
   display: flex;
   align-items: center;
@@ -278,6 +394,51 @@
   font-weight: 600;
 }
 
+/* Bottom row of the task region's grid, on every outcome. In flow rather than
+   pinned, so it cannot land on top of the card at 200% zoom — and width-matched
+   to the card above it rather than to the region, so the sentence and the links
+   line up with the form's own edges. */
+.auth-legal {
+  align-self: end;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px 18px;
+  width: 100%;
+  max-width: 440px;
+  padding-top: 32px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--textMeta);
+}
+.auth-legal-links {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.auth-legal a {
+  color: var(--textContent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.auth-legal a:hover {
+  color: var(--textPrimary);
+}
+.auth-legal a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+/* A drawn separator, not a "·" in a string: the middot would be copy outside
+   the catalog, and a screen reader reads it aloud as a word. */
+.auth-legal-sep {
+  width: 3px;
+  height: 3px;
+  border-radius: var(--r-full);
+  background: var(--borderStrong);
+}
+
 /* ===== the identity region ============================================== */
 /* Second child in the DOM; first column on screen. Holds no controls and no
    copy the task depends on, which is what stops it competing with the form. */
@@ -287,9 +448,15 @@
   overflow: hidden;
   min-width: 0;
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /* Three `auto` rows CENTRED as one cluster, not `auto 1fr auto` pinning the
+     copy to the edges. The 1fr version pushed the Core to the middle and left
+     two tall gaps around it, which reads as a layout that lost its content
+     rather than as composition. The artifact groups the same four things and is
+     right to. */
+  grid-template-rows: repeat(3, auto);
+  align-content: center;
   justify-items: center;
-  gap: var(--space-4);
+  gap: var(--space-6);
   padding: 48px 5vw;
   border-right: 1px solid var(--borderSubtle);
   background:
@@ -316,9 +483,6 @@
   width: 100%;
   max-width: 470px;
   animation: authRise 0.8s cubic-bezier(0.23, 1, 0.32, 1) both;
-}
-.auth-identity-foot {
-  align-self: end;
 }
 /* (a) identity: the system's presence and name. Mono, small, unmissable. */
 .auth-kicker {
@@ -377,13 +541,13 @@
   height: 12px;
   color: var(--online);
 }
-/* Three columns at width, one column when there is no room — never two of
-   three, which is what hiding them would be. */
+/* Two columns at width, one column when there is no room — never three of four,
+   which is what hiding them would be. */
 .auth-limits {
   list-style: none;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-3) var(--space-2);
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-3) var(--space-4);
 }
 .auth-limits li {
   min-width: 0;

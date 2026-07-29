@@ -691,12 +691,13 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
       // breakpoint (ADR-0076 Decision 6). Both current implementations used to
       // drop two of the three limits with `display: none`, which is what this
       // catches — count AND rendered height, since a count alone passes on a
-      // hidden node.
+      // hidden node. Four limits now, and the grid reflows two columns to one
+      // rather than dropping any of them.
       test("hides no content to fit", async ({ page }) => {
         await page.goto("/");
         const limits = page.locator(".auth-limits li");
-        await expect(limits).toHaveCount(3);
-        for (let index = 0; index < 3; index += 1) {
+        await expect(limits).toHaveCount(4);
+        for (let index = 0; index < 4; index += 1) {
           await expect(limits.nth(index)).toBeVisible();
         }
         // The identity region may shrink to the Core and its statement. It may
@@ -743,11 +744,76 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
     await expect(core).toHaveAttribute("aria-hidden", "true");
   });
 
-  // §19: no control whose flow does not exist. The mock ships
-  // `oidc_providers: []`, which is the honest V1 answer.
+  // §19: no control whose flow does not exist — and the reason this passes has
+  // CHANGED. The federated block has markup now, so it is no longer a property
+  // of the tree that nothing could render a provider button. The gate is the
+  // CAPABILITY: /auth/capabilities serves `oidc_providers: []` because the OIDC
+  // flow has not shipped, and `ProviderButtons` returns null for an empty list.
+  // The companion test below drives the same gate in its "on" position, because
+  // a gate only ever seen switched off is a gate nobody has watched work.
   test("offers no identity provider that does not work", async ({ page }) => {
     await page.goto("/");
-    await expect(page.getByText(/weiter mit|continue with/i)).toHaveCount(0);
+    await expect(page.locator(".auth-sso")).toHaveCount(0);
+    await expect(page.locator(".auth-or")).toHaveCount(0);
+    await expect(
+      page.getByText(/weiter mit|continue with|oder per e-mail/i),
+    ).toHaveCount(0);
+  });
+
+  // The other direction: an installation whose administrator HAS wired SSO. The
+  // labels are the SERVER's strings (the second one is a provider this frontend
+  // has never heard of, which is the normal case for a self-hosted product), the
+  // buttons are real focusable controls at the 44px target floor, and the divider
+  // labels the PASSWORD FORM below them — where SSO exists the form is the
+  // fallback door, so the divider names it rather than the buttons.
+  test("offers the providers an installation does serve", async ({ page }) => {
+    await mockApi(page, {
+      session: "unauthenticated",
+      oidcProviders: [
+        { key: "google", label: "Weiter mit Google" },
+        { key: "corp-sso", label: "Anmeldung über Werk-IT" },
+      ],
+    });
+    await page.goto("/");
+
+    const google = page.getByRole("button", { name: "Weiter mit Google" });
+    const corp = page.getByRole("button", { name: "Anmeldung über Werk-IT" });
+    await expect(google).toBeVisible();
+    await expect(corp).toBeVisible();
+    // An unrecognised key still gets a mark — a neutral one rather than nothing,
+    // because a working sign-in path must not be hidden for want of a logo.
+    await expect(page.locator(".auth-sso .provider-mark")).toHaveCount(2);
+
+    // Reachable, not merely present.
+    await google.focus();
+    await expect(google).toBeFocused();
+    expect(
+      Math.round((await google.boundingBox())?.height ?? 0),
+    ).toBeGreaterThanOrEqual(44);
+
+    // The divider sits between the providers and the form it labels.
+    const divider = page.locator(".auth-or");
+    await expect(divider).toHaveText("oder per E-Mail");
+    const buttonsY = (await page.locator(".auth-sso").boundingBox())?.y ?? 0;
+    const dividerY = (await divider.boundingBox())?.y ?? 0;
+    const fieldsY = (await page.locator(".auth-fields").boundingBox())?.y ?? 0;
+    expect(buttonsY).toBeLessThan(dividerY);
+    expect(dividerY).toBeLessThan(fieldsY);
+
+    // The federated block exists only under this seeding, so the axe sweep below
+    // would never see it. Run it here too rather than leave the one part of the
+    // surface a user of an SSO installation actually clicks unmeasured.
+    await page.waitForLoadState("networkidle");
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.flatMap((violation) =>
+        violation.nodes.map(
+          (node) => `${violation.id}: ${node.target.join(" ")}`,
+        ),
+      ),
+    ).toEqual([]);
   });
 
   test("no AA violations on the login screen", async ({ page }) => {
