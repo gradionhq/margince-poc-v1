@@ -54,18 +54,20 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// on the mirror (design.md §4.2/§4.6) — chosen per call from
 	// ctx, never fixed at registry construction time.
 	//
-	// No tool reaches the freshness path, so this surface has no force-fresh
-	// spend of its own to account for and its OVB meter is a fail-closed
-	// placeholder (no Redis), never charged — the one metered reservation
-	// lives in the refetch poller, which takes its own Redis-backed meter.
-	// When a metered force-fresh path lands for a tool, this becomes a
-	// Redis-backed NewOverlayMeter like the REST surface's, sharing the same
-	// per-workspace windows.
+	// No tool reaches Dispatcher.Freshness, the only route to a force-fresh
+	// reservation on this provider, so this surface has no spend of its own to
+	// account for and its OVB meter is a fail-closed placeholder (no Redis),
+	// never charged; the live reservations and charges live in the refetch and
+	// reconcile pollers, which take their own Redis-backed meters. When a
+	// metered force-fresh path lands for a tool, this becomes a Redis-backed
+	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
+	// windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
-	// The guards take the uncached read — see sorModeProbe for why a stale
-	// 'native' here is a wrong answer rather than a stale screen.
-	sorMode := nativeOnlyModeProbe(provider)
+	// The guards take the Dispatcher as an overlayModeChecker — the interface
+	// whose method IS the uncached read, so no wiring here can hand them the
+	// cached mode. See overlayModeChecker for why that distinction is typed.
+	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);

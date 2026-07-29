@@ -15,12 +15,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -32,10 +28,20 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-func overlayMode() sorModeProbe { return func(context.Context) (bool, error) { return true, nil } }
-func nativeMode() sorModeProbe  { return func(context.Context) (bool, error) { return false, nil } }
-func unresolvableMode() sorModeProbe {
-	return func(context.Context) (bool, error) { return false, errors.New("mode read failed") }
+// fixedMode is an overlayModeChecker with a canned answer. It exists as a type
+// rather than a func because the interface's method name is the guard rail: the
+// cached read cannot satisfy it, so neither can a bare func.
+type fixedMode struct {
+	overlay bool
+	err     error
+}
+
+func (f fixedMode) isOverlayUncached(context.Context) (bool, error) { return f.overlay, f.err }
+
+func overlayMode() overlayModeChecker { return fixedMode{overlay: true} }
+func nativeMode() overlayModeChecker  { return fixedMode{} }
+func unresolvableMode() overlayModeChecker {
+	return fixedMode{err: errors.New("mode read failed")}
 }
 
 // --- run_report ---
@@ -192,152 +198,38 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 	}
 }
 
-// TestTheGuardsProbeIgnoresAStaleCachedMode makes the guards' UNCACHED read a
-// constraint instead of a convention. sorModeProbe is a plain func type, so
-// wiring these guards to Dispatcher.isOverlay would compile and leave every
-// behavioural test above green: they all supply a probe directly and so pin
-// what a guard does GIVEN an answer, never where the answer comes from. A
-// replica holding a pre-flip 'native' entry would then let each guarded tool
-// answer out of the empty native tables — the silent break this file exists
-// to forbid.
+// TestGuardsRefuseOnAStaleNativeCache drives a real guard against a real
+// Dispatcher, which the specs above cannot: they hand in a canned answer, so
+// they pin what a guard does GIVEN a mode, never that the mode it consults is
+// the fresh one. Here the process holds a pre-flip 'native' entry while the
+// workspace row already says overlay — the second-replica state, since
+// Invalidate reaches only the process that committed the flip.
 //
-// What it pins is that the probe re-reads and honours the fresh answer, NOT
-// that it reads the right row: queryMode is stubbed here and ignores its
-// workspace id, so a probe reading fresh for the WRONG workspace would still
-// pass. That half is carried by the integration pair — an overlay workspace
-// must refuse, a native one must not — which drives the real SQL.
-func TestTheGuardsProbeIgnoresAStaleCachedMode(t *testing.T) {
+// What it pins is that a guard honours the fresh answer, NOT that the read
+// targets the right row: queryMode is stubbed and ignores its workspace id, so
+// a read of the WRONG workspace would still pass here. That half is carried by
+// the integration pair — an overlay workspace must refuse, a native one must
+// not — which drives the real SQL.
+func TestGuardsRefuseOnAStaleNativeCache(t *testing.T) {
 	wsID := ids.NewV7()
 	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)
 
-	before := *calls
-	inOverlay, err := nativeOnlyModeProbe(d)(ctx)
-	if err != nil {
-		t.Fatalf("resolving the mode through the guards' probe: %v", err)
-	}
-	if !inOverlay {
-		t.Error("the probe answered 'native' from the stale cache; a guard must re-read workspace.x_sor_mode")
-	}
-	if *calls == before {
-		t.Error("the probe served the cached mode without paying a workspace-row read")
-	}
-}
+	ranNative := false
+	guarded := nativeOnlySlippingLister(d, func(context.Context) ([]agents.SlippingDeal, error) {
+		ranNative = true
+		return nil, nil
+	})
 
-// TestNoSorModeProbeIsWiredToTheCachedRead closes the drift the factory above
-// cannot. sorModeProbe is a bare func type, so a new guard can be wired
-// `nativeOnlyRetriever{mode: provider.isOverlay}` in one token: the test above
-// pins only what nativeOnlyModeProbe returns, and the integration pair seeds
-// overlay from creation, so a cached probe cache-misses there and answers
-// correctly. Both stay green while the guard reads a stale 'native'.
-//
-// The rule is that nothing expecting a sorModeProbe may be handed isOverlay,
-// the CACHED read. Note it is only ever wrong in THIS position: /me takes the
-// cached probe deliberately (server.go), because a stale answer there costs a
-// stale screen, which is the whole distinction sorModeProbe's doc draws.
-//
-// Both halves are derived from the tree, so a guard or field added later is
-// covered without editing this test.
-func TestNoSorModeProbeIsWiredToTheCachedRead(t *testing.T) {
-	files, fset := productionFilesOfPackageCompose(t)
+	_, err := guarded(ctx)
 
-	// Which declarations expect a probe: functions by parameter position,
-	// struct types by field name.
-	probeParams := map[string]map[int]bool{}
-	probeFields := map[string]bool{}
-	for _, file := range files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.FuncDecl:
-				for i, param := range node.Type.Params.List {
-					if isSorModeProbe(param.Type) {
-						if probeParams[node.Name.Name] == nil {
-							probeParams[node.Name.Name] = map[int]bool{}
-						}
-						probeParams[node.Name.Name][i] = true
-					}
-				}
-			case *ast.StructType:
-				for _, field := range node.Fields.List {
-					if isSorModeProbe(field.Type) {
-						for _, name := range field.Names {
-							probeFields[name.Name] = true
-						}
-					}
-				}
-			}
-			return true
-		})
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Errorf("err = %v, want ErrUnsupportedBySoR — the guard answered from the stale 'native' entry", err)
 	}
-	if len(probeParams) == 0 || len(probeFields) == 0 {
-		t.Fatalf("found %d probe params and %d probe fields — the obligation would be vacuous",
-			len(probeParams), len(probeFields))
+	if ranNative {
+		t.Error("the native deals lister ran for an overlay workspace: an empty pipeline reads as nothing slipping")
 	}
-
-	for _, file := range files {
-		ast.Inspect(file, func(n ast.Node) bool {
-			switch node := n.(type) {
-			case *ast.CallExpr:
-				fn, ok := node.Fun.(*ast.Ident)
-				if !ok {
-					return true
-				}
-				for i, arg := range node.Args {
-					if probeParams[fn.Name][i] && isCachedRead(arg) {
-						t.Errorf("%s: %s takes a sorModeProbe at argument %d and is handed the CACHED read; "+
-							"a guard on the cached mode serves a stale 'native' as a well-formed empty native "+
-							"answer — pass nativeOnlyModeProbe instead",
-							fset.Position(arg.Pos()), fn.Name, i)
-					}
-				}
-			case *ast.KeyValueExpr:
-				key, ok := node.Key.(*ast.Ident)
-				if !ok || !probeFields[key.Name] || !isCachedRead(node.Value) {
-					return true
-				}
-				t.Errorf("%s: field %s is a sorModeProbe and is set to the CACHED read; "+
-					"a guard on the cached mode serves a stale 'native' as a well-formed empty native "+
-					"answer — pass nativeOnlyModeProbe instead",
-					fset.Position(node.Value.Pos()), key.Name)
-			}
-			return true
-		})
+	if *calls == 0 {
+		t.Error("the guard never re-read workspace.x_sor_mode")
 	}
-}
-
-func isSorModeProbe(t ast.Expr) bool {
-	ident, ok := t.(*ast.Ident)
-	return ok && ident.Name == "sorModeProbe"
-}
-
-// isCachedRead reports whether e hands over Dispatcher.isOverlay itself rather
-// than calling it — the method value, which is what reaches a probe.
-func isCachedRead(e ast.Expr) bool {
-	sel, ok := e.(*ast.SelectorExpr)
-	return ok && sel.Sel.Name == "isOverlay"
-}
-
-func productionFilesOfPackageCompose(t *testing.T) ([]*ast.File, *token.FileSet) {
-	t.Helper()
-	entries, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatalf("reading package compose's directory: %v", err)
-	}
-	fset := token.NewFileSet()
-	var files []*ast.File
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		file, err := parser.ParseFile(fset, name, nil, parser.SkipObjectResolution)
-		if err != nil {
-			t.Fatalf("parsing %s: %v", name, err)
-		}
-		files = append(files, file)
-	}
-	if len(files) == 0 {
-		t.Fatal("walked no production files — the obligation would be vacuous")
-	}
-	return files, fset
 }
