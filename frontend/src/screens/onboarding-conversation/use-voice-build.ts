@@ -5,6 +5,7 @@ import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { problemMessage } from "../common";
 import { pickBuiltVersion } from "../onboarding";
+import { ensureProfileId } from "../voice-profile";
 import type {
   BuildStage,
   BuildTerminalStatus,
@@ -46,15 +47,9 @@ type UseVoiceBuildArgs = Readonly<{
   dispatch: Dispatch<ConversationEvent>;
   /** Live view of the machine, for the poll-failure fallback guards. */
   machine: Readonly<{ current: ConversationState }>;
-  /** The corpus hook's single-flight profile resolution. */
-  sharedProfileId: () => Promise<string>;
 }>;
 
-export function useVoiceBuild({
-  dispatch,
-  machine,
-  sharedProfileId,
-}: UseVoiceBuildArgs) {
+export function useVoiceBuild({ dispatch, machine }: UseVoiceBuildArgs) {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [buildId, setBuildId] = useState<string | null>(null);
   const prevSnapshot = useRef<VoiceBuildSnapshot | null>(null);
@@ -73,7 +68,7 @@ export function useVoiceBuild({
 
   const start = useMutation({
     mutationFn: async (): Promise<{ profileId: string; buildId: string }> => {
-      const id = await sharedProfileId();
+      const id = await ensureProfileId();
       const { data, error } = await api.POST("/voice-profiles/{id}/builds", {
         params: { path: { id } },
         body: { reason: "onboarding" },

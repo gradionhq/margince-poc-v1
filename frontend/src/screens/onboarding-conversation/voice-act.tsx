@@ -43,11 +43,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
   const machine = useRef(state);
   machine.current = state;
   const corpus = useVoiceCorpus({ state, dispatch, initialSummary });
-  const build = useVoiceBuild({
-    dispatch,
-    machine,
-    sharedProfileId: corpus.sharedProfileId,
-  });
+  const build = useVoiceBuild({ dispatch, machine });
   const [draft, setDraft] = useState("");
   const [pendingPaste, setPendingPaste] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
