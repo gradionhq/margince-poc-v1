@@ -641,6 +641,11 @@ export function ComposeModal({
       onClose={onClose}
       title={t("compose.sendConfirmTitle")}
       tier="confirm"
+      // The rep is about to send real mail irreversibly, so the body they are
+      // confirming has to be readable at a glance rather than through a
+      // five-line porthole — and the Send button has to sit above the fold,
+      // not below a scroll.
+      size="wide"
       confirmLabel={t("compose.send")}
       confirmDisabled={!canSend || rejectionInFlight}
       onConfirm={() => send.mutate()}

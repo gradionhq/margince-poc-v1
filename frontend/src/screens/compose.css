@@ -27,7 +27,10 @@
  * atom; this only sets the composer's size and resize affordance. */
 .compose-body {
   width: 100%;
-  min-height: 120px;
+  /* Tall enough to hold a short business email whole. A body the rep has to
+     scroll to read is a body they will confirm without reading, and this send
+     cannot be taken back. */
+  min-height: 220px;
   resize: vertical;
 }
 
