@@ -101,6 +101,19 @@ func (e *sendEnv) reconcile(t *testing.T, id ids.ActivityID, stamped string) {
 	}
 }
 
+// reconcileExpectingRefusal is the same drive for the cases where the seam MUST
+// refuse. It returns the error rather than failing on it, and it rolls the
+// transaction back afterwards the way the delivery store's savepoint does — so
+// what a case then reads is what an operator would find on disk.
+func (e *sendEnv) reconcileExpectingRefusal(t *testing.T, id ids.ActivityID) error {
+	t.Helper()
+	ctx := e.asSendWorker()
+	store := NewStore(e.pool)
+	return database.WithWorkspaceTx(ctx, e.pool, func(tx pgx.Tx) error {
+		return store.ReconcileMessageIdentityTx(ctx, tx, id, mintedIdentity, stampedIdentity)
+	})
+}
+
 // A root send's thread_key IS its own identity, so both move together. A root
 // that kept the minted key would be invisible to the reply that quotes the
 // stamped one — reply detection joins outbound activities on thread_key.

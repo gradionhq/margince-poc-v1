@@ -211,13 +211,14 @@ var crossStoreWrites = map[string]string{
 	// as the activity insert or the two drift.
 	"internal/modules/activities:deal": "deal.last_activity_at is denormalized from the timeline; it must move in the activity's own transaction",
 
-	// The outbound-send reconcile absorbs the provider's own captured echo of
-	// a message this workspace sent, and every foreign key onto activity is
-	// ON DELETE CASCADE — so what must survive the echo moves in the SAME
-	// transaction that deletes it, or it is gone before any sibling call could
-	// be made. The queued counterparty review is exactly that: a human verdict
-	// the survivor does not re-queue.
-	"internal/modules/activities:capture_pending_counterparty": "the message-identity absorb re-points the deleted echo's queued counterparty dispositions onto the surviving send in the same transaction as the delete — the row cascades away with the echo, so routing it through capture would mean handing over a row that no longer exists",
+	// The outbound-send reconcile folds the provider's own captured echo of a
+	// message this workspace sent into the send's own row. That fold is one
+	// indivisible act — links moved, review moved, key released, row archived
+	// — run inside a savepoint the delivery store may roll back whole. The
+	// queued counterparty review is part of it: a human verdict the survivor
+	// does not re-queue, which must not be left asking about a message the
+	// workspace can no longer see.
+	"internal/modules/activities:capture_pending_counterparty": "the message-identity absorb re-points the archived echo's queued counterparty dispositions onto the surviving send, inside the same savepoint as the rest of the fold — a sibling call would have to write on this very transaction and savepoint anyway, so routing it through capture would buy a hop and no isolation, while splitting the fold across two owners would let half of it survive a rollback",
 
 	// capture is the ONE connector.Sink (interfaces.md §1): one transaction
 	// per inbound record writes raw original + normalized domain row, so a
