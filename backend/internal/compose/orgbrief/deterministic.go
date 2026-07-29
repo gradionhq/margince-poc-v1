@@ -101,6 +101,15 @@ func oneCurrencyTotal(deals []DealIn) (total int64, currency string, ok bool) {
 		if deal.AmountMinor == 0 {
 			continue // an amountless deal contributes nothing, and no currency
 		}
+		if deal.Currency == "" {
+			// An amount whose currency nobody recorded cannot be added to
+			// anything: folded into a later deal's total it would be reported
+			// as that currency, which is a figure this account never had.
+			// (The deal_amount_currency_pair CHECK makes this unreachable
+			// from the database; Input is a plain struct, and the total is
+			// money.)
+			return 0, "", false
+		}
 		if currency == "" {
 			currency = deal.Currency
 		}

@@ -191,3 +191,21 @@ func TestDeterministicTotalsPastAnAmountlessDeal(t *testing.T) {
 		t.Errorf("the priced deal's total is missing: %q", text)
 	}
 }
+
+// An amount whose currency nobody recorded cannot be added to anything:
+// folded into a later deal's total it would be reported as that currency.
+func TestDeterministicRefusesATotalWithAnUnknownCurrency(t *testing.T) {
+	text := briefLines(Deterministic(briefOrgID, Input{
+		Name: "Acme",
+		OpenDeals: []DealIn{
+			{ID: "d-1", Name: "Currency missing", AmountMinor: 100_000},
+			{ID: "d-2", Name: "EU deal", AmountMinor: 400_000, Currency: "EUR"},
+		},
+	}))
+	if strings.Contains(text, "EUR") {
+		t.Errorf("reported an unknown-currency amount as EUR: %q", text)
+	}
+	if strings.Contains(text, "worth about") {
+		t.Errorf("totalled past an amount with no currency: %q", text)
+	}
+}

@@ -36,14 +36,15 @@ type Sentence struct {
 	Evidence []Evidence `json:"evidence"`
 }
 
-// The citable record kinds, spelled once. They are the contract's
-// OrganizationBriefEvidence vocabulary, and both the writer and the grounding
-// filter key on them, so a rename cannot leave the two disagreeing.
-const (
-	citeOrganization = "organization"
-	citeDeal         = "deal"
-	citeActivity     = "activity"
-	citePerson       = "person"
+// The citable record kinds, DERIVED from the contract's own enum rather than
+// re-spelled. Both the writer and the grounding filter key on them, and a
+// literal copy would let a contract rename leave the filter matching a type
+// the wire no longer carries — a citation that silently stops grounding.
+var (
+	citeOrganization = string(crmcontracts.OrganizationBriefEvidenceEntityTypeOrganization)
+	citeDeal         = string(crmcontracts.OrganizationBriefEvidenceEntityTypeDeal)
+	citeActivity     = string(crmcontracts.OrganizationBriefEvidenceEntityTypeActivity)
+	citePerson       = string(crmcontracts.OrganizationBriefEvidenceEntityTypePerson)
 )
 
 // Evidence points at a record the READER can already open — the brief is

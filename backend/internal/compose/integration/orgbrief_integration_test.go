@@ -370,6 +370,20 @@ func TestOrganizationBriefTransportServesAndForces(t *testing.T) {
 	// A second GET is the cache; the POST is the reader asking anyway.
 	rec = httptest.NewRecorder()
 	handlers.GetOrganizationBrief(rec, get.WithContext(reader), crmcontracts.Id(org.UUID))
+	// The status matters as much as the call count: a cache read that failed
+	// would also leave the model unasked, and "0 extra calls" would read as a
+	// hit.
+	if rec.Code != http.StatusOK {
+		t.Fatalf("cached GET status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	var cachedBody crmcontracts.OrganizationBrief
+	if err := json.Unmarshal(rec.Body.Bytes(), &cachedBody); err != nil {
+		t.Fatalf("decoding the cached brief: %v", err)
+	}
+	if len(cachedBody.Sentences) != len(body.Sentences) {
+		t.Errorf("the cached brief has %d sentences, the first had %d",
+			len(cachedBody.Sentences), len(body.Sentences))
+	}
 	if lane.calls != 1 {
 		t.Errorf("model calls = %d after a second GET, want the cache to answer", lane.calls)
 	}
