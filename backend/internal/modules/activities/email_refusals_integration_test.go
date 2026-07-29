@@ -50,9 +50,17 @@ func TestSendEmailDerivesUnsubscribeHeadersForAMarketingPurpose(t *testing.T) {
 		!strings.HasSuffix(staged.Body, testBaseURL+"/v1/public/preferences/"+testUnsubscribeTok) {
 		t.Fatalf("staged body carries no manage-preferences link:\n%s", staged.Body)
 	}
-	// The timeline records what actually went out, footer included.
-	if sent.Body == nil || !strings.Contains(*sent.Body, wantURL) {
-		t.Fatalf("logged activity body does not match the transmitted body: %v", sent.Body)
+	// The timeline records that the send carried a one-click link, and which
+	// purpose it pointed at — with the token segment redacted. The token is a
+	// bearer credential over the recipient's consent record and the activity
+	// row is served back to any seat holding activity:read, so the record and
+	// the transmission deliberately differ by exactly that one segment.
+	recordedURL := testBaseURL + "/v1/public/preferences/" + redactedToken + "/unsubscribe?purpose=marketing_email"
+	if sent.Body == nil || !strings.Contains(*sent.Body, recordedURL) {
+		t.Fatalf("logged activity body lost the unsubscribe footer: %v", sent.Body)
+	}
+	if strings.Contains(*sent.Body, testUnsubscribeTok) {
+		t.Fatalf("logged activity body carries the live preference token:\n%s", *sent.Body)
 	}
 }
 

@@ -27,11 +27,12 @@ import (
 )
 
 // sendMarketing issues an authenticated send-email and returns the status
-// plus the body of the activity the send logged — which is the body that
-// goes out, unsubscribe footer included. The machine List-Unsubscribe header
-// rides the staged message, not this response: the API caller is not the
-// recipient and has nothing to unsubscribe from. host/xfProto let a test
-// forge the request origin to prove the emitted link ignores them.
+// plus the body of the activity the send logged — the RECORDED rendering,
+// carrying the unsubscribe footer with its token segment redacted. The
+// machine List-Unsubscribe header and the live token ride the staged message
+// (transmittedBody), not this response: the API caller is not the recipient
+// and has nothing to unsubscribe from. host/xfProto let a test forge the
+// request origin to prove the emitted link ignores them.
 func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto string) (int, string) {
 	t.Helper()
 	raw, err := json.Marshal(anyMap{
@@ -75,6 +76,22 @@ func sendMarketing(t *testing.T, e *env, activityID, purpose, host, xfProto stri
 		t.Fatalf("decoding the sent activity: %v (%s)", err, payload)
 	}
 	return resp.StatusCode, sent.Body
+}
+
+// transmittedBody returns the body of the newest staged delivery — what the
+// recipient actually receives. The live preference token lives THERE and
+// nowhere else: it is a bearer credential over that person's consent record,
+// so the durable activity row (and every authenticated read of it) keeps the
+// footer with its token segment redacted. A test that needs the recipient's
+// credential reads their mail, exactly as the recipient would.
+func transmittedBody(t *testing.T, c *consentEnv) string {
+	t.Helper()
+	var body string
+	if err := c.owner.QueryRow(context.Background(),
+		`SELECT body FROM comms_outbound ORDER BY id DESC LIMIT 1`).Scan(&body); err != nil {
+		t.Fatalf("reading the staged delivery: %v", err)
+	}
+	return body
 }
 
 // unsubscribeLinkIn lifts the one-click URL out of the visible footer the
@@ -139,20 +156,22 @@ func sendAndAssertUnsubscribeLink(t *testing.T, c *consentEnv) string {
 	t.Helper()
 	// The marketing send carries the one-click link, built from the
 	// configured base — NOT from the request Host.
-	status, body := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	status, _ := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
 	if status != http.StatusAccepted {
 		t.Fatalf("marketing send → %d, want 202", status)
 	}
-	link := unsubscribeLinkIn(t, body)
+	link := unsubscribeLinkIn(t, transmittedBody(t, c))
 	if !strings.HasPrefix(link, "https://mail.example.test/v1/public/preferences/") || !strings.Contains(link, "purpose=newsletter") {
 		t.Fatalf("unsubscribe link = %q, want a one-click URL on the configured base", link)
 	}
 	token := tokenFromLink(t, link)
 
 	// A forged Host / X-Forwarded-Proto must NOT redirect the tokenized
-	// link to an attacker's domain (token-exfiltration guard).
-	_, hostileBody := sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
-	hostileLink := unsubscribeLinkIn(t, hostileBody)
+	// link to an attacker's domain (token-exfiltration guard). Asserted on
+	// the TRANSMITTED copy: that is the one carrying the credential an
+	// attacker-controlled base would harvest.
+	sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
+	hostileLink := unsubscribeLinkIn(t, transmittedBody(t, c))
 	if !strings.HasPrefix(hostileLink, "https://mail.example.test/") || strings.Contains(hostileLink, "evil.example") {
 		t.Fatalf("hostile Host reshaped the unsubscribe link: %q", hostileLink)
 	}
@@ -302,6 +321,62 @@ func TestPreferenceCenterOneClickUnsubscribe(t *testing.T) {
 	assertWithdrawalProvenanceAndWriteShape(t, c, token, newsletterID)
 }
 
+// The minted credential reaches the recipient's mail and NOTHING the
+// workspace stores or serves. The token is authority over that person's
+// consent record on a session-less edge — read, withdraw and GRANT, under a
+// system principal that short-circuits every RBAC gate — so a durable copy in
+// activity.body would hand it to every seat holding activity:read (the
+// seeded read_only role reads them all, workspace-wide, while holding no
+// write grant at all), and the 202 would hand it to the sender.
+func TestPreferenceTokenNeverReachesTheRecordedActivity(t *testing.T) {
+	c := setupConsent(t)
+	grantPurpose(t, c, createNewsletterPurpose(t, c))
+
+	status, recorded := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	if status != http.StatusAccepted {
+		t.Fatalf("marketing send → %d, want 202", status)
+	}
+	token := tokenFromLink(t, unsubscribeLinkIn(t, transmittedBody(t, c)))
+	if !strings.HasPrefix(token, "pref_") {
+		t.Fatalf("the transmitted message carries no usable token: %q", token)
+	}
+
+	// The 202 the sender reads back.
+	if strings.Contains(recorded, token) {
+		t.Fatalf("the 202 response echoed the recipient's preference token:\n%s", recorded)
+	}
+	// The durable row, through the authenticated timeline read that serves it.
+	var page struct {
+		Data []struct {
+			Body *string `json:"body"`
+		} `json:"data"`
+	}
+	if s := c.call(t, "GET", "/v1/activities?kind=email&limit=50", nil, nil, &page); s != http.StatusOK {
+		t.Fatalf("timeline read → %d", s)
+	}
+	if len(page.Data) == 0 {
+		t.Fatal("the timeline read returned no email activities — the assertion below would pass vacuously")
+	}
+	for _, a := range page.Data {
+		if a.Body != nil && strings.Contains(*a.Body, token) {
+			t.Fatalf("the authenticated timeline served the recipient's preference token:\n%s", *a.Body)
+		}
+	}
+
+	// What the record KEEPS: the footer's shape and the purpose it pointed
+	// at, so a reader still sees the send carried a working one-click link.
+	// Only the credential is gone.
+	if !strings.Contains(recorded, "https://mail.example.test/v1/public/preferences/") ||
+		!strings.Contains(recorded, "purpose=newsletter") {
+		t.Fatalf("the recorded body lost the unsubscribe footer entirely:\n%s", recorded)
+	}
+	// And the redacted link is inert: it is not a token the public edge honors.
+	if s := publicCall(t, c.env, "GET",
+		"/v1/public/preferences/"+tokenFromLink(t, unsubscribeLinkIn(t, recorded)), nil, nil, nil); s != http.StatusNotFound {
+		t.Fatalf("the recorded stand-in resolved on the public edge → %d, want 404", s)
+	}
+}
+
 // The token is required and single-purpose: an unknown or revoked token is
 // refused as absent, so probing cannot tell a real recipient from a
 // fabricated one (the surface is not a consent-state oracle).
@@ -334,8 +409,8 @@ func TestPreferenceCenterRevokedTokenReadsAsAbsent(t *testing.T) {
 	}
 	grantPurpose(t, c, newsletter.ID)
 
-	_, body := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
-	token := tokenFromLink(t, unsubscribeLinkIn(t, body))
+	sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	token := tokenFromLink(t, unsubscribeLinkIn(t, transmittedBody(t, c)))
 
 	// Live token resolves.
 	if s := publicCall(t, c.env, "GET", "/v1/public/preferences/"+token, nil, nil, nil); s != http.StatusOK {
@@ -371,8 +446,8 @@ func TestPreferenceCenterRejectsOversizedChoiceArray(t *testing.T) {
 		t.Fatalf("create newsletter purpose → %d", status)
 	}
 	grantPurpose(t, c, newsletter.ID)
-	_, body := sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
-	token := tokenFromLink(t, unsubscribeLinkIn(t, body))
+	sendMarketing(t, c.env, c.activityID, "newsletter", "", "")
+	token := tokenFromLink(t, unsubscribeLinkIn(t, transmittedBody(t, c)))
 
 	choices := make([]anyMap, 0, 100)
 	for i := 0; i < 100; i++ {
