@@ -18,9 +18,13 @@
 // database.WithWorkspaceTx and the response carries the as_of stamp of
 // that read. The isolation level is Read Committed (the platform's
 // posture), so a concurrent commit can land between two sections; the
-// stamp is what keeps that honest instead of hidden. Nothing here opens a
-// second transaction, which is why the module stores it calls all expose
-// transaction-taking variants.
+// stamp is what keeps that honest instead of hidden. No section opens a
+// second transaction, which is why every module store this package calls
+// exposes a transaction-taking variant of its read. The one exception is
+// the custom-field catalog, which the people store resolves through the
+// fieldcatalog seam on its own connection: it describes the workspace's
+// column set, not the account's rows, so reading it a moment earlier
+// changes no answer here.
 //
 // Authorization per section. Reading the organization is mandatory.
 // Everything else needs its own object grant, and a section the caller may
