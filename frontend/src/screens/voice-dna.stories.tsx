@@ -110,7 +110,8 @@ export default meta;
 type Story = StoryObj;
 
 // No profile yet: listVoiceProfiles answers an empty page and the card offers
-// the "add samples and build" empty state.
+// the empty state together with the add control that mints the profile — the
+// state an owner who skipped the onboarding voice step lands on.
 export const Empty: Story = {
   render: voiceStory({
     "GET /voice-profiles": () => jsonResponse(emptyPage),

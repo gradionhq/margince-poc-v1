@@ -11,7 +11,7 @@ import {
 } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { problemMessage, QueryGate } from "./common";
-import { useVoiceProfile } from "./voice-profile";
+import { ensureProfileId, useVoiceProfile } from "./voice-profile";
 import { ActiveVoiceInsights, VoiceHistory } from "./voice-versions";
 import "./voice-dna.css";
 
@@ -24,13 +24,12 @@ type CorpusManifest = {
   summary: VoiceCorpusSummary;
 };
 
-function useVoiceSources(profileId: string | undefined) {
+function useVoiceSources(profileId: string) {
   return useQuery({
     queryKey: ["voice-sources", profileId],
-    enabled: Boolean(profileId),
     queryFn: async (): Promise<CorpusManifest> => {
       const { data, error } = await api.GET("/voice-profiles/{id}/sources", {
-        params: { path: { id: profileId as string } },
+        params: { path: { id: profileId } },
       });
       if (error) {
         throw new Error(problemMessage(error));
@@ -59,6 +58,7 @@ function bandFor(totalWords: number): string {
 // owner's own profile, its corpus, and its builds.
 export function VoiceDnaCard() {
   const t = useT();
+  const qc = useQueryClient();
   const profile = useVoiceProfile();
   return (
     <section className="card" style={{ marginBottom: "var(--space-4)" }}>
@@ -71,10 +71,24 @@ export function VoiceDnaCard() {
           data ? (
             <VoiceDnaBody profile={data} />
           ) : (
-            <EmptyState>
-              <b>{t("settings.voice.emptyTitle")}</b>
-              <p className="t-small">{t("settings.voice.emptyBody")}</p>
-            </EmptyState>
+            // The empty state promises samples can be added "below", and a
+            // profile is minted by the first add rather than by a step of its
+            // own — so the add control has to render here too. Without it an
+            // owner who skipped the onboarding voice step could never start a
+            // Voice DNA at all, and the whole card below (corpus, builds,
+            // sample drafts) stayed unreachable.
+            <>
+              <EmptyState>
+                <b>{t("settings.voice.emptyTitle")}</b>
+                <p className="t-small">{t("settings.voice.emptyBody")}</p>
+              </EmptyState>
+              <CorpusSources
+                profileId={null}
+                onChanged={() =>
+                  qc.invalidateQueries({ queryKey: ["voice-profile"] })
+                }
+              />
+            </>
           )
         }
       </QueryGate>
@@ -132,15 +146,12 @@ function VoiceDnaBody({ profile }: Readonly<{ profile: VoiceProfile }>) {
       {/* The insights panel also carries the candidate-review banner, so it
           renders for EVERY profile state: a review-required first build must
           be actionable while the profile is still collecting. */}
-      <ActiveVoiceInsights
-        profileId={profile.id as string}
-        onChanged={invalidate}
-      />
+      <ActiveVoiceInsights profileId={profile.id} onChanged={invalidate} />
       {profile.status !== "ready" && <DerivedVoice profile={profile} />}
       <PersonalityEditor profile={profile} onSaved={invalidate} />
-      <CorpusSources profileId={profile.id as string} onChanged={invalidate} />
+      <CorpusSources profileId={profile.id} onChanged={invalidate} />
       <BuildControls profile={profile} onBuilt={invalidate} />
-      <VoiceHistory profileId={profile.id as string} onChanged={invalidate} />
+      <VoiceHistory profileId={profile.id} onChanged={invalidate} />
     </div>
   );
 }
@@ -174,7 +185,7 @@ function PersonalityEditor({
     mutationFn: async () => {
       const { error: err } = await api.PATCH("/voice-profiles/{id}", {
         params: {
-          path: { id: profile.id as string },
+          path: { id: profile.id },
           header: { "If-Match": String(profile.version) },
         },
         body: { personality_md: text },
@@ -217,40 +228,17 @@ function PersonalityEditor({
   );
 }
 
-function CorpusSources({
+// The corpus a profile already holds: the meter, its register mix, and the
+// removable rows. It renders only once a profile exists — before that there is
+// no corpus to read, and asking for one would be a request against an id
+// nobody has minted yet.
+function CorpusManifest({
   profileId,
   onChanged,
 }: Readonly<{ profileId: string; onChanged: () => void }>) {
   const t = useT();
   const sources = useVoiceSources(profileId);
-  const [paste, setPaste] = useState("");
   const [error, setError] = useState<string | null>(null);
-
-  const add = useMutation({
-    mutationFn: async () => {
-      const { error: err } = await api.POST("/voice-profiles/{id}/sources", {
-        params: { path: { id: profileId } },
-        body: {
-          kind: "other",
-          register: "general",
-          weight: 1,
-          source_label: t("settings.voice.pastedLabel"),
-          source_ref: `settings:paste:${Date.now()}`,
-          format: "text",
-          content: paste,
-        },
-      });
-      if (err) {
-        throw new Error(problemMessage(err));
-      }
-    },
-    onSuccess: () => {
-      setPaste("");
-      setError(null);
-      onChanged();
-    },
-    onError: (e: Error) => setError(e.message),
-  });
 
   const remove = useMutation({
     mutationFn: async (sourceId: string) => {
@@ -262,13 +250,15 @@ function CorpusSources({
         throw new Error(problemMessage(err));
       }
     },
-    onSuccess: onChanged,
+    onSuccess: () => {
+      setError(null);
+      onChanged();
+    },
     onError: (e: Error) => setError(e.message),
   });
 
   return (
-    <div style={{ marginTop: "var(--space-3)" }}>
-      <div className="vdna-label">{t("settings.voice.corpusLabel")}</div>
+    <>
       <QueryGate query={sources}>
         {(manifest) => (
           <div>
@@ -297,6 +287,65 @@ function CorpusSources({
           </div>
         )}
       </QueryGate>
+      {error && (
+        <p className="t-small" style={{ marginTop: "var(--space-2)" }}>
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+// A null profileId is the owner who has never built a voice: the paste box is
+// the same one, but the add resolves the profile through the shared
+// ensureProfileId first, so the very first sample mints the one profile the
+// onboarding step would have minted — never a second one beside it.
+function CorpusSources({
+  profileId,
+  onChanged,
+}: Readonly<{ profileId: string | null; onChanged: () => void }>) {
+  const t = useT();
+  const [paste, setPaste] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const first = profileId === null;
+
+  const add = useMutation({
+    mutationFn: async () => {
+      const id = profileId ?? (await ensureProfileId());
+      const { error: err } = await api.POST("/voice-profiles/{id}/sources", {
+        params: { path: { id } },
+        body: {
+          kind: "other",
+          register: "general",
+          weight: 1,
+          source_label: t("settings.voice.pastedLabel"),
+          source_ref: `settings:paste:${Date.now()}`,
+          format: "text",
+          content: paste,
+        },
+      });
+      if (err) {
+        throw new Error(problemMessage(err));
+      }
+    },
+    onSuccess: () => {
+      setPaste("");
+      setError(null);
+      onChanged();
+    },
+    onError: (e: Error) => setError(e.message),
+  });
+
+  return (
+    <div style={{ marginTop: "var(--space-3)" }}>
+      <div className="vdna-label">
+        {first
+          ? t("settings.voice.addFirstLabel")
+          : t("settings.voice.corpusLabel")}
+      </div>
+      {profileId !== null && (
+        <CorpusManifest profileId={profileId} onChanged={onChanged} />
+      )}
       <textarea
         className="textarea"
         rows={3}
@@ -312,11 +361,14 @@ function CorpusSources({
       )}
       <Button
         small
+        variant={first ? "primary" : undefined}
         disabled={paste.trim().length === 0 || add.isPending}
         onClick={() => add.mutate()}
         style={{ marginTop: "var(--space-2)" }}
       >
-        {t("settings.voice.addSource")}
+        {first
+          ? t("settings.voice.addFirstCta")
+          : t("settings.voice.addSource")}
       </Button>
     </div>
   );
@@ -437,7 +489,7 @@ function BuildControls({
       "succeeded" | "failed" | "deferred" | "pending"
     > => {
       const created = await api.POST("/voice-profiles/{id}/builds", {
-        params: { path: { id: profile.id as string } },
+        params: { path: { id: profile.id } },
         body: { reason: "manual" },
       });
       if (created.error) {
@@ -447,7 +499,7 @@ function BuildControls({
       for (let attempt = 0; attempt < 40; attempt++) {
         const { data, error: err } = await api.GET(
           "/voice-profiles/{id}/builds/{buildId}",
-          { params: { path: { id: profile.id as string, buildId } } },
+          { params: { path: { id: profile.id, buildId } } },
         );
         if (err) {
           throw new Error(problemMessage(err));

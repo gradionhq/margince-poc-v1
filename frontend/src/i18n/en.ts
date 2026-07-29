@@ -2050,6 +2050,8 @@ export const en = {
   "settings.voice.addPlaceholder":
     "Paste an email, post, or anything you've written…",
   "settings.voice.addSource": "Add sample",
+  "settings.voice.addFirstLabel": "Your first writing sample",
+  "settings.voice.addFirstCta": "Add it and start my Voice DNA",
   "settings.voice.building": "Building…",
   "settings.voice.rebuild": "Rebuild Voice DNA",
   "settings.voice.buildStatus.succeeded": "Voice DNA updated.",

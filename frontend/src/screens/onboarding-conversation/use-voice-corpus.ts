@@ -5,6 +5,7 @@ import type { components } from "../../api/schema";
 import type { MessageKey } from "../../i18n/en";
 import { problemMessage } from "../common";
 import { ACCEPTED_CORPUS_FILE, TRANSCRIPT_EXT } from "../onboarding";
+import { ensureProfileId } from "../voice-profile";
 import type {
   ConversationEvent,
   ConversationState,
@@ -483,23 +484,4 @@ export function useVoiceCorpus({
      * a build starting now would misrepresent what the voice is made of. */
     busy: probesInFlight > 0 || asks.length > 0,
   };
-}
-
-// Reuse the owner's single profile (the list caps at one) or mint it.
-async function ensureProfileId(): Promise<string> {
-  const list = await api.GET("/voice-profiles");
-  if (list.error) {
-    throw new Error(problemMessage(list.error));
-  }
-  const existing = list.data.data[0]?.id;
-  if (existing) {
-    return existing;
-  }
-  const created = await api.POST("/voice-profiles", {
-    body: { personality_md: "" },
-  });
-  if (created.error) {
-    throw new Error(problemMessage(created.error));
-  }
-  return created.data.id;
 }

@@ -2092,6 +2092,8 @@ export const de = {
   "settings.voice.addPlaceholder":
     "Füg eine E-Mail, einen Post oder etwas Geschriebenes ein…",
   "settings.voice.addSource": "Probe hinzufügen",
+  "settings.voice.addFirstLabel": "Deine erste Schreibprobe",
+  "settings.voice.addFirstCta": "Hinzufügen und Voice DNA starten",
   "settings.voice.building": "Baue…",
   "settings.voice.rebuild": "Voice DNA neu bauen",
   "settings.voice.buildStatus.succeeded": "Voice DNA aktualisiert.",
