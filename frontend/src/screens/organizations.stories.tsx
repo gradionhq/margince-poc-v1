@@ -210,7 +210,6 @@ const overviewRoutes = {
       organization_id: "o-1",
       generated_at: "2026-07-13T09:00:00Z",
       generated_by: "model",
-      stale: false,
       sentences: [
         {
           text: "Fleet retrofit 2026 has been in Proposal since June and has not moved.",

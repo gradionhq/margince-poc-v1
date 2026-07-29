@@ -10337,10 +10337,6 @@ type OrganizationBrief struct {
 
 	// Sentences The brief itself, one claim per entry.
 	Sentences []OrganizationBriefSentence `json:"sentences"`
-
-	// Stale The cached brief no longer matches its inputs. It is still shown — an
-	// out-of-date brief beats a blank card — and a fresh one is being written.
-	Stale bool `json:"stale"`
 }
 
 // OrganizationBriefGeneratedBy `model` — written by the configured model lane. `deterministic` — the

@@ -5,10 +5,15 @@ package orgbrief
 
 // The cache and the read around it.
 //
-// Serve-then-refresh: a cached brief whose fingerprint no longer matches is
-// handed back immediately marked stale, and the fresh one is written in the
-// same request. A reader opening an account gets text either way — an
-// out-of-date brief beats a spinner, as long as it says it is out of date.
+// A cached brief is served only while its fingerprint still matches the
+// account; the moment it does not, the brief is REWRITTEN before the request
+// answers. So a reader is never handed text that describes a state of play
+// the account has moved on from.
+//
+// The alternative — hand back the old brief immediately, refresh behind the
+// request — trades that guarantee for a faster first paint, and needs a
+// regeneration that outlives the request to do it. It is not what this does,
+// and nothing in the contract claims it: a brief that arrives is current.
 
 import (
 	"context"
@@ -86,7 +91,7 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 		return crmcontracts.OrganizationBrief{}, err
 	}
 	if found && !force && cached.Fingerprint == fingerprint {
-		return cached.wire(orgID, false), nil
+		return cached.wire(orgID), nil
 	}
 
 	sentences, by, err := Write(ctx, s.lane, orgID.String(), in)
@@ -102,7 +107,7 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	if err := s.save(ctx, userID, orgID, written); err != nil {
 		return crmcontracts.OrganizationBrief{}, err
 	}
-	return written.wire(orgID, false), nil
+	return written.wire(orgID), nil
 }
 
 // stored is the cached payload's shape.
@@ -113,7 +118,7 @@ type stored struct {
 	Sentences   []Sentence `json:"sentences"`
 }
 
-func (b stored) wire(orgID ids.OrganizationID, stale bool) crmcontracts.OrganizationBrief {
+func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
 	sentences := make([]crmcontracts.OrganizationBriefSentence, 0, len(b.Sentences))
 	for _, sentence := range b.Sentences {
 		evidence := make([]crmcontracts.OrganizationBriefEvidence, 0, len(sentence.Evidence))
@@ -137,7 +142,6 @@ func (b stored) wire(orgID ids.OrganizationID, stale bool) crmcontracts.Organiza
 		OrganizationId: openapi_types.UUID(orgID.UUID),
 		GeneratedAt:    b.GeneratedAt,
 		GeneratedBy:    crmcontracts.OrganizationBriefGeneratedBy(b.GeneratedBy),
-		Stale:          stale,
 		Sentences:      sentences,
 	}
 }

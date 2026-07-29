@@ -109,7 +109,6 @@ const emptyBrief = {
   organization_id: "o-1",
   generated_at: "2026-06-01T09:00:00Z",
   generated_by: "deterministic",
-  stale: false,
   sentences: [],
 };
 

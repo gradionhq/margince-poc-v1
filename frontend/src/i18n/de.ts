@@ -492,7 +492,6 @@ export const de = {
   "co.brief.by.model": "Von Margince geschrieben",
   "co.brief.by.deterministic": "Aus deinen Daten zusammengestellt",
   "co.brief.generatedAt": "Stand {when}",
-  "co.brief.stale": "Veraltet",
   "co.brief.refresh": "Aktualisieren",
   "co.brief.cite.deal": "Deal",
   "co.brief.cite.activity": "Aktivität",

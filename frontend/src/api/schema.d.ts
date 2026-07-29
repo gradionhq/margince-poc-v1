@@ -485,13 +485,14 @@ export interface paths {
          *     **Cached on the INPUTS, not on the record.** The cache key is a fingerprint over
          *     the assembled input plus the prompt, task and model-routing versions. Facts,
          *     deals and activities move without touching the organization row, so a key derived
-         *     from that row would serve a stale brief indefinitely.
+         *     from that row would serve a brief describing a pipeline the account no longer
+         *     has, indefinitely.
          *
-         *     A cached brief whose fingerprint no longer matches is served with `stale: true`
-         *     while a fresh one is generated in the same request; a caller that would rather
-         *     wait can ask for a regeneration with `POST`. When no model lane is configured, or
-         *     the workspace's AI budget is exhausted, the brief degrades to a deterministic
-         *     structured summary rather than failing — `generated_by` says which it is.
+         *     A cached brief whose fingerprint no longer matches is REWRITTEN before this
+         *     request answers, so a brief that arrives is current; `POST` forces a rewrite even
+         *     when the cache still matches. When no model lane is configured, or the workspace's
+         *     AI budget is exhausted, the brief degrades to a deterministic structured summary
+         *     rather than failing — `generated_by` says which it is.
          *
          *     Human-only: a brief is a reading aid for a person, and an agent reading records
          *     through a passport has the records themselves.
@@ -6071,11 +6072,6 @@ export interface components {
              * @enum {string}
              */
             generated_by: "model" | "deterministic";
-            /**
-             * @description The cached brief no longer matches its inputs. It is still shown — an
-             *     out-of-date brief beats a blank card — and a fresh one is being written.
-             */
-            stale: boolean;
             /** @description The brief itself, one claim per entry. */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };

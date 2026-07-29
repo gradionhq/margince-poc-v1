@@ -728,7 +728,6 @@ export function BriefCard({
                 when: formatDate(readable.generated_at, locale, RECORD_ZONE),
               })}
             </span>
-            {readable.stale && <Badge tone="warn">{t("co.brief.stale")}</Badge>}
             <Button
               small
               onClick={() => refresh.mutate()}

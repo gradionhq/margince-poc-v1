@@ -85,7 +85,6 @@ let briefBody: unknown = {
   organization_id: "o-1",
   generated_at: "2026-06-01T09:00:00Z",
   generated_by: "deterministic",
-  stale: false,
   sentences: [],
 };
 
@@ -459,7 +458,6 @@ describe("company view — the account brief", () => {
       organization_id: "o-1",
       generated_at: "2026-06-01T09:00:00Z",
       generated_by: "deterministic",
-      stale: false,
       sentences: [
         {
           text: "Fleet retrofit has stalled.",
@@ -481,12 +479,11 @@ describe("company view — the account brief", () => {
     expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
   });
 
-  it("marks an out-of-date brief rather than hiding it", async () => {
+  it("names a model-written brief as model-written", async () => {
     briefBody = {
       organization_id: "o-1",
       generated_at: "2026-06-01T09:00:00Z",
       generated_by: "model",
-      stale: true,
       sentences: [
         {
           text: "Two open deals.",
@@ -497,11 +494,11 @@ describe("company view — the account brief", () => {
     stub(view());
     renderCompany();
 
-    await waitFor(() => expect(screen.getByText("Outdated")).toBeTruthy());
-    // Still shown: an out-of-date brief beats a blank card, as long as it
-    // says it is out of date.
+    await waitFor(() =>
+      expect(screen.getByText("Written by Margince")).toBeTruthy(),
+    );
     expect(screen.getByText("Two open deals.")).toBeTruthy();
-    expect(screen.getByText("Written by Margince")).toBeTruthy();
+    expect(screen.queryByText("Assembled from your records")).toBeNull();
   });
 
   it("reports a payload it cannot read as unreadable, not as an empty brief", async () => {

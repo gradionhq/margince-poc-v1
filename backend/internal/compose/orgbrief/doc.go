@@ -18,10 +18,10 @@
 // CACHED ON THE INPUTS, not on the record. The key is a fingerprint over
 // the assembled input plus the prompt, task and routing versions. Facts,
 // deals and activities all move without touching the organization row, so a
-// key derived from that row would serve a stale brief indefinitely. A
-// cached brief whose fingerprint no longer matches is served immediately
-// marked stale while a fresh one is written — an out-of-date brief beats a
-// blank card, as long as it says it is out of date.
+// key derived from that row would serve a brief describing a pipeline the
+// account no longer has, indefinitely. A cached brief whose fingerprint no
+// longer matches is rewritten before the request answers, so a brief that
+// arrives is current.
 //
 // DEGRADES RATHER THAN FAILS. With no model lane configured, or the
 // workspace's AI budget exhausted, the brief falls back to a deterministic
