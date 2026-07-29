@@ -39,25 +39,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-// sorModeProbe reports whether the acting workspace's system of record is the
-// incumbent rather than our own tables. The guards below take the UNCACHED
-// spelling (Dispatcher.isOverlayUncached): a stale 'native' answer here does not
-// cost a retry, it serves a well-formed empty native result as an answer, which
-// is the defect they exist to remove. A mode read that fails propagates, so an
+// The guards below take overlayModeChecker (overlaywrite.go), so the cached
+// read cannot be handed to one. A mode read that fails propagates, so an
 // unresolved mode refuses the call rather than defaulting to native.
-type sorModeProbe func(ctx context.Context) (bool, error)
-
-// nativeOnlyModeProbe is the probe every native-only guard takes. Named so the
-// choice of the UNCACHED read is a thing a test can hold, not a comment: for
-// these guards a stale 'native' answer is a wrong ANSWER, not a stale screen.
-func nativeOnlyModeProbe(d *Dispatcher) sorModeProbe { return d.isOverlayUncached }
 
 // nativeOnlyReportRunner guards run_report. The spec names this capability
 // as one an incumbent has no analogue for, so the refusal is the declared
 // answer, not a degradation.
-func nativeOnlyReportRunner(mode sorModeProbe, run agents.ReportRunner) agents.ReportRunner {
+func nativeOnlyReportRunner(mode overlayModeChecker, run agents.ReportRunner) agents.ReportRunner {
 	return func(ctx context.Context, report string, planArgs json.RawMessage) (json.RawMessage, error) {
-		overlay, err := mode(ctx)
+		overlay, err := mode.isOverlayUncached(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -80,8 +71,8 @@ func nativeOnlyReportRunner(mode sorModeProbe, run agents.ReportRunner) agents.R
 // answer a different machine code than the same verb's tool half. The
 // `unsupported_in_overlay_mode` spelling next door is for refused query
 // DIALS, which genuinely are input.
-func refuseReportInOverlayMode(w http.ResponseWriter, r *http.Request, mode sorModeProbe) bool {
-	overlay, err := mode(r.Context())
+func refuseReportInOverlayMode(w http.ResponseWriter, r *http.Request, mode overlayModeChecker) bool {
+	overlay, err := mode.isOverlayUncached(r.Context())
 	if err != nil {
 		httperr.Write(w, r, err)
 		return true
@@ -96,7 +87,7 @@ func refuseReportInOverlayMode(w http.ResponseWriter, r *http.Request, mode sorM
 // RunReport shadows the embedded reportHandlers so the mode guard runs
 // before the native engine ever sees the request.
 func (s Server) RunReport(w http.ResponseWriter, r *http.Request, report string) {
-	if refuseReportInOverlayMode(w, r, nativeOnlyModeProbe(s.sorDispatch)) {
+	if refuseReportInOverlayMode(w, r, s.sorDispatch) {
 		return
 	}
 	s.reportHandlers.RunReport(w, r, report)
@@ -108,7 +99,7 @@ func (s Server) RunReport(w http.ResponseWriter, r *http.Request, report string)
 // answer one route over — and the whole argument above is that a hidden
 // screen is not a server-side gate.
 func (s Server) ExplainReport(w http.ResponseWriter, r *http.Request, report string, params crmcontracts.ExplainReportParams) {
-	if refuseReportInOverlayMode(w, r, nativeOnlyModeProbe(s.sorDispatch)) {
+	if refuseReportInOverlayMode(w, r, s.sorDispatch) {
 		return
 	}
 	s.reportHandlers.ExplainReport(w, r, report, params)
@@ -118,12 +109,12 @@ func (s Server) ExplainReport(w http.ResponseWriter, r *http.Request, report str
 // grounding is the full-text index and context graph — neither of which
 // holds mirrored content.
 type nativeOnlyRetriever struct {
-	mode  sorModeProbe
+	mode  overlayModeChecker
 	inner retrieval.Retriever
 }
 
 func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) ([]retrieval.Hit, error) {
-	overlay, err := r.mode(ctx)
+	overlay, err := r.mode.isOverlayUncached(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +125,7 @@ func (r nativeOnlyRetriever) Search(ctx context.Context, q retrieval.Query) ([]r
 }
 
 func (r nativeOnlyRetriever) AssembleContext(ctx context.Context, anchor datasource.EntityRef, opts retrieval.AssembleOptions) (retrieval.Context, error) {
-	overlay, err := r.mode(ctx)
+	overlay, err := r.mode.isOverlayUncached(ctx)
 	if err != nil {
 		return retrieval.Context{}, err
 	}
@@ -147,9 +138,9 @@ func (r nativeOnlyRetriever) AssembleContext(ctx context.Context, anchor datasou
 // nativeOnlySlippingLister guards whats_slipping_this_week, whose candidate
 // set is the native deals store. The mirror serves no stage or pipeline
 // dial, so there is no overlay query to fall back to.
-func nativeOnlySlippingLister(mode sorModeProbe, list agents.SlippingLister) agents.SlippingLister {
+func nativeOnlySlippingLister(mode overlayModeChecker, list agents.SlippingLister) agents.SlippingLister {
 	return func(ctx context.Context) ([]agents.SlippingDeal, error) {
-		overlay, err := mode(ctx)
+		overlay, err := mode.isOverlayUncached(ctx)
 		if err != nil {
 			return nil, err
 		}
