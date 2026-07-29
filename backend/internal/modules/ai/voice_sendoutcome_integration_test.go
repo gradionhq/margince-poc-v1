@@ -150,7 +150,7 @@ func (e *sendOutcomeEnv) seedDraft(t *testing.T, opts draftOptions) draftFixture
 		Type: principal.PrincipalHuman, ID: "human:" + sender.String(), UserID: sender,
 		SeatType: principal.SeatFull,
 		Permissions: principal.Permissions{
-			RoleKeys: []string{"sales_rep"}, RowScope: principal.RowScopeOwn,
+			RoleKeys: []string{"rep"}, RowScope: principal.RowScopeTeam,
 			Objects: map[string]principal.ObjectGrant{
 				"voice_profile": {Read: true, Update: true},
 			},
