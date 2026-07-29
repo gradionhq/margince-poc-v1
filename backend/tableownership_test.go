@@ -211,6 +211,14 @@ var crossStoreWrites = map[string]string{
 	// as the activity insert or the two drift.
 	"internal/modules/activities:deal": "deal.last_activity_at is denormalized from the timeline; it must move in the activity's own transaction",
 
+	// The outbound-send reconcile absorbs the provider's own captured echo of
+	// a message this workspace sent, and every foreign key onto activity is
+	// ON DELETE CASCADE — so what must survive the echo moves in the SAME
+	// transaction that deletes it, or it is gone before any sibling call could
+	// be made. The queued counterparty review is exactly that: a human verdict
+	// the survivor does not re-queue.
+	"internal/modules/activities:capture_pending_counterparty": "the message-identity absorb re-points the deleted echo's queued counterparty dispositions onto the surviving send in the same transaction as the delete — the row cascades away with the echo, so routing it through capture would mean handing over a row that no longer exists",
+
 	// capture is the ONE connector.Sink (interfaces.md §1): one transaction
 	// per inbound record writes raw original + normalized domain row, so a
 	// crash can never keep evidence without the record or vice versa.
