@@ -532,18 +532,23 @@ function BuildControls({
   // The corpus summary rides the same query key CorpusManifest already read,
   // so asking for the word total here costs no extra request.
   const corpus = useVoiceSources(profile.id);
-  const words = corpus.data?.summary.total_words ?? 0;
   // maturity is the SERVER's verdict on whether a build can say anything, so
   // it — not a locally recomputed threshold — decides whether the button is
   // offered. The word counts below only phrase the distance to the next state.
   const tooThin = profile.maturity === "collecting";
-  const blocked = tooThin
-    ? t("settings.voice.buildNeedsWords", {
-        n: Math.max(0, VOICE_FIRST_BUILD_WORDS - words),
-      })
-    : null;
+  // The distance is quoted only from a corpus total that actually loaded. A
+  // failed fetch would otherwise read as zero words and announce a confident
+  // "about 800 more words" whose real cause was the failure — the button's
+  // state still follows maturity, which comes from a different request.
+  const words = corpus.isSuccess ? corpus.data.summary.total_words : null;
+  const blocked =
+    tooThin && words !== null
+      ? t("settings.voice.buildNeedsWords", {
+          n: Math.max(0, VOICE_FIRST_BUILD_WORDS - words),
+        })
+      : null;
   const reach =
-    profile.maturity === "provisional"
+    profile.maturity === "provisional" && words !== null
       ? t("settings.voice.buildProvisional", {
           n: Math.max(0, VOICE_FULL_BUILD_WORDS - words),
         })
