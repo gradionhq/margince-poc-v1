@@ -779,7 +779,11 @@ export function AskCard({
       </p>
       {ask.isPending && <Skeleton width="100%" height={40} />}
       {ask.isError && <p className="co-restricted">{t("co.ask.failed")}</p>}
-      {readable && (
+      {/* The previous answer is hidden while the next question is in flight.
+          Leaving it under the spinner puts a finished answer next to a loading
+          one, and the reader has no way to tell which question they are
+          looking at the answer to. */}
+      {readable && !ask.isPending && (
         <>
           {/* The question is repeated above its answer: three buttons and one
               answer block leaves the reader guessing which they pressed once
@@ -885,7 +889,12 @@ export function SuggestionsCard({
               <Button
                 small
                 onClick={() => dismiss.mutate(suggestion.fingerprint)}
-                disabled={dismiss.isPending}
+                // Only the row in flight is disabled: one dismissal must not
+                // freeze the rep's other choices.
+                disabled={
+                  dismiss.isPending &&
+                  dismiss.variables === suggestion.fingerprint
+                }
               >
                 {t("co.suggest.dismiss")}
               </Button>
