@@ -32,7 +32,7 @@ func discardLogger() *slog.Logger {
 // case: no declared routing file and no --ai-fake resolves to a nil
 // path and the unconfigured state, never a silent default provider.
 func TestResolveModelPathNeitherFlagIsUnconfigured(t *testing.T) {
-	modelPath, state, profile, err := resolveModelPath("", false, nil, false, discardLogger())
+	modelPath, state, profile, _, err := resolveModelPath("", false, nil, false, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestResolveModelPathNeitherFlagIsUnconfigured(t *testing.T) {
 // uses) rather than bypassing the Router — every lane must be non-nil,
 // or a consumer wired against it would nil-panic on first use.
 func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
-	modelPath, state, profile, err := resolveModelPath("", true, nil, false, discardLogger())
+	modelPath, state, profile, _, err := resolveModelPath("", true, nil, false, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestResolveModelPathFakeArmBindsEveryLane(t *testing.T) {
 // test needs no external credential or network access.
 func TestResolveModelPathRoutingFileArmBindsEveryLane(t *testing.T) {
 	path := writeFakeRoutingFile(t)
-	modelPath, state, profile, err := resolveModelPath(path, false, nil, false, discardLogger())
+	modelPath, state, profile, _, err := resolveModelPath(path, false, nil, false, discardLogger())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -117,7 +117,7 @@ func TestResolveModelPathRoutingFileArmBindsEveryLane(t *testing.T) {
 // --ai-routing path fails the boot rather than silently falling back to
 // unconfigured or fake.
 func TestResolveModelPathRoutingFileArmSurfacesLoadError(t *testing.T) {
-	_, _, _, err := resolveModelPath(filepath.Join(t.TempDir(), "does-not-exist.yaml"), false, nil, false, discardLogger())
+	_, _, _, _, err := resolveModelPath(filepath.Join(t.TempDir(), "does-not-exist.yaml"), false, nil, false, discardLogger())
 	if err == nil {
 		t.Fatal("expected an error for a missing routing file, got nil")
 	}
@@ -127,15 +127,17 @@ func TestResolveModelPathRoutingFileArmSurfacesLoadError(t *testing.T) {
 // pure consumer of the resolved path now: nil in, nil out (the 501
 // posture); a bound path in, the cold-start/scrape/brief/reply set out.
 func TestColdStartOptionsRespectsResolvedPath(t *testing.T) {
-	if got := coldStartOptions(nil); got != nil {
+	if got := coldStartOptions(nil, ""); got != nil {
 		t.Fatalf("coldStartOptions(nil) = %d options, want 0", len(got))
 	}
-	modelPath, _, _, err := resolveModelPath("", true, nil, false, discardLogger())
+	modelPath, _, _, _, err := resolveModelPath("", true, nil, false, discardLogger())
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}
-	if got := coldStartOptions(modelPath); len(got) != 4 {
-		t.Fatalf("coldStartOptions(bound path) = %d options, want 4 (cold-start, scrape, brief, reply draft)", len(got))
+	if got := coldStartOptions(modelPath, ""); len(got) != 5 {
+		t.Fatalf(
+			"coldStartOptions(bound path) = %d options, want 5 (cold-start, scrape, morning brief, account brief, reply draft)",
+			len(got))
 	}
 }
 
@@ -145,7 +147,7 @@ func TestOfferDraftOptionsRespectsResolvedPath(t *testing.T) {
 	if got := offerDraftOptions(nil, nil); got != nil {
 		t.Fatalf("offerDraftOptions(nil) = %d options, want 0", len(got))
 	}
-	modelPath, _, _, err := resolveModelPath("", true, nil, false, discardLogger())
+	modelPath, _, _, _, err := resolveModelPath("", true, nil, false, discardLogger())
 	if err != nil {
 		t.Fatalf("resolveModelPath: %v", err)
 	}

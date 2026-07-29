@@ -3699,6 +3699,48 @@ func (e Organization360DealStatus) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationBriefGeneratedBy.
+const (
+	Deterministic OrganizationBriefGeneratedBy = "deterministic"
+	Model         OrganizationBriefGeneratedBy = "model"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationBriefGeneratedBy enum.
+func (e OrganizationBriefGeneratedBy) Valid() bool {
+	switch e {
+	case Deterministic:
+		return true
+	case Model:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationBriefEvidenceEntityType.
+const (
+	OrganizationBriefEvidenceEntityTypeActivity     OrganizationBriefEvidenceEntityType = "activity"
+	OrganizationBriefEvidenceEntityTypeDeal         OrganizationBriefEvidenceEntityType = "deal"
+	OrganizationBriefEvidenceEntityTypeOrganization OrganizationBriefEvidenceEntityType = "organization"
+	OrganizationBriefEvidenceEntityTypePerson       OrganizationBriefEvidenceEntityType = "person"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationBriefEvidenceEntityType enum.
+func (e OrganizationBriefEvidenceEntityType) Valid() bool {
+	switch e {
+	case OrganizationBriefEvidenceEntityTypeActivity:
+		return true
+	case OrganizationBriefEvidenceEntityTypeDeal:
+		return true
+	case OrganizationBriefEvidenceEntityTypeOrganization:
+		return true
+	case OrganizationBriefEvidenceEntityTypePerson:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationFactCategory.
 const (
 	OrganizationFactCategoryCompany  OrganizationFactCategory = "company"
@@ -10278,6 +10320,46 @@ type Organization360SinceLastVisit struct {
 	// see a staged change is a per-row check, and a badge is not worth making one
 	// record page pay for an unbounded backlog.
 	PendingProposals *int `json:"pending_proposals,omitempty"`
+}
+
+// OrganizationBrief A written brief over one account, assembled from what the READER can see.
+// Every sentence carries the records it was written from, so the reader can open
+// the evidence rather than take the sentence on trust.
+type OrganizationBrief struct {
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy `model` — written by the configured model lane. `deterministic` — the
+	// structured fallback, used when no lane is configured or the AI budget is
+	// exhausted. Never silently interchangeable: a reader deciding how much to
+	// trust a sentence needs to know which wrote it.
+	GeneratedBy    OrganizationBriefGeneratedBy `json:"generated_by"`
+	OrganizationId openapi_types.UUID           `json:"organization_id"`
+
+	// Sentences The brief itself, one claim per entry.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
+// OrganizationBriefGeneratedBy `model` — written by the configured model lane. `deterministic` — the
+// structured fallback, used when no lane is configured or the AI budget is
+// exhausted. Never silently interchangeable: a reader deciding how much to
+// trust a sentence needs to know which wrote it.
+type OrganizationBriefGeneratedBy string
+
+// OrganizationBriefEvidence One record a brief sentence was written from.
+type OrganizationBriefEvidence struct {
+	EntityId   openapi_types.UUID                  `json:"entity_id"`
+	EntityType OrganizationBriefEvidenceEntityType `json:"entity_type"`
+}
+
+// OrganizationBriefEvidenceEntityType defines model for OrganizationBriefEvidence.EntityType.
+type OrganizationBriefEvidenceEntityType string
+
+// OrganizationBriefSentence defines model for OrganizationBriefSentence.
+type OrganizationBriefSentence struct {
+	// Evidence The records this sentence was written from — always records the reader can
+	// already open, because the brief was assembled under their own row scope.
+	Evidence []OrganizationBriefEvidence `json:"evidence"`
+	Text     string                      `json:"text"`
 }
 
 // OrganizationDomain defines model for OrganizationDomain.
@@ -21685,6 +21767,12 @@ type ServerInterface interface {
 	// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 	// (GET /organizations/{id}/360)
 	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id)
+	// The standing account brief — what this account is, where it stands, and what changed.
+	// (GET /organizations/{id}/brief)
+	GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
+	// Regenerate this account's brief, ignoring the cached one.
+	// (POST /organizations/{id}/brief)
+	RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
 	// Read the company's WHOLE site in the background — a crawl that ends in staged 🟡 proposals.
 	// (POST /organizations/{id}/deep-read)
 	DeepReadCompany(w http.ResponseWriter, r *http.Request, id Id)
@@ -22951,6 +23039,18 @@ func (_ Unimplemented) UpdateOrganization(w http.ResponseWriter, r *http.Request
 // The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 // (GET /organizations/{id}/360)
 func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The standing account brief — what this account is, where it stands, and what changed.
+// (GET /organizations/{id}/brief)
+func (_ Unimplemented) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Regenerate this account's brief, ignoring the cached one.
+// (POST /organizations/{id}/brief)
+func (_ Unimplemented) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30373,6 +30473,70 @@ func (siw *ServerInterfaceWrapper) GetOrganization360(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationBrief operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationBrief(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RegenerateOrganizationBrief operation middleware
+func (siw *ServerInterfaceWrapper) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RegenerateOrganizationBrief(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // DeepReadCompany operation middleware
 func (siw *ServerInterfaceWrapper) DeepReadCompany(w http.ResponseWriter, r *http.Request) {
 
@@ -37602,6 +37766,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/360", wrapper.GetOrganization360)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/brief", wrapper.GetOrganizationBrief)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/brief", wrapper.RegenerateOrganizationBrief)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/deep-read", wrapper.DeepReadCompany)

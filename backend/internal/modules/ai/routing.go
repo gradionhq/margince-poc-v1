@@ -69,6 +69,15 @@ type RoutingConfig struct {
 	sourceHash string
 }
 
+// RoutingVersion identifies the model binding this config expresses — the
+// same digest the ai_call_config dimension keys on. A caller that caches
+// model-written content folds it into its cache key, so re-pointing a lane
+// rewrites that content instead of leaving it attributed to a model which
+// no longer produces it. Empty for a config built by struct literal rather
+// than parsed from yaml (the fake lane), which is honest: there is no
+// deployment binding to name.
+func (cfg RoutingConfig) RoutingVersion() string { return cfg.sourceHash }
+
 // LoadRoutingFile reads and validates a deployment's routing config.
 func LoadRoutingFile(path string) (RoutingConfig, error) {
 	raw, err := os.ReadFile(path) // #nosec G304 -- deployment config path, operator-chosen

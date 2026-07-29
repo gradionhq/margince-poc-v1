@@ -81,6 +81,13 @@ const emptyRollup = {
   computed_at: "2026-06-01T09:00:00Z",
 };
 
+let briefBody: unknown = {
+  organization_id: "o-1",
+  generated_at: "2026-06-01T09:00:00Z",
+  generated_by: "deterministic",
+  sentences: [],
+};
+
 function stub(three60: unknown, status = 200) {
   vi.stubGlobal(
     "fetch",
@@ -91,6 +98,9 @@ function stub(three60: unknown, status = 200) {
       }
       if (pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
+      }
+      if (pathname.endsWith("/brief")) {
+        return jsonResponse(briefBody);
       }
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -439,5 +449,73 @@ describe("company view — figures that outlive the list they sit under", () => 
     ).toBeTruthy();
     expect(within(rail).getByText(/120,000/)).toBeTruthy();
     expect(within(rail).getByText("3 lost")).toBeTruthy();
+  });
+});
+
+describe("company view — the account brief", () => {
+  it("says which of the two wrote it, and never leaves that implied", async () => {
+    briefBody = {
+      organization_id: "o-1",
+      generated_at: "2026-06-01T09:00:00Z",
+      generated_by: "deterministic",
+      sentences: [
+        {
+          text: "Fleet retrofit has stalled.",
+          evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+        },
+      ],
+    };
+    stub(view());
+    renderCompany();
+
+    await waitFor(() =>
+      expect(screen.getByText("Fleet retrofit has stalled.")).toBeTruthy(),
+    );
+    // The deterministic floor and a model-written brief are not
+    // interchangeable, and a reader weighing a sentence needs to know which.
+    expect(screen.getByText("Assembled from your records")).toBeTruthy();
+    expect(screen.queryByText("Written by Margince")).toBeNull();
+    // Each sentence carries the record it was written from.
+    expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
+  });
+
+  it("names a model-written brief as model-written", async () => {
+    briefBody = {
+      organization_id: "o-1",
+      generated_at: "2026-06-01T09:00:00Z",
+      generated_by: "model",
+      sentences: [
+        {
+          text: "Two open deals.",
+          evidence: [{ entity_type: "organization", entity_id: "o-1" }],
+        },
+      ],
+    };
+    stub(view());
+    renderCompany();
+
+    await waitFor(() =>
+      expect(screen.getByText("Written by Margince")).toBeTruthy(),
+    );
+    expect(screen.getByText("Two open deals.")).toBeTruthy();
+    expect(screen.queryByText("Assembled from your records")).toBeNull();
+  });
+
+  it("reports a payload it cannot read as unreadable, not as an empty brief", async () => {
+    briefBody = { data: [], page: emptyPage };
+    stub(view());
+    renderCompany();
+
+    const card = await waitFor(() => {
+      const section = screen.getByText("Account brief").closest("section");
+      if (!section) {
+        throw new Error("the brief card has no section wrapper");
+      }
+      // Waits for the read to finish, so "unreadable" is asserted about a
+      // settled query rather than about one still in flight.
+      within(section).getByText(/Could not be loaded/);
+      return section;
+    });
+    expect(within(card).getByText(/Could not be loaded/)).toBeTruthy();
   });
 });

@@ -46,8 +46,12 @@ type ModelPath struct {
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
 	RateExtract     completer    // the model-cost refresh pricing-page extraction lane
 	BriefRanking    completer    // the Morning-Brief L2 re-order (B-E05.2)
-	DraftReply      completer    // activity-anchored email reply drafting
-	OfferDraft      completer    // the offer regenerate-from-signal drafting call
+	// Summarize is the standing account brief on the company view. It
+	// degrades to a deterministic floor, so a role without this lane still
+	// serves a brief — just not a written one.
+	Summarize  completer
+	DraftReply completer // activity-anchored email reply drafting
+	OfferDraft completer // the offer regenerate-from-signal drafting call
 	// CaptureClassify is the §2.8 batched mail-label lane (ADR-0063) —
 	// the highest-volume, cheapest task, routed L-S with the C-C solo
 	// re-ask riding the same ladder.
@@ -168,6 +172,7 @@ func modelPathForRouter(router *ai.Router, companyContext *companyContextProvide
 		SiteFactExtract:            brain(ai.TaskSiteFactExtract),
 		RateExtract:                brain(ai.TaskRateExtract),
 		BriefRanking:               brain(ai.TaskBriefRanking),
+		Summarize:                  brain(ai.TaskSummarize),
 		DraftReply:                 brain(ai.TaskDraftReply),
 		OfferDraft:                 brain(ai.TaskOfferDraft),
 		CaptureClassify:            brain(ai.TaskCaptureClassify),

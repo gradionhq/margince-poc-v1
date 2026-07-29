@@ -205,6 +205,22 @@ const overviewRoutes = {
   "GET /organizations/o-1": () => jsonResponse(org),
   "GET /organizations/o-1/360": () => jsonResponse(org360),
   "GET /organizations/o-1/hierarchy-rollup": () => jsonResponse(rollup),
+  "GET /organizations/o-1/brief": () =>
+    jsonResponse({
+      organization_id: "o-1",
+      generated_at: "2026-07-13T09:00:00Z",
+      generated_by: "model",
+      sentences: [
+        {
+          text: "Fleet retrofit 2026 has been in Proposal since June and has not moved.",
+          evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+        },
+        {
+          text: "Dana Buyer replied on 10 July after the board meeting.",
+          evidence: [{ entity_type: "activity", entity_id: "a-9" }],
+        },
+      ],
+    }),
   "GET /organizations/o-1/strength": () => jsonResponse(dormantStrength),
   "GET /activities": () => jsonResponse({ data: [] }),
   "GET /signals": () => jsonResponse({ data: [], page: emptyPage }),

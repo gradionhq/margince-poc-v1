@@ -91,9 +91,10 @@ tasks:
     ladder: [cheap_cloud, premium]
     execution_mode: interactive
     on_budget_exhausted: degrade
-    status: planned
+    status: shipped
+    sites: [org_brief]
     company_context: {scopes: [identity], token_budget: 300, conditional: true}
-    doc: "Declared, not built (ADR-0074). The company-context policy is carried forward so the task keeps its ADR-0065 posture when a site lands."
+    doc: "The standing account brief on the company view: what this account is, where it stands, what changed. Read-only over what the VIEWER can already see — the brief is assembled per viewer because visibility is per viewer, and it cites only records the reader could open themselves."
 
   draft_reply:
     ladder: [cheap_cloud, premium]

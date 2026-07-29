@@ -21,6 +21,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose/briefs"
 	"github.com/gradionhq/margince/backend/internal/compose/org360"
+	"github.com/gradionhq/margince/backend/internal/compose/orgbrief"
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
@@ -87,6 +88,7 @@ type Server struct {
 	rateRefreshHandlers
 	webhooksHandlers
 	org360Handlers
+	orgBriefHandlers
 
 	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
 	// when a subscription token is configured — the route is absent
@@ -187,6 +189,16 @@ type Server struct {
 	// overlayBackfillLimit bounds the overlay initial mirror backfill per
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
+
+	// orgBriefSvc is the account-brief service; WithAccountBrief rebinds its
+	// model lane at boot, so the api role writes briefs with a model and
+	// every other role serves the same deterministic floor. (WithBrief is a
+	// different option — the Morning Brief's L2 ranker.)
+	orgBriefSvc *orgbrief.Service
+	// org360Svc is the composite read the brief is assembled from, held so
+	// WithAccountBrief can rebuild the brief service over the SAME gated
+	// read rather than a second one that might drift from it.
+	org360Svc *org360.Service
 
 	// sorDispatch is the per-workspace native/overlay provider dispatch:
 	// the ONE instance both the ADR-0055 admission layer (contractAPI's
@@ -335,10 +347,18 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// gets: the 360 serves the organization object, and without it the
 	// company view would silently omit the cf_* columns GET
 	// /organizations/{id} returns for the same record.
+	// The brief reads THROUGH the 360 service, so it inherits every gate the
+	// page itself applies and can only describe what this caller may see.
+	// The model lane is nil here: WithAccountBrief binds the api role's
+	// summarize lane, and without it the brief serves its deterministic
+	// floor.
+	srv.org360Svc = org360.NewService(pool,
+		people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
+		approvals.NewService(pool), time.Now)
+	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, nil, "", time.Now)
+	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
 	srv.org360Handlers = org360.NewHandlers(
-		org360.NewService(pool,
-			people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
-			approvals.NewService(pool), time.Now),
+		srv.org360Svc,
 		srv.sorDispatch.isOverlay,
 	)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries

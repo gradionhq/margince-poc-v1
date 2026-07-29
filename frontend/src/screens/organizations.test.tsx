@@ -102,6 +102,16 @@ const emptyRollup = {
   computed_at: "2026-06-01T09:00:00Z",
 };
 
+// The brief backstop: a deterministic brief with nothing to say. The suites
+// below exercise other cards, and a brief that renders in its quietest real
+// state keeps them free of it.
+const emptyBrief = {
+  organization_id: "o-1",
+  generated_at: "2026-06-01T09:00:00Z",
+  generated_by: "deterministic",
+  sentences: [],
+};
+
 // The dormant/no-interactions strength response — the default backstop for
 // every fetch stub below that isn't itself exercising the strength card
 // (P-4): the Company Overview now fires this GET unconditionally, and none
@@ -156,6 +166,9 @@ function stubApi(enrich: () => Response) {
       }
       if (url.pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
+      }
+      if (url.pathname.endsWith("/brief")) {
+        return jsonResponse(emptyBrief);
       }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -265,6 +278,9 @@ function stubDeepRead(options: {
       }
       if (url.pathname.endsWith("/hierarchy-rollup")) {
         return jsonResponse(emptyRollup);
+      }
+      if (url.pathname.endsWith("/brief")) {
+        return jsonResponse(emptyBrief);
       }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -473,6 +489,7 @@ function stubFetch(
     // A roll-up body, or a ready Response when the suite is exercising a
     // refusal (the 422 FX case) rather than a payload.
     rollup?: unknown | Response;
+    brief?: unknown;
   }>,
 ): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
   const urls: string[] = [];
@@ -499,6 +516,9 @@ function stubFetch(
     }
     if (pathname.endsWith("/hierarchy-rollup")) {
       return rollupResponse(options?.rollup);
+    }
+    if (pathname.endsWith("/brief")) {
+      return jsonResponse(options?.brief ?? emptyBrief);
     }
     return responder(request.url, request.method, request);
   });
