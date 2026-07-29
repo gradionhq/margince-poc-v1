@@ -1,296 +1,323 @@
-.margince-core-scene {
+/*
+ * The Margince Core — WDS-CORE-1..4 (ADR-0076).
+ *
+ * One primitive, one stylesheet. It replaces the CSS orbital scene (orbits,
+ * nodes, approval gate, threads, mark shell) with the liquid-glass Core the
+ * interactive mockup designs against — ported from that repo's
+ * `shared/core/core.css` so the two trees can stay diffable.
+ *
+ * State (WDS-CORE-2) arrives as `data-core-state` and resolves to exactly two
+ * custom properties, `--coreTint` and `--coreBeat`. Every rule below reads those
+ * rather than branching per state, so adding a state is one block and changing
+ * what a state means is one line. The shader reads --coreTint too (see
+ * OrbFluid), which is what keeps the sphere inside the token layer instead of
+ * carrying its own palette.
+ *
+ * Only the four status states change hue. idle / listening / working stay brand
+ * emerald and differ in motion, because "one meaning per colour" (ADR-0040) is
+ * broken the moment a busy orb and a failed orb are both allowed to be amber.
+ */
+
+.core {
   position: relative;
-  width: min(390px, 78%);
-  aspect-ratio: 1;
-  align-self: center;
-  justify-self: center;
-  color: var(--railIconActive);
-  transition:
-    transform 0.6s ease,
-    filter 0.6s ease;
+  width: var(--coreSize);
+  height: var(--coreSize);
+  max-width: min(24vw, var(--coreSize));
+  max-height: min(24vw, var(--coreSize));
+  /* Defaults, overridden per state below. A Core with no data-core-state still
+     renders as idle rather than as nothing. */
+  --coreTint: var(--accent);
+  --coreBeat: 5.6s;
+  --coreSize: 230px;
+  --coreGlass: 172px;
 }
-.margince-core-visual {
+.core-md {
+  --coreSize: 150px;
+  --coreGlass: 126px;
+}
+
+/* ---- state: the whole vocabulary, in one place -------------------------- */
+.core[data-core-state="idle"] {
+  --coreTint: var(--accent);
+  --coreBeat: 5.6s;
+}
+/* listening: the same colour, a quicker pulse. Nothing has been claimed yet. */
+.core[data-core-state="listening"] {
+  --coreTint: var(--accent);
+  --coreBeat: 3.4s;
+}
+.core[data-core-state="working"] {
+  --coreTint: var(--accent);
+  --coreBeat: 2.2s;
+}
+.core[data-core-state="success"] {
+  --coreTint: var(--success);
+  --coreBeat: 6.4s;
+}
+.core[data-core-state="attention"] {
+  --coreTint: var(--warn);
+  --coreBeat: 2.8s;
+}
+.core[data-core-state="error"] {
+  --coreTint: var(--danger);
+  --coreBeat: 4.2s;
+}
+/* quiet: present, not working. Desaturated rather than dimmed, so it does not
+   read as a disabled control. */
+.core[data-core-state="quiet"] {
+  --coreTint: var(--textTertiary);
+  --coreBeat: 9s;
+}
+/* unavailable: the one state that does not breathe. A server we cannot reach
+   should not look busy. */
+.core[data-core-state="unavailable"] {
+  --coreTint: var(--textMuted);
+}
+.core[data-core-state="unavailable"] .core-glass,
+.core[data-core-state="unavailable"] .core-tilt,
+.core[data-core-state="unavailable"] .core-glow {
+  animation: none;
+}
+.core[data-core-state="unavailable"] .core-feed {
+  display: none;
+}
+
+/* ---- the glass ---------------------------------------------------------- */
+.core-tilt {
   position: absolute;
   inset: 0;
+  display: grid;
+  place-items: center;
+  animation: coreFloat 11s ease-in-out infinite;
 }
-.margince-core-progress {
-  position: absolute;
+@keyframes coreFloat {
+  0%,
+  100% {
+    transform: translateY(-4px);
+  }
+  50% {
+    transform: translateY(5px);
+  }
+}
+.core-glass {
+  position: relative;
+  width: var(--coreGlass);
+  height: var(--coreGlass);
   z-index: 1;
-  inset: -2px;
-  width: calc(100% + 4px);
-  height: calc(100% + 4px);
-  overflow: visible;
+  border-radius: var(--r-full);
+  background:
+    radial-gradient(
+      circle at 30% 22%,
+      color-mix(in srgb, var(--overlayLight) 65%, transparent) 0%,
+      transparent 22%
+    ),
+    radial-gradient(
+      circle at 50% 42%,
+      color-mix(in srgb, var(--coreTint) 22%, transparent) 0%,
+      color-mix(in srgb, var(--coreTint) 8%, transparent) 100%
+    );
+  box-shadow:
+    inset 0 0 0 1.5px color-mix(in srgb, var(--overlayLight) 65%, transparent),
+    inset -8px -12px 22px
+    color-mix(in oklab, var(--coreTint) 60%, var(--overlayDark) 18%),
+    inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 32%, transparent),
+    inset 0 -3px 12px color-mix(in srgb, var(--coreTint) 30%, transparent),
+    0 18px 34px color-mix(in srgb, var(--coreTint) 20%, transparent),
+    0 4px 10px color-mix(in srgb, var(--coreTint) 10%, transparent);
+  animation:
+    coreBreathe var(--coreBeat) ease-in-out infinite,
+    coreLit calc(var(--coreBeat) * 0.7) ease-in-out infinite;
+}
+@keyframes coreBreathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  42% {
+    transform: scale(1.055);
+  }
+  68% {
+    transform: scale(1.02);
+  }
+}
+/* the Core answers: the glass brightens as light lands */
+@keyframes coreLit {
+  0%,
+  100% {
+    filter: brightness(1) saturate(1);
+  }
+  46% {
+    filter: brightness(1.04) saturate(1.05);
+  }
+}
+
+/* the liquid inside the glass, clipped to the sphere. The shell stays CSS. */
+.core-liquid {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-full);
+  overflow: hidden;
+  pointer-events: none;
+}
+.core-fluid {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+/*
+ * WDS-CORE-3, the non-GPU rendering — and it is per state, not one gradient for
+ * all eight, because the fallback is a *rendering of the state* and not an
+ * apology for the shader. This is what runs with no WebGL context, which
+ * includes every test run: jsdom has no GL, so the ladder's lower rung is the
+ * one the suite exercises by default.
+ */
+.core-fluid.off {
+  background:
+    radial-gradient(
+      circle at 62% 38%,
+      color-mix(in oklab, var(--coreTint) 70%, var(--overlayLight) 30%) 0%,
+      transparent 62%
+    ),
+    radial-gradient(
+      circle at 36% 66%,
+      color-mix(in oklab, var(--coreTint) 88%, var(--overlayDark) 12%) 0%,
+      transparent 66%
+    ),
+    radial-gradient(
+      circle at 50% 50%,
+      var(--coreTint) 0%,
+      color-mix(in oklab, var(--coreTint) 60%, var(--overlayDark) 40%) 100%
+    );
+}
+
+/* ---- the halo ----------------------------------------------------------- */
+/* Heavily blurred so the light dissolves into the page — no hard ring. */
+.core-glow {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--coreSize) * 1.39);
+  height: calc(var(--coreSize) * 1.39);
+  margin: calc(var(--coreSize) * -0.695) 0 0 calc(var(--coreSize) * -0.695);
+  border-radius: var(--r-full);
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--coreTint) 20%, transparent) 0%,
+    color-mix(in srgb, var(--coreTint) 11%, transparent) 30%,
+    color-mix(in srgb, var(--coreTint) 4%, transparent) 55%,
+    transparent 70%
+  );
+  animation: coreFed calc(var(--coreBeat) * 0.7) ease-in-out infinite;
+}
+@keyframes coreFed {
+  0%,
+  100% {
+    opacity: 0.88;
+    transform: scale(1);
+  }
+  46% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+/* ---- the feed: context arriving at the Core ----------------------------- */
+/* Points of light drift in from outside and dissolve at the glass. It is the
+   one honest thing to animate here — the AI is fed by what it reads, and
+   nothing leaves. Angles and speeds differ per particle so the loop never reads
+   as a repeating pattern. Pure CSS transforms, no canvas. */
+.core-feed {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+/* soft motes, no head-and-tail: a point of light with a halo around it, so the
+   shape stays round however fast it moves */
+.core-feed i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: var(--s);
+  height: var(--s);
+  margin: calc(var(--s) / -2) 0 0 calc(var(--s) / -2);
+  border-radius: var(--r-full);
+  opacity: 0;
+  will-change: transform, opacity;
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--overlayLight) 95%, transparent) 0%,
+    var(--coreTint) 42%,
+    transparent 100%
+  );
+  box-shadow: 0 0 10px 3px color-mix(in srgb, var(--coreTint) 22%, transparent);
+  animation: coreFeed var(--t) cubic-bezier(0.32, 0, 0.5, 1) var(--dl) infinite;
+}
+/* one long smooth spiral: transform is set only at the ends, so the path never
+   changes direction mid-flight. Opacity does the arriving and the dissolving. */
+@keyframes coreFeed {
+  0% {
+    opacity: 0;
+    transform: rotate(var(--a)) translateX(var(--d)) scale(0.7);
+  }
+  22% {
+    opacity: var(--o);
+  }
+  78% {
+    opacity: var(--o);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(calc(var(--a) + 10deg)) translateX(var(--e, 74px))
+      scale(0.35);
+  }
+}
+
+/* ---- progress (WDS-CORE-2's optional half) ------------------------------ */
+/* A ring around the glass rather than a bar beside it: the Core is already the
+   thing being waited on, and a second widget would compete with it. */
+.core-progress {
+  position: absolute;
+  inset: calc((var(--coreSize) - var(--coreGlass)) / 2 - 6px);
+  z-index: 3;
   pointer-events: none;
   transform: rotate(-90deg);
 }
-.margince-core-progress circle {
+.core-progress circle {
   fill: none;
-  stroke: var(--railHover);
-  stroke-width: 0.7;
+  stroke: color-mix(in srgb, var(--coreTint) 14%, transparent);
+  stroke-width: 2;
 }
-.margince-core-progress .margince-core-progress-value {
-  stroke: var(--aiText);
-  stroke-width: 1.15;
+.core-progress .core-progress-value {
+  stroke: var(--coreTint);
   stroke-linecap: round;
-  filter: drop-shadow(0 0 4px var(--aiText));
-  transition: stroke-dasharray 700ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-.margince-core-glow {
-  position: absolute;
-  inset: 26%;
-  border-radius: var(--r-full);
-  background: var(--aiMed);
-  filter: blur(28px);
-  animation: margince-core-breathe 5s ease-in-out infinite;
-}
-.margince-core-orbit {
-  position: absolute;
-  inset: 12%;
-  border: 1px solid var(--aiMed);
-  border-radius: var(--r-full);
-  animation: margince-core-orbit 18s linear infinite;
-}
-.margince-core-orbit::before,
-.margince-core-orbit::after {
-  content: "";
-  position: absolute;
-  inset: 8%;
-  border: 1px dashed var(--railHover);
-  border-radius: var(--r-full);
-}
-.margince-core-orbit::after {
-  inset: 20%;
-  border-style: solid;
-  border-color: var(--accentMed);
-}
-.margince-core-orbit-evidence {
-  inset: 3%;
-  animation-duration: 26s;
-  animation-direction: reverse;
-  border-style: dashed;
-}
-.margince-core-orbit-approval {
-  inset: 22%;
-  border: 2px solid var(--warnBorder);
-  animation-duration: 12s;
-}
-.margince-core-orbit-approval::before,
-.margince-core-orbit-approval::after {
-  display: none;
-}
-.margince-core-node,
-.margince-core-gate {
-  position: absolute;
-  display: block;
-  border-radius: var(--r-full);
-  background: var(--railIconActive);
-  box-shadow: 0 0 18px var(--aiText);
-}
-.margince-core-node {
-  width: 8px;
-  height: 8px;
-}
-.margince-core-node-a {
-  top: 8%;
-  left: 20%;
-}
-.margince-core-node-b {
-  right: -4px;
-  top: 48%;
-  background: var(--aiText);
-}
-.margince-core-node-c {
-  bottom: 12%;
-  left: 14%;
-  background: var(--aiText);
-}
-.margince-core-node-d {
-  right: 16%;
-  top: 11%;
-  width: 5px;
-  height: 5px;
-}
-.margince-core-gate {
-  width: 13px;
-  height: 13px;
-  top: -7px;
-  left: calc(50% - 7px);
-  background: var(--away);
-  box-shadow: 0 0 22px var(--away);
-}
-.margince-core-thread {
-  position: absolute;
-  width: 34%;
-  height: 1px;
-  top: 50%;
-  left: 50%;
-  transform-origin: left center;
-  background: linear-gradient(90deg, var(--aiMed), transparent);
-  animation: margince-core-thread 3.6s ease-in-out infinite;
-}
-.margince-core-thread-a {
-  transform: rotate(18deg);
-}
-.margince-core-thread-b {
-  transform: rotate(142deg);
-  animation-delay: -1.2s;
-}
-.margince-core-thread-c {
-  transform: rotate(258deg);
-  animation-delay: -2.4s;
-}
-.margince-core-mark-shell {
-  position: absolute;
-  inset: 34%;
-  display: grid;
-  place-items: center;
-  padding: 9%;
-  border: 1px solid var(--aiMed);
-  border-radius: var(--r-full);
-  color: var(--railIconActive);
-  background: var(--railActive);
-  box-shadow:
-    0 0 34px var(--aiMed),
-    inset 0 0 22px var(--railHover);
-  animation: margince-core-mark 5s ease-in-out infinite;
-}
-.margince-core-mark-shell svg {
-  width: 100%;
-  height: auto;
-  overflow: visible;
-  fill: currentcolor;
-}
-.margince-core-mark-soft {
-  opacity: 0.5;
-}
-.margince-core-mark-mid {
-  opacity: 0.78;
-}
-.margince-core-content {
-  position: relative;
-  z-index: 2;
-  width: 70%;
-  height: 100%;
-  margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  justify-content: center;
-  text-align: center;
-}
-.margince-core-scene.has-content .margince-core-mark-shell {
-  inset: 11% auto auto 50%;
-  width: 58px;
-  height: 58px;
-  padding: 15px;
-  transform: translateX(-50%);
-  animation-name: margince-core-mark-content;
-}
-.margince-core-scene[data-core-state="listening"] {
-  animation: margince-core-listen 5.2s ease-in-out infinite;
-}
-.margince-core-scene[data-core-state="working"] {
-  animation: margince-core-speak 3.8s ease-in-out infinite;
-  filter: saturate(1.25);
-}
-.margince-core-scene[data-core-state="working"] .margince-core-orbit {
-  animation-duration: 4s;
-}
-.margince-core-scene[data-core-state="success"] {
-  transform: scale(1.035);
-  filter: brightness(1.18);
-}
-.margince-core-scene[data-core-state="attention"] .margince-core-gate {
-  transform: scale(1.25);
-}
-.margince-core-scene[data-core-state="error"],
-.margince-core-scene[data-core-state="unavailable"] {
-  filter: saturate(0.35);
+  transition: stroke-dasharray 0.4s ease;
 }
 
-@keyframes margince-core-orbit {
-  to {
-    transform: rotate(1turn);
-  }
-}
-@keyframes margince-core-breathe {
-  0%,
-  100% {
-    transform: scale(0.86);
-    opacity: 0.56;
-  }
-  50% {
-    transform: scale(1.14);
-    opacity: 1;
-  }
-}
-@keyframes margince-core-mark {
-  0%,
-  100% {
-    transform: translateY(0) scale(1);
-  }
-  50% {
-    transform: translateY(-4px) scale(1.035);
-  }
-}
-@keyframes margince-core-mark-content {
-  0%,
-  100% {
-    transform: translateX(-50%) translateY(0) scale(1);
-  }
-  50% {
-    transform: translateX(-50%) translateY(-4px) scale(1.035);
-  }
-}
-@keyframes margince-core-thread {
-  0%,
-  100% {
-    opacity: 0.18;
-  }
-  50% {
-    opacity: 0.85;
-  }
-}
-@keyframes margince-core-listen {
-  0%,
-  100% {
-    transform: scale(0.985);
-  }
-  50% {
-    transform: scale(1.005);
-  }
-}
-@keyframes margince-core-speak {
-  0%,
-  100% {
-    transform: scale(0.975);
-  }
-  50% {
-    transform: scale(1.015);
-  }
-}
-
+/* ---- reduced motion: the END state, never nothing ----------------------- */
+/*
+ * The feed is atmosphere and is the one thing safe to simply remove. Everything
+ * else stops where its animation ends rather than reverting: a Core that
+ * renders nothing under reduced motion is broken, not accessible.
+ */
 @media (prefers-reduced-motion: reduce) {
-  .margince-core-glow,
-  .margince-core-orbit,
-  .margince-core-thread,
-  .margince-core-mark-shell,
-  .margince-core-progress .margince-core-progress-value,
-  .margince-core-scene {
+  .core-feed {
+    display: none;
+  }
+  .core-tilt,
+  .core-glass,
+  .core-glow {
     animation: none;
   }
-  .margince-core-scene,
-  .margince-core-mark-shell {
-    transition: none;
-    transform: none;
-  }
-  .margince-core-scene.has-content .margince-core-mark-shell {
-    transform: translateX(-50%);
-  }
 }
 
-@media (forced-colors: active) {
-  .margince-core-mark-shell {
-    forced-color-adjust: auto;
+@media (max-width: 900px) {
+  .core {
+    --coreSize: 150px;
+    --coreGlass: 126px;
   }
 }

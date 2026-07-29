@@ -179,7 +179,7 @@ describe("auth boundary states (login spec §4)", () => {
     vi.stubGlobal("fetch", probe(401));
     mount();
     expect(
-      await screen.findByRole("heading", { name: "Welcome back" }),
+      await screen.findByRole("heading", { name: "Sign in to Margince" }),
     ).toBeTruthy();
   });
 

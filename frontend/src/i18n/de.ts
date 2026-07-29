@@ -1767,9 +1767,9 @@ export const de = {
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",
   "auth.pageTitle": "Anmelden · Margince",
-  "auth.loginTitle": "Willkommen zurück",
+  "auth.loginTitle": "Bei Margince anmelden",
   "auth.loginSub":
-    "Melde dich an, damit ich mit deinem Kontext und deinen Berechtigungen arbeiten kann.",
+    "Margince läuft auf deinem eigenen Server. Konten legt deine Administration an, eine Selbstregistrierung gibt es nicht.",
   "auth.coreDisclosure": "Margince · KI-System",
   "auth.coreBoundary":
     "Ich kann deinen Kontext erst nutzen, nachdem Margince bestätigt hat, dass du es bist.",
@@ -1796,6 +1796,7 @@ export const de = {
   "auth.password": "Passwort",
   "auth.passwordHint": "mindestens 12 Zeichen",
   "auth.showPassword": "Passwort anzeigen",
+  "auth.hidePassword": "Passwort ausblenden",
   "auth.capsLock": "Feststelltaste ist aktiviert",
   "auth.signIn": "Anmelden",
   "auth.signingIn": "Anmeldung läuft…",

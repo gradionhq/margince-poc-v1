@@ -123,7 +123,9 @@ describe("AuthScreen login", () => {
     render(<AuthScreen onAuthed={onAuthed} />);
 
     expect(screen.queryByLabelText(/workspace/i)).toBeNull();
-    expect(screen.queryByText(/create/i)).toBeNull();
+    expect(
+      screen.queryByText(/create (your )?workspace|create one|sign up/i),
+    ).toBeNull();
 
     await userEvent.type(
       screen.getByLabelText("Email address"),
@@ -162,8 +164,7 @@ describe("AuthScreen login", () => {
     );
     expect(probe).toHaveBeenCalledOnce();
     expect(
-      container.querySelector<HTMLElement>(".auth-experience")?.dataset
-        .authPhase,
+      container.querySelector<HTMLElement>(".auth-surface")?.dataset.authPhase,
     ).toBe("error");
   });
 

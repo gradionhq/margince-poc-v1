@@ -446,6 +446,11 @@ export type MockApiOptions = Readonly<{
   // incumbent-mirror routes on top — same fixtures, so a caller that doesn't
   // pass this option keeps working unchanged (B-EP09.23).
   sor?: "native" | "overlay";
+  // "authenticated" (the default) is what every existing AC needs.
+  // "unauthenticated" answers /me with 401 so the app renders the login screen
+  // instead — the surface a signed-out user actually meets, and the one the
+  // §3.8/axe sweeps could not reach because they all start behind a session.
+  session?: "authenticated" | "unauthenticated";
 }>;
 
 export async function mockApi(
@@ -510,11 +515,37 @@ export async function mockApi(
       });
 
     if (path === "/me") {
+      // 401 is an AUTHENTICATION state, and the boundary must tell it apart from
+      // an unavailable server (§4) — so this is a clean 401 with a problem body,
+      // never an abort, which would land the caller on the connection screen.
+      if (options?.session === "unauthenticated") {
+        return json(
+          { type: "about:blank", title: "Unauthorized", status: 401 },
+          401,
+        );
+      }
       return json({
         user: { id: "u1", email: "lars@brandt.example", locale: "de-DE" },
         roles: ["admin"],
         teams: [],
         system_of_record: { mode: sorMode },
+      });
+    }
+    // The two anonymous reads the unauthenticated surface makes. Both answer
+    // before a session exists, by design: the surface has to show a stranger the
+    // installation's posture and its working sign-in methods.
+    if (path === "/auth/capabilities") {
+      // oidc_providers is empty because the OIDC flow does not exist (§19), and
+      // an empty list is what proves no provider button renders.
+      return json({ password: true, password_reset: true, oidc_providers: [] });
+    }
+    if (path === "/assistant/profile") {
+      return json({
+        name: "Margince",
+        kind: "ai",
+        state: "configured",
+        inference_mode: "hybrid",
+        providers: ["anthropic", "ollama"],
       });
     }
     // The overlay routes: always registered (a native workspace can still

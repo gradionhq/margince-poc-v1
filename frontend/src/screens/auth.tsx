@@ -380,6 +380,7 @@ function LoginForm({
             ref={emailRef}
             className="auth-input"
             type="email"
+            required
             autoComplete="username"
             placeholder={t("auth.emailPlaceholder")}
             value={email}
@@ -403,6 +404,7 @@ function LoginForm({
               id={passwordId}
               className="auth-input auth-input-reveal"
               type={showPassword ? "text" : "password"}
+              required
               autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
@@ -414,8 +416,12 @@ function LoginForm({
               type="button"
               className="auth-reveal"
               aria-pressed={showPassword}
-              aria-label={t("auth.showPassword")}
-              title={t("auth.showPassword")}
+              aria-label={t(
+                showPassword ? "auth.hidePassword" : "auth.showPassword",
+              )}
+              title={t(
+                showPassword ? "auth.hidePassword" : "auth.showPassword",
+              )}
               onClick={() => setShowPassword((v) => !v)}
             >
               {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
@@ -429,11 +435,10 @@ function LoginForm({
         </div>
       )}
       <div className="auth-actions">
-        <Button
-          type="submit"
-          variant="primary"
-          disabled={!ready || login.isPending}
-        >
+        {/* Disabled ONLY while a request is in flight (§8.4). An empty field is
+            answered by native validation on the inputs, not by a pale control
+            with nothing to say. */}
+        <Button type="submit" variant="primary" disabled={login.isPending}>
           {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
         </Button>
       </div>
