@@ -76,6 +76,31 @@
   cursor: pointer;
 }
 
+.avatar-t0 {
+  background: var(--mono0Fill);
+  color: var(--mono0Text);
+}
+.avatar-t1 {
+  background: var(--mono1Fill);
+  color: var(--mono1Text);
+}
+.avatar-t2 {
+  background: var(--mono2Fill);
+  color: var(--mono2Text);
+}
+.avatar-t3 {
+  background: var(--mono3Fill);
+  color: var(--mono3Text);
+}
+.avatar-t4 {
+  background: var(--mono4Fill);
+  color: var(--mono4Text);
+}
+.avatar-t5 {
+  background: var(--mono5Fill);
+  color: var(--mono5Text);
+}
+
 .avatar {
   width: 28px;
   height: 28px;

@@ -61,6 +61,47 @@ const org = {
   updated_at: "2026-06-01T08:00:00Z",
 };
 
+// The 360 backstop: an assembled account with every section present and
+// empty. The pre-existing suites below exercise the enrich/deep-read/profile
+// cards, not the composite read, and an assembled-but-empty page is the
+// state that lets them render without asserting anything about it.
+const org360 = {
+  as_of: "2026-06-01T09:00:00Z",
+  organization: org,
+  sections_omitted: [],
+  people: { data: [], page: { has_more: false, next_cursor: null } },
+  deals: {
+    data: [],
+    page: { has_more: false, next_cursor: null },
+    won_lifetime: { amount_minor: 0, currency: "EUR" },
+    lost_count: 0,
+  },
+  activities: { data: [], page: { has_more: false, next_cursor: null } },
+  next_steps: { data: [], page: { has_more: false, next_cursor: null } },
+  pending_approvals: { data: [], page: { has_more: false, next_cursor: null } },
+  tags: [],
+  list_memberships: [],
+  since_last_visit: {
+    baseline_at: null,
+    new_activities: 0,
+    deal_stage_moves: 0,
+    pending_proposals: 0,
+  },
+};
+
+// The roll-up backstop. It sits in the company view's left rail now rather
+// than behind a tab, so every test that renders the page fires this GET.
+const emptyRollup = {
+  root_id: "o-1",
+  scope: "tree",
+  weighted_pipeline: { amount_minor: 0, currency: "EUR" },
+  closed_won: { amount_minor: 0, currency: "EUR" },
+  activity_count_30d: 0,
+  aggregated_account_count: 1,
+  restricted_excluded: [],
+  computed_at: "2026-06-01T09:00:00Z",
+};
+
 // The dormant/no-interactions strength response — the default backstop for
 // every fetch stub below that isn't itself exercising the strength card
 // (P-4): the Company Overview now fires this GET unconditionally, and none
@@ -109,6 +150,12 @@ function stubApi(enrich: () => Response) {
           anchor: { type: "organization", id: "o-1" },
           sections: [],
         });
+      }
+      if (url.pathname.endsWith("/organizations/o-1/360")) {
+        return jsonResponse(org360);
+      }
+      if (url.pathname.endsWith("/hierarchy-rollup")) {
+        return jsonResponse(emptyRollup);
       }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -212,6 +259,12 @@ function stubDeepRead(options: {
           anchor: { type: "organization", id: "o-1" },
           sections: [],
         });
+      }
+      if (url.pathname.endsWith("/organizations/o-1/360")) {
+        return jsonResponse(org360);
+      }
+      if (url.pathname.endsWith("/hierarchy-rollup")) {
+        return jsonResponse(emptyRollup);
       }
       if (url.pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
@@ -414,7 +467,13 @@ function stubFetch(
     method: string,
     request: Request,
   ) => Promise<Response>,
-  options?: Readonly<{ strength?: unknown }>,
+  options?: Readonly<{
+    strength?: unknown;
+    org360?: unknown;
+    // A roll-up body, or a ready Response when the suite is exercising a
+    // refusal (the 422 FX case) rather than a payload.
+    rollup?: unknown | Response;
+  }>,
 ): { fetchMock: ReturnType<typeof vi.fn>; urls: string[] } {
   const urls: string[] = [];
   const fetchMock = vi.fn(async (request: Request) => {
@@ -429,10 +488,31 @@ function stubFetch(
         sections: [],
       });
     }
+    // The company view fires both of these on every render — the composite
+    // read that serves the page, and the roll-up that now sits in its left
+    // rail rather than behind a tab. They default to an assembled-but-empty
+    // account so a suite testing some other card renders at all; a suite
+    // that IS testing one of them passes its own through options, the same
+    // shape `strength` already uses.
+    if (pathname.endsWith("/360")) {
+      return jsonResponse(options?.org360 ?? org360);
+    }
+    if (pathname.endsWith("/hierarchy-rollup")) {
+      return rollupResponse(options?.rollup);
+    }
     return responder(request.url, request.method, request);
   });
   vi.stubGlobal("fetch", fetchMock);
   return { fetchMock, urls };
+}
+
+// rollupResponse lets a suite hand back either a body or a whole Response,
+// because one of them asserts the honest 422 rather than a payload.
+function rollupResponse(rollup: unknown): Response {
+  if (rollup instanceof Response) {
+    return rollup;
+  }
+  return jsonResponse(rollup ?? emptyRollup);
 }
 
 function emptyPage() {
@@ -744,14 +824,24 @@ describe("CompanyScreen — facts card (B6)", () => {
     await waitFor(() =>
       expect(screen.getByText("Facts read from the site")).toBeTruthy(),
     );
-    expect(screen.getByText("Company")).toBeTruthy();
-    expect(screen.getByText("Offering")).toBeTruthy();
-    expect(screen.getByText("Market")).toBeTruthy();
-    expect(screen.getByText("1998")).toBeTruthy();
-    expect(screen.getByText("Automotive OEMs")).toBeTruthy();
-    expect(screen.getByText("Fleet retrofits")).toBeTruthy();
+    // Scoped to the facts card: the right rail carries a Signals card of its
+    // own, and "which categories did the site read produce" is a question
+    // about this card, not about the page.
+    const factsCard = screen
+      .getByText("Facts read from the site")
+      .closest("section");
+    if (!factsCard) {
+      throw new Error("the facts card has no section wrapper");
+    }
+    const facts = within(factsCard);
+    expect(facts.getByText("Company")).toBeTruthy();
+    expect(facts.getByText("Offering")).toBeTruthy();
+    expect(facts.getByText("Market")).toBeTruthy();
+    expect(facts.getByText("1998")).toBeTruthy();
+    expect(facts.getByText("Automotive OEMs")).toBeTruthy();
+    expect(facts.getByText("Fleet retrofits")).toBeTruthy();
     // No signal fact was returned, so that subsection is absent.
-    expect(screen.queryByText("Signals")).toBeNull();
+    expect(facts.queryByText("Signals")).toBeNull();
   });
 });
 
@@ -812,7 +902,11 @@ describe("CompanyScreen — overlay mode write affordances", () => {
 
     await waitFor(() => expect(screen.getByTestId("edit-record")).toBeTruthy());
     expect(screen.getByTestId("archive-record")).toBeTruthy();
-    expect(screen.queryByTestId("merge-record")).toBeNull();
+    // The page renders before the /me probe lands, so Merge is asserted
+    // absent once the mode is known rather than on the first paint.
+    await waitFor(() =>
+      expect(screen.queryByTestId("merge-record")).toBeNull(),
+    );
   });
 
   it("Edit's real click path PATCHes and the 360 shows the saved industry", async () => {
@@ -1085,21 +1179,20 @@ const rollup = {
   computed_at: "2026-07-01T09:30:00Z",
 };
 
-describe("CompanyScreen — Roll-up tab (P-7)", () => {
+describe("CompanyScreen — hierarchy roll-up in the rail (P-7)", () => {
   it("shows the weighted pipeline, closed-won, activity, and account figures", async () => {
-    stubFetch(async (url) => {
-      if (url.includes("/hierarchy-rollup")) {
-        return jsonResponse(rollup);
-      }
-      if (url.includes("/activities")) {
-        return jsonResponse({ data: [] });
-      }
-      return jsonResponse(org);
-    });
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(org);
+      },
+      { rollup },
+    );
     render(<CompanyScreen id="o-1" />);
 
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Roll-up"));
 
     await waitFor(() => expect(screen.getByText("€48,000.00")).toBeTruthy());
     expect(screen.getByText("€12,000.00")).toBeTruthy();
@@ -1108,22 +1201,23 @@ describe("CompanyScreen — Roll-up tab (P-7)", () => {
   });
 
   it("renders the honest FX-unavailable message instead of zeros on a 422", async () => {
-    stubFetch(async (url) => {
-      if (url.includes("/hierarchy-rollup")) {
-        return jsonResponse(
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(org);
+      },
+      {
+        rollup: jsonResponse(
           { title: "Unprocessable", code: "fx_rate_unavailable" },
           422,
-        );
-      }
-      if (url.includes("/activities")) {
-        return jsonResponse({ data: [] });
-      }
-      return jsonResponse(org);
-    });
+        ),
+      },
+    );
     render(<CompanyScreen id="o-1" />);
 
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Roll-up"));
 
     await waitFor(() =>
       expect(
@@ -1136,24 +1230,25 @@ describe("CompanyScreen — Roll-up tab (P-7)", () => {
   });
 
   it("discloses accounts excluded because the viewer cannot read them", async () => {
-    stubFetch(async (url) => {
-      if (url.includes("/hierarchy-rollup")) {
-        return jsonResponse({
+    stubFetch(
+      async (url) => {
+        if (url.includes("/activities")) {
+          return jsonResponse({ data: [] });
+        }
+        return jsonResponse(org);
+      },
+      {
+        rollup: {
           ...rollup,
           restricted_excluded: [
             { id: "o-9", display_name: "Hidden Subsidiary GmbH" },
           ],
-        });
-      }
-      if (url.includes("/activities")) {
-        return jsonResponse({ data: [] });
-      }
-      return jsonResponse(org);
-    });
+        },
+      },
+    );
     render(<CompanyScreen id="o-1" />);
 
     await waitFor(() => expect(screen.getByText("Overview")).toBeTruthy());
-    await userEvent.click(screen.getByText("Roll-up"));
 
     await waitFor(() =>
       expect(
@@ -1163,37 +1258,62 @@ describe("CompanyScreen — Roll-up tab (P-7)", () => {
   });
 });
 
-describe("CompanyScreen — relationship-strength card (P-4)", () => {
-  it("renders the org's strength bucket, score, and factor breakdown", async () => {
+describe("CompanyScreen — the account pulse line (P-4)", () => {
+  it("leads with the score, who carries it, and how many contacts it beat", async () => {
     stubFetch(
       async (url) => {
         if (url.includes("/activities")) {
           return jsonResponse({ data: [] });
         }
+        if (url.includes("/people/p-1")) {
+          return jsonResponse({ ...org, id: "p-1", full_name: "Dana Buyer" });
+        }
         return jsonResponse(org);
       },
       {
-        strength: {
-          score: 41,
-          bucket: "weak",
-          factors: {
-            recency: 0.3,
-            frequency: 0.2,
-            reciprocity: 0.4,
-            direction: 0.5,
+        org360: {
+          ...org360,
+          strength: {
+            score: 41,
+            bucket: "weak",
+            contact_count: 3,
+            contributor_person_id: "p-1",
+            factors: {
+              recency: 0.3,
+              frequency: 0.2,
+              reciprocity: 0.4,
+              direction: 0.5,
+            },
+            last_interaction: "2026-06-20T12:00:00Z",
           },
-          last_interaction: "2026-06-20T12:00:00Z",
         },
       },
     );
     render(<CompanyScreen id="o-1" />);
 
-    await waitFor(() => expect(screen.getByText("Weak")).toBeTruthy());
-    expect(screen.getByText("Score 41/100")).toBeTruthy();
-    expect(screen.getByText("Recency")).toBeTruthy();
-    expect(screen.getByText("Frequency")).toBeTruthy();
-    expect(screen.getByText("Reciprocity")).toBeTruthy();
-    expect(screen.getByText("Direction")).toBeTruthy();
+    // The number, the contact count, and the last touch all read off the one
+    // composite response — no second round trip for the header.
+    await waitFor(() => expect(screen.getByText(/41/)).toBeTruthy());
+    expect(screen.getByText(/3 contacts/)).toBeTruthy();
+    expect(screen.getByText(/Last touch/)).toBeTruthy();
+  });
+
+  it("says there is no relationship rather than showing a zero", async () => {
+    stubFetch(async (url) => {
+      if (url.includes("/activities")) {
+        return jsonResponse({ data: [] });
+      }
+      return jsonResponse(org);
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText("Brandt Automotive GmbH")).toBeTruthy(),
+    );
+    // org360's backstop omits `strength` entirely, which is what an account
+    // with no readable contacts looks like: never contacted, no score.
+    expect(screen.getByText("Never contacted")).toBeTruthy();
+    expect(screen.queryByText(/^0 ·/)).toBeNull();
   });
 });
 

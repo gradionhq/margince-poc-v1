@@ -1,4 +1,12 @@
-import { CalendarClock, Mail, StickyNote } from "lucide-react";
+import {
+  CalendarClock,
+  CheckSquare,
+  Mail,
+  MessageCircle,
+  Phone,
+  Send,
+  StickyNote,
+} from "lucide-react";
 import type { ReactNode } from "react";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
@@ -205,26 +213,48 @@ export function PipelineBoard({
 
 export type TimelineEntry = {
   id: string;
-  kind: "email" | "meeting" | "note";
+  // The backend's activity kinds, not a reduced set: collapsing call, task
+  // and the chat kinds into "note" told the reader an email was a note.
+  kind:
+    | "email"
+    | "meeting"
+    | "note"
+    | "call"
+    | "task"
+    | "whatsapp"
+    | "telegram";
   title: string;
   atIso: string;
   provenance: Provenance;
   // A right-aligned per-row action slot (Reply / Relink). Absent on rows with
   // no affordance, which render exactly as before.
   actions?: ReactNode;
+  // The records this entry is about, as the backend's links[] reports them —
+  // already pruned to what the reader may see.
+  via?: ReactNode;
 };
 
 const TIMELINE_ICON = {
   email: Mail,
   meeting: CalendarClock,
   note: StickyNote,
+  call: Phone,
+  task: CheckSquare,
+  whatsapp: MessageCircle,
+  telegram: Send,
 } as const;
 
 export function RecordView({
   name,
   subtitle,
   badges,
+  pulse,
+  actions,
+  rail,
+  aside,
   timeline,
+  timelineHeader,
+  timelineFooter,
   timelineNotice,
   zone,
   children,
@@ -232,7 +262,22 @@ export function RecordView({
   name: string;
   subtitle?: string;
   badges?: ReactNode;
+  // A one-line "state of this record" strip under the name — warmth, last
+  // touch, owner. Absent on records that have no such summary.
+  pulse?: ReactNode;
+  // The record's verbs, kept beside the identity rather than scattered
+  // through the body.
+  actions?: ReactNode;
+  // The three-zone record page: rail is the left column (what this record
+  // IS), children the middle (what is happening), aside the right (the
+  // business around it). With neither rail nor aside the layout collapses
+  // to the single column every existing caller already renders.
+  rail?: ReactNode;
+  aside?: ReactNode;
   timeline: TimelineEntry[];
+  // Controls above the timeline list (filters), and below it (load more).
+  timelineHeader?: ReactNode;
+  timelineFooter?: ReactNode;
   // When set, replaces the timeline list — e.g. an overlay-mode "not available"
   // note, since the mirror cannot serve entity-scoped activity reads. Keeps the
   // section honest instead of rendering an empty list that reads as "no activity".
@@ -241,7 +286,7 @@ export function RecordView({
   children?: ReactNode;
 }>) {
   const t = useT();
-  const { locale } = useLocale();
+  const zoned = rail || aside;
   return (
     <div>
       <header className="record-head">
@@ -249,37 +294,64 @@ export function RecordView({
         <div className="record-id">
           <h1>{name}</h1>
           {subtitle && <p className="record-sub">{subtitle}</p>}
+          {pulse && <div className="record-pulse">{pulse}</div>}
         </div>
         {badges && <div className="record-badges">{badges}</div>}
       </header>
-      {children}
-      <section aria-label={t("record.timeline")}>
-        <h2 className="t-sub">{t("record.timeline")}</h2>
-        {timelineNotice ?? (
-          <ul className="timeline">
-            {timeline.map((entry) => {
-              const Icon = TIMELINE_ICON[entry.kind];
-              return (
-                <li key={entry.id}>
-                  <span className="tl-icon">
-                    <Icon aria-hidden />
-                  </span>
-                  <span className="tl-body">
-                    <span className="tl-title">{entry.title}</span>
-                    <span className="tl-meta">
-                      <span>{formatDate(entry.atIso, locale, zone)}</span>
-                      <ProvenanceTag provenance={entry.provenance} />
-                    </span>
-                  </span>
-                  {entry.actions && (
-                    <span className="tl-actions">{entry.actions}</span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
+      {actions && <div className="record-actions">{actions}</div>}
+      <div className={zoned ? "record-zones" : undefined}>
+        {rail && (
+          <aside className="record-rail" aria-label={t("record.profile")}>
+            {rail}
+          </aside>
         )}
-      </section>
+        <div className="record-main">
+          {children}
+          <section aria-label={t("record.timeline")}>
+            <h2 className="t-sub">{t("record.timeline")}</h2>
+            {timelineHeader}
+            {timelineNotice ?? <TimelineList entries={timeline} zone={zone} />}
+            {timelineFooter}
+          </section>
+        </div>
+        {aside && (
+          <aside className="record-aside" aria-label={t("record.business")}>
+            {aside}
+          </aside>
+        )}
+      </div>
     </div>
+  );
+}
+
+function TimelineList({
+  entries,
+  zone,
+}: Readonly<{ entries: TimelineEntry[]; zone: string }>) {
+  const { locale } = useLocale();
+  return (
+    <ul className="timeline">
+      {entries.map((entry) => {
+        const Icon = TIMELINE_ICON[entry.kind];
+        return (
+          <li key={entry.id}>
+            <span className="tl-icon">
+              <Icon aria-hidden />
+            </span>
+            <span className="tl-body">
+              <span className="tl-title">{entry.title}</span>
+              <span className="tl-meta">
+                <span>{formatDate(entry.atIso, locale, zone)}</span>
+                <ProvenanceTag provenance={entry.provenance} />
+                {entry.via}
+              </span>
+            </span>
+            {entry.actions && (
+              <span className="tl-actions">{entry.actions}</span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }

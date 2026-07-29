@@ -110,10 +110,105 @@ export const CompaniesList: Story = {
   },
 };
 
+// The composite read that now serves the whole page. An account with a warm
+// contact, an open deal and an overdue task — the state the view was
+// designed around, rather than an empty record that shows only chrome.
+const emptyPage = { has_more: false, next_cursor: null };
+
+const org360 = {
+  as_of: "2026-07-13T09:00:00Z",
+  organization: org,
+  sections_omitted: [],
+  people: {
+    data: [
+      {
+        person_id: "p-1",
+        full_name: "Dana Buyer",
+        title: "Head of Fleet",
+        primary_email: "dana@brandt.example",
+        deal_roles: [{ deal_id: "d-1", role: "champion" }],
+        consent: { marketing_email: "granted" },
+        strength: {
+          score: 71,
+          bucket: "strong",
+          factors: {
+            recency: 0.9,
+            frequency: 0.6,
+            reciprocity: 0.8,
+            direction: 0.8,
+          },
+          last_interaction: "2026-07-10T09:00:00Z",
+        },
+      },
+    ],
+    page: emptyPage,
+  },
+  deals: {
+    data: [
+      {
+        deal_id: "d-1",
+        name: "Fleet retrofit 2026",
+        status: "open",
+        stage_name: "Proposal",
+        amount: { amount_minor: 4_800_000, currency: "EUR" },
+        stalled: false,
+      },
+    ],
+    page: emptyPage,
+    won_lifetime: { amount_minor: 12_000_000, currency: "EUR" },
+    lost_count: 1,
+  },
+  strength: {
+    score: 71,
+    bucket: "strong",
+    contact_count: 1,
+    contributor_person_id: "p-1",
+    factors: { recency: 0.9, frequency: 0.6, reciprocity: 0.8, direction: 0.8 },
+    last_interaction: "2026-07-10T09:00:00Z",
+  },
+  activities: { data: [], page: emptyPage },
+  next_steps: {
+    data: [
+      {
+        activity_id: "a-1",
+        subject: "Send the renewal paperwork",
+        due_at: "2026-07-01T09:00:00Z",
+        overdue: true,
+        linked_deal_id: "d-1",
+      },
+    ],
+    page: emptyPage,
+  },
+  pending_approvals: { data: [], page: emptyPage },
+  tags: [{ id: "t-1", workspace_id: "w-1", name: "Key account" }],
+  list_memberships: [],
+  since_last_visit: {
+    baseline_at: "2026-07-10T09:00:00Z",
+    new_activities: 2,
+    deal_stage_moves: 1,
+    pending_proposals: 0,
+  },
+};
+
+const rollup = {
+  root_id: "o-1",
+  scope: "tree",
+  weighted_pipeline: { amount_minor: 2_400_000, currency: "EUR" },
+  closed_won: { amount_minor: 12_000_000, currency: "EUR" },
+  activity_count_30d: 8,
+  aggregated_account_count: 1,
+  restricted_excluded: [],
+  computed_at: "2026-07-13T09:00:00Z",
+};
+
 const overviewRoutes = {
   "GET /organizations/o-1": () => jsonResponse(org),
+  "GET /organizations/o-1/360": () => jsonResponse(org360),
+  "GET /organizations/o-1/hierarchy-rollup": () => jsonResponse(rollup),
   "GET /organizations/o-1/strength": () => jsonResponse(dormantStrength),
   "GET /activities": () => jsonResponse({ data: [] }),
+  "GET /signals": () => jsonResponse({ data: [], page: emptyPage }),
+  "GET /relationships": () => jsonResponse({ data: [], page: emptyPage }),
   "GET /records/organization/o-1/context": () =>
     jsonResponse({
       anchor: { type: "organization", id: "o-1" },
@@ -145,6 +240,29 @@ export const CompanyOverviewEmpty: Story = {
   render: () => {
     installFetchStub({
       ...overviewRoutes,
+      "GET /organizations/o-1/profile-fields": () => jsonResponse({ data: [] }),
+      "GET /organizations/o-1/facts": () => jsonResponse({ data: [] }),
+    });
+    return (
+      <StoryProviders>
+        <CompanyScreen id="o-1" />
+      </StoryProviders>
+    );
+  },
+};
+
+// A rep whose role cannot read deals: the deals card SAYS so rather than
+// drawing the empty state a reader would take for "this account has none".
+export const CompanyOverviewWithheldSection: Story = {
+  render: () => {
+    installFetchStub({
+      ...overviewRoutes,
+      "GET /organizations/o-1/360": () =>
+        jsonResponse({
+          ...org360,
+          deals: undefined,
+          sections_omitted: ["deals"],
+        }),
       "GET /organizations/o-1/profile-fields": () => jsonResponse({ data: [] }),
       "GET /organizations/o-1/facts": () => jsonResponse({ data: [] }),
     });
