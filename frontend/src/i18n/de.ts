@@ -467,6 +467,9 @@ export const de = {
   "co.since.nothing": "Seit deinem letzten Besuch nichts Neues.",
   "co.partial":
     "Teile dieser Seite konnten nicht geladen werden; sie zeigt möglicherweise nicht alles zu diesem Account.",
+  "evidence.title": "Herkunft dieses Werts",
+  "evidence.explain": 'Herkunft von "{value}"',
+  "evidence.fullHistory": "Vollständiger Verlauf",
   "co.section.unavailable":
     "Konnte nicht geladen werden — das ist möglicherweise nicht das ganze Bild",
   "co.section.restricted":

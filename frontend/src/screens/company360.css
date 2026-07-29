@@ -111,3 +111,9 @@
   text-transform: uppercase;
   color: var(--textMeta);
 }
+
+/* A profile/fact row: label above the value, with the value carrying its
+   own evidence mark rather than a footer of chips beneath it. */
+.co-field {
+  margin-bottom: var(--space-3);
+}
