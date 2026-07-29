@@ -140,7 +140,15 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 		// carries no unsubscribe surface", and answering it here would
 		// transmit marketing mail with no working List-Unsubscribe URL —
 		// trading a credential leak for an RFC 8058 violation.
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		//
+		// The STRICT twin, because this mint creates a capability rather than
+		// answering a read. Statements in a read-committed transaction each
+		// take a fresh snapshot, so an Art. 17 erasure committing between the
+		// lookup above and this probe would leave the plain EnsureVisible
+		// answering "yes, still yours" for the tombstone — its own doc names
+		// that case — and this path would then mint a NEW public credential
+		// for the subject whose old one the erasure just deleted.
+		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		found = true

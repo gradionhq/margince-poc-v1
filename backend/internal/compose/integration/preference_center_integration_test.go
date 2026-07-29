@@ -170,7 +170,14 @@ func sendAndAssertUnsubscribeLink(t *testing.T, c *consentEnv) string {
 	// link to an attacker's domain (token-exfiltration guard). Asserted on
 	// the TRANSMITTED copy: that is the one carrying the credential an
 	// attacker-controlled base would harvest.
-	sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
+	// The 202 is asserted, not discarded: transmittedBody reads the NEWEST
+	// delivery, so a hostile send refused before staging would leave this
+	// assertion re-reading the benign one above and passing without ever
+	// proving the forged headers were ignored.
+	hostileStatus, _ := sendMarketing(t, c.env, c.activityID, "newsletter", "evil.example.com", "http")
+	if hostileStatus != http.StatusAccepted {
+		t.Fatalf("hostile-origin marketing send → %d, want 202 — the link assertion below needs this send to have staged", hostileStatus)
+	}
 	hostileLink := unsubscribeLinkIn(t, transmittedBody(t, c))
 	if !strings.HasPrefix(hostileLink, "https://mail.example.test/") || strings.Contains(hostileLink, "evil.example") {
 		t.Fatalf("hostile Host reshaped the unsubscribe link: %q", hostileLink)

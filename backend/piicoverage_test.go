@@ -49,6 +49,13 @@ type piiHandling struct {
 	// False only for opaque derived artifacts (vectors) that carry no
 	// human-readable PII to hand back — they are purged, never exported.
 	sarRead bool
+	// sarForbidden: SAR assembly must NOT read this table. Its own promise,
+	// not the absence of sarRead's: leaving a table merely unregistered for
+	// reads means a future AssembleSAR query silently passes this gate, which
+	// is the difference between an invariant in a comment and a control. Set
+	// it wherever the row holds something an Art. 15 package must not carry —
+	// a live credential, say — and the gate fails the moment SAR touches it.
+	sarForbidden bool
 }
 
 // piiTables is the registry of every table holding data about a subject.
@@ -111,11 +118,13 @@ var piiTables = map[string]piiHandling{
 	// List-Unsubscribe URL, honoured with no session at all. Registered so
 	// this gate proves erasure retires it: the person row survives
 	// anonymize-in-place, so the schema's ON DELETE CASCADE never fires.
-	// sarRead is false for the opposite reason to embedding's: not "nothing
-	// human-readable to hand back" but "a working credential", which an Art.
-	// 15 package assembled by an admin must not carry into an export file —
-	// the subject already holds their own copy, in the mail that delivered it.
-	"preference_token": {erasureWrite: true, sarRead: false},
+	// The export side is sarFORBIDDEN, not merely not-read, and for the
+	// opposite reason to embedding's: not "nothing human-readable to hand
+	// back" but "a working credential", which an Art. 15 package assembled by
+	// an admin must not carry into an export file — the subject already holds
+	// their own copy, in the mail that delivered it. Declared so a future SAR
+	// section over this table fails the gate instead of shipping.
+	"preference_token": {erasureWrite: true, sarForbidden: true},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are
@@ -223,6 +232,14 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 		if h.sarRead && !reads[table] {
 			missing = append(missing, "SAR never reads PII table "+table+
 				" — Art. 15 export is incomplete; add a section in AssembleSAR")
+		}
+		if h.sarForbidden && reads[table] {
+			missing = append(missing, "SAR reads PII table "+table+
+				" — it is registered sarForbidden because its rows must never leave in an Art. 15 package; drop the section in AssembleSAR")
+		}
+		if h.sarRead && h.sarForbidden {
+			missing = append(missing, "PII table "+table+
+				" is registered both sarRead and sarForbidden — the export cannot both require and refuse it")
 		}
 	}
 	sort.Strings(missing)

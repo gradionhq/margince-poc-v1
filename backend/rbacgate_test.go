@@ -57,8 +57,11 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/identity:ListUsers":             "roster read (A52): the member roster is intentionally visible to every authenticated seat, by design, not by oversight — a share-subject picker that only some roles could see would be a broken feature, not a narrower one. Workspace RLS + authenticated membership IS the boundary; \"user\" is deliberately absent from policy.coreObjects (the closed RBAC object set), because gating it would mean granting read on it to all five default roles (no role may reasonably be refused the roster) and backfilling every already-seeded workspace's role.permissions — object-level RBAC exists to narrow WHO sees a record among peers, and there is no such narrowing here to express",
 	"internal/modules/identity:ListTeams":             "roster read (A52): same rationale as ListUsers — the team list is intentionally visible to every authenticated seat (workspace RLS + authenticated membership is the boundary), and \"team\" is deliberately absent from policy.coreObjects for the same reason: gating it would grant read to every role, not restrict it, while requiring a backfill of every seeded workspace's role.permissions",
 
-	// Public-by-design token surfaces: possession of the single-use
-	// token is the authority; there is no authenticated principal.
+	// Public-by-design token surfaces: possession of the emailed or
+	// published capability is the authority; there is no authenticated
+	// principal. What bounds each capability differs — single use, a
+	// signature, an expiry, or nothing but its entropy — so each entry
+	// names its own, rather than this header claiming one for all of them.
 	"internal/modules/activities:ResolveBookingPage":  "public booking page (A16): resolved by slug for the anonymous visitor; writes nothing",
 	"internal/modules/consent:ResolvePreferenceToken": "public preference-center resolve: possession of the emailed capability token IS the authority (no session exists). It is NOT signed and NOT single-use — the preference centre is revisitable by design, and one message's link must keep working after the next goes out — so the bounds that stand in for those properties are named here: 256-bit crypto/rand, expiry plus an age ceiling the send path rotates at (0143), and deletion by Art. 17 erasure",
 	"internal/modules/approvals:MintApprovalToken":    "signs the approval JWS for a decision already admitted by Decide; crypto, not admission",
