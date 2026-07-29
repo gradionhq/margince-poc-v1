@@ -262,23 +262,7 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
 		return nil, err
 	}
-	// The preference token is a live CAPABILITY over the subject's consent
-	// record, not a stored attribute of them: whoever holds the emailed
-	// List-Unsubscribe URL reads their per-purpose state, withdraws, and
-	// grants — on an edge that binds a system principal, so every RBAC gate
-	// downstream passes. Anonymize-in-place is why erasure has to reach it
-	// here: the person row survives, so 0048's ON DELETE CASCADE never fires,
-	// and an erased subject would keep accruing fresh person_consent,
-	// consent_event, audit and outbox rows through the exact capability this
-	// erasure certifies destroyed. Deleted rather than revoked, like the
-	// address and phone rows above — a revoked row still holds the subject's
-	// person link. The workspace predicate is explicit because
-	// preference_token is deliberately outside RLS (it IS the token→tenant
-	// resolver, 0048), so nothing else scopes this statement.
-	if _, err := tx.Exec(ctx, `
-		DELETE FROM preference_token
-		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		   AND person_id = $1`, personID); err != nil {
+	if err := deletePreferenceToken(ctx, tx, personID); err != nil {
 		return nil, err
 	}
 	// Anonymize the lead twins and drop their field-level provenance in
@@ -323,6 +307,29 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		return nil, err
 	}
 	return wiped, nil
+}
+
+// deletePreferenceToken retires the subject's preference-center token. That
+// token is a live CAPABILITY over their consent record, not a stored
+// attribute of them: whoever holds the emailed List-Unsubscribe URL reads
+// their per-purpose state, withdraws, and grants — on an edge that binds a
+// system principal, so every RBAC gate downstream passes.
+//
+// Anonymize-in-place is why erasure has to reach it here rather than leaning
+// on the schema: the person row survives, so 0048's ON DELETE CASCADE never
+// fires, and an erased subject would keep accruing fresh person_consent,
+// consent_event, audit and outbox rows through the exact capability this
+// erasure certifies destroyed. Deleted rather than revoked, like the address
+// and phone rows beside it — a revoked row still holds the subject's person
+// link. The workspace predicate is explicit because preference_token is
+// deliberately outside RLS (it IS the token→tenant resolver, 0048), so
+// nothing else scopes this statement.
+func deletePreferenceToken(ctx context.Context, tx pgx.Tx, personID ids.PersonID) error {
+	_, err := tx.Exec(ctx, `
+		DELETE FROM preference_token
+		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND person_id = $1`, personID)
+	return err
 }
 
 // tombstoneCollateralScrubs stamps a per-record erase tombstone for each
