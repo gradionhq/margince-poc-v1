@@ -17,7 +17,10 @@ const gmailConnected: CaptureConnection = {
   id: "018f3a1b-0000-7000-8000-0000000000c1",
   provider: "gmail",
   status: "connected",
-  scopes: ["read"],
+  scopes: [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+  ],
   account_label: "lars@example.de",
   last_synced_at: "2026-07-23T09:30:00Z",
   next_sync_due_at: "2026-07-23T09:35:00Z",
@@ -28,6 +31,13 @@ const gmailConnected: CaptureConnection = {
     state: "done",
     counts: { captured: 842, people_created: 96, organizations_created: 21 },
   },
+};
+
+// The mailbox connected before Margince asked for the send scope: capturing
+// happily, and permanently unable to send until it is reconnected.
+const gmailNoSendGrant: CaptureConnection = {
+  ...gmailConnected,
+  scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
 };
 
 const gcalReauth: CaptureConnection = {
@@ -99,6 +109,10 @@ export const Connected: Story = {
 
 export const NeedsReconnect: Story = {
   render: cardStory([gcalReauth]),
+};
+
+export const CannotSend: Story = {
+  render: cardStory([gmailNoSendGrant]),
 };
 
 export const SyncError: Story = {

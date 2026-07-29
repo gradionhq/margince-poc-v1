@@ -17,7 +17,12 @@ import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { BackfillPanel } from "./backfill";
 import { problemCode, problemMessage } from "./common";
-import { errorClassKey, statusLabel, statusTone } from "./connector-status";
+import {
+  errorClassKey,
+  missingSendGrant,
+  statusLabel,
+  statusTone,
+} from "./connector-status";
 import { ImapConnectForm } from "./imap-connect-form";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
@@ -366,13 +371,25 @@ export function ConnectorsCard() {
                       {t(errorClassKey(conn.last_sync_error_class))}
                     </span>
                   )}
+                  {/* Named here rather than at send time: the composer's 422
+                      arrives after the rep has written the mail, and it can
+                      only be cleared from this card. */}
+                  {missingSendGrant(conn) && (
+                    <span className="t-small">
+                      {t("connectors.reconnectToSend")}
+                    </span>
+                  )}
                 </span>
               </span>
               <span className="connector-actions">
                 <Badge tone={statusTone(conn.status)}>
                   {t(statusLabel(conn.status))}
                 </Badge>
-                {conn.status === "reauth_required" &&
+                {missingSendGrant(conn) && (
+                  <Badge tone="warn">{t("connectors.cannotSend")}</Badge>
+                )}
+                {(conn.status === "reauth_required" ||
+                  missingSendGrant(conn)) &&
                   (OAUTH_PROVIDERS.has(conn.provider) ? (
                     <Button
                       small

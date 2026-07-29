@@ -10,8 +10,35 @@ import type { MessageKey } from "../i18n/en";
 // statusTone/statusLabel that shipped with connectors.tsx (RC-8) so the two
 // surfaces stay on one definition rather than two copies drifting apart.
 
-export type ConnectorStatus =
-  components["schemas"]["CaptureConnection"]["status"];
+type CaptureConnection = components["schemas"]["CaptureConnection"];
+
+export type ConnectorStatus = CaptureConnection["status"];
+
+// The one scope that grants sending today. The server pre-flights a send
+// against this same string (comms.SendScopeFor), so the badge below and the
+// 422 it exists to pre-empt cannot disagree about which mailbox may send.
+const GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
+
+/** Whether this connection captures mail it will never be allowed to send.
+ *  Google will not widen an existing refresh token, so every mailbox
+ *  connected before sending shipped holds read-only access until its owner
+ *  reconnects — a fact the connection's `status` cannot express, since it is
+ *  genuinely connected and genuinely capturing. Only the granted scopes say
+ *  it, which is why this reads them rather than the status.
+ *
+ *  Gmail is the only provider that sends at all (one `if`, matching the
+ *  server: a registry with a single entry is an abstraction with no second
+ *  caller). A calendar or IMAP connection is not "cannot send" — it is not a
+ *  sending mailbox in the first place, and badging it would be a refusal
+ *  nobody could act on. */
+export function missingSendGrant(
+  connection: Pick<CaptureConnection, "provider" | "scopes">,
+): boolean {
+  return (
+    connection.provider === "gmail" &&
+    !connection.scopes.includes(GMAIL_SEND_SCOPE)
+  );
+}
 
 /** Each of the four contract statuses gets its own Badge tone. Collapsing
  *  reauth_required and error into the same tone is what made a dead mailbox

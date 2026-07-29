@@ -25,7 +25,10 @@ const gmailConnected: CaptureConnection = {
   id: "018f3a1b-0000-7000-8000-0000000000c1",
   provider: "gmail",
   status: "connected",
-  scopes: ["read"],
+  scopes: [
+    "https://www.googleapis.com/auth/gmail.readonly",
+    "https://www.googleapis.com/auth/gmail.send",
+  ],
   last_synced_at: "2026-07-23T09:30:00Z",
   // A finished backfill: mounting BackfillPanel below the row must not fire
   // an extra request (the panel seeds from this embedded snapshot). "none"
@@ -38,6 +41,21 @@ const gmailConnected: CaptureConnection = {
 const gmailStale: CaptureConnection = {
   ...gmailConnected,
   status: "reauth_required",
+};
+
+// A mailbox connected before Margince asked for the send scope: healthy,
+// capturing, and permanently unable to send until it is reconnected — Google
+// will not widen an existing refresh token.
+const gmailNoSendGrant: CaptureConnection = {
+  ...gmailConnected,
+  scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+};
+
+const imapConnected: CaptureConnection = {
+  ...gmailConnected,
+  id: "018f3a1b-0000-7000-8000-0000000000c9",
+  provider: "imap",
+  scopes: [],
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -149,6 +167,34 @@ describe("the connected-inboxes card", () => {
     render(<ConnectorsCard />);
     expect(await screen.findByText("Needs reconnect")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Reconnect/ })).toBeTruthy();
+  });
+
+  it("says a Gmail mailbox cannot send before the rep discovers it at send time", async () => {
+    stubApi([gmailNoSendGrant]);
+    render(<ConnectorsCard />);
+    expect(
+      await screen.findByText("Capturing only — cannot send"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Reconnect this mailbox to send from it/),
+    ).toBeTruthy();
+    // The prompt is only actionable if reconnecting is one click from here.
+    expect(screen.getByRole("button", { name: /Reconnect/ })).toBeTruthy();
+  });
+
+  it("stays quiet about sending once the send scope is granted", async () => {
+    stubApi([gmailConnected]);
+    render(<ConnectorsCard />);
+    expect(await screen.findByText("Capturing")).toBeTruthy();
+    expect(screen.queryByText("Capturing only — cannot send")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Reconnect/ })).toBeNull();
+  });
+
+  it("never claims a non-Gmail mailbox cannot send — its scopes are not Google's", async () => {
+    stubApi([imapConnected]);
+    render(<ConnectorsCard />);
+    expect(await screen.findByText("IMAP mailbox")).toBeTruthy();
+    expect(screen.queryByText("Capturing only — cannot send")).toBeNull();
   });
 
   it("shows an honest waiting line for a connection that has never synced", async () => {
