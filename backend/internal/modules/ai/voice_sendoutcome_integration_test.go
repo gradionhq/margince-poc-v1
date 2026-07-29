@@ -268,6 +268,25 @@ func (e *sendOutcomeEnv) countAudits(t *testing.T, signal ids.UUID) int {
 	return n
 }
 
+// auditedFinalCapturedBy returns the human the audit row's "after" state names
+// as the one who closed this signal. The trail exists to attribute a judgment
+// of the machine's words to a person, so the field has to be READABLE from the
+// audit row, not only from the domain row it describes.
+func (e *sendOutcomeEnv) auditedFinalCapturedBy(t *testing.T, signal ids.UUID) string {
+	t.Helper()
+	var capturedBy *string
+	if err := e.owner.QueryRow(context.Background(), `
+		SELECT after->>'final_captured_by' FROM audit_log
+		WHERE entity_type = 'voice_learning_signal' AND entity_id = $1
+		ORDER BY id DESC LIMIT 1`, signal).Scan(&capturedBy); err != nil {
+		t.Fatalf("no audit_log row for signal %s: %v", signal, err)
+	}
+	if capturedBy == nil {
+		return ""
+	}
+	return *capturedBy
+}
+
 // emittedOutcome returns the outcome the staged voice.draft_outcome_recorded
 // envelope published for this profile — the wire vocabulary a subscriber
 // actually reads.
@@ -324,6 +343,9 @@ func TestRecordSendOutcomeAcceptsAnUneditedSend(t *testing.T) {
 	}
 	if got := env.countAudits(t, f.signal); got != 1 {
 		t.Errorf("audit_log rows = %d, want 1 (the write shape commits domain + audit + outbox together)", got)
+	}
+	if got := env.auditedFinalCapturedBy(t, f.signal); got != f.actor.ID {
+		t.Errorf("audited final_captured_by = %q, want %q — the trail must name who resolved the outcome", got, f.actor.ID)
 	}
 	if got := env.emittedOutcome(t, f.profile); got != "sent_unedited" {
 		t.Errorf("published outcome = %q, want %q — the DDL spelling is not the wire spelling", got, "sent_unedited")

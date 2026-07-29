@@ -84,9 +84,17 @@ func (s *VoiceStore) RecordSendOutcomeTx(ctx context.Context, tx pgx.Tx, draftRe
 		return false, nil
 	}
 
+	// The row exists to attribute a judgment of the machine's words to a
+	// human, so the audit trail carries WHO closed it alongside what was
+	// decided — an outcome nobody is named for answers only half the question
+	// this table is asked.
 	auditID, err := storekit.Audit(ctx, tx, "update", "voice_learning_signal", signal.id,
 		map[string]any{voiceKeyOutcome: voiceOutcomeDrafted},
-		map[string]any{voiceKeyOutcome: outcome, voiceKeySimilarity: similarity})
+		map[string]any{
+			voiceKeyOutcome:         outcome,
+			voiceKeySimilarity:      similarity,
+			voiceKeyFinalCapturedBy: actor.ID,
+		})
 	if err != nil {
 		return false, err
 	}

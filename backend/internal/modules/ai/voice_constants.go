@@ -59,6 +59,7 @@ const (
 	voiceKeyDocument         = "document"
 	voiceKeyDraftRef         = "draft_ref"
 	voiceKeyExcluded         = "excluded"
+	voiceKeyFinalCapturedBy  = "final_captured_by"
 	voiceKeyFormat           = "format"
 	voiceKeyIdentityJaccard  = "identity_word_jaccard"
 	voiceKeyIncluded         = "included"
