@@ -36,6 +36,10 @@ var (
 	// a row that already exists, tally and all.
 	insertRunRe = regexp.MustCompile(`(?is)\binsert\s+into\s+capture_backfill\b`)
 	doUpdateRe  = regexp.MustCompile(`(?is)\bdo\s+update\s+set\b`)
+	// What the statement ASSIGNS, which is the only place a reset can live.
+	// Judged over the whole statement instead, a WHERE clause that merely
+	// COMPARES the tally to zero scored as a reset that wrote nothing.
+	setClauseRe = regexp.MustCompile(`(?is)\bset\b(.*?)(?:\bwhere\b|\breturning\b|$)`)
 )
 
 // inflightColumns is the whole transient tally. Every column is checked, not
@@ -49,19 +53,26 @@ var inflightColumns = []string{
 	"inflight_people", "inflight_organizations",
 }
 
-// The two right-hand sides a statement may assign the tally: the one writer
-// sets every column from its parameters, every other writer of an existing row
+// The two values a statement may assign the tally: the one live writer sets
+// every column from its parameters, every other writer of an existing row
 // zeroes every column.
 const (
-	fromParameter = `\$`
-	toZero        = `0\b`
+	fromParameter = `\$\d+`
+	toZero        = `0`
 )
 
-// matchesEveryColumn reports whether each inflight column is assigned the
-// given right-hand side in this statement.
-func matchesEveryColumn(sql, rhs string) bool {
+// matchesEveryColumn reports whether every inflight column is assigned the
+// given value in this statement's SET clause. The value must END its
+// assignment — a comma, or the end of the clause — so a literal that merely
+// STARTS with the value cannot pass as it (`0.5` is not zero).
+func matchesEveryColumn(sql, value string) bool {
+	clause := setClauseRe.FindStringSubmatch(sql)
+	if clause == nil {
+		return false
+	}
 	for _, column := range inflightColumns {
-		if !regexp.MustCompile(`(?is)\b` + column + `\s*=\s*` + rhs).MatchString(sql) {
+		assigns := regexp.MustCompile(`(?is)\b` + column + `\s*=\s*` + value + `\s*(?:,|$)`)
+		if !assigns.MatchString(clause[1]) {
 			return false
 		}
 	}
@@ -100,7 +111,7 @@ func TestEveryBackfillRunWriteSettlesTheInFlightTally(t *testing.T) {
 		writers += auditRunWrites(t, fset, file, consts)
 	}
 	if writers != 1 {
-		t.Fatalf("found %d statements that SET inflight_scanned from a parameter, want exactly 1 (flushBackfillProgress) — two live writers of one transient tally cannot both be right", writers)
+		t.Fatalf("found %d statements that SET the whole in-flight tally from parameters, want exactly 1 (flushBackfillProgress) — two live writers of one transient tally cannot both be right", writers)
 	}
 }
 

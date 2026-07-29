@@ -122,6 +122,11 @@ func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped 
 // counted folds one ensure's outcome into the page's yield. An ensure that
 // resolved onto records that already exist moves no counter and writes
 // nothing — on a widen re-import that is nearly every message.
+//
+// It flushes rather than leaving the yield for the connector's next report,
+// because the seam does not oblige a connector to report AFTER capturing a
+// message. Both flushes write the whole tally, so whichever wins the pacing
+// window carries the other's numbers too.
 func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if c == nil {
 		return
@@ -213,5 +218,8 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 // fails, or is cancelled, what it walked is either in the committed columns or
 // about to be walked again by a retry — either way the transient copy must go,
 // or the status read would count it twice.
+//
+// It BEGINS with a comma, so it splices in after an existing SET assignment
+// and never as the first one.
 const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
 	    inflight_people = 0, inflight_organizations = 0`

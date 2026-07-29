@@ -33,6 +33,9 @@ import (
 type mailPageConnector struct {
 	raws [][]byte
 	sent map[string]bool // Message-IDs the provider filed as the owner's own sent mail
+	// afterMessage hands control to the test once a message has been captured
+	// and its counterparties resolved, so the live tally is observable MID-page.
+	afterMessage func()
 }
 
 func (m *mailPageConnector) Descriptor() connector.Descriptor {
@@ -79,6 +82,10 @@ func (m *mailPageConnector) BackfillPage(ctx context.Context, _ connector.Auth, 
 			return connector.BackfillPageResult{}, err
 		}
 		res.Captured++
+		connector.BackfillProgressFrom(ctx).Observed(ctx, res.Scanned, res.Captured, res.Skipped)
+		if m.afterMessage != nil {
+			m.afterMessage()
+		}
 	}
 	return res, nil
 }
@@ -140,6 +147,90 @@ func TestBackfillCountsOnlyTheCounterpartiesItsOwnPagesCreated(t *testing.T) {
 	if people != 3 || orgs != 1 {
 		t.Fatalf("stored people_created=%d organizations_created=%d, want 3/1", people, orgs)
 	}
+}
+
+func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
+	// The counterparty half of the live tally. The Sink counts a person or an
+	// organization as it creates one, so the two numbers beside "emails
+	// captured" have to move during the page as well — a screen where only the
+	// mail count advances tells the user the import found nobody.
+	e := setupSearch(t)
+	seedCaptureRole(t, e)
+	prov := &mailPageConnector{
+		raws: [][]byte{
+			email("alice@gmail.com", "Alice Example", captureOwner, "y1@gmail.com", ""),
+			email(captureOwner, "", "dave@globex.example", "y3@myco.example", ""),
+		},
+		sent: map[string]bool{"y3@myco.example": true},
+	}
+	// The production wiring, because the counters under test are filled by the
+	// real auto-create resolver. Unpaced, because a two-message fixture walks
+	// well inside one pacing window.
+	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{}).
+		WithProgressPacing(0)
+	registry.Register(prov)
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 2, enqueueNothing)
+	if err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+
+	var midPagePeople, midPageOrganizations int
+	prov.afterMessage = func() {
+		status, err := registry.BackfillStatus(grantCtx, "gmail", rep)
+		if err != nil || status == nil {
+			t.Fatalf("mid-page status read: %v (run=%v)", err, status)
+		}
+		midPagePeople, midPageOrganizations = status.People, status.Organizations
+	}
+
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if done, _, _, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil || !done {
+		t.Fatalf("the single page must finish the run: done=%v err=%v", done, err)
+	}
+
+	// Read after the LAST message but before the commit: both counterparty
+	// kinds were already visible.
+	if midPagePeople != 2 {
+		t.Fatalf("mid-page people = %d, want 2 — the free-mail sender and the attested recipient, before the page committed", midPagePeople)
+	}
+	if midPageOrganizations != 1 {
+		t.Fatalf("mid-page organizations = %d, want 1 — the corporate domain, before the page committed", midPageOrganizations)
+	}
+
+	// The commit folds the same creations into the committed columns and
+	// clears the transient copy, so they are reported once and not twice.
+	inflightPeople, inflightOrganizations := readBackfillInflightYields(t, e, run.ID)
+	if inflightPeople != 0 || inflightOrganizations != 0 {
+		t.Fatalf("after the commit inflight yields = %d people / %d organizations, want them cleared", inflightPeople, inflightOrganizations)
+	}
+	status, err := registry.BackfillStatus(grantCtx, "gmail", rep)
+	if err != nil || status == nil {
+		t.Fatalf("BackfillStatus: %v (run=%v)", err, status)
+	}
+	if status.People != 2 || status.Organizations != 1 {
+		t.Fatalf("after the commit = %d people / %d organizations, want exactly the page's 2/1", status.People, status.Organizations)
+	}
+}
+
+// readBackfillInflightYields reads the transient yield columns directly — the
+// proof they are cleared, which the summed status read alone cannot show.
+func readBackfillInflightYields(t *testing.T, e *searchEnv, id ids.UUID) (people, organizations int) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.Admin(), `
+			SELECT inflight_people, inflight_organizations FROM capture_backfill WHERE id = $1`, id).
+			Scan(&people, &organizations)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return people, organizations
 }
 
 // seedForeignCounterparties lands the rows a workspace-wide, clock-windowed
