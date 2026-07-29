@@ -481,6 +481,8 @@ export const en = {
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
   "co.facts.title": "Quick facts",
+  "co.tags.noLists": "Not on any list.",
+  "co.tags.noTags": "No tags applied.",
   "co.tags.title": "Lists & tags",
   "co.tags.empty": "Not on any list, and no tags applied.",
   "co.health.title": "Data health",

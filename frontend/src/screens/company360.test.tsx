@@ -371,3 +371,68 @@ describe("company view — a failed read is not an empty account", () => {
     ).toBeNull();
   });
 });
+
+describe("company view — one section never answers for another", () => {
+  it("does not let readable tags claim there are no lists", async () => {
+    // Tags came back empty; lists were withheld. "Not on any list, and no
+    // tags applied" would be a claim about a half nobody answered for.
+    stub(
+      view({
+        tags: [],
+        list_memberships: undefined,
+        sections_omitted: ["list_memberships"],
+      }),
+    );
+    renderCompany();
+
+    const rail = await screen.findByRole("complementary", { name: "Business" });
+    const card = within(rail).getByText("Lists & tags").closest("section");
+    if (!card) {
+      throw new Error("the lists-and-tags card has no section wrapper");
+    }
+    expect(within(card).getByText("No tags applied.")).toBeTruthy();
+    expect(
+      within(card).getByText("Hidden — your role cannot read this"),
+    ).toBeTruthy();
+    expect(within(card).queryByText("Not on any list.")).toBeNull();
+  });
+
+  it("still shows the tags a caller can read when lists are withheld", async () => {
+    stub(
+      view({
+        tags: [{ id: "t-1", workspace_id: "w", name: "Key account" }],
+        list_memberships: undefined,
+        sections_omitted: ["list_memberships"],
+      }),
+    );
+    renderCompany();
+
+    // Losing one grant narrows the card; it does not blank it.
+    await waitFor(() => expect(screen.getByText("Key account")).toBeTruthy());
+  });
+});
+
+describe("company view — figures that outlive the list they sit under", () => {
+  it("keeps the lifetime won total on an account with no open deal", async () => {
+    stub(
+      view({
+        deals: {
+          data: [],
+          page: emptyPage,
+          won_lifetime: { amount_minor: 12_000_000, currency: "EUR" },
+          lost_count: 3,
+        },
+      }),
+    );
+    renderCompany();
+
+    const rail = await screen.findByRole("complementary", { name: "Business" });
+    // No OPEN deal is true and is said. The account still won €120,000 —
+    // hiding that because today's pipeline is empty loses a real fact.
+    expect(
+      within(rail).getByText("No open deal on this account."),
+    ).toBeTruthy();
+    expect(within(rail).getByText(/120,000/)).toBeTruthy();
+    expect(within(rail).getByText("3 lost")).toBeTruthy();
+  });
+});

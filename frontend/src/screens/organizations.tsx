@@ -1465,19 +1465,16 @@ function businessRail({
   if (!failed) {
     return undefined; // still loading: the rail arrives with the read
   }
-  // No payload to classify per section, so every section is unavailable —
-  // an empty sections_omitted names nothing as withheld, which is true.
-  const unknown = {
-    as_of: "",
-    organization: org,
-    sections_omitted: [],
-  } as Organization360View;
+  // The read failed, so the cards get NO payload and say so themselves.
+  // Handing them a fabricated empty one would mean inventing an as_of the
+  // page does not have, and would be indistinguishable from a real answer
+  // one refactor later.
   return (
     <>
-      <PeopleCard view={unknown} />
-      <DealsCard view={unknown} />
+      <PeopleCard />
+      <DealsCard />
       <SignalsCard orgId={org.id} />
-      <TagsCard view={unknown} />
+      <TagsCard />
     </>
   );
 }

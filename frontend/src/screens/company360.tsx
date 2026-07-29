@@ -107,31 +107,24 @@ export type SectionState =
   | "unavailable"
   | "loading";
 
-// STATE_RANK orders the states by how much the card can actually say. A
-// card built from two sections shows the better-informed of the two, so
-// losing one grant narrows the card instead of blanking it.
-const STATE_RANK: Record<SectionState, number> = {
-  ready: 4,
-  empty: 3,
-  loading: 2,
-  unavailable: 1,
-  withheld: 0,
-};
-
-function mostInformative(a: SectionState, b: SectionState): SectionState {
-  return STATE_RANK[a] >= STATE_RANK[b] ? a : b;
-}
-
 /**
  * sectionState classifies one 360 section. `present` is whether the payload
  * carried it at all, which is a different question from whether it had rows.
+ *
+ * No payload at all — the composite read failed — makes every section
+ * unavailable. The cards take an optional view for exactly this reason: a
+ * fabricated empty payload would have to claim an as_of it does not have,
+ * and would be indistinguishable from a real answer one refactor later.
  */
 export function sectionState(
-  view: Organization360,
+  view: Organization360 | undefined,
   section: Section,
   present: boolean,
   count: number,
 ): SectionState {
+  if (!view) {
+    return "unavailable";
+  }
   if (omitted(view, section)) {
     return "withheld";
   }
@@ -142,26 +135,22 @@ export function sectionState(
 }
 
 /**
- * SectionCard is the one shape every rail card takes, so the four answers
- * above stay visibly different rather than three of them looking alike.
+ * SectionPart renders ONE section's body in whichever of the four states it
+ * is in. A card with two independently-governed sections renders two of
+ * these, so neither half's state can speak for the other.
  */
-export function SectionCard({
-  title,
+export function SectionPart({
   state,
   emptyLabel,
-  action,
   children,
 }: Readonly<{
-  title: string;
   state: SectionState;
   emptyLabel: string;
-  action?: ReactNode;
   children: ReactNode;
 }>) {
   const t = useT();
   return (
-    <section className="card co-card">
-      <SectionHeader title={title} />
+    <>
       {state === "ready" && children}
       {state === "empty" && <p className="co-empty">{emptyLabel}</p>}
       {state === "withheld" && (
@@ -171,7 +160,39 @@ export function SectionCard({
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}
       {state === "loading" && <Skeleton width="100%" height={32} />}
-      {state === "ready" && action}
+    </>
+  );
+}
+
+/**
+ * SectionCard is the one shape a single-section rail card takes.
+ *
+ * `footer` carries figures that belong to the SECTION rather than to its
+ * rows — an account's lifetime won total is true whether or not it has an
+ * open deal today — so it renders whenever the section came back at all,
+ * not only when the list has rows.
+ */
+export function SectionCard({
+  title,
+  state,
+  emptyLabel,
+  footer,
+  children,
+}: Readonly<{
+  title: string;
+  state: SectionState;
+  emptyLabel: string;
+  footer?: ReactNode;
+  children: ReactNode;
+}>) {
+  const present = state === "ready" || state === "empty";
+  return (
+    <section className="card co-card">
+      <SectionHeader title={title} />
+      <SectionPart state={state} emptyLabel={emptyLabel}>
+        {children}
+      </SectionPart>
+      {present && footer}
     </section>
   );
 }
@@ -183,10 +204,10 @@ export function SectionCard({
  * The two callouts are the ones a rep acts on: an account carried by a
  * single contact, and open deals with nobody named as champion.
  */
-export function PeopleCard({ view }: Readonly<{ view: Organization360 }>) {
+export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
-  const contacts = view.people?.data ?? [];
-  const openDeals = view.deals?.data ?? [];
+  const contacts = view?.people?.data ?? [];
+  const openDeals = view?.deals?.data ?? [];
   const hasChampion = contacts.some((c) =>
     c.deal_roles.some((role) => role.role === "champion"),
   );
@@ -196,7 +217,7 @@ export function PeopleCard({ view }: Readonly<{ view: Organization360 }>) {
       state={sectionState(
         view,
         "people",
-        Boolean(view.people),
+        Boolean(view?.people),
         contacts.length,
       )}
       emptyLabel={t("co.people.empty")}
@@ -211,11 +232,14 @@ export function PeopleCard({ view }: Readonly<{ view: Organization360 }>) {
           <Badge tone="warn">{t("co.people.singleThread")}</Badge>
         </p>
       )}
-      {openDeals.length > 0 && !hasChampion && !omitted(view, "deals") && (
-        <p className="co-callout">
-          <Badge tone="warn">{t("co.people.championGap")}</Badge>
-        </p>
-      )}
+      {openDeals.length > 0 &&
+        !hasChampion &&
+        view &&
+        !omitted(view, "deals") && (
+          <p className="co-callout">
+            <Badge tone="warn">{t("co.people.championGap")}</Badge>
+          </p>
+        )}
     </SectionCard>
   );
 }
@@ -278,10 +302,10 @@ function ConsentChip({ consent }: Readonly<{ consent: Contact["consent"] }>) {
 }
 
 /** DealsCard lists the open pipeline plus the two lifetime figures. */
-export function DealsCard({ view }: Readonly<{ view: Organization360 }>) {
+export function DealsCard({ view }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
   const { locale } = useLocale();
-  const deals = view.deals;
+  const deals = view?.deals;
   const won = deals?.won_lifetime;
   return (
     <SectionCard
@@ -293,7 +317,7 @@ export function DealsCard({ view }: Readonly<{ view: Organization360 }>) {
         deals?.data.length ?? 0,
       )}
       emptyLabel={t("co.deals.empty")}
-      action={
+      footer={
         deals && (
           <p className="co-row-meta">
             <span>
@@ -343,40 +367,50 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
   );
 }
 
-/** TagsCard shows the lists the account is on and the tags applied to it. */
-export function TagsCard({ view }: Readonly<{ view: Organization360 }>) {
+/**
+ * TagsCard shows two INDEPENDENT sections in one card: the lists the account
+ * belongs to, and the tags applied to it. They are governed by different
+ * grants, so each reports its own state.
+ *
+ * Collapsing them into one verdict let either half speak for the other: a
+ * caller who could read tags but not lists was told "not on any list, and no
+ * tags applied", which was false about the half nobody had answered for.
+ */
+export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
-  const tags = view.tags ?? [];
-  const lists = view.list_memberships ?? [];
-  // Two halves in one card: whichever half the caller CAN read decides what
-  // the card shows, so a caller who reads tags but not lists still sees
-  // their tags rather than one blanket refusal.
-  const state = mostInformative(
-    sectionState(view, "tags", Boolean(view.tags), tags.length),
-    sectionState(
-      view,
-      "list_memberships",
-      Boolean(view.list_memberships),
-      lists.length,
-    ),
-  );
+  const tags = view?.tags ?? [];
+  const lists = view?.list_memberships ?? [];
   return (
-    <SectionCard
-      title={t("co.tags.title")}
-      state={state}
-      emptyLabel={t("co.tags.empty")}
-    >
-      <p className="co-row-meta">
-        {lists.map((list) => (
-          <Badge key={list.id} tone="accent">
-            {list.name}
-          </Badge>
-        ))}
-        {tags.map((tag) => (
-          <Badge key={tag.id}>{tag.name}</Badge>
-        ))}
-      </p>
-    </SectionCard>
+    <section className="card co-card">
+      <SectionHeader title={t("co.tags.title")} />
+      <SectionPart
+        state={sectionState(
+          view,
+          "list_memberships",
+          Boolean(view?.list_memberships),
+          lists.length,
+        )}
+        emptyLabel={t("co.tags.noLists")}
+      >
+        <p className="co-row-meta">
+          {lists.map((list) => (
+            <Badge key={list.id} tone="accent">
+              {list.name}
+            </Badge>
+          ))}
+        </p>
+      </SectionPart>
+      <SectionPart
+        state={sectionState(view, "tags", Boolean(view?.tags), tags.length)}
+        emptyLabel={t("co.tags.noTags")}
+      >
+        <p className="co-row-meta">
+          {tags.map((tag) => (
+            <Badge key={tag.id}>{tag.name}</Badge>
+          ))}
+        </p>
+      </SectionPart>
+    </section>
   );
 }
 

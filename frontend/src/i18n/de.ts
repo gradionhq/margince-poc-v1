@@ -493,6 +493,8 @@ export const de = {
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
   "co.facts.title": "Kurzfakten",
+  "co.tags.noLists": "Auf keiner Liste.",
+  "co.tags.noTags": "Keine Tags vergeben.",
   "co.tags.title": "Listen & Tags",
   "co.tags.empty": "Auf keiner Liste, keine Tags vergeben.",
   "co.health.title": "Datenqualität",
