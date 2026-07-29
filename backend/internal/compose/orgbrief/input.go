@@ -32,22 +32,32 @@ const promptVersion = "org-brief-v1"
 // pipeline, its people, and what has moved recently — each already pruned
 // to the reader's row scope by the read that produced it.
 type Input struct {
-	Name         string   `json:"name"`
-	Industry     string   `json:"industry,omitempty"`
-	SizeBand     string   `json:"size_band,omitempty"`
-	Strength     int      `json:"strength"`
-	ContactCount int      `json:"contact_count"`
-	Contacts     []string `json:"contacts,omitempty"`
-	OpenDeals    []DealIn `json:"open_deals,omitempty"`
-	WonLifetime  int64    `json:"won_lifetime_minor"`
-	LostCount    int      `json:"lost_count"`
-	OpenTasks    []string `json:"open_tasks,omitempty"`
-	Recent       []ActIn  `json:"recent,omitempty"`
+	Name         string    `json:"name"`
+	Industry     string    `json:"industry,omitempty"`
+	SizeBand     string    `json:"size_band,omitempty"`
+	Strength     int       `json:"strength"`
+	ContactCount int       `json:"contact_count"`
+	Contacts     []NamedIn `json:"contacts,omitempty"`
+	OpenDeals    []DealIn  `json:"open_deals,omitempty"`
+	WonLifetime  int64     `json:"won_lifetime_minor"`
+	LostCount    int       `json:"lost_count"`
+	OpenTasks    []NamedIn `json:"open_tasks,omitempty"`
+	Recent       []ActIn   `json:"recent,omitempty"`
 	// SectionsOmitted names what the reader could NOT see. It rides the
 	// fingerprint so two readers with different grants never share a cached
 	// brief, and it tells the writer to stay silent about those sections
 	// rather than inferring around the gap.
 	SectionsOmitted []string `json:"sections_omitted,omitempty"`
+}
+
+// NamedIn is a record the brief may write about and must be able to cite:
+// contacts and open tasks carry their ids for the same reason deals and
+// activities do. Names alone invited the prompt to make a claim about a
+// person or a task that no citation could ground, so the sentence was
+// dropped and the reader lost a true statement.
+type NamedIn struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // DealIn is one open deal as the brief reads it.
@@ -96,7 +106,9 @@ func FromView(view crmcontracts.Organization360) Input {
 	}
 	if view.People != nil {
 		for _, contact := range view.People.Data {
-			in.Contacts = append(in.Contacts, contact.FullName)
+			in.Contacts = append(in.Contacts, NamedIn{
+				ID: contact.PersonId.String(), Name: contact.FullName,
+			})
 		}
 	}
 	foldDeals(view, &in)
@@ -133,7 +145,9 @@ func foldTasks(view crmcontracts.Organization360, in *Input) {
 		return
 	}
 	for _, step := range view.NextSteps.Data {
-		in.OpenTasks = append(in.OpenTasks, step.Subject)
+		in.OpenTasks = append(in.OpenTasks, NamedIn{
+			ID: step.ActivityId.String(), Name: step.Subject,
+		})
 	}
 }
 

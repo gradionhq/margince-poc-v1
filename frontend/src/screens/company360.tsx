@@ -618,6 +618,42 @@ export function NextSteps({
   );
 }
 
+/**
+ * Citation links one record a brief sentence was written from.
+ *
+ * A citation the app cannot open is rendered as plain text, not as a button:
+ * a clickable element that does nothing teaches the reader that citations do
+ * not work, which costs more than the click it saves.
+ */
+function Citation({
+  cited,
+  onOpenRecord,
+}: Readonly<{
+  cited: Brief["sentences"][number]["evidence"][number];
+  onOpenRecord?: (entityType: string, entityId: string) => void;
+}>) {
+  const t = useT();
+  const label = t(`co.brief.cite.${cited.entity_type}`);
+  const openable = onOpenRecord && ROUTABLE_CITATIONS.has(cited.entity_type);
+  if (!openable) {
+    return <span className="co-brief-cite-flat">{label}</span>;
+  }
+  return (
+    <button
+      type="button"
+      className="co-brief-cite"
+      onClick={() => onOpenRecord(cited.entity_type, cited.entity_id)}
+    >
+      {label}
+    </button>
+  );
+}
+
+// The citation kinds that have a screen to open. An activity has no detail
+// route of its own (it lives in a timeline) and the organization citation is
+// the page the reader is already on.
+const ROUTABLE_CITATIONS = new Set(["deal", "person"]);
+
 /** OverlayFallback replaces the page when the workspace reads elsewhere. */
 export function OverlayFallback() {
   const t = useT();
@@ -698,20 +734,18 @@ export function BriefCard({
       {readable && (
         <>
           <ul className="co-brief-lines">
-            {readable.sentences.map((sentence) => (
-              <li key={sentence.text}>
+            {readable.sentences.map((sentence, index) => (
+              // Indexed because two sentences may legitimately read the same;
+              // keying on the text collapses them into one row.
+              // biome-ignore lint/suspicious/noArrayIndexKey: the list is replaced wholesale on every read, never reordered in place
+              <li key={index}>
                 {sentence.text}
                 {sentence.evidence.map((cited) => (
-                  <button
+                  <Citation
                     key={`${cited.entity_type}:${cited.entity_id}`}
-                    type="button"
-                    className="co-brief-cite"
-                    onClick={() =>
-                      onOpenRecord?.(cited.entity_type, cited.entity_id)
-                    }
-                  >
-                    {t(`co.brief.cite.${cited.entity_type}`)}
-                  </button>
+                    cited={cited}
+                    onOpenRecord={onOpenRecord}
+                  />
                 ))}
               </li>
             ))}
@@ -735,6 +769,14 @@ export function BriefCard({
             >
               {t("co.brief.refresh")}
             </Button>
+            {/* A refresh that failed must say so: the button re-enabling on
+                its own reads as "done", and the reader would take the brief
+                in front of them for the refreshed one. */}
+            {refresh.isError && (
+              <span className="co-restricted">
+                {t("co.brief.refreshFailed")}
+              </span>
+            )}
           </p>
         </>
       )}

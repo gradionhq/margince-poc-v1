@@ -39,3 +39,8 @@ ALTER TABLE org_brief FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_brief_tenant_isolation ON org_brief
   USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
   WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+-- The composite FK above cascades on organization delete, and Art. 17 erasure
+-- deletes accounts. Without this the cascade sequentially scans org_brief once
+-- per deleted organization.
+CREATE INDEX org_brief_organization_ix ON org_brief (workspace_id, organization_id);

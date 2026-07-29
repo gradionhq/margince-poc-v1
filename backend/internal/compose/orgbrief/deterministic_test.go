@@ -139,13 +139,55 @@ func TestDeterministicLastTouchSurvivesAMissingSubject(t *testing.T) {
 
 func TestDeterministicReportsOpenTasks(t *testing.T) {
 	text := briefLines(Deterministic(briefOrgID, Input{
-		Name:      "Acme",
-		OpenTasks: []string{"Send the paperwork", "Book the walkthrough"},
+		Name: "Acme",
+		OpenTasks: []NamedIn{
+			{ID: "t-1", Name: "Send the paperwork"},
+			{ID: "t-2", Name: "Book the walkthrough"},
+		},
 	}))
 	if !strings.Contains(text, "2 open task") {
 		t.Errorf("the task count is missing: %q", text)
 	}
 	if !strings.Contains(text, "Send the paperwork") {
 		t.Errorf("the first task is not named: %q", text)
+	}
+}
+
+// Minor units from different currencies do not add up to money in either of
+// them, and labelling the sum with whichever deal came first states it as a
+// fact. A mixed-currency account gets the count and no total.
+func TestDeterministicRefusesToTotalAcrossCurrencies(t *testing.T) {
+	text := briefLines(Deterministic(briefOrgID, Input{
+		Name: "Acme",
+		OpenDeals: []DealIn{
+			{ID: "d-1", Name: "EU deal", AmountMinor: 400_000, Currency: "EUR"},
+			{ID: "d-2", Name: "US deal", AmountMinor: 100_000, Currency: "USD"},
+		},
+	}))
+	if !strings.Contains(text, "2 open deal") {
+		t.Errorf("the deal count is missing: %q", text)
+	}
+	if strings.Contains(text, "worth about") {
+		t.Errorf("summed across currencies: %q", text)
+	}
+	for _, currency := range []string{"EUR", "USD"} {
+		if strings.Contains(text, currency) {
+			t.Errorf("named %s on a mixed-currency account: %q", currency, text)
+		}
+	}
+}
+
+// An amountless deal contributes no money and no currency, so it never turns
+// a single-currency account into a mixed one.
+func TestDeterministicTotalsPastAnAmountlessDeal(t *testing.T) {
+	text := briefLines(Deterministic(briefOrgID, Input{
+		Name: "Acme",
+		OpenDeals: []DealIn{
+			{ID: "d-1", Name: "Priced", AmountMinor: 400_000, Currency: "EUR"},
+			{ID: "d-2", Name: "Not priced yet"},
+		},
+	}))
+	if !strings.Contains(text, "4000 EUR") {
+		t.Errorf("the priced deal's total is missing: %q", text)
 	}
 }

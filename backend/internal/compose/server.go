@@ -190,9 +190,10 @@ type Server struct {
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
 
-	// orgBriefSvc is the account-brief service; WithBrief rebinds its model
-	// lane at boot, so the api role writes briefs with a model and every
-	// other role serves the same deterministic floor.
+	// orgBriefSvc is the account-brief service; WithAccountBrief rebinds its
+	// model lane at boot, so the api role writes briefs with a model and
+	// every other role serves the same deterministic floor. (WithBrief is a
+	// different option — the Morning Brief's L2 ranker.)
 	orgBriefSvc *orgbrief.Service
 	// org360Svc is the composite read the brief is assembled from, held so
 	// WithAccountBrief can rebuild the brief service over the SAME gated
@@ -348,13 +349,14 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 	// /organizations/{id} returns for the same record.
 	// The brief reads THROUGH the 360 service, so it inherits every gate the
 	// page itself applies and can only describe what this caller may see.
-	// The model lane is nil here: WithBrief binds the api role's summarize
-	// lane, and without it the brief serves its deterministic floor.
+	// The model lane is nil here: WithAccountBrief binds the api role's
+	// summarize lane, and without it the brief serves its deterministic
+	// floor.
 	srv.org360Svc = org360.NewService(pool,
 		people.NewStore(pool).WithFieldCatalog(customfields.NewService(pool, nil)),
 		approvals.NewService(pool), time.Now)
 	srv.orgBriefSvc = orgbrief.NewService(pool, srv.org360Svc, nil, "", time.Now)
-	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc)
+	srv.orgBriefHandlers = orgbrief.NewHandlers(srv.orgBriefSvc, srv.sorDispatch.isOverlay)
 	srv.org360Handlers = org360.NewHandlers(
 		srv.org360Svc,
 		srv.sorDispatch.isOverlay,

@@ -899,6 +899,10 @@ paths:
       tags: [Organizations]
       operationId: getOrganizationBrief
       x-agent-access: human-only
+      # Session cookie only. A human-only read is not reachable with a
+      # passport bearer token, and saying so here keeps the declaration and
+      # the runtime gate (auth.RequireHuman) agreeing.
+      security: [{ cookieAuth: [] }]
       summary: The standing account brief — what this account is, where it stands, and what changed.
       description: |
         A short written brief over the same records the 360 serves, cached and reused
@@ -939,6 +943,7 @@ paths:
       tags: [Organizations]
       operationId: regenerateOrganizationBrief
       x-agent-access: human-only
+      security: [{ cookieAuth: [] }]
       summary: Regenerate this account's brief, ignoring the cached one.
       description: |
         The explicit refresh behind the brief card's "outdated — refresh". It reads and

@@ -36,6 +36,16 @@ type Sentence struct {
 	Evidence []Evidence `json:"evidence"`
 }
 
+// The citable record kinds, spelled once. They are the contract's
+// OrganizationBriefEvidence vocabulary, and both the writer and the grounding
+// filter key on them, so a rename cannot leave the two disagreeing.
+const (
+	citeOrganization = "organization"
+	citeDeal         = "deal"
+	citeActivity     = "activity"
+	citePerson       = "person"
+)
+
 // Evidence points at a record the READER can already open — the brief is
 // assembled under their own row scope, so a citation can never name a row
 // they would be refused.
@@ -152,30 +162,52 @@ func writeWithModel(ctx context.Context, lane Completer, orgID string, in Input)
 // saw — rendered as a link they could click into a record their scope may
 // hide. The one organization a brief may cite is the one it is about.
 func keepGroundedSentences(sentences []Sentence, orgID string, in Input) []Sentence {
-	known := map[string]bool{orgID: true}
-	for _, deal := range in.OpenDeals {
-		known[deal.ID] = true
-	}
-	for _, act := range in.Recent {
-		known[act.ID] = true
-	}
+	known := knownRecords(orgID, in)
 	kept := make([]Sentence, 0, len(sentences))
 	for _, sentence := range sentences {
-		if strings.TrimSpace(sentence.Text) == "" {
+		if strings.TrimSpace(sentence.Text) == "" || len(sentence.Evidence) == 0 {
 			continue
 		}
-		grounded := make([]Evidence, 0, len(sentence.Evidence))
-		for _, evidence := range sentence.Evidence {
-			// One rule for every kind: the id must be one this brief was
-			// written from — the account itself, or a row the input carried.
-			if known[evidence.EntityID] {
-				grounded = append(grounded, evidence)
-			}
-		}
-		if len(grounded) == 0 {
+		if !allGrounded(sentence.Evidence, known) {
+			// The WHOLE sentence goes, not just the bad citation. A sentence
+			// citing one real record and one invented one is a sentence whose
+			// claim may rest on the invented half — keeping it with the good
+			// citation attached would present it as checked when it is not.
 			continue
 		}
-		kept = append(kept, Sentence{Text: sentence.Text, Evidence: grounded})
+		kept = append(kept, sentence)
 	}
 	return kept
+}
+
+// knownRecords is what this brief was written from, keyed by TYPE AND ID.
+//
+// Keying on the id alone accepted a real deal id cited as a person: the id
+// passes, and the card then routes the reader to the wrong screen — or to a
+// record of a kind they were never shown. The pair is the reference, so the
+// pair is what is checked.
+func knownRecords(orgID string, in Input) map[Evidence]bool {
+	known := map[Evidence]bool{{EntityType: citeOrganization, EntityID: orgID}: true}
+	for _, deal := range in.OpenDeals {
+		known[Evidence{EntityType: citeDeal, EntityID: deal.ID}] = true
+	}
+	for _, act := range in.Recent {
+		known[Evidence{EntityType: citeActivity, EntityID: act.ID}] = true
+	}
+	for _, contact := range in.Contacts {
+		known[Evidence{EntityType: citePerson, EntityID: contact.ID}] = true
+	}
+	for _, task := range in.OpenTasks {
+		known[Evidence{EntityType: citeActivity, EntityID: task.ID}] = true
+	}
+	return known
+}
+
+func allGrounded(evidence []Evidence, known map[Evidence]bool) bool {
+	for _, cited := range evidence {
+		if !known[cited] {
+			return false
+		}
+	}
+	return true
 }

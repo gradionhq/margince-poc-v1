@@ -275,6 +275,6 @@ func WithBrief(brain completer) Option {
 func WithAccountBrief(brain completer, routingVersion string) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.orgBriefSvc = orgbrief.NewService(pool, s.org360Svc, brain, routingVersion, time.Now)
-		s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc)
+		s.orgBriefHandlers = orgbrief.NewHandlers(s.orgBriefSvc, s.sorDispatch.isOverlay)
 	}
 }

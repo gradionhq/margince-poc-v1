@@ -480,6 +480,8 @@ export const en = {
   "co.brief.by.model": "Written by Margince",
   "co.brief.by.deterministic": "Assembled from your records",
   "co.brief.generatedAt": "as of {when}",
+  "co.brief.refreshFailed":
+    "Refresh failed — the brief below is the earlier one",
   "co.brief.refresh": "Refresh",
   "co.brief.cite.deal": "deal",
   "co.brief.cite.activity": "activity",

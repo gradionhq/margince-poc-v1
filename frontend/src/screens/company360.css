@@ -152,3 +152,11 @@
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
+
+/* A citation with nowhere to go: the same size and colour as a linked one,
+   without the affordance, so it reads as a label rather than a dead link. */
+.co-brief-cite-flat {
+  padding-left: 6px;
+  font-size: 11.5px;
+  color: var(--textMeta);
+}

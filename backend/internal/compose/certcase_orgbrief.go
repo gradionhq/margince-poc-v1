@@ -44,6 +44,11 @@ type orgBriefFixture struct {
 	Contacts int                   `json:"contact_count"`
 	Deals    []orgBriefDealFixture `json:"open_deals"`
 	Recent   []orgBriefActFixture  `json:"recent"`
+	// SectionsOmitted is what this reader was NOT allowed to see. Without it
+	// no scenario could describe a restricted reader, so the per-viewer
+	// guarantee — the brief must stay silent about a withheld section rather
+	// than inferring around the gap — had no certification behind it.
+	SectionsOmitted []string `json:"sections_omitted"`
 }
 
 type orgBriefDealFixture struct {
@@ -98,14 +103,15 @@ func orgBriefInput(f orgBriefFixture) (orgbrief.Input, map[string]string, error)
 	in := orgbrief.Input{
 		Name: f.Name, Industry: f.Industry,
 		Strength: f.Strength, ContactCount: f.Contacts,
+		SectionsOmitted: f.SectionsOmitted,
 	}
 	// label maps a corpus label to the id minted for it, so Evaluate can ask
 	// "did the brief cite the stalled deal" without the corpus ever naming
 	// an id.
 	label := map[string]string{}
 	for _, deal := range f.Deals {
-		if strings.TrimSpace(deal.Label) == "" {
-			return in, nil, errors.New("summarize/org_brief: a fixture deal carries no label, so no expectation could name it")
+		if err := refuseUnnameable(deal.Label, "deal", label); err != nil {
+			return in, nil, err
 		}
 		id := ids.NewV7().String()
 		label[deal.Label] = id
@@ -115,8 +121,8 @@ func orgBriefInput(f orgBriefFixture) (orgbrief.Input, map[string]string, error)
 		})
 	}
 	for _, act := range f.Recent {
-		if strings.TrimSpace(act.Label) == "" {
-			return in, nil, errors.New("summarize/org_brief: a fixture activity carries no label, so no expectation could name it")
+		if err := refuseUnnameable(act.Label, "activity", label); err != nil {
+			return in, nil, err
 		}
 		id := ids.NewV7().String()
 		label[act.Label] = id
@@ -125,6 +131,22 @@ func orgBriefInput(f orgBriefFixture) (orgbrief.Input, map[string]string, error)
 		})
 	}
 	return in, label, nil
+}
+
+// refuseUnnameable rejects a label no expectation could refer to: a blank
+// one names nothing, and a repeated one names two records, so an expectation
+// using it means neither. Both would measure nothing for as long as they
+// stayed in the corpus.
+func refuseUnnameable(label, kind string, seen map[string]string) error {
+	if strings.TrimSpace(label) == "" {
+		return fmt.Errorf(
+			"summarize/org_brief: a fixture %s carries no label, so no expectation could name it", kind)
+	}
+	if _, taken := seen[label]; taken {
+		return fmt.Errorf(
+			"summarize/org_brief: the fixture labels two records %q, so an expectation naming it means neither", label)
+	}
+	return nil
 }
 
 // refuseUngroundableBrief names an expectation no reply could satisfy. A
