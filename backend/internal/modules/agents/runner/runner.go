@@ -250,17 +250,14 @@ func observeRefusal(win *window, step modelStep, err error, meta Meta, resp mode
 		directive = "this workspace's system of record cannot serve this tool at all; do not call it again in this run"
 	}
 	win.observeThen(step.Tool, observation, directive)
-	// Bound the COMBINED record while reserving room for the directive. Two
-	// constraints meet here: provider text whose LENGTH is influenceable by
-	// mirrored content must not crowd "this was terminal" out of the trace, and
-	// it must not grow the entry past the cap either. Reserving the directive's
-	// own room satisfies both, where truncating after joining loses the finding
-	// and truncating only the payload overruns the bound.
-	recorded := truncate(observation)
+	// Reserve the directive's room inside the cap: provider text whose LENGTH is
+	// influenceable by mirrored content must neither crowd "this was terminal"
+	// out of the trace nor grow the entry past the bound.
+	suffix := ""
 	if directive != "" {
-		suffix := " — " + directive
-		recorded = truncateTo(observation, traceObservationLimit-len(suffix)) + suffix
+		suffix = " — " + directive
 	}
+	recorded := truncateTo(observation, traceObservationLimit-len(suffix)) + suffix
 	return Step{
 		Tool: step.Tool, Args: step.Args, Observation: recorded,
 		ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
@@ -433,26 +430,32 @@ func withApprovalID(args json.RawMessage, id ids.ApprovalID) (json.RawMessage, e
 	return json.Marshal(m)
 }
 
-// truncate bounds trace observations: the trace is a record of what
-// happened, not a second copy of every payload.
+// traceObservationLimit bounds trace observations: the trace is a record of
+// what happened, not a second copy of every payload.
 const traceObservationLimit = 2000
 
 // truncationMarker names the elision, and its own length counts against the
 // cap — a caller reserving room for a suffix has to reserve for this too.
 const truncationMarker = "…[truncated]"
 
+// truncate bounds one trace observation at the default limit.
 func truncate(s string) string { return truncateTo(s, traceObservationLimit) }
 
-// truncateTo bounds s so the RESULT is at most limit bytes, marker included, so
-// a caller that must also fit a suffix inside the same cap can reserve its room
-// rather than overrun it.
+// truncateTo bounds s so the RESULT is at most limit bytes, marker included —
+// which is what lets a caller reserve room for a suffix inside the same cap
+// rather than overrun it. The bound holds for every limit, including one too
+// small to carry the marker: a function that exists to enforce a cap must not
+// exceed it while saying it does.
 func truncateTo(s string, limit int) string {
+	if limit < 0 {
+		limit = 0
+	}
 	if len(s) <= limit {
 		return s
 	}
-	keep := limit - len(truncationMarker)
-	if keep < 0 {
-		keep = 0
+	if limit <= len(truncationMarker) {
+		// No room to say "elided" without breaking the bound; the bound wins.
+		return s[:limit]
 	}
-	return s[:keep] + truncationMarker
+	return s[:limit-len(truncationMarker)] + truncationMarker
 }

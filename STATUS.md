@@ -46,6 +46,25 @@ Open work, roughly in priority order.
   is written and never read); and Art. 17 erasure never reaches the mirror while
   the explanation doc says it does. The last two are compliance-shaped.
 
+- **The released-approval marker is context-wide, and one transport forwards
+  its pin while the other does not.** `agents.RedeemAndMark` returns a context
+  marked as released, and `egressbackstop.go` acts on that marker — but it
+  authorizes every external write inside that request or `Handle`, not the one
+  `(tool, diff_hash)` the human released, and a workspace flipped to overlay
+  inside the redemption TTL turns a change approved as local into third-party
+  egress. Separately, the REST gate forwards the redeemed version pin as its own
+  `If-Match` (closing the redeem-tx→write-tx window) while the MCP registry
+  discards it, so that window is shut on one transport and open on the other.
+  Both are pre-existing and bounded; binding the marker to the redeemed call
+  rather than to the context would remove the class.
+
+- **The REST merge twin stages a mirrored target without the authority guard.**
+  `POST /v1/{people,organizations}/{id}/merge` reaches `stageRefusal`, which
+  never calls `refuseStagingElsewhere` for either record — the MCP twin does. It
+  fails closed today only as a side effect: resolving the version pin reads the
+  native row, which a mirrored record does not have. That is the pin's doing, not
+  a guard, so a target type with no version column would open it. Worth the pin.
+
 - **Overlay: agent write-back is a declared refusal, not confirm-first.** A
   mirrored target has no authority object a human can see and release — the
   approvals decidability probe and the redemption version pin both read our own

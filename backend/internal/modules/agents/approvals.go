@@ -71,13 +71,8 @@ type stageableTool interface {
 // question (the diff_hash binding guarantees the call IS that effect).
 type approvalRedeemedKey struct{}
 
-// withApprovalRedeemed marks ctx as carrying a released approval. It stays
-// unexported on purpose: everything downstream — including the seam's
-// external-egress backstop — treats the marker as proof that a human released
-// exactly this call, so an exported setter would let any caller forge that
-// proof, and a doc comment asking them not to is not enforcement. The only way
-// to obtain a marked context is RedeemAndMark, which cannot mark without
-// redeeming first.
+// withApprovalRedeemed marks ctx as carrying a released approval. Set only by
+// RedeemAndMark, which cannot mark without a successful Redeem.
 func withApprovalRedeemed(ctx context.Context) context.Context {
 	return context.WithValue(ctx, approvalRedeemedKey{}, true)
 }
@@ -87,8 +82,9 @@ func withApprovalRedeemed(ctx context.Context) context.Context {
 // version pin travels back for a transport that must forward it as its own
 // precondition; pinned is false when the approval carried none.
 //
-// This is the ONLY way to obtain a released context. There are two dispatch
-// layers — the MCP registry and the REST agent gate — and both must mark what
+// Outside this package this is the ONLY way to obtain a released context: the
+// marker is proof that a human released exactly THIS call, so only the
+// redemption path may set it. There are two dispatch layers — the MCP registry and the REST agent gate — and both must mark what
 // they redeem, or the gate refuses the very write the approval was granted for;
 // making the marking a consequence of redeeming is what keeps that true without
 // trusting either caller to remember.
@@ -105,7 +101,7 @@ func RedeemAndMark(ctx context.Context, approvals Approvals, approvalID ids.Appr
 // approval. Exported because the composition layer needs the same answer at
 // the datasource seam, where a write into an external system of record is
 // refused unless a human released this exact call. Read-only by design: the
-// marker is settable only here, immediately after a successful Redeem.
+// marker is set only by RedeemAndMark.
 func ApprovalRedeemed(ctx context.Context) bool {
 	redeemed, ok := ctx.Value(approvalRedeemedKey{}).(bool)
 	return ok && redeemed

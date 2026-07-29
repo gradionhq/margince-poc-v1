@@ -32,7 +32,7 @@ type fakeMode struct {
 	reads   int
 }
 
-func (f *fakeMode) isOverlayForWrite(context.Context) (bool, error) {
+func (f *fakeMode) isOverlayUncached(context.Context) (bool, error) {
 	f.reads++
 	return f.overlay, f.err
 }

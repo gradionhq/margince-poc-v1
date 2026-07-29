@@ -740,3 +740,18 @@ func TestALongRefusalDoesNotCrowdTheTerminalFindingOutOfTheTrace(t *testing.T) {
 			len(step.Observation), traceObservationLimit)
 	}
 }
+
+// truncateTo enforces a cap, so it must not exceed the cap it enforces — not
+// even for a limit too small to carry the elision marker, where the marker
+// would otherwise be the overrun.
+func TestTruncateToNeverExceedsItsLimit(t *testing.T) {
+	long := strings.Repeat("x", 500)
+	for _, limit := range []int{-5, 0, 1, len(truncationMarker) - 1, len(truncationMarker), len(truncationMarker) + 1, 100} {
+		if got := len(truncateTo(long, limit)); limit >= 0 && got > limit {
+			t.Errorf("truncateTo(limit=%d) returned %d bytes", limit, got)
+		}
+	}
+	if got := truncateTo("short", 100); got != "short" {
+		t.Errorf("an in-bounds string was altered: %q", got)
+	}
+}

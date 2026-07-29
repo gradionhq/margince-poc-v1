@@ -61,15 +61,9 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// like the REST surface's, sharing the same per-workspace windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
-	// The native-only guards below take the UNCACHED mode read, like the write
-	// boundaries do. The cached answer is fine when staleness costs a retry, but
-	// here the stale direction that matters is 'native': for up to the cache TTL
-	// on a replica that saw no Invalidate, a just-connected overlay workspace
-	// would get a well-formed empty native report presented as an answer — the
-	// exact defect these guards exist to remove, not a lesser one. Each of these
-	// three paths is a report or a graph walk, so one indexed workspace-row read
-	// is noise against what it guards.
-	sorMode := sorModeProbe(provider.isOverlayForWrite)
+	// The guards take the uncached read — see sorModeProbe for why a stale
+	// 'native' here is a wrong answer rather than a stale screen.
+	sorMode := nativeOnlyModeProbe(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);

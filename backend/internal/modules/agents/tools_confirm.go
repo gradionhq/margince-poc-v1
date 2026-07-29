@@ -203,8 +203,10 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	}
 	// Pin the SURVIVOR's version: the human's yes is a judgment about
 	// merging into B as it is now, so if B changes before redemption the
-	// approval no longer covers it (version skew, re-stage). Read the source
-	// too, only to label the inbox entry.
+	// approval no longer covers it (version skew, re-stage). The source is read
+	// because it is the other half of the change — the merge archives and
+	// relinks it — so its authority is checked too and its label goes in the
+	// summary.
 	survivor, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.TargetID})
 	if err != nil {
 		return StageInfo{}, err
@@ -213,13 +215,13 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	if err != nil {
 		return StageInfo{}, err
 	}
-	// BOTH records, not just the pinned survivor: a merge archives and relinks
-	// the source too, so an externally-held source under a local survivor is
-	// still a change to a record whose approval could never be released.
-	for _, rec := range []datasource.Record{survivor, source} {
-		if err := refuseStagingElsewhere(rec); err != nil {
-			return StageInfo{}, err
-		}
+	// Every record this change touches, not just the pinned one, and named so a
+	// human reading the refusal knows which half of the merge blocked it.
+	if err := refuseStagingElsewhere(survivor); err != nil {
+		return StageInfo{}, fmt.Errorf("the record being merged INTO: %w", err)
+	}
+	if err := refuseStagingElsewhere(source); err != nil {
+		return StageInfo{}, fmt.Errorf("the record being merged FROM: %w", err)
 	}
 	return StageInfo{
 		TargetType: args.RecordType, TargetID: args.TargetID, TargetVersion: &survivor.Version,

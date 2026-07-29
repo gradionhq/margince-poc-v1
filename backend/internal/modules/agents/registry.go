@@ -108,9 +108,9 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			if r.approvals == nil {
 				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
 			}
-			marked, _, _, err := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
-			if err != nil {
-				return nil, err
+			marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+			if rErr != nil {
+				return nil, rErr
 			}
 			ctx = marked
 		}

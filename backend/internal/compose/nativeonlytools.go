@@ -41,11 +41,16 @@ import (
 
 // sorModeProbe reports whether the acting workspace's system of record is the
 // incumbent rather than our own tables. The guards below take the UNCACHED
-// spelling (Dispatcher.isOverlayForWrite): a stale 'native' answer here does not
+// spelling (Dispatcher.isOverlayUncached): a stale 'native' answer here does not
 // cost a retry, it serves a well-formed empty native result as an answer, which
 // is the defect they exist to remove. A mode read that fails propagates, so an
 // unresolved mode refuses the call rather than defaulting to native.
 type sorModeProbe func(ctx context.Context) (bool, error)
+
+// nativeOnlyModeProbe is the probe every native-only guard takes. Named so the
+// choice of the UNCACHED read is a thing a test can hold, not a comment: for
+// these guards a stale 'native' answer is a wrong ANSWER, not a stale screen.
+func nativeOnlyModeProbe(d *Dispatcher) sorModeProbe { return d.isOverlayUncached }
 
 // nativeOnlyReportRunner guards run_report. The spec names this capability
 // as one an incumbent has no analogue for, so the refusal is the declared
@@ -91,7 +96,7 @@ func refuseReportInOverlayMode(w http.ResponseWriter, r *http.Request, mode sorM
 // RunReport shadows the embedded reportHandlers so the mode guard runs
 // before the native engine ever sees the request.
 func (s Server) RunReport(w http.ResponseWriter, r *http.Request, report string) {
-	if refuseReportInOverlayMode(w, r, s.sorDispatch.isOverlayForWrite) {
+	if refuseReportInOverlayMode(w, r, nativeOnlyModeProbe(s.sorDispatch)) {
 		return
 	}
 	s.reportHandlers.RunReport(w, r, report)
@@ -103,7 +108,7 @@ func (s Server) RunReport(w http.ResponseWriter, r *http.Request, report string)
 // answer one route over — and the whole argument above is that a hidden
 // screen is not a server-side gate.
 func (s Server) ExplainReport(w http.ResponseWriter, r *http.Request, report string, params crmcontracts.ExplainReportParams) {
-	if refuseReportInOverlayMode(w, r, s.sorDispatch.isOverlayForWrite) {
+	if refuseReportInOverlayMode(w, r, nativeOnlyModeProbe(s.sorDispatch)) {
 		return
 	}
 	s.reportHandlers.ExplainReport(w, r, report, params)

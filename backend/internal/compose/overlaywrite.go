@@ -82,12 +82,12 @@ var overlayRecordWriteTools = map[string]bool{
 // interface so the guard is unit-testable without the full dispatch.
 //
 // It is deliberately the UNCACHED resolver (dispatcher.go's
-// isOverlayForWrite), not the read path's cached one: this guard runs only on
+// isOverlayUncached), not the read path's cached one: this guard runs only on
 // mutating requests, and a mutation routed on a stale mode is the silent
-// divergence the guard exists to prevent — see isOverlayForWrite's own doc
+// divergence the guard exists to prevent — see isOverlayUncached's own doc
 // for what that costs and what it still cannot promise.
 type overlayModeChecker interface {
-	isOverlayForWrite(ctx context.Context) (bool, error)
+	isOverlayUncached(ctx context.Context) (bool, error)
 }
 
 // overlayWriteGuard refuses a mutating REST request whose native module
@@ -141,7 +141,7 @@ func overlayWriteGuard(mode overlayModeChecker) func(http.Handler) http.Handler 
 				next.ServeHTTP(w, r)
 				return
 			}
-			inOverlay, err := mode.isOverlayForWrite(r.Context())
+			inOverlay, err := mode.isOverlayUncached(r.Context())
 			if err != nil {
 				httperr.Write(w, r, err)
 				return

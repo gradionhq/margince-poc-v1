@@ -94,7 +94,7 @@ func TestDispatcherWriteVerbsIgnoreAStaleCachedMode(t *testing.T) {
 	}
 }
 
-// TestOverlayWriteShadowResolvesTheModeOnce pins isOverlayForWrite's own
+// TestOverlayWriteShadowResolvesTheModeOnce pins isOverlayUncached's own
 // contract — a mutation boundary pays ONE workspace-row read.
 //
 // The REST write shadow has to resolve the mode itself to choose between the
@@ -109,7 +109,7 @@ func TestOverlayWriteShadowResolvesTheModeOnce(t *testing.T) {
 	ref := datasource.EntityRef{Type: datasource.EntityPerson, ID: ids.NewV7()}
 
 	// What the shadow does: resolve once, then dispatch with that answer.
-	ov, err := d.isOverlayForWrite(ctx)
+	ov, err := d.isOverlayUncached(ctx)
 	if err != nil {
 		t.Fatalf("resolving the write mode: %v", err)
 	}
