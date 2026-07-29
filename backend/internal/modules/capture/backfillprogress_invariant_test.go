@@ -5,74 +5,169 @@ package capture
 
 // The running page's tally lives in the inflight_* columns and is added to the
 // committed counters by the status read, so exactly one writer may SET it from
-// its parameters and every other writer must ZERO it. A new terminal write that
-// forgets the reset would not fail any behavioural test — it would quietly
-// report the page's work twice — so the obligation is derived from the source
-// rather than maintained as a list of five call sites.
+// its parameters and every other writer of an EXISTING run row must ZERO it. A
+// new terminal write that forgot the reset would not fail any behavioural test
+// — it would quietly report the page's work twice — so the obligation is
+// derived from the source.
+//
+// Derived the way tableownership_test.go derives its own: parse each file,
+// reconstruct the effective SQL of every statement (the fragments here are
+// const-concatenated, so a literal alone is not the statement), and judge the
+// whole statement. A line-window scan over raw text missed a wrapped table
+// name, an ON CONFLICT DO UPDATE arm, and a mention of the fragment's name in
+// a neighbouring comment.
 
 import (
-	"os"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
-// backfillRunUpdate is the statement prefix every writer of a run row shares.
-const backfillRunUpdate = "UPDATE capture_backfill"
-
-// statementWindow is how far past the UPDATE the SET clause can reach. The
-// longest statement in the package is well inside it; a statement that grew
-// past it would fail this test rather than pass silently.
-const statementWindow = 16
+var (
+	// A row UPDATE, however the statement wraps or cases it.
+	updateRunRe = regexp.MustCompile(`(?is)\bupdate\s+capture_backfill\b`)
+	// The upsert spelling of the same thing: the INSERT's conflict arm updates
+	// a row that already exists, tally and all.
+	insertRunRe = regexp.MustCompile(`(?is)\binsert\s+into\s+capture_backfill\b`)
+	doUpdateRe  = regexp.MustCompile(`(?is)\bdo\s+update\s+set\b`)
+	// The one writer sets the tally from its parameters; everyone else zeroes it.
+	setsTallyRe   = regexp.MustCompile(`(?is)\binflight_scanned\s*=\s*\$`)
+	clearsTallyRe = regexp.MustCompile(`(?is)\binflight_scanned\s*=\s*0\b`)
+)
 
 func TestEveryBackfillRunWriteSettlesTheInFlightTally(t *testing.T) {
-	entries, err := os.ReadDir(".")
+	fset := token.NewFileSet()
+	// The whole module subtree: tableownership_test.go lets any package under
+	// internal/modules/capture write capture_backfill, so a writer that moved
+	// into a subpackage is legal there and must still be checked here.
+	var files []*ast.File
+	err := filepath.WalkDir(".", func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") ||
+			strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, "_gen.go") {
+			return err
+		}
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		files = append(files, file)
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("reading the package directory: %v", err)
+		t.Fatalf("walking the capture package: %v", err)
+	}
+	// Consts first, across every file: the shared reset fragment is declared in
+	// one file and concatenated into statements written in others.
+	consts := map[string]string{}
+	for _, file := range files {
+		collectStringConsts(file, consts)
 	}
 	var writers int
-	for _, entry := range entries {
-		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(filepath.Clean(name))
-		if err != nil {
-			t.Fatalf("reading %s: %v", name, err)
-		}
-		writers += auditRunWrites(t, name, string(src))
+	for _, file := range files {
+		writers += auditRunWrites(t, fset, file, consts)
 	}
 	if writers != 1 {
-		t.Fatalf("found %d statements that SET inflight_scanned from a parameter, want exactly 1 (flushBackfillProgress) — two live writers of the same transient tally cannot both be right", writers)
+		t.Fatalf("found %d statements that SET inflight_scanned from a parameter, want exactly 1 (flushBackfillProgress) — two live writers of one transient tally cannot both be right", writers)
 	}
 }
 
-// auditRunWrites checks every capture_backfill UPDATE in one file and returns
-// how many of them are the live writer.
-func auditRunWrites(t *testing.T, file, src string) int {
+// auditRunWrites judges every capture_backfill write in one file and returns
+// how many of them are the live tally writer.
+func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts map[string]string) int {
 	t.Helper()
-	lines := strings.Split(src, "\n")
 	var writers int
-	for i, line := range lines {
-		if !strings.Contains(line, backfillRunUpdate) {
-			continue
-		}
-		end := min(i+statementWindow, len(lines))
-		stmt := strings.Join(lines[i:end], "\n")
-		switch {
-		case strings.Contains(stmt, "inflight_scanned = $"):
-			writers++
-		case strings.Contains(stmt, resetInflightProgressMarker):
-			// Ends the page and clears the tally with it.
+	ast.Inspect(file, func(n ast.Node) bool {
+		// A statement is a literal or a concatenation of them, never a lone
+		// name: an identifier resolves as a PART of a statement, and judging
+		// one on its own would re-report the fragment's declaration as a
+		// second copy of every statement that uses it.
+		var expr ast.Expr
+		switch node := n.(type) {
+		case *ast.BasicLit:
+			expr = node
+		case *ast.BinaryExpr:
+			expr = node
 		default:
-			t.Errorf("%s:%d writes a capture_backfill run row without settling the running page's tally — end it with resetInflightProgress, or the status read counts that page twice:\n%s",
-				file, i+1, stmt)
+			return true
 		}
-	}
+		sql, ok := sqlOf(consts, expr)
+		if !ok {
+			return true
+		}
+		// A resolved string expression IS the statement; its own literals are
+		// not separate statements, so stop here rather than re-judging each.
+		updates := updateRunRe.MatchString(sql) ||
+			(insertRunRe.MatchString(sql) && doUpdateRe.MatchString(sql))
+		switch {
+		case !updates:
+		case setsTallyRe.MatchString(sql):
+			writers++
+		case !clearsTallyRe.MatchString(sql):
+			t.Errorf("%s writes an existing capture_backfill row without settling the running page's tally — end the statement with resetInflightProgress, or the status read counts that page twice:\n%s",
+				fset.Position(expr.Pos()), sql)
+		}
+		return false
+	})
 	return writers
 }
 
-// resetInflightProgressMarker is how the reset appears in SOURCE: the fragment
-// is a const concatenated into each statement, so the columns it names are not
-// literally in the string the writer spells.
-const resetInflightProgressMarker = "resetInflightProgress"
+// collectStringConsts adds one file's string constants to consts, so a
+// statement assembled from a shared fragment resolves to what the database
+// actually receives.
+func collectStringConsts(file *ast.File, consts map[string]string) {
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
+				continue
+			}
+			if lit, ok := value.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if text, err := strconv.Unquote(lit.Value); err == nil {
+					consts[value.Names[0].Name] = text
+				}
+			}
+		}
+	}
+}
+
+// sqlOf reconstructs a string expression's value. A part it cannot resolve —
+// a local variable holding a CASE arm, say — becomes a space: the statement
+// keeps its shape, and the fragments this test judges are consts it can read.
+// ok is false for anything that is not a string expression at all.
+func sqlOf(consts map[string]string, expr ast.Expr) (string, bool) {
+	switch node := expr.(type) {
+	case *ast.BasicLit:
+		if node.Kind != token.STRING {
+			return "", false
+		}
+		text, err := strconv.Unquote(node.Value)
+		return text, err == nil
+	case *ast.Ident:
+		if text, known := consts[node.Name]; known {
+			return text, true
+		}
+		return " ", true
+	case *ast.BinaryExpr:
+		if node.Op != token.ADD {
+			return "", false
+		}
+		left, leftOK := sqlOf(consts, node.X)
+		right, rightOK := sqlOf(consts, node.Y)
+		if !leftOK || !rightOK {
+			return "", false
+		}
+		return left + right, true
+	default:
+		return "", false
+	}
+}

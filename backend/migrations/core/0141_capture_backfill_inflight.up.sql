@@ -11,9 +11,10 @@
 -- fault, terminal failure, cancel — resets them to zero in the same
 -- statement. That is what keeps a retried page honest: the committed columns
 -- still move only at commit, so a page walked twice is counted once.
--- Every counter the status read reports has a twin here, so the numbers a
--- caller sees still reconcile mid-page: scanned - captured = skipped holds
--- while the page runs, not only after it commits.
+-- Every counter a page MOVES has a twin here, so the numbers a caller sees
+-- still reconcile mid-page: scanned - captured = skipped holds while the page
+-- runs, not only after it commits. (dedupe_candidates has no twin because no
+-- page moves it.)
 ALTER TABLE capture_backfill
   ADD COLUMN inflight_scanned       int NOT NULL DEFAULT 0,
   ADD COLUMN inflight_captured      int NOT NULL DEFAULT 0,

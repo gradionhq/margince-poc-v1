@@ -38,6 +38,18 @@ type pageTally struct {
 	organizations int
 }
 
+// advance folds a connector's report in and reports whether the tally moved. A
+// report at or behind the one already held is dropped: a page walked
+// concurrently can deliver two reports out of order, and the later-arriving
+// lower number would make the count on screen go backwards.
+func (t *pageTally) advance(scanned, captured, skipped int) bool {
+	if scanned <= t.scanned {
+		return false
+	}
+	t.scanned, t.captured, t.skipped = scanned, captured, skipped
+	return true
+}
+
 // defaultProgressPacing paces the live write. A real import is thousands of
 // messages, and one row update per message would be tens of thousands of
 // writes to a single row so a number can move faster than anyone can read it.
@@ -88,25 +100,23 @@ func withPageProgress(ctx context.Context, r *Registry, backfillID ids.UUID, gen
 
 // pageProgressFrom returns the collector this context carries, or nil when no
 // backfill page is running — the incremental sync path, where a created
-// counterparty belongs to no run. Every method tolerates a nil receiver, so
-// absence costs a branch and never a panic.
+// counterparty belongs to no run. The methods reached this way (counted,
+// totals) tolerate a nil receiver, so absence costs a branch and never a
+// panic. Observed does not: it is only ever reached through
+// connector.BackfillReporter, which holds a non-nil collector or discards the
+// report itself.
 func pageProgressFrom(ctx context.Context) *pageProgress {
 	c, _ := ctx.Value(pageProgressKey{}).(*pageProgress)
 	return c
 }
 
-// Observed takes the connector's running count for this page. A report behind
-// the one already held is dropped: a page walked concurrently can deliver two
-// reports out of order, and the later-arriving lower number would make the
-// count on screen go backwards.
+// Observed takes the connector's running count for this page.
 func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped int) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if scanned <= c.tally.scanned {
-		return
+	if c.tally.advance(scanned, captured, skipped) {
+		c.persist(ctx)
 	}
-	c.tally.scanned, c.tally.captured, c.tally.skipped = scanned, captured, skipped
-	c.persist(ctx)
 }
 
 // counted folds one ensure's outcome into the page's yield. An ensure that
@@ -141,8 +151,8 @@ func (c *pageProgress) totals() (people, organizations int) {
 	return c.tally.people, c.tally.organizations
 }
 
-// persist writes the current tally to the run row, at most once per
-// progressFlushInterval. Caller holds the lock.
+// persist writes the current tally to the run row, at most once per the
+// registry's progressPacing. Caller holds the lock.
 //
 // A failure is logged and dropped rather than returned, and that is the
 // deliberate call: this write exists so a screen can move, and failing a
