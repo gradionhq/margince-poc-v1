@@ -145,6 +145,25 @@ Open work, roughly in priority order.
   asserts our own encoding, not Google's behaviour. Needs one send through a real
   account. If Gmail rewrites the identity, the fallback is to reconcile on
   `provider_message_id` from the send receipt, which is already recorded.
+  The UI that makes this answerable end to end now exists (the entry below); the
+  question itself is still open.
+
+- **The voice draft→send binding is half of ADR-0066 §4.** A send carrying a
+  `draft_ref` now records `accepted` or `edited_sent` in the request transaction,
+  and PR #303's real Gmail transmission finally has a human surface: the Art. 50
+  disclosure, the voice provenance tag, an explicit discard, the two 422 refusals,
+  the composer on any timeline row, a Voice DNA that can be started from Settings
+  rather than only onboarding, and a badge for a mailbox that can capture but not
+  send. **`final_text` is deliberately not written** — `voice_learning_signal`
+  carries no activity, person or subject linkage, so Art. 17 erasure structurally
+  cannot reach it, and the sent correspondence body would outlive an erasure
+  request by up to 180 days. The consequence is accepted and stated: rows written
+  now are **not** retroactively promotable. The corpus-promotion PR owns the
+  linkage migration, the erasure selector, and the `final_text` write, and must
+  land them together. Eight upstream items (U7–U14, in the design's
+  `UPSTREAM-FINDINGS.md`) are unraised — including the DDL-vs-wire outcome
+  vocabulary split, the missing provisional generic-fallback gate, and the 48
+  `required`+`readOnly` contract properties that serialize with `omitempty`.
 
 - **Site-read legal census — three known gaps (#162).** `FinishSiteRead`'s CAS
   guards only on `status = 'running'`, so a reclaimed-then-returning worker can
