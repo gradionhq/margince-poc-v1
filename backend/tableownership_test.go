@@ -180,6 +180,9 @@ var tableOwners = map[string]string{
 	"idempotency_key": "internal/compose",
 	"brief_run":       "internal/compose/briefs",
 	"brief_item":      "internal/compose/briefs",
+	// The company view's per-user visit baseline: view state, not a record
+	// fact, so it is written without an audit row — the saved-view ruling.
+	"user_record_view": "internal/compose/org360",
 	// platform: the audit+outbox pair has ONE sanctioned writer, and the
 	// shared field-provenance layer (B-E02.12) is spelled once next to it.
 	// system_log is the non-entity operational ledger written through
