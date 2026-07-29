@@ -470,9 +470,19 @@ type SendReceipt struct {
 	ProviderMessageID string
 	// RFC822MessageID is the unbracketed Message-ID on the transmitted copy.
 	//
-	// EMPTY means "no re-key needed": the provider honoured the identity it was
-	// given, does not report one, or could not be asked. All three degrade to
-	// the same correct no-op, so a provider that never sets this field is
-	// wrong about nothing.
+	// EMPTY covers two different facts, and they are deliberately not
+	// distinguished HERE. No re-key is OWED — the provider honoured the
+	// identity it was given, or reports none — or no re-key is POSSIBLE,
+	// because the read-back could not be answered. The first is a correct
+	// no-op. The second is a degradation: on a provider that rewrites, the
+	// message stays keyed on an identity the wire does not carry, and its
+	// captured echo lands as a second timeline row.
+	//
+	// The field stays a plain identity because the alternative is worse at this
+	// seam: a receipt that reported "unknown" would be asking every caller to
+	// carry a recovery path, and the recovery does not belong to the caller.
+	// ProviderMessageID is durable on the delivery, so a later pass can re-ask
+	// the provider for the identity of a message it already accepted — that
+	// pass is the fix for the degradation, and it is not in this change.
 	RFC822MessageID string
 }

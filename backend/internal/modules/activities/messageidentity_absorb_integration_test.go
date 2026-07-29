@@ -341,6 +341,13 @@ func TestAbsorbLeavesTheEchosProjectLinkBehindWhenTheSurvivorHasOne(t *testing.T
 	if targets := e.linkedTargets(t, survivor, "project"); len(targets) != 1 || targets[0] != ours {
 		t.Errorf("the survivor's project links = %v, want only its own project %s — the ladder never overwrites a decided link", targets, ours)
 	}
+	// The echo KEEPS the link that was not copied. Links are copied rather than
+	// moved precisely so the archived echo stays reachable by the subject-scoped
+	// erasure join; a project link left on neither row would put the echo's
+	// attachments and provenance out of Art. 17's reach.
+	if targets := e.linkedTargets(t, echo, "project"); len(targets) != 1 || targets[0] != theirs {
+		t.Errorf("the echo's project links = %v, want its own project %s retained — erasure reaches the archived echo through its links", targets, theirs)
+	}
 }
 
 // A survivor with NO project link gets the echo's: nothing is being

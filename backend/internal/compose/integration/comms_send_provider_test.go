@@ -92,8 +92,11 @@ func gmailSendStub(t *testing.T, captured *sentMail, stampAs string) *httptest.S
 
 // messageIDLine matches the one header a provider is made to rewrite below.
 // In-Reply-To and References carry bracketed identities too, which is why the
-// pattern anchors on the header name rather than on the brackets.
-var messageIDLine = regexp.MustCompile(`(?i)Message-ID: <[^>]*>\r\n`)
+// pattern keys on the header name — and it is anchored to the START of a line,
+// so a body quoting a Message-ID cannot absorb the rewrite and leave the real
+// header standing. A rewrite that silently did not rewrite would make every
+// test here pass while proving nothing.
+var messageIDLine = regexp.MustCompile(`(?im)^Message-ID: <[^>]*>\r\n`)
 
 // storedCopy renders the message as the provider KEPT it: the transmitted MIME
 // with its Message-ID replaced by the one the provider minted. An empty stampAs
