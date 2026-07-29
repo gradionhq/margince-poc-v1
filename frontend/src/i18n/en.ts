@@ -456,7 +456,6 @@ export const en = {
   "co.since.nothing": "Nothing new since your last visit.",
   "co.partial":
     "Some of this page could not be loaded, so it may not show everything on this account.",
-  "evidence.title": "Where this came from",
   "evidence.explain": 'Where "{value}" came from',
   "evidence.fullHistory": "Full history",
   "co.section.unavailable":

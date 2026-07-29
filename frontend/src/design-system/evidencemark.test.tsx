@@ -40,7 +40,9 @@ describe("evidence mark", () => {
     await userEvent.click(trigger);
 
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    const panel = screen.getByRole("region", { name: "Where this came from" });
+    const panel = screen.getByRole("region", {
+      name: /Where "Fleet retrofits without downtime" came from/,
+    });
     expect(panel.textContent).toContain("We retrofit fleets without downtime");
     expect(panel.textContent).toContain("https://brandt.example");
     expect(panel.textContent).toContain("1 Jul 2026");

@@ -59,7 +59,13 @@ export function EvidenceMark({
       }
     };
     const onPointer = (event: MouseEvent) => {
-      const target = event.target as Node;
+      const target = event.target;
+      // A click outside the DOM tree (or on something that is not a node at
+      // all) closes the panel: it is certainly not inside it.
+      if (!(target instanceof Node)) {
+        setOpen(false);
+        return;
+      }
       if (
         !panelRef.current?.contains(target) &&
         !triggerRef.current?.contains(target)
@@ -101,7 +107,7 @@ export function EvidenceMark({
           ref={panelRef}
           id={panelId}
           className="evmark-panel"
-          aria-label={t("evidence.title")}
+          aria-label={t("evidence.explain", { value })}
         >
           <p className="evmark-row">
             <ProvenanceTag provenance={source.provenance} />
