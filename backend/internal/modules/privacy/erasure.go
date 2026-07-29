@@ -221,7 +221,8 @@ func (e *Eraser) eraseAttachments(ctx context.Context, tx pgx.Tx, where string, 
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
 // keeps its skeleton (business records other subjects appear in still
-// reference it), the email/phone child rows delete outright, the
+// reference it), the email/phone child rows and the preference-center
+// token delete outright, the
 // SEGREGATED lead twin — the lead they were promoted from, and any lead
 // row carrying one of their addresses — anonymizes the same way, and
 // the subject's own embeddings drop. Both anonymizing UPDATEs also NULL
@@ -259,6 +260,25 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
+		return nil, err
+	}
+	// The preference token is a live CAPABILITY over the subject's consent
+	// record, not a stored attribute of them: whoever holds the emailed
+	// List-Unsubscribe URL reads their per-purpose state, withdraws, and
+	// grants — on an edge that binds a system principal, so every RBAC gate
+	// downstream passes. Anonymize-in-place is why erasure has to reach it
+	// here: the person row survives, so 0048's ON DELETE CASCADE never fires,
+	// and an erased subject would keep accruing fresh person_consent,
+	// consent_event, audit and outbox rows through the exact capability this
+	// erasure certifies destroyed. Deleted rather than revoked, like the
+	// address and phone rows above — a revoked row still holds the subject's
+	// person link. The workspace predicate is explicit because
+	// preference_token is deliberately outside RLS (it IS the token→tenant
+	// resolver, 0048), so nothing else scopes this statement.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM preference_token
+		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND person_id = $1`, personID); err != nil {
 		return nil, err
 	}
 	// Anonymize the lead twins and drop their field-level provenance in

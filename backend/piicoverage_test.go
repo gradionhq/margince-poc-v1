@@ -106,6 +106,16 @@ var piiTables = map[string]piiHandling{
 		},
 		sarRead: false,
 	},
+	// The preference-center token (0048) is a live capability over the
+	// subject's consent record — held by whoever has the emailed
+	// List-Unsubscribe URL, honoured with no session at all. Registered so
+	// this gate proves erasure retires it: the person row survives
+	// anonymize-in-place, so the schema's ON DELETE CASCADE never fires.
+	// sarRead is false for the opposite reason to embedding's: not "nothing
+	// human-readable to hand back" but "a working credential", which an Art.
+	// 15 package assembled by an admin must not carry into an export file —
+	// the subject already holds their own copy, in the mail that delivered it.
+	"preference_token": {erasureWrite: true, sarRead: false},
 }
 
 // fromJoinRe extracts the table named by a FROM/JOIN clause — SAR reads are

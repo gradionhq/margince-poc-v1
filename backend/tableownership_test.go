@@ -249,6 +249,7 @@ var crossStoreWrites = map[string]string{
 	// the guarantee for boundary hygiene.
 	"internal/modules/privacy:person":                       "erasure/retention anonymize the person row in place in the single erasure transaction (Art. 17)",
 	"internal/modules/privacy:person_email":                 "erasure deletes the subject's email channel rows in the single erasure transaction",
+	"internal/modules/privacy:preference_token":             "erasure deletes the subject's preference-center token in the single erasure transaction — it is a live capability over their consent record on a session-less edge, and anonymize-in-place means 0048's ON DELETE CASCADE never fires, so an erased subject would keep accruing consent rows through the capability the erasure certifies destroyed",
 	"internal/modules/privacy:capture_pending_counterparty": "erasure drops the capture dispositions keyed on the subject's own address in the single erasure transaction — left behind, they would keep the erased address readable and still answering the capture gates",
 	"internal/modules/privacy:person_social":                "erasure and retention delete the subject's social-handle rows in the same anonymization transaction",
 	"internal/modules/privacy:voice_learning_signal":        "the nightly retention sweep erases over-age draft plaintext in place; the counters row survives (voice_draftread.go stamps the per-row deadline)",
