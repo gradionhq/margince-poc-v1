@@ -84,11 +84,9 @@ func askSystemFor(question crmcontracts.OrganizationQuestion, fence promptfence.
 // request production issues, because a rebuilt copy stays green through the
 // change that breaks the original.
 func AskRequest(question crmcontracts.OrganizationQuestion, in Input) model.Request {
-	fence := promptfence.New()
-	req := BriefRequest(in)
-	req.System = askSystemFor(question, fence)
-	req.Messages = []model.Message{{Role: "user", Content: fence.Wrap(encodeInput(in))}}
-	return req
+	return groundedRequest(func(fence promptfence.Fence) string {
+		return askSystemFor(question, fence)
+	}, in)
 }
 
 // Answer writes the answer to one prepared question. lane may be nil, which

@@ -103,9 +103,18 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 // writer has never seen, so no subject line can close the span and be read
 // as instruction.
 func BriefRequest(in Input) model.Request {
+	return groundedRequest(briefSystemFor, in)
+}
+
+// groundedRequest is the one request shape both of this package's sites send:
+// the assembled account fenced with a nonce minted for THIS call, and a system
+// prompt that names that same nonce as the data boundary. systemFor receives
+// the fence so the two can never disagree — a request whose prompt named a
+// different boundary than the one wrapping the data would fence nothing.
+func groundedRequest(systemFor func(promptfence.Fence) string, in Input) model.Request {
 	fence := promptfence.New()
 	return model.Request{
-		System:         briefSystemFor(fence),
+		System:         systemFor(fence),
 		Messages:       []model.Message{{Role: "user", Content: fence.Wrap(encodeInput(in))}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
