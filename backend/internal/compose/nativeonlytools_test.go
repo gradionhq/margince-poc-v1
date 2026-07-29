@@ -28,20 +28,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-// fixedMode is an overlayModeChecker with a canned answer. It exists as a type
-// rather than a func because the interface's method name is the guard rail: the
-// cached read cannot satisfy it, so neither can a bare func.
-type fixedMode struct {
-	overlay bool
-	err     error
-}
-
-func (f fixedMode) isOverlayUncached(context.Context) (bool, error) { return f.overlay, f.err }
-
-func overlayMode() overlayModeChecker { return fixedMode{overlay: true} }
-func nativeMode() overlayModeChecker  { return fixedMode{} }
+// The canned answers these specs supply, over the package's one
+// overlayModeChecker stub (fakeMode, overlaywrite_test.go).
+func overlayMode() overlayModeChecker { return &fakeMode{overlay: true} }
+func nativeMode() overlayModeChecker  { return &fakeMode{} }
 func unresolvableMode() overlayModeChecker {
-	return fixedMode{err: errors.New("mode read failed")}
+	return &fakeMode{err: errModeUnresolvable}
 }
 
 // --- run_report ---
@@ -198,7 +190,7 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 	}
 }
 
-// TestGuardsRefuseOnAStaleNativeCache drives a real guard against a real
+// TestSlippingGuardRefusesOnAStaleNativeCache drives a real guard against a real
 // Dispatcher, which the specs above cannot: they hand in a canned answer, so
 // they pin what a guard does GIVEN a mode, never that the mode it consults is
 // the fresh one. Here the process holds a pre-flip 'native' entry while the
@@ -210,7 +202,7 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 // a read of the WRONG workspace would still pass here. That half is carried by
 // the integration pair — an overlay workspace must refuse, a native one must
 // not — which drives the real SQL.
-func TestGuardsRefuseOnAStaleNativeCache(t *testing.T) {
+func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
 	wsID := ids.NewV7()
 	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
 	ctx := principal.WithWorkspaceID(context.Background(), wsID)

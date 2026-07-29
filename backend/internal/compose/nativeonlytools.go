@@ -39,9 +39,8 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-// The guards below take overlayModeChecker (overlaywrite.go), whose method name
-// is the uncached resolver's — so the cached read cannot satisfy it and a guard
-// cannot be wired to a stale mode. A mode read that fails propagates, so an
+// The guards below take overlayModeChecker (overlaywrite.go), so the cached
+// read cannot be handed to one. A mode read that fails propagates, so an
 // unresolved mode refuses the call rather than defaulting to native.
 
 // nativeOnlyReportRunner guards run_report. The spec names this capability
