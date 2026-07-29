@@ -107,7 +107,14 @@ func TestRESTGateDoesNotMarkAnUnredeemedCall(t *testing.T) {
 // branches that close it. The marker is set only by a dispatch layer straight
 // after its own Redeem, so it stands for "a human released exactly this call".
 func TestEgressBackstopAllowsAReleasedAgentWrite(t *testing.T) {
-	ctx := agents.WithApprovalRedeemed(egressAgentCtx())
+	// Obtained the only way it can be: by actually redeeming. That the marker
+	// cannot be minted any other way is the point — a doc comment asking callers
+	// not to forge it was not enforcement.
+	ctx, _, _, err := agents.RedeemAndMark(egressAgentCtx(), stubApprovals{},
+		ids.New[ids.ApprovalKind](), "update_record", "hash")
+	if err != nil {
+		t.Fatalf("redeeming: %v", err)
+	}
 
 	if err := refuseUngovernedAgentEgress(ctx, overlay.WriteUpdate, datasource.EntityPerson); err != nil {
 		t.Fatalf("err = %v, want nil for a released call", err)

@@ -108,23 +108,21 @@ func (r *Registry) Invoke(ctx context.Context, name string, in json.RawMessage) 
 			if r.approvals == nil {
 				return nil, fmt.Errorf("crmagents: approval_id presented but this surface has no approvals engine: %w", apperrors.ErrApprovalTokenInvalid)
 			}
-			if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
+			marked, _, _, err := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+			if err != nil {
 				return nil, err
 			}
-			ctx = WithApprovalRedeemed(ctx)
+			ctx = marked
 		}
 		return t.Handle(ctx, args)
 	case !errors.Is(err, apperrors.ErrRequiresApproval) || r.approvals == nil:
 		return nil, err
 	case !approvalID.IsZero():
-		if _, _, err := r.approvals.Redeem(ctx, approvalID, spec.Name, diffHash); err != nil {
-			return nil, err
+		marked, _, _, rErr := RedeemAndMark(ctx, r.approvals, approvalID, spec.Name, diffHash)
+		if rErr != nil {
+			return nil, rErr
 		}
-		// Mark it, exactly as the auto-execute branch above does: everything
-		// downstream — including the seam's external-egress backstop — reads
-		// this marker to know a human released the call. Redeeming without it
-		// refuses the write the approval was granted for.
-		return t.Handle(WithApprovalRedeemed(ctx), args)
+		return t.Handle(marked, args)
 	default:
 		stageable, ok := t.(stageableTool)
 		if !ok {

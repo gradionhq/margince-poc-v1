@@ -250,13 +250,16 @@ func observeRefusal(win *window, step modelStep, err error, meta Meta, resp mode
 		directive = "this workspace's system of record cannot serve this tool at all; do not call it again in this run"
 	}
 	win.observeThen(step.Tool, observation, directive)
-	// Truncate the observation BEFORE joining, so a long refusal cannot crowd
-	// the directive out of the trace. err.Error() carries provider text whose
-	// LENGTH is influenceable by mirrored content, and "this was terminal" is
-	// the half a later reader needs most — bound the payload, keep the finding.
+	// Bound the COMBINED record while reserving room for the directive. Two
+	// constraints meet here: provider text whose LENGTH is influenceable by
+	// mirrored content must not crowd "this was terminal" out of the trace, and
+	// it must not grow the entry past the cap either. Reserving the directive's
+	// own room satisfies both, where truncating after joining loses the finding
+	// and truncating only the payload overruns the bound.
 	recorded := truncate(observation)
 	if directive != "" {
-		recorded += " — " + directive
+		suffix := " — " + directive
+		recorded = truncateTo(observation, traceObservationLimit-len(suffix)) + suffix
 	}
 	return Step{
 		Tool: step.Tool, Args: step.Args, Observation: recorded,
@@ -434,9 +437,22 @@ func withApprovalID(args json.RawMessage, id ids.ApprovalID) (json.RawMessage, e
 // happened, not a second copy of every payload.
 const traceObservationLimit = 2000
 
-func truncate(s string) string {
-	if len(s) <= traceObservationLimit {
+// truncationMarker names the elision, and its own length counts against the
+// cap — a caller reserving room for a suffix has to reserve for this too.
+const truncationMarker = "…[truncated]"
+
+func truncate(s string) string { return truncateTo(s, traceObservationLimit) }
+
+// truncateTo bounds s so the RESULT is at most limit bytes, marker included, so
+// a caller that must also fit a suffix inside the same cap can reserve its room
+// rather than overrun it.
+func truncateTo(s string, limit int) string {
+	if len(s) <= limit {
 		return s
 	}
-	return s[:traceObservationLimit] + "…[truncated]"
+	keep := limit - len(truncationMarker)
+	if keep < 0 {
+		keep = 0
+	}
+	return s[:keep] + truncationMarker
 }

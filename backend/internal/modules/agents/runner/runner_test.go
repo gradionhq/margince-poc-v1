@@ -732,4 +732,11 @@ func TestALongRefusalDoesNotCrowdTheTerminalFindingOutOfTheTrace(t *testing.T) {
 	if !strings.Contains(step.Observation, "truncated") {
 		t.Error("the oversized payload was not bounded")
 	}
+	// And the combined entry respects the cap: reserving the directive's room is
+	// what lets both hold at once. Appending after truncating the payload alone
+	// would keep the finding but overrun the bound.
+	if len(step.Observation) > traceObservationLimit {
+		t.Errorf("trace entry is %d bytes, over the %d cap — provider-controlled text grew the record",
+			len(step.Observation), traceObservationLimit)
+	}
 }

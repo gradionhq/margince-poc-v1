@@ -61,20 +61,15 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// like the REST surface's, sharing the same per-workspace windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
-	// The three native-only dependencies below are READS, so they take the
-	// cached mode answer. Both directions of staleness are bounded and
-	// accepted, the same trade overlayread.go's read shadows make: a stale
-	// 'overlay' costs one retry, and a stale 'native' can serve one empty
-	// native answer — the very defect this file guards — for at most
-	// sorModeCacheTTL on a replica that saw no Invalidate. Naming that
-	// honestly rather than only the benign half: it is a five-second window
-	// after a connect, not a standing hole.
-	//
-	// The write side does not take this trade at all; it is governed at the seam
-	// (egressbackstop.go's refuseUngovernedAgentEgress, called from
-	// dispatcher.go's updateInMode/archiveInMode), which resolves the mode fresh
-	// like every other mutation boundary.
-	sorMode := sorModeProbe(provider.isOverlay)
+	// The native-only guards below take the UNCACHED mode read, like the write
+	// boundaries do. The cached answer is fine when staleness costs a retry, but
+	// here the stale direction that matters is 'native': for up to the cache TTL
+	// on a replica that saw no Invalidate, a just-connected overlay workspace
+	// would get a well-formed empty native report presented as an answer — the
+	// exact defect these guards exist to remove, not a lesser one. Each of these
+	// three paths is a report or a graph walk, so one indexed workspace-row read
+	// is noise against what it guards.
+	sorMode := sorModeProbe(provider.isOverlayForWrite)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
 	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);

@@ -71,17 +71,34 @@ type stageableTool interface {
 // question (the diff_hash binding guarantees the call IS that effect).
 type approvalRedeemedKey struct{}
 
-// WithApprovalRedeemed marks ctx as carrying a released approval.
-//
-// Callable ONLY by a dispatch layer, and ONLY on the statement after its own
-// Redeem returned nil: everything downstream — including the seam's
-// external-egress backstop — treats the marker as proof that a human
-// released exactly this call, so setting it anywhere else forges that proof.
-// It is exported because there are two dispatch layers, the MCP registry and
-// the REST agent gate, and both must mark what they redeem or an approved
-// write is refused by the very gate the approval was granted for.
-func WithApprovalRedeemed(ctx context.Context) context.Context {
+// withApprovalRedeemed marks ctx as carrying a released approval. It stays
+// unexported on purpose: everything downstream — including the seam's
+// external-egress backstop — treats the marker as proof that a human released
+// exactly this call, so an exported setter would let any caller forge that
+// proof, and a doc comment asking them not to is not enforcement. The only way
+// to obtain a marked context is RedeemAndMark, which cannot mark without
+// redeeming first.
+func withApprovalRedeemed(ctx context.Context) context.Context {
 	return context.WithValue(ctx, approvalRedeemedKey{}, true)
+}
+
+// RedeemAndMark consumes an approval and returns a context marked as released,
+// binding the two together so neither can happen without the other. The
+// version pin travels back for a transport that must forward it as its own
+// precondition; pinned is false when the approval carried none.
+//
+// This is the ONLY way to obtain a released context. There are two dispatch
+// layers — the MCP registry and the REST agent gate — and both must mark what
+// they redeem, or the gate refuses the very write the approval was granted for;
+// making the marking a consequence of redeeming is what keeps that true without
+// trusting either caller to remember.
+func RedeemAndMark(ctx context.Context, approvals Approvals, approvalID ids.ApprovalID, tool, diffHash string,
+) (marked context.Context, version int64, pinned bool, err error) {
+	version, pinned, err = approvals.Redeem(ctx, approvalID, tool, diffHash)
+	if err != nil {
+		return ctx, 0, false, err
+	}
+	return withApprovalRedeemed(ctx), version, pinned, nil
 }
 
 // ApprovalRedeemed reports whether this call already consumed a redeemed

@@ -82,3 +82,25 @@ func TestEveryStageableToolRefusesATargetHeldElsewhere(t *testing.T) {
 			"may now be unexercised", walked, len(args))
 	}
 }
+
+// A merge touches TWO records, so validating only the pinned survivor leaves
+// the other half unguarded: the merge archives and relinks the source, and an
+// externally-held source under a locally-authoritative survivor is still a
+// change no approval could release.
+func TestMergeRefusesAnExternallyHeldSourceUnderALocalSurvivor(t *testing.T) {
+	survivor, src := ids.NewV7(), ids.NewV7()
+	survivorRef := datasource.EntityRef{Type: datasource.EntityPerson, ID: survivor}
+	sourceRef := datasource.EntityRef{Type: datasource.EntityPerson, ID: src}
+	p := &fakeSoR{records: map[datasource.EntityRef]datasource.Record{
+		survivorRef: nativeRecord(datasource.Record{Ref: survivorRef, Fields: json.RawMessage(`{}`), Version: 4}),
+		// Deliberately unstamped: this record's authority lives elsewhere.
+		sourceRef: {Ref: sourceRef, Fields: json.RawMessage(`{}`)},
+	}}
+
+	_, err := mergeRecords{p: p}.StageInfo(context.Background(),
+		json.RawMessage(fmt.Sprintf(`{"record_type":"person","source_id":%q,"target_id":%q}`, src, survivor)))
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Fatalf("StageInfo err = %v, want ErrUnsupportedBySoR — the merge source was not validated", err)
+	}
+}

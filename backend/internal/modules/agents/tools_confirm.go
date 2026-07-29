@@ -209,12 +209,17 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	if err != nil {
 		return StageInfo{}, err
 	}
-	if err := refuseStagingElsewhere(survivor); err != nil {
-		return StageInfo{}, err
-	}
 	source, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.SourceID})
 	if err != nil {
 		return StageInfo{}, err
+	}
+	// BOTH records, not just the pinned survivor: a merge archives and relinks
+	// the source too, so an externally-held source under a local survivor is
+	// still a change to a record whose approval could never be released.
+	for _, rec := range []datasource.Record{survivor, source} {
+		if err := refuseStagingElsewhere(rec); err != nil {
+			return StageInfo{}, err
+		}
 	}
 	return StageInfo{
 		TargetType: args.RecordType, TargetID: args.TargetID, TargetVersion: &survivor.Version,
