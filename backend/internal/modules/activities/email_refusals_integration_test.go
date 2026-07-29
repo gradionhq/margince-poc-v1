@@ -113,6 +113,52 @@ func TestSendEmailRefusesAMultiAddresseeSendThatCarriesAnUnsubscribeToken(t *tes
 	}
 }
 
+// A marketing send may not go out without a working, non-forgeable
+// List-Unsubscribe URL, so an installation that never configured its public
+// base URL fails LOUDLY here rather than deriving the base from the request.
+// That fallback is what the refusal exists to prevent: the link carries the
+// recipient's preference token, so an attacker who controls Host or
+// X-Forwarded-Proto at send time could point the tokenized link at their own
+// domain and harvest the credential from the recipient's click.
+func TestSendEmailRefusesAMarketingSendWithNoConfiguredPublicBaseURL(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	// The store as an installation that wired the linker but never set the
+	// base URL — deliberately NOT e.store(), which configures one.
+	store := NewStore(e.pool).WithUnsubscribe(stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true})
+
+	_, err := store.SendEmail(
+		e.as(principal.RowScopeAll), anchor, soloSendInput("marketing_email"), stubConsentGate{}, stager)
+	if err == nil || !strings.Contains(err.Error(), "public base URL is not configured") {
+		t.Fatalf("marketing send with no public base URL → %v, want a refusal naming the missing configuration", err)
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Fatal("a refused send still staged a delivery or logged an activity")
+	}
+}
+
+// A linker that fails refuses the send rather than falling through to a
+// message with no unsubscribe surface. The two outcomes are NOT
+// interchangeable: ok=false means "this address carries none", while an error
+// means the answer is unknown — and sending bulk mail on an unknown answer is
+// the RFC 8058 violation the linker exists to prevent.
+func TestSendEmailRefusesWhenTheUnsubscribeLinkerFails(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	linkerDown := errors.New("preference store unreachable")
+
+	_, err := e.store(stubUnsubscribeLinker{err: linkerDown}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, soloSendInput("marketing_email"), stubConsentGate{}, stager)
+	if !errors.Is(err, linkerDown) {
+		t.Fatalf("send with a failing unsubscribe linker → %v, want the linker's own error", err)
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Fatal("a refused send still staged a delivery or logged an activity")
+	}
+}
+
 // …and the refusal is about the TOKEN, not about the recipient count: a
 // transactional send mints none, so it reaches as many addressees as the caller
 // listed. Refusing those too would break every ordinary reply-all.
