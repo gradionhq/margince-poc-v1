@@ -138,18 +138,25 @@ export function sectionState(
  * SectionPart renders ONE section's body in whichever of the four states it
  * is in. A card with two independently-governed sections renders two of
  * these, so neither half's state can speak for the other.
+ *
+ * `label` names the part, and a card with more than one part MUST pass it:
+ * "hidden from you" under a heading covering two sections says which of the
+ * two it is only if the part is named. A single-section card leaves it out —
+ * the card's own title is already the name.
  */
 export function SectionPart({
+  label,
   state,
   emptyLabel,
   children,
 }: Readonly<{
+  label?: string;
   state: SectionState;
   emptyLabel: string;
   children: ReactNode;
 }>) {
   const t = useT();
-  return (
+  const body = (
     <>
       {state === "ready" && children}
       {state === "empty" && <p className="co-empty">{emptyLabel}</p>}
@@ -161,6 +168,15 @@ export function SectionPart({
       )}
       {state === "loading" && <Skeleton width="100%" height={32} />}
     </>
+  );
+  if (!label) {
+    return body;
+  }
+  return (
+    <section className="co-part" aria-label={label}>
+      <h3 className="co-part-label">{label}</h3>
+      {body}
+    </section>
   );
 }
 
@@ -384,6 +400,7 @@ export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
     <section className="card co-card">
       <SectionHeader title={t("co.tags.title")} />
       <SectionPart
+        label={t("co.tags.lists")}
         state={sectionState(
           view,
           "list_memberships",
@@ -401,6 +418,7 @@ export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
         </p>
       </SectionPart>
       <SectionPart
+        label={t("co.tags.tags")}
         state={sectionState(view, "tags", Boolean(view?.tags), tags.length)}
         emptyLabel={t("co.tags.noTags")}
       >

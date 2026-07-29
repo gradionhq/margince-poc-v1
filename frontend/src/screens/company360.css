@@ -93,3 +93,17 @@
 .co-tabs {
   margin-bottom: var(--space-4);
 }
+
+/* A card holding two independently-governed sections labels each one, so a
+   "hidden from you" or "could not be loaded" notice attaches to a named
+   thing rather than floating under a heading that covers both. */
+.co-part + .co-part {
+  margin-top: var(--space-3);
+}
+.co-part-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+}

@@ -386,15 +386,20 @@ describe("company view — one section never answers for another", () => {
     renderCompany();
 
     const rail = await screen.findByRole("complementary", { name: "Business" });
-    const card = within(rail).getByText("Lists & tags").closest("section");
-    if (!card) {
-      throw new Error("the lists-and-tags card has no section wrapper");
-    }
-    expect(within(card).getByText("No tags applied.")).toBeTruthy();
+    // The refusal has to name WHICH half it is about: under a heading
+    // covering both, an unattached "hidden from you" leaves the reader
+    // unable to tell whether the lists or the tags were withheld.
+    const listsPart = within(rail).getByRole("region", { name: "Lists" });
     expect(
-      within(card).getByText("Hidden — your role cannot read this"),
+      within(listsPart).getByText("Hidden — your role cannot read this"),
     ).toBeTruthy();
-    expect(within(card).queryByText("Not on any list.")).toBeNull();
+
+    const tagsPart = within(rail).getByRole("region", { name: "Tags" });
+    expect(within(tagsPart).getByText("No tags applied.")).toBeTruthy();
+    expect(
+      within(tagsPart).queryByText("Hidden — your role cannot read this"),
+    ).toBeNull();
+    expect(within(rail).queryByText("Not on any list.")).toBeNull();
   });
 
   it("still shows the tags a caller can read when lists are withheld", async () => {
