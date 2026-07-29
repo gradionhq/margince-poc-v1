@@ -21,7 +21,11 @@
 }
 
 .mw-core {
-  width: 72px;
+  /* Sizing through the Core's documented custom properties: WDS-CORE-1 allows a
+     caller to size the primitive and nothing else. A `width` here would fight
+     `width: var(--coreSize)` inside it. */
+  --coreSize: 72px;
+  --coreGlass: 60px;
   min-width: 72px;
 }
 
@@ -213,7 +217,8 @@
   }
 
   .mw-core {
-    width: 56px;
+    --coreSize: 56px;
+    --coreGlass: 46px;
     min-width: 56px;
   }
 

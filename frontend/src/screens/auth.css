@@ -1,49 +1,81 @@
 /*
- * The unauthenticated surface: a focused authentication utility beside the
- * Margince Core AI presence. The form remains the task; the Core carries only
- * identity, configuration posture and enforced trust facts.
+ * The unauthenticated surface — two regions (ADR-0076 Decision 1).
+ *
+ * Ported from the interactive mockup's `features/auth/auth.css`, which is where
+ * this layout and its eight states were designed. Kept diffable against that
+ * file on purpose: the mockup is the visual blueprint, and a screen that drifts
+ * here has to be reconciled there rather than the other way round.
+ *
+ * What replaced what: the funnel's `.auth-page` / `.auth-experience` /
+ * `.auth-column` / `.auth-core` grid is gone, and with it the decorative orbital
+ * scene's sizing hooks. Three rules here are amended spec clauses rather than
+ * taste:
+ *
+ *  - the surface SCROLLS. A `position: fixed; overflow: hidden` full-screen
+ *    surface loses the submit button at 200% zoom and with a phone keyboard open
+ *    (§6.1, §13.3).
+ *  - the task region is FIRST in the DOM and `order` puts the identity region to
+ *    its left, so reading order and visual order disagree on purpose.
+ *  - nothing is hidden at a breakpoint. The limits list reflows to one column
+ *    instead of dropping two of three (§5.2) — which is what the old
+ *    `.auth-core-trust li:nth-child(n + 2) { display: none }` did.
  */
 
-.auth-page {
+.auth-surface {
   min-height: 100vh;
   display: grid;
-  place-items: center;
-  padding: var(--space-6);
-  padding-bottom: max(var(--space-6), env(safe-area-inset-bottom));
-  background:
-    radial-gradient(circle at 18% 24%, var(--aiLight), transparent 34%),
-    radial-gradient(circle at 82% 78%, var(--accentLight), transparent 30%),
-    var(--bgPage);
-}
-.auth-experience {
-  width: min(1120px, 100%);
-  min-height: min(720px, calc(100vh - 48px));
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(380px, 440px);
-  grid-template-areas: "core form";
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
-  overflow: hidden;
+  grid-template-columns: 0.98fr 1.02fr;
   background: var(--bgElevated);
-  box-shadow: var(--shadow-pop);
 }
-.auth-column {
-  grid-area: form;
+@supports (min-height: 100dvh) {
+  .auth-surface {
+    /* dvh, because 100vh on iOS subtracts the browser chrome from the wrong
+       side and the primary action lands under the keyboard. */
+    min-height: 100dvh;
+  }
+}
+
+@keyframes authRise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===== the task region ================================================== */
+/* First child in the DOM; second column on screen. */
+.auth-task {
+  order: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 48px 5vw;
+  background: var(--bgElevated);
+}
+.auth-task-in {
+  /* §6.2: 380 minimum, 400 preferred, 440 maximum. */
   width: 100%;
+  min-width: 0;
+  max-width: 440px;
   display: flex;
   flex-direction: column;
   gap: 22px;
-  justify-content: center;
-  padding: 48px 40px 32px;
+  animation: authRise 0.8s 0.1s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
+
 .auth-wordmark {
   align-self: flex-start;
   display: grid;
   place-items: center;
-  margin: 0 0 8px 4px;
+  margin: 0 0 4px;
 }
 .auth-wordmark img {
-  width: 196px;
+  width: 176px;
   max-width: 70vw;
   height: auto;
 }
@@ -68,13 +100,14 @@
   font-family: var(--f-display);
   font-weight: 600;
   font-size: 28px;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
   color: var(--textPrimary);
 }
 .auth-card .card-sub {
   margin-top: 8px;
-  font-size: 14px;
-  color: var(--textSecondary);
+  font-size: 13.5px;
+  color: var(--textMeta);
   line-height: 1.5;
 }
 .auth-fields {
@@ -94,40 +127,51 @@
   justify-content: space-between;
   gap: 8px;
 }
+/* --textMeta, not --textTertiary: tokens.css names --textMeta "the canonical AA
+   small-text role — all 11-13px meta/caption text reads it", and a 11px uppercase
+   label was reading the decorative tier instead. Caught by the axe sweep the
+   moment the login screen was finally in it. */
 .auth-field label {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 .auth-field .auth-hint {
   font-size: 11.5px;
-  color: var(--textTertiary);
+  color: var(--textMeta);
 }
 .auth-input {
   width: 100%;
+  /* §6.5 / §12: 44px is the target floor, and it is a floor rather than a
+     rounded-up number — a 40px control fails the same check on a phone. */
   min-height: 44px;
   border: 1px solid var(--borderStrong);
   border-radius: var(--r-sm);
   padding: 11px 13px;
   font-family: var(--f-body);
-  font-size: 14px;
+  font-size: 14.5px;
   color: var(--textPrimary);
   background: var(--bgElevated);
   outline: 0;
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.auth-input::placeholder {
+  color: var(--textMeta);
 }
 .auth-input:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accentLight);
+  box-shadow: 0 0 0 3px var(--accentLight);
 }
 .auth-password-row {
   position: relative;
 }
 .auth-input-reveal {
-  /* room for the in-field reveal button, so email and password fields
-     keep the exact same outer width */
-  padding-right: 44px;
+  /* Room for the in-field control, so both fields keep the same outer width. */
+  padding-right: 46px;
 }
 .auth-reveal {
   position: absolute;
@@ -171,20 +215,23 @@
   border: 0;
   cursor: pointer;
   font-size: 12.5px;
-  color: var(--textSecondary);
+  font-weight: 500;
+  color: var(--accent);
   padding: 2px;
   text-transform: none;
   letter-spacing: normal;
 }
 .auth-link:hover,
 .auth-link:focus-visible {
-  color: var(--accent);
+  text-decoration: underline;
 }
 .auth-link:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: var(--r-sm);
 }
+
+/* A rejected credential, a rate limit, an unreachable server: one surface. */
 .auth-error {
   margin-top: 16px;
   background: var(--dangerBg);
@@ -199,23 +246,24 @@
 }
 .auth-error .ae-m {
   font-size: 12.5px;
-  color: var(--textSecondary);
+  color: var(--textMeta);
   margin-top: 3px;
   line-height: 1.45;
-}
-
-.auth-notice {
-  text-align: left;
-  font-size: 13px;
-  color: var(--textSecondary);
-  background: var(--bgElevated);
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-sm);
-  padding: 10px 13px;
 }
 .auth-error:focus-visible {
   outline: 2px solid var(--danger);
   outline-offset: 2px;
+}
+/* §9.5: a notice is informational. Signing out is not an error and must not be
+   dressed as one — the user has nothing to correct. */
+.auth-notice {
+  text-align: left;
+  font-size: 13px;
+  color: var(--textMeta);
+  background: var(--bgCard);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  padding: 10px 13px;
 }
 .auth-footer {
   display: flex;
@@ -230,50 +278,50 @@
   font-weight: 600;
 }
 
-/* The Core stays one coherent object: readable copy outside the decorative
-   scene, with every moving layer hidden from the accessibility tree. */
-.auth-core {
-  grid-area: core;
+/* ===== the identity region ============================================== */
+/* Second child in the DOM; first column on screen. Holds no controls and no
+   copy the task depends on, which is what stops it competing with the form. */
+.auth-identity {
+  order: 1;
   position: relative;
-  min-width: 0;
   overflow: hidden;
+  min-width: 0;
   display: grid;
-  grid-template-rows: auto minmax(280px, 1fr) auto;
+  grid-template-rows: auto 1fr auto;
+  justify-items: center;
   gap: var(--space-4);
-  padding: 44px 48px 40px;
-  color: var(--railIconActive);
-  isolation: isolate;
+  padding: 48px 5vw;
+  border-right: 1px solid var(--borderSubtle);
   background:
-    radial-gradient(circle at 50% 46%, var(--aiMed), transparent 28%),
-    radial-gradient(circle at 18% 85%, var(--accentMed), transparent 32%),
-    linear-gradient(145deg, var(--railTop), var(--railBottom));
+    radial-gradient(
+      760px 580px at 34% 22%,
+      color-mix(in srgb, var(--accent) 7%, transparent) 0%,
+      transparent 60%
+    ),
+    radial-gradient(
+      560px 480px at 4% 104%,
+      color-mix(in srgb, var(--accent) 5%, transparent),
+      transparent 60%
+    ),
+    linear-gradient(
+      160deg,
+      color-mix(in srgb, var(--accent) 4%, var(--bgElevated)) 0%,
+      color-mix(in srgb, var(--accent) 7%, var(--bgElevated)) 100%
+    );
 }
-.auth-core::before,
-.auth-core::after {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  border: 1px solid var(--railHover);
-  border-radius: var(--r-full);
-}
-.auth-core::before {
-  width: 420px;
-  height: 420px;
-  top: -230px;
-  right: -180px;
-}
-.auth-core::after {
-  width: 300px;
-  height: 300px;
-  bottom: -180px;
-  left: -120px;
-}
-.auth-core-copy,
-.auth-core-meta {
+.auth-identity-top,
+.auth-identity-foot {
   position: relative;
-  z-index: 3;
+  z-index: 1;
+  width: 100%;
+  max-width: 470px;
+  animation: authRise 0.8s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
-.auth-core-kicker {
+.auth-identity-foot {
+  align-self: end;
+}
+/* (a) identity: the system's presence and name. Mono, small, unmissable. */
+.auth-kicker {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -282,25 +330,28 @@
   font-weight: 600;
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: var(--railIconHover);
+  color: var(--accent);
 }
-.auth-core-identity-dot {
+.auth-kicker-dot {
   width: 7px;
   height: 7px;
   border-radius: var(--r-full);
-  background: var(--aiText);
+  background: var(--accent);
 }
-.auth-core-statement {
-  max-width: 470px;
+/* (b) the boundary, in the first person. Not a heading — the h1 belongs to the
+   task (§6.4), and this is a paragraph however large it is set. */
+.auth-statement {
   margin-top: var(--space-3);
   font-family: var(--f-display);
-  font-size: clamp(22px, 2.4vw, 34px);
+  font-size: clamp(22px, 2.4vw, 32px);
   font-weight: 500;
-  line-height: 1.12;
+  line-height: 1.14;
   letter-spacing: -0.025em;
-  color: var(--railIconActive);
+  color: var(--textPrimary);
 }
-.auth-core-runtime {
+/* (c) a server-read fact. Reserves its height so the column does not jump when
+   the probe resolves — and stays empty rather than guessing when it fails. */
+.auth-runtime {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -309,155 +360,131 @@
   margin-bottom: var(--space-3);
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--railIconHover);
+  color: var(--textMeta);
 }
-.auth-core-runtime-state {
+.auth-runtime-state {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   padding: 5px 9px;
-  border: 1px solid var(--railHover);
+  border: 1px solid var(--borderSubtle);
   border-radius: var(--r-full);
-  color: var(--railIconActive);
-  background: var(--railHover);
+  background: var(--bgCard);
+  color: var(--textContent);
 }
-.auth-core-runtime-state svg {
+.auth-runtime-state svg {
   width: 12px;
   height: 12px;
   color: var(--online);
 }
-.auth-core-trust {
+/* Three columns at width, one column when there is no room — never two of
+   three, which is what hiding them would be. */
+.auth-limits {
   list-style: none;
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-2);
+  gap: var(--space-3) var(--space-2);
 }
-.auth-core-trust li {
+.auth-limits li {
   min-width: 0;
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  font-size: 11px;
-  line-height: 1.35;
-  color: var(--railIconHover);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--textContent);
 }
-.auth-core-trust-icon {
+.auth-limit-icon {
   flex: none;
   display: grid;
   place-items: center;
   width: 22px;
   height: 22px;
   border-radius: var(--r-sm);
-  color: var(--aiText);
-  background: var(--railHover);
+  color: var(--accent);
+  background: var(--accentSurface);
 }
-.auth-core-trust-icon svg {
+.auth-limit-icon svg {
   width: 12px;
   height: 12px;
 }
-.auth-experience:focus-within .margince-core-scene {
-  transform: scale(1.025);
-}
+
+/* ===== breakpoints ====================================================== */
+/* Below 960 the regions stack, task region FIRST — which is what the DOM
+   already says, so both `order`s go back to their natural value. */
 @media (max-width: 959px) {
-  .auth-page {
-    place-items: start center;
-  }
-  .auth-experience {
-    width: min(560px, 100%);
-    min-height: auto;
+  .auth-surface {
     grid-template-columns: 1fr;
-    grid-template-areas:
-      "form"
-      "core";
-  }
-  .auth-column {
-    padding: 40px 36px 32px;
-  }
-  .auth-core {
-    min-height: 280px;
-    grid-template-columns: minmax(0, 1fr) 190px;
     grid-template-rows: auto auto;
-    padding: 28px 32px;
   }
-  .auth-core-copy {
-    align-self: end;
+  .auth-task,
+  .auth-identity {
+    order: initial;
   }
-  .auth-core-statement {
-    font-size: 22px;
+  .auth-task {
+    padding: 40px 28px 32px;
   }
-  .auth-core .margince-core-scene {
+  .auth-identity {
+    border-right: none;
+    border-top: 1px solid var(--borderSubtle);
+    grid-template-rows: auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    padding: 32px 28px;
+  }
+  .auth-identity .core {
     grid-column: 2;
     grid-row: 1 / span 2;
-    width: 180px;
+    --coreSize: 150px;
+    --coreGlass: 118px;
   }
-  .auth-core-meta {
-    align-self: start;
-  }
-  .auth-core-trust {
+  .auth-limits {
     grid-template-columns: 1fr;
-  }
-  .auth-core-trust li:nth-child(n + 2) {
-    display: none;
   }
 }
 
 @media (max-width: 560px) {
-  .auth-page {
-    padding: 0;
-    background: var(--bgPage);
-  }
-  .auth-experience {
-    width: 100%;
-    border: 0;
-    border-radius: 0;
-    box-shadow: none;
-  }
-  .auth-column {
+  .auth-task {
     padding: 32px 20px 24px;
   }
   .auth-wordmark img {
-    width: 172px;
+    width: 156px;
   }
   .auth-input {
+    /* 16px or iOS zooms the page on focus (§6.5). */
     font-size: 16px;
   }
-  .auth-core {
-    min-height: 210px;
-    grid-template-columns: 1fr 122px;
+  .auth-identity {
+    /* May reduce to the Core and its one statement. May NOT be removed: the
+       disclosure is the reason the region exists (ADR-0076 Decision 1). */
     padding: 24px 20px max(24px, env(safe-area-inset-bottom));
   }
-  .auth-core-statement {
-    font-size: 18px;
+  .auth-identity .core {
+    --coreSize: 120px;
+    --coreGlass: 96px;
   }
-  .auth-core .margince-core-scene {
-    width: 126px;
+  .auth-statement {
+    font-size: 19px;
   }
-  .auth-core-runtime {
+  .auth-runtime {
     margin-bottom: 0;
   }
-  .auth-core-trust {
-    display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The end state, not nothing: both regions arrive in place rather than
+     arriving at all. */
+  .auth-task-in,
+  .auth-identity-top,
+  .auth-identity-foot {
+    animation: none;
   }
 }
 
 @media (forced-colors: active) {
-  .auth-core,
-  .auth-core-runtime-state,
-  .auth-core-trust-icon {
+  .auth-identity,
+  .auth-runtime-state,
+  .auth-limit-icon {
     forced-color-adjust: auto;
-  }
-}
-
-@supports (min-height: 100dvh) {
-  .auth-page {
-    min-height: 100dvh;
-  }
-  .auth-experience {
-    min-height: min(720px, calc(100dvh - 48px));
-  }
-  @media (max-width: 959px) {
-    .auth-experience {
-      min-height: auto;
-    }
   }
 }

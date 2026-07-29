@@ -22,10 +22,16 @@ the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
 ## Layout
 
 - `src/design-system/` — tokens (Ledger Green canon, pinned by
-  `tokens.test.ts`), atoms, the trust primitives (§4 vocabulary:
-  EvidenceChip, ConfidenceMeter, ProvenanceTag, StagingCard, ApprovalGate,
-  StagedProposal), composed surfaces, and `conformance.test.ts` — the
-  drift gates.
+  `tokens.test.ts`) plus `brand.css`, the DERIVED layer: every value there is a
+  `color-mix()` of a canonical token, never a new hex, so it follows the dark
+  theme's accent lift automatically and passes the purity gate. Then atoms, the
+  trust primitives (§4 vocabulary: EvidenceChip, ConfidenceMeter, ProvenanceTag,
+  StagingCard, ApprovalGate, StagedProposal), the **Margince Core**
+  (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed eight-state
+  vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
+  callers pass `state` and size it through `--coreSize` / `--coreGlass` and
+  never restyle it), `motion.ts` (reduced motion jumps to the END state, never
+  to nothing), composed surfaces, and `conformance.test.ts` — the drift gates.
 - `src/app/` — shell (WorkspaceRail + top bar), hash router, ⌘K palette,
   Ask FAB.
 - `src/screens/` — one file per surface; unbuilt routes render the honest
@@ -54,6 +60,12 @@ the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
    semantics render through the `.dot` token component.
 6. The service worker never caches or fabricates a `/v1` response.
 7. WCAG 2.2 AA (axe) + the perceived-perf budget in the e2e lane.
+8. The unauthenticated surface at 390px / 320px / 200% zoom (ADR-0076): no
+   horizontal scroll, the primary action reachable, nothing hidden to fit, the
+   task region above the identity region below 960px, one h1 and it is the task,
+   the Core out of the a11y tree, and axe. The rest of the §3.8 sweep walks
+   authenticated routes only, so login had never been measured at any width —
+   the first run of this found a contrast defect in the field labels.
 
 ## Working agreements
 

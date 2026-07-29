@@ -8,6 +8,21 @@ import {
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
+/**
+ * The unauthenticated surface: two regions (ADR-0076 Decision 1).
+ *
+ * **The task region is first in the DOM**, and that is the whole reason this
+ * component owns the frame rather than each screen writing its own grid.
+ * Visually the identity region sits on the left at wide widths; in reading
+ * order, keyboard order, and the narrow stack the task comes first. `order` on
+ * the grid children buys that, and it is the kind of thing that gets "tidied
+ * away" by someone reordering JSX to match the picture — `auth.test.tsx` asserts
+ * the DOM order for exactly that reason.
+ *
+ * Every one of the surface's four outcomes renders in this frame (§4) — sign-in,
+ * password reset, connection problem, installation unavailable — so a reviewer
+ * sees the same screen shape whatever went wrong.
+ */
 export type AssistantProfile = components["schemas"]["AssistantProfile"];
 export type AuthPhase =
   | "idle"
@@ -20,6 +35,12 @@ export type AuthPhase =
 function coreState(phase: AuthPhase): MarginceCoreState {
   if (phase === "signing-in") {
     return "working";
+  }
+  if (phase === "idle") {
+    // Waiting on the user, and saying so. `idle` would be honest too, but the
+    // surface IS asking for something, and `listening` is the state that means
+    // that in the closed vocabulary.
+    return "listening";
   }
   return phase;
 }
@@ -52,63 +73,81 @@ export function AuthExperience({
   phase: AuthPhase;
 }>) {
   return (
-    <div className="auth-page">
-      <main className="auth-experience" data-auth-phase={phase}>
-        <section className="auth-column">{children}</section>
-        <MarginceCore profile={profile} phase={phase} />
+    <div className="auth-surface" data-auth-phase={phase}>
+      <main className="auth-task">
+        <div className="auth-task-in">{children}</div>
       </main>
+      <IdentityRegion profile={profile} phase={phase} />
     </div>
   );
 }
 
-export function MarginceCore({
+/**
+ * The identity region (ADR-0076 Decision 2).
+ *
+ * Everything here is one of exactly four kinds of sentence, and the list is
+ * closed: the system's presence and name, a limit on its own behaviour in the
+ * first person, a server-read fact about this installation, nothing else. The
+ * test is one line — *a sentence that would still be true and still desirable on
+ * a marketing page is out of bounds*.
+ *
+ * The three limits are the VOICE-RULE-6 register: architectural guarantees the
+ * system enforces, stated absolutely. They are not bullets selling a feature,
+ * which is the distinction the July login spec collapsed and ADR-0076 restored.
+ *
+ * NO CONTROLS AND NO COPY THE TASK DEPENDS ON. That is what stops this region
+ * competing with the form, and it is structural rather than a matter of taste.
+ */
+export function IdentityRegion({
   profile,
   phase,
 }: Readonly<{ profile?: AssistantProfile; phase: AuthPhase }>) {
   const t = useT();
   const identityId = useId();
   return (
-    <aside className="auth-core" aria-labelledby={identityId}>
-      <div className="auth-core-copy">
-        <p className="auth-core-kicker" id={identityId}>
-          <span className="auth-core-identity-dot" aria-hidden />
+    <aside className="auth-identity" aria-labelledby={identityId}>
+      <div className="auth-identity-top">
+        <p className="auth-kicker" id={identityId}>
+          <span className="auth-kicker-dot" aria-hidden />
           {t("auth.coreDisclosure")}
         </p>
-        <p className="auth-core-statement">{t("auth.coreBoundary")}</p>
+        {/* Not a heading. The one h1 belongs to the task (§6.4), and this is a
+            paragraph however large it is set. */}
+        <p className="auth-statement">{t("auth.coreBoundary")}</p>
       </div>
 
       <MarginceCoreScene state={coreState(phase)} />
 
-      <div className="auth-core-meta">
-        {profile && <RuntimeProfile profile={profile} />}
-        <ul className="auth-core-trust">
-          <TrustFact icon={<LockKeyhole />} text={t("auth.corePermission")} />
-          <TrustFact icon={<BookOpenText />} text={t("auth.coreCites")} />
-          <TrustFact icon={<ShieldCheck />} text={t("auth.coreWaits")} />
+      <div className="auth-identity-foot">
+        {/* Absent rather than guessed: a runtime line the frontend invented is
+            the one thing Decision 2c forbids, so an in-flight or failed probe
+            renders nothing. The row reserves its height in CSS so the column
+            does not jump when it arrives. */}
+        {profile && <RuntimePosture profile={profile} />}
+        <ul className="auth-limits">
+          <Limit icon={<LockKeyhole />} text={t("auth.corePermission")} />
+          <Limit icon={<BookOpenText />} text={t("auth.coreCites")} />
+          <Limit icon={<ShieldCheck />} text={t("auth.coreWaits")} />
         </ul>
       </div>
     </aside>
   );
 }
 
-function RuntimeProfile({ profile }: Readonly<{ profile: AssistantProfile }>) {
+function RuntimePosture({ profile }: Readonly<{ profile: AssistantProfile }>) {
   const t = useT();
   if (profile.state === "unconfigured") {
     return (
-      <div className="auth-core-runtime">
-        <span className="auth-core-runtime-state">
-          {t("auth.coreUnconfigured")}
-        </span>
+      <div className="auth-runtime">
+        <span className="auth-runtime-state">{t("auth.coreUnconfigured")}</span>
         <span>{t("auth.coreStillWorks")}</span>
       </div>
     );
   }
   if (profile.state === "development") {
     return (
-      <div className="auth-core-runtime">
-        <span className="auth-core-runtime-state">
-          {t("auth.coreDevelopment")}
-        </span>
+      <div className="auth-runtime">
+        <span className="auth-runtime-state">{t("auth.coreDevelopment")}</span>
         <span>{t(modeKeys[profile.inference_mode])}</span>
       </div>
     );
@@ -117,8 +156,8 @@ function RuntimeProfile({ profile }: Readonly<{ profile: AssistantProfile }>) {
     .map((provider) => t(providerKeys[provider]))
     .join(" + ");
   return (
-    <div className="auth-core-runtime">
-      <span className="auth-core-runtime-state">
+    <div className="auth-runtime">
+      <span className="auth-runtime-state">
         <Check aria-hidden /> {t("auth.coreConfigured")}
       </span>
       <span>
@@ -130,13 +169,10 @@ function RuntimeProfile({ profile }: Readonly<{ profile: AssistantProfile }>) {
   );
 }
 
-function TrustFact({
-  icon,
-  text,
-}: Readonly<{ icon: ReactNode; text: string }>) {
+function Limit({ icon, text }: Readonly<{ icon: ReactNode; text: string }>) {
   return (
     <li>
-      <span className="auth-core-trust-icon" aria-hidden>
+      <span className="auth-limit-icon" aria-hidden>
         {icon}
       </span>
       {text}

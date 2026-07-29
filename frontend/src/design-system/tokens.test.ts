@@ -101,6 +101,14 @@ describe("Ledger-Green token layer (B-EP09.1)", () => {
     expect(normalize(light["--accent"])).not.toBe(normalize(light["--online"]));
   });
 
+  // The material overlays are the ONLY non-canon literals in this file, and they
+  // are here because check-ds-purity.sh excludes tokens.css and nothing else.
+  // Pinned so a later "tidy-up" cannot quietly turn them into brand colours.
+  it("ships the two material overlays as pure white and pure black", () => {
+    expect(normalize(light["--overlayLight"])).toBe("#ffffff");
+    expect(normalize(light["--overlayDark"])).toBe("#000000");
+  });
+
   describe("dark palette (data-theme toggle)", () => {
     const dark = parseBlock(tokensCss, '[data-theme="dark"]');
 
@@ -117,5 +125,36 @@ describe("Ledger-Green token layer (B-EP09.1)", () => {
     it("keeps the rail on the shared ink-green field (§2b: the rail is not themed)", () => {
       expect(dark["--bgRail"]).toBeUndefined();
     });
+  });
+});
+
+// brand.css is the derived layer, and "derived" is the whole guarantee: a literal
+// there would be a brand colour the spec has never seen, following neither the
+// dark-theme accent lift nor any future palette change. Comments are stripped
+// first — the file's own header quotes the accent lift's two hex values, and
+// documenting the canon is not inventing a colour.
+describe("the derived brand layer", () => {
+  const brandCss = readFileSync(join(here, "brand.css"), "utf8").replace(
+    /\/\*[\s\S]*?\*\//g,
+    "",
+  );
+
+  it("invents no colour — every value derives from a canonical token", () => {
+    const literal = /#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch)\(/;
+    for (const [index, line] of brandCss.split("\n").entries()) {
+      expect(
+        literal.test(line),
+        `brand.css line ${index + 1} carries a colour literal — derive it from a token`,
+      ).toBe(false);
+    }
+  });
+
+  it("declares every derived token as a color-mix of a token", () => {
+    const declarations = [...brandCss.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)];
+    expect(declarations.length).toBeGreaterThan(0);
+    for (const [, name, value] of declarations) {
+      expect(value, `${name} is not derived`).toMatch(/color-mix\(/);
+      expect(value, `${name} mixes no token`).toMatch(/var\(--/);
+    }
   });
 });

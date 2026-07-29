@@ -624,6 +624,148 @@ test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// The unauthenticated surface (ADR-0076): §3.8 at two narrow widths, 200% zoom,
+// the two-region structure, and axe.
+//
+// WHY IT NEEDS ITS OWN BLOCK: every sweep above walks CORE_SCREENS, and all of
+// those start behind a session — so the one screen a signed-out user actually
+// meets was never measured at any width. It is also the only screen the spec
+// gives a SECOND region, which makes it the likeliest place a breakpoint
+// regression lands and the least likely place anyone notices: nobody resizes the
+// login page.
+//
+// These override the file-level beforeEach with an unauthenticated mock, so the
+// app renders login rather than the shell.
+// ---------------------------------------------------------------------------
+test.describe("ADR-0076: the unauthenticated surface", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page, { session: "unauthenticated" });
+  });
+
+  // Each entry is a viewport the spec names. 200% zoom is expressed as the CSS
+  // viewport it actually produces — a 1280x800 window at 200% presents 640x400 —
+  // because that is what the layout sees; deviceScaleFactor would change the
+  // pixel ratio and nothing about the breakpoints.
+  const NARROW = [
+    { label: "390px mobile", width: 390, height: 844 },
+    { label: "320px narrow", width: 320, height: 568 },
+    { label: "200% zoom", width: 640, height: 400 },
+  ] as const;
+
+  for (const { label, width, height } of NARROW) {
+    test.describe(label, () => {
+      test.use({ viewport: { width, height } });
+
+      test("no horizontal body scroll", async ({ page }) => {
+        await page.goto("/");
+        await expect(
+          page.getByRole("heading", {
+            level: 1,
+            name: "Bei Margince anmelden",
+          }),
+        ).toBeVisible();
+        const overflow = await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+
+      // The defect this pins is specific and was live: a fixed, overflow-hidden
+      // full-screen surface cannot scroll, so at 320px or under a phone keyboard
+      // the submit button is simply unreachable (§13.3).
+      test("keeps the primary action reachable", async ({ page }) => {
+        await page.goto("/");
+        const submit = page.getByRole("button", { name: "Anmelden" });
+        await submit.scrollIntoViewIfNeeded();
+        await expect(submit).toBeVisible();
+        const box = await submit.boundingBox();
+        expect(box).not.toBeNull();
+        // §6.5/§12: 44px is the target floor, not a rounded-up number.
+        expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44);
+      });
+
+      // A region that has to be hidden to pass a breakpoint has failed the
+      // breakpoint (ADR-0076 Decision 6). Both current implementations used to
+      // drop two of the three limits with `display: none`, which is what this
+      // catches — count AND rendered height, since a count alone passes on a
+      // hidden node.
+      test("hides no content to fit", async ({ page }) => {
+        await page.goto("/");
+        const limits = page.locator(".auth-limits li");
+        await expect(limits).toHaveCount(3);
+        for (let index = 0; index < 3; index += 1) {
+          await expect(limits.nth(index)).toBeVisible();
+        }
+        // The identity region may shrink to the Core and its statement. It may
+        // not be removed: the disclosure is the reason it exists.
+        await expect(page.locator("aside.auth-identity")).toBeVisible();
+      });
+    });
+  }
+
+  // Stacked below 960px, and the task comes FIRST — visually as well as in the
+  // DOM, because at this width there is no second column for `order` to move.
+  test("stacks the task region above the identity region below 960px", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 720, height: 900 });
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Bei Margince anmelden" }),
+    ).toBeVisible();
+    const task = await page.locator("main.auth-task").boundingBox();
+    const identity = await page.locator("aside.auth-identity").boundingBox();
+    expect(task).not.toBeNull();
+    expect(identity).not.toBeNull();
+    expect(task?.y ?? 0).toBeLessThan(identity?.y ?? 0);
+  });
+
+  // §6.4 / §12: one h1, and it is the TASK. A surface whose h1 is the system
+  // talking and whose h2 is "sign in" has inverted its own hierarchy — and the
+  // identity region's statement is set large enough that promoting it to a
+  // heading is a tempting mistake.
+  test("has exactly one h1, and it is the task", async ({ page }) => {
+    await page.goto("/");
+    const headings = page.getByRole("heading", { level: 1 });
+    await expect(headings).toHaveCount(1);
+    await expect(headings).toHaveText("Bei Margince anmelden");
+  });
+
+  // The Core is decoration (WDS-CORE-4): every state it shows is also stated in
+  // text by the surface around it, so it must not reach the a11y tree at all.
+  test("keeps the Core out of the accessibility tree", async ({ page }) => {
+    await page.goto("/");
+    const core = page.locator("[data-core-state]");
+    await expect(core).toHaveCount(1);
+    await expect(core).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // §19: no control whose flow does not exist. The mock ships
+  // `oidc_providers: []`, which is the honest V1 answer.
+  test("offers no identity provider that does not work", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByText(/weiter mit|continue with/i)).toHaveCount(0);
+  });
+
+  test("no AA violations on the login screen", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.flatMap((violation) =>
+        violation.nodes.map(
+          (node) => `${violation.id}: ${node.target.join(" ")}`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+});
+
 test("PERF-1: record open renders under the 300ms perceived budget", async ({
   page,
 }) => {
