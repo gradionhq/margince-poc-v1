@@ -73,23 +73,20 @@ export function useOrganization360(id: string) {
 // an overlay refusal, and must read as one failure rather than throwing a
 // second one on the way to saying so.
 function isOverlayRefusal(problem: unknown): boolean {
-  if (typeof problem !== "object" || problem === null) {
-    return false;
-  }
-  const details = (problem as Record<string, unknown>).details;
-  if (typeof details !== "object" || details === null) {
-    return false;
-  }
-  const errors = (details as Record<string, unknown>).errors;
+  const errors = asRecord(asRecord(problem)?.details)?.errors;
   if (!Array.isArray(errors)) {
     return false;
   }
-  return errors.some(
-    (entry) =>
-      typeof entry === "object" &&
-      entry !== null &&
-      (entry as Record<string, unknown>).code === OVERLAY_REFUSAL,
-  );
+  return errors.some((entry) => asRecord(entry)?.code === OVERLAY_REFUSAL);
+}
+
+// asRecord narrows an unknown to a readable object, or gives up. Truthiness
+// first, because typeof null is "object" — the one case that would otherwise
+// pass the guard and throw on the next property read.
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 /**
