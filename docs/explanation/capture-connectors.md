@@ -318,6 +318,8 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
 
 - Connecting and testing a mailbox end-to-end (Gmail OAuth + IMAP for Gmail/Outlook):
   [how-to/connect-a-mailbox.md](../how-to/connect-a-mailbox.md).
+- The history import as one story — the scope count, the consent estimate, the resumable page loop,
+  and the AI spend that lands after it: [mail-history-import.md](mail-history-import.md).
 - Every connector flag and env var (OAuth apps, Pub/Sub, sync interval, the vault key):
   [reference/configuration.md](../reference/configuration.md).
 - The write shape every captured row commits through, and the outbox bus the pipeline rides:

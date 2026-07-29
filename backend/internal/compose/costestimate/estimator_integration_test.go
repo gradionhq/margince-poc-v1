@@ -259,17 +259,17 @@ func TestEstimatorPricesObservedHistory(t *testing.T) {
 	}
 }
 
-// TestEstimatorEnrichFloorsWhenPeopleCreatedZero is TODAY's production reality:
-// the backfill loop never populates capture_backfill.people_created, so a
-// completed run carries people_created=0. Enrich must FLOOR (heuristic) and
-// price the floor units — never quote a silent observed $0 — even though
-// classify and embeddings price observed from the same completed run.
+// TestEstimatorEnrichFloorsWhenPeopleCreatedZero covers a completed run that
+// minted no counterparty of its own — its senders already known, suppressed,
+// internal, or deferred to the verdict engine. Classify and embeddings price
+// observed from that run; the zero-people enrich must force the whole estimate
+// heuristic while leaving it priced.
 func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	e := setupEstimator(t)
 	ws, wsCtx := e.seedWorkspace(t)
 	user := e.seedUser(t, ws)
 	connID := e.seedConnection(t, ws, user, "gmail")
-	e.seedBackfill(t, ws, connID, 6, 100, 80, 0, 0) // people/orgs 0, as production leaves them
+	e.seedBackfill(t, ws, connID, 6, 100, 80, 0, 0) // people/orgs 0: the run minted no counterparty
 
 	e.insertRate(t, ws, "cloud-model", 1_000_000, 2_000_000)
 	e.insertRate(t, ws, "embed-model", 500_000, 0)
@@ -289,10 +289,12 @@ func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	if got.Quality != QualityHeuristic {
 		t.Fatalf("Quality = %s, want heuristic (people_created=0 floors enrich)", got.Quality)
 	}
-	// Classify + embeddings price observed; enrich floors but is still priced at
-	// its floor units — nothing is a silent $0.
+	// A floored enrich still leaves the ESTIMATE priced — the whole preview never
+	// falls to the suppressed-cost path because one task lost its ratio. That the
+	// floor UNITS are the priced ones is pinned by the unit-lane sibling,
+	// TestEstimateEnrichFloorsWhenPeopleCreatedZero.
 	if !got.HasCost {
-		t.Fatal("HasCost = false, want true (classify + embeddings priced observed; enrich priced at floor units)")
+		t.Fatal("HasCost = false, want true (a floored enrich must not suppress the whole estimate's cost)")
 	}
 	if got.CostMinor <= 0 {
 		t.Fatalf("CostMinor = %d, want > 0", got.CostMinor)
