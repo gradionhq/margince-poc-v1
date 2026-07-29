@@ -23,6 +23,44 @@
 
 ## Landed arcs
 
+**The backfill import shows progress while a page runs (`feat/backfill-live-progress`, #307).**
+A run's counters only ever moved at page commit, and a Gmail page is 100
+messages — about 84 seconds against a real mailbox. So a user who had just
+connected their inbox watched "Import queued" over three zeros for the whole
+first page, which is indistinguishable from an import that never started.
+Found by running a cold stack against a real Gmail account: the status
+endpoint was correct and the panel was polling every 2.5s as designed; the
+data simply had nothing new to say between commits.
+
+The page now reports as it walks. `connector.BackfillProgress` is a new
+optional seam beside `Backfiller`/`Watcher`/`Sender` — the engine installs a
+reporter on the page context, and a connector that never calls it behaves
+exactly as before. Both `Backfiller` implementations (Gmail and Graph) report
+the page's absolute tally after every message, counting messages *walked*
+rather than the page's listing, because a page that dies mid-walk is retried
+from the committed token. `capture.pageProgress` folds those reports together
+with the counterparty creations the Sink already counted and writes them to
+five `capture_backfill.inflight_*` columns (migration 0141); the status read
+adds them to the committed counters. The first reported message also promotes
+`queued` → `running`, so the title stops contradicting numbers that are
+climbing. The write is paced (`WithProgressPacing`, 500ms) and carries the
+same connection-generation fence the commit carries. No frontend change was
+needed — `BackfillPanel` already rendered whatever the status read returned.
+
+The invariant that made it safe: **the committed columns still move only at
+commit.** The in-flight copy is advisory and is cleared by every write that
+ends a page — commit, transient fault, terminal failure, cancel — so a page
+walked twice is counted once.
+
+The lesson worth carrying forward is about *how that invariant is held*. It
+started as five hand-edited call sites, became a source-scanning test, and
+that test turned out to pass on five different real violations (a WHERE-clause
+comparison that reset nothing, `0.5` read as zero, a partial reset, an
+`ON CONFLICT DO UPDATE` arm, and a wrapped lowercase statement) before it was
+rebuilt on `go/parser` with effective-SQL reconstruction. **A fitness function
+is only as good as the evasions you actually try against it** — write the
+violating file and watch the test fail, or you have a list in disguise.
+
 
 **The first outbound channel (`feat/gmail-send`, #303).** Until this, nothing
 the product sent ever reached a contact: `POST /activities/{id}/send-email` ran

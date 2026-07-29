@@ -96,7 +96,7 @@ func (s *Sink) ensureCounterparty(ctx context.Context, rec connector.NormalizedR
 	}
 	// Nil unless a backfill page is running: incremental sync creates
 	// counterparties too, and they belong to no run.
-	yieldCollectorFrom(ctx).count(outcome)
+	pageProgressFrom(ctx).counted(ctx, outcome)
 }
 
 // counterpartyDecision is what the tiered gate concluded inside the capture

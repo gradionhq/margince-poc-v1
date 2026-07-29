@@ -7,72 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
-
-// yieldCollector accumulates what ONE backfill page created, on its way to the
-// counter columns the page's commit writes. It rides the context because the
-// creations happen deep inside the Sink, behind connector.Sink — a seam four
-// connectors and every test fake implement, and widening it to carry a count
-// would be a large change for a number none of them can produce.
-type yieldCollector struct {
-	// A page is a batch of independent messages; nothing promises a connector
-	// walks it serially.
-	mu            sync.Mutex
-	people        int
-	organizations int
-}
-
-// yieldCollectorKey is the private context key — unexported and typed, so no
-// other package can install or read this.
-type yieldCollectorKey struct{}
-
-// withYieldCollector installs a fresh collector for one page. Fresh per page,
-// because the counters are folded in at page commit: a shared collector would
-// double-count every page after the first.
-func withYieldCollector(ctx context.Context) (context.Context, *yieldCollector) {
-	c := &yieldCollector{}
-	return context.WithValue(ctx, yieldCollectorKey{}, c), c
-}
-
-// yieldCollectorFrom returns the collector this context carries, or nil when no
-// backfill page is running — the incremental sync path, where a created
-// counterparty belongs to no run. Every method tolerates a nil receiver, so
-// absence costs a branch and never a panic.
-func yieldCollectorFrom(ctx context.Context) *yieldCollector {
-	c, _ := ctx.Value(yieldCollectorKey{}).(*yieldCollector)
-	return c
-}
-
-// count folds one ensure's outcome into the page's yield.
-func (c *yieldCollector) count(outcome EnsureOutcome) {
-	if c == nil {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if outcome.PersonCreated {
-		c.people++
-	}
-	if outcome.OrganizationCreated {
-		c.organizations++
-	}
-}
-
-// totals reads the page's yield.
-func (c *yieldCollector) totals() (people, organizations int) {
-	if c == nil {
-		return 0, 0
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.people, c.organizations
-}
 
 // BackfillYields is a completed backfill run's real volume ratios for the
 // previewing connection — how many messages one scan captured and how many

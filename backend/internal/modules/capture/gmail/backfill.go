@@ -64,23 +64,14 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 		return connector.BackfillPageResult{}, err
 	}
 	res := connector.BackfillPageResult{NextToken: next, Scanned: len(ids)}
-	for _, id := range ids {
-		msg, err := c.api.GetRaw(ctx, access, id)
-		if errors.Is(err, ErrMessageGone) {
-			// Deleted or moved since this page was listed — nothing to fetch.
-			// Count it scanned-but-skipped and move on; a routine 404 across a
-			// months-long window must not abort the page and stall the run.
-			res.Skipped++
-			continue
-		}
-		if err != nil {
-			// Stop the page without advancing, so a retry resumes from the
-			// committed token. Whether there IS a retry is the engine's call on
-			// the class this error carries: a rate limit or an unreachable
-			// provider is waited out, anything else ends the run.
-			return connector.BackfillPageResult{}, err
-		}
-		captured, err := captureOne(ctx, msg, sink, st.Owner)
+	// One page is a hundred messages of provider I/O and capture work, so the
+	// engine hears the tally per message rather than once at the end. Scanned
+	// counts messages WALKED so far, not the page's full listing: a page that
+	// dies mid-walk is retried from the committed token, and reporting the
+	// listing up front would show progress the retry then repeats.
+	progress := connector.BackfillProgressFrom(ctx)
+	for walked, id := range ids {
+		captured, err := c.backfillOne(ctx, access, id, sink, st.Owner)
 		if err != nil {
 			return connector.BackfillPageResult{}, err
 		}
@@ -89,8 +80,30 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 		} else {
 			res.Skipped++
 		}
+		progress.Observed(ctx, walked+1, res.Captured, res.Skipped)
 	}
 	return res, nil
+}
+
+// backfillOne walks ONE listed message: fetch it, then capture it. Its bool is
+// the page's tally decision — captured, or skipped for any of the ordinary
+// reasons a message yields no row.
+func (c *Connector) backfillOne(ctx context.Context, access, id string, sink connector.Sink, owner string) (bool, error) {
+	msg, err := c.api.GetRaw(ctx, access, id)
+	if errors.Is(err, ErrMessageGone) {
+		// Deleted or moved since this page was listed — nothing to fetch.
+		// Count it scanned-but-skipped and move on; a routine 404 across a
+		// months-long window must not abort the page and stall the run.
+		return false, nil
+	}
+	if err != nil {
+		// Stop the page without advancing, so a retry resumes from the
+		// committed token. Whether there IS a retry is the engine's call on
+		// the class this error carries: a rate limit or an unreachable
+		// provider is waited out, anything else ends the run.
+		return false, err
+	}
+	return captureOne(ctx, msg, sink, owner)
 }
 
 // paramMaxResults is Gmail's page-size query parameter.

@@ -65,27 +65,14 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 		return connector.BackfillPageResult{}, err
 	}
 	res := connector.BackfillPageResult{NextToken: next, Scanned: len(msgs)}
-	for _, msg := range msgs {
-		raw, err := c.api.GetMIME(ctx, access, msg.ID)
-		if errors.Is(err, connector.ErrSkip) {
-			// A message the provider refuses to hand over: deleted between the
-			// listing and the fetch, or an oversized MIME blob that truncated
-			// would not be honest evidence. Both are per-message drops, counted
-			// and stepped over the same way the incremental pull does —
-			// returning either here would fail the page, and the engine would
-			// retry from its committed token straight back onto the same
-			// message, forever.
-			res.Skipped++
-			continue
-		}
-		if err != nil {
-			// Stop the page without advancing, so a retry resumes from the
-			// committed token. Whether there IS a retry is the engine's call on
-			// the class this error carries: a rate limit or an unreachable
-			// provider is waited out, anything else ends the run.
-			return connector.BackfillPageResult{}, err
-		}
-		captured, err := captureOne(ctx, raw, sink, st.Owner, msg.ParentFolderID == sentFolder)
+	// One page is a hundred messages of provider I/O and capture work, so the
+	// engine hears the tally per message rather than once at the end. Scanned
+	// counts messages WALKED so far, not the page's listing: a page that dies
+	// mid-walk is retried from the committed token, and reporting the listing
+	// up front would show progress the retry then repeats.
+	progress := connector.BackfillProgressFrom(ctx)
+	for walked, msg := range msgs {
+		captured, err := c.backfillOne(ctx, access, msg, sink, st.Owner, sentFolder)
 		if err != nil {
 			return connector.BackfillPageResult{}, err
 		}
@@ -94,6 +81,32 @@ func (c *Connector) BackfillPage(ctx context.Context, auth connector.Auth, after
 		} else {
 			res.Skipped++
 		}
+		progress.Observed(ctx, walked+1, res.Captured, res.Skipped)
 	}
 	return res, nil
+}
+
+// backfillOne walks ONE listed message: fetch its MIME, then capture it. Its
+// bool is the page's tally decision — captured, or skipped for any of the
+// ordinary reasons a message yields no row.
+func (c *Connector) backfillOne(ctx context.Context, access string, msg MessageRef, sink connector.Sink, owner, sentFolder string) (bool, error) {
+	raw, err := c.api.GetMIME(ctx, access, msg.ID)
+	if errors.Is(err, connector.ErrSkip) {
+		// A message the provider refuses to hand over: deleted between the
+		// listing and the fetch, or an oversized MIME blob that truncated
+		// would not be honest evidence. Both are per-message drops, counted
+		// and stepped over the same way the incremental pull does —
+		// returning either here would fail the page, and the engine would
+		// retry from its committed token straight back onto the same
+		// message, forever.
+		return false, nil
+	}
+	if err != nil {
+		// Stop the page without advancing, so a retry resumes from the
+		// committed token. Whether there IS a retry is the engine's call on
+		// the class this error carries: a rate limit or an unreachable
+		// provider is waited out, anything else ends the run.
+		return false, err
+	}
+	return captureOne(ctx, raw, sink, owner, msg.ParentFolderID == sentFolder)
 }

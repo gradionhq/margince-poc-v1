@@ -57,6 +57,60 @@ func TestBackfillPageCapturesAndCounts(t *testing.T) {
 	}
 }
 
+// observedProgress records every live report a page makes, in order.
+type observedProgress struct{ calls [][3]int }
+
+func (p *observedProgress) Observed(_ context.Context, scanned, captured, skipped int) {
+	p.calls = append(p.calls, [3]int{scanned, captured, skipped})
+}
+
+func TestBackfillPageReportsProgressAfterEveryMessage(t *testing.T) {
+	// A page is a hundred messages and minutes of provider I/O, so the walk
+	// reports as it goes rather than only in its result. The numbers are the
+	// page's absolute tally at each step: messages WALKED (not the page's
+	// listing, which a retry would repeat) and how many of them were captured.
+	api := &fakeAPI{
+		listIDs: []string{"m1", "m2", "m3"},
+		raws: map[string][]byte{
+			// m2 is unparseable, so the second step advances scanned but not captured.
+			"m1": rawMsg("m1@mail.example", "alice@acme.com"),
+			"m2": []byte("not an rfc822 message at all"),
+			"m3": rawMsg("m3@mail.example", "bob@acme.com"),
+		},
+	}
+	c := pinnedConn(api)
+	progress := &observedProgress{}
+	ctx := connector.WithBackfillProgress(context.Background(), progress)
+
+	res, err := c.BackfillPage(ctx, authBytes(t), time.Time{}, "", &recordingSink{})
+	if err != nil {
+		t.Fatalf("BackfillPage: %v", err)
+	}
+	want := [][3]int{{1, 1, 0}, {2, 1, 1}, {3, 2, 1}}
+	if len(progress.calls) != len(want) {
+		t.Fatalf("progress reported %d times, want one report per message: %v", len(progress.calls), progress.calls)
+	}
+	for i, w := range want {
+		if progress.calls[i] != w {
+			t.Fatalf("report %d = scanned %d / captured %d / skipped %d, want %d / %d / %d", i, progress.calls[i][0], progress.calls[i][1], progress.calls[i][2], w[0], w[1], w[2])
+		}
+	}
+	if last := progress.calls[len(progress.calls)-1]; last[0] != res.Scanned || last[1] != res.Captured || last[2] != res.Skipped {
+		t.Fatalf("last report = %v, want it to agree with the page result %+v", last, res)
+	}
+}
+
+func TestBackfillPageWithoutAReporterWalksNormally(t *testing.T) {
+	// Reporting is optional on both sides: a context carrying no reporter must
+	// walk the page exactly as before, never panic on a missing one.
+	api := &fakeAPI{listIDs: []string{"m1"}, raws: map[string][]byte{"m1": rawMsg("m1@mail.example", "alice@acme.com")}}
+
+	res, err := pinnedConn(api).BackfillPage(context.Background(), authBytes(t), time.Time{}, "", &recordingSink{})
+	if err != nil || res.Scanned != 1 || res.Captured != 1 {
+		t.Fatalf("page = %+v, %v — want an unreported page to walk normally", res, err)
+	}
+}
+
 func TestBackfillPageResumesFromToken(t *testing.T) {
 	api := &fakeAPI{listIDs: nil, listNext: ""}
 	c := pinnedConn(api)

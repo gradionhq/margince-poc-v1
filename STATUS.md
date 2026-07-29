@@ -368,6 +368,13 @@ caused confusion in commits and comments. These are raised against
 `gradionhq/margince-foundation`, never worked around here, and never edited from
 this build repo.
 
+- **The backfill's live-progress columns and seam** — two raises from
+  `feat/backfill-live-progress` (#307), which made a running backfill page
+  report progress per message instead of only at page commit. CAP-DDL-4's
+  pinned `capture_backfill` DDL gains five `inflight_*` columns (migration
+  0141), and `interfaces.md` §1 gains an optional `BackfillProgress` seam
+  beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
+  what a committed run reports.
 - **ADR-0072 §1 ladder wording** — the ladder reads T1 → "ensure person+org
   NOW", which taken literally would mint a "Gmail" organization for a free-mail
   address the owner has corresponded with, exactly the junk the ADR exists to
