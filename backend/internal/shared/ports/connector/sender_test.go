@@ -45,7 +45,8 @@ func TestSenderDoesNotImplyConnector(t *testing.T) {
 // search for. Validate is the precondition every implementation checks before
 // provider I/O, so the shape it accepts is part of the port, not of one
 // connector: unbracketed addr-spec, exactly one '@', both sides present, no
-// whitespace and no brackets (those belong to the wire rendering alone).
+// whitespace, angle brackets, or ASCII control character (those belong to the
+// wire rendering alone, or to nothing usable at all).
 func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		id string
@@ -61,6 +62,10 @@ func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
 		{"<abc@margince.test>", false},
 		{"abc @margince.test", false},
 		{"abc@margince.test\r\nBcc: attacker@evil.test", false},
+		{"abc@margince.test\x00", false}, // NUL — a control byte outside the originally rejected " \t\r\n<>" set
+		{"abc@margince.test\x1f", false}, // unit separator — the last C0 control
+		{"abc@margince.test\x7f", false}, // DEL
+		{"ab\x0bc@margince.test", false}, // vertical tab, mid local-part rather than trailing
 	} {
 		err := connector.OutboundMessage{MessageID: tc.id}.Validate()
 		if tc.ok && err != nil {

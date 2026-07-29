@@ -152,8 +152,11 @@ type NormalizedRecord struct {
 	// References root, else In-Reply-To, else the message's own id — never a
 	// provider's private conversation id, which lives in a different namespace
 	// and joins nothing here (see SendReceipt). It is the CAP-FORMULA-1
-	// reply-detection join key and activity.thread_key's source. Empty when the
-	// record carries no reply headers to derive one from.
+	// reply-detection join key and activity.thread_key's source. A freshly
+	// captured message with no reply headers is rooted at its OWN Message-ID,
+	// not left empty, so a later reply that references it joins the thread
+	// from the first message onward. Empty only when the record carries none
+	// of the three sources — References, In-Reply-To, nor its own Message-ID.
 	ThreadKey string
 }
 
@@ -342,8 +345,13 @@ var ErrInvalidMessageID = errors.New("connector: outbound message carries no usa
 
 // ValidMessageID reports whether id is a usable RFC822 message identity in the
 // UNBRACKETED form this system stores and compares: an addr-spec with exactly
-// one '@', both sides non-empty, and no whitespace or angle brackets (the
-// connector adds the brackets at the wire).
+// one '@', both sides non-empty, and no whitespace, angle brackets, or ASCII
+// control character (the connector adds the brackets at the wire). Control
+// characters are rejected wholesale, not just the tab/CR/LF an editor is
+// likely to type: any of them would render a malformed Message-ID header on
+// the wire, and a provider that mangles or strips one on receipt breaks the
+// retry path's rfc822msgid: lookup — the search that stops an at-least-once
+// redelivery from mailing the recipient twice.
 //
 // It is the ONE spelling of that question, so the identity a send transmits
 // under and the identity a threading header is derived from cannot disagree
@@ -353,7 +361,15 @@ func ValidMessageID(id string) bool {
 	if !found || local == "" || domain == "" || strings.Contains(domain, "@") {
 		return false
 	}
-	return !strings.ContainsAny(id, " \t\r\n<>")
+	for _, r := range id {
+		switch {
+		case r == ' ' || r == '<' || r == '>':
+			return false
+		case r <= 0x1F || r == 0x7F: // the full ASCII control range (C0 + DEL)
+			return false
+		}
+	}
+	return true
 }
 
 // Validate refuses a message no provider should be handed. It is the sender
