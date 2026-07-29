@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
@@ -184,5 +185,31 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 	}
 	if !called {
 		t.Error("native mode did not reach the deals lister")
+	}
+}
+
+// TestTheGuardsProbeIgnoresAStaleCachedMode makes the guards' UNCACHED read a
+// constraint instead of a convention. sorModeProbe is a plain func type, so
+// wiring these guards to Dispatcher.isOverlay would compile and leave every
+// behavioural test above green: they all supply a probe directly and so pin
+// what a guard does GIVEN an answer, never where the answer comes from. A
+// replica holding a pre-flip 'native' entry would then let each guarded tool
+// answer out of the empty native tables — the silent break this file exists
+// to forbid.
+func TestTheGuardsProbeIgnoresAStaleCachedMode(t *testing.T) {
+	wsID := ids.NewV7()
+	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
+	ctx := principal.WithWorkspaceID(context.Background(), wsID)
+
+	before := *calls
+	inOverlay, err := nativeOnlyModeProbe(d)(ctx)
+	if err != nil {
+		t.Fatalf("resolving the mode through the guards' probe: %v", err)
+	}
+	if !inOverlay {
+		t.Error("the probe answered 'native' from the stale cache; a guard must re-read workspace.x_sor_mode")
+	}
+	if *calls == before {
+		t.Error("the probe served the cached mode without paying a workspace-row read")
 	}
 }
