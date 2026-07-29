@@ -326,3 +326,48 @@ describe("company view — next steps", () => {
     expect(screen.getByText("Overdue")).toBeTruthy();
   });
 });
+
+describe("company view — a failed read is not an empty account", () => {
+  it("says the page is partial instead of drawing a bare account", async () => {
+    stub({ title: "Internal", detail: "boom" }, 500);
+    renderCompany();
+
+    await waitFor(() =>
+      expect(screen.getByText(/may not show everything/)).toBeTruthy(),
+    );
+    // The business rail STAYS, with each card saying it could not be loaded.
+    // Removing it would read as an account with no people and no deals,
+    // which is the one thing this page does not know.
+    const card = screen.getByRole("complementary", { name: "Business" });
+    expect(
+      within(card).getAllByText(/Could not be loaded/).length,
+    ).toBeGreaterThan(0);
+    expect(
+      within(card).queryByText("No open deal on this account."),
+    ).toBeNull();
+    expect(
+      within(card).queryByText("No contact linked to this account yet."),
+    ).toBeNull();
+  });
+
+  it("distinguishes a section that is missing from one that is empty", async () => {
+    // No `deals` key at all and nothing named in sections_omitted: the
+    // server did not say the caller may not read it, and did not send it —
+    // so the page knows nothing, and must not claim there are none.
+    stub(view({ deals: undefined }));
+    renderCompany();
+
+    const card = await screen.findByRole("complementary", { name: "Business" });
+    const deals = within(card).getByText("Deals").closest("section");
+    if (!deals) {
+      throw new Error("the deals card has no section wrapper");
+    }
+    expect(within(deals).getByText(/Could not be loaded/)).toBeTruthy();
+    expect(
+      within(deals).queryByText("No open deal on this account."),
+    ).toBeNull();
+    expect(
+      within(deals).queryByText("Hidden — your role cannot read this"),
+    ).toBeNull();
+  });
+});

@@ -3,7 +3,12 @@ import type { ReactNode } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
-import { Badge, EmptyState, SectionHeader } from "../design-system/atoms";
+import {
+  Badge,
+  EmptyState,
+  SectionHeader,
+  Skeleton,
+} from "../design-system/atoms";
 import { formatDate, formatMoney } from "../format/format";
 
 import { useLocale, useT } from "../i18n";
@@ -81,37 +86,92 @@ export function omitted(view: Organization360, section: Section): boolean {
 }
 
 /**
- * SectionCard is the one shape every rail card takes, so "you may not see
- * this", "there is none" and "here it is" are three visibly different
- * answers rather than two that look alike.
+ * SectionState is what a card actually knows, and the four cases are
+ * deliberately not collapsed:
+ *
+ *   ready       — the section came back with rows.
+ *   empty       — the section came back, and there are none. A FACT.
+ *   withheld    — the caller's role cannot read it; sections_omitted says so.
+ *   unavailable — the section is missing and nobody said why: the read
+ *                 failed, or the server sent a payload this client does not
+ *                 fully understand.
+ *
+ * empty is the only one that may say "there is none", because it is the only
+ * one that knows. Rendering the other three as empty states a fact the page
+ * does not have — the rep reads "no open deals" and stops looking.
+ */
+export type SectionState =
+  | "ready"
+  | "empty"
+  | "withheld"
+  | "unavailable"
+  | "loading";
+
+// STATE_RANK orders the states by how much the card can actually say. A
+// card built from two sections shows the better-informed of the two, so
+// losing one grant narrows the card instead of blanking it.
+const STATE_RANK: Record<SectionState, number> = {
+  ready: 4,
+  empty: 3,
+  loading: 2,
+  unavailable: 1,
+  withheld: 0,
+};
+
+function mostInformative(a: SectionState, b: SectionState): SectionState {
+  return STATE_RANK[a] >= STATE_RANK[b] ? a : b;
+}
+
+/**
+ * sectionState classifies one 360 section. `present` is whether the payload
+ * carried it at all, which is a different question from whether it had rows.
+ */
+export function sectionState(
+  view: Organization360,
+  section: Section,
+  present: boolean,
+  count: number,
+): SectionState {
+  if (omitted(view, section)) {
+    return "withheld";
+  }
+  if (!present) {
+    return "unavailable";
+  }
+  return count === 0 ? "empty" : "ready";
+}
+
+/**
+ * SectionCard is the one shape every rail card takes, so the four answers
+ * above stay visibly different rather than three of them looking alike.
  */
 export function SectionCard({
   title,
-  restricted,
-  empty,
+  state,
   emptyLabel,
   action,
   children,
 }: Readonly<{
   title: string;
-  restricted: boolean;
-  empty: boolean;
+  state: SectionState;
   emptyLabel: string;
   action?: ReactNode;
   children: ReactNode;
 }>) {
   const t = useT();
-  let body: ReactNode = children;
-  if (restricted) {
-    body = <p className="co-restricted">{t("co.section.restricted")}</p>;
-  } else if (empty) {
-    body = <p className="co-empty">{emptyLabel}</p>;
-  }
   return (
     <section className="card co-card">
       <SectionHeader title={title} />
-      {body}
-      {!restricted && action}
+      {state === "ready" && children}
+      {state === "empty" && <p className="co-empty">{emptyLabel}</p>}
+      {state === "withheld" && (
+        <p className="co-restricted">{t("co.section.restricted")}</p>
+      )}
+      {state === "unavailable" && (
+        <p className="co-restricted">{t("co.section.unavailable")}</p>
+      )}
+      {state === "loading" && <Skeleton width="100%" height={32} />}
+      {state === "ready" && action}
     </section>
   );
 }
@@ -133,8 +193,12 @@ export function PeopleCard({ view }: Readonly<{ view: Organization360 }>) {
   return (
     <SectionCard
       title={t("co.people.title")}
-      restricted={omitted(view, "people")}
-      empty={contacts.length === 0}
+      state={sectionState(
+        view,
+        "people",
+        Boolean(view.people),
+        contacts.length,
+      )}
       emptyLabel={t("co.people.empty")}
     >
       <ul className="co-list">
@@ -222,8 +286,12 @@ export function DealsCard({ view }: Readonly<{ view: Organization360 }>) {
   return (
     <SectionCard
       title={t("co.deals.title")}
-      restricted={omitted(view, "deals")}
-      empty={(deals?.data.length ?? 0) === 0}
+      state={sectionState(
+        view,
+        "deals",
+        Boolean(deals),
+        deals?.data.length ?? 0,
+      )}
       emptyLabel={t("co.deals.empty")}
       action={
         deals && (
@@ -280,14 +348,22 @@ export function TagsCard({ view }: Readonly<{ view: Organization360 }>) {
   const t = useT();
   const tags = view.tags ?? [];
   const lists = view.list_memberships ?? [];
-  // Both halves ride one card, so it is restricted only when BOTH are — a
-  // caller who can read tags but not lists still sees their tags.
-  const restricted = omitted(view, "tags") && omitted(view, "list_memberships");
+  // Two halves in one card: whichever half the caller CAN read decides what
+  // the card shows, so a caller who reads tags but not lists still sees
+  // their tags rather than one blanket refusal.
+  const state = mostInformative(
+    sectionState(view, "tags", Boolean(view.tags), tags.length),
+    sectionState(
+      view,
+      "list_memberships",
+      Boolean(view.list_memberships),
+      lists.length,
+    ),
+  );
   return (
     <SectionCard
       title={t("co.tags.title")}
-      restricted={restricted}
-      empty={tags.length === 0 && lists.length === 0}
+      state={state}
       emptyLabel={t("co.tags.empty")}
     >
       <p className="co-row-meta">
@@ -327,11 +403,21 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
     },
   });
   const signals: Signal[] = query.data ?? [];
+  // This card reads its own endpoint, so it owns the two states the 360's
+  // sections get from the payload: a failed read is unavailable, and only a
+  // successful one may say there are no signals.
+  let state: SectionState = "ready";
+  if (query.isError) {
+    state = "unavailable";
+  } else if (query.isPending) {
+    state = "loading";
+  } else if (signals.length === 0) {
+    state = "empty";
+  }
   return (
     <SectionCard
       title={t("co.signals.title")}
-      restricted={false}
-      empty={query.isSuccess && signals.length === 0}
+      state={state}
       emptyLabel={t("co.signals.empty")}
     >
       <ul className="co-list">
@@ -357,6 +443,8 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
 export function SinceLastVisit({ view }: Readonly<{ view: Organization360 }>) {
   const t = useT();
   const delta = view.since_last_visit;
+  // Withheld or missing: the line is dropped rather than claiming nothing
+  // changed. "Nothing new" is a fact this page would not have.
   if (!delta || omitted(view, "since_last_visit")) {
     return null;
   }
@@ -405,15 +493,27 @@ export function NextSteps({
   const t = useT();
   const { locale } = useLocale();
   const steps = view.next_steps?.data ?? [];
-  if (omitted(view, "next_steps")) {
+  const state = sectionState(
+    view,
+    "next_steps",
+    Boolean(view.next_steps),
+    steps.length,
+  );
+  // A withheld block is dropped entirely — the middle column is the story,
+  // and a refusal in the middle of it says nothing a rep can act on. Every
+  // other state is shown, because "no open task" and "we could not tell"
+  // lead to different next moves.
+  if (state === "withheld") {
     return null;
   }
   return (
     <section className="card co-card">
       <SectionHeader title={t("co.next.title")} />
-      {steps.length === 0 ? (
-        <p className="co-empty">{t("co.next.empty")}</p>
-      ) : (
+      {state === "unavailable" && (
+        <p className="co-restricted">{t("co.section.unavailable")}</p>
+      )}
+      {state === "empty" && <p className="co-empty">{t("co.next.empty")}</p>}
+      {state === "ready" && (
         <ul className="co-list">
           {steps.map((step) => (
             <li key={step.activity_id} className="co-row">

@@ -453,6 +453,10 @@ export const en = {
   "co.since.moves": "{count} deal stage moves",
   "co.since.proposals": "{count} decisions waiting",
   "co.since.nothing": "Nothing new since your last visit.",
+  "co.partial":
+    "Some of this page could not be loaded, so it may not show everything on this account.",
+  "co.section.unavailable":
+    "Could not be loaded — this may not be the whole picture",
   "co.section.restricted": "Hidden \u2014 your role cannot read this",
   "co.next.title": "Next steps",
   "co.next.empty": "No open task on this account.",

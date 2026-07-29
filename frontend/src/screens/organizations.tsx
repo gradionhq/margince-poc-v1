@@ -1220,7 +1220,7 @@ function CompanyRecord({
   t,
 }: Readonly<{
   org: Organization;
-  view: { data?: Org360Result; isPending: boolean };
+  view: { data?: Org360Result; isPending: boolean; isError: boolean };
   tab: CompanyTab;
   onTab: (next: CompanyTab) => void;
   t: ReturnType<typeof useT>;
@@ -1264,6 +1264,7 @@ function CompanyRecord({
       view={assembled}
       overlay={overlay}
       loading={view.isPending}
+      failed={view.isError}
       tabs={tabs}
     />
   );
@@ -1366,12 +1367,17 @@ function CompanyOverview({
   view,
   overlay,
   loading,
+  failed,
   tabs,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
   loading: boolean;
+  // The composite read failed. Distinct from "still loading" and from "the
+  // account is empty", because all three would otherwise draw the same
+  // blank page and only one of them is a fact about the account.
+  failed: boolean;
   tabs: ReactNode;
 }>) {
   const t = useT();
@@ -1397,26 +1403,26 @@ function CompanyOverview({
           </>
         )
       }
-      aside={
-        overlay || !view ? undefined : (
-          <>
-            <PeopleCard view={view} />
-            <DealsCard view={view} />
-            <SignalsCard orgId={org.id} />
-            <TagsCard view={view} />
-          </>
-        )
-      }
+      aside={businessRail({ org, view, overlay, failed })}
       timeline={view ? activityTimeline(timeline) : []}
       // In overlay mode the refusal is stated once, in the body: repeating it
       // over the timeline would read as two separate things being
       // unavailable rather than one page not being assembled.
       timelineNotice={
-        overlay ? <span /> : timelineEmptyNotice(loading, timeline.length, t)
+        overlay ? (
+          <span />
+        ) : (
+          timelineNoticeFor(
+            { loading, failed, assembled: Boolean(view?.activities) },
+            timeline.length,
+            t,
+          )
+        )
       }
     >
       {tabs}
       {overlay && <OverlayFallback />}
+      {failed && <EmptyState>{t("co.partial")}</EmptyState>}
       {view && (
         <>
           <SinceLastVisit view={view} />
@@ -1427,16 +1433,70 @@ function CompanyOverview({
   );
 }
 
-// timelineEmptyNotice keeps "still loading" and "nothing logged" apart:
-// an empty list during the first read would otherwise read as an account
-// nobody has ever touched.
-function timelineEmptyNotice(
-  loading: boolean,
+// businessRail is the right column. A failed composite read must not simply
+// remove it: an account page with no people, no deals and no signals reads
+// as an account with none of those, which is the one thing the page does not
+// know. The rail stays and each card says it could not be loaded — except in
+// overlay mode, where the single page-level refusal already covers it.
+function businessRail({
+  org,
+  view,
+  overlay,
+  failed,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  overlay: boolean;
+  failed: boolean;
+}>): ReactNode {
+  if (overlay) {
+    return undefined;
+  }
+  if (view) {
+    return (
+      <>
+        <PeopleCard view={view} />
+        <DealsCard view={view} />
+        <SignalsCard orgId={org.id} />
+        <TagsCard view={view} />
+      </>
+    );
+  }
+  if (!failed) {
+    return undefined; // still loading: the rail arrives with the read
+  }
+  // No payload to classify per section, so every section is unavailable —
+  // an empty sections_omitted names nothing as withheld, which is true.
+  const unknown = {
+    as_of: "",
+    organization: org,
+    sections_omitted: [],
+  } as Organization360View;
+  return (
+    <>
+      <PeopleCard view={unknown} />
+      <DealsCard view={unknown} />
+      <SignalsCard orgId={org.id} />
+      <TagsCard view={unknown} />
+    </>
+  );
+}
+
+// timelineNoticeFor keeps four things apart that all render as an empty
+// list if you let them: still loading, the read failed, the section was
+// never in the payload, and the account genuinely has nothing logged. Only
+// the last one may say so — the other three would have a rep conclude
+// nobody has ever touched this account.
+function timelineNoticeFor(
+  timeline: { loading: boolean; failed: boolean; assembled: boolean },
   count: number,
   t: ReturnType<typeof useT>,
 ): ReactNode {
-  if (loading) {
+  if (timeline.loading) {
     return <Skeleton width="100%" height={48} />;
+  }
+  if (timeline.failed || !timeline.assembled) {
+    return <EmptyState>{t("co.section.unavailable")}</EmptyState>;
   }
   return count === 0 ? (
     <EmptyState>{t("co.timeline.empty")}</EmptyState>

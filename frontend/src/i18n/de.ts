@@ -464,6 +464,10 @@ export const de = {
   "co.since.moves": "{count} Phasenwechsel",
   "co.since.proposals": "{count} Entscheidungen offen",
   "co.since.nothing": "Seit deinem letzten Besuch nichts Neues.",
+  "co.partial":
+    "Teile dieser Seite konnten nicht geladen werden; sie zeigt möglicherweise nicht alles zu diesem Account.",
+  "co.section.unavailable":
+    "Konnte nicht geladen werden — das ist möglicherweise nicht das ganze Bild",
   "co.section.restricted":
     "Ausgeblendet \u2014 deine Rolle darf das nicht lesen",
   "co.next.title": "Nächste Schritte",
