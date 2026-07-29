@@ -291,7 +291,8 @@ func TestEstimatorEnrichFloorsWhenPeopleCreatedZero(t *testing.T) {
 	}
 	// A floored enrich still leaves the ESTIMATE priced — the whole preview never
 	// falls to the suppressed-cost path because one task lost its ratio. That the
-	// floor UNITS are the priced ones is pinned by TestEstimateEnrichFloorsWhenPeopleCreatedZero.
+	// floor UNITS are the priced ones is pinned by the unit-lane sibling,
+	// TestEstimateEnrichFloorsWhenPeopleCreatedZero.
 	if !got.HasCost {
 		t.Fatal("HasCost = false, want true (a floored enrich must not suppress the whole estimate's cost)")
 	}
