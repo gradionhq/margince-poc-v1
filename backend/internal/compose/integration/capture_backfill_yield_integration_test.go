@@ -78,11 +78,15 @@ func (m *mailPageConnector) BackfillPage(ctx context.Context, _ connector.Auth, 
 			continue
 		}
 		msg = msg.AttestSentByOwner(m.sent[msg.ID()])
+		// Reported BEFORE the capture, which the seam permits and the shipped
+		// connectors do not do. That is the point: reporting afterwards would
+		// carry the counterparty counts along with it, and this fixture exists
+		// to prove the Sink's own flush surfaces them without help.
+		connector.BackfillProgressFrom(ctx).Observed(ctx, res.Scanned, res.Captured, res.Skipped)
 		if _, err := sink.Upsert(ctx, msg.ToRecord("gmail", raw)); err != nil {
 			return connector.BackfillPageResult{}, err
 		}
 		res.Captured++
-		connector.BackfillProgressFrom(ctx).Observed(ctx, res.Scanned, res.Captured, res.Skipped)
 		if m.afterMessage != nil {
 			m.afterMessage()
 		}
