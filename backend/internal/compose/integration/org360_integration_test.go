@@ -20,7 +20,10 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
@@ -341,6 +344,50 @@ func TestOrganization360RefusesTheVisitBaselineToAnAgent(t *testing.T) {
 	}
 	if !slices.Contains(view.SectionsOmitted, "pending_approvals") {
 		t.Errorf("sections_omitted = %v, want it to name pending_approvals for an agent", view.SectionsOmitted)
+	}
+}
+
+// The transport is thin, but "thin" is a claim: it has to bind the path id,
+// let the service's gates decide, and hand back the assembled body — and a
+// native workspace must reach it, not be refused by the overlay guard that
+// only exists for mirror-backed ones.
+func TestOrganization360TransportServesANativeWorkspace(t *testing.T) {
+	e := Setup(t)
+	handlers := org360.NewHandlers(org360Service(e),
+		func(context.Context) (bool, error) { return false, nil })
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/v1/organizations/"+org.String()+"/360", nil)
+	handlers.GetOrganization360(rec, req.WithContext(rep), crmcontracts.Id(org.UUID))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	var body crmcontracts.Organization360
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding the 360 body: %v", err)
+	}
+	if body.Organization.DisplayName != "Acme" {
+		t.Errorf("organization display_name = %q, want Acme", body.Organization.DisplayName)
+	}
+	if !body.AsOf.Equal(org360Clock) {
+		t.Errorf("as_of = %v, want the read's pinned instant %v", body.AsOf, org360Clock)
+	}
+
+	rec = httptest.NewRecorder()
+	ack := httptest.NewRequest(http.MethodPost, "/v1/organizations/"+org.String()+"/view-ack", nil)
+	handlers.AcknowledgeOrganizationView(rec, ack.WithContext(rep), crmcontracts.Id(org.UUID))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("view-ack status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	var stored crmcontracts.RecordViewAck
+	if err := json.Unmarshal(rec.Body.Bytes(), &stored); err != nil {
+		t.Fatalf("decoding the ack body: %v", err)
+	}
+	if !stored.LastViewedAt.Equal(org360Clock) {
+		t.Errorf("last_viewed_at = %v, want %v", stored.LastViewedAt, org360Clock)
 	}
 }
 
