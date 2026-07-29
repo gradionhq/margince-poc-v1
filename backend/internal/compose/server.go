@@ -222,7 +222,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	for _, opt := range opts {
 		opt(&srv, pool)
 	}
-	srv.applySendPath()
+	srv.applySendPath(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
 	mux := operationalMux(srv, pool, log, authH, api)
@@ -342,8 +342,9 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		srv.sorDispatch.isOverlay,
 	)
 	// toolRegistry backs ListAgentTools AND the MCP tool transport; it carries
-	// the vault-backed live-incumbent resolver so overlay write-back
-	// (Create/Update/Archive) actually reaches HubSpot from the agent surface.
+	// the vault-backed live-incumbent resolver that lets force-fresh reads and
+	// HUMAN write-back reach HubSpot (an AGENT write is refused before it gets
+	// there — egressbackstop.go).
 	// The closure captures srv and reads srv.vault LAZILY at request time, so
 	// building it here (before WithKeyvault installs the vault) is fine.
 	srv.rebuildToolRegistry(pool)

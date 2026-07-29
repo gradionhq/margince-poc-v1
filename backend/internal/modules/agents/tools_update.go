@@ -79,7 +79,7 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 	if err := decodeArgs(in, &args); err != nil {
 		return nil, err
 	}
-	if approvalRedeemed(ctx) {
+	if ApprovalRedeemed(ctx) {
 		// The dispatch layer consumed an approval bound to exactly this
 		// call — the human already released the overwrite it performs.
 		return t.apply(ctx, args, args.Fields)
@@ -108,11 +108,15 @@ func (t updateRecord) Handle(ctx context.Context, in json.RawMessage) (json.RawM
 		}
 		return nil, &workflow.StagedApprovalError{ApprovalID: id}
 	}
+	return t.applySplit(ctx, args, split)
+}
 
-	// Mixed patch: the auto-execute remainder lands first, then the residue is
-	// staged against the post-write version — the version the approving
-	// human actually sees, so the pin (ADR-0036 §2) covers this call's
-	// own auto-execute half instead of being invalidated by it.
+// applySplit handles the mixed patch: the auto-execute remainder lands
+// first, then the residue is staged against the post-write version — the
+// version the approving human actually sees, so the pin (ADR-0036 §2)
+// covers this call's own auto-execute half instead of being invalidated by
+// it.
+func (t updateRecord) applySplit(ctx context.Context, args updateRecordArgs, split PatchSplit) (json.RawMessage, error) {
 	applied, err := t.applyRecord(ctx, args, split.AutoExecute)
 	if err != nil {
 		return nil, err
@@ -160,6 +164,9 @@ func (t updateRecord) stageConflicts(ctx context.Context, args updateRecordArgs,
 	if err != nil {
 		return ids.ApprovalID{}, err
 	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return ids.ApprovalID{}, err
+	}
 	return t.staging.Stage(ctx, StageRequest{
 		Tool:           "update_record",
 		ProposedChange: canonical,
@@ -198,7 +205,5 @@ func (t updateRecord) applyRecord(ctx context.Context, args updateRecordArgs, pa
 	if err != nil {
 		return wireRecord{}, fmt.Errorf("crmagents: write landed but read-back failed: %w", err)
 	}
-	return wireRecord{
-		RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version,
-	}, nil
+	return newWireRecord(rec), nil
 }

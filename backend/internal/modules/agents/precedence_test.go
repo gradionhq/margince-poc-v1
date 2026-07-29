@@ -116,6 +116,17 @@ func (r *recordingApprovals) Redeem(_ context.Context, id ids.ApprovalID, tool, 
 	return 0, false, nil
 }
 
+// nativeRecord stamps the authority a LOCAL system of record always carries;
+// datasource.NewRecord does it for the real provider, so a native fixture that
+// omits it is unfaithful. It is load-bearing here: refuseStagingElsewhere
+// reads exactly this flag, so an unstamped fixture would be refused rather
+// than staged, and these specs would test the external-target path under the
+// name of the native one.
+func nativeRecord(rec datasource.Record) datasource.Record {
+	rec.Freshness.Authoritative = true
+	return rec
+}
+
 // fixedProvider serves one record and captures updates; only the calls
 // the update tool makes are implemented — anything else is out of the
 // test's contract.
@@ -160,7 +171,11 @@ func agentCtx() context.Context {
 // is human-owned, an approvals recorder, and an auto-execute admission gate.
 func splitRegistry(conflicts []string, approvals *recordingApprovals, provider *fixedProvider) *Registry {
 	r := NewRegistry(approvals, auth.NewGate(fullSeatAuthority{}))
-	r.Register(updateRecord{p: provider, ownership: fixedOwnership{conflicts: conflicts}, staging: r.approvals})
+	r.Register(updateRecord{
+		p:         provider,
+		ownership: fixedOwnership{conflicts: conflicts},
+		staging:   r.approvals,
+	})
 	return r
 }
 
@@ -195,11 +210,11 @@ func assertRedeemedHash(t *testing.T, approvals *recordingApprovals, diffHash st
 
 func TestUpdateRecordMixedPatchSplitsAndBindsTheSubPatch(t *testing.T) {
 	target := ids.NewV7()
-	provider := &fixedProvider{record: datasource.Record{
+	provider := &fixedProvider{record: nativeRecord(datasource.Record{
 		Ref:     datasource.EntityRef{Type: datasource.EntityPerson, ID: target},
 		Fields:  json.RawMessage(`{"full_name":"Greta Human","title":"CTO"}`),
 		Version: 7,
-	}}
+	})}
 	approvals := &recordingApprovals{}
 	r := splitRegistry([]string{"full_name"}, approvals, provider)
 
@@ -272,11 +287,11 @@ func TestUpdateRecordMixedPatchSplitsAndBindsTheSubPatch(t *testing.T) {
 
 func TestUpdateRecordAllHumanOwnedStagesTheWholeCall(t *testing.T) {
 	target := ids.NewV7()
-	provider := &fixedProvider{record: datasource.Record{
+	provider := &fixedProvider{record: nativeRecord(datasource.Record{
 		Ref:     datasource.EntityRef{Type: datasource.EntityPerson, ID: target},
 		Fields:  json.RawMessage(`{"full_name":"Greta Human"}`),
 		Version: 3,
-	}}
+	})}
 	approvals := &recordingApprovals{}
 	r := splitRegistry([]string{"full_name"}, approvals, provider)
 
@@ -306,9 +321,9 @@ func TestUpdateRecordAllHumanOwnedStagesTheWholeCall(t *testing.T) {
 
 func TestAutoExecuteCallWithApprovalIDValidatesInsteadOfIgnoring(t *testing.T) {
 	target := ids.NewV7()
-	provider := &fixedProvider{record: datasource.Record{
+	provider := &fixedProvider{record: nativeRecord(datasource.Record{
 		Ref: datasource.EntityRef{Type: datasource.EntityPerson, ID: target},
-	}}
+	})}
 	approvals := &recordingApprovals{redeemErr: fmt.Errorf("already redeemed: %w", apperrors.ErrApprovalTokenInvalid)}
 	r := splitRegistry(nil, approvals, provider)
 

@@ -32,7 +32,7 @@ import (
 )
 
 // overlayWriteMode answers whether this MUTATING request dispatches to the
-// mirror, resolved uncached (dispatcher.go's isOverlayForWrite) rather than
+// mirror, resolved uncached (dispatcher.go's isOverlayUncached) rather than
 // through the read path's TTL cache. A write shadow that took the cached
 // answer could hand a mutation to the native module handler for the rest of
 // the TTL after another process flipped the workspace into overlay — a
@@ -40,7 +40,7 @@ import (
 // the incumbent. A mode-resolution failure is written to w (ok=false), the
 // same fail-closed posture overlayReadMode takes.
 func (s Server) overlayWriteMode(w http.ResponseWriter, r *http.Request) (overlayMode, ok bool) {
-	ov, err := s.sorDispatch.isOverlayForWrite(r.Context())
+	ov, err := s.sorDispatch.isOverlayUncached(r.Context())
 	if err != nil {
 		httperr.Write(w, r, err)
 		return false, false

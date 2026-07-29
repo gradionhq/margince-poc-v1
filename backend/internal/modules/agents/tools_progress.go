@@ -80,6 +80,9 @@ func (t progressDeal) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	if err != nil {
 		return StageInfo{}, err
 	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
 	semantic, _, err := t.stages.StageSemantic(ctx, args.ToStageID)
 	if err != nil {
 		return StageInfo{}, err

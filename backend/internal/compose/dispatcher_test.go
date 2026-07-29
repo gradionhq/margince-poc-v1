@@ -68,7 +68,7 @@ func TestDispatcherRoutesEveryReadVerbToTheOverlayProviderWhenCached(t *testing.
 		t.Error("StageSemantic: want ErrUnsupportedBySoR, got nil")
 	}
 	// The WRITE verbs are deliberately absent here: they never consult this
-	// cache (isOverlayForWrite), so seeding it would prove nothing about where
+	// cache (isOverlayUncached), so seeding it would prove nothing about where
 	// they route. TestDispatcherWriteVerbsIgnoreAStaleCachedMode covers them.
 	if _, err := d.Freshness(ctx, ref); err == nil {
 		t.Error("Freshness: want the overlay provider's nil-mirror-store error, got nil")

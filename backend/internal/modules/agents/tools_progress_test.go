@@ -62,7 +62,9 @@ func progressFixture(dealID, noteID ids.UUID) *fakeSoR {
 	dealRef := datasource.EntityRef{Type: datasource.EntityDeal, ID: dealID}
 	return &fakeSoR{
 		records: map[datasource.EntityRef]datasource.Record{
-			dealRef: {Ref: dealRef, Fields: json.RawMessage(`{"name":"Acme renewal"}`), Version: 5},
+			dealRef: nativeRecord(datasource.Record{
+				Ref: dealRef, Fields: json.RawMessage(`{"name":"Acme renewal"}`), Version: 5,
+			}),
 		},
 		createRef: datasource.EntityRef{Type: datasource.EntityActivity, ID: noteID},
 	}

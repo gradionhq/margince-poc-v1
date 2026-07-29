@@ -5,6 +5,7 @@ import type { components } from "../../api/schema";
 import type { MessageKey } from "../../i18n/en";
 import { problemMessage } from "../common";
 import { ACCEPTED_CORPUS_FILE, TRANSCRIPT_EXT } from "../onboarding";
+import { ensureProfileId } from "../voice-profile";
 import type {
   ConversationEvent,
   ConversationState,
@@ -175,19 +176,6 @@ export function useVoiceCorpus({
     [dispatch],
   );
 
-  // Parallel uploads share ONE profile resolution: concurrent creates would
-  // race into the server's one-live-profile conflict. A failed resolution
-  // clears the slot so the next intake retries instead of inheriting a dead
-  // promise.
-  const profileIdInFlight = useRef<Promise<string> | null>(null);
-  const sharedProfileId = useCallback((): Promise<string> => {
-    profileIdInFlight.current ??= ensureProfileId().catch((err: unknown) => {
-      profileIdInFlight.current = null;
-      throw err;
-    });
-    return profileIdInFlight.current;
-  }, []);
-
   // Concurrent ingests can settle out of order; each request is stamped at
   // issue time and only the newest-by-request-order summary may drive the
   // meter and the word-growth narration. Every response's summary is
@@ -235,7 +223,7 @@ export function useVoiceCorpus({
     ): Promise<void> => {
       ingestSeq.current += 1;
       const seq = ingestSeq.current;
-      const profileId = await sharedProfileId();
+      const profileId = await ensureProfileId();
       const { data, error } = await api.POST("/voice-profiles/{id}/sources", {
         params: { path: { id: profileId } },
         body,
@@ -263,7 +251,7 @@ export function useVoiceCorpus({
         reactionKey,
       );
     },
-    [dispatch, recordIngest, sharedProfileId],
+    [dispatch, recordIngest],
   );
 
   // Preview one accepted file and act on what it honestly IS (routePreview);
@@ -275,7 +263,7 @@ export function useVoiceCorpus({
         say(`skip:${name}`, "ob.conv.voice.fileEmpty", { name });
         return;
       }
-      const profileId = await sharedProfileId();
+      const profileId = await ensureProfileId();
       const { data, error } = await api.POST(
         "/voice-profiles/{id}/sources/preview",
         {
@@ -321,7 +309,7 @@ export function useVoiceCorpus({
         "ob.conv.voice.reactionDocument",
       );
     },
-    [dispatch, ingest, say, sharedProfileId],
+    [dispatch, ingest, say],
   );
 
   // One intake for all three entry paths: the attach button, a drop onto the
@@ -478,28 +466,8 @@ export function useVoiceCorpus({
     addFiles,
     addPaste,
     answerSpeaker,
-    sharedProfileId,
     /** True while any probe, ingest, or speaker question is still open —
      * a build starting now would misrepresent what the voice is made of. */
     busy: probesInFlight > 0 || asks.length > 0,
   };
-}
-
-// Reuse the owner's single profile (the list caps at one) or mint it.
-async function ensureProfileId(): Promise<string> {
-  const list = await api.GET("/voice-profiles");
-  if (list.error) {
-    throw new Error(problemMessage(list.error));
-  }
-  const existing = list.data.data[0]?.id;
-  if (existing) {
-    return existing;
-  }
-  const created = await api.POST("/voice-profiles", {
-    body: { personality_md: "" },
-  });
-  if (created.error) {
-    throw new Error(problemMessage(created.error));
-  }
-  return created.data.id;
 }

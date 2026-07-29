@@ -214,7 +214,10 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 			approvalTokenHeader, apperrors.ErrApprovalTokenInvalid))
 		return true
 	}
-	pin, pinned, rErr := staging.Redeem(r.Context(), approvalID, pol.Tool, diffHash)
+	// Redeeming and marking are one step (agents.RedeemAndMark), so this
+	// transport cannot forward an approved call without the released marker the
+	// seam's egress backstop reads — nor obtain that marker without redeeming.
+	released, pin, pinned, rErr := agents.RedeemAndMark(r.Context(), staging, approvalID, pol.Tool, diffHash)
 	if rErr != nil {
 		httperr.Write(w, r, rErr)
 		return true
@@ -231,7 +234,9 @@ func redeemIfPresented(w http.ResponseWriter, r *http.Request, next http.Handler
 	if pinned {
 		r.Header.Set("If-Match", strconv.FormatInt(pin, 10))
 	}
-	next.ServeHTTP(w, r)
+	// WithContext shares the header map set just above, so the pin travels with
+	// the released request.
+	next.ServeHTTP(w, r.WithContext(released))
 	return true
 }
 

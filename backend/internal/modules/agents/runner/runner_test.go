@@ -163,6 +163,67 @@ func TestRefusalFedBackAsObservation(t *testing.T) {
 	}
 }
 
+// A DECLARED capability gap is terminal, and the observation must say so: this
+// is the loop with a step budget, so a model that re-plans into the same tool
+// spends the run on a permanent no. Contrast the refusal above, which the
+// model legitimately may route around.
+func TestUnsupportedBySoRIsObservedAsTerminal(t *testing.T) {
+	surface := &fakeSurface{errs: map[string]error{
+		"run_report": fmt.Errorf("reports: %w", apperrors.ErrUnsupportedBySoR),
+	}}
+	brain := &scriptedBrain{texts: []string{
+		`{"tool":"run_report","args":{}}`,
+		`{"final":{"summary":"answered without the report"}}`,
+	}}
+
+	res, err := New(surface, brain).Run(context.Background(), Job{Goal: "g"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Outcome != OutcomeCompleted {
+		t.Fatalf("a declared refusal must not end the run: %+v", res)
+	}
+	last := brain.requests[len(brain.requests)-1]
+	joined := ""
+	for _, m := range last.Messages {
+		joined += m.Content
+	}
+	if !strings.Contains(joined, "do not call it again") {
+		t.Errorf("the model was not told the refusal is terminal: %q", joined)
+	}
+}
+
+// Presence is not enough: the directive must sit OUTSIDE the span the prompt
+// declares to be never-instructions, or the model has been told to disregard
+// the one sentence that saves the run's budget. This is a unit test rather than
+// an end-to-end one because the marker carries a per-call nonce — reading it
+// from any other window yields a name that matches nothing, which is exactly
+// how an end-to-end placement check passes while the directive sits fenced.
+func TestTerminalDirectiveStaysOutsideTheObservationSpan(t *testing.T) {
+	win := newWindow(Job{Goal: "g"}, nil)
+	marker, ok := promptfence.MarkerIn(win.system)
+	if !ok {
+		t.Fatal("the run's system prompt declares no data boundary")
+	}
+
+	observeRefusal(win, modelStep{Tool: "run_report"},
+		fmt.Errorf("reports: %w", apperrors.ErrUnsupportedBySoR), Meta{}, model.Response{})
+
+	msgs := win.snapshot()
+	last := msgs[len(msgs)-1].Content
+	at := strings.Index(last, "do not call it again")
+	if at < 0 {
+		t.Fatalf("the terminal directive is missing: %q", last)
+	}
+	closed := strings.Index(last, "</"+marker+">")
+	if closed < 0 {
+		t.Fatalf("the observation carries no data span to be outside of: %q", last)
+	}
+	if at < closed {
+		t.Errorf("the terminal directive sits inside the data span, so the model is told to ignore it: %q", last)
+	}
+}
+
 func TestConfirmationRequiredStagingSuspendsRun(t *testing.T) {
 	approvalID := ids.New[ids.ApprovalKind]()
 	surface := &fakeSurface{errs: map[string]error{
@@ -650,5 +711,47 @@ func TestARunSuspendedByThisBuildResumes(t *testing.T) {
 	}
 	if res.Outcome != OutcomeCompleted {
 		t.Fatalf("resume did not complete: %+v", res)
+	}
+}
+
+// The trace must keep the terminal finding even when the refusal text is huge.
+// err.Error() carries provider text whose LENGTH is influenceable by mirrored
+// content, so joining first and truncating after would let a long payload push
+// "this was terminal" out of the persisted record — the half a later reader
+// needs most.
+func TestALongRefusalDoesNotCrowdTheTerminalFindingOutOfTheTrace(t *testing.T) {
+	win := newWindow(Job{Goal: "g"}, nil)
+	huge := strings.Repeat("x", traceObservationLimit*2)
+
+	step := observeRefusal(win, modelStep{Tool: "run_report"},
+		fmt.Errorf("%s: %w", huge, apperrors.ErrUnsupportedBySoR), Meta{}, model.Response{})
+
+	if !strings.Contains(step.Observation, "do not call it again") {
+		t.Errorf("the terminal finding was truncated out of the trace: %q", step.Observation)
+	}
+	if !strings.Contains(step.Observation, "truncated") {
+		t.Error("the oversized payload was not bounded")
+	}
+	// And the combined entry respects the cap: reserving the directive's room is
+	// what lets both hold at once. Appending after truncating the payload alone
+	// would keep the finding but overrun the bound.
+	if len(step.Observation) > traceObservationLimit {
+		t.Errorf("trace entry is %d bytes, over the %d cap — provider-controlled text grew the record",
+			len(step.Observation), traceObservationLimit)
+	}
+}
+
+// truncateTo enforces a cap, so it must not exceed the cap it enforces — not
+// even for a limit too small to carry the elision marker, where the marker
+// would otherwise be the overrun.
+func TestTruncateToNeverExceedsItsLimit(t *testing.T) {
+	long := strings.Repeat("x", 500)
+	for _, limit := range []int{-5, 0, 1, len(truncationMarker) - 1, len(truncationMarker), len(truncationMarker) + 1, 100} {
+		if got := len(truncateTo(long, limit)); limit >= 0 && got > limit {
+			t.Errorf("truncateTo(limit=%d) returned %d bytes", limit, got)
+		}
+	}
+	if got := truncateTo("short", 100); got != "short" {
+		t.Errorf("an in-bounds string was altered: %q", got)
 	}
 }

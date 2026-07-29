@@ -61,19 +61,32 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// like the REST surface's, sharing the same per-workspace windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
+	// The guards take the uncached read — see sorModeProbe for why a stale
+	// 'native' here is a wrong answer rather than a stale screen.
+	sorMode := nativeOnlyModeProbe(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
-	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
+	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
-	agents.RegisterIntentTools(registry, search.NewRetriever(search.NewStore(pool), nil))
+	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
+		mode:  sorMode,
+		inner: search.NewRetriever(search.NewStore(pool), nil),
+	})
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
-	agents.RegisterSlippingTools(registry, slippingLister(pool), followUpDrafter(provider))
+	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
 	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that
 	// collides with a core verb fails loudly (RegisterExtensions stashed
 	// them at boot, before this ran).
+	//
+	// They need no native-only guard: extension.ToolHandler is handed a context
+	// and raw JSON and nothing else — no provider, no pool, no store — and the
+	// boot adapter injects none, so an extension tool cannot read a domain table
+	// to answer wrongly for an overlay workspace. If that surface ever grants
+	// record access, it has to arrive mode-routed through the datasource seam,
+	// or gain the guard the three dependencies above take.
 	registerComposedTools(registry)
 	return registry
 }

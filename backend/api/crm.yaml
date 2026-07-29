@@ -10122,7 +10122,7 @@ components:
     EmailDraft:
       type: object
       description: A drafted email (never sent by drafting). Send via /activities/{id}/send-email (🟡).
-      required: [subject, body]
+      required: [subject, body, draft_ref, ai_generated]
       properties:
         subject: { type: string }
         body: { type: string }
@@ -10141,6 +10141,14 @@ components:
         body: { type: string, description: The (possibly edited) final body that is sent. }
         to: { type: array, items: { type: string, format: email } }
         cc: { type: array, items: { type: string, format: email } }
+        draft_ref:
+          type: [string, 'null']
+          description: |
+            Opaque reference returned by the drafting operation. After a successful send, the
+            server compares this protected original with the final body and records accepted or
+            edited-and-sent metadata. Only a guarded, human-authored final edit may become a
+            `draft_signal` corpus source. Omit for independently composed mail; no voice-learning
+            outcome is inferred without a valid reference.
         consent_purpose:
           type: string
           description: |

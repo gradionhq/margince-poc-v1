@@ -56,7 +56,7 @@ func leadFixture(t *testing.T, id ids.UUID, fields string, version int64) *fakeS
 	t.Helper()
 	ref := datasource.EntityRef{Type: datasource.EntityLead, ID: id}
 	return &fakeSoR{records: map[datasource.EntityRef]datasource.Record{
-		ref: {Ref: ref, Fields: json.RawMessage(fields), Version: version},
+		ref: nativeRecord(datasource.Record{Ref: ref, Fields: json.RawMessage(fields), Version: version}),
 	}}
 }
 

@@ -27,7 +27,10 @@
  * atom; this only sets the composer's size and resize affordance. */
 .compose-body {
   width: 100%;
-  min-height: 120px;
+  /* Tall enough to hold a short business email whole. A body the rep has to
+     scroll to read is a body they will confirm without reading, and this send
+     cannot be taken back. */
+  min-height: 220px;
   resize: vertical;
 }
 
@@ -62,7 +65,20 @@
   padding: 0;
 }
 
-.compose-consent-block {
+/* The Art. 50 disclosure card: the offer surface's banner treatment, stacked to
+ * the composer's rhythm. Items hug the start so the maturity Badge keeps its
+ * pill width instead of stretching to the card. */
+.compose-disclosure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+/* The block a refusal lands in: the consent gate and the two send pre-flight
+ * refusals share one treatment, because to the rep they are the same thing —
+ * the send did not happen, and here is what to do about it. */
+.compose-refusal {
   display: flex;
   flex-direction: column;
   gap: 6px;

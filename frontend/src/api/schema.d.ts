@@ -6812,13 +6812,13 @@ export interface components {
             /** Format: uuid */
             in_reply_to_activity_id?: string | null;
             /** @description Art. 50 AI-assisted disclosure: true when a model produced this draft; stamped on the drafting call itself, never persisted. Absent reads as false. */
-            readonly ai_generated?: boolean;
+            readonly ai_generated: boolean;
             /** @description The machine-readable Art. 50 disclosure line; non-null iff ai_generated=true. */
             readonly ai_disclosure?: string | null;
             /** @description The Voice DNA PROFILE version (not a model version) that styled this draft — the "built from your corpus · vN" provenance; null when no ready voice profile shaped it. */
             readonly voice_profile_version?: number | null;
             /** @description Opaque reference identifying this served voice draft for learning feedback (rejectVoiceDraft); null when no voice profile styled it. */
-            readonly draft_ref?: string | null;
+            readonly draft_ref: string | null;
         };
         SendEmailRequest: {
             subject: string;
@@ -6826,6 +6826,14 @@ export interface components {
             body: string;
             to: string[];
             cc?: string[];
+            /**
+             * @description Opaque reference returned by the drafting operation. After a successful send, the
+             *     server compares this protected original with the final body and records accepted or
+             *     edited-and-sent metadata. Only a guarded, human-authored final edit may become a
+             *     `draft_signal` corpus source. Omit for independently composed mail; no voice-learning
+             *     outcome is inferred without a valid reference.
+             */
+            draft_ref?: string | null;
             /**
              * @description The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
              *     The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
