@@ -23,14 +23,17 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/retrieval"
 )
 
-func overlayMode() sorModeProbe { return func(context.Context) (bool, error) { return true, nil } }
-func nativeMode() sorModeProbe  { return func(context.Context) (bool, error) { return false, nil } }
-func unresolvableMode() sorModeProbe {
-	return func(context.Context) (bool, error) { return false, errors.New("mode read failed") }
+// The canned answers these specs supply, over the package's one
+// overlayModeChecker stub (fakeMode, overlaywrite_test.go).
+func overlayMode() overlayModeChecker { return &fakeMode{overlay: true} }
+func nativeMode() overlayModeChecker  { return &fakeMode{} }
+func unresolvableMode() overlayModeChecker {
+	return &fakeMode{err: errModeUnresolvable}
 }
 
 // --- run_report ---
@@ -184,5 +187,41 @@ func TestSlippingListerServesNativeMode(t *testing.T) {
 	}
 	if !called {
 		t.Error("native mode did not reach the deals lister")
+	}
+}
+
+// TestSlippingGuardRefusesOnAStaleNativeCache drives a real guard against a real
+// Dispatcher, which the specs above cannot: they hand in a canned answer, so
+// they pin what a guard does GIVEN a mode, never that the mode it consults is
+// the fresh one. Here the process holds a pre-flip 'native' entry while the
+// workspace row already says overlay — the second-replica state, since
+// Invalidate reaches only the process that committed the flip.
+//
+// What it pins is that a guard honours the fresh answer, NOT that the read
+// targets the right row: queryMode is stubbed and ignores its workspace id, so
+// a read of the WRONG workspace would still pass here. That half is carried by
+// the integration pair — an overlay workspace must refuse, a native one must
+// not — which drives the real SQL.
+func TestSlippingGuardRefusesOnAStaleNativeCache(t *testing.T) {
+	wsID := ids.NewV7()
+	d, calls := cachedModeDispatcher(wsID, false /* cached: native */, true /* stored: overlay */)
+	ctx := principal.WithWorkspaceID(context.Background(), wsID)
+
+	ranNative := false
+	guarded := nativeOnlySlippingLister(d, func(context.Context) ([]agents.SlippingDeal, error) {
+		ranNative = true
+		return nil, nil
+	})
+
+	_, err := guarded(ctx)
+
+	if !errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		t.Errorf("err = %v, want ErrUnsupportedBySoR — the guard answered from the stale 'native' entry", err)
+	}
+	if ranNative {
+		t.Error("the native deals lister ran for an overlay workspace: an empty pipeline reads as nothing slipping")
+	}
+	if *calls == 0 {
+		t.Error("the guard never re-read workspace.x_sor_mode")
 	}
 }
