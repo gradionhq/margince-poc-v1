@@ -38,12 +38,20 @@ type stubDispatcher struct {
 	gotID     ids.UUID
 	gotWS     ids.UUID
 	sawWSBind bool
+	// The identity-reconcile inside RecordSent writes an audit row and an
+	// outbox event, so the scope the worker dispatches under has to carry an
+	// actor and a correlation id as well as the workspace.
+	gotActor         principal.Principal
+	sawActor         bool
+	sawCorrelationID bool
 }
 
 func (s *stubDispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (comms.Outcome, time.Duration, error) {
 	s.calls++
 	s.gotID = id
 	s.gotWS, s.sawWSBind = principal.WorkspaceID(ctx)
+	s.gotActor, s.sawActor = principal.Actor(ctx)
+	_, s.sawCorrelationID = principal.CorrelationID(ctx)
 	return s.outcome, s.wait, s.err
 }
 
@@ -163,6 +171,35 @@ func TestSendEmailWorkerBindsTheJobsWorkspaceAndDelivery(t *testing.T) {
 	}
 	if dispatcher.gotID != delivery {
 		t.Fatalf("dispatched delivery %v, want %v", dispatcher.gotID, delivery)
+	}
+}
+
+// The workspace alone is not enough. Recording a receipt re-keys the message
+// onto the identity the provider stamped, and that write needs an actor for its
+// audit row and a correlation id for its outbox event — without both the
+// re-key fails and the message stays filed under an identity no reply will
+// quote, silently. The actor is the SYSTEM completing a send a human already
+// authorized: running it under the sender's seat would let a seat revoked
+// between staging and transmit strand the message's identity.
+func TestSendEmailWorkerDispatchesUnderASystemActorAndACorrelationID(t *testing.T) {
+	dispatcher := &stubDispatcher{outcome: comms.OutcomeSent}
+	worker := &commsSendWorker{dispatcher: dispatcher}
+
+	if err := worker.Work(context.Background(), sendJob(ids.NewV7(), ids.NewV7())); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+	if !dispatcher.sawActor {
+		t.Fatal("dispatch ran with no actor bound; the identity reconcile writes no audit row without one")
+	}
+	if dispatcher.gotActor.Type != principal.PrincipalSystem {
+		t.Errorf("actor type = %q, want %q — the worker completes a send, it does not act as the sender",
+			dispatcher.gotActor.Type, principal.PrincipalSystem)
+	}
+	if dispatcher.gotActor.ID != "system:comms-send" {
+		t.Errorf("actor id = %q, want system:comms-send", dispatcher.gotActor.ID)
+	}
+	if !dispatcher.sawCorrelationID {
+		t.Error("dispatch ran with no correlation id bound; the outbox event is refused without one")
 	}
 }
 

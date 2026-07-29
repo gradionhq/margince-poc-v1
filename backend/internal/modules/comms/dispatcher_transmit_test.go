@@ -57,6 +57,13 @@ func TestDispatchTransmitsAndRecordsTheReceipt(t *testing.T) {
 	if got != OutcomeSent || store.sent != "gmsg1" {
 		t.Errorf("outcome=%v sent=%q, want OutcomeSent/gmsg1", got, store.sent)
 	}
+	// The WHOLE receipt reaches the store, not just the provider's own id: the
+	// RFC822 identity is what the timeline row has to be re-keyed onto, and a
+	// dispatcher that dropped it here would leave every sent message filed
+	// under an identity no reply will ever quote.
+	if store.stamped != "stamped@mail.gmail.com" {
+		t.Errorf("stamped identity recorded = %q, want the one the provider reported", store.stamped)
+	}
 }
 
 func TestDispatchSnoozesWhenAPolicyAsksToWait(t *testing.T) {
