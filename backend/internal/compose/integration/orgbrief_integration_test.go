@@ -286,16 +286,15 @@ func TestOrganizationBriefServesTheFloorWithoutALane(t *testing.T) {
 	if len(brief.Sentences) == 0 {
 		t.Fatal("no sentences: the floor must always produce a brief")
 	}
-	// The floor cites too, so the card behaves identically either way.
+	// The floor cites too, so the card links the same records either way.
+	// Asserted on the citation rather than the wording: the floor reports a
+	// pipeline COUNT and leaves naming the deal to the card, which has the
+	// id it needs from here.
 	if len(brief.Sentences[0].Evidence) == 0 {
 		t.Error("a deterministic sentence carries no evidence")
 	}
-	var text strings.Builder
-	for _, sentence := range brief.Sentences {
-		text.WriteString(sentence.Text)
-	}
-	if !strings.Contains(text.String(), "Fleet retrofit") {
-		t.Errorf("the floor never names the open deal: %q", text.String())
+	if !cites(brief.Sentences, deal) {
+		t.Errorf("the floor never cites the open deal: %q", briefText(brief.Sentences))
 	}
 }
 
