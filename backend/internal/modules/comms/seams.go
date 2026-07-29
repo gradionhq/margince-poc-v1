@@ -13,6 +13,8 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
@@ -31,6 +33,24 @@ type deliveryStore interface {
 }
 
 var _ deliveryStore = (*Store)(nil)
+
+// MessageIdentityReconciler re-keys the timeline row for a message whose
+// provider stamped an identity different from the one this system minted.
+//
+// It takes the caller's transaction so the re-key lands with the receipt that
+// learned about it — but the caller runs it inside a SAVEPOINT, because the
+// ordering between them is not symmetric. The receipt commits whenever the
+// provider accepted the message; the re-key is bookkeeping subordinate to it.
+// A re-key that could roll the receipt back would return the delivery to a
+// retry ladder whose prior-send lookup cannot see a rewritten identity, and the
+// recipient would be mailed twice over a bookkeeping fault.
+//
+// previous is the identity the message was staged under, so the implementer
+// can tell a conversation ROOT (thread_key == previous) from a reply, which
+// must keep its anchor's root.
+type MessageIdentityReconciler interface {
+	ReconcileMessageIdentityTx(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, previous, stamped string) error
+}
 
 // ConsentGate answers whether these recipients may still be mailed for this
 // purpose. It is default-deny: a recipient who never granted the purpose, and
