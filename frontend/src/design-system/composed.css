@@ -152,6 +152,62 @@
   gap: 6px;
   flex-wrap: wrap;
 }
+.record-head .record-pulse {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+  font-size: 12.5px;
+  color: var(--textMeta);
+}
+.record-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 12px 0 16px;
+}
+
+/* The three-zone record page: what this record IS on the left, what is
+   happening in the middle, the business around it on the right. The middle
+   column is the one that grows, so the rails keep a fixed share and the
+   layout folds to one column before either becomes unreadably narrow. */
+.record-zones {
+  display: grid;
+  gap: 16px;
+  align-items: start;
+}
+/* The story always gets the largest share, whichever rails exist. */
+.record-zones-both {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 5fr) minmax(0, 3fr);
+}
+.record-zones-rail {
+  grid-template-columns: minmax(0, 3fr) minmax(0, 7fr);
+}
+.record-zones-aside {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+}
+.record-zones .record-rail,
+.record-zones .record-aside,
+.record-zones .record-main {
+  min-width: 0;
+}
+@media (max-width: 1200px) {
+  .record-zones {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  /* The story stays first and full width once the rails sit under it:
+     a rep opening an account reads what is happening, not the firmographics. */
+  .record-zones .record-main {
+    grid-column: 1 / -1;
+    order: -1;
+  }
+}
+@media (max-width: 720px) {
+  .record-zones {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 
 .timeline {
   list-style: none;

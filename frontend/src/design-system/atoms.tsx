@@ -46,14 +46,42 @@ export function Badge({
   );
 }
 
-export function Avatar({ name }: Readonly<{ name: string }>) {
+// AVATAR_TONES are the monogram backgrounds, all token-driven. The colour
+// is picked from the name, not stored, so the same record looks the same on
+// every screen and in every session without a round trip.
+const AVATAR_TONES = 6;
+
+export function Avatar({
+  name,
+  tinted,
+}: Readonly<{
+  name: string;
+  // A deterministic per-name colour. Off by default so the many existing
+  // callers keep the neutral chip they render today.
+  tinted?: boolean;
+}>) {
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase())
     .join("");
-  return <span className="avatar">{initials}</span>;
+  let tone = 0;
+  if (tinted) {
+    // A small sum over the code points: stable across sessions and locales,
+    // and the spread only has to be even enough that neighbouring names in a
+    // list rarely collide.
+    let hash = 0;
+    for (const char of name) {
+      hash = (hash + (char.codePointAt(0) ?? 0)) % AVATAR_TONES;
+    }
+    tone = hash;
+  }
+  return (
+    <span className={tinted ? `avatar avatar-t${tone}` : "avatar"}>
+      {initials}
+    </span>
+  );
 }
 
 export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
