@@ -84,7 +84,8 @@ func (s *Store) ResolvePreferenceToken(ctx context.Context, token string) (Prefe
 // preference token, minting one lazily on first use, so the send path can
 // build the List-Unsubscribe URL. An address no person carries yields no
 // token (found=false): the send would fail the consent gate anyway, so
-// nothing is disclosed. RLS scopes the email lookup to the workspace.
+// nothing is disclosed. RLS scopes the email lookup to the workspace, and
+// the row-scope probe below scopes it to the caller.
 func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (token string, found bool, err error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return "", false, err
@@ -103,6 +104,22 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 		}
 		if lookup != nil {
 			return lookup
+		}
+		// The token this mints is a bearer credential over the recipient's
+		// consent record — it reads their per-purpose state, withdraws, and
+		// grants, all with no session. So the mint carries the SAME row-scope
+		// probe the sibling read applies (PublicPurposeStates): the object
+		// grant above says the caller may read people, this says they may read
+		// THIS one. Without it a row_scope=own seat obtains durable authority
+		// over a person who 404s to them on every authenticated surface.
+		//
+		// A row-scope miss refuses the send (404, existence-hiding) rather
+		// than falling through to found=false: that branch means "this address
+		// carries no unsubscribe surface", and answering it here would
+		// transmit marketing mail with no working List-Unsubscribe URL —
+		// trading a credential leak for an RFC 8058 violation.
+		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+			return err
 		}
 		found = true
 		token, err = ensurePreferenceTokenTx(ctx, tx, personID)
