@@ -49,7 +49,6 @@ func (s *deliveryWritingStager) StageTx(ctx context.Context, tx pgx.Tx, in Deliv
 	if err != nil {
 		return err
 	}
-	s.staged++
 	_, err = tx.Exec(ctx, `
 		INSERT INTO comms_outbound
 		  (id, workspace_id, activity_id, user_id, provider, message_id,
@@ -57,7 +56,14 @@ func (s *deliveryWritingStager) StageTx(ctx context.Context, tx pgx.Tx, in Deliv
 		VALUES ($1, current_setting('app.workspace_id')::uuid, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		ids.NewV7(), in.ActivityID, s.userID, in.Provider, in.MessageID,
 		recipients, in.Subject, in.Body, in.ConsentPurpose)
-	return err
+	if err != nil {
+		return err
+	}
+	// Counted after the INSERT, not before: the rollback test asserts on a
+	// delivery that was actually written, and an attempt counter would let a
+	// never-written row read as proof that the rollback removed one.
+	s.staged++
+	return nil
 }
 
 func (e *sendEnv) deliveryCount(t *testing.T) int {
