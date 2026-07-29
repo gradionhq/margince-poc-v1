@@ -60,7 +60,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	// Public-by-design token surfaces: possession of the single-use
 	// token is the authority; there is no authenticated principal.
 	"internal/modules/activities:ResolveBookingPage":  "public booking page (A16): resolved by slug for the anonymous visitor; writes nothing",
-	"internal/modules/consent:ResolvePreferenceToken": "public preference-center resolve: the signed single-use token is the authority (no session exists)",
+	"internal/modules/consent:ResolvePreferenceToken": "public preference-center resolve: possession of the emailed capability token IS the authority (no session exists). It is NOT signed and NOT single-use — the preference centre is revisitable by design, and one message's link must keep working after the next goes out — so the bounds that stand in for those properties are named here: 256-bit crypto/rand, expiry plus an age ceiling the send path rotates at (0141), and deletion by Art. 17 erasure",
 	"internal/modules/approvals:MintApprovalToken":    "signs the approval JWS for a decision already admitted by Decide; crypto, not admission",
 	"internal/modules/approvals:VerifyApprovalToken":  "verifies the approval JWS presented back; the token is the authority being checked",
 	"internal/modules/approvals:Redeem":               "redeems a verified approval token: the token (minted for an admitted decision) is the authority",

@@ -71,8 +71,9 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
-			`INSERT INTO preference_token (workspace_id, person_id, token)
-			 VALUES (`+wsClause+`, $1, $2)`, personID, seededPreferenceToken(personID)); err != nil {
+			`INSERT INTO preference_token (workspace_id, person_id, token, expires_at)
+			 VALUES (`+wsClause+`, $1, $2, now() + interval '30 days')`,
+			personID, seededPreferenceToken(personID)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
