@@ -688,9 +688,19 @@ export function ComposeModal({
 }
 
 // The per-row action cluster the 360 timelines mount in each entry's action
-// slot. Reply opens the composer (email rows only — you don't reply to a
-// note); Relink opens the relink dialog on every row (any timeline activity is
-// already linked to this entity, so it can be re-associated to the right one).
+// slot. Both actions are offered on every row.
+//
+// Reply, because a send anchored to something that was never mail carries no
+// RFC822 identity to thread against and simply starts a conversation — which is
+// how the backend already reads it. Gating the composer on an email row instead
+// makes a fresh workspace, whose only rows are logged notes, unable to send at
+// all.
+//
+// Relink, because an activity shown on a 360 timeline is by construction already
+// linked to the entity whose timeline renders it, so re-associating it to the
+// right record is always meaningful — and the Activity list payload carries no
+// `links` to gate on regardless.
+//
 // It owns the two open states so the timeline mapper stays presentational.
 export function TimelineActions({
   activity,
@@ -706,19 +716,11 @@ export function TimelineActions({
   const t = useT();
   const [reply, setReply] = useState(false);
   const [relink, setRelink] = useState(false);
-  // Reply only makes sense on an email. Relink is always available: an activity
-  // shown on a 360 timeline is, by construction, already linked to the entity
-  // whose timeline renders it, so re-associating it to the right record is
-  // always meaningful — and the Activity list payload does not carry `links` to
-  // gate on regardless.
-  const canReply = activity.kind === "email";
   return (
     <>
-      {canReply && (
-        <Button small onClick={() => setReply(true)}>
-          {t("compose.reply")}
-        </Button>
-      )}
+      <Button small onClick={() => setReply(true)}>
+        {t("compose.reply")}
+      </Button>
       <Button small onClick={() => setRelink(true)}>
         {t("compose.relink")}
       </Button>

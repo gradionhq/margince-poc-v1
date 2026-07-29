@@ -1016,13 +1016,24 @@ describe("TimelineActions", () => {
     expect(screen.getByRole("button", { name: "Relink" })).toBeTruthy();
   });
 
-  it("offers Relink but not Reply on a non-email row", () => {
+  it("offers Reply on a non-email row too, as the send path allows", () => {
+    // A send anchored to a note carries no RFC822 identity and starts a
+    // conversation, which the backend handles. Gating this on kind === "email"
+    // is what made "log a note → compose → send" unreachable in a workspace
+    // whose timeline holds nothing captured from mail.
     stubRoutes();
     render(<TimelineActions activity={note} entityType="deal" entityId="d1" />);
-    expect(screen.queryByRole("button", { name: "Reply" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reply" })).toBeTruthy();
     // Relink is always available — the row is already linked to this timeline's
     // entity, and the Activity list payload carries no `links` to gate on.
     expect(screen.getByRole("button", { name: "Relink" })).toBeTruthy();
+  });
+
+  it("opens the composer anchored to a note row", async () => {
+    stubRoutes();
+    render(<TimelineActions activity={note} entityType="deal" entityId="d1" />);
+    await userEvent.click(screen.getByRole("button", { name: "Reply" }));
+    expect(await screen.findByText("Send this email?")).toBeTruthy();
   });
 
   it("opens the composer when Reply is clicked", async () => {
