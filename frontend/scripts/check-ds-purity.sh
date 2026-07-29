@@ -22,12 +22,20 @@ SRC_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/src"
 
 # Excluded: the token source file (literals are its job), generated contract
 # types, and test files (fixtures aren't shipped UI).
+#
+# Plus exactly ONE component, named rather than pattern-matched:
+# design-system/provider-mark.tsx carries Google's and Microsoft's own sign-in
+# marks. Another company's colours are not ours to tokenise, and a provider mark
+# rendered in Ledger Green is a wrong mark. Keep this a NAMED file — widening it
+# to a pattern is how a real drift gets in beside it, and the same one entry is
+# repeated in conformance.test.ts so both arms of the gate say why.
 FILES=()
 while IFS= read -r -d '' f; do FILES+=("$f"); done < <(
   find "$SRC_DIR" -type f \( -name "*.ts" -o -name "*.tsx" -o -name "*.css" \) \
     -not -name "*.test.*" \
     -not -name "tokens.css" \
     -not -name "schema.d.ts" \
+    -not -name "provider-mark.tsx" \
     -print0 2>/dev/null
 )
 

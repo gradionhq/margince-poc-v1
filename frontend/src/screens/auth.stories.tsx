@@ -36,10 +36,15 @@ function AuthStory({
   profile,
   profileStatus = 200,
   notice,
+  // Empty is what the running installation serves — the OIDC flow has not
+  // shipped (§19) — so it stays the default here too. A STORY seeds providers to
+  // review the federated design; nothing under src/ ever does.
+  oidcProviders = [],
 }: Readonly<{
   profile: AssistantProfile;
   profileStatus?: number;
   notice?: "session-expired" | "signed-out";
+  oidcProviders?: ReadonlyArray<{ key: string; label: string }>;
 }>) {
   installFetchStub({
     "GET /assistant/profile": () =>
@@ -51,7 +56,7 @@ function AuthStory({
       jsonResponse({
         password: true,
         password_reset: true,
-        oidc_providers: [],
+        oidc_providers: oidcProviders,
       }),
   });
   return (
@@ -63,6 +68,47 @@ function AuthStory({
 
 export const ConfiguredHybrid: Story = {
   render: () => <AuthStory profile={configured} />,
+};
+
+/**
+ * The installation's administrator has wired SSO (§11).
+ *
+ * This is the ONLY place in this repo the federated block can be seen: the real
+ * server serves `oidc_providers: []` until the OIDC flow ships, and the component
+ * renders nothing for an empty list. Seeding it here reviews the design without
+ * claiming the build can complete the flow.
+ *
+ * The password form is still there and still complete — it is the fallback door,
+ * which is why the divider labels IT rather than the buttons above.
+ */
+export const WithProviders: Story = {
+  render: () => (
+    <AuthStory
+      profile={configured}
+      oidcProviders={[
+        { key: "google", label: "Continue with Google" },
+        { key: "microsoft", label: "Continue with Microsoft" },
+      ]}
+    />
+  ),
+};
+
+/**
+ * A provider this frontend has never heard of, which is the normal case for a
+ * self-hosted product: `oidc_providers[].key` is an open string in the contract.
+ *
+ * Two things are load-bearing here. The label is the INSTALLATION's own text, so
+ * it can be German while the rest of the catalog is English. And the mark falls
+ * back to a neutral key icon rather than the block disappearing, because a
+ * working sign-in path must not be hidden for want of a logo.
+ */
+export const UnknownProvider: Story = {
+  render: () => (
+    <AuthStory
+      profile={configured}
+      oidcProviders={[{ key: "corp-sso", label: "Anmeldung über Werk-IT" }]}
+    />
+  ),
 };
 
 export const Unconfigured: Story = {

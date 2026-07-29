@@ -1740,6 +1740,10 @@ export const en = {
   "auth.corePermission": "I use your permissions.",
   "auth.coreCites": "I cite what I find.",
   "auth.coreWaits": "I wait before taking external action.",
+  // The fourth limit. The mockup's five became four, and one that did not
+  // travel says why: "enriches records from sources it names" is a capability
+  // claim, and ADR-0076 Decision 2 admits only limits. This one is a limit.
+  "auth.coreMarks": "I mark every value I wrote.",
   "auth.coreConfigured": "Configured",
   "auth.coreUnconfigured": "AI not configured",
   "auth.coreStillWorks": "The CRM still works.",
@@ -1756,12 +1760,27 @@ export const en = {
   "auth.coreProviderCompatible": "compatible provider",
   "auth.coreProviderVllm": "vLLM",
   "auth.email": "Email address",
-  "auth.emailPlaceholder": "name@example.com",
+  // A placeholder is an EXAMPLE, never an instruction and never the label
+  // again. "Enter your email" in a placeholder is a label that disappears.
+  "auth.emailPlaceholder": "you@company.com",
   "auth.password": "Password",
+  "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
   "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // Labels the password path, not the provider buttons above it: where the
+  // installation runs SSO, the form beneath this divider is the fallback door.
+  "auth.orWithEmail": "or with email",
+  // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
+  // keeps `workspace` internal and §7.3 removed it from authentication. And the
+  // line states that ACCESS is restricted, never that data is safe, encrypted or
+  // compliant — VOICE-RULE-7 rules those out here, because they are outcome
+  // claims the installation's own configuration can contradict, on the screen a
+  // CISO reads on the way in.
+  "auth.legalProtected": "Access to this organization is restricted.",
+  "auth.legalTerms": "Terms",
+  "auth.legalPrivacy": "Privacy",
   "auth.signIn": "Sign in",
   "auth.signingIn": "Signing in…",
   "auth.failed": "That didn't work",

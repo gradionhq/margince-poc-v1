@@ -185,9 +185,17 @@ describe("design-system conformance gates (B-EP09.1)", () => {
     for (const file of files) {
       // tokens.css is where literals live (tests pin them); index.html's
       // meta theme-color cannot read a CSS custom property.
+      //
+      // provider-mark.tsx is the one component exemption, and it is a NAMED
+      // file rather than a widened pattern on purpose: it carries Google's and
+      // Microsoft's own sign-in marks. Another company's colours are not ours
+      // to tokenise, and a provider mark rendered in Ledger Green is a wrong
+      // mark. The same single entry is in scripts/check-ds-purity.sh, so
+      // neither arm of this gate can be satisfied without the other.
       if (
         file.endsWith("tokens.css") ||
         file.endsWith("index.html") ||
+        file.endsWith("provider-mark.tsx") ||
         /\.test\.tsx?$/.test(file)
       ) {
         continue;
