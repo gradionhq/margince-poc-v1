@@ -191,14 +191,19 @@ record_round() {
 	  printf '%s\t%s\n' "$branch" "$1"; } > "$tmp" && mv "$tmp" "$rounds_file"
 }
 
-# reviewable answers whether this branch has an open PR — the "complete PR"
+# reviewable answers whether this branch has an OPEN PR — the "complete PR"
 # condition. Fails OPEN (no review requested) when gh is unavailable or there is
 # no PR yet, so a missing credential never traps the session in a gate it cannot
 # satisfy. No PR selector on purpose: gh infers the PR for the current branch,
 # which is exactly the question — passing --repo would suppress that inference.
+#
+# The state is checked, not just the existence: `gh pr view` also resolves a
+# CLOSED or MERGED PR for the branch, so existence alone would keep handing out
+# review rounds on a branch whose PR has already landed.
 reviewable() {
 	command -v gh >/dev/null 2>&1 || return 1
-	(cd "$root" && gh pr view --json number >/dev/null 2>&1)
+	state="$( (cd "$root" && gh pr view --json state --jq '.state' 2>/dev/null) || true )"
+	[ "$state" = "OPEN" ]
 }
 
 # request_review holds the stop and asks for the subagent round, but only when
