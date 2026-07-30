@@ -90,6 +90,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// The connector's OAuth audience and its advertised MCP resource are
+	// both derived from --public-base-url, never from the Host header an
+	// attacker controls — so the gate that turns the connector on cannot
+	// be satisfied without it.
+	if deployCfg.MCP.ConnectorEnabled && cfg.publicBaseURL == "" {
+		return errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
+			"audience and the advertised MCP resource must not be derived from the Host header")
+	}
 	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
 		return err
 	}
@@ -261,6 +269,10 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	opts = append(opts, compose.WithCaptureConfig(capCfg))
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
+		// The canonical MCP resource (RFC 9728) is the same configured
+		// base, never a request-derived origin — see the boot check in
+		// run() that requires this flag once the connector gate is on.
+		opts = append(opts, compose.WithMCPResource(strings.TrimSuffix(cfg.publicBaseURL, "/")+"/mcp"))
 	}
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)

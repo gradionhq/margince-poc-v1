@@ -45,6 +45,17 @@ func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
 	}
 }
 
+// WithMCPResource injects the canonical MCP resource URL — public_base_url
+// + "/mcp" — onto the identity discovery handlers, so the RFC 9728
+// protected-resource document names the MCP server URL itself rather than
+// the bare request origin. cmd computes the value from --public-base-url;
+// an OAuth audience decision must never be derived from the Host header.
+func WithMCPResource(resource string) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithMCPResource(resource)
+	}
+}
+
 // WithBusReady adds the event-bus probe to /readyz. The api role passes
 // it when it runs the inline relay: a process that must ship events is
 // not ready while the bus is unreachable.

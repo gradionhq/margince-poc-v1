@@ -118,8 +118,12 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// the generated resource surface but behind the same workspace and
 	// session middleware; the discovery documents are static.
 	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
-	mux.HandleFunc("/.well-known/oauth-authorization-server", identity.OAuthServerMetadata)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", identity.ProtectedResourceMetadata)
+	mux.HandleFunc("/.well-known/oauth-authorization-server", authH.OAuthServerMetadata)
+	mux.HandleFunc("/.well-known/oauth-protected-resource", authH.ProtectedResourceMetadata)
+	// Claude probes the path-suffixed form FIRST when a 401 carries no
+	// resource_metadata pointer, so serve it too rather than relying on
+	// the pointer alone.
+	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", authH.ProtectedResourceMetadata)
 	// Provider push webhooks: unauthenticated by nature (the provider is the
 	// caller), each verified by its own mechanism inside the handler; mounted
 	// only when configured — the route is absent otherwise.

@@ -57,6 +57,14 @@ type Handlers struct {
 	// identity never imports the overlay module). Nil ⟹ always native,
 	// the correct default for any role that wired no overlay dispatch.
 	sorMode func(context.Context) (overlay bool, err error)
+
+	// mcpResource is the canonical MCP server URL (public_base_url +
+	// "/mcp"), injected by the composition root from deployment config.
+	// The RFC 9728 protected-resource document advertises this verbatim
+	// as "resource" — never the request origin, which an attacker
+	// controls via Host/X-Forwarded-Proto and which an OAuth audience
+	// decision must not depend on.
+	mcpResource string
 }
 
 // NewHandlers builds the identity transport surface over its service.
@@ -85,6 +93,16 @@ func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handl
 // reports native (the correct answer for any role with no overlay wiring).
 func (h Handlers) WithSorMode(resolve func(context.Context) (bool, error)) Handlers {
 	h.sorMode = resolve
+	return h
+}
+
+// WithMCPResource injects the canonical MCP resource URL the RFC 9728
+// protected-resource document advertises. The composition root computes
+// it from --public-base-url, never from a request, so the audience the
+// OAuth handshake protects can never be steered by an attacker-controlled
+// Host header.
+func (h Handlers) WithMCPResource(resource string) Handlers {
+	h.mcpResource = resource
 	return h
 }
 

@@ -14,8 +14,10 @@ import (
 )
 
 // OAuthServerMetadata is the RFC 8414 discovery document. The issuer is
-// the serving host — one issuer per workspace subdomain in production.
-func OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
+// the serving host — one issuer per workspace subdomain in production. A
+// method on Handlers (not a package func) because the sibling protected-
+// resource document needs the handlers' injected config.
+func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	issuer := requestIssuer(r)
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
 		"issuer":                                issuer,
@@ -30,14 +32,16 @@ func OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// ProtectedResourceMetadata is the RFC 9728 document: the resource
-// names its authorization server so a generic MCP client can discover
-// the handshake.
-func ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
-	issuer := requestIssuer(r)
+// ProtectedResourceMetadata is the RFC 9728 document a generic MCP client
+// reads to find the authorization server for a given resource. The
+// resource field is the canonical MCP URL itself (h.mcpResource),
+// injected at boot from --public-base-url — Anthropic's clients require
+// it to match the MCP server URL exactly as the user enters it,
+// including the path, so it can never be the bare request origin.
+func (h Handlers) ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"resource":                 issuer,
-		"authorization_servers":    []string{issuer},
+		"resource":                 h.mcpResource,
+		"authorization_servers":    []string{requestIssuer(r)},
 		"bearer_methods_supported": []string{"header"},
 	})
 }
