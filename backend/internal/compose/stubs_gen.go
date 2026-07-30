@@ -628,6 +628,10 @@ func (stubs) GetOrganizationHierarchyRollup(w nethttp.ResponseWriter, r *nethttp
 	httperr.NotImplemented(w, r, "GetOrganizationHierarchyRollup")
 }
 
+func (stubs) GetOrganizationLogo(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationLogo")
+}
+
 func (stubs) MergeOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.MergeOrganizationParams) {
 	httperr.NotImplemented(w, r, "MergeOrganization")
 }

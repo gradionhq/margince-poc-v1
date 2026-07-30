@@ -41,6 +41,13 @@ vendors:
   # webread's crawl mechanics: the html tokenizer (link harvest from raw HTML)
   # and publicsuffix (same-registrable-domain fencing) — R2 crawl seam
   xnet:   { in: golang.org/x/net/** }
+  # imagenorm's decoders and scaler (A55 logo normalization): the WebP format
+  # the stdlib does not carry, and draw's resampling kernels — the stdlib's
+  # image/draw has no scaler at all. Pure Go, no cgo.
+  ximage: { in: golang.org/x/image/** }
+  # imagenorm's SVG rasterizer (A55): a vector mark is drawn to pixels on the
+  # way in, so a scripted document can never be stored or served. Pure Go.
+  oksvg:  { in: github.com/srwiley/** }
 
 components:
   # The published extension surface (ADR-0069 §3): the outermost Tier-0
@@ -88,7 +95,7 @@ deps:
     mayDependOn: [platform, contracts, migrations]
     # yaml: the deployment configuration file (deployconfig, A107/ADR-0061).
     # xnet: webread's crawl mechanics (html tokenizer + publicsuffix).
-    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet]
+    canUse: [pgx, chi, oapi, redis, river, minio, yaml, xnet, ximage, oksvg]
   # Modules import shared + platform + contracts — NEVER a sibling; every
   # cross-module edge is injected by the composition layer.
   identity:

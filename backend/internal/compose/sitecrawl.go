@@ -56,6 +56,11 @@ type siteCrawl struct {
 	Skipped    []crawlSkip
 	Stopped    *crmcontracts.SiteReadReportStoppedReason // nil = discovery exhausted
 	TotalBytes int
+	// SeedAssets is the visual identity the SEED page declared. The crawl
+	// already fetched that page, so carrying its <head> forward lets the logo
+	// resolve read the declarations instead of asking the site for its home
+	// page a second time.
+	SeedAssets declaredAssets
 }
 
 // siteFetcher is the slice of *webread.Fetcher the crawler needs; tests feed
@@ -376,7 +381,8 @@ func newCrawlRun(c *siteCrawler, pacer crawlPacer, seedURL string, seedPage webr
 		pacer:   pacer,
 		seedURL: seedURL,
 		crawl: siteCrawl{
-			Pages: []crawlPage{{URL: seedURL, Kind: crmcontracts.SiteReadPageKindHome, Text: seedPage.Text, Bytes: seedPage.Bytes}},
+			Pages:      []crawlPage{{URL: seedURL, Kind: crmcontracts.SiteReadPageKindHome, Text: seedPage.Text, Bytes: seedPage.Bytes}},
+			SeedAssets: declaredAssets{ogImage: seedPage.OGImage, icons: seedPage.Icons},
 		},
 		visited:       visited,
 		seenText:      map[string]bool{seedPage.Text: true},

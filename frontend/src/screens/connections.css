@@ -50,6 +50,14 @@
   fill: var(--textPrimary);
 }
 
+/* A node whose logo is painted over it: the fill becomes the neutral backing
+   the mark sits on, and the ring keeps the node readable as a node. Declared
+   after the per-kind fills so it wins for a company on any arm, root or not. */
+.cx-node-marked {
+  fill: var(--bgCard);
+  stroke: var(--borderStrong);
+}
+
 /* The route in is the one node a rep is looking for, so it carries a ring
    rather than a different fill: the fill still has to say "this is a person". */
 .cx-node-intro {

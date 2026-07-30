@@ -241,8 +241,26 @@ func writeJSONReport(path string, stdout io.Writer, reports []compose.SiteReadDe
 // decided conflicts, and what every model call cost.
 func renderSiteReadReport(w io.Writer, r compose.SiteReadDebugReport) {
 	renderCrawl(w, r)
+	renderLogo(w, r)
 	renderExtraction(w, r)
 	renderModelCalls(w, r)
+}
+
+// renderLogo prints the visual-identity lane: the mark that won, then every
+// candidate and what became of it. The candidate list is the point — a company
+// whose face comes out wrong is diagnosed by seeing which asset was chosen over
+// which.
+func renderLogo(w io.Writer, r compose.SiteReadDebugReport) {
+	p := func(format string, args ...any) { _, _ = fmt.Fprintf(w, format, args...) }
+
+	if r.Logo.SourceURL == "" {
+		p("\nLOGO: none resolved — the record keeps its monogram\n")
+	} else {
+		p("\nLOGO: %s (source %s, stored %s)\n", r.Logo.SourceURL, r.Logo.SourceSize, byteSize(r.Logo.StoredBytes))
+	}
+	for _, candidate := range r.Logo.Candidates {
+		p("  %s\n      %s\n", candidate.URL, candidate.Outcome)
+	}
 }
 
 func renderCrawl(w io.Writer, r compose.SiteReadDebugReport) {

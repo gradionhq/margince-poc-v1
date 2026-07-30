@@ -15,6 +15,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -23,10 +24,20 @@ import (
 
 type Handlers struct {
 	store *Store
+	// blob serves the organization logo's bytes. Nil is a role that stores no
+	// objects: the logo endpoint then answers 501 rather than nil-derefing,
+	// and no logo can have been resolved for it to serve anyway.
+	blob blobstore.Store
 }
 
 func NewHandlers(pool *pgxpool.Pool) Handlers {
 	return Handlers{store: NewStore(pool)}
+}
+
+// WithBlobstore wires the object store the organization-logo stream reads.
+func (h Handlers) WithBlobstore(blob blobstore.Store) Handlers {
+	h.blob = blob
+	return h
 }
 
 // WithFieldCatalog wires the workspace custom-field catalog into the

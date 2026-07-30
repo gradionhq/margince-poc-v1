@@ -246,6 +246,7 @@ const TIMELINE_ICON = {
 
 export function RecordView({
   name,
+  avatarSrc,
   subtitle,
   badges,
   pulse,
@@ -260,6 +261,10 @@ export function RecordView({
   children,
 }: Readonly<{
   name: string;
+  // The record's own image for the header chip — a company's resolved logo.
+  // Null or absent renders the deterministic monogram, which is the floor for
+  // every record type that has no image at all.
+  avatarSrc?: string | null;
   subtitle?: string;
   badges?: ReactNode;
   // A one-line "state of this record" strip under the name — warmth, last
@@ -294,7 +299,7 @@ export function RecordView({
   return (
     <div>
       <header className="record-head">
-        <Avatar name={name} />
+        <Avatar name={name} src={avatarSrc} size="lg" />
         <div className="record-id">
           <h1>{name}</h1>
           {subtitle && <p className="record-sub">{subtitle}</p>}
