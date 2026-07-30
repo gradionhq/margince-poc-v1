@@ -29,3 +29,23 @@ func TestOfflineAccessIsAMarkerAndNeverAPassportScope(t *testing.T) {
 		t.Error("an unknown scope must still be refused")
 	}
 }
+
+// TestOfflineAccessAloneDefaultsToReadRatherThanMintingAnEmptyPassport pins
+// the outcome, not the literal: a scope string that names no access scope
+// once offline_access is peeled off must default exactly like an absent
+// scope parameter does — not error, and not return an empty slice. An
+// empty slice would reach IssuePassport as "zero scopes", which mints a
+// passport Gate.Admit then refuses on every tool call: a connector that
+// completes the whole handshake and then silently fails everything.
+func TestOfflineAccessAloneDefaultsToReadRatherThanMintingAnEmptyPassport(t *testing.T) {
+	scopes, offline, err := parseOAuthScopes("offline_access")
+	if err != nil {
+		t.Fatalf("offline_access alone must be accepted: %v", err)
+	}
+	if !offline {
+		t.Error("offline_access must still set the refresh marker")
+	}
+	if want := []string{"read"}; !slices.Equal(scopes, want) {
+		t.Errorf("scopes = %v, want the same default as an absent scope parameter (%v)", scopes, want)
+	}
+}

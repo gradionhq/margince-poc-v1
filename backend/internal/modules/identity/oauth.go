@@ -356,6 +356,18 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 		}
 		scopes = append(scopes, sc)
 	}
+	// A raw string that named no access scope at all — offline_access is
+	// the only marker that can cause this, since anything else unknown
+	// already errored above — carries no authority to deny outright: it is
+	// the same "nothing asked for" situation as the blank-string case
+	// above, not a client mistake. Defaulting on the empty OUTCOME (rather
+	// than special-casing "offline_access" as the one literal request that
+	// defaults) means IssuePassport never mints a zero-scope passport that
+	// silently fails every later tool call, whatever future marker-style
+	// scope might someday reduce the parsed list to nothing.
+	if len(scopes) == 0 {
+		scopes = []string{"read"}
+	}
 	return scopes, offline, nil
 }
 
