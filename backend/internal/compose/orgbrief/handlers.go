@@ -52,7 +52,7 @@ func (h Handlers) RegenerateOrganizationBrief(w http.ResponseWriter, r *http.Req
 
 // AskAboutOrganization implements POST /organizations/{id}/ask.
 func (h Handlers) AskAboutOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
-	if !h.native(w, r) {
+	if !h.native(w, r, "the prepared answer") {
 		return
 	}
 	var req crmcontracts.AskAboutOrganizationJSONRequestBody
@@ -73,7 +73,7 @@ func (h Handlers) AskAboutOrganization(w http.ResponseWriter, r *http.Request, i
 // workspace — but that refusal lives in ITS handler, so without this gate an
 // overlay workspace would get generated prose about native rows while its own
 // company page refuses to render at all.
-func (h Handlers) native(w http.ResponseWriter, r *http.Request) bool {
+func (h Handlers) native(w http.ResponseWriter, r *http.Request, subject string) bool {
 	overlay, err := h.overlay(r.Context())
 	if err != nil {
 		// A mode-resolution failure refuses: writing from native rows because
@@ -83,14 +83,16 @@ func (h Handlers) native(w http.ResponseWriter, r *http.Request) bool {
 	}
 	if overlay {
 		httperr.Write(w, r, httperr.Validation("id", "unsupported_in_overlay_mode",
-			"this is written from this system of record; while the workspace reads from the incumbent mirror, there is nothing here to write from"))
+			subject+" is written from this system of record; while the workspace reads from "+
+				"the incumbent mirror there is nothing here to write from — open the account "+
+				"in the incumbent's own UI"))
 		return false
 	}
 	return true
 }
 
 func (h Handlers) serve(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, force bool) {
-	if !h.native(w, r) {
+	if !h.native(w, r, "the account brief") {
 		return
 	}
 	brief, err := h.svc.Get(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)), force)

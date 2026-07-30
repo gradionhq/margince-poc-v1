@@ -73,6 +73,13 @@ var (
 // neither has nothing to be advised from, and the section is omitted and named
 // rather than answering empty.
 func (a *assembly) readSuggestions() error {
+	// Resolved first, and unconditionally: dismissals are per user, so a caller
+	// with no user id has no suggestions surface at all. Leaving this to
+	// keepUndismissed — which is skipped when no rule fires — made the section
+	// present for such a caller on a quiet account and omitted on a busy one.
+	if _, err := actingUser(a.ctx); err != nil {
+		return err
+	}
 	in, err := gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
 	if err != nil {
 		return err
@@ -145,7 +152,7 @@ func candidateSuggestions(
 			// The no-next-step rule reads BOTH: the pipeline says the account is
 			// live, and the task grant is what makes "nothing is scheduled" a fact
 			// rather than a gap in what this caller may see.
-			found = append(found, appendIf(nil, noNextStepSuggestion(orgID, in))...)
+			found = appendIf(found, noNextStepSuggestion(orgID, in))
 		}
 	}
 	return found

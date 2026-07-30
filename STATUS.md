@@ -518,6 +518,23 @@ this build repo.
   and pin it in `specs/subsystems/deals-and-pipeline.md`, then derive the
   fingerprint from that rather than from the schema. Until then the rule the code
   states is "not now silences this deal until it is next worked".
+- **Three deferred findings on the company view's suggestion card**, all raised by
+  review and none a defect in what ships:
+  1. `Organization360Suggestion.subject_type`/`subject_id` are written only by the
+     stalled-deal rule, duplicate its single evidence entry, and no consumer reads
+     them; the enum also declares `person` and `organization` with no producer.
+     Either give the card a use for them or drop them from the contract — a wire
+     field with no reader is a promise nobody keeps.
+  2. The no-reply rule's activity-kind set is hand-typed in SQL
+     (`email, whatsapp, telegram, call, meeting`) while the rest of the feature
+     derives from the contract enum. Its correctness depends on that being the exact
+     complement of `note`/`task`: a new two-way kind added upstream would make the
+     rule say "nobody has come back" about a thread that was answered. Derive it, or
+     add a fitness test over the enum.
+  3. A caller holding `deal:read` but not `activity:read` gets the suggestions
+     section with `suggestions_dropped: 0`, which the card renders as "that is
+     everything" — while the no-reply rule was never evaluated. It under-advises
+     rather than over-advises, so it is a truthfulness gap, not a disclosure.
 - **The company view's suggestion read is deliberately unbounded.** `openPipeline`
   reads every open deal of one account in one statement, because every bound put
   the read's own limit inside a number the card reported. An account with tens of

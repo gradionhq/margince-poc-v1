@@ -35,6 +35,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -324,15 +325,38 @@ type suggestionInputs struct {
 // rather than answering empty.
 func (in suggestionInputs) advisable() bool { return in.timeline || in.pipeline }
 
+// granted answers whether this caller may read one object, distinguishing a
+// refusal from a broken context.
+//
+// Collapsing both into a bool would turn "no actor bound" — a programming error —
+// into a quietly withheld section on a 200, while every other section in the same
+// assembly surfaces it as a failure. The spelling here matches dealStageMoves in
+// viewbaseline.go: the sentinel is a decision, anything else is a bug.
+func granted(ctx context.Context, object string) (bool, error) {
+	err := auth.Require(ctx, object, principal.ActionRead)
+	if err == nil {
+		return true, nil
+	}
+	if errors.Is(err, apperrors.ErrPermissionDenied) {
+		return false, nil
+	}
+	return false, err
+}
+
 // gatherSuggestionInputs reads what the rules need, skipping whatever this
 // caller has no grant for.
 func gatherSuggestionInputs(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
 ) (suggestionInputs, error) {
-	in := suggestionInputs{
-		timeline: auth.Require(ctx, "activity", principal.ActionRead) == nil,
-		pipeline: auth.Require(ctx, "deal", principal.ActionRead) == nil,
+	timeline, err := granted(ctx, "activity")
+	if err != nil {
+		return suggestionInputs{}, err
 	}
+	pipeline, err := granted(ctx, "deal")
+	if err != nil {
+		return suggestionInputs{}, err
+	}
+	in := suggestionInputs{timeline: timeline, pipeline: pipeline}
 	if in.timeline {
 		newest, found, err := newestMessage(ctx, tx, orgID)
 		if err != nil {

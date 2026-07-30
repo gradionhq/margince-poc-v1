@@ -719,15 +719,11 @@ function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
 // Keyed by question rather than listed, so the type is EXHAUSTIVE: a question
 // declared upstream and not given a position here fails to compile, instead of
 // shipping a server that answers it and a card that never asks.
-const QUESTION_ORDER: Record<Question, number> = {
+const QUESTIONS: readonly Question[] = Object.keys({
   whats_open: 0,
-  meeting_prep: 1,
-  whats_changed: 2,
-};
-
-const QUESTIONS: readonly Question[] = (
-  Object.keys(QUESTION_ORDER) as Question[]
-).sort((a, b) => QUESTION_ORDER[a] - QUESTION_ORDER[b]);
+  meeting_prep: 0,
+  whats_changed: 0,
+} satisfies Record<Question, 0>) as Question[];
 
 /**
  * AskCard is "Ask Margince": three prepared questions, answered from this
@@ -785,7 +781,16 @@ export function AskCard({
         ))}
       </p>
       {ask.isPending && <Skeleton width="100%" height={40} />}
-      {ask.isError && <p className="co-restricted">{t("co.ask.failed")}</p>}
+      {ask.isError && (
+        <p className="co-restricted">
+          {t("co.ask.failed")}
+          {/* The server's own detail says WHICH failure — budget exhausted reads
+              differently from a malformed request, and a rep can act on one. */}
+          {ask.error instanceof Error && ask.error.message
+            ? ` ${ask.error.message}`
+            : null}
+        </p>
+      )}
       {/* The previous answer is hidden while the next question is in flight.
           Leaving it under the spinner puts a finished answer next to a loading
           one, and the reader has no way to tell which question they are
@@ -921,7 +926,12 @@ export function SuggestionsCard({
       {/* A dismissal that failed must say so: the row staying put with no word
           reads as a click that missed, and the rep clicks again. */}
       {dismiss.isError && (
-        <p className="co-restricted">{t("co.suggest.dismissFailed")}</p>
+        <p className="co-restricted">
+          {t("co.suggest.dismissFailed")}
+          {dismiss.error instanceof Error && dismiss.error.message
+            ? ` ${dismiss.error.message}`
+            : null}
+        </p>
       )}
     </section>
   );
