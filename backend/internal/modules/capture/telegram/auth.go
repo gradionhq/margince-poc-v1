@@ -8,7 +8,7 @@
 //
 // The surface is an interface (API) so the connect ordering is unit-tested
 // against a fake rather than a live bot, and every non-2xx maps to one of this
-// package's three sentinels. Telegram's own `description` text never reaches a
+// package's four sentinels. Telegram's own `description` text never reaches a
 // client: it rides the wrapped error, which is logged server-side, while the
 // transport writes a fixed message per sentinel.
 package telegram
@@ -21,18 +21,32 @@ import (
 	"strings"
 )
 
-// The package sentinels. Each names one class of outcome the connect path has
-// to tell apart, because each has a different answer for the operator: fix the
-// token, wait and retry, or read the refusal.
+// The package sentinels. Each names one class of outcome a caller has to tell
+// apart, because each has a different answer for the operator: fix the token,
+// wait and retry, reach the customer another way, or read the refusal.
 
-// ErrTokenRejected marks a bot token Telegram refused (401/403, or the 404 the
-// API answers for a malformed token in the path). The transport maps it to a
-// 400 naming the token, never echoing Telegram's text.
+// ErrTokenRejected marks a bot token Telegram refused (401, or the 404 the API
+// answers for a malformed token in the path). The transport maps it to a 400
+// naming the token, never echoing Telegram's text.
+//
+// 403 is deliberately NOT here — see ErrRecipientUnreachable.
 var ErrTokenRejected = errors.New("telegram: the bot token was rejected")
 
+// ErrRecipientUnreachable marks a chat Telegram will not deliver to: "bot was
+// blocked by the user", "user is deactivated", a bot removed from a group. Every
+// one of them answers 403, and every one of them is about the RECIPIENT — the
+// token is live and Telegram is up.
+//
+// Keeping it apart from ErrTokenRejected is the whole point. A blocked bot is the
+// most common send failure a channel has, and folded into the credential class it
+// would tell an operator to rotate a token that works while the customer who
+// blocked the bot stays unreachable either way.
+var ErrRecipientUnreachable = errors.New("telegram: the recipient cannot be reached on this channel")
+
 // ErrUnreachable marks a transport-level failure or a Telegram 5xx (DNS, TCP,
-// TLS, timeout, outage). The transport maps it to a 502, and connect keeps its
-// `pending` row so an operator can retry.
+// TLS, timeout, outage) — us failing to reach TELEGRAM, which is a different
+// fact from Telegram refusing to reach a recipient. The transport maps it to a
+// 502, and connect keeps its `pending` row so an operator can retry.
 var ErrUnreachable = errors.New("telegram: could not reach Telegram")
 
 // ErrRequestRejected marks a request Telegram understood and refused on its

@@ -106,24 +106,43 @@ func TestGetMeRefusesAResultWithoutABotID(t *testing.T) {
 	}
 }
 
-// The status verdict is what the connect path branches on, so each class has to
-// land on the sentinel whose remedy actually matches it.
+// The status verdict is what every caller branches on, so each class has to land
+// on the sentinel whose remedy actually matches it. The bodies are Telegram's
+// REAL ones, verbatim: a fixture that answers a bare "Forbidden" exercises a
+// response the Bot API does not send, and the class that mattered would go
+// untested behind a row that looks like it covers it.
 func TestEveryFailureClassLandsOnItsOwnSentinel(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
 		status int
 		body   string
 		want   error
+		// never is a sentinel this class must NOT also answer, for the pairs whose
+		// remedies point an operator in opposite directions.
+		never error
 	}{
-		{"unauthorized token", http.StatusUnauthorized, `{"ok":false,"description":"Unauthorized"}`, ErrTokenRejected},
-		{"forbidden token", http.StatusForbidden, `{"ok":false,"description":"Forbidden"}`, ErrTokenRejected},
+		{"unauthorized token", http.StatusUnauthorized, `{"ok":false,"description":"Unauthorized"}`, ErrTokenRejected, ErrRecipientUnreachable},
+		// The commonest send failure a channel has, and the one this split exists
+		// for: a customer blocked the bot. The token is live — reported as a
+		// credential fault it would send an operator to rotate a working token
+		// while the customer stays unreachable regardless.
+		{
+			"the customer blocked the bot", http.StatusForbidden,
+			`{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`,
+			ErrRecipientUnreachable, ErrTokenRejected,
+		},
+		{
+			"the customer's account is gone", http.StatusForbidden,
+			`{"ok":false,"error_code":403,"description":"Forbidden: user is deactivated"}`,
+			ErrRecipientUnreachable, ErrTokenRejected,
+		},
 		// 404 is a token failure, not a server fault: the token is part of the
 		// path, so a token naming no bot cannot be routed.
-		{"token names no bot", http.StatusNotFound, `{"ok":false,"description":"Not Found"}`, ErrTokenRejected},
-		{"provider outage", http.StatusBadGateway, `{"ok":false,"description":"Bad Gateway"}`, ErrUnreachable},
-		{"bad request", http.StatusBadRequest, `{"ok":false,"description":"Bad Request: bad webhook"}`, ErrRequestRejected},
-		{"rate limited", http.StatusTooManyRequests, `{"ok":false,"description":"Too Many Requests"}`, ErrRequestRejected},
-		{"ok=false under a 200", http.StatusOK, `{"ok":false,"description":"refused"}`, ErrRequestRejected},
+		{"token names no bot", http.StatusNotFound, `{"ok":false,"description":"Not Found"}`, ErrTokenRejected, ErrRecipientUnreachable},
+		{"provider outage", http.StatusBadGateway, `{"ok":false,"description":"Bad Gateway"}`, ErrUnreachable, nil},
+		{"bad request", http.StatusBadRequest, `{"ok":false,"description":"Bad Request: bad webhook"}`, ErrRequestRejected, nil},
+		{"rate limited", http.StatusTooManyRequests, `{"ok":false,"description":"Too Many Requests"}`, ErrRequestRejected, nil},
+		{"ok=false under a 200", http.StatusOK, `{"ok":false,"description":"refused"}`, ErrRequestRejected, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api, _ := serve(t, tc.status, tc.body)
@@ -131,7 +150,28 @@ func TestEveryFailureClassLandsOnItsOwnSentinel(t *testing.T) {
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
+			if tc.never != nil && errors.Is(err, tc.never) {
+				t.Fatalf("got %v, which ALSO reads as %v — the two remedies contradict each other", err, tc.never)
+			}
 		})
+	}
+}
+
+// A 403 keeps answering the connect transport's question as well as the send
+// path's. The two readers want different things from it — "which recipient" and
+// "was my request refused" — and the connect surface has no recipient to speak
+// of, so it must go on classifying a 403 as a refusal rather than fall through to
+// an unmapped fault.
+func TestAForbiddenAlsoReadsAsARefusalForTheConnectTransport(t *testing.T) {
+	api, _ := serve(t, http.StatusForbidden,
+		`{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`)
+
+	err := api.SetWebhook(context.Background(), "1:x", "https://crm.test/webhooks/telegram/x", "s", nil)
+	if !errors.Is(err, ErrRequestRejected) {
+		t.Fatalf("got %v, want a 403 to also answer ErrRequestRejected", err)
+	}
+	if errors.Is(err, ErrUnreachable) {
+		t.Errorf("got %v, which reads as an outage — a 403 is a definite answer FROM Telegram", err)
 	}
 }
 

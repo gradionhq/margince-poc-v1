@@ -154,6 +154,15 @@ func TestSendMessageClassifiesEveryFailureTheDispatcherActsOn(t *testing.T) {
 			connector.ErrSendOutcomeUnknown, false,
 		},
 		{
+			// The customer blocked the bot. Definite, so nothing was transmitted —
+			// but permanent, and the credential is fine. It takes its own class so
+			// the delivery parks naming the block instead of telling an operator to
+			// rotate a token that works.
+			"a blocked bot is the recipient's doing, not the credential's",
+			403, `{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`,
+			connector.ErrRecipientUnreachable, true,
+		},
+		{
 			// Understood and refused on Telegram's own terms: nothing went, so
 			// the ladder may try again.
 			"a refusal on Telegram's own terms stays retryable",
@@ -172,6 +181,22 @@ func TestSendMessageClassifiesEveryFailureTheDispatcherActsOn(t *testing.T) {
 				t.Errorf("%v also reads as an unknown outcome; the delivery would be abandoned rather than retried", err)
 			}
 		})
+	}
+}
+
+// The two permanent classes must stay distinguishable at this seam, because the
+// dispatcher turns each into a different instruction and only one of them is ever
+// right: reconnect the channel, or stop trying to reach this person here.
+func TestABlockedRecipientIsNeverReportedAsACredentialFault(t *testing.T) {
+	api, _ := serve(t, 403,
+		`{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`)
+
+	_, err := New(api).SendMessage(context.Background(), connector.Auth("1:secret"), reply())
+	if !errors.Is(err, connector.ErrRecipientUnreachable) {
+		t.Fatalf("SendMessage on a blocked bot = %v, want connector.ErrRecipientUnreachable", err)
+	}
+	if errors.Is(err, connector.ErrAuthRejected) {
+		t.Fatal("a blocked bot also reads as a rejected credential; the operator would be told to rotate a token that works")
 	}
 }
 

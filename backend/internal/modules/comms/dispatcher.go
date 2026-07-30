@@ -347,11 +347,13 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, seam sendSeam) 
 // the shared sentinel vocabulary, so the provider's own text stops at the
 // connector boundary.
 //
-// There is deliberately no permanent-rejection branch. The Gmail connector
-// maps every non-throttled, non-2xx response to ErrUnreachable, so a refused
-// recipient is indistinguishable from an outage at this seam; a permanently
-// rejected recipient therefore burns the whole retry ladder before its job
-// exhausts and the delivery parks.
+// A permanent rejection is recognized only where the SEAM can prove it:
+// ErrRecipientUnreachable is reported by a provider that answers a refused
+// recipient differently from a refused credential, and it parks at once. The
+// Gmail connector cannot — it maps every non-throttled, non-2xx response to
+// ErrUnreachable, so a refused mail recipient is indistinguishable from an
+// outage there and still burns the whole retry ladder before its job exhausts
+// and the delivery parks.
 func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err error) (Outcome, time.Duration, error) {
 	if errors.Is(err, connector.ErrSendOutcomeUnknown) {
 		// NEVER retried, and no shape test is needed to decide that: only a seam
@@ -376,6 +378,12 @@ func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err 
 	}
 	if errors.Is(err, connector.ErrAuthRejected) {
 		return d.park(ctx, del.ID, "the provider rejected the credential this delivery transmits through; reconnect it to resume sending")
+	}
+	// Checked alongside the credential class, not after the ladder: the two are
+	// the pair an operator most easily confuses, and the whole value of telling
+	// them apart is that each row says which one it was.
+	if errors.Is(err, connector.ErrRecipientUnreachable) {
+		return d.park(ctx, del.ID, unreachableRecipientReason)
 	}
 	// Honour the provider's own interval when it named one: it knows when it
 	// will accept the next message, and guessing shorter earns another

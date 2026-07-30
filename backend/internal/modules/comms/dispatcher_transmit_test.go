@@ -136,6 +136,38 @@ func TestDispatchParksOnARejectedGrant(t *testing.T) {
 	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked — a dead grant is not retryable", got)
 	}
+	// The credential park is the one that asks for a reconnection, and it must be
+	// the ONLY one: the reason is the whole instruction an operator acts on.
+	if !strings.Contains(store.parked, "reconnect") {
+		t.Errorf("park reason %q does not name the reconnection that repairs a rejected credential", store.parked)
+	}
+}
+
+// A recipient the provider permanently refuses parks at once, and the reason must
+// name the RECIPIENT. Sharing the credential park's wording would send an operator
+// to rotate a working credential, and falling through to the retry ladder would
+// spend every attempt on a chat that will never accept the message and then park
+// under a reason that names no cause at all.
+func TestDispatchParksNamingTheRecipientWhenTheProviderRefusesToDeliverToThem(t *testing.T) {
+	sender := &fakeSender{err: connector.ErrRecipientUnreachable}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeParked {
+		t.Fatalf("outcome = %v, want OutcomeParked — no retry reaches a recipient the provider refuses", got)
+	}
+	if !strings.Contains(store.parked, "recipient") || !strings.Contains(store.parked, "blocked") {
+		t.Errorf("park reason %q does not tell the operator that the recipient is the cause", store.parked)
+	}
+	if strings.Contains(store.parked, "reconnect the channel to resume") {
+		t.Errorf("park reason %q asks for a reconnection, which repairs nothing here", store.parked)
+	}
+	// A definite answer proves nothing was transmitted, so the marker that would
+	// make the NEXT attempt park as an unknown outcome has to be retracted.
+	if store.cleared != 1 {
+		t.Errorf("the in-flight marker was cleared %d time(s), want 1 — the provider gave a definite answer", store.cleared)
+	}
 }
 
 func TestDispatchRetriesWhenTheProviderIsUnreachable(t *testing.T) {

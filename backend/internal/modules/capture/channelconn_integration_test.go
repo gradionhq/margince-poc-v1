@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -276,6 +277,130 @@ func TestReplaceTokenRerunsThePreflightAndReturnsToConnected(t *testing.T) {
 	}
 	if len(api.setWebhookCalls) < 2 || api.setWebhookCalls[len(api.setWebhookCalls)-1].token != replacementToken {
 		t.Error("the replacement token was never registered with the provider")
+	}
+}
+
+// Swapping in a DIFFERENT bot has to end the outgoing bot's registration, because
+// nothing else ever will. Left standing, the old bot keeps delivering to this
+// installation's URL carrying a secret the row no longer holds: every one of those
+// messages is refused and silently uncaptured, and it is invisible because the
+// connection reads `connected` for the new bot.
+func TestReplacingWithADifferentBotRevokesTheOutgoingBotsWebhook(t *testing.T) {
+	api := newFakeTelegram()
+	outgoingToken, _ := api.withNewBot("outgoing_bot")
+	incomingToken, _ := api.withNewBot("incoming_bot")
+	f := newChannelFixture(t, api)
+
+	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: outgoingToken,
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if got := api.registeredWebhook(outgoingToken); got == "" {
+		t.Fatal("the fixture never registered the outgoing bot, so this test could not observe a revocation")
+	}
+
+	if err := f.store.ReplaceToken(f.ctx, conn.ID, incomingToken); err != nil {
+		t.Fatalf("ReplaceToken: %v", err)
+	}
+
+	if got := api.registeredWebhook(outgoingToken); got != "" {
+		t.Errorf("the outgoing bot still delivers to %q; its messages would be refused for a secret this connection no longer holds", got)
+	}
+	if !slices.Contains(api.deleteWebhookTokens, outgoingToken) {
+		t.Error("deleteWebhook was never called for the outgoing bot")
+	}
+	if got := api.registeredWebhook(incomingToken); got != channelWebhookBase+"/webhooks/telegram/"+conn.ID.String() {
+		t.Errorf("the incoming bot is registered at %q, want this connection's URL — revoking the outgoing bot must not disturb it", got)
+	}
+}
+
+// A rotation of the SAME bot must delete nothing. Telegram keeps one webhook per
+// bot, so setWebhook replaces the registration in place; deleting it first would
+// take a working channel down for the length of a round trip, and leave it down
+// altogether if the re-registration failed.
+func TestRotatingTheSameBotsTokenRevokesNothing(t *testing.T) {
+	api := newFakeTelegram()
+	token, _ := api.withNewBot("rotating_bot")
+	f := newChannelFixture(t, api)
+
+	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: token,
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rotated := api.rotateToken(token)
+
+	if err := f.store.ReplaceToken(f.ctx, conn.ID, rotated); err != nil {
+		t.Fatalf("ReplaceToken: %v", err)
+	}
+
+	if len(api.deleteWebhookTokens) != 0 {
+		t.Errorf("a same-bot rotation called deleteWebhook %v — it would drop the registration it is about to replace", api.deleteWebhookTokens)
+	}
+	if got := api.registeredWebhook(rotated); got != channelWebhookBase+"/webhooks/telegram/"+conn.ID.String() {
+		t.Errorf("the rotated token is registered at %q, want this connection's URL", got)
+	}
+	status, _, _ := f.rowState(t, conn.ID)
+	if status != "connected" {
+		t.Errorf("status %q after a rotation, want connected", status)
+	}
+}
+
+// The race the version predicate exists for. Replacement A repoints the row and
+// then blocks at the provider; replacement B repoints the SAME row onto its own
+// bot and its own setWebhook fails, leaving the row `pending` for a bot Telegram
+// was never told about. A's registration then succeeds and A goes to flip the row
+// live — updating by id alone, it would advertise bot B as connected on the
+// strength of a registration made for bot A.
+func TestAStaleReplacementCannotMarkAnUnregisteredBotConnected(t *testing.T) {
+	api := newFakeTelegram()
+	originalToken, _ := api.withNewBot("original_bot")
+	tokenA, botAID := api.withNewBot("bot_a")
+	tokenB, botBID := api.withNewBot("bot_b")
+	f := newChannelFixture(t, api)
+
+	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: originalToken,
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	registrationRefused := errors.New("telegram refused bot B's registration")
+	api.failSetWebhookFor(tokenB, registrationRefused)
+	var errB error
+	// Fires while replacement A is inside setWebhook — after A's repoint has
+	// committed, which is the only window in which A's snapshot can go stale.
+	api.onNextSetWebhook(func(string) {
+		errB = f.store.ReplaceToken(f.ctx, conn.ID, tokenB)
+	})
+
+	errA := f.store.ReplaceToken(f.ctx, conn.ID, tokenA)
+
+	if !errors.Is(errB, registrationRefused) {
+		t.Fatalf("the second replacement = %v, want the provider refusal that leaves its row pending", errB)
+	}
+	if !errors.Is(errA, apperrors.ErrVersionSkew) {
+		t.Fatalf("the stale replacement = %v, want ErrVersionSkew — its snapshot no longer describes the row", errA)
+	}
+
+	status, _, channelID := f.rowState(t, conn.ID)
+	if channelID != strconv.FormatInt(botBID, 10) {
+		t.Fatalf("channel_id %q, want bot B's id %d — the newer replacement owns this connection", channelID, botBID)
+	}
+	if status != "pending" {
+		t.Errorf("status %q: the row advertises bot B although Telegram refused its registration", status)
+	}
+	if got := api.registeredWebhook(tokenB); got != "" {
+		t.Errorf("bot B is registered at %q, but its setWebhook was refused", got)
+	}
+	// Bot A's own registration is beside the point: the row does not name bot A,
+	// so ingress verifies its deliveries against a secret it does not carry.
+	if channelID == strconv.FormatInt(botAID, 10) {
+		t.Error("the stale replacement overwrote the newer one's bot")
 	}
 }
 

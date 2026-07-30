@@ -50,12 +50,12 @@ type channelRow struct {
 // on this row or on the bot, so rotating the token — or swapping in a different
 // bot — loses no history.
 //
-// The bot's PREVIOUS registration is deliberately not deleted. For a rotation
-// of the same bot there is nothing to delete (Telegram allows one webhook per
-// bot, so setWebhook below replaces it), and for a swap to a different bot the
-// old bot's registration now carries a secret this connection no longer holds,
-// so ingress refuses its deliveries — it cannot leak, and the revoked old token
-// could not authorize a deleteWebhook anyway.
+// A ROTATION of the same bot deletes nothing: Telegram keeps one webhook per
+// bot, so the setWebhook below replaces the registration in place. A swap to a
+// DIFFERENT bot must delete the outgoing bot's registration, because nothing else
+// ever will — the old bot would go on delivering to this installation's URL with
+// a secret the row no longer holds, every delivery refused, and invisible while
+// the connection reads `connected` for the new bot.
 func (s *ChannelStore) ReplaceToken(ctx context.Context, id ids.UUID, token string) error {
 	if err := auth.Require(ctx, channelConnectionObject, principal.ActionUpdate); err != nil {
 		return err
@@ -90,11 +90,24 @@ func (s *ChannelStore) ReplaceToken(ctx context.Context, id ids.UUID, token stri
 	if err != nil {
 		return err
 	}
+	// Read while the row still NAMES the outgoing credential: it is destroyed a
+	// few lines below, and a destroyed ref cannot authorize the deleteWebhook that
+	// ends the outgoing bot's registration.
+	outgoing := s.outgoingBotToken(ctx, ws, current, bot)
+
 	pending, err := s.repointPending(ctx, current, bot, sealed)
 	if err != nil {
+		// Both of these prove the transaction wrote nothing — a unique index
+		// refused it, or zero rows matched the version predicate — so the pair
+		// just sealed is definitely orphaned and safe to destroy. Any other error
+		// leaves the commit outcome ambiguous, and destroying then could strand a
+		// live connection's credentials.
 		if storekit.IsUniqueViolation(err) {
 			sealed.destroy(ctx, s.vault, s.log, ws, "channel-replace-lost-race")
 			return fmt.Errorf("this bot is already connected: %w", apperrors.ErrConflict)
+		}
+		if errors.Is(err, apperrors.ErrVersionSkew) {
+			sealed.destroy(ctx, s.vault, s.log, ws, "channel-replace-lost-race")
 		}
 		return err
 	}
@@ -103,6 +116,16 @@ func (s *ChannelStore) ReplaceToken(ctx context.Context, id ids.UUID, token stri
 	// fail and return, leaving them orphaned with nothing left to name them.
 	channelSecrets{credentialRef: current.credentialRef, secretRef: current.secretRef}.
 		destroy(ctx, s.vault, s.log, ws, "channel-token-replaced")
+
+	// Revoked HERE — after the row stopped naming the outgoing secret, and before
+	// the incoming bot is registered. After, because until the repoint commits the
+	// outgoing bot is still this connection's live channel and a failure earlier in
+	// the sequence must leave it working. Before, because setWebhook can fail and
+	// return: revoking afterwards would skip the cleanup on exactly the run that
+	// leaves the row `pending` and both bots pointed at the same URL. The two
+	// registrations are independent — Telegram keeps one webhook per BOT — so
+	// removing the outgoing one cannot disturb the incoming one either way.
+	s.revokeOutgoingWebhook(ctx, current, outgoing)
 
 	if err := s.api.SetWebhook(ctx, token, s.webhookURL(id), sealed.webhookSecret, channelAllowedUpdates); err != nil {
 		// Same posture as connect: the pending row stays visible so an
@@ -121,7 +144,12 @@ func (s *ChannelStore) ReplaceToken(ctx context.Context, id ids.UUID, token stri
 // The row is locked first because the decision to repoint was made from a read
 // taken before two provider round trips: without the lock a concurrent rotation
 // or disconnect in that window would be overwritten by a decision made against
-// state that no longer holds.
+// state that no longer holds. The lock alone only SERIALIZES those writers,
+// though — it does not tell this one that its snapshot went stale — so the
+// version read with the snapshot travels into the WHERE clause as a predicate.
+// Zero rows matched means another replacement already moved this connection on,
+// and this one's remaining steps (a setWebhook for a bot the row no longer names,
+// then a flip to `connected`) would be acting on a decision that no longer holds.
 func (s *ChannelStore) repointPending(ctx context.Context, current channelRow, bot telegram.Bot, sealed channelSecrets) (ChannelConnection, error) {
 	var out ChannelConnection
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
@@ -133,10 +161,11 @@ func (s *ChannelStore) repointPending(ctx context.Context, current channelRow, b
 			UPDATE channel_connection
 			   SET channel_id = $2, channel_label = $3, credential_ref = $4,
 			       webhook_secret_ref = $5, status = $6
-			 WHERE id = $1 AND archived_at IS NULL
+			 WHERE id = $1 AND version = $7 AND archived_at IS NULL
 			 RETURNING `+channelConnectionColumns,
 			current.ID, channelIDOf(bot), bot.Username,
-			string(sealed.credentialRef), string(sealed.secretRef), channelStatusPending))
+			string(sealed.credentialRef), string(sealed.secretRef), channelStatusPending,
+			current.Version))
 		if err != nil {
 			return err
 		}
@@ -145,12 +174,55 @@ func (s *ChannelStore) repointPending(ctx context.Context, current channelRow, b
 			channelAuditImage(out.ChannelID, out.ChannelLabel, out.Status))
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ChannelConnection{}, apperrors.ErrNotFound
+		// The lock resolved a LIVE row, so the live clause held and only the
+		// version clause can have failed.
+		return ChannelConnection{}, apperrors.ErrVersionSkew
 	}
 	if err != nil {
 		return ChannelConnection{}, err
 	}
 	return out, nil
+}
+
+// outgoingBotToken resolves the plaintext token of the bot a replacement is
+// swapping OUT, or "" when there is nothing to revoke. A rotation of the SAME
+// bot returns "" because setWebhook replaces that bot's one registration in
+// place; only a change of bot leaves a registration nobody would otherwise end.
+//
+// A vault that cannot answer is LOGGED and reported as nothing to revoke. The
+// replacement is the operator's instruction and does not hinge on tidying up the
+// bot it replaces — but the log has to name the consequence, because nothing else
+// will notice it.
+func (s *ChannelStore) outgoingBotToken(ctx context.Context, ws ids.UUID, current channelRow, incoming telegram.Bot) string {
+	if current.ChannelID == channelIDOf(incoming) {
+		return ""
+	}
+	token, err := s.vault.Get(ctx, ids.From[ids.WorkspaceKind](ws), current.credentialRef)
+	if err != nil {
+		s.log.WarnContext(ctx, "capture: could not resolve the outgoing bot's token, so its webhook stays registered against this installation; that bot's deliveries will be refused for a secret this connection no longer holds — clear the registration in BotFather",
+			"connection", current.ID.String(), "outgoing_bot", current.ChannelID, "err", err)
+		return ""
+	}
+	return string(token)
+}
+
+// revokeOutgoingWebhook ends the registration of the bot a replacement swapped
+// out. An empty token means there was nothing to revoke.
+//
+// A failure is reported and the replacement continues, the same posture
+// revokeWebhook takes for disconnect: the row is already the authority on which
+// bot this connection is, and refusing here would leave an operator unable to
+// finish a swap whenever Telegram is down. What the log must carry is the
+// consequence — the outgoing bot keeps delivering to a URL that refuses it, and
+// only an operator can end that.
+func (s *ChannelStore) revokeOutgoingWebhook(ctx context.Context, current channelRow, token string) {
+	if token == "" {
+		return
+	}
+	if err := s.api.DeleteWebhook(ctx, token); err != nil {
+		s.log.WarnContext(ctx, "capture: Telegram refused to revoke the outgoing bot's webhook, so it stays registered against this installation; that bot's deliveries will be refused for a secret this connection no longer holds — clear the registration in BotFather",
+			"connection", current.ID.String(), "outgoing_bot", current.ChannelID, "err", err)
+	}
 }
 
 // Disconnect withdraws the binding: it revokes the webhook at Telegram,

@@ -183,6 +183,14 @@ func sendOutcome(err error) error {
 		// The bot token is refused. No retry repairs it, and the caller parks
 		// naming the credential that has to be replaced.
 		return fmt.Errorf("%w: %w", connector.ErrAuthRejected, err)
+	case errors.Is(err, ErrRecipientUnreachable):
+		// The customer blocked the bot, or their account is gone. Definite —
+		// nothing was transmitted — but permanent, so the caller parks naming the
+		// RECIPIENT. This branch precedes the default deliberately: a 403 also
+		// reads as a refusal on Telegram's own terms, and left to fall through it
+		// would burn the retry ladder against a chat that will never accept the
+		// message and then park under a reason that names no cause.
+		return fmt.Errorf("%w: %w", connector.ErrRecipientUnreachable, err)
 	case errors.Is(err, ErrUnreachable):
 		// Telegram never reported what became of the request. It may have been
 		// delivered, and nothing here or later can find out, so this is the one

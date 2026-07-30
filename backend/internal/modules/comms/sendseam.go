@@ -125,6 +125,14 @@ const unknownOutcomeReason = "the provider never confirmed whether this message 
 	"and it will not be retried: a second attempt could deliver it twice with nothing able to tell. " +
 	"Check the conversation and send again if it did not arrive"
 
+// unreachableRecipientReason is what a delivery the provider permanently refuses
+// to address records. It names the RECIPIENT because that is the true cause, and
+// it says what does not help: the two actions an operator would otherwise reach
+// for — retry, and reconnect the channel — are both wasted here.
+const unreachableRecipientReason = "the messaging provider will not deliver to this recipient: " +
+	"they blocked the sender, or their account no longer exists. " +
+	"Retrying and reconnecting the channel both change nothing — reach them another way"
+
 // guardAtMostOnce protects the seams whose retries cannot detect a prior send,
 // and returns outcomeUndecided for the ones that can — mail resolves through
 // here untouched.

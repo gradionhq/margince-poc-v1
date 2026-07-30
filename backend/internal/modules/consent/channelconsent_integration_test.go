@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -241,5 +242,52 @@ func TestRequireGrantedForEmailsStillAnswersThroughTheSharedRule(t *testing.T) {
 	}
 	if err := gate.RequireGrantedForEmails(e.ctx, nil, "newsletter"); !errors.Is(err, apperrors.ErrConsentNotGranted) {
 		t.Fatalf("an empty address list: %v, want ErrConsentNotGranted", err)
+	}
+}
+
+// The refusal TEXT travels: httperr copies err.Error() into the detail of the 409
+// a client reads. On the channel path the caller never supplied the account id —
+// the reply resolves its recipient server-side from the conversation, precisely so
+// a caller cannot name one — so a refusal that quoted it back would disclose the
+// one value the read surfaces are built to withhold, to anyone who can provoke a
+// refusal.
+func TestConsentGateRefusalNeverCarriesTheChannelAccountID(t *testing.T) {
+	e := setupChannelConsent(t)
+	gate := NewGate(e.store)
+
+	err := gate.RequireGrantedForRecipients(e.ctx, []connector.Recipient{e.recipient()}, "newsletter")
+	if !errors.Is(err, apperrors.ErrConsentNotGranted) {
+		t.Fatalf("channel gate = %v, want ErrConsentNotGranted", err)
+	}
+	if strings.Contains(err.Error(), e.account) {
+		t.Errorf("the refusal puts the counterparty's telegram account id on the wire: %q", err.Error())
+	}
+	if strings.Contains(err.Error(), "tilda") {
+		t.Errorf("the refusal quotes the counterparty's handle, which can be released and re-claimed by someone else: %q", err.Error())
+	}
+	// Withholding the identifier must not cost the rep the diagnosis: which
+	// channel, and which purpose, are what makes the 409 actionable.
+	for _, want := range []string{"telegram", "newsletter"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal %q does not name %q, leaving nothing for the rep to act on", err.Error(), want)
+		}
+	}
+}
+
+// The mail arm is deliberately NOT weakened by the line above. The caller supplied
+// the address it asked about, so naming it back discloses nothing — and it is the
+// only thing that makes a multi-recipient refusal actionable, since the rep has to
+// know WHICH address stopped the send.
+func TestConsentGateRefusalStillNamesTheRefusedMailAddress(t *testing.T) {
+	e := setupChannelConsent(t)
+	gate := NewGate(e.store)
+	const address = "no-grant@cc.test"
+
+	err := gate.RequireGrantedForEmails(e.ctx, []string{address}, "newsletter")
+	if !errors.Is(err, apperrors.ErrConsentNotGranted) {
+		t.Fatalf("mail gate = %v, want ErrConsentNotGranted", err)
+	}
+	if !strings.Contains(err.Error(), address) {
+		t.Errorf("the refusal %q does not name the address the caller itself supplied", err.Error())
 	}
 }

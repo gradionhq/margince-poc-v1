@@ -308,11 +308,26 @@ func classify(status int, method, description string, retryAfter time.Duration) 
 	switch {
 	case status >= 200 && status < 300:
 		return nil
-	case status == http.StatusUnauthorized, status == http.StatusForbidden, status == http.StatusNotFound:
+	case status == http.StatusUnauthorized, status == http.StatusNotFound:
 		// 404 belongs here, not with the server faults: Telegram answers it
 		// for a token that does not name a bot, because the token is part of
 		// the path.
 		return fmt.Errorf("telegram: %s: %s: %w", method, description, ErrTokenRejected)
+	case status == http.StatusForbidden:
+		// 403 is Telegram refusing a CHAT, never a credential: "bot was blocked
+		// by the user", "user is deactivated", a bot removed from a group. A
+		// revoked or malformed token answers 401/404 instead, so the two are
+		// cleanly separable — and separating them is what stops the commonest
+		// send failure a channel has from being reported as a token to rotate.
+		//
+		// It ALSO answers ErrRequestRejected, joined rather than replaced, for
+		// the same reason a 429 does: to the connect transport a 403 is one more
+		// request Telegram understood and refused on its own terms, and that
+		// reader must keep classifying it without being taught about recipients.
+		return errors.Join(
+			fmt.Errorf("telegram: %s: %s: %w", method, description, ErrRecipientUnreachable),
+			ErrRequestRejected,
+		)
 	case status == http.StatusTooManyRequests:
 		// A throttle is a DEFINITE answer — Telegram refused this request, so
 		// nothing was transmitted — and the interval it names is the one the

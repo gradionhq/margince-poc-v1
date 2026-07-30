@@ -42,12 +42,25 @@ type fakeTelegram struct {
 	mu sync.Mutex
 
 	// bots maps a token to the bot it identifies. A token absent from the map
-	// is one Telegram rejects.
+	// is one Telegram rejects. Two tokens may name the SAME bot, which is what a
+	// BotFather rotation produces.
 	bots map[string]telegram.Bot
-	// webhooks maps a token to the URL Telegram currently holds for that bot.
-	webhooks map[string]string
-	// setWebhookErr, when non-nil, is what SetWebhook answers.
+	// webhooks maps a BOT ID to the URL Telegram currently holds for it. Keyed on
+	// the bot rather than on the token because that is Telegram's own rule — one
+	// webhook per bot — and it is the rule a rotation and a bot swap differ over:
+	// re-registering the same bot replaces its entry, while swapping bots leaves
+	// the outgoing bot's entry standing until something deletes it.
+	webhooks map[int64]string
+	// setWebhookErr, when non-nil, is what SetWebhook answers for every token.
 	setWebhookErr error
+	// setWebhookErrByToken answers for ONE token, so a test can fail the
+	// registration of one participant in a race while the other's succeeds.
+	setWebhookErrByToken map[string]error
+	// setWebhookHook runs once, before the next SetWebhook takes the lock, so a
+	// test can drive a second concurrent operation while this one is mid-flight at
+	// the provider. It fires outside the mutex because what it drives calls back
+	// into this same fake.
+	setWebhookHook func(token string)
 
 	getMeTokens          []string
 	getWebhookInfoTokens []string
@@ -61,7 +74,11 @@ type setWebhookCall struct {
 }
 
 func newFakeTelegram() *fakeTelegram {
-	return &fakeTelegram{bots: map[string]telegram.Bot{}, webhooks: map[string]string{}}
+	return &fakeTelegram{
+		bots:                 map[string]telegram.Bot{},
+		webhooks:             map[int64]string{},
+		setWebhookErrByToken: map[string]error{},
+	}
 }
 
 // nextBotID hands out a bot id unique within the test binary. It has to be
@@ -83,27 +100,71 @@ func (f *fakeTelegram) withNewBot(username string) (token string, id int64) {
 	return token, id
 }
 
+// rotateToken issues a SECOND token for a bot Telegram already knows — what a
+// BotFather rotation produces, and the case a bot SWAP has to be told apart from:
+// the bot id is unchanged, so the outgoing registration is the incoming one.
+func (f *fakeTelegram) rotateToken(existing string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	bot, known := f.bots[existing]
+	if !known {
+		panic("fakeTelegram: rotateToken needs a token Telegram already knows")
+	}
+	rotated := fmt.Sprintf("%d:AAH-rotated-%d-for-%s", bot.ID, nextBotID.Add(1), bot.Username)
+	f.bots[rotated] = bot
+	return rotated
+}
+
+// failSetWebhookFor makes the registration of one token fail, leaving every other
+// token's registration working.
+func (f *fakeTelegram) failSetWebhookFor(token string, err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setWebhookErrByToken[token] = err
+}
+
+// onNextSetWebhook arms the one-shot hook: fn runs when the next SetWebhook call
+// begins, before it reaches the provider state, and is disarmed as it fires so
+// what fn itself registers cannot re-enter it.
+func (f *fakeTelegram) onNextSetWebhook(fn func(token string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.setWebhookHook = fn
+}
+
+// takeSetWebhookHook disarms and returns the hook, under the lock, so it fires at
+// most once however many goroutines are in SetWebhook.
+func (f *fakeTelegram) takeSetWebhookHook() func(string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	hook := f.setWebhookHook
+	f.setWebhookHook = nil
+	return hook
+}
+
 // pointWebhookElsewhere makes Telegram report that this bot already delivers to
 // another installation — the staging-vs-production collision only the provider
 // can see.
 func (f *fakeTelegram) pointWebhookElsewhere(token string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.webhooks[token] = "https://staging.internal.example/webhooks/telegram/11111111-1111-1111-1111-111111111111"
+	f.webhooks[f.bots[token].ID] = "https://staging.internal.example/webhooks/telegram/11111111-1111-1111-1111-111111111111"
 }
 
 // clearWebhook forgets a bot's registration, so a test can undo the line above.
 func (f *fakeTelegram) clearWebhook(token string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	delete(f.webhooks, token)
+	delete(f.webhooks, f.bots[token].ID)
 }
 
-// registeredWebhook reports where Telegram currently delivers this bot.
+// registeredWebhook reports where Telegram currently delivers this bot's updates,
+// asked in the caller's terms (a token) and answered in Telegram's (per bot), so a
+// rotated token reports the registration its bot already holds.
 func (f *fakeTelegram) registeredWebhook(token string) string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.webhooks[token]
+	return f.webhooks[f.bots[token].ID]
 }
 
 func (f *fakeTelegram) GetMe(_ context.Context, token string) (telegram.Bot, error) {
@@ -121,17 +182,23 @@ func (f *fakeTelegram) GetWebhookInfo(_ context.Context, token string) (telegram
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.getWebhookInfoTokens = append(f.getWebhookInfoTokens, token)
-	return telegram.WebhookInfo{URL: f.webhooks[token]}, nil
+	return telegram.WebhookInfo{URL: f.webhooks[f.bots[token].ID]}, nil
 }
 
 func (f *fakeTelegram) SetWebhook(_ context.Context, token, url, secret string, allowed []string) error {
+	if hook := f.takeSetWebhookHook(); hook != nil {
+		hook(token)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.setWebhookCalls = append(f.setWebhookCalls, setWebhookCall{token: token, url: url, secret: secret, allowed: allowed})
+	if err := f.setWebhookErrByToken[token]; err != nil {
+		return err
+	}
 	if f.setWebhookErr != nil {
 		return f.setWebhookErr
 	}
-	f.webhooks[token] = url
+	f.webhooks[f.bots[token].ID] = url
 	return nil
 }
 
@@ -139,7 +206,7 @@ func (f *fakeTelegram) DeleteWebhook(_ context.Context, token string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.deleteWebhookTokens = append(f.deleteWebhookTokens, token)
-	delete(f.webhooks, token)
+	delete(f.webhooks, f.bots[token].ID)
 	return nil
 }
 

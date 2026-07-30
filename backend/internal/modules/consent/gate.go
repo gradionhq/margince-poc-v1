@@ -77,8 +77,12 @@ func (g *Gate) RequireGrantedForRecipients(ctx context.Context, recipients []con
 			}
 			if !granted {
 				// The refusal names the recipient, not the person's consent
-				// history: the caller already holds the address or the channel
-				// identity it asked about, so no new information is disclosed.
+				// history. For MAIL that discloses nothing: the caller supplied
+				// the address it is asking about. The channel arm cannot make the
+				// same claim — the channel path resolves its recipient
+				// server-side from the conversation, so the caller never held the
+				// account id — which is why recipientLabel keeps the channel
+				// spelling non-identifying.
 				return fmt.Errorf("consent: no active %q grant for %s: %w",
 					purposeKey, recipientLabel(r), apperrors.ErrConsentNotGranted)
 			}
@@ -140,12 +144,23 @@ func grantedForRecipient(ctx context.Context, tx pgx.Tx, r connector.Recipient, 
 }
 
 // recipientLabel names a refused recipient in its own vocabulary: the address
-// for mail, provider:account for a channel. The channel spelling omits the
-// username deliberately — a handle can be released and re-claimed, so a refusal
-// quoting one could name a different human than the one it refused.
+// for mail, the bare provider for a channel.
+//
+// The channel spelling carries NO identifier — neither the account id nor the
+// username. This text becomes the detail of a 409 (httperr copies err.Error()
+// into it), and a channel account id is an opaque third-party identifier the
+// caller never supplied: the reply path resolves the recipient server-side from
+// the conversation precisely so a caller cannot name one. Putting it in the
+// refusal would hand back the one value the read surfaces are built to withhold
+// (telegram-oa design §6.6), to anyone who can provoke a refusal.
+//
+// A username would be no better, and worse in its own way: a handle can be
+// released and re-claimed, so a refusal quoting one could name a different human
+// than the one it refused. The caller is looking at the conversation it asked
+// about, so the provider is the part it does not already know.
 func recipientLabel(r connector.Recipient) string {
 	if r.Channel != nil {
-		return r.Channel.Provider + ":" + r.Channel.ChannelUserID
+		return "this " + r.Channel.Provider + " recipient"
 	}
 	return r.Email
 }
