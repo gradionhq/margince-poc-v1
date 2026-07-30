@@ -148,7 +148,7 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 		default:
 			return true
 		}
-		sql, ok := sqlOf(consts, expr)
+		sql, ok := sqlOf(consts, expr, blankIdents)
 		if !ok {
 			return true
 		}
@@ -192,18 +192,36 @@ func collectStringConsts(file *ast.File, consts map[string]string) {
 			if _, done := consts[name]; done {
 				continue
 			}
-			if text, ok := sqlOf(consts, value.Values[0]); ok {
+			// STRICT: a const assembled from a const not yet collected is left
+			// for the next pass, not cached with a placeholder standing in for
+			// its missing half. Caching it would freeze the placeholder — the
+			// loop that exists to resolve exactly this case could never correct
+			// it, and every statement built from that fragment would be judged
+			// as if the fragment said nothing.
+			if text, ok := sqlOf(consts, value.Values[0], strictIdents); ok {
 				consts[name] = text
 			}
 		}
 	}
 }
 
-// sqlOf reconstructs a string expression's value. A part it cannot resolve —
-// a local variable holding a CASE arm, say — becomes a space: the statement
-// keeps its shape, and the fragments this test judges are consts it can read.
-// ok is false for anything that is not a string expression at all.
-func sqlOf(consts map[string]string, expr ast.Expr) (string, bool) {
+// identMode says what an unresolvable identifier means to the caller.
+type identMode bool
+
+const (
+	// strictIdents refuses the whole expression — used while collecting consts,
+	// where an unknown name means "not resolvable YET".
+	strictIdents identMode = true
+	// blankIdents substitutes a space — used while judging a statement, where an
+	// unknown name is a local variable holding a CASE arm and it is the
+	// statement's shape that matters.
+	blankIdents identMode = false
+)
+
+// sqlOf reconstructs a string expression's value. ok is false for anything that
+// is not a string expression at all, and — under strictIdents — for anything
+// carrying a name it cannot resolve.
+func sqlOf(consts map[string]string, expr ast.Expr, idents identMode) (string, bool) {
 	switch node := expr.(type) {
 	case *ast.BasicLit:
 		if node.Kind != token.STRING {
@@ -215,13 +233,16 @@ func sqlOf(consts map[string]string, expr ast.Expr) (string, bool) {
 		if text, known := consts[node.Name]; known {
 			return text, true
 		}
+		if idents == strictIdents {
+			return "", false
+		}
 		return " ", true
 	case *ast.BinaryExpr:
 		if node.Op != token.ADD {
 			return "", false
 		}
-		left, leftOK := sqlOf(consts, node.X)
-		right, rightOK := sqlOf(consts, node.Y)
+		left, leftOK := sqlOf(consts, node.X, idents)
+		right, rightOK := sqlOf(consts, node.Y, idents)
 		if !leftOK || !rightOK {
 			return "", false
 		}
