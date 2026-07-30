@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -100,25 +99,13 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
 
-	// The page's live tally: the connector reports what it has walked and the
-	// Sink counts the counterparties it mints, both into this collector, which
-	// persists them to the run's inflight_* columns as the page runs.
-	pageCtx, progress := withPageProgress(runCtx, r, backfillID, generation)
+	// The page's live message tally, mirrored into the run's inflight_* columns
+	// as the page walks so the activation view moves per message. The
+	// counterparties the Sink mints are NOT part of this: each one is counted
+	// onto the run as it is created, so no page-end write can lose or repeat a
+	// batch of them.
+	pageCtx, _ := withPageProgress(runCtx, r, backfillID, generation)
 	res, pageErr := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
-	// Credited BEFORE the outcome is judged, and exactly once per page: the
-	// counterparty rows this page minted exist no matter how the page ended,
-	// and no later attempt can re-count them. Spreading this across the
-	// state-machine writes was wrong twice over — a cancelled run's writes all
-	// miss their live-status guard and credited nothing, and a page that hit
-	// the retry ceiling ran the ladder write AND the terminal write, crediting
-	// the same rows to the run's totals twice.
-	if creditErr := r.creditPageYields(ctx, backfillID, progress); creditErr != nil {
-		// The rows exist and this run will never be told about them again, so
-		// its reach is now an undercount. That is a reporting fault, not a
-		// capture fault: the page's own outcome still decides the run's fate.
-		slog.ErrorContext(ctx, "capture: the backfill page's counterparty yields were not credited — the run undercounts its own reach",
-			"backfill_id", backfillID, "err", creditErr)
-	}
 	if pageErr != nil {
 		return r.recordPageFault(ctx, backfillID, pageErr)
 	}

@@ -40,17 +40,22 @@ var (
 	// Judged over the whole statement instead, a WHERE clause that merely
 	// COMPARES the tally to zero scored as a reset that wrote nothing.
 	setClauseRe = regexp.MustCompile(`(?is)\bset\b(.*?)(?:\bwhere\b|\breturning\b|$)`)
+	// A write that ASSIGNS status is one that ends or moves a page: the run
+	// starts running, finishes, errors, or is cancelled. Those are the writes
+	// the mirror belongs to. A write that only bumps a counter — the
+	// per-creation counterparty count — ends no page and owns no mirror.
+	assignsStatusRe = regexp.MustCompile(`(?is)\bstatus\s*=`)
 )
 
-// inflightColumns is the whole transient tally. Every column is checked, not
-// just the first: a statement that zeroes inflight_scanned and forgets
-// inflight_captured leaves the status read adding a captured count no page
-// owns any more, which is the same double-report the reset exists to prevent
-// — and it is exactly the kind of half-edit a copy of a neighbouring
-// statement produces.
+// inflightColumns is the whole transient tally — the MESSAGE counts only; a
+// counterparty creation is counted straight into the committed columns and has
+// no mirror. Every column is checked, not just the first: a statement that
+// zeroes inflight_scanned and forgets inflight_captured leaves the status read
+// adding a captured count no page owns any more, which is the same
+// double-report the reset exists to prevent, and it is exactly the half-edit a
+// copy of a neighbouring statement produces.
 var inflightColumns = []string{
 	"inflight_scanned", "inflight_captured", "inflight_skipped",
-	"inflight_people", "inflight_organizations",
 }
 
 // The two values a statement may assign the tally: the one live writer sets
@@ -151,12 +156,14 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 		// not separate statements, so stop here rather than re-judging each.
 		updates := updateRunRe.MatchString(sql) ||
 			(insertRunRe.MatchString(sql) && doUpdateRe.MatchString(sql))
+		clause := setClauseRe.FindStringSubmatch(sql)
+		endsAPage := clause != nil && assignsStatusRe.MatchString(clause[1])
 		switch {
-		case !updates:
+		case !updates || !endsAPage:
 		case matchesEveryColumn(sql, fromParameter):
 			writers++
 		case !matchesEveryColumn(sql, toZero):
-			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end it with resetInflightProgress, and if it ends a page also credit the counterparty yields it is clearing, or the status read counts that page's work twice:\n%s",
+			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — a write that assigns status ends or moves a page, so it must end with resetInflightProgress, or the status read keeps counting that page's messages:\n%s",
 				fset.Position(expr.Pos()), strings.Join(inflightColumns, ", "), sql)
 		}
 		return false

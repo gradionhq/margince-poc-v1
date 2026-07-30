@@ -214,12 +214,6 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 		t.Fatalf("mid-page organizations = %d, want 1 — the corporate domain, before the page committed", midPageOrganizations)
 	}
 
-	// The commit folds the same creations into the committed columns and
-	// clears the transient copy, so they are reported once and not twice.
-	inflightPeople, inflightOrganizations := readBackfillInflightYields(t, e, run.ID)
-	if inflightPeople != 0 || inflightOrganizations != 0 {
-		t.Fatalf("after the commit inflight yields = %d people / %d organizations, want them cleared", inflightPeople, inflightOrganizations)
-	}
 	status, err := registry.BackfillStatus(grantCtx, "gmail", rep)
 	if err != nil || status == nil {
 		t.Fatalf("BackfillStatus: %v (run=%v)", err, status)
@@ -227,21 +221,6 @@ func TestBackfillYieldsAreVisibleWhileThePageRuns(t *testing.T) {
 	if status.People != 2 || status.Organizations != 1 {
 		t.Fatalf("after the commit = %d people / %d organizations, want exactly the page's 2/1", status.People, status.Organizations)
 	}
-}
-
-// readBackfillInflightYields reads the transient yield columns directly — the
-// proof they are cleared, which the summed status read alone cannot show.
-func readBackfillInflightYields(t *testing.T, e *searchEnv, id ids.UUID) (people, organizations int) {
-	t.Helper()
-	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(e.Admin(), `
-			SELECT inflight_people, inflight_organizations FROM capture_backfill WHERE id = $1`, id).
-			Scan(&people, &organizations)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return people, organizations
 }
 
 // seedForeignCounterparties lands the rows a workspace-wide, clock-windowed
@@ -329,9 +308,6 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 	people, orgs := readBackfillYieldColumns(t, e, run.ID)
 	if people != 2 || orgs != 1 {
 		t.Fatalf("after the transient fault people_created=%d organizations_created=%d, want 2/1 — the rows exist and no retry will count them", people, orgs)
-	}
-	if inflightPeople, inflightOrgs := readBackfillInflightYields(t, e, run.ID); inflightPeople != 0 || inflightOrgs != 0 {
-		t.Fatalf("the fault left inflight yields = %d/%d, want them settled", inflightPeople, inflightOrgs)
 	}
 
 	// The retry replays both messages, mints nothing, and must not inflate the

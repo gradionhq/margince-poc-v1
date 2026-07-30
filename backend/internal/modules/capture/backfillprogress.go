@@ -31,11 +31,9 @@ import (
 // deltas, so a flush that never lands is corrected by the next one instead of
 // leaving the row permanently short.
 type pageTally struct {
-	scanned       int
-	captured      int
-	skipped       int
-	people        int
-	organizations int
+	scanned  int
+	captured int
+	skipped  int
 }
 
 // advance folds a connector's report in and reports whether the tally moved. A
@@ -119,51 +117,55 @@ func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped 
 	}
 }
 
-// counted folds one ensure's outcome into the page's yield. An ensure that
-// resolved onto records that already exist moves no counter and writes
-// nothing — on a widen re-import that is nearly every message.
+// counted records ONE counterparty creation on the run, immediately, in the
+// committed columns.
 //
-// It flushes rather than leaving the yield for the connector's next report,
-// because the seam does not oblige a connector to report AFTER capturing a
-// message. Both flushes write the whole tally, so whichever wins the pacing
-// window carries the other's numbers too.
+// Per creation and not per page, because a page's total is a batch and a batch
+// is something to lose. Whatever writes it can fail, and nothing can rebuild it
+// afterwards: capture is idempotent, so a replayed message never reaches the
+// resolver again and no retry re-offers these rows to anybody. Counting each row
+// as it appears bounds a failed write to the one row it was about, and leaves no
+// batch anywhere to be dropped, double-credited, or fenced off.
+//
+// Unfenced on the run's liveness and on the connection's generation. The row
+// exists; a cancelled run and a rebound connection do not un-create it, and
+// refusing the count would only misreport it.
+//
+// Detached, because a creation that lands as the job's context expires must
+// still be counted, and that context is the commonest thing to die here.
 func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if c == nil {
 		return
 	}
-	if !outcome.PersonCreated && !outcome.OrganizationCreated {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	people, organizations := 0, 0
 	if outcome.PersonCreated {
-		c.tally.people++
+		people = 1
 	}
 	if outcome.OrganizationCreated {
-		c.tally.organizations++
+		organizations = 1
 	}
-	// Unpaced, unlike the message tally: a yield write is rare — only an ensure
-	// that actually minted a row reaches here — and these are the two numbers a
-	// watching human reads as "it found someone", so they should not wait out a
-	// pacing window. Correctness does not depend on it; every write that ends a
-	// page credits the yields from THIS collector, never from the row.
-	c.persist(ctx, unpaced)
+	if people == 0 && organizations == 0 {
+		// Resolved onto rows that already existed — on a widen re-import that is
+		// nearly every message.
+		return
+	}
+	countCtx, cancel := detachedWrite(ctx)
+	defer cancel()
+	err := database.WithWorkspaceTx(countCtx, c.registry.pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(countCtx, `
+			UPDATE capture_backfill
+			SET people_created = people_created + $2, organizations_created = organizations_created + $3
+			WHERE id = $1`, c.backfillID, people, organizations)
+		return execErr
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "capture: a counterparty this backfill created was not counted on the run — its reported reach is one row short",
+			"backfill_id", c.backfillID, "err", err)
+	}
 }
 
-// totals reads the page's yield, for the commit that folds it into the run's
-// own counter columns.
-func (c *pageProgress) totals() (people, organizations int) {
-	if c == nil {
-		return 0, 0
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.tally.people, c.tally.organizations
-}
-
-// flushPacing says whether a write may be dropped for being too soon. The
-// message tally is paced (the next report restates it); the counterparty
-// yields are not (nothing restates them).
+// flushPacing says whether a write may be dropped for being too soon. Only the
+// message tally is written this way, and the next report restates it.
 type flushPacing bool
 
 const (
@@ -218,12 +220,11 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET inflight_scanned = $2, inflight_captured = $3, inflight_skipped = $4,
-			    inflight_people = $5, inflight_organizations = $6,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
 			WHERE id = $1 AND status IN ('queued','running')
 			  AND EXISTS (SELECT 1 FROM capture_connection c
-			              WHERE c.id = capture_backfill.connection_id AND c.generation = $7)`,
-			backfillID, t.scanned, t.captured, t.skipped, t.people, t.organizations, generation)
+			              WHERE c.id = capture_backfill.connection_id AND c.generation = $5)`,
+			backfillID, t.scanned, t.captured, t.skipped, generation)
 		return err
 	})
 }
@@ -234,39 +235,4 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 //
 // It BEGINS with a comma, so it splices in after an existing SET assignment
 // and never as the first one.
-const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
-	    inflight_people = 0, inflight_organizations = 0`
-
-// creditPageYields moves ONE page's counterparty creations into the run's
-// committed columns and clears the mirror it was displaying them through.
-//
-// Deliberately unguarded by status and by generation, unlike every other write
-// here. Those fences protect the run's STATE and its message counts — things a
-// retry restates. These counts are not that: they are people and organizations
-// that exist, and capture's idempotency means a replayed message never reaches
-// the resolver again, so this run will never be offered them a second time.
-// Refusing the credit because the run was cancelled, or because the connection
-// was rebound, would not undo the rows — it would only lose the count of them.
-//
-// Called exactly once per page, from the one place that knows a page just
-// ended, which is what makes it safe to have no guard: there is no second
-// caller to double-credit. Detached, because the commonest way a page ends is
-// its context expiring, and this write must outlive that.
-func (r *Registry) creditPageYields(ctx context.Context, backfillID ids.UUID, page *pageProgress) error {
-	people, organizations := page.totals()
-	if people == 0 && organizations == 0 {
-		// Nothing minted — and nothing to clear, since a page that created no
-		// counterparty never wrote a yield to the mirror.
-		return nil
-	}
-	creditCtx, cancel := detachedWrite(ctx)
-	defer cancel()
-	return database.WithWorkspaceTx(creditCtx, r.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(creditCtx, `
-			UPDATE capture_backfill
-			SET people_created = people_created + $2,
-			    organizations_created = organizations_created + $3`+resetInflightProgress+`
-			WHERE id = $1`, backfillID, people, organizations)
-		return err
-	})
-}
+const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0`
