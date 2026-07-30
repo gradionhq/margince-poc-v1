@@ -27,7 +27,12 @@ const (
 )
 
 // Call is one ATTEMPT's trace record (Layer 1, spec §4): who routed
-// where, how much it cost, and whether it was served, cached, or failed.
+// where, how many tokens it burned, and whether it was served, cached, or
+// failed. It carries no cost: a Call is token-denominated, and money is
+// computed on read by joining the row to the ai_model_rate effective on
+// its day (ADR-0067 price-on-read — PriceCall and the CostReport SQL),
+// so that correcting a rate re-prices history instead of leaving a frozen
+// number behind. Nothing on the write path knows a price exists.
 // A single logical call — one Complete/CompleteStructured/Embed invocation
 // from the caller's point of view — can span several Call rows sharing one
 // LogicalCallID when the router retries, degrades, or escalates: every
@@ -96,9 +101,6 @@ type Call struct {
 	// attempt. Nil when the serving Router never installed a config
 	// snapshot (a DB-less local router with no CallRecorder wired).
 	ConfigHash *string
-	// EstimatedCostMicroUSD is the attempt's estimated spend in micro-USD
-	// (1e-6 USD); nil until a cost model prices the call.
-	EstimatedCostMicroUSD *int64
 	// Payload, when non-nil, carries the opt-in post-stripper content
 	// (Layer 3). It is written to ai_call_payload in the SAME transaction
 	// so the content row can never outlive its metadata row. Only the
@@ -197,17 +199,17 @@ func (m *CallMeter) Record(ctx context.Context, attempts []Call) error {
 				  tokens_in, tokens_out, reasoning_tokens,
 				  cached_tokens, cache_write_tokens, latency_ms, cache_hit, degraded, error_sentinel, agent_run_id,
 				  logical_call_id, attempt, is_terminal, attempt_reason, kind,
-				  served_model, served_identity_source, cache_off, config_hash, estimated_cost_microusd)
+				  served_model, served_identity_source, cache_off, config_hash)
 				VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 				  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NULLIF($19,''),$20,
-				  $21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+				  $21,$22,$23,$24,$25,$26,$27,$28,$29)
 				RETURNING id`,
 				c.CorrelationID, string(c.Task), string(c.Tier), c.Provider, c.ModelID,
 				c.RequestFingerprint, contextScopes, c.ContextFingerprint,
 				c.ContextBytes, c.ContextTokensEstimate, c.TokensIn, c.TokensOut, c.ReasoningTokens,
 				c.CachedTokens, c.CacheWriteTokens, c.LatencyMS, c.CacheHit, c.Degraded, c.ErrorSentinel, c.AgentRunID,
 				c.LogicalCallID, c.Attempt, c.IsTerminal, c.AttemptReason, kind,
-				c.ServedModel, servedSource, c.CacheOff, c.ConfigHash, c.EstimatedCostMicroUSD,
+				c.ServedModel, servedSource, c.CacheOff, c.ConfigHash,
 			).Scan(&callID)
 			if err != nil {
 				return fmt.Errorf("ai: recording call: %w", err)
