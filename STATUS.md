@@ -34,6 +34,15 @@ suggestions + Ask Margince) are merged. **PR 6, the connections card, is on
 wired into the company rail between the people and deals cards. `make check` and
 the graph's nine integration tests are green; `craft static` reports nothing.
 
+**One class of bug the review round found, worth remembering.** The graph's
+person reads were gated by the ORDER its group list ran in: `readSeats` and
+`readRouteIn` inferred "the caller may read people" from whether the contacts
+group had already reported itself omitted. Reordering a slice literal would have
+turned a gated read into an ungated one. Every read now asks `auth.Require`
+itself and `signals.RouteInEdges` carries the person gate — which also closed
+the same gap in `Warmth`, which had only ever demanded `signal:read`. If you add
+a group to this read, gate it inside the read, not from the omitted set.
+
 **Three decisions PR 6 made that the scope line left open.** Read these before
 extending the card.
 
@@ -52,6 +61,11 @@ extending the card.
   speak for them. They arrive with the deals already capped, which bounds them.
   A deal with an implausible number of stakeholders would grow the payload; if
   that ever shows up, cap them and add to the count.
+- **Every group total rides the same statement as its rows.** `WithWorkspaceTx`
+  is Read Committed, so a total read in a second statement can be smaller than
+  the rows the first one returned, and `dropped_count` then goes negative
+  against the contract's own `minimum: 0`. If you add a capped group, count it
+  with `count(*) OVER ()` or a CTE, never with a follow-up `SELECT count(*)`.
 
 **PR 7 is the last one, and graph level 2 is still deferred.** The card does not
 replace `RecordContextPanel` (that panel is on the deal, person and lead screens,
