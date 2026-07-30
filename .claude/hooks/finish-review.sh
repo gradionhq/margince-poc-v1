@@ -166,14 +166,16 @@ fi
 # rounds is per BRANCH, in its own file with one line per branch. It cannot share
 # the single-record state: working on a sibling branch and coming back would
 # overwrite the count and hand this branch a second review.
-# Guarded on the file existing: under `set -euo pipefail` a failing awk in a
-# command substitution kills the hook outright, and 2>/dev/null hides the message
-# without changing the exit status.
-rounds=0
-if [ -f "$rounds_file" ]; then
-	rounds="$({ awk -F'\t' -v b="$branch" '$1 == b { print $2 }' "$rounds_file" || true; } | tail -1)"
-	rounds="${rounds:-0}"
-fi
+#
+# read_rounds is guarded on the file existing: under `set -euo pipefail` a failing
+# awk in a command substitution kills the hook outright, and 2>/dev/null hides the
+# message without changing the exit status.
+read_rounds() {
+	if [ ! -f "$rounds_file" ]; then printf '0\n'; return 0; fi
+	n="$({ awk -F'\t' -v b="$branch" '$1 == b { print $2 }' "$rounds_file" || true; } | tail -1)"
+	printf '%s\n' "${n:-0}"
+}
+rounds="$(read_rounds)"
 
 # Already fully reviewed this exact set → let the stop through.
 if [ "$phase" = "done" ]; then exit 0; fi
@@ -183,6 +185,27 @@ emit_block() {   # $1 = reason text → hold the stop and feed the reason back
 }
 
 save_state() { printf '%s %s %s\n' "$diff_hash" "$1" "$2" > "$state_file"; }
+
+# The claim has to be ATOMIC. Parallel sessions share this working tree (CLAUDE.md
+# says so explicitly), and a read-check-write would let two of them both see
+# rounds=0 and both launch "the single" round. mkdir is the portable atomic
+# primitive here — flock is not present on macOS.
+rounds_lock="$rounds_file.lock"
+lock_rounds() {
+	i=0
+	while [ "$i" -lt 50 ]; do
+		if mkdir "$rounds_lock" 2>/dev/null; then return 0; fi
+		# A lock directory older than a minute is a crashed holder, not a live one;
+		# nothing here holds it for more than a few file operations.
+		if [ -n "$(find "$rounds_lock" -maxdepth 0 -mmin +1 2>/dev/null || true)" ]; then
+			rmdir "$rounds_lock" 2>/dev/null || true
+		fi
+		sleep 0.1
+		i=$((i + 1))
+	done
+	return 1
+}
+unlock_rounds() { rmdir "$rounds_lock" 2>/dev/null || true; }
 
 # record_round persists this branch's count, rewriting only its own line.
 record_round() {
@@ -212,11 +235,26 @@ reviewable() {
 # round cap nor the open-PR condition applied.
 # $1 = reason text. Returns non-zero when it declined, having marked this set done.
 request_review() {
-	if [ "$rounds" -ge "$max_review_rounds" ] || ! reviewable; then
+	# Cheap and lock-free first: this asks GitHub, and holding the lock across a
+	# network call would serialize every session behind one gh invocation.
+	if ! reviewable; then
+		save_state "done" 0
+		return 1
+	fi
+	# Then claim under the lock, re-reading inside it — the value read before the
+	# lock is exactly the stale one the race turns on.
+	if ! lock_rounds; then
+		save_state "done" 0   # cannot claim → assume someone else did; never double-review
+		return 1
+	fi
+	rounds="$(read_rounds)"
+	if [ "$rounds" -ge "$max_review_rounds" ]; then
+		unlock_rounds
 		save_state "done" 0
 		return 1
 	fi
 	record_round "$((rounds + 1))"
+	unlock_rounds
 	save_state "agents_requested" 0
 	emit_block "$1"
 	return 0
