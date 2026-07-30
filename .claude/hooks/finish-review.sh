@@ -4,14 +4,22 @@
 # Fires when the agent finishes a turn. If — and only if — THIS SESSION edited
 # backend Go code, it drives the pre-push review flow:
 #
-#   1. `craft static` FIRST (the deterministic ADR-0045 gate, same diff-scoped
+#   1. `craft static` ALWAYS (the deterministic ADR-0045 gate, same diff-scoped
 #      contract as .githooks/pre-push). Non-zero exit = BLOCKER finding → the
 #      hook blocks the stop and asks the agent to fix, and loops until green.
-#   2. Once craft is green, the hook blocks once more and instructs the agent to
-#      launch the two review subagents (craft-reviewer + security-redteam) in
-#      parallel and act on their findings.
-#   3. When the agent stops again on the same (now-reviewed) set, the hook lets
-#      the stop through.
+#      This is cheap and deterministic, so it runs on every changed set.
+#   2. The two review subagents run ONCE PER BRANCH, and only on a COMPLETE PR —
+#      i.e. once the branch has an open pull request. Mid-work turns get the
+#      craft gate and nothing else.
+#   3. Anything after that round lets the stop through.
+#
+# WHY THE ROUND CAP IS KEYED ON THE BRANCH, NOT THE CHANGE: the review set is a
+# content hash of the session-edited files, and applying a review finding changes
+# those files. Keyed on the hash alone, every fix minted a fresh hash, reset the
+# state to `craft`, and requested another pair of subagents — an unbounded loop
+# for as long as the reviewers kept finding anything (observed: 12 rounds on one
+# PR). The hash still drives the craft gate, so new code is always gated; the
+# expensive judgment round is bounded by max_review_rounds per branch.
 #
 # SESSION-SCOPED (this is the whole point): the review set is the backend Go
 # files THIS session touched, derived from the Edit/Write tool calls in the
@@ -19,10 +27,10 @@
 # uncommitted work in the same tree is invisible here, so a read-only or
 # frontend-only turn never gets dragged into reviewing code it did not write.
 #
-# Loop-safe: state is keyed on a hash of the session-edited files' contents, so a
-# fix that changes them restarts the flow (craft re-runs on the new code), and an
-# unchanged set never re-triggers. A per-set attempt cap prevents trapping the
-# session if craft can't be made green.
+# Loop-safe on both axes: the content hash restarts the CRAFT gate on new code
+# (that is wanted — new code must be gated), while max_review_rounds keeps the
+# subagent pass from restarting with it. A per-set attempt cap prevents trapping
+# the session if craft cannot be made green.
 #
 # Reads the Stop hook JSON on stdin; emits {"decision":"block","reason":...} to
 # hold the stop, or exits 0 to allow it. Fails open (allows the stop) whenever
@@ -41,6 +49,10 @@ if [ -z "$root" ]; then exit 0; fi   # not a git repo → nothing to review
 # is a file, not a writable directory.
 state_file="$(git -C "$root" rev-parse --absolute-git-dir)/margince-finish-review.state"
 max_craft_attempts=3
+# How many subagent review rounds one branch gets, total. The reviewers are
+# judgment-level and expensive; one pass over a finished PR is the deliverable,
+# and a second pass over the fixes is what turns into a loop.
+max_review_rounds=1
 
 # --- the session transcript path (from the Stop payload) ------------------
 transcript="$(printf '%s' "$payload" | python3 -c 'import json,sys
@@ -135,10 +147,17 @@ diff_hash="$({
 	done
 } | shasum -a 256 | cut -d' ' -f1)"
 
-# --- read prior state for this hash ---------------------------------------
-phase="craft"; attempts=0
+branch="$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
+
+# --- read prior state -----------------------------------------------------
+# phase/attempts are per CHANGE (the craft gate must re-run on new code);
+# rounds is per BRANCH (the subagent pass must not restart when a fix lands).
+phase="craft"; attempts=0; rounds=0
 if [ -f "$state_file" ]; then
-	read -r saved_hash saved_phase saved_attempts < "$state_file" || true
+	read -r saved_hash saved_phase saved_attempts saved_branch saved_rounds < "$state_file" || true
+	if [ "${saved_branch:-}" = "$branch" ]; then
+		rounds="${saved_rounds:-0}"
+	fi
 	if [ "${saved_hash:-}" = "$diff_hash" ]; then
 		phase="${saved_phase:-craft}"; attempts="${saved_attempts:-0}"
 	fi
@@ -151,15 +170,35 @@ emit_block() {   # $1 = reason text → hold the stop and feed the reason back
 	printf '{"decision":"block","reason":%s}\n' "$(printf '%s' "$1" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')"
 }
 
-save_state() { printf '%s %s %s\n' "$diff_hash" "$1" "$2" > "$state_file"; }
+save_state() { printf '%s %s %s %s %s\n' "$diff_hash" "$1" "$2" "$branch" "${3:-$rounds}" > "$state_file"; }
+
+# reviewable answers whether this branch has an open PR — the "complete PR"
+# condition. Fails OPEN (no review requested) when gh is unavailable or slow, so
+# a missing credential never traps the session in a gate it cannot satisfy.
+reviewable() {
+	command -v gh >/dev/null 2>&1 || return 1
+	gh pr view --repo "$(git -C "$root" remote get-url origin 2>/dev/null || echo '')" \
+		--json number >/dev/null 2>&1 && return 0
+	gh pr view --json number >/dev/null 2>&1
+}
 
 # --- phase 1: the deterministic craft gate --------------------------------
 if [ "$phase" = "craft" ]; then
 	args=(); for f in "${files[@]}"; do [ -n "$f" ] && args+=("$root/$f"); done
 	if craft_out="$(go run -C "$root/cli/craft" . static "${args[@]}" 2>&1)"; then
-		# green → advance to the agent phase
-		save_state "agents_requested" 0
-		emit_block "Work looks finished and this session edited backend Go code, so the end-of-work review runs now — scoped to the ${#args[@]} file(s) THIS session changed.
+		# Craft is green. The judgment round is for a COMPLETE PR, once per branch.
+		if [ "$rounds" -ge "$max_review_rounds" ]; then
+			save_state "done" 0 "$rounds"
+			exit 0
+		fi
+		if ! reviewable; then
+			# Mid-work: no open PR yet. The craft gate has run; that is the whole
+			# obligation until there is a PR to review.
+			save_state "done" 0 "$rounds"
+			exit 0
+		fi
+		save_state "agents_requested" 0 "$((rounds + 1))"
+		emit_block "This branch has an open PR and craft static is green, so the one end-of-work review round for it runs now — scoped to the ${#args[@]} backend file(s) THIS session changed.
 
 Step 1 — craft static (the deterministic ADR-0045 gate): PASSED.
 
@@ -167,13 +206,15 @@ Step 2 — launch the two review subagents IN PARALLEL (one message, two Agent t
   • subagent_type \"craft-reviewer\" — craftsmanship double-check against the CLAUDE.md craftsmanship rules
   • subagent_type \"security-redteam\" — adversarial security / tenant-isolation review of the diff
 
-Both review the backend files this session changed and report findings; they do not edit. When they return, apply every confirmed finding, then finish. (If your fixes change those files, craft static and this review will re-run on the new code — that is intended.)"
+Both review the backend files this session changed and report findings; they do not edit. When they return, apply every confirmed finding, then finish.
+
+This is the ONLY subagent round this branch gets — craft static still re-runs on whatever your fixes touch, but the reviewers will not be requested again. So triage their findings yourself: apply what is a defect, and record what is a judgment call or a follow-up rather than reopening the design."
 		exit 0
 	else
 		attempts=$((attempts + 1))
 		if [ "$attempts" -gt "$max_craft_attempts" ]; then
 			# Do not trap the session: warn loudly, advance to agents anyway.
-			save_state "agents_requested" 0
+			save_state "agents_requested" 0 "$((rounds + 1))"
 			emit_block "craft static still reports BLOCKER findings after ${max_craft_attempts} attempts on this session's backend edits — NOT auto-cleared. Address them (or waive a genuine false positive in-source: //craft:ignore <check> <reason>). Proceeding to the review subagents; do not push until craft is green.
 
 --- craft static output ---
@@ -192,7 +233,7 @@ fi
 # --- phase 2: agents were requested; the agent stopped again on the same set.
 # Treat the review as complete for this set and let the stop through.
 if [ "$phase" = "agents_requested" ]; then
-	save_state "done" 0
+	save_state "done" 0 "$rounds"
 	exit 0
 fi
 
