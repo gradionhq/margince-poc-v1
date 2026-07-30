@@ -97,7 +97,11 @@ export function CompanyApprovalsPanel({
       {query.isError && (
         <p className="co-restricted">{t("co.section.unavailable")}</p>
       )}
-      {!query.isPending && groups.length === 0 && (
+      {/* "Nothing is waiting" is a FACT, and only a read that succeeded knows
+          it. A failed read that falls back to an empty 360 page would
+          otherwise print the refusal and the fact together, which are two
+          different answers to the same question. */}
+      {!query.isPending && !query.isError && groups.length === 0 && (
         <EmptyState>{t("co.decisions.empty")}</EmptyState>
       )}
       {groups.map((group) => (

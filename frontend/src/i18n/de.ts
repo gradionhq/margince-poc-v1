@@ -526,6 +526,8 @@ export const de = {
   "co.brief.cite.organization.many": "{count} Accounts",
   "approval.kind.advance_deal": "Deal weiterbringen",
   "approval.kind.promote_lead": "Lead überführen",
+  "approval.kind.close_date_correction": "Abschlussdatum korrigieren",
+  "approval.kind.deal_follow_up": "Wiedervorlage zum Deal anlegen",
   "approval.kind.archive_record": "Datensatz archivieren",
   "approval.kind.merge_records": "Datensätze zusammenführen",
   "approval.kind.share_record": "Datensatz freigeben",

@@ -10,6 +10,7 @@ package approvals
 // lives in compose/integration/approval_targetfilter_integration_test.go.
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -191,6 +192,33 @@ func TestAMalformedCursorIsAClientFault(t *testing.T) {
 	var malformed *storekit.MalformedCursorError
 	if !errors.As(err, &malformed) {
 		t.Fatalf("decoding a malformed cursor gave %v, want storekit's malformed-cursor fault", err)
+	}
+}
+
+// A token that DECODES but names no row is the same fault, and the more
+// dangerous one: the decode is a JSON unmarshal, so `{}` parses happily into an
+// empty cursor that reads as "everything before the beginning of time". The
+// caller would be handed a successful, permanently empty page and told nothing,
+// silently losing every row they had not yet seen.
+func TestACursorThatNamesNoRowIsAClientFaultToo(t *testing.T) {
+	tokens := map[string]string{
+		"an empty object": base64.RawURLEncoding.EncodeToString([]byte(`{}`)),
+		"a time with no id": base64.RawURLEncoding.EncodeToString(
+			[]byte(`{"t":"2026-07-30T09:00:00Z"}`)),
+		"an id with no time": base64.RawURLEncoding.EncodeToString(
+			[]byte(`{"id":"019fac61-2543-7745-9f45-bc520b427079"}`)),
+	}
+	for name, token := range tokens {
+		t.Run(name, func(t *testing.T) {
+			from, err := startOf(token)
+			if from != nil {
+				t.Errorf("%s decoded to a resume point %+v", name, from)
+			}
+			var malformed *storekit.MalformedCursorError
+			if !errors.As(err, &malformed) {
+				t.Fatalf("%s gave %v, want storekit's malformed-cursor fault", name, err)
+			}
+		})
 	}
 }
 

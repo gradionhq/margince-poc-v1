@@ -60,6 +60,27 @@ describe("a dialog holds the keyboard", () => {
     );
   });
 
+  it("pulls Tab back in when focus is already outside, in either direction", async () => {
+    render(<Harness />);
+    await userEvent.click(screen.getByRole("button", { name: "Open" }));
+    const behind = screen.getByRole("button", { name: "Behind the dialog" });
+
+    // Something on the covered page took focus while the dialog was open. A
+    // plain Tab from there would keep walking that page, so both directions
+    // have to catch it — not only Shift+Tab.
+    behind.focus();
+    await userEvent.tab();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "First" }),
+    );
+
+    behind.focus();
+    await userEvent.tab({ shift: true });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Last" }),
+    );
+  });
+
   it("gives focus back to whatever opened it, so the reader keeps their place", async () => {
     render(<Harness />);
     const opener = screen.getByRole("button", { name: "Open" });

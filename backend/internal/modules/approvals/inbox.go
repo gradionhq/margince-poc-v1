@@ -175,10 +175,20 @@ func startOf(token string) (*keysetStart, error) {
 // The token is client input, so one that does not decode is a client fault: it
 // travels as storekit's MalformedCursorError and the transport answers the same
 // 422 every other list endpoint answers a bad cursor with.
+//
+// A token that decodes to a ZERO resume point is that same fault, and has to be
+// caught HERE: storekit's decode is a JSON unmarshal, so an encoded `{}` parses
+// happily into an empty Cursor. Carried into the query it reads as "everything
+// before the beginning of time" — a successful, permanently empty page. A
+// client paging on that loses every row it had not yet seen and is told
+// nothing, which is the one outcome a page token must never produce.
 func decodeStart(token string) (keysetStart, error) {
 	c, err := storekit.DecodeCursor(token)
 	if err != nil {
 		return keysetStart{}, err
+	}
+	if c.CreatedAt.IsZero() || c.ID.IsZero() {
+		return keysetStart{}, &storekit.MalformedCursorError{}
 	}
 	return keysetStart{createdAt: c.CreatedAt, id: ids.From[ids.ApprovalKind](c.ID)}, nil
 }

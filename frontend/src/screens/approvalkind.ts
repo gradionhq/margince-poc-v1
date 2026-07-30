@@ -7,11 +7,17 @@ import type { MessageKey } from "../i18n/en";
 // to accept twenty-five of something needs to know what that something is, and
 // snake_case in the German UI is not a translation of anything.
 //
-// A kind with no entry falls back to its own words rather than its identifier:
-// a proposal kind added upstream must degrade to "site lead", never to a token
-// that only makes sense to whoever wrote the server.
+// The authoritative set is `decisionGrants` in the approvals module — a kind
+// absent from THAT map cannot be staged at all — so this one is pinned against
+// it in approvalkind.test.ts. A kind added upstream fails that test rather than
+// reaching a reader unlabelled, which is how two of them (a deal follow-up and
+// a close-date correction) reached a German list in English.
+//
+// A kind that still slips through falls back to its own words rather than its
+// identifier: it must degrade to "site lead", never to a token that only makes
+// sense to whoever wrote the server.
 
-const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
+export const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   advance_deal: "approval.kind.advance_deal",
   progress_deal: "approval.kind.advance_deal",
   promote_lead: "approval.kind.promote_lead",
@@ -27,6 +33,8 @@ const KIND_LABEL: Readonly<Record<string, MessageKey>> = {
   enrich: "approval.kind.enrich",
   deepread: "approval.kind.deepread",
   site_lead: "approval.kind.site_lead",
+  close_date_correction: "approval.kind.close_date_correction",
+  deal_follow_up: "approval.kind.deal_follow_up",
   capture_counterparty: "approval.kind.capture_counterparty",
   org_name_promotion: "approval.kind.org_name_promotion",
   fx_rate_proposal: "approval.kind.fx_rate_proposal",

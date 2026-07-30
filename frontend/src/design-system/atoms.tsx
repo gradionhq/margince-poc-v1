@@ -281,9 +281,13 @@ function keepTabInside(event: KeyboardEvent, dialog: HTMLElement) {
   const first = stops[0];
   const last = stops[stops.length - 1];
   const active = document.activeElement;
-  const leavingBackwards =
-    event.shiftKey && (active === first || !dialog.contains(active));
-  const leavingForwards = !event.shiftKey && active === last;
+  // Focus already outside the dialog is the case both directions have to
+  // catch, not just Shift+Tab: it happens whenever something on the page
+  // behind took focus while the dialog was open, and from there a plain Tab
+  // would keep walking that page rather than coming back.
+  const outside = !dialog.contains(active);
+  const leavingBackwards = event.shiftKey && (active === first || outside);
+  const leavingForwards = !event.shiftKey && (active === last || outside);
   if (!leavingBackwards && !leavingForwards) {
     return;
   }

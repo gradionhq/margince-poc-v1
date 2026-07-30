@@ -515,6 +515,8 @@ export const en = {
   "co.brief.cite.person.many": "{count} contacts",
   "co.brief.cite.organization.many": "{count} accounts",
   "approval.kind.advance_deal": "Move a deal forward",
+  "approval.kind.close_date_correction": "Correct a close date",
+  "approval.kind.deal_follow_up": "Add a follow-up on a deal",
   "approval.kind.promote_lead": "Promote a lead",
   "approval.kind.archive_record": "Archive a record",
   "approval.kind.merge_records": "Merge two records",
