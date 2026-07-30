@@ -8066,10 +8066,8 @@ paths:
         cutover: available ONLY while the incumbent is unreachable (never a
         silent substitute for a fresh-sync flip, in either direction) and its
         202 carries the disclosed-lossy staleness + unverifiable-parity notice.
-      x-mcp-tool:
-        verb: execute_overlay_flip
-        record_type: overlay_connection
-        tier: confirmation_required
+      security: [ { cookieAuth: [] } ]   # human session only — see x-agent-access
+      x-agent-access: human-only
       # Not `required`: an absent body carries no confirmation phrase, so
       # it lands on the same 422 the typed-phrase gate answers — the
       # refusal a confirm-first op owes, without turning the previously

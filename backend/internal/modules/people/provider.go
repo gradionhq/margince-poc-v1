@@ -161,11 +161,11 @@ func (p *Provider) Create(ctx context.Context, in datasource.CreateInput) (datas
 			return datasource.EntityRef{}, err
 		}
 		req.Source = in.Source
-		in, err := leadCreateInput(req)
+		mapped, err := leadCreateInput(req)
 		if err != nil {
 			return datasource.EntityRef{}, err
 		}
-		v, _, err := p.store.CreateLead(ctx, in)
+		v, _, err := p.store.CreateLead(ctx, mapped)
 		return ref(datasource.EntityLead, v.Id), err
 	default:
 		return datasource.EntityRef{}, &datasource.UnsupportedEntityError{Type: string(in.EntityType)}

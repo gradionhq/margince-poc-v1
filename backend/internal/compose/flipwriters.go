@@ -120,13 +120,13 @@ func (w *flipWriters) provenance(object, ext string) string {
 
 // importSourceSystem namespaces the source_system the flip writes on the
 // two objects whose stores key their own idempotent replay on
-// (source_system, source_id). The prefix is REFUSED on the client-facing
-// create paths (people.CreateLead / activities.LogActivity reject a
-// reserved source system), so a caller cannot pre-plant a row under a
-// guessed incumbent id and have the store hand it back as already
-// existing. The engine-owned identity map remains the authority for
-// "already imported"; this keeps the stores' own replay from being
-// steerable in the first place.
+// (source_system, source_id). The prefix is refused at the WIRE
+// MAPPERS — people.leadCreateInput and activities.activityLogInput —
+// so a caller cannot pre-plant a row under a guessed incumbent id and
+// have the store hand it back as already existing. The stores
+// themselves accept the namespace, which is how this in-process writer
+// can use it; the engine-owned identity map remains the authority for
+// "already imported".
 func (w *flipWriters) importSourceSystem() string {
 	return provenance.ReservedSourceSystemPrefix + w.incumbent
 }
@@ -215,8 +215,10 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 }
 
 // resolveOwner maps the row's incumbent owner id (carried in-band by the
-// flip source) onto the mapped app_user; unmapped imports ownerless with
-// a disclosure.
+// flip source) onto the mapped app_user. An owner that does not map —
+// or a row that names none at all — imports under the flip OPERATOR,
+// disclosed: an ownerless native row is workspace-shared at every tier,
+// while the mirror row it came from was hidden from every seat.
 func (w *flipWriters) resolveOwner(ctx context.Context, row migration.Row, object string) (*ids.UserID, string, error) {
 	raw := strings.TrimSpace(fieldString(row.Fields, flipFieldOwnerExternalID))
 	if raw == "" {

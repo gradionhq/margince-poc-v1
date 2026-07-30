@@ -267,7 +267,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/organizations/{id}/suggestions/dismiss":                    {Op: "dismissOrganizationSuggestion", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/organizations/{id}/view-ack":                               {Op: "acknowledgeOrganizationView", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/overlay/connection":                                        {Op: "connectOverlay", Access: "tool", Tool: "connect_incumbent", RecordType: "overlay_connection", Tier: "confirmation_required"},
-	"POST /v1/overlay/flip":                                              {Op: "executeOverlayFlip", Access: "tool", Tool: "execute_overlay_flip", RecordType: "overlay_connection", Tier: "confirmation_required"},
+	"POST /v1/overlay/flip":                                              {Op: "executeOverlayFlip", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/overlay/flip:preflight":                                    {Op: "preflightOverlayFlip", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/overlay/reconcile":                                         {Op: "reconcileOverlay", Access: "tool", Tool: "reconcile_overlay", RecordType: "overlay_connection", Tier: "auto_execute"},
 	"POST /v1/passports":                                                 {Op: "issuePassport", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

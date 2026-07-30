@@ -123,22 +123,36 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 // the same unresolved-endpoint reason every other edge shape gives,
 // rather than a blanket claim the run report would count as real.
 func (w *flipWriters) activityEdgeResult(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
-	// Normalize the orientation — the adapter emits activity-targeting
-	// edges too (X → activity), and a link is the same fact either way.
-	target, targetID := a.ToType, a.ToID
+	// Only the activity→X orientation becomes a link: activityLinks
+	// materializes exactly that shape, so reporting anything else as
+	// applied would claim a row that was never written. (The mirror
+	// stores no X→activity edge today — backfillAssocTargets collects
+	// engagement→{contacts,companies,deals,leads} — so this arm is the
+	// honest answer rather than a second, unwritten link path.)
 	if a.FromType != flipObjectActivity {
-		target, targetID = a.FromType, a.FromID
-	}
-	// activity_link models person/organization/deal only. A lead edge,
-	// which the incumbent does produce, has no native link to become —
-	// reported as unmodelled rather than counted as applied.
-	if !activityLinkable(target) {
 		return migration.AssocResult{Reason: reasonUnmodelledEdge}, nil
 	}
-	if _, found, err := w.lookup(ctx, target, targetID); err != nil {
-		return migration.AssocResult{}, err
-	} else if !found {
-		return migration.AssocResult{Reason: reasonEndpointNotImported}, nil
+	// activity_link models person/organization/deal only. A lead edge,
+	// which the incumbent does produce, has no native link to become.
+	if !activityLinkable(a.ToType) {
+		return migration.AssocResult{Reason: reasonUnmodelledEdge}, nil
+	}
+	// BOTH endpoints, not just the target: an activity that was skipped
+	// (a payload-less system entry, or a natural key already taken) has
+	// no row and therefore no link, and counting its edges as applied
+	// would inflate the very tally the operator reads before retiring
+	// the incumbent.
+	for _, end := range [...]struct{ object, ext string }{
+		{flipObjectActivity, a.FromID},
+		{a.ToType, a.ToID},
+	} {
+		_, found, err := w.lookup(ctx, end.object, end.ext)
+		if err != nil {
+			return migration.AssocResult{}, err
+		}
+		if !found {
+			return migration.AssocResult{Reason: reasonEndpointNotImported}, nil
+		}
 	}
 	return migration.AssocResult{Applied: true}, nil
 }
