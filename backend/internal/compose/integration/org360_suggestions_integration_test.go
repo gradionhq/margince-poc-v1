@@ -323,6 +323,52 @@ func TestADismissedStallReturnsWhenTheDealStallsAgain(t *testing.T) {
 	}
 }
 
+// An expired deferral raises new advice, end to end.
+//
+// "The customer asked us to wait" suppresses the stall while the wait runs. When it
+// passes, the deal is stalled again from the same idle instant — a fresh reason to
+// chase, not the one the rep already declined. The fingerprint carries the deferral
+// for exactly this case, and only a real read proves the two halves agree.
+func TestAnExpiredDeferralRaisesNewStallAdvice(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	first := stalledFingerprints(*view.Suggestions)
+	if len(first) != 1 {
+		t.Fatalf("got %d stalled suggestions, want the one seeded deal", len(first))
+	}
+	if err := svc.DismissSuggestion(rep, org, first[0]); err != nil {
+		t.Fatalf("dismiss: %v", err)
+	}
+
+	// A deferral is recorded and later passes. The idle instant never moved.
+	e.WsExec(t, `UPDATE deal SET wait_until = $2 WHERE id = $1`,
+		deal, org360Clock.AddDate(0, 0, -5))
+
+	again, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble after the deferral expired: %v", err)
+	}
+	second := stalledFingerprints(*again.Suggestions)
+	if len(second) != 1 {
+		t.Fatalf("the expired deferral raised %d suggestions, want 1 — the earlier "+
+			"dismissal silenced this deal across a wait it never saw", len(second))
+	}
+	if second[0] == first[0] {
+		t.Error("the post-deferral stall reuses the pre-deferral fingerprint")
+	}
+}
+
 // The no-next-step fingerprint covers every open deal, not the listed ones.
 //
 // Closing a deal the card never showed still changes the situation the rep

@@ -237,13 +237,10 @@ func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization36
 		out = append(out, crmcontracts.Organization360Suggestion{
 			Kind:   suggestStalledDeal,
 			Reason: fmt.Sprintf("%q has had no activity long enough to count as stalled.", deal.Name),
-			// The stall's own start rides the fingerprint alongside the deal id. The
-			// deal alone would silence it forever: a rep who dismisses one stall
-			// would never hear about that deal again, however many times it is
-			// worked and goes quiet after. THIS stall stays dismissed; the next one
-			// is a new fact about the account.
-			Fingerprint: fingerprint(string(suggestStalledDeal),
-				deal.ID.String()+"@"+deal.IdleSince.UTC().Format(time.RFC3339Nano), evidence),
+			// The STALL is what the fingerprint identifies, not the deal — see
+			// stalledDeal.episode. This stall stays dismissed; the next one is a new
+			// fact about the account.
+			Fingerprint: fingerprint(string(suggestStalledDeal), deal.episode(), evidence),
 			SubjectType: &subjectType,
 			SubjectId:   &subjectID,
 			Evidence:    evidence,

@@ -103,28 +103,48 @@ func liveAccount(openCount int, digest string) suggestionInputs {
 	}
 }
 
-// TestStalledDealFingerprintFollowsTheStallItself is the re-arm half of the
+// TestStalledDealFingerprintIdentifiesTheStallEpisode is the re-arm half of the
 // dismissal contract, for the one kind whose subject never changes.
 //
-// A fingerprint over the deal id alone would silence that deal forever: a rep who
-// dismissed one stall would never hear about it again, however many times it was
-// worked and went quiet after. The stall's own start rides the digest, so THIS
-// stall stays dismissed and the next one is a new fact about the account.
-func TestStalledDealFingerprintFollowsTheStallItself(t *testing.T) {
+// The fingerprint has to move with every input the stall rule read, or a dismissal
+// outlives the situation it judged. Each case below is a different episode on the
+// SAME deal, so a fingerprint over the deal id — or over the idle instant alone —
+// silences it for good.
+func TestStalledDealFingerprintIdentifiesTheStallEpisode(t *testing.T) {
+	deferral := suggestNow.AddDate(0, 0, -5)
 	first := idle("Renewal")
-	// The same deal, worked and then stalled again from a later instant.
-	again := stalledDeal{ID: first.ID, Name: first.Name, IdleSince: suggestNow.AddDate(0, 0, -70)}
+
+	episodes := map[string]stalledDeal{
+		// Worked, then quiet again: the idle instant moved.
+		"worked and stalled again": {
+			ID: first.ID, Name: first.Name, IdleSince: suggestNow.AddDate(0, 0, -70),
+		},
+		// The customer asked us to hold, which suppressed the stall while the wait
+		// ran. The wait has now passed, so this is a fresh reason to chase from the
+		// same idle instant — not the one the rep already declined.
+		"a deferral that has since expired": {
+			ID: first.ID, Name: first.Name, IdleSince: first.IdleSince, WaitUntil: &deferral,
+		},
+	}
 
 	before := stalledDealSuggestions([]stalledDeal{first})
-	after := stalledDealSuggestions([]stalledDeal{again})
-	if len(before) != 1 || len(after) != 1 {
-		t.Fatalf("got %d and %d suggestions, want one each", len(before), len(after))
+	if len(before) != 1 {
+		t.Fatalf("got %d suggestions, want one", len(before))
 	}
-	if before[0].Fingerprint == after[0].Fingerprint {
-		t.Error("a second stall on the same deal reuses the first stall's fingerprint — " +
-			"one dismissal would silence that deal for good")
+	for name, episode := range episodes {
+		t.Run(name, func(t *testing.T) {
+			after := stalledDealSuggestions([]stalledDeal{episode})
+			if len(after) != 1 {
+				t.Fatalf("got %d suggestions, want one", len(after))
+			}
+			if after[0].Fingerprint == before[0].Fingerprint {
+				t.Error("this episode reuses the previous one's fingerprint — " +
+					"one dismissal would silence the deal for good")
+			}
+		})
 	}
-	// And the same stall keeps its fingerprint, or the dismissal would not hold
+
+	// And the same episode keeps its fingerprint, or the dismissal would not hold
 	// for as long as the situation does.
 	repeat := stalledDealSuggestions([]stalledDeal{first})
 	if repeat[0].Fingerprint != before[0].Fingerprint {
