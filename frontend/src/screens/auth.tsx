@@ -19,7 +19,10 @@ import {
 import wordmarkDark from "../assets/wordmark-dark.png";
 import wordmarkWhite from "../assets/wordmark-white.png";
 import { Button } from "../design-system/atoms";
-import { ProviderMark } from "../design-system/provider-mark";
+import {
+  ProviderMark,
+  providerBrandName,
+} from "../design-system/provider-mark";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 import { AuthExperience, type AuthPhase } from "./auth-core";
@@ -399,7 +402,20 @@ export function ProviderButtons({
               onClick={() => onSelect(provider.key)}
             >
               <ProviderMark providerKey={provider.key} />
-              {provider.label}
+              {/* Two labels, and which one SHOWS is the stylesheet's business.
+                  The served label is the installation's own string and is what
+                  the button is called: it is the accessible name at every width.
+                  The brand word is the short form for a key we recognise, so a
+                  phone can show "Google" side by side instead of wrapping
+                  "Continue with Google" over three lines. An unrecognised key has
+                  no brand word and falls back to the served label, which is then
+                  the only text present and needs no second copy. Either way the
+                  button appends nothing of its own, so the accessible name stays
+                  the installation's label — including for an unavailable one. */}
+              <ProviderLabel
+                label={provider.label}
+                providerKey={provider.key}
+              />
             </button>
           );
         })}
@@ -409,6 +425,39 @@ export function ProviderButtons({
       <p className="auth-or">
         <span>{t("auth.orWithEmail")}</span>
       </p>
+    </>
+  );
+}
+
+/**
+ * The two forms of a provider's name, with the accessible name pinned to the
+ * server's.
+ *
+ * When a brand word exists, the served label goes into an `.sr-only` span and the
+ * visible text is `aria-hidden`, so the button announces the installation's own
+ * words however narrow the layout gets. When it does not, there is one span and
+ * one string — a duplicate that says the same thing twice would be read twice.
+ */
+function ProviderLabel({
+  label,
+  providerKey,
+}: Readonly<{ label: string; providerKey: string }>) {
+  const brand = providerBrandName(providerKey);
+  // The short form is used ONLY when the served label already contains it.
+  // WCAG 2.2 SC 2.5.3 (Label in Name) wants the accessible name to contain the
+  // visible text, and an installation is free to label its `google` provider
+  // "Firmen-Login" — showing "Google" there would both break that and put a
+  // brand claim on screen that the operator never made.
+  if (!brand || !label.toLowerCase().includes(brand.toLowerCase())) {
+    return <span className="auth-social-label">{label}</span>;
+  }
+  return (
+    <>
+      <span className="sr-only">{label}</span>
+      <span className="auth-social-label" aria-hidden>
+        <span className="auth-social-full">{label}</span>
+        <span className="auth-social-brand">{brand}</span>
+      </span>
     </>
   );
 }

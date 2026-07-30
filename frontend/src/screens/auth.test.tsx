@@ -343,6 +343,23 @@ describe("AuthScreen login", () => {
 // §19/§11, and now the markup exists — so the gate has to be the CAPABILITY
 // rather than the absence of a component. Both directions, because only ever
 // testing the empty case is what let the block go unbuilt for so long.
+/**
+ * The text that NAMES a provider button.
+ *
+ * A button carrying the phone layout's short brand word has two label spans: an
+ * `.sr-only` copy of the served label, which is what assistive tech reads, and an
+ * `aria-hidden` visible one. A button whose served label has no recognised brand
+ * word has a single span and no `.sr-only` copy. Reading whichever exists is how
+ * these tests assert the name without depending on which layout the button was
+ * rendered for.
+ */
+function nameSource(button: HTMLElement): string | undefined {
+  const name =
+    button.querySelector(".sr-only") ??
+    button.querySelector(".auth-social-label");
+  return name?.textContent ?? undefined;
+}
+
 describe("federated sign-in", () => {
   it("offers a provider only when the installation serves one", async () => {
     stubApi({ password: true, password_reset: true }, () => ok(200));
@@ -441,8 +458,16 @@ describe("federated sign-in", () => {
         name: label,
       });
       expect(button.disabled).toBe(false);
-      // The accessible name is the server's label and nothing else.
-      expect(button.textContent).toBe(label);
+      // The accessible name is the server's label and nothing else. The role
+      // query above already proves it — `name` matches the COMPUTED name, which
+      // skips the `aria-hidden` copy. What is left to pin is the other half of
+      // the same promise: no words of ours reach that name, and the short brand
+      // word the phone layout shows is always the installation's own substring.
+      expect(nameSource(button)).toBe(label);
+      const brand = button.querySelector(".auth-social-brand")?.textContent;
+      if (brand) {
+        expect(label).toContain(brand);
+      }
     }
     expect(document.querySelector(".is-unavailable")).toBeNull();
   });
@@ -473,7 +498,10 @@ describe("federated sign-in", () => {
     });
     expect(microsoft.disabled).toBe(true);
     expect(microsoft.classList.contains("is-unavailable")).toBe(true);
-    expect(microsoft.textContent).toBe("Continue with Microsoft");
+    // What names the button, not its raw text: the phone layout's short brand
+    // word is `aria-hidden` beside an `.sr-only` copy of the served label. What
+    // must never happen is a word of OURS reaching the name.
+    expect(nameSource(microsoft)).toBe("Continue with Microsoft");
 
     // Only the marked one. The other provider is offered exactly as it would be
     // on an installation that serves it.

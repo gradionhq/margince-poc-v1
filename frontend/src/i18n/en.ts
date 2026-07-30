@@ -1732,11 +1732,15 @@ export const en = {
   "auth.checking": "Checking your session…",
   "auth.pageTitle": "Sign in · Margince",
   "auth.loginTitle": "Sign in to Margince",
-  // Three short declaratives rather than one comma-joined sentence
-  // (VOICE-RULE-1): each clause is a separate fact about the installation, and
-  // a reader who stops after the first one has still read a true sentence.
+  // Short declaratives rather than one comma-joined sentence (VOICE-RULE-1):
+  // each clause is a separate fact about the installation, and a reader who
+  // stops after the first has still read a true sentence. Two of them, not
+  // three — "Margince runs on your own server" is a claim about the product,
+  // and someone at a login screen is here to get in. What is left is the
+  // provisioning fact (A97, invite-only): what to do when there is no sign-up
+  // link.
   "auth.loginSub":
-    "Margince runs on your own server. Accounts come from your administrator. There is no self-signup.",
+    "Accounts come from your administrator. There is no self-signup.",
   "auth.coreDisclosure": "Margince · AI system",
   "auth.coreBoundary":
     "I can only use your context after Margince verifies that it's you.",

@@ -22,8 +22,15 @@
   position: relative;
   width: var(--coreSize);
   height: var(--coreSize);
-  max-width: min(24vw, var(--coreSize));
-  max-height: min(24vw, var(--coreSize));
+  /* The viewport cap keeps the Core from dominating a wide two-region layout,
+     where its column is a fraction of the page. It is a TOKEN because a layout
+     that has already sized its column knows better: below 960 the Core sits in a
+     column it was measured against, and there 24vw silently shrank a 132px
+     sphere to 94px on a 390px phone — the caller asks for a size and gets
+     two thirds of it. A layout opts out with `--coreCap: 100%`. */
+  --coreCap: 24vw;
+  max-width: min(var(--coreCap), var(--coreSize));
+  max-height: min(var(--coreCap), var(--coreSize));
   /* Defaults, overridden per state below. A Core with no data-core-state still
      renders as idle rather than as nothing. */
   --coreTint: var(--accent);
@@ -39,6 +46,15 @@
   --coreBeat: 5.6s;
   --coreSize: 230px;
   --coreGlass: 172px;
+  /* Sine-shaped in-out, and every rhythm here reads it. `ease-in-out` is a cubic
+     whose ends flatten harder than a sine's, and on a loop that flat part is a
+     pause — the Core looked like it held its breath at each end. */
+  --coreEase: cubic-bezier(0.37, 0, 0.63, 1);
+  /* How far outside itself the feed reaches, as a multiplier on the per-mote
+     fractions of --coreSize. 1 is the hero: motes born well outside the lit area,
+     drifting in. A layout that sits the Core NEXT TO copy pulls this in, because
+     a mote crossing a paragraph is not atmosphere, it is a bug that moves. */
+  --coreFeedReach: 1;
 }
 .core-md {
   --coreSize: 150px;
@@ -105,11 +121,13 @@
   inset: 0;
   display: grid;
   place-items: center;
-  animation: coreFloat 11s ease-in-out infinite;
+  animation: coreFloat 11s var(--coreEase) infinite;
 }
+/* Deliberately NOT on the beat: a slow drift sharing no factor with the breath
+   keeps the two from locking into one pumping motion. */
 @keyframes coreFloat {
-  0%,
-  100% {
+  from,
+  to {
     transform: translateY(-4px);
   }
   50% {
@@ -156,9 +174,12 @@
     0 -3px 12px color-mix(in srgb, var(--coreLight) 45%, transparent),
     0 18px 34px color-mix(in srgb, var(--coreTint) 20%, transparent),
     0 4px 10px color-mix(in srgb, var(--coreTint) 10%, transparent);
+  /* Breath and sheen share ONE period. At 1 : 0.7 two close periods beat against
+     each other, so the swell and the brightening drifted in and out of phase over
+     a ~19s cycle — read as the Core stuttering rather than as two rhythms. */
   animation:
-    coreBreathe var(--coreBeat) ease-in-out infinite,
-    coreLit calc(var(--coreBeat) * 0.7) ease-in-out infinite;
+    coreBreathe var(--coreBeat) var(--coreEase) infinite,
+    coreSheen var(--coreBeat) var(--coreEase) infinite;
 }
 /* Light pooling on the ground under the glass. Sized from --coreSize like the
    halo, so it tracks every breakpoint instead of the artifact's fixed 150×26px.
@@ -205,26 +226,28 @@
   filter: blur(1px);
   transform: rotate(-20deg);
 }
+/* One swell per period, out and back. The stops were 42% / 68% under
+   `ease-in-out`, which re-accelerates at every stop: the sphere lurched out,
+   checked itself on the way back, and settled with a visible stop. A single
+   midpoint has no interior stop to hitch on, and the smaller amplitude is what
+   turns a pulse into a breath. */
 @keyframes coreBreathe {
-  0%,
-  100% {
+  from,
+  to {
     transform: scale(1);
   }
-  42% {
-    transform: scale(1.055);
-  }
-  68% {
-    transform: scale(1.02);
+  50% {
+    transform: scale(1.042);
   }
 }
-/* the Core answers: the glass brightens as light lands */
-@keyframes coreLit {
-  0%,
-  100% {
+/* the Core answers: the glass brightens as light lands, on the same breath */
+@keyframes coreSheen {
+  from,
+  to {
     filter: brightness(1) saturate(1);
   }
-  46% {
-    filter: brightness(1.04) saturate(1.05);
+  50% {
+    filter: brightness(1.035) saturate(1.04);
   }
 }
 
@@ -288,17 +311,19 @@
     color-mix(in srgb, var(--coreLight) 5%, transparent) 55%,
     transparent 70%
   );
-  animation: coreFed calc(var(--coreBeat) * 0.7) ease-in-out infinite;
+  animation: coreFed var(--coreBeat) var(--coreEase) infinite;
 }
+/* The halo is light leaving the sphere, so it swells WITH the sphere — on the
+   beat, not at 0.7 of it, which put the brightest halo over a shrinking body. */
 @keyframes coreFed {
-  0%,
-  100% {
+  from,
+  to {
     opacity: 0.88;
     transform: scale(1);
   }
-  46% {
+  50% {
     opacity: 1;
-    transform: scale(1.04);
+    transform: scale(1.035);
   }
 }
 

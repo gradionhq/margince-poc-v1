@@ -24,6 +24,32 @@ import "./provider-mark.css";
  */
 
 /**
+ * The brand word for a key this frontend recognises, or null.
+ *
+ * Same knowledge as the mark, so it lives beside it: recognising `google` well
+ * enough to draw its logo is recognising it well enough to name it. A narrow
+ * layout can then show "Google" where the installation's full label
+ * ("Continue with Google") does not fit on one line.
+ *
+ * Two things this deliberately is NOT. It is not a translation — these are proper
+ * nouns and stay identical in every locale, the same rule the served label
+ * follows (§11.5). And it is not derived from the label by trimming a leading
+ * "Continue with": the next installation's label is "Sign in with Okta" or a
+ * German sentence, and a trim would mangle both. An unrecognised key returns
+ * null, and the caller shows the server's own words — which are the only thing
+ * that can be right for a provider this file has never heard of.
+ */
+export function providerBrandName(providerKey: string): string | null {
+  if (providerKey === "google") {
+    return "Google";
+  }
+  if (providerKey === "microsoft") {
+    return "Microsoft";
+  }
+  return null;
+}
+
+/**
  * An unrecognised key still gets a mark.
  *
  * `AuthCapabilities.oidc_providers[].key` is an open string in the contract, so

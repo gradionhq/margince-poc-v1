@@ -1769,7 +1769,7 @@ export const de = {
   "auth.pageTitle": "Anmelden · Margince",
   "auth.loginTitle": "Bei Margince anmelden",
   "auth.loginSub":
-    "Margince läuft auf deinem eigenen Server. Konten legt deine Administration an. Eine Selbstregistrierung gibt es nicht.",
+    "Konten legt deine Administration an. Eine Selbstregistrierung gibt es nicht.",
   "auth.coreDisclosure": "Margince · KI-System",
   "auth.coreBoundary":
     "Ich kann deinen Kontext erst nutzen, nachdem Margince bestätigt hat, dass du es bist.",

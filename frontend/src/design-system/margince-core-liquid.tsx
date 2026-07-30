@@ -50,8 +50,11 @@ void main(){
   // heavier than smoke: the masses slide rather than jitter, so the fast
   // harmonics are gone and the drift runs at about half speed
   float t=uT*.15;
-  // breathing: the whole liquid swells and settles on two overlaid rhythms
-  float br=.5+.35*sin(uT*.28)+.15*sin(uT*.68+1.7);
+  // breathing: the whole liquid swells and settles on ONE rhythm. A second
+  // harmonic at .68 used to ride on top, and a fast beat over a slow swell reads
+  // as the liquid trembling — the drift and the advection already carry the
+  // interior's life.
+  float br=.5+.45*sin(uT*.26);
   q*=1.12-.18*br;
   // three masses on sum-of-sines paths — every direction, no gravity
   vec2 c1=.45*vec2(sin(t*1.6+.5)+.34*sin(t*2.5),      cos(t*1.3)+.34*sin(t*2.1+1.2));

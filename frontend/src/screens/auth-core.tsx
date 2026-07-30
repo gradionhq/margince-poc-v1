@@ -72,22 +72,27 @@ const modeKeys: Record<AssistantProfile["inference_mode"], MessageKey> = {
 
 /**
  * The motion budget, in one place (ADR-0076 Decision 5): the statement reaches
- * its full text within 1200 ms of mount, or renders complete immediately.
+ * its full text within 2000 ms of mount, or renders complete immediately.
  *
  * The speed is DERIVED from the text rather than fixed, and that is the whole
- * reason the budget survives translation. A fixed 34 ms/char (which is what the
- * artifact uses) blows the budget at 36 characters, and the German statement is
- * roughly a quarter longer than the English one, so a constant tuned on English
- * would quietly break for the beachhead's own language. Solve for the budget and
- * the copy can grow without anyone re-checking this number.
+ * reason the budget survives translation. A fixed ms/char constant tuned on the
+ * English statement quietly breaks for German, which runs roughly a quarter
+ * longer — the beachhead's own language. Solve for the budget and the copy can
+ * grow without anyone re-checking this number.
+ *
+ * The budget is deliberately SLOW. A statement about what the system may do with
+ * your context is the one sentence on this screen worth reading, and typing it
+ * out in a second reads as a loading effect rather than as something being said.
+ * The ceiling on the clamp exists so a short translation still types at a
+ * readable pace instead of finishing before the eye arrives.
  */
-const TYPE_START_MS = 90;
-const TYPE_BUDGET_MS = 1010;
+const TYPE_START_MS = 140;
+const TYPE_BUDGET_MS = 2000;
 
 function typeSpeedFor(text: string): number {
-  // Clamped at both ends: a very short statement should not crawl at 26 ms/char,
-  // and a very long one should not become an unreadable 3 ms flicker.
-  return Math.max(8, Math.min(26, Math.floor(TYPE_BUDGET_MS / text.length)));
+  // Clamped at both ends: a very short statement should not crawl, and a very
+  // long one should not become an unreadable flicker.
+  return Math.max(12, Math.min(42, Math.floor(TYPE_BUDGET_MS / text.length)));
 }
 
 export function AuthExperience({
@@ -178,42 +183,56 @@ export function IdentityRegion({
   const t = useT();
   const identityId = useId();
   return (
-    <aside className="auth-identity" aria-labelledby={identityId}>
+    /*
+     * The column is a plain wrapper and the ASIDE is the region — the split is
+     * what lets the mobile layout put the Core above the form and the words below
+     * it. Below 960 the wrapper becomes `display: contents`, so the Core and the
+     * aside become rows of the surface grid and the task can sit between them. A
+     * wrapper with no role can dissolve like that; the aside cannot, because a
+     * landmark that stops being a box stops being reliably reported.
+     *
+     * The Core moving out of the aside costs nothing semantically: it is
+     * decoration (WDS-CORE-4, `aria-hidden`), and every state it shows is also
+     * stated in words inside the region.
+     */
+    <div className="auth-identity-col">
       <MarginceCoreScene state={coreState(phase)} />
 
-      <div className="auth-identity-copy">
-        <p className="auth-kicker" id={identityId}>
-          <span className="auth-kicker-dot" aria-hidden />
-          {t("auth.coreDisclosure")}
-        </p>
+      <aside className="auth-identity" aria-labelledby={identityId}>
+        <div className="auth-identity-copy">
+          <p className="auth-kicker" id={identityId}>
+            <span className="auth-kicker-dot" aria-hidden />
+            {t("auth.coreDisclosure")}
+          </p>
 
-        <TypedStatement text={t("auth.coreBoundary")} />
+          <TypedStatement text={t("auth.coreBoundary")} />
 
-        <p className="auth-scope">{t("auth.coreScope")}</p>
+          <p className="auth-scope">{t("auth.coreScope")}</p>
 
-        {/* Four, from the artifact's five, and two of the five did not travel.
-            "Enriches records from sources it names" is a capability claim and
-            Decision 2 admits only limits. "Switch it off, the CRM still works"
-            IS a limit, but it is already the second half of the runtime line
-            below when the AI is unconfigured, and that is where it belongs: it
-            is a server-read fact about this installation, not a standing
-            promise. Saying it twice on one screen weakens both. */}
-        <ul className="auth-limits">
-          <Limit icon={<LockKeyhole />} text={t("auth.corePermission")} />
-          <Limit icon={<BookOpenText />} text={t("auth.coreCites")} />
-          <Limit icon={<ShieldCheck />} text={t("auth.coreWaits")} />
-          <Limit icon={<PenLine />} text={t("auth.coreMarks")} />
-        </ul>
-      </div>
+          {/* Four, from the artifact's five, and two of the five did not travel.
+              "Enriches records from sources it names" is a capability claim and
+              Decision 2 admits only limits. "Switch it off, the CRM still works"
+              IS a limit, but it is already the second half of the runtime line
+              below when the AI is unconfigured, and that is where it belongs: it
+              is a server-read fact about this installation, not a standing
+              promise. Saying it twice on one screen weakens both. */}
+          <ul className="auth-limits">
+            <Limit icon={<LockKeyhole />} text={t("auth.corePermission")} />
+            <Limit icon={<BookOpenText />} text={t("auth.coreCites")} />
+            <Limit icon={<ShieldCheck />} text={t("auth.coreWaits")} />
+            <Limit icon={<PenLine />} text={t("auth.coreMarks")} />
+          </ul>
+        </div>
 
-      {/* Absent rather than guessed: a runtime line the frontend invented is
-          the one thing Decision 2c forbids, so an in-flight or failed probe
-          renders nothing. The row reserves its height in CSS so the column
-          does not jump when it arrives. */}
-      <div className="auth-identity-foot">
-        {profile && <RuntimePosture profile={profile} />}
-      </div>
-    </aside>
+        {/* Absent rather than guessed: a runtime line the frontend invented is
+            the one thing Decision 2c forbids, so an in-flight or failed probe
+            renders nothing. The row reserves its height in CSS so the column
+            does not jump when it arrives. */}
+        <div className="auth-identity-foot">
+          {profile && <RuntimePosture profile={profile} />}
+        </div>
+      </aside>
+    </div>
   );
 }
 

@@ -535,6 +535,30 @@ this build repo.
   0141), and `interfaces.md` §1 gains an optional `BackfillProgress` seam
   beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
   what a committed run reports.
+- **ADR-0076 is cited all over the login surface and does not exist.** The
+  unauthenticated surface and the Core are built against it — `Decision 1`, `2`,
+  `5c`, `6` and `WDS-CORE-1..4` are quoted in `auth.css`, `auth-core.tsx`,
+  `auth.tsx`, `motion.ts`, `margince-core*` and `e2e/ac.spec.ts` — but
+  `specs/adr/` stops at ADR-0075, and nothing in the spec repo mentions the
+  number. The decisions are real and enforced by tests; the record was never
+  written, so nobody outside this repo can check the code still matches it. Worth
+  splitting when it is written: the layout and the Core's state vocabulary are
+  design decisions, `Decision 2`'s "only limits, never claims" is a
+  product/positioning commitment, `WDS-CORE-1/3/4` are engineering invariants, and
+  the WCAG parts of `Decision 6` are obligations to cite rather than clauses to
+  sign.
+- **The phone layout drops the identity region, reversing Decision 1 below
+  561px.** The login surface on a phone is now the task alone — one full-height
+  card, the Core in its header beside the wordmark — and `auth.css`'s ≤560 block
+  hides `aside.auth-identity` outright. Tablet, 200% zoom and desktop are
+  unchanged. Two consequences to settle with the decision: the words that disclose
+  the AI (the kicker, the boundary statement, the four limits) are absent on a
+  phone, and the Core that remains is `aria-hidden` decoration — so a phone user,
+  and every screen-reader user on one, gets no disclosure at all. The e2e case
+  that used to forbid this now pins the split in both directions ("shows the
+  identity region whole, or not at all"), so the boundary is enforced rather than
+  merely intended. Cheapest fix if the decision holds but the gap does not: keep
+  ONE line — the kicker, or the boundary statement — inside the card on phones.
 - **The company view's new surfaces are build-side, not yet in the spec.**
   `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`,
   `GET|POST /organizations/{id}/brief`, `POST /organizations/{id}/ask`,

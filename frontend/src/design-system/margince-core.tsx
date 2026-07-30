@@ -88,7 +88,7 @@ export function MarginceCoreScene({
           />
         </svg>
       )}
-      {feed ? <CoreFeed endAt={size === "md" ? 48 : 74} /> : null}
+      {feed ? <CoreFeed /> : null}
     </div>
   );
 }
