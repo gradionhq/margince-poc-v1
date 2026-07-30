@@ -100,7 +100,7 @@ func telegramWebhookSpec(pool *pgxpool.Pool, vault keyvault.Vault, inserter tele
 		Provider: "telegram",
 		MaxBody:  1 << 20,
 		Secret:   telegramSecretFunc(pool, vault, log),
-		Handle:   handleTelegramWebhook(pool, inserter, log),
+		Handle:   handleTelegramWebhook(pool, inserter),
 		OnAccept: http.StatusOK,
 	}
 }
@@ -177,7 +177,7 @@ var errTelegramConnectionVanished = errors.New("telegram webhook: connection res
 // transaction is Transient: redelivery is exactly the recovery path, and
 // it is the ONLY recovery path, because there is no history API to
 // re-fetch this update from if it is dropped here.
-func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer, log *slog.Logger) func(context.Context, *http.Request, []byte) (Disposition, error) {
+func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(context.Context, *http.Request, []byte) (Disposition, error) {
 	return func(ctx context.Context, r *http.Request, body []byte) (Disposition, error) {
 		var update telegramUpdateEnvelope
 		if err := json.Unmarshal(body, &update); err != nil {

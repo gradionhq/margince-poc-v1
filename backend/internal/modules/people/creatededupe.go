@@ -81,7 +81,7 @@ func (m OrganizationMatch) recordIfReview(ctx context.Context, tx pgx.Tx, create
 // creates: the colliding name pair and the PO-F score behind it.
 func nearMatchEvidence(field, created, incumbent string, confidence float64) []map[string]any {
 	return []map[string]any{
-		{evidenceFieldKey: field, evidenceLeftKey: created, evidenceRightKey: incumbent, evidenceSignalKey: "collide", evidenceScoreKey: confidence},
+		{evidenceFieldKey: field, evidenceLeftKey: created, evidenceRightKey: incumbent, evidenceSignalKey: evidenceSignalCollide, evidenceScoreKey: confidence},
 	}
 }
 
