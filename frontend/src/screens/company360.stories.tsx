@@ -55,7 +55,7 @@ const populated = {
     },
     {
       kind: "no_reply",
-      reason: "You wrote 11 days ago and nobody has replied.",
+      reason: "You reached out 11 days ago and nobody has come back.",
       fingerprint: "fp-2",
       evidence: [{ entity_type: "activity", entity_id: "a-1" }],
     },

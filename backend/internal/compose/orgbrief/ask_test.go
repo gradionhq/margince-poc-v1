@@ -16,9 +16,11 @@ import (
 	"strings"
 	"testing"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
 	"gopkg.in/yaml.v3"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // openingTag matches the fence's opening marker, whatever promptfence names it
@@ -138,14 +140,39 @@ func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 	}
 }
 
-// TestASectionTheReaderCannotSeeIsNeverDescribed is the per-viewer guarantee in
-// the floor. A withheld section leaves no records in the input, so the floor has
-// nothing to say about it — the same silence the prompt is instructed to keep.
-func TestASectionTheReaderCannotSeeIsNeverDescribed(t *testing.T) {
-	restricted := Input{Name: "Nordwind AG", SectionsOmitted: []string{"deals"}}
-	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, restricted)
-	if len(answered) != 0 {
-		t.Errorf("answer %+v for a reader whose deals section was withheld", answered)
+// TestAWithheldSectionLeavesNoRecordsToDescribe is the per-viewer guarantee where
+// it is actually enforced.
+//
+// The floor cannot describe a withheld section because FromView never puts its
+// records in the Input — a section the caller's grants withheld arrives as a nil
+// pointer on the 360. Asserting over the floor instead would pass for the wrong
+// reason: an Input with no deals answers empty whether or not the section was
+// withheld, so no change to the omission handling could fail it.
+func TestAWithheldSectionLeavesNoRecordsToDescribe(t *testing.T) {
+	withheld := crmcontracts.Organization360{
+		Organization:    crmcontracts.Organization{DisplayName: "Nordwind AG"},
+		SectionsOmitted: []crmcontracts.Organization360SectionsOmitted{"deals"},
+		// Present, so the contrast is real: people came back, deals did not.
+		People: &struct {
+			Data []crmcontracts.Organization360Contact `json:"data"`
+			Page crmcontracts.PageInfo                 `json:"page"`
+		}{Data: []crmcontracts.Organization360Contact{{
+			PersonId: openapi_types.UUID(ids.NewV7()), FullName: "Dana Buyer",
+		}}},
+	}
+
+	in := FromView(withheld)
+	if len(in.OpenDeals) != 0 {
+		t.Errorf("input carries %d deals from a withheld section", len(in.OpenDeals))
+	}
+	if len(in.Contacts) != 1 {
+		t.Errorf("input carries %d contacts, want the section that DID come back", len(in.Contacts))
+	}
+	// The writer is told what it may not speak about, so the model path stays
+	// silent on it too rather than inferring around the gap.
+	if len(in.SectionsOmitted) != 1 || in.SectionsOmitted[0] != "deals" {
+		t.Errorf("sections_omitted = %v, want the withheld section named for the prompt",
+			in.SectionsOmitted)
 	}
 }
 

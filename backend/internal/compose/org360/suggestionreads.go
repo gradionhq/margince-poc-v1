@@ -58,8 +58,8 @@ type lastMessage struct {
 // to it, and letting one count would silence the rule every time a rep left
 // themselves a reminder.
 //
-// Reachability is the any-link walk — a direct link, a deal of this account, or
-// an employment relationship — the same one nextStepsSection uses. It is wider
+// Reachability is orgLinkedActivityExists, the walk nextStepsSection uses — one
+// spelling, so the two cannot drift. It is wider
 // than the timeline SECTION's direct-link match, so the cited message can be one
 // the rendered timeline does not list. Every candidate still passes the activity
 // row scope, so the reader can open it; they may have to open it from the
@@ -83,15 +83,9 @@ func newestMessage(
 		SELECT a.id, a.direction, a.occurred_at
 		FROM activity a
 		WHERE a.kind IN ('email','whatsapp','telegram','call','meeting') AND a.archived_at IS NULL AND %[1]s
-		  AND EXISTS (
-		    SELECT 1 FROM activity_link l
-		    LEFT JOIN deal d ON d.id = l.deal_id
-		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
-		      AND r.ended_at IS NULL AND r.archived_at IS NULL
-		    WHERE l.activity_id = a.id
-		      AND (l.organization_id = $%[2]d OR d.organization_id = $%[3]d OR r.organization_id = $%[4]d))
+		  AND %[2]s
 		ORDER BY a.occurred_at DESC, a.id DESC
-		LIMIT 1`, activityScope, orgPos, orgPos, orgPos), args...).
+		LIMIT 1`, activityScope, orgLinkedActivityExists(orgPos)), args...).
 		Scan(&found.ID, &direction, &found.At)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lastMessage{}, false, nil
@@ -126,21 +120,33 @@ type stalledDeal struct {
 	StageMoves int
 }
 
-// episode identifies the STALL, not the deal: the two ways a deal gets worked,
-// and nothing else.
+// episode identifies the STALL, not the deal: the deal's own activity and its
+// stage moves.
 //
 // It must MOVE when the deal is worked and stalls again, or one dismissal silences
 // that deal for good. It must move only FORWARD, or a shape the rep already
 // dismissed can recur and that old dismissal comes back to life — silencing advice
 // they may have been shown again in between. Both components satisfy the second
-// property by construction: activities.LogActivity advances last_activity_at with
-// greatest() and nothing lowers it, and deal_stage_history is append-only under a
-// fixed predicate, so the count of real moves only rises.
+// property, for different reasons each. activities.LogActivity advances
+// last_activity_at with greatest() and nothing lowers it. The move count rises
+// because deal_stage_history is only ever appended to — nothing in the tree deletes
+// a row, and erasure and retention archive the deal instead — and because the one
+// thing that changes a row's from_stage_id is the FK's ON DELETE SET NULL, which
+// can only turn an excluded row (from = to) into a counted one, never the reverse.
 //
-// Together they are what "worked" means for a deal. Neither alone is enough —
-// logging a call moves the timestamp and not the count, advancing a stage moves
-// the count and not the timestamp — and the stall rule reads only the first, so
-// the count is the half a fingerprint built from IsStalled's own inputs would miss.
+// Neither alone is enough — logging a call moves the timestamp and not the count,
+// advancing a stage moves the count and not the timestamp — and the stall rule
+// reads only the first, so the count is the half a fingerprint built from
+// IsStalled's own inputs would miss.
+//
+// They are not everything a person can do to a deal. Editing it — re-pricing,
+// pushing the close date, changing the owner — moves neither, so a dismissal
+// survives that. deal.version would catch all of it and is monotone, but it also
+// bumps on writes no person made: CloseDateCorrector patches expected_close_date
+// from a sweep, and keying on it would hand a rep back advice they dismissed
+// because a nightly job touched the row. Which edits count as working a deal is a
+// product question rather than one to infer from the schema; it is raised in
+// STATUS.md, and this fingerprint should derive from the answer, not the reverse.
 //
 // wait_until is deliberately NOT here, though the stall rule reads it: a deferral
 // can be set, expire, and be cleared, returning the deal to a shape the rep already
@@ -267,8 +273,7 @@ func openPipeline(
 // truncation only hides rows past the first 25 — while coupling the rules to a
 // section, which is the coupling the whole file exists to remove.
 //
-// Reachability is the any-link walk nextStepsSection uses: a task reaches the
-// account through its own link, its deal, or the contact it is about.
+// Reachability is orgLinkedActivityExists, the same walk nextStepsSection uses.
 func hasOpenTask(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
 ) (bool, error) {
@@ -287,14 +292,8 @@ func hasOpenTask(
 		SELECT EXISTS (
 		  SELECT 1 FROM activity a
 		  WHERE a.kind = 'task' AND NOT a.is_done AND a.archived_at IS NULL AND %[1]s
-		    AND EXISTS (
-		      SELECT 1 FROM activity_link l
-		      LEFT JOIN deal d ON d.id = l.deal_id
-		      LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
-		        AND r.ended_at IS NULL AND r.archived_at IS NULL
-		      WHERE l.activity_id = a.id
-		        AND (l.organization_id = $%[2]d OR d.organization_id = $%[3]d OR r.organization_id = $%[4]d)))`,
-		activityScope, orgPos, orgPos, orgPos), args...).Scan(&scheduled)
+		    AND %[2]s)`,
+		activityScope, orgLinkedActivityExists(orgPos)), args...).Scan(&scheduled)
 	if err != nil {
 		return false, fmt.Errorf("read whether anything is scheduled on the account: %w", err)
 	}

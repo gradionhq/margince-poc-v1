@@ -144,21 +144,29 @@ func TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked(t *testing.T) {
 	// no-op case is gated where it is visible:
 	// TestAdvancingADealReArmsDismissedStallAdvice.
 
-	// Monotonicity: every episode this deal can produce must be distinct, whichever
-	// way it is worked, so it can never land back on a dismissed shape.
+	// Monotonicity, over BOTH dimensions independently. Each loop holds one
+	// component fixed and walks the other, so dropping either from the format
+	// string collides here — a pair that varied both at once would stay distinct
+	// on the surviving half and prove nothing.
 	seen := map[string]bool{}
-	idleAt := first.IdleSince
-	for moves := range 5 {
-		for _, at := range []time.Time{idleAt, idleAt.AddDate(0, 0, 61)} {
-			episode := stalledDeal{
-				ID: first.ID, Name: first.Name, IdleSince: at, StageMoves: moves,
-			}.episode()
-			if seen[episode] {
-				t.Fatalf("episode %q recurred — a dismissal made against it would resurrect", episode)
-			}
+	note := func(t *testing.T, d stalledDeal) {
+		t.Helper()
+		if episode := d.episode(); seen[episode] {
+			t.Fatalf("episode %q recurred — a dismissal made against it would resurrect", episode)
+		} else {
 			seen[episode] = true
 		}
-		idleAt = idleAt.AddDate(0, 0, 122)
+	}
+	for moves := range 5 {
+		note(t, stalledDeal{ID: first.ID, Name: first.Name, IdleSince: first.IdleSince, StageMoves: moves})
+	}
+	// Starting one step on, because the first loop already recorded the pair
+	// (first.IdleSince, 0) — a shared set is the stronger claim, so the walks must
+	// not overlap.
+	idleAt := first.IdleSince.AddDate(0, 0, 61)
+	for range 5 {
+		note(t, stalledDeal{ID: first.ID, Name: first.Name, IdleSince: idleAt, StageMoves: 0})
+		idleAt = idleAt.AddDate(0, 0, 61)
 	}
 }
 

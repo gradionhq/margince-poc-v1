@@ -94,6 +94,51 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 	}
 }
 
+// The order the rules run in IS the priority the cap applies, and on a full card
+// that order is the whole product decision: what the rep sees when they do not
+// scroll. A person waiting on us leads; money that stopped moving follows.
+//
+// It needs an account that produces MORE than the card lists and at least one of
+// each kind, or the ordering never binds and the test passes on an accident.
+func TestTheMostUrgentAdviceLeadsAFullCard(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	seedUnansweredOutbound(t, e, org.UUID)
+	const stalled = maxListedSuggestions + 2
+	for i := range stalled {
+		deal := e.SeedDeal(t, fmt.Sprintf("Deal %d", i), pipelineID, stage, &e.Rep1)
+		e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+			WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200-i))
+	}
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	found := *view.Suggestions
+	if len(found) != maxListedSuggestions {
+		t.Fatalf("listed %d suggestions, want the card's %d — the cap is not binding, "+
+			"so this proves nothing about order", len(found), maxListedSuggestions)
+	}
+	if view.SuggestionsDropped == nil || *view.SuggestionsDropped == 0 {
+		t.Fatalf("suggestions_dropped = %v, want the advice the cap cut to be reported",
+			view.SuggestionsDropped)
+	}
+	if string(found[0].Kind) != "no_reply" {
+		t.Errorf("the card leads with %q, want the unanswered message — a person is "+
+			"waiting on us, and nothing else here is someone else's time", found[0].Kind)
+	}
+	for _, suggestion := range found[1:] {
+		if string(suggestion.Kind) != "stalled_deal" {
+			t.Errorf("suggestion %q is listed above a stalled deal", suggestion.Kind)
+		}
+	}
+}
+
 // maxListedSuggestions mirrors the card's own cap (org360.maxSuggestions). Spelled
 // here because the integration package cannot see the unexported constant, and a
 // test that derived it from the answer could not tell a cap from a coincidence.
