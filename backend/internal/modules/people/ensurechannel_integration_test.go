@@ -282,11 +282,43 @@ func TestTwoConcurrentFirstChannelMessagesConvergeOnOnePerson(t *testing.T) {
 	}
 }
 
+// handleAuditCount counts the person-scoped audit rows a handle refresh left.
+func (e *dedupeEnv) handleAuditCount(ctx context.Context, t *testing.T, personID ids.PersonID) int {
+	t.Helper()
+	return e.countInWorkspace(ctx, t, `
+		SELECT count(*) FROM audit_log
+		 WHERE entity_type = 'person' AND entity_id = $1 AND action = 'update'
+		   AND after->'channel_username' IS NOT NULL`, personID)
+}
+
+// newestHandleImages reads the newest handle audit row's before/after pair, so
+// a test can say the trail recorded the actual rename and not merely that some
+// row exists. A NULL handle survives as nil — "this account has none" is a
+// state the image must be able to express.
+func (e *dedupeEnv) newestHandleImages(ctx context.Context, t *testing.T, personID ids.PersonID) (before, after *string) {
+	t.Helper()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT before->'channel_username'->>'username',
+			       after->'channel_username'->>'username'
+			  FROM audit_log
+			 WHERE entity_type = 'person' AND entity_id = $1 AND action = 'update'
+			   AND after->'channel_username' IS NOT NULL
+			 ORDER BY occurred_at DESC, id DESC
+			 LIMIT 1`, personID).Scan(&before, &after)
+	}); err != nil {
+		t.Fatalf("reading the newest handle audit images for %s: %v", personID, err)
+	}
+	return before, after
+}
+
 // The handle is display data the provider lets its users change at will
 // (design §4.2). The bind deliberately does not update on conflict — that is
 // how a caller learns it lost the identity race — so the refresh is its own
 // write, and without it every renamed sender would show the name they had the
-// day they first wrote.
+// day they first wrote. Being its own write, it also owes its own trail: no
+// enclosing person mutation covers a rename that arrives on a message from
+// someone the workspace already knows.
 func TestChannelUsernameRefreshesOnEveryInboundMessage(t *testing.T) {
 	e := setupDedupe(t)
 	ctx := e.asChannelConnector()
@@ -322,6 +354,16 @@ func TestChannelUsernameRefreshesOnEveryInboundMessage(t *testing.T) {
 		t.Fatalf("stored handle = %q, want the one this message reported (%q)", stored, renamed.Username)
 	}
 
+	// The first ensure bound the handle inside the person create, whose own
+	// audit row covers it; only the rename is a change of its own, so the
+	// trail holds exactly one row and it names both handles.
+	if n := e.handleAuditCount(ctx, t, first.PersonID); n != 1 {
+		t.Fatalf("%d handle audit rows after one rename, want exactly 1", n)
+	}
+	if was, is := e.newestHandleImages(ctx, t, first.PersonID); was == nil || *was != ci.Username || is == nil || *is != renamed.Username {
+		t.Fatalf("handle audit recorded %v → %v, want %q → %q", was, is, ci.Username, renamed.Username)
+	}
+
 	// A third message reporting the same handle changes nothing, so an ordinary
 	// conversation does not bump the row on every message.
 	if _, err := e.store.EnsureChannelCounterparty(ctx, e.channelEnsureInput(ctx, t, renamed, "Renaming Rita")); err != nil {
@@ -339,5 +381,8 @@ func TestChannelUsernameRefreshesOnEveryInboundMessage(t *testing.T) {
 	if settled != version {
 		t.Fatalf("version moved from %d to %d on an unchanged handle; the refresh must be a no-op when nothing changed",
 			version, settled)
+	}
+	if n := e.handleAuditCount(ctx, t, first.PersonID); n != 1 {
+		t.Fatalf("%d handle audit rows after an unchanged handle, want still 1 — the trail records changes, not messages", n)
 	}
 }

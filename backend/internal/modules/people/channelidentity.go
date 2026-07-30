@@ -14,10 +14,17 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
+
+// fieldReachability names the channel-reachability image in an audit row and
+// in the person.updated event's changed fields — the same word the person
+// read projects it under (person_children.go's attachPersonReachability), so
+// a human reading the trail and a human reading the record see one name.
+const fieldReachability = "reachability"
 
 // ResolveOrCreateChannelIdentity binds ci to personID and returns the person
 // the identity ACTUALLY belongs to once the dust settles — personID when this
@@ -88,8 +95,9 @@ func ResolveOrCreateChannelIdentity(ctx context.Context, tx pgx.Tx, personID ids
 // The WHERE clause guards on the identity's CURRENT blocked state rather
 // than issuing an unconditional SET, which is what makes this idempotent:
 // Telegram redelivers my_chat_member, and a repeat delivery must touch zero
-// rows — not move blocked_at's timestamp forward, and not re-fire the
-// updated_at/version trigger for a state that did not change.
+// rows — not move blocked_at's timestamp forward, not re-fire the
+// updated_at/version trigger, and not leave a second audit row for a state
+// that did not change.
 //
 // A my_chat_member naming an identity nobody has bound yet (blocked before
 // ever messaging the bot) matches no row. That is not a fault: there is no
@@ -101,17 +109,62 @@ func (s *Store) SetChannelIdentityBlocked(ctx context.Context, tx pgx.Tx, ci con
 	query := `
 		UPDATE person_channel_identity SET blocked_at = now()
 		WHERE provider = $1 AND channel_user_id = $2
-		  AND archived_at IS NULL AND blocked_at IS NULL`
+		  AND archived_at IS NULL AND blocked_at IS NULL
+		RETURNING person_id`
 	if !blocked {
 		query = `
 			UPDATE person_channel_identity SET blocked_at = NULL
 			WHERE provider = $1 AND channel_user_id = $2
-			  AND archived_at IS NULL AND blocked_at IS NOT NULL`
+			  AND archived_at IS NULL AND blocked_at IS NOT NULL
+			RETURNING person_id`
 	}
-	if _, err := tx.Exec(ctx, query, ci.Provider, ci.ChannelUserID); err != nil {
+	// At most one row can come back: the partial unique index admits one live
+	// binding per (workspace, provider, channel_user_id).
+	var personID ids.PersonID
+	err := tx.QueryRow(ctx, query, ci.Provider, ci.ChannelUserID).Scan(&personID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("people: setting channel identity blocked=%t: %w", blocked, err)
 	}
-	return nil
+	// The flip really happened, so the guard above proves what the prior
+	// state was: a row only matched because it held the opposite of `blocked`.
+	return auditChannelIdentityChange(ctx, tx, personID,
+		reachabilityImage(ci.Provider, blocked), reachabilityImage(ci.Provider, !blocked))
+}
+
+// reachabilityImage is the audit/event field image for a reachability flip.
+// The provider travels with it because a person can hold identities on
+// several channels, and "reachable: false" alone would not say on which.
+func reachabilityImage(provider string, reachable bool) map[string]any {
+	return map[string]any{fieldReachability: map[string]any{
+		"provider": provider, "reachable": reachable,
+	}}
+}
+
+// auditChannelIdentityChange puts a channel-identity mutation on the PERSON's
+// write trail: domain row + audit row + outbox event in the caller's one
+// transaction.
+//
+// The person is the right subject, not the satellite. Both mutations this
+// serves change what the RECORD says — reachability is projected onto the
+// person read (person_children.go), and it decides whether a rep is offered
+// the reply box at all — so an auditor asking "why can this person no longer
+// be messaged, and since when" must find the answer on the person's history,
+// exactly as a person_profile_field write is audited as a person update
+// (enrichsignature.go).
+//
+// The bind path needs none of this: it is enclosed by the person create whose
+// audit row already covers it. These two writes have no enclosing person
+// mutation — they reach a Person who already exists.
+func auditChannelIdentityChange(ctx context.Context, tx pgx.Tx, personID ids.PersonID, before, after map[string]any) error {
+	auditID, err := storekit.Audit(ctx, tx, actionUpdate, entityPerson, personID.UUID, before, after)
+	if err != nil {
+		return err
+	}
+	return storekit.EmitEvent(ctx, tx, auditID, personID.UUID,
+		crmcontracts.PublicEventPersonUpdated{ChangedFields: after})
 }
 
 // ReachableChannelIdentities returns every identity personID can currently be

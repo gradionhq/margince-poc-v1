@@ -101,6 +101,14 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		return fmt.Errorf("telegram_ingest: building the normalize envelope: %w", err)
 	}
 
+	// Everything past the read is a WRITE, and every write in this repo is
+	// attributed: the connector principal and one correlation id per update
+	// are established here, once, so both branches below — the reachability
+	// change and the captured message — commit under the same named actor
+	// and the same trace. A write reached under wsCtx alone would have no
+	// actor for storekit to stamp.
+	actorCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, telegramChannelPrincipal()), ids.NewV7())
+
 	// A my_chat_member update is not a message (design §4.2 D9): classify it
 	// BEFORE Normalize ever runs, so it can never take the message path or
 	// mint an activity. Every other update kind falls through unchanged.
@@ -109,10 +117,10 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		return fmt.Errorf("telegram_ingest: parsing membership: %w", err)
 	}
 	if isMembership {
-		return w.applyMembership(wsCtx, membership)
+		return w.applyMembership(actorCtx, membership)
 	}
 
-	records, err := telegram.Normalize(wsCtx, raw)
+	records, err := telegram.Normalize(actorCtx, raw)
 	if err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			// A deliberate exclusion — an update kind neither the membership
@@ -123,7 +131,12 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		return fmt.Errorf("telegram_ingest: normalizing: %w", err)
 	}
 
-	actorCtx := principal.WithCorrelationID(principal.WithActor(wsCtx, telegramChannelPrincipal()), ids.NewV7())
+	return w.captureRecords(actorCtx, records)
+}
+
+// captureRecords hands every normalized record to the one guarded Sink,
+// translating the Fields type on the way.
+func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records []connector.NormalizedRecord) error {
 	for _, rec := range records {
 		// Normalize returns its own package-local mirror of
 		// capture.ActivityFields (normalize.go explains why: capture already
@@ -161,12 +174,13 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 // kicked/member is logged so a status Telegram adds later is visible instead
 // of quietly falling through.
 //
-// wsCtx already carries the workspace this job's args resolved — the same
-// context Work built the read transaction from — so SetChannelIdentityBlocked
-// runs under the SAME tenant, in its own transaction: there is no invariant
-// tying this write to the earlier read, unlike a captured record's atomic
-// write shape.
-func (w *telegramIngestWorker) applyMembership(wsCtx context.Context, m telegram.Membership) error {
+// actorCtx carries the workspace this job's args resolved plus the connector
+// principal Work established, so SetChannelIdentityBlocked runs under the
+// SAME tenant as the read and under a named actor its audit row can be
+// attributed to. It gets its own transaction: there is no invariant tying
+// this write to the earlier read, unlike a captured record's atomic write
+// shape.
+func (w *telegramIngestWorker) applyMembership(actorCtx context.Context, m telegram.Membership) error {
 	var blocked bool
 	switch m.Status {
 	case telegram.StatusKicked:
@@ -177,8 +191,8 @@ func (w *telegramIngestWorker) applyMembership(wsCtx context.Context, m telegram
 		w.log.Warn("telegram_ingest: unhandled my_chat_member status", "status", m.Status)
 		return nil
 	}
-	err := database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
-		return w.people.SetChannelIdentityBlocked(wsCtx, tx, m.Identity, blocked)
+	err := database.WithWorkspaceTx(actorCtx, w.pool, func(tx pgx.Tx) error {
+		return w.people.SetChannelIdentityBlocked(actorCtx, tx, m.Identity, blocked)
 	})
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: applying membership status %q: %w", m.Status, err)

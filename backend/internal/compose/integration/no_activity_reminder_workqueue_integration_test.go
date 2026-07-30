@@ -164,13 +164,6 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	}
 }
 
-// applyRiverSchema layers River's schema onto the harness-migrated
-// database, exactly as cmd/migrate does after core+custom. Mirrors
-// compose/jobs_integration_test.go's helper of the same name (a
-// different package — no collision); duplicated rather than exported
-// because this is the only suite in this package driving a real River
-// runner, and platform/jobs.Migrate already owns the one real
-// implementation both copies call.
 // awaitKindCompleted blocks until a job of the given kind reports
 // completion, or the context deadline fires. No polling, no sleep.
 func awaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Event, kind string) {

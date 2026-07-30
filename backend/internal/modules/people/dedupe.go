@@ -73,6 +73,12 @@ type PersonResolution struct {
 	Decision   DedupeDecision
 	PersonID   ids.PersonID
 	Confidence float64
+	// MatchedLane names the exact lane that routed the decision, and is
+	// empty for every decision other than DecisionExactCollision. WHICH key
+	// matched is part of the answer, because a caller's exact policy differs
+	// per lane: a claimed address is the API create's 409, while a phone
+	// number households and switchboards share cannot refuse anything.
+	MatchedLane string
 	// Conflict is non-nil only when a later exact lane resolved to a
 	// different person than the routed one. It is a REPORT: this resolver
 	// writes nothing, and in particular never plants the routed lane's key
@@ -160,7 +166,7 @@ func routeExact(lanes []exactLane) (PersonResolution, bool) {
 		if !lane.found {
 			continue
 		}
-		res := PersonResolution{Decision: DecisionExactCollision, PersonID: lane.personID}
+		res := PersonResolution{Decision: DecisionExactCollision, PersonID: lane.personID, MatchedLane: lane.name}
 		for _, rival := range lanes[i+1:] {
 			if rival.found && rival.personID != lane.personID {
 				res.Conflict = &LaneConflict{

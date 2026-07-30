@@ -49,6 +49,7 @@ const (
 	fieldFullName      = "full_name"
 	fieldDisplayName   = "display_name"
 	fieldEmail         = "email"
+	fieldPhone         = "phone"
 	emailTypeWork      = "work"
 )
 

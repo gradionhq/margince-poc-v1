@@ -19,12 +19,16 @@ package backendarch
 //     that creates it, not by an edit here.
 //   - The archive cascade binds a satellite IFF it has an archived_at column.
 //     Four satellites (person_consent, person_social, person_profile_field,
-//     person_signature_enrich_state) have none: they are removed by the
-//     person FK's ON DELETE CASCADE, which is what people/person.go means by
-//     "Polymorphic membership/tag rows have no archived_at; the §1.10 cleanup
-//     rule removes them with the entity." Demanding a soft delete on a table
-//     with nothing to soft-delete would be red for a requirement that does not
-//     apply.
+//     person_signature_enrich_state) have none, so ArchivePerson has nothing
+//     to soft-delete on them: their rows leave the database only when the
+//     person ROW itself is deleted, through the person FK's
+//     ON DELETE CASCADE. ArchivePerson is a SOFT delete, so it does not fire
+//     that cascade, and no path in this tree hard-deletes a person — those
+//     four rows therefore outlive the archive. That is a real coverage gap in
+//     the lifecycle, not a discharge of it; what this gate can honestly hold
+//     is only the obligation the table's own shape admits, and demanding a
+//     soft delete on a table with no archived_at column would be red for a
+//     requirement that does not apply.
 //   - The retention anonymizer and the merge relink bind a satellite that the
 //     PII registry (piiTables) declares subject-bearing. Registration in that
 //     registry is the ONE act that declares a table holds a data subject, and

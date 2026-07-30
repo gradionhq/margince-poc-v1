@@ -43,6 +43,11 @@ import (
 // names the address on the mail path.
 const fieldChannelIdentity = "channel_identity"
 
+// fieldChannelUsername names the provider handle in an audit image. It is not
+// a person column: it is the display handle of the person's channel account,
+// and the audit trail says so rather than pretending a person field moved.
+const fieldChannelUsername = "channel_username"
+
 // EnsureChannelCounterpartyInput is one inbound channel message's counterparty.
 // There is no OwnerID and no Domain: the created person is ownerless by design,
 // and a channel identity carries no domain to derive a company from.
@@ -256,16 +261,54 @@ func (s *Store) recordChannelDedupeCandidate(ctx context.Context, tx pgx.Tx, in 
 // empty one, and clearing the stored value is the honest answer: keeping a
 // handle its owner has dropped would show a name nobody answers to. The
 // IS DISTINCT FROM predicate makes the ordinary unchanged case touch no row, so
-// a conversation does not bump version and updated_at on every message.
+// a conversation does not bump version and updated_at on every message — and
+// leaves no audit row either, which is why the trail records handle CHANGES
+// rather than one line per inbound message.
+//
+// The old handle comes back from the statement itself: the joined subquery is
+// read from the pre-update snapshot, so the audit row can name what the handle
+// was without a second round trip that a concurrent refresh could race.
 func refreshChannelUsername(ctx context.Context, tx pgx.Tx, ci connector.ChannelIdentity) error {
-	if _, err := tx.Exec(ctx, `
-		UPDATE person_channel_identity SET username = NULLIF($3, '')
-		WHERE provider = $1 AND channel_user_id = $2 AND archived_at IS NULL
-		  AND username IS DISTINCT FROM NULLIF($3, '')`,
-		ci.Provider, ci.ChannelUserID, ci.Username); err != nil {
+	var personID ids.PersonID
+	var previous *string
+	err := tx.QueryRow(ctx, `
+		WITH bound AS (
+			SELECT id, person_id, username FROM person_channel_identity
+			WHERE provider = $1 AND channel_user_id = $2 AND archived_at IS NULL
+		)
+		UPDATE person_channel_identity pci SET username = NULLIF($3, '')
+		FROM bound
+		WHERE pci.id = bound.id AND bound.username IS DISTINCT FROM NULLIF($3, '')
+		RETURNING bound.person_id, bound.username`,
+		ci.Provider, ci.ChannelUserID, ci.Username).Scan(&personID, &previous)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// Either the handle is unchanged — the ordinary case, every message
+		// after the first — or nothing is bound to this identity yet, which
+		// the bind above this call is what fixes.
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("people: refreshing the channel identity handle: %w", err)
 	}
-	return nil
+	return auditChannelIdentityChange(ctx, tx, personID,
+		handleImage(ci.Provider, previous), handleImage(ci.Provider, emptyToNil(ci.Username)))
+}
+
+// handleImage is the audit/event field image for a handle refresh, provider
+// included for the same reason reachabilityImage carries it. A nil handle is
+// the honest image of an account that has none.
+func handleImage(provider string, handle *string) map[string]any {
+	return map[string]any{fieldChannelUsername: map[string]any{
+		"provider": provider, "username": handle,
+	}}
+}
+
+// emptyToNil mirrors the column's NULLIF: "no handle" is one state, not two.
+func emptyToNil(handle string) *string {
+	if handle == "" {
+		return nil
+	}
+	return &handle
 }
 
 // channelCounterpartyName is the display name we can honestly store for a
