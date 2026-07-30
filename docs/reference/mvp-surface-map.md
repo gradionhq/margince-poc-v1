@@ -323,7 +323,10 @@ does **not** hot-reload — any backend change needs `make dev` again, and a sta
 
 ## Suggested order
 
-1. **Shell** — done bar the two gaps above and the Approvals-vs-Assistant naming call.
+1. **Shell** — the chrome has landed, which is not the same as fully accepted: the
+   two gaps above are open, the agent panel's activity/routing/spend lines have no
+   endpoint behind them yet (AC-shell-1j), and the Approvals-vs-Assistant naming
+   call is unmade.
 2. **The five cross-cutting rulings** as ADRs.
 3. **Approval Inbox / Assistant** — the canonical yellow surface; defines the trust
    language every other screen reuses.

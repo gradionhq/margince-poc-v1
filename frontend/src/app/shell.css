@@ -1,6 +1,9 @@
-/* App shell — §2b verbatim: 64px rail on the deep ink-green field, 56px
- * elevated top bar. Rail icons are deliberately white-alpha on --bgRail,
- * NOT theme tokens (§2b: high-contrast white on the dark green field). */
+/* App shell — a labeled sidebar collapsing to the canonical 64px rail, above a
+ * floating top bar. The chrome is WHITE, not §2b's deep ink-green field: the
+ * founder ruling of 2026-07-23 makes the product surface white, so rail icons
+ * read as ordinary theme tokens rather than white-alpha on a dark ground. The
+ * ink-green field keeps the agent panel and the marketing surfaces
+ * (docs/reference/draft-adr-app-shell.md). */
 
 /* The chrome floats: sidebar, top bar and content are inset panels on the matte
  * ground with a ~10px margin between them, the same gesture design.md:139
@@ -11,6 +14,7 @@
      and the labels stay in step. */
   --shellAnim: 0.36s;
   --shellEase: cubic-bezier(0.4, 0, 0.2, 1);
+
   display: grid;
   grid-template-columns: 64px 1fr;
   gap: var(--shellGap, 10px);
@@ -149,8 +153,8 @@
   gap: 1px;
   overflow-y: auto;
 }
-/* The collapsed panel must NOT clip: the tooltips sit outside its 64px box.
-   Labels are clipped by each item instead. */
+/* The collapsed panel must NOT clip: the tooltips and the active indicator both
+   sit outside its 64px box. Each label clips itself. */
 .rail.collapsed {
   overflow: visible;
 }
@@ -555,7 +559,7 @@
     inset -2px -3px 6px color-mix(in srgb, var(--overlayDark) 18%, transparent),
     inset 2px 2px 5px color-mix(in srgb, var(--overlayLight) 50%, transparent),
     0 1px 5px color-mix(in srgb, var(--accent) 26%, transparent);
-  animation: agentOrbBreathe 5.6s ease-in-out infinite;
+  animation: agent-orb-breathe 5.6s ease-in-out infinite;
 }
 /* the interior: translucent masses, one slow turn */
 .rail .agentorb::before {
@@ -589,7 +593,7 @@
         0%,
       transparent 70%
     );
-  animation: agentOrbDrift 14s linear infinite;
+  animation: agent-orb-drift 14s linear infinite;
 }
 /* the specular: lit glass, fixed, never neon */
 .rail .agentorb::after {
@@ -607,12 +611,12 @@
   );
   transform: rotate(-20deg);
 }
-@keyframes agentOrbDrift {
+@keyframes agent-orb-drift {
   to {
     transform: rotate(360deg);
   }
 }
-@keyframes agentOrbBreathe {
+@keyframes agent-orb-breathe {
   0%,
   100% {
     transform: scale(1);

@@ -192,8 +192,12 @@ introduced and no amendment is needed.
 | WCAG 2.2 AA (frontend README) | Collapsed targets 46×38 | **Conformant** — 2.5.8 (AA) needs 24×24. It gives up 44×44, which is 2.5.5 **AAA**, and which my own earlier AC-shell-1c asked for. That AC is amended below. |
 | `acceptance-standards.md` STATE-1..5 | The shell's live regions (badge count, brand block) omit rather than fabricate; the agent panel's unbacked lines are visibly marked example data | **Conformant for what ships.** Saved views not built, so its states are not yet owed. |
 
-**Nothing in the build fails an AC-shell criterion outright.** The failures are
-all in the other direction: spec statements the build has outgrown.
+**Nothing in the build fails a criterion of the AC-shell set it was written
+against.** The failures in that table all run the other way: spec statements the
+build has outgrown. Two of the criteria this ADR *adds* below are not met yet and
+say so where they are stated — **AC-shell-1j** (the cost line, still marked
+example data) and the agent panel's activity and routing lines, which have no
+endpoint behind them. They are stated as the target, not as achieved.
 
 ## Acceptance criteria (superseding my earlier draft)
 
