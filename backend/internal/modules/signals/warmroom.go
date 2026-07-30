@@ -30,9 +30,9 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// warmContact pairs the contract evidence row with its person id for the
-// intro-path ranking.
-type warmContact struct {
+// RouteInEdge pairs the contract evidence row with its person id for the
+// route-in ranking.
+type RouteInEdge struct {
 	PersonID ids.PersonID
 	Contact  crmcontracts.SignalWarmContact
 }
@@ -43,7 +43,7 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.SignalID, now time.Time
 		return crmcontracts.SignalWarmth{}, err
 	}
 	var sig crmcontracts.Signal
-	var contacts []warmContact
+	var contacts []RouteInEdge
 	err := s.tx(ctx, func(tx pgx.Tx) error {
 		if err := auth.EnsureSignalVisible(ctx, tx, signalID.UUID); err != nil {
 			return err
@@ -56,7 +56,7 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.SignalID, now time.Time
 			return &NoWarmthError{Reason: fmt.Sprintf(
 				"signal is %s: only a signal resolved to an organization has a warm/cold branch", sig.ResolutionState)}
 		}
-		contacts, err = contactEdges(ctx, tx, ids.From[ids.OrganizationKind](ids.UUID(*sig.ResolvedOrgId)))
+		contacts, err = RouteInEdges(ctx, tx, ids.From[ids.OrganizationKind](ids.UUID(*sig.ResolvedOrgId)))
 		return err
 	})
 	if err != nil {
@@ -68,7 +68,7 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.SignalID, now time.Time
 	// contact outside the caller's row scope was already excluded by the
 	// edge query; a residual scope miss contributes nothing rather than
 	// out-seeing the person list.
-	scored := make([]warmContact, 0, len(contacts))
+	measured := make(map[ids.PersonID]RelationshipStrength, len(contacts))
 	for _, c := range contacts {
 		strength, err := s.strength.PersonStrength(ctx, c.PersonID, now)
 		switch {
@@ -77,18 +77,17 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.SignalID, now time.Time
 		case err != nil:
 			return crmcontracts.SignalWarmth{}, fmt.Errorf("relationship strength for contact: %w", err)
 		}
-		c.Contact.Strength = strength.Strength
-		c.Contact.StrengthBucket = crmcontracts.SignalWarmContactStrengthBucket(strength.Bucket)
-		scored = append(scored, c)
+		measured[c.PersonID] = strength
 	}
-	// Strongest relationship first: the warm room leads with the best
-	// route in (deterministic tie-break on person id).
-	sort.Slice(scored, func(i, j int) bool {
-		if scored[i].Contact.Strength != scored[j].Contact.Strength {
-			return scored[i].Contact.Strength > scored[j].Contact.Strength
-		}
-		return scored[i].PersonID.String() < scored[j].PersonID.String()
+	scored := RankRouteIn(contacts, func(personID ids.PersonID) (int, bool) {
+		strength, ok := measured[personID]
+		return strength.Strength, ok
 	})
+	for i := range scored {
+		strength := measured[scored[i].PersonID]
+		scored[i].Contact.Strength = strength.Strength
+		scored[i].Contact.StrengthBucket = crmcontracts.SignalWarmContactStrengthBucket(strength.Bucket)
+	}
 
 	out := crmcontracts.SignalWarmth{
 		SourceSignalId: sig.Id,
@@ -108,11 +107,58 @@ func (s *Store) Warmth(ctx context.Context, signalID ids.SignalID, now time.Time
 	return out, nil
 }
 
-// contactEdges finds the live contact edges anchoring the org in OUR
+// RankRouteIn orders route-in edges the way the warm room ranks them:
+// strongest §4 relationship first, person id ascending as the deterministic
+// tie-break. An edge whose strength the caller could not resolve is DROPPED
+// — the warm branch means "we hold a relationship we can measure", and an
+// unmeasured contact ranked as a zero would read as a cold route in rather
+// than as no answer.
+//
+// The ranking is a pure function so its two readers cannot disagree: the
+// warm/cold join resolves strength through the injected seam outside its
+// transaction, while the company view's connection graph resolves it in
+// batch inside one — same order, different plumbing.
+func RankRouteIn(edges []RouteInEdge, score func(ids.PersonID) (int, bool)) []RouteInEdge {
+	scored := make([]RouteInEdge, 0, len(edges))
+	strengths := make(map[ids.PersonID]int, len(edges))
+	for _, edge := range edges {
+		strength, ok := score(edge.PersonID)
+		if !ok {
+			continue
+		}
+		strengths[edge.PersonID] = strength
+		scored = append(scored, edge)
+	}
+	sort.SliceStable(scored, func(i, j int) bool {
+		left, right := scored[i].PersonID, scored[j].PersonID
+		if strengths[left] != strengths[right] {
+			return strengths[left] > strengths[right]
+		}
+		return left.String() < right.String()
+	})
+	return scored
+}
+
+// RouteInEdges finds the live contact edges anchoring the org in OUR
 // graph: current employment at the org, or a stakeholder seat on one of
 // the org's live deals. Row-scoped — a contact the caller cannot see
-// cannot be their evidence.
-func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]warmContact, error) {
+// cannot be their evidence. It reads inside the CALLER's transaction, so
+// the answer shares the caller's instant.
+//
+// Exported because the warm/cold join is not its only reader: the company
+// view's connection graph marks the same route-in contact, and a second
+// spelling of "who anchors this account" would let the card and the warm
+// room name different people to ask for an intro.
+//
+// It carries the PERSON object gate itself. Every row it returns names a
+// person, and the row-scope clause below narrows WHICH people a caller sees,
+// never whether they may see people at all — so a caller holding the signal
+// grant and not the person one is refused here rather than at whichever call
+// site remembered to ask.
+func RouteInEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]RouteInEdge, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, err
+	}
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
@@ -142,7 +188,7 @@ func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]w
 
 	// One evidence row per person: employment is the primary edge when a
 	// person holds both (it is the durable "we know someone there" fact).
-	byPerson := map[ids.PersonID]warmContact{}
+	byPerson := map[ids.PersonID]RouteInEdge{}
 	var order []ids.PersonID
 	for rows.Next() {
 		var personID ids.PersonID
@@ -158,7 +204,7 @@ func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]w
 		} else {
 			order = append(order, personID)
 		}
-		byPerson[personID] = warmContact{
+		byPerson[personID] = RouteInEdge{
 			PersonID: personID,
 			Contact: crmcontracts.SignalWarmContact{
 				PersonId:         openapi_types.UUID(personID.UUID),
@@ -171,7 +217,7 @@ func contactEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]w
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	out := make([]warmContact, 0, len(order))
+	out := make([]RouteInEdge, 0, len(order))
 	for _, id := range order {
 		out = append(out, byPerson[id])
 	}

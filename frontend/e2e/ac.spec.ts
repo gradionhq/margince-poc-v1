@@ -23,13 +23,17 @@ const CORE_SCREENS = [
   "automations",
 ];
 
-test("AC-shell-1: the rail renders the canonical 9 items in order", async ({
+// The canonical ten, in order: Home alone, then records / work / intelligence.
+// A72 (ADR-0035 Am.1) promoted Automations into primary nav. Two labels differ
+// from their route ids on purpose — `deals` presents as Pipeline and `inbox` as
+// Approvals — so this asserts what a person reads, not what the router matches.
+test("AC-shell-1: the rail renders the canonical 10 items in order", async ({
   page,
 }) => {
   await page.goto("/#/home");
   // evaluateAll never waits — anchor on the rendered count first, or the
   // read races the auth splash and sees an empty rail.
-  await expect(page.locator("nav.rail a.navitem")).toHaveCount(9);
+  await expect(page.locator("nav.rail a.navitem")).toHaveCount(10);
   const labels = await page
     .locator("nav.rail a.navitem")
     .evaluateAll((links) =>
@@ -40,11 +44,12 @@ test("AC-shell-1: the rail renders the canonical 9 items in order", async ({
     "Kontakte",
     "Firmen",
     "Leads",
-    "Deals",
+    "Pipeline",
     "Aufgaben",
-    "Eingang",
+    "Freigaben",
     "Berichte",
-    "KI fragen",
+    "Automatisierungen",
+    "Margince fragen",
   ]);
 });
 
@@ -55,7 +60,7 @@ test("AC-shell-2: exactly one rail item is active and tracks the route", async (
   await expect(page.locator("nav.rail a.navitem.active")).toHaveCount(1);
   await expect(page.locator("nav.rail a.navitem.active")).toHaveAttribute(
     "aria-label",
-    "Deals",
+    "Pipeline",
   );
   await page.locator('nav.rail a[aria-label="Berichte"]').click();
   await expect(page.locator("nav.rail a.navitem.active")).toHaveAttribute(
@@ -73,6 +78,9 @@ test("AC-shell-3/4/5: ⌘K opens focused+empty, filters, Enter navigates", async
   await page.keyboard.press("ControlOrMeta+k");
   const input = page.getByRole("textbox", { name: "Befehlspalette" });
   await expect(input).toBeFocused();
+  // "Deals" is the route id, not the label the rail shows (Pipeline) — typing the
+  // domain word still has to land on the screen, or a relabeled destination
+  // becomes unreachable for everyone who knows it by its old name.
   await input.fill("Deals");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/#\/deals$/);

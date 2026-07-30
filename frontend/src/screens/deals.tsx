@@ -56,6 +56,7 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { RecordHistoryTab } from "./history";
+import { usePendingApprovals } from "./inbox.queries";
 import { type ListQuery, ListToolbar } from "./listquery";
 import { LogActivity } from "./logactivity";
 import { activityTimeline } from "./people";
@@ -1555,18 +1556,12 @@ export function DealScreen({ id }: Readonly<{ id: string }>) {
       return data;
     },
   });
-  const approvalsQuery = useQuery({
-    queryKey: ["approvals", "pending"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/approvals", {
-        params: { query: { status: "pending", limit: 50 } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
+  // The shared pending-approvals hook, not a second query on the same key: a
+  // private queryFn under ["approvals","pending"] takes over the cache entry the
+  // Inbox and the rail badge read, and this one stopped at the first page and
+  // kept expired rows — so a visit here could silently cap the badge at 50 and
+  // count approvals nobody can act on.
+  const approvalsQuery = usePendingApprovals();
   const timelineQuery = useQuery({
     queryKey: ["activities", "deal", id],
     enabled: !overlay,

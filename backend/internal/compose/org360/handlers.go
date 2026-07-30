@@ -48,6 +48,19 @@ func (h Handlers) GetOrganization360(w http.ResponseWriter, r *http.Request, id 
 	httperr.WriteJSON(w, http.StatusOK, view)
 }
 
+// GetOrganizationGraph implements GET /organizations/{id}/graph.
+func (h Handlers) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	if !h.nativeOnly(w, r) {
+		return
+	}
+	graph, err := h.svc.Graph(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, graph)
+}
+
 // AcknowledgeOrganizationView implements POST /organizations/{id}/view-ack.
 func (h Handlers) AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	if !h.nativeOnly(w, r) {
@@ -59,6 +72,24 @@ func (h Handlers) AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Req
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, ack)
+}
+
+// DismissOrganizationSuggestion implements
+// POST /organizations/{id}/suggestions/dismiss.
+func (h Handlers) DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	if !h.nativeOnly(w, r) {
+		return
+	}
+	var req crmcontracts.DismissOrganizationSuggestionJSONRequestBody
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if err := h.svc.DismissSuggestion(r.Context(),
+		ids.From[ids.OrganizationKind](ids.UUID(id)), req.Fingerprint); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // nativeOnly refuses an overlay-mode workspace. The mirror holds the

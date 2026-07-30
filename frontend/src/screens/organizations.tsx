@@ -39,6 +39,7 @@ import {
   useSorMode,
 } from "./common";
 import {
+  AskCard,
   BriefCard,
   DealsCard,
   NextSteps,
@@ -48,9 +49,11 @@ import {
   RECORD_ZONE,
   SignalsCard,
   SinceLastVisit,
+  SuggestionsCard,
   TagsCard,
   useOrganization360,
 } from "./company360";
+import { ConnectionsCard } from "./connections";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -1478,23 +1481,35 @@ function CompanyOverview({
       <BriefCard
         orgId={org.id}
         enabled={!overlay}
-        onOpenRecord={(entityType, entityId) => {
-          if (entityType === "deal") {
-            navigate({ screen: "deals", id: entityId });
-          }
-          if (entityType === "person") {
-            navigate({ screen: "contacts", id: entityId });
-          }
-        }}
+        onOpenRecord={openCitation}
       />
       {view && (
         <>
           <SinceLastVisit view={view} />
+          <SuggestionsCard
+            orgId={org.id}
+            view={view}
+            onOpenRecord={openCitation}
+          />
           <NextSteps view={view} />
         </>
       )}
+      <AskCard orgId={org.id} enabled={!overlay} onOpenRecord={openCitation} />
     </RecordView>
   );
+}
+
+// openCitation routes a cited record to its own screen. The brief, the
+// prepared answers and the suggestions all cite the same records, so they
+// share one route — a second copy would drift and send one card's reader to
+// the wrong screen.
+function openCitation(entityType: string, entityId: string) {
+  if (entityType === "deal") {
+    navigate({ screen: "deals", id: entityId });
+  }
+  if (entityType === "person") {
+    navigate({ screen: "contacts", id: entityId });
+  }
 }
 
 // businessRail is the right column. A failed composite read must not simply
@@ -1520,6 +1535,7 @@ function businessRail({
     return (
       <>
         <PeopleCard view={view} />
+        <ConnectionsCard orgId={org.id} />
         <DealsCard view={view} />
         <SignalsCard orgId={org.id} />
         <TagsCard view={view} />
@@ -1536,6 +1552,9 @@ function businessRail({
   return (
     <>
       <PeopleCard />
+      {/* The connections card reads its own endpoint, so a failed 360 tells it
+          nothing — it still tries, and says so itself if its own read fails. */}
+      <ConnectionsCard orgId={org.id} />
       <DealsCard />
       <SignalsCard orgId={org.id} />
       <TagsCard />

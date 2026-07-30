@@ -11,7 +11,12 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import { AskFab } from "./fab";
-import { ASK_QUERY_KEY, type Command, CommandPalette } from "./palette";
+import {
+  ASK_QUERY_KEY,
+  type Command,
+  CommandPalette,
+  paletteHotkeyLabel,
+} from "./palette";
 
 // B-EP09.5 (AC-shell-3..7), B-EP09.6 (AC-shell-8), and RS-1 (live /search
 // records + see-all) acceptance.
@@ -52,7 +57,8 @@ const render = (ui: ReactNode) => {
 const commands: Command[] = [
   {
     id: "screen:deals",
-    label: "Deals",
+    label: "Pipeline",
+    keywords: ["deals"],
     type: "screen",
     route: { screen: "deals" },
   },
@@ -71,12 +77,42 @@ const commands: Command[] = [
   },
 ];
 
+// The palette answers to both modifiers, but the affordance may advertise only
+// one, and ⌘ names a key a Windows keyboard does not have.
+describe("paletteHotkeyLabel", () => {
+  it("names the modifier the platform actually has", () => {
+    expect(paletteHotkeyLabel("MacIntel")).toBe("⌘K");
+    expect(paletteHotkeyLabel("iPhone")).toBe("⌘K");
+    expect(paletteHotkeyLabel("Win32")).toBe("Ctrl K");
+    expect(paletteHotkeyLabel("Linux x86_64")).toBe("Ctrl K");
+  });
+
+  // An unreported platform is far more likely to be Windows or Linux than a Mac,
+  // and Ctrl is the modifier that works on both.
+  it("falls back to Ctrl when the platform is unknown", () => {
+    expect(paletteHotkeyLabel("")).toBe("Ctrl K");
+  });
+});
+
 describe("CommandPalette (AC-shell-3/4/5/6)", () => {
   it("shows the default command list with type tags, focuses the input", () => {
     render(<CommandPalette open onClose={() => {}} commands={commands} />);
     expect(document.activeElement).toBe(screen.getByRole("textbox"));
-    expect(screen.getByText("Deals")).toBeTruthy();
+    expect(screen.getByText("Pipeline")).toBeTruthy();
     expect(screen.getByText("Record")).toBeTruthy(); // type tag rendered
+  });
+
+  // A nav label is a presentation choice; the domain word outlives it. Typing
+  // "deals" has to reach Pipeline, or renaming a destination quietly removes it
+  // from the palette for everyone who knows it by its older name.
+  it("matches a keyword the row does not display, without showing it", async () => {
+    render(<CommandPalette open onClose={() => {}} commands={commands} />);
+    await userEvent.type(screen.getByRole("textbox"), "deals");
+    const rows = screen.getAllByRole("button");
+    expect(rows[0].textContent).toContain("Pipeline");
+    expect(rows[0].textContent).not.toContain("deals");
+    await userEvent.keyboard("{Enter}");
+    expect(window.location.hash).toBe("#/deals");
   });
 
   it("filters by label+subtitle case-insensitively and appends the see-all + Ask-AI rows last", async () => {
@@ -156,7 +192,7 @@ describe("AskFab (AC-shell-8)", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Ask about this" }),
     );
-    expect(screen.getByText("Ask about Deals")).toBeTruthy();
+    expect(screen.getByText("Ask about Pipeline")).toBeTruthy();
   });
 
   it("tracks the active record id when present", async () => {

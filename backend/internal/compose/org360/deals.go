@@ -22,6 +22,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// openDealsWhere is the ONE spelling of "an open deal of this account that this
+// caller may list", for a query that aliases deal as d.
+//
+// Both this section and the suggestion rules build their query around it. That is
+// what makes the rules' guarantee structural rather than a claim two queries have
+// to keep in step: a suggestion cannot name a deal the card would refuse to show,
+// because a condition added here reaches both.
+func openDealsWhere(orgPos int, dealScope string) string {
+	return fmt.Sprintf(
+		`WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)`,
+		orgPos, dealScope)
+}
+
 // dealsSection reads the account's open deals plus the two lifetime
 // figures the header shows. won_lifetime sums amount_minor_base — each
 // deal's amount at its FROZEN close-time rate — so the figure never moves
@@ -39,9 +52,9 @@ func dealsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now 
 		       d.expected_close_date, d.created_at, d.last_activity_at, d.wait_until
 		FROM deal d
 		LEFT JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
-		WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)
+		%s
 		ORDER BY d.created_at DESC, d.id DESC
-		LIMIT %d`, orgPos, dealScope, sectionLimit+1), args...)
+		LIMIT %d`, openDealsWhere(orgPos, dealScope), sectionLimit+1), args...)
 	if err != nil {
 		return crmcontracts.Organization360Deals{}, err
 	}

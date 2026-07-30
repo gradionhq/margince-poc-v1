@@ -1,0 +1,52 @@
+name: ask_whats_open_answers_the_pipeline_not_the_history
+task: summarize
+site: org_ask
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  question: whats_open
+  name: Brandt Automotive GmbH
+  industry: Automotive
+  strength: 41
+  contact_count: 2
+  open_deals:
+    - label: stalled_retrofit
+      name: Fleet retrofit 2026
+      stage: Proposal
+      amount_minor: 4800000
+      currency: EUR
+      stalled: true
+    - label: fresh_pilot
+      name: Depot pilot
+      stage: Discovery
+      amount_minor: 900000
+      currency: EUR
+      stalled: false
+  recent:
+    - label: last_email
+      kind: email
+      subject: "Re: proposal — coming back to you after the board meeting"
+      at: "2026-07-10T09:00:00Z"
+expect:
+  outcome: accepted
+  # "What's open here?" is answered by the open deals — BOTH of them. An
+  # answer that names one and drops the other has told the rep something
+  # false by omission, and an answer that spends its sentences on the email
+  # instead has answered a question nobody asked. Grounding alone would score
+  # either as correct, which is why the expectation names the deals.
+  answer: [stalled_retrofit, fresh_pilot]
+  bands:
+    # Same posture as the brief: this is a reading aid over records the reader
+    # can already open, and it degrades to a deterministic answer whenever the
+    # model is unavailable or ungrounded.
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
+  rubric: >
+    Score whether the answer addresses what is currently OPEN on this account
+    — the two open deals, with their stages or amounts — rather than
+    summarizing the account or narrating its recent history. Every sentence
+    must cite ids the summary supplied. An answer that speculates about which
+    deal will close, or that reads intent into the quoted subject line, is
+    worse than the deterministic fallback: it is unfalsifiable at a glance and
+    the rep cannot tell it apart from a fact.

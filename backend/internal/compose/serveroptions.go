@@ -299,12 +299,13 @@ func WithBrief(brain completer) Option {
 	}
 }
 
-// WithAccountBrief binds the summarize lane the company view's standing
-// brief is written by, and the routing version that identifies the binding
-// in every cached brief's fingerprint.
+// WithAccountBrief binds the summarize lane both of the company view's
+// grounded-prose surfaces are written by — the standing brief and the
+// prepared "Ask Margince" questions — and the routing version that
+// identifies the binding in every cached brief's fingerprint.
 //
-// Without it the brief serves its deterministic floor rather than failing:
-// a role that runs no model still answers the endpoint, and generated_by
+// Without it both serve their deterministic floor rather than failing: a
+// role that runs no model still answers the endpoints, and generated_by
 // tells the reader which of the two they have. routingVersion rides the
 // fingerprint so re-pointing this lane rewrites cached briefs instead of
 // leaving text attributed to a model that no longer writes it.
