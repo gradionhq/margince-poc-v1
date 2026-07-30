@@ -17,28 +17,38 @@ import (
 )
 
 // telegramUpdateFixture is one text message from chat 1001, message id 7,
-// sender 555 — the exact numbers the natural-key test asserts on.
+// sender 555 — the exact numbers the natural-key test asserts on. The chat
+// carries its type because a real update does and because nothing outside a
+// private chat is captured at all.
 const telegramUpdateFixture = `{
 	"update_id": 100,
 	"message": {
 		"message_id": 7,
-		"chat": {"id": 1001},
+		"chat": {"id": 1001, "type": "private", "username": "annlee"},
 		"from": {"id": 555, "username": "annlee", "first_name": "Ann", "last_name": "Lee"},
 		"date": 1690000000,
 		"text": "hello"
 	}
 }`
 
-// normalizeFixture builds the envelope BuildRawEnvelope produces for bot 42
-// and runs Normalize over it, failing the test on any error — the shared
-// setup every assertion-focused case below starts from.
-func normalizeFixture(t *testing.T) connector.NormalizedRecord {
+// normalizeUpdate runs Normalize over one verbatim update as bot 42, handing
+// back both results — the shared arrange step for a case whose claim is about
+// the error as much as about the record.
+func normalizeUpdate(t *testing.T, update string) ([]connector.NormalizedRecord, error) {
 	t.Helper()
-	raw, err := BuildRawEnvelope("42", []byte(telegramUpdateFixture))
+	raw, err := BuildRawEnvelope("42", []byte(update))
 	if err != nil {
 		t.Fatalf("BuildRawEnvelope: %v", err)
 	}
-	records, err := Normalize(context.Background(), raw)
+	return Normalize(context.Background(), raw)
+}
+
+// normalizeOne runs one update that must produce exactly one record, failing
+// the test on any error — the setup every assertion-focused case below starts
+// from.
+func normalizeOne(t *testing.T, update string) connector.NormalizedRecord {
+	t.Helper()
+	records, err := normalizeUpdate(t, update)
 	if err != nil {
 		t.Fatalf("Normalize: %v", err)
 	}
@@ -46,6 +56,37 @@ func normalizeFixture(t *testing.T) connector.NormalizedRecord {
 		t.Fatalf("Normalize returned %d records, want 1", len(records))
 	}
 	return records[0]
+}
+
+// normalizeFixture is normalizeOne over the canonical private-chat message.
+func normalizeFixture(t *testing.T) connector.NormalizedRecord {
+	t.Helper()
+	return normalizeOne(t, telegramUpdateFixture)
+}
+
+// bodyOf reads the activity body off a record, naming the Fields type when the
+// assertion cannot even be attempted — a nil-body assertion would otherwise
+// read as a passing test.
+func bodyOf(t *testing.T, rec connector.NormalizedRecord) string {
+	t.Helper()
+	fields, ok := rec.Fields.(ActivityFields)
+	if !ok {
+		t.Fatalf("record carries %T, want telegram.ActivityFields", rec.Fields)
+	}
+	return fields.Body
+}
+
+// assertSkipped insists Normalize declined an update deliberately: no record,
+// and an ErrSkip the worker counts as an exclusion rather than a fault.
+func assertSkipped(t *testing.T, update string) {
+	t.Helper()
+	records, err := normalizeUpdate(t, update)
+	if records != nil {
+		t.Errorf("records = %v, want nil", records)
+	}
+	if !errors.Is(err, connector.ErrSkip) {
+		t.Fatalf("got %v, want an ErrSkip-wrapped error", err)
+	}
 }
 
 // message_id is unique only WITHIN a chat, so the natural key must be
@@ -89,15 +130,100 @@ func TestNormalizeCarriesNoEmailButAChannelIdentity(t *testing.T) {
 // message at all; Normalize must skip it rather than error, exactly like a
 // mail connector's own deliberate exclusions.
 func TestNormalizeSkipsAnUpdateWithNoMessage(t *testing.T) {
-	raw, err := BuildRawEnvelope("42", []byte(`{"update_id":101,"my_chat_member":{}}`))
-	if err != nil {
-		t.Fatalf("BuildRawEnvelope: %v", err)
+	assertSkipped(t, `{"update_id":101,"my_chat_member":{}}`)
+}
+
+// Group chats are out of scope (design §1) and `allowed_updates` cannot say so:
+// Telegram delivers a group message under the same bare `message` update a
+// private one arrives on. Capturing one would mint a Person per member the
+// bot's privacy mode happens to show, file the activity under the group's
+// thread, and then route the rep's reply to the sender's PRIVATE chat — a
+// message answered somewhere other than where it was read.
+func TestNormalizeSkipsAGroupChatMessage(t *testing.T) {
+	assertSkipped(t, `{
+		"update_id": 102,
+		"message": {
+			"message_id": 8,
+			"chat": {"id": -1001234567890, "type": "supergroup", "title": "Acme Support"},
+			"from": {"id": 555, "username": "annlee", "first_name": "Ann"},
+			"date": 1690000100,
+			"text": "/help please"
+		}
+	}`)
+}
+
+// The scope exclusion fails CLOSED: an update whose chat states no type is not
+// evidence of a private conversation, and capturing it on the strength of a
+// missing field would file a message nobody can be shown to be able to reply to.
+func TestNormalizeSkipsAChatOfUnstatedType(t *testing.T) {
+	assertSkipped(t, `{
+		"update_id": 103,
+		"message": {"message_id": 9, "chat": {"id": 1001}, "from": {"id": 555}, "date": 1690000100, "text": "hello"}
+	}`)
+}
+
+// A text message's body is its text — the baseline the media cases below vary.
+func TestNormalizeCapturesTheMessageTextAsTheBody(t *testing.T) {
+	if body := bodyOf(t, normalizeFixture(t)); body != "hello" {
+		t.Errorf("Body = %q, want %q", body, "hello")
 	}
-	records, err := Normalize(context.Background(), raw)
-	if records != nil {
-		t.Errorf("records = %v, want nil", records)
+}
+
+// Telegram puts the words of a media message in `caption`, never in `text`, so
+// a connector reading only `text` files a photo-with-a-caption as an activity
+// with an empty body: the customer's sentence is on the wire and nowhere on the
+// timeline.
+func TestNormalizeKeepsAMediaCaptionAsTheBody(t *testing.T) {
+	rec := normalizeOne(t, `{
+		"update_id": 104,
+		"message": {
+			"message_id": 10,
+			"chat": {"id": 1001, "type": "private", "username": "annlee"},
+			"from": {"id": 555, "username": "annlee", "first_name": "Ann"},
+			"date": 1690000100,
+			"photo": [{"file_id": "AgACAgQ", "width": 90, "height": 90}],
+			"caption": "here is the damaged part"
+		}
+	}`)
+	if body := bodyOf(t, rec); body != "here is the damaged part" {
+		t.Errorf("Body = %q, want the caption", body)
 	}
-	if !errors.Is(err, connector.ErrSkip) {
-		t.Fatalf("got %v, want an ErrSkip-wrapped error", err)
+}
+
+// A wordless media message is captured with a placeholder naming what arrived,
+// not skipped and not left blank: the customer did reach out, and both of the
+// alternatives leave the rep a timeline that says otherwise while the reply box
+// offers to answer it.
+func TestNormalizeNamesTheMediaKindWhenAMessageHasNoWords(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		payload string
+		want    string
+	}{
+		{"photo", `"photo": [{"file_id": "AgACAgQ"}]`, "[photo]"},
+		{"sticker", `"sticker": {"file_id": "CAACAgIA", "emoji": "👍"}`, "[sticker]"},
+		{"voice", `"voice": {"file_id": "AwACAgQ", "duration": 3}`, "[voice message]"},
+		// Telegram sends a GIF as an animation AND a document; the animation is
+		// the truer of the two descriptions.
+		{"animation", `"animation": {"file_id": "CgACAgQ"}, "document": {"file_id": "BQACAgQ"}`, "[animation]"},
+		// A kind this package does not model (a poll here) still says something
+		// arrived rather than vanishing.
+		{"unmodelled kind", `"poll": {"question": "which day suits?"}`, "[attachment]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := normalizeOne(t, `{
+				"update_id": 105,
+				"message": {
+					"message_id": 11,
+					"chat": {"id": 1001, "type": "private", "username": "annlee"},
+					"from": {"id": 555, "username": "annlee"},
+					"date": 1690000100,
+					`+tc.payload+`
+				}
+			}`)
+			if body := bodyOf(t, rec); body != tc.want {
+				t.Errorf("Body = %q, want %q", body, tc.want)
+			}
+		})
 	}
 }

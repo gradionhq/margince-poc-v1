@@ -50,21 +50,64 @@ type telegramUser struct {
 	LastName  string `json:"last_name"`
 }
 
-// telegramChat is the `chat` object — only the id matters here: it is half
-// of the chat-scoped natural key (design §6.3's load-bearing rule that
-// message_id repeats across chats).
+// chatTypePrivate is the ONLY chat type this connector captures: design §1
+// puts group chats out of scope, and the exclusion is load-bearing twice
+// over. A bot in a group runs in Telegram's default privacy mode and is shown
+// only commands, so a group conversation arrives as fragments of itself. And a
+// reply resolves its recipient through the sender's channel identity — which
+// for Telegram is the sender's PRIVATE chat — so a message filed under a group
+// thread would be answered somewhere else entirely, or refused outright by a
+// user who never started the bot. Telegram delivers group messages under the
+// same bare `message` update this webhook subscribes to, so the refusal has to
+// happen here.
+const chatTypePrivate = "private"
+
+// telegramChat is the `chat` object: the id is half of the chat-scoped natural
+// key (design §6.3's load-bearing rule that message_id repeats across chats),
+// Type is the scope gate above, and Username is the counterpart's handle —
+// present because for a private chat the chat IS that user, which is what lets
+// a membership update read an identity straight out of it (membership.go).
 type telegramChat struct {
-	ID int64 `json:"id"`
+	ID       int64  `json:"id"`
+	Type     string `json:"type"`
+	Username string `json:"username"`
+}
+
+// isPrivate reports whether this chat is the 1:1 bot conversation. A missing
+// or unrecognized type is NOT private: the scope exclusion fails closed, so an
+// update shape this package cannot place is skipped rather than captured
+// against a conversation nobody can reply to.
+func (c telegramChat) isPrivate() bool { return c.Type == chatTypePrivate }
+
+// telegramMedia is the attachment set Telegram delivers in place of `text`.
+// Every field is decoded for PRESENCE only, never for its schema: naming the
+// kind is all a wordless message's body needs, and modelling file ids would be
+// the media-download path this feature excludes.
+type telegramMedia struct {
+	Animation json.RawMessage `json:"animation"`
+	Photo     json.RawMessage `json:"photo"`
+	Sticker   json.RawMessage `json:"sticker"`
+	Voice     json.RawMessage `json:"voice"`
+	VideoNote json.RawMessage `json:"video_note"`
+	Video     json.RawMessage `json:"video"`
+	Audio     json.RawMessage `json:"audio"`
+	Document  json.RawMessage `json:"document"`
+	Location  json.RawMessage `json:"location"`
+	Contact   json.RawMessage `json:"contact"`
 }
 
 // telegramMessage is the one update kind this system captures as an
-// activity. Date is Telegram's unix-seconds send time.
+// activity. Date is Telegram's unix-seconds send time; Caption is where
+// Telegram puts the words of a message whose payload is media, embedded
+// alongside the media set so one struct decodes the whole message.
 type telegramMessage struct {
 	MessageID int64        `json:"message_id"`
 	Chat      telegramChat `json:"chat"`
 	From      telegramUser `json:"from"`
 	Date      int64        `json:"date"`
 	Text      string       `json:"text"`
+	Caption   string       `json:"caption"`
+	telegramMedia
 }
 
 // telegramUpdate is Telegram's own update envelope. Message is a pointer
@@ -112,6 +155,10 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 	}
 
 	msg := update.Message
+	if !msg.Chat.isPrivate() {
+		return nil, fmt.Errorf("telegram: update %d is in a %q chat, not a private one: %w",
+			update.UpdateID, msg.Chat.Type, connector.ErrSkip)
+	}
 	chatID := fmt.Sprintf("%d", msg.Chat.ID)
 	// The natural key is chat-scoped and that is load-bearing (design §6.3):
 	// Telegram's message_id is unique only WITHIN a chat, and a private
@@ -125,7 +172,7 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		NaturalKey: connector.NaturalKey{SourceSystem: Provider, SourceID: naturalID},
 		Fields: ActivityFields{
 			Kind:       Provider,
-			Body:       msg.Text,
+			Body:       messageBody(msg),
 			OccurredAt: time.Unix(msg.Date, 0).UTC(),
 			Direction:  connector.DirectionInbound,
 		},
@@ -148,6 +195,59 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		// ThreadKey comment): design §6.3's thread_key spelling.
 		ThreadKey: fmt.Sprintf("%s:%s:%s", Provider, env.BotID, chatID),
 	}}, nil
+}
+
+// messageBody is what the timeline shows for one message. Telegram carries a
+// media message's words in `caption`, never in `text`, so reading `text` alone
+// files a photo-with-a-caption as an activity with an empty body — the rep sees
+// the Person and a blank line where the customer's sentence was.
+//
+// A message with no words at all reads as a bracketed placeholder naming what
+// arrived, deliberately NOT ErrSkip: the customer did reach out, and skipping
+// leaves a timeline that says nothing arrived while the reply box offers to
+// answer it — the same silent gap an empty body is. The words are all this
+// connector can show (fetching the media itself is out of scope), and the
+// verbatim update rides along in Raw for any later reader.
+func messageBody(msg *telegramMessage) string {
+	if msg.Text != "" {
+		return msg.Text
+	}
+	if msg.Caption != "" {
+		return msg.Caption
+	}
+	return "[" + msg.mediaKind() + "]"
+}
+
+// mediaKind names the attachment a wordless message carries. Animation is
+// tested first because Telegram sends a GIF as an animation AND a document,
+// and the animation is the truer description of the two.
+func (m telegramMedia) mediaKind() string {
+	switch {
+	case m.Animation != nil:
+		return "animation"
+	case m.Photo != nil:
+		return "photo"
+	case m.Sticker != nil:
+		return "sticker"
+	case m.Voice != nil:
+		return "voice message"
+	case m.VideoNote != nil:
+		return "video note"
+	case m.Video != nil:
+		return "video"
+	case m.Audio != nil:
+		return "audio"
+	case m.Document != nil:
+		return "document"
+	case m.Location != nil:
+		return "location"
+	case m.Contact != nil:
+		return "contact"
+	}
+	// Telegram keeps adding message kinds (a poll, a venue, a shared story). One
+	// this package cannot name is still a customer reaching out, so it reads as
+	// an unnamed attachment rather than as an empty activity.
+	return "attachment"
 }
 
 // telegramDisplayName renders the sender's name from Telegram's separate

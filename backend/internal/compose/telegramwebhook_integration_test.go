@@ -204,7 +204,7 @@ func telegramEnqueuedRawIDs(t *testing.T, e *integration.Env, connectionID strin
 // thinner: the webhook itself reads only update_id.
 func telegramChatUpdateBody(updateID, senderID, messageID int64, text string) []byte {
 	return []byte(fmt.Sprintf(
-		`{"update_id":%d,"message":{"message_id":%d,"chat":{"id":%d},`+
+		`{"update_id":%d,"message":{"message_id":%d,"chat":{"id":%d,"type":"private"},`+
 			`"from":{"id":%d,"username":"sender%d","first_name":"Sender %d"},`+
 			`"date":1785000000,"text":%q}}`,
 		updateID, messageID, senderID, senderID, senderID, senderID, text))

@@ -333,7 +333,9 @@ func (u telegramUpdate) body(t *testing.T) []byte {
 		"update_id": u.updateID,
 		"message": map[string]any{
 			"message_id": u.messageID,
-			"chat":       map[string]any{"id": u.senderID},
+			// type is load-bearing, not decoration: only a private chat is in
+			// scope, and the connector skips every other kind.
+			"chat": map[string]any{"id": u.senderID, "type": "private", "username": u.username},
 			"from": map[string]any{
 				"id": u.senderID, "username": u.username, "first_name": u.firstName,
 			},

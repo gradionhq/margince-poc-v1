@@ -63,25 +63,31 @@ const telegramIngestUpdateJSON = `{
 	"update_id": 100,
 	"message": {
 		"message_id": 7,
-		"chat": {"id": 1001},
+		"chat": {"id": 1001, "type": "private", "username": "annlee"},
 		"from": {"id": 555, "username": "annlee", "first_name": "Ann", "last_name": "Lee"},
 		"date": 1690000000,
 		"text": "hello"
 	}
 }`
 
-// telegramIngestKickedJSON is a my_chat_member update reporting that sender
-// 556 blocked the bot — the design §4.2 D9 reachability signal, never a
-// message.
+// telegramIngestKickedJSON is what Telegram actually posts when customer 556
+// blocks bot 42 — the design §4.2 D9 reachability signal, never a message.
+//
+// The shape is the whole point of the fixture. my_chat_member reports a change
+// to THE BOT's own membership, so both chat members here are bot 42 and the
+// customer appears only as the private chat (whose id IS their user id) and as
+// `from`. A fixture that instead put 556 in new_chat_member.user would agree
+// with a parser reading the identity from there and prove nothing about
+// production, where that field is the bot and the reachability write lands on
+// no Person at all.
 const telegramIngestKickedJSON = `{
 	"update_id": 200,
 	"my_chat_member": {
-		"chat": {"id": 1002},
+		"chat": {"id": 556, "type": "private", "username": "blockeduser", "first_name": "Blocks"},
+		"from": {"id": 556, "username": "blockeduser", "first_name": "Blocks"},
 		"date": 1690000200,
-		"new_chat_member": {
-			"user": {"id": 556, "username": "blockeduser"},
-			"status": "kicked"
-		}
+		"old_chat_member": {"user": {"id": 42, "is_bot": true, "username": "acme_bot"}, "status": "member"},
+		"new_chat_member": {"user": {"id": 42, "is_bot": true, "username": "acme_bot"}, "status": "kicked"}
 	}
 }`
 
@@ -206,6 +212,61 @@ func TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity(t *testing.T) {
 	if n := e.WsCount(t, `
 		SELECT count(*) FROM person_channel_identity
 		 WHERE channel_user_id = '556' AND archived_at IS NULL AND blocked_at IS NOT NULL`); n != 1 {
-		t.Errorf("%d channel identity rows carry blocked_at after a kicked status, want 1", n)
+		t.Errorf("%d channel identity rows carry blocked_at after a kicked status, want 1 — "+
+			"the update's identity is the private chat's, and the bot's id (42) matches no Person", n)
+	}
+}
+
+// telegramIngestGroupJSON is a message in a supergroup the bot was added to:
+// Telegram delivers it under the same bare `message` update a private chat
+// uses, which is why the exclusion cannot be expressed in allowed_updates.
+const telegramIngestGroupJSON = `{
+	"update_id": 300,
+	"message": {
+		"message_id": 12,
+		"chat": {"id": -1001234567890, "type": "supergroup", "title": "Acme Support"},
+		"from": {"id": 557, "username": "groupmember", "first_name": "Group"},
+		"date": 1690000500,
+		"text": "/help please"
+	}
+}`
+
+// Group chats are out of scope (design §1) and the worker must ACK the delivery
+// while capturing nothing: a captured group message mints a Person per member
+// the bot's privacy mode happens to show, files the activity under the group's
+// thread, and then routes the rep's reply through the sender's channel identity
+// to their PRIVATE chat — answering somewhere other than where it was read, or
+// refused outright by a user who never started the bot.
+func TestIngestWorkerCapturesNothingFromAGroupChat(t *testing.T) {
+	e := integration.Setup(t)
+	connID, _ := telegramIngestFixture(t, e)
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	rawID := ids.NewV7()
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO raw_capture (id, workspace_id, source_system, source_id, payload)
+			VALUES ($1, $2, 'telegram', '300', $3)`,
+			rawID, e.WS, []byte(telegramIngestGroupJSON))
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the raw group-chat update: %v", err)
+	}
+
+	worker := newTelegramIngestWorker(e.Pool, CaptureConfig{}, quiet)
+	// nil, not an error: a scope exclusion is a deliberate skip, and River
+	// retrying it forever would be a fault report for working as designed.
+	if err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+	}); err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE workspace_id = $1 AND source_system = 'telegram'`, e.WS); n != 0 {
+		t.Errorf("%d activity rows after a group-chat message, want 0", n)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM person_channel_identity WHERE channel_user_id = '557'`); n != 0 {
+		t.Errorf("%d channel identities minted for a group member, want 0", n)
 	}
 }
