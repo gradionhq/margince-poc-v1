@@ -116,6 +116,14 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// disconnect. A role that declared no public origin composed no channel
 		// transport, and this leaves it that way (channelconnect.go).
 		s.channelHandlers = s.WithVault(vault)
+		// The Telegram ingress webhook needs the same custodian: verifying a
+		// delivery is unsealing the connection's webhook secret
+		// (telegramwebhook.go). A role that never called WithTelegramWebhook
+		// composes no handler here, the same declared-by-omission posture as
+		// the channel-connect surface above.
+		if s.telegramInserter != nil {
+			s.telegramWebhook = Webhook(telegramWebhookSpec(pool, vault, s.telegramInserter, s.log), s.log)
+		}
 	}
 }
 

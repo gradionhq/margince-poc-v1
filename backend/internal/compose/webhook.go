@@ -59,8 +59,9 @@ type WebhookSpec struct {
 	MaxBody int64
 	// Secret returns the expected and presented shared secret for this
 	// request (an operator token in the query string for Gmail, a
-	// per-connection secret in the path for Telegram) — compared in
-	// constant time regardless of which shape it came from.
+	// per-connection secret in the X-Telegram-Bot-Api-Secret-Token header
+	// for Telegram) — compared in constant time regardless of which shape
+	// it came from.
 	Secret func(*http.Request) (want, got string)
 	// Verify is an optional second admission factor layered on top of the
 	// secret (Gmail's Google-signed OIDC bearer); nil skips it — the

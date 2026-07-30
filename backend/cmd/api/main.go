@@ -269,6 +269,16 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	// against an address this installation guessed.
 	opts = append(opts, compose.WithChannelWebhookBase(channelWebhookBase(cfg)))
 
+	// The Telegram ingress webhook needs only the pool and an insert-only
+	// client, the deep-read pattern (the api enqueues, the worker works —
+	// Task 9). It must precede kvOpts below: WithKeyvault is what actually
+	// builds the handler once the vault it also needs is wired.
+	telegramInserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return nil, nil, err
+	}
+	opts = append(opts, compose.WithTelegramWebhook(telegramInserter))
+
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {
 		return nil, nil, err

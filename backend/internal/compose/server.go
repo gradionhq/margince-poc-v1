@@ -100,7 +100,9 @@ type Server struct {
 	// injected by WithOverlayWebhook only when the overlay app secret is
 	// configured — the route is absent otherwise, never an open unverified
 	// endpoint.
-	overlayWebhook http.Handler
+	overlayWebhook   http.Handler
+	telegramInserter telegramEnqueuer // Telegram ingress webhook wiring: WithTelegramWebhook + WithKeyvault, absent until both run (telegramwebhook.go).
+	telegramWebhook  http.Handler
 
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers

@@ -83,9 +83,20 @@ var channelAllowedUpdates = []string{"message", "my_chat_member"}
 // agrees with every select.
 const channelConnectionColumns = `id, workspace_id, provider, channel_id, channel_label, status, version, created_at, updated_at`
 
-// ChannelConnection is one channel binding as read back. Neither the bot token
-// nor the webhook secret rides this shape: both live sealed in the vault,
-// addressed by refs this type deliberately does not carry.
+// ChannelConnection is one channel binding as read back. The bot token never
+// rides this shape: it lives sealed in the vault, addressed by a ref no
+// caller here has a legitimate reason to hold — List, Get and Connect's own
+// response all leave it out.
+//
+// WebhookSecretRef is the one field that IS a vault ref, and it is populated
+// ONLY by ResolveChannelConnection (push.go): verifying an inbound delivery
+// is literally unsealing that ref and comparing against what Telegram sent
+// (design §6.2 step 2), and the ingress webhook has no session yet through
+// which to ask for it any other way. Every other reader of this shape — List,
+// Get, ReplaceToken's response — never selects the webhook_secret_ref column,
+// so a ChannelConnection reached through any of those carries it as the zero
+// value, and wireChannelConnection's field-by-field mapping never forwards it
+// onto the wire regardless.
 type ChannelConnection struct {
 	ID          ids.UUID
 	WorkspaceID ids.UUID
@@ -99,6 +110,8 @@ type ChannelConnection struct {
 	Version      int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+
+	WebhookSecretRef keyvault.Ref
 }
 
 // ConnectRequest is Connect's input: which provider, and the BotFather token to

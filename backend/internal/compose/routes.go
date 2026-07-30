@@ -129,5 +129,8 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	if srv.overlayWebhook != nil {
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
 	}
+	if srv.telegramWebhook != nil {
+		mux.Handle("/webhooks/telegram/{connection_id}", httpserver.Correlate(httpserver.AccessLog(log, srv.telegramWebhook)))
+	}
 	return mux
 }
