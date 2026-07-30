@@ -11,11 +11,14 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
 // logoFixture encodes a width x height opaque PNG — a stand-in for whatever a
@@ -263,5 +266,53 @@ func TestResolveLogoNormalizesToOneSquareUnderTheStoredCeiling(t *testing.T) {
 	}
 	if logo.SourceWidth != 1024 || logo.SourceHeight != 1024 {
 		t.Fatalf("the source size must be reported as fetched, got %dx%d", logo.SourceWidth, logo.SourceHeight)
+	}
+}
+
+// deadlineBlob records deletes and reports whether the context it was handed
+// was already done — the condition that decides whether a reclaim happens at
+// all when the lane ran out of time.
+type deadlineBlob struct {
+	blobstore.Store
+	deletedLive []string
+	deletedDead []string
+}
+
+func (b *deadlineBlob) Delete(ctx context.Context, key string) error {
+	if ctx.Err() != nil {
+		b.deletedDead = append(b.deletedDead, key)
+		return ctx.Err()
+	}
+	b.deletedLive = append(b.deletedLive, key)
+	return nil
+}
+
+func TestReclaimSurvivesTheDeadlineThatCausedIt(t *testing.T) {
+	// The likeliest reason to be reclaiming is that the work ran out of time,
+	// so the delete must not inherit the context that just expired. An object
+	// at a per-attempt key that no row ever named is unreachable by anything
+	// that could collect it later — skipping this delete strands it forever.
+	blob := &deadlineBlob{Store: blobstore.NewMemory()}
+	w := &siteDeepReadWorker{blob: blob, log: slog.New(slog.DiscardHandler)}
+
+	expired, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	key := "ws/organization_logo/org/attempt"
+	w.reclaimLogoObject(expired, ids.NewV7(), &key)
+
+	if len(blob.deletedDead) != 0 {
+		t.Fatalf("the reclaim ran on the expired context: %v", blob.deletedDead)
+	}
+	if len(blob.deletedLive) != 1 || blob.deletedLive[0] != key {
+		t.Fatalf("deleted %v, want the unreferenced object %q", blob.deletedLive, key)
+	}
+
+	// Nothing to reclaim is not a delete.
+	w.reclaimLogoObject(context.Background(), ids.NewV7(), nil)
+	empty := ""
+	w.reclaimLogoObject(context.Background(), ids.NewV7(), &empty)
+	if len(blob.deletedLive) != 1 {
+		t.Fatalf("a nil or empty key must delete nothing, got %v", blob.deletedLive)
 	}
 }

@@ -63,10 +63,13 @@ const (
 	logoMaxCandidates = 8
 )
 
-// logoLaneBudget bounds the whole resolve. It is counted into the deep read's
-// job timeout (deepread.go), so the lane can never spend the allowance that
-// exists to close the dossier.
+// logoLaneBudget bounds the fetching half of the resolve. It is counted into
+// the deep read's job timeout (deepread.go), so the lane can never spend the
+// allowance that exists to close the dossier.
 const logoLaneBudget = 20 * time.Second
+
+// logoReclaimBudget bounds one detached delete of an unreferenced object.
+const logoReclaimBudget = 15 * time.Second
 
 // organizationLogoKind is the blobstore key's entity discriminator, the peer
 // of "attachment" (blobstore.WorkspaceKey).
@@ -315,16 +318,6 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		// with no organization row to point at one yet.
 		return
 	}
-	// The lane gets its own deadline. Eight candidates against an unresponsive
-	// host would otherwise spend eight fetch timeouts here — time the job
-	// budget reserves for CLOSING the dossier, so a slow logo could get the
-	// read cancelled before finish() records its outcome and leave it running
-	// forever, squatting the organization's one in-flight slot. A logo is
-	// never worth that: past the deadline the resolve stops and the record
-	// keeps its monogram.
-	ctx, cancel := context.WithTimeout(ctx, logoLaneBudget)
-	defer cancel()
-
 	orgID := ids.From[ids.OrganizationKind](*claim.OrganizationID)
 	// Ask before resolving anything: a field a person holds is not going to be
 	// written, so fetching and normalizing a mark for it is work nobody uses.
@@ -342,7 +335,23 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 
-	logo, attempts := resolveOrganizationLogo(ctx, w.fetch, claim.SeedURL, crawl.SeedAssets)
+	// The deadline covers the FETCHING and nothing else. Eight candidates
+	// against an unresponsive host would otherwise spend eight fetch timeouts
+	// here — time the job budget reserves for CLOSING the dossier, so a slow
+	// logo could get the read cancelled before finish() records its outcome
+	// and leave it running forever, squatting the organization's one in-flight
+	// slot. A logo is never worth that: past the deadline the resolve stops
+	// and the record keeps its monogram.
+	//
+	// It deliberately does NOT cover the writes below. A deadline that expired
+	// between storing the bytes and recording the row would fail the row write
+	// AND the cleanup that answers it, stranding an object at a key no row
+	// ever named — unreferenced, and unreachable by anything that could
+	// collect it. The writes are two fast local calls; they run on the job's
+	// own context.
+	resolveCtx, cancelResolve := context.WithTimeout(ctx, logoLaneBudget)
+	logo, attempts := resolveOrganizationLogo(resolveCtx, w.fetch, claim.SeedURL, crawl.SeedAssets)
+	cancelResolve()
 	if logo.PNG == nil {
 		w.log.InfoContext(ctx, "site read resolved no logo",
 			"read", args.SiteReadID.String(), "seed", claim.SeedURL,
@@ -396,10 +405,19 @@ func debugLogo(logo resolvedLogo, attempts []logoAttempt) DebugLogo {
 // successful write superseded, or this attempt's own bytes when the write did
 // not happen. Best-effort like the rest of the lane — a failure here costs
 // storage, never correctness, so it is logged and the read carries on.
+//
+// It runs on a DETACHED context, for the same reason finish() does: this is
+// the answer to work that has already happened, and the most likely reason to
+// be reclaiming at all is that the work ran out of time. Reusing the context
+// that just expired would skip exactly the deletes that matter — and an
+// object at a per-attempt key that no row ever named is one nothing else can
+// find to collect later.
 func (w *siteDeepReadWorker) reclaimLogoObject(ctx context.Context, readID ids.UUID, key *string) {
 	if key == nil || *key == "" {
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), logoReclaimBudget)
+	defer cancel()
 	if err := w.blob.Delete(ctx, *key); err != nil {
 		w.log.WarnContext(ctx, "reclaiming a superseded logo object failed",
 			"read", readID.String(), "key", *key, "err", err)
