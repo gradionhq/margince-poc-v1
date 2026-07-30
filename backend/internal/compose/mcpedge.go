@@ -27,12 +27,10 @@ package compose
 // admits. The guard is defence in depth, not the rebinding defence.
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -111,32 +109,28 @@ func mcpAuthenticate(auth *identity.Service) func(*http.Request) (context.Contex
 	}
 }
 
-// The authorization-server paths that carry a bucket of their own. Every
-// other /oauth path falls to the per-IP default in oauthEdge, so a route the
-// authorization server grows later arrives limited rather than unlimited.
-const (
-	oauthTokenPath    = "/oauth/token" //nolint:gosec // G101 false positive: this server's own token *endpoint path*, not a credential
-	oauthRegisterPath = "/oauth/register"
-)
-
-// tokenFormPeek caps how much of a token request's body the edge reads to
-// find client_id. A form-encoded authorization-code exchange is a few hundred
-// bytes; anything past this cap is the handler's 400 to answer, not this
-// edge's to guess at.
-const tokenFormPeek = 8 << 10
-
-// mcpLimiters bounds the connector's edges. Keys matter more than numbers
-// here: ALL claude.ai traffic arrives from one published egress range
-// (160.79.104.0/21), so an IP-only bucket on the token endpoint is a single
-// shared ceiling for an entire installation.
+// mcpLimiters bounds the connector's edges — the /mcp transport here and the
+// authorization server in oauthedge.go, from ONE set, because they are two
+// halves of one internet-facing surface.
+//
+// Keys matter more than numbers. Behind the TLS-terminating front end this
+// deployment documents (clientIP), the peer address is ONE constant for every
+// caller on earth, so every ceiling comes in a PAIR: a tight bucket keyed on
+// what the caller presented — which no attacker can spend on a legitimate
+// caller's behalf — and a high per-peer ceiling that a varying presented key
+// cannot escape. Neither is a bound on its own, and the per-peer half is set an
+// order of magnitude above real traffic so it bites only under a deliberate
+// flood.
 type mcpLimiters struct {
-	perPassport *ratelimit.Limiter // 240/min — authenticated tool-call volume
-	preAuth     *ratelimit.Limiter // 60/min per presented credential, per peer when none (preAuthKey)
-	streams     *ratelimit.Limiter // 30/min per passport — stream-open churn
+	perPassport *ratelimit.Limiter // 240/min per credential — authenticated tool-call volume
+	preAuth     *ratelimit.Limiter // 60/min per presented credential, per peer when none — failures only
+	preAuthPeer *ratelimit.Limiter // 600/min per peer — the failure ceiling a varying credential cannot escape
+	streams     *ratelimit.Limiter // 30/min per credential — stream-open churn
 	token       *ratelimit.Limiter // 60/min per (client_id digest, IP) — the passport mint
-	tokenIP     *ratelimit.Limiter // 600/min per IP — the ceiling a varying client_id cannot escape
-	authorize   *ratelimit.Limiter // 60/min per IP — the consent form and the grant
-	register    *ratelimit.Limiter // 10/hour per IP — dynamic client registration
+	authorize   *ratelimit.Limiter // 60/min per presented session, per peer when none — consent
+	revoke      *ratelimit.Limiter // 60/min per presented token, per peer when none — RFC 7009
+	register    *ratelimit.Limiter // 60/min per peer — dynamic client registration, which has no per-caller key
+	peerCeiling *ratelimit.Limiter // 600/min per (endpoint group, peer) — the shared ceiling no chosen key escapes
 }
 
 func newMCPLimiters() mcpLimiters { return newMCPLimitersWithClock(time.Now) }
@@ -149,11 +143,13 @@ func newMCPLimitersWithClock(now func() time.Time) mcpLimiters {
 	return mcpLimiters{
 		perPassport: ratelimit.NewWithClock(240, time.Minute, now),
 		preAuth:     ratelimit.NewWithClock(60, time.Minute, now),
+		preAuthPeer: ratelimit.NewWithClock(600, time.Minute, now),
 		streams:     ratelimit.NewWithClock(30, time.Minute, now),
 		token:       ratelimit.NewWithClock(60, time.Minute, now),
-		tokenIP:     ratelimit.NewWithClock(600, time.Minute, now),
 		authorize:   ratelimit.NewWithClock(60, time.Minute, now),
-		register:    ratelimit.NewWithClock(10, time.Hour, now),
+		revoke:      ratelimit.NewWithClock(60, time.Minute, now),
+		register:    ratelimit.NewWithClock(60, time.Minute, now),
+		peerCeiling: ratelimit.NewWithClock(600, time.Minute, now),
 	}
 }
 
@@ -171,10 +167,27 @@ func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Hand
 			return
 		}
 		credential := passportBucket(r)
-		failures := preAuthKey(clientIP(r), credential)
+		peer := clientIP(r)
+		failures := presentedKey("credential", peer, credential)
 		// Read BEFORE the transport authenticates, so a credential already
 		// known not to work is refused without spending a store lookup on it.
-		if lim.preAuth.Blocked(failures) {
+		//
+		// TWO failure ceilings, for the reason every pair on this surface
+		// exists: the tight one is keyed on what the caller presented, and the
+		// caller chooses that, so a grinder that varies the bearer would meet no
+		// ceiling at all — each forged value buying its own fresh 60/min and one
+		// indexed passport lookup per request. The per-peer ceiling is what a
+		// varying credential cannot escape. Both count FAILURES only (below), so
+		// neither is spent by a connector whose calls are served.
+		//
+		// What the peer ceiling costs us, stated: an attacker sustaining 600
+		// failed pre-auth attempts a minute from the front end's address does
+		// deny the transport for the remainder of that window. It is set there
+		// because no working connector produces 401s at all and a client whose
+		// credential just died produces a handful, so real traffic never
+		// approaches it — while a grinder now meets a bound at 600 lookups a
+		// minute instead of none.
+		if lim.preAuth.Blocked(failures) || lim.preAuthPeer.Blocked(peer) {
 			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 			return
 		}
@@ -199,103 +212,54 @@ func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Hand
 		next.ServeHTTP(outcome, r)
 		if outcome.status == http.StatusUnauthorized {
 			lim.preAuth.Record(failures)
+			lim.preAuthPeer.Record(peer)
 		}
 	})
 }
 
-// preAuthKey names WHOSE failure budget one request spends, and the choice is
-// the whole security property of that budget: it must never be a key a
-// legitimate client SHARES with an attacker. TLS terminates ahead of this
+// presentedKey names WHOSE budget one unauthenticated request spends, and that
+// choice is the whole security property of the budget: the key must never be one
+// a legitimate caller SHARES with an attacker. TLS terminates ahead of this
 // process in production, so clientIP is the front end's own address for every
-// request on the planet — an IP-keyed budget that gates all traffic is one
-// bucket for the entire installation, and 60 forged bearers a minute would
-// then answer every real connector's tools/call with a 429 before
-// authentication ever ran.
+// request on the planet — a budget keyed there and consulted ahead of ALL
+// traffic is one bucket for the entire installation, and a cheap flood then
+// answers every real caller with a 429 before authentication ever runs.
 //
-// So a request that PRESENTS a credential is metered on that credential's
-// digest, and only a request presenting none falls back to the peer address.
-// A credential-less request can never be anything but a 401, so refusing
-// those costs a client holding a working credential nothing.
+// So a request that PRESENTS something is metered on a digest of it — the bearer
+// on /mcp, the browser session on the consent form, the token to kill on
+// /oauth/revoke — and only a request presenting NOTHING falls back to the peer
+// address. That fallback is safe precisely because a presentation-less request
+// on those paths can never be anything but a refusal, so refusing it costs a
+// caller holding the real thing nothing. kind namespaces the two arms so a key
+// read out of a limiter says which one it is.
 //
-// What this bounds: repeated presentation of a credential that does not work,
-// and credential-less probing per peer. What it deliberately does not bound is
-// one passport lookup per DISTINCT credential presented — a token nobody has
-// seen before is indistinguishable from a valid one until it is looked up, and
-// the only key that could gate it is the shared front-end address, i.e. the
-// outage. That floor is cheap and bounded elsewhere: a bearer that is not
-// passport-shaped is refused on its prefix without reaching the store
-// (identity.AuthenticateAgent), and the lookup that remains is one indexed
-// read on a unique hash.
+// What no presented key can bound is the FIRST use of each distinct
+// presentation: a bearer nobody has seen is indistinguishable from a valid one
+// until it is looked up, and a caller that varies it therefore never meets this
+// ceiling. That is what the per-peer ceiling paired with it at every call site
+// bounds — neither half is a bound alone.
 //
 // Both key shapes are FIXED length (a 64-char digest, or a peer address), and
 // ratelimit sweeps expired windows, so the resident key set is bounded by the
 // request rate within one window rather than growing with history.
-func preAuthKey(ip, credential string) string {
-	if credential == "" {
-		return "peer:" + ip
+func presentedKey(kind, ip, presented string) string {
+	if presented == "" {
+		return "peer:" + kind + ":" + ip
 	}
-	return "credential:" + credential
+	return kind + ":" + presented
 }
 
-// oauthEdge bounds the authorization server's internet-facing endpoints. It
-// wraps the session middleware rather than sitting inside it, so a refusal
-// costs a map lookup instead of a session read.
-func oauthEdge(next http.Handler, lim mcpLimiters) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !oauthAdmits(r, lim) {
-			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-// oauthAdmits meters one authorization-server request against every ceiling
-// that applies to it. The default arm covers /oauth/authorize — the GET consent
-// form and the POST grant share it, being two halves of one human flow — and
-// every path this router grows later, so a new endpoint arrives limited rather
-// than unlimited.
-func oauthAdmits(r *http.Request, lim mcpLimiters) bool {
-	ip := clientIP(r)
-	switch r.URL.Path {
-	case oauthTokenPath:
-		// TWO ceilings on the passport mint, because neither key is a bound on
-		// its own. Per (client_id, IP) and never IP alone: all of claude.ai
-		// arrives from one published egress range, so an IP-only bucket here
-		// would be one ceiling for the whole installation and one busy client
-		// would lock out every other. But the caller CHOOSES its client_id, so
-		// that bucket alone is no ceiling either — a fresh random value bought
-		// a fresh 60/min allowance on the endpoint that mints passports. The
-		// per-IP bucket is what a varying client_id cannot escape; it sits an
-		// order of magnitude above the per-client one so an installation's real
-		// handshake traffic (a few exchanges per client per minute) never
-		// approaches it. Keying per real client behind a shared front end is
-		// the front end's job, which clientIP's own doc names.
-		//
-		// Both are Allow (they COUNT), so both are spent on every request:
-		// short-circuiting with && would leave one ceiling unmetered on the
-		// requests the other one admitted.
-		perClient := lim.token.Allow(tokenBucketKey(tokenClientID(r), ip))
-		perIP := lim.tokenIP.Allow(ip)
-		return perClient && perIP
-	case oauthRegisterPath:
-		return lim.register.Allow(ip)
-	default:
-		return lim.authorize.Allow(ip)
+// digestOf turns a presented secret into a limiter key: fixed length, so a
+// caller cannot choose the key's size and turn a limiter into its own memory
+// sink, and a digest rather than the secret, so nothing long-lived holds a live
+// credential. An empty presentation stays empty — presentedKey has to be able to
+// tell "presented nothing" from "presented something".
+func digestOf(presented string) string {
+	if presented == "" {
+		return ""
 	}
-}
-
-// tokenBucketKey bounds the per-client half of that key. A DCR client_id is a
-// 43-char base64url string, but what arrives on the wire is whatever the caller
-// sent — up to tokenFormPeek — and a limiter retains each key for up to two
-// windows, so an unbounded key turns the limiter meant to bound this endpoint
-// into a memory sink reachable by an unauthenticated caller. The digest is
-// fixed length and collision-resistant, so the bucket is still per client. A
-// request whose client_id cannot be read shares one bucket per IP, which is a
-// ceiling, not a bypass.
-func tokenBucketKey(clientID, ip string) string {
-	sum := sha256.Sum256([]byte(clientID))
-	return hex.EncodeToString(sum[:]) + "|" + ip
+	sum := sha256.Sum256([]byte(presented))
+	return hex.EncodeToString(sum[:])
 }
 
 // originAllowed decides the Origin guard. Absent is allowed — see the file
@@ -342,37 +306,7 @@ func mcpOriginOf(resource string) string {
 // ceiling is the refresh chain's own, at the token endpoint. The digest —
 // never the credential — is what becomes a long-lived map key.
 func passportBucket(r *http.Request) string {
-	bearer := httpserver.BearerToken(r.Header.Get("Authorization"))
-	if bearer == "" {
-		return ""
-	}
-	sum := sha256.Sum256([]byte(bearer))
-	return hex.EncodeToString(sum[:])
-}
-
-// tokenClientID reads client_id out of a token request WITHOUT consuming the
-// body: ParseForm drains r.Body, and the handler behind this edge parses the
-// same body again, so whatever is read here is put back in front of the
-// unread remainder. The handler therefore still sees the request the client
-// actually sent — including the oversized or unreadable body it must answer
-// 400 for.
-func tokenClientID(r *http.Request) string {
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
-		return ""
-	}
-	read, err := io.ReadAll(io.LimitReader(r.Body, tokenFormPeek+1))
-	r.Body = io.NopCloser(io.MultiReader(bytes.NewReader(read), r.Body))
-	if err != nil || len(read) > tokenFormPeek {
-		// A body this edge cannot read whole is one the handler will refuse
-		// anyway; the bucket falls back to its IP half rather than inventing
-		// a refusal of its own here.
-		return ""
-	}
-	form, err := url.ParseQuery(string(read))
-	if err != nil {
-		return ""
-	}
-	return form.Get("client_id")
+	return digestOf(httpserver.BearerToken(r.Header.Get("Authorization")))
 }
 
 // authOutcome captures the status the wrapped handler answered, which is what

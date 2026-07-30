@@ -178,6 +178,61 @@ func TestAFloodOfInvalidCredentialsCannotRefuseAValidOne(t *testing.T) {
 	}
 }
 
+// TestAVaryingCredentialCannotEscapeThePreAuthCeiling is the other half of that
+// key. The per-credential budget is keyed on what the caller presented, and the
+// caller chooses it, so a grinder that varies the bearer meets that budget never
+// — every forged value buying a fresh allowance and one indexed passport lookup.
+// The per-peer failure ceiling is what it runs into instead.
+//
+// What that ceiling costs, and the test says it plainly: past 600 failures a
+// minute from the front end's address a legitimate connector is refused too, for
+// the remainder of that window. It sits there because a working connector
+// produces no 401s at all.
+func TestAVaryingCredentialCannotEscapeThePreAuthCeiling(t *testing.T) {
+	const frontEnd, elsewhere = "160.79.104.11", "198.51.100.4"
+	clock := newStepClock()
+	edge := mcpEdge(answering(http.StatusUnauthorized), newMCPLimitersWithClock(clock.now), "https://crm.example.com")
+
+	for i := 1; i <= 600; i++ {
+		if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-"+strconv.Itoa(i), frontEnd)); got != http.StatusUnauthorized {
+			t.Fatalf("forged bearer %d → %d, want 401 within the ceiling", i, got)
+		}
+	}
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-601", frontEnd)); got != http.StatusTooManyRequests {
+		t.Fatalf("the 601st distinct forged bearer → %d, want 429: a varying credential is not a bypass", got)
+	}
+	// The ceiling is per peer, so it is not a lever on another peer's traffic.
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-602", elsewhere)); got != http.StatusUnauthorized {
+		t.Fatalf("a forged bearer from another peer → %d, want 401", got)
+	}
+	clock.advance(time.Minute)
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-603", frontEnd)); got != http.StatusUnauthorized {
+		t.Fatalf("after the window → %d, want the ceiling to have reopened (401)", got)
+	}
+}
+
+// TestServedCallsNeverSpendThePeerFailureCeiling is what keeps the ceiling above
+// from being the outage it replaces: it counts FAILURES, so no volume of served
+// calls from the shared front-end address moves it, however many connectors sit
+// behind that address.
+func TestServedCallsNeverSpendThePeerFailureCeiling(t *testing.T) {
+	const frontEnd = "160.79.104.11"
+	clock := newStepClock()
+	edge := mcpEdge(answering(http.StatusOK), newMCPLimitersWithClock(clock.now), "https://crm.example.com")
+
+	// 600 served calls, spread over five connectors so none of them reaches its
+	// own 240/min call budget — the volume a busy installation really produces.
+	for i := 1; i <= 600; i++ {
+		bearer := "passport-" + strconv.Itoa(i%5)
+		if got := serveStatus(edge, mcpRequest(http.MethodPost, bearer, frontEnd)); got != http.StatusOK {
+			t.Fatalf("served call %d → %d, want 200", i, got)
+		}
+	}
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", frontEnd)); got != http.StatusOK {
+		t.Fatalf("a pre-auth attempt after 600 served calls → %d, want the failure ceiling untouched", got)
+	}
+}
+
 // TestAuthenticatedCallsSpendOnlyTheirOwnPassportBudget proves the two
 // buckets do not bleed into each other: a served call must not consume the
 // pre-auth failure budget its shared egress IP holds, and one connector's

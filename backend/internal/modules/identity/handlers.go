@@ -23,7 +23,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-const sessionCookie = "crm_session"
+// SessionCookieName is the cookie a signed-in human's browser carries. It is
+// exported because the connector's edge meters the consent flow on the session a
+// request presents (compose/oauthedge.go) and sits outside this middleware, so
+// the cookie name has to be one spelling shared with it rather than two that can
+// drift.
+const SessionCookieName = "crm_session"
 
 // Handlers is the identity module's transport surface: the identity operations of
 // the contract plus the middleware that authenticates everything else.
@@ -189,7 +194,7 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 
 // Logout implements (POST /auth/logout): revoke + clear, idempotent, 204.
 func (h Handlers) Logout(w http.ResponseWriter, r *http.Request) {
-	if cookie, err := r.Cookie(sessionCookie); err == nil {
+	if cookie, err := r.Cookie(SessionCookieName); err == nil {
 		if err := h.svc.Logout(r.Context(), cookie.Value); err != nil {
 			httperr.Write(w, r, err)
 			return
@@ -327,7 +332,7 @@ func (h Handlers) serveAsAgent(ctx context.Context, w http.ResponseWriter, r *ht
 // workspace-resolved context; it lands on the request exactly once, at
 // the hand-off to next.
 func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *http.Request, next http.Handler) {
-	cookie, err := r.Cookie(sessionCookie)
+	cookie, err := r.Cookie(SessionCookieName)
 	if err != nil {
 		httperr.Unauthorized(w, r, "missing session cookie")
 		return
@@ -386,14 +391,14 @@ func isMutating(method string) bool {
 
 func setSessionCookie(w http.ResponseWriter, token string) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: token,
+		Name: SessionCookieName, Value: token,
 		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 }
 
 func clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookie, Value: "", MaxAge: -1,
+		Name: SessionCookieName, Value: "", MaxAge: -1,
 		Path: "/", HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 }
