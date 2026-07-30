@@ -220,7 +220,43 @@ export function CoreLiquid({
   // scratch rather than a resume, and re-running the setup IS that rebuild.
   const [contextEpoch, setContextEpoch] = useState(0);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies(contextEpoch): the effect never reads it, which is the point. It is the rebuild trigger: a restored context invalidates every object built below, so `webglcontextrestored` bumps it to run this setup again. Dropping it strands the Core on the CSS fallback for the rest of the session.
+  /*
+   * Loss and recovery are watched for the canvas's WHOLE life, deliberately
+   * apart from the render effect below.
+   *
+   * Sharing that effect looked equivalent and was not. The render effect is
+   * torn down whenever `state` or the motion preference changes, so a prop
+   * change arriving DURING a lost context removed this listener, and the
+   * replacement run exited early because the context was still gone. The
+   * recovery then had nothing listening for it and the Core stayed on the CSS
+   * fallback for the rest of the session, from an ordinary sign-in changing
+   * `idle` to `working` at the wrong moment.
+   *
+   * `preventDefault` on the loss is what makes recovery possible at all: the
+   * browser only fires `webglcontextrestored` if the default is prevented.
+   */
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) {
+      return;
+    }
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      canvas.classList.add("off");
+    };
+    // The rebuild: a restored context invalidates every object built from the
+    // old one, so recovery is a fresh setup rather than a resume, and bumping
+    // the epoch is what re-runs it.
+    const onRestored = () => setContextEpoch((epoch) => epoch + 1);
+    canvas.addEventListener("webglcontextlost", onLost);
+    canvas.addEventListener("webglcontextrestored", onRestored);
+    return () => {
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
+    };
+  }, []);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies(contextEpoch): the effect never reads it, which is the point. It is the rebuild trigger, bumped by the `webglcontextrestored` listener above once the GPU hands the context back.
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) {
@@ -305,6 +341,13 @@ export function CoreLiquid({
     let drawnOnce = false;
 
     const render = (now: number) => {
+      // A lost context ends the loop rather than pausing it: every object above
+      // belongs to the dead context, so there is nothing left to draw with. The
+      // listener at the top of the component owns the recovery, and returning
+      // WITHOUT rescheduling is what stops this run spinning until it arrives.
+      if (gl.isContextLost()) {
+        return;
+      }
       frame = requestAnimationFrame(render);
       // Freeze — keeping the last drawn frame — whenever nobody can see it.
       // The first frame is exempt: freezing before anything has been drawn
@@ -341,25 +384,8 @@ export function CoreLiquid({
     };
     frame = requestAnimationFrame(render);
 
-    // The GPU can take the context away at any moment — a driver reset, a
-    // laptop switching graphics cards, too many live contexts on the page. The
-    // canvas keeps its last frame for a beat and then goes transparent, so
-    // without this the Core simply vanishes on a machine that was rendering it
-    // a second ago. `preventDefault` is what makes the loss recoverable at all:
-    // without it the browser never fires `webglcontextrestored`.
-    const onLost = (event: Event) => {
-      event.preventDefault();
-      cancelAnimationFrame(frame);
-      fallBackToCSS();
-    };
-    const onRestored = () => setContextEpoch((epoch) => epoch + 1);
-    canvas.addEventListener("webglcontextlost", onLost);
-    canvas.addEventListener("webglcontextrestored", onRestored);
-
     return () => {
       cancelAnimationFrame(frame);
-      canvas.removeEventListener("webglcontextlost", onLost);
-      canvas.removeEventListener("webglcontextrestored", onRestored);
       gl.deleteProgram(program);
       gl.deleteBuffer(buffer);
     };
