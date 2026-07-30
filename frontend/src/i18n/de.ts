@@ -510,6 +510,7 @@ export const de = {
   "co.suggest.kind.no_reply": "Keine Antwort",
   "co.suggest.kind.stalled_deal": "Deal steht",
   "co.suggest.kind.no_next_step": "Nichts geplant",
+  "co.suggest.more": "{count} weitere hier nicht gezeigt.",
   "co.suggest.dismiss": "Nicht jetzt",
   "co.suggest.dismissFailed":
     "Konnte nicht ausgeblendet werden — es wird weiter angezeigt",

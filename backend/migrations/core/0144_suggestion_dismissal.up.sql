@@ -15,7 +15,12 @@ CREATE TABLE suggestion_dismissal (
   workspace_id    uuid NOT NULL REFERENCES workspace(id) ON DELETE RESTRICT,
   user_id         uuid NOT NULL,
   organization_id uuid NOT NULL,
-  fingerprint     text NOT NULL,
+  -- The digest the read served, unchanged. Pinning the shape in the schema is
+  -- what keeps this from being a write-anything store: the endpoint cannot
+  -- re-derive a fingerprint (the situation may have moved on between the render
+  -- and the click), so the shape is the check that stays true.
+  fingerprint     text NOT NULL CONSTRAINT suggestion_dismissal_fingerprint_shape
+                    CHECK (fingerprint ~ '^[0-9a-f]{64}$'),
   dismissed_at    timestamptz NOT NULL,
   UNIQUE (workspace_id, user_id, organization_id, fingerprint),
   -- Composite references: a dismissal can only name a user and an account of

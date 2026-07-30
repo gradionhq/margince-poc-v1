@@ -3,9 +3,13 @@
 
 package org360
 
-// The suggestion rules are pure functions of an already-assembled 360, so
-// they are provable without a database: each test states the situation the
-// rule claims to recognize and the situation next door that it must not.
+// The suggestion rules over already-read inputs, so each one is provable
+// without a database: every test states the situation the rule claims to
+// recognize and the situation next door that it must not.
+//
+// What the rules READ needs a real database and lives in
+// compose/integration/org360_suggestions_integration_test.go — including the
+// case these cannot state, that the reads look past the section page cap.
 
 import (
 	"testing"
@@ -19,78 +23,48 @@ import (
 
 var suggestNow = time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
 
-// newTestID mints one wire id. Every fixture record gets its own, so an
-// assertion that a suggestion cited the right record cannot pass by accident.
-func newTestID() openapi_types.UUID {
-	return openapi_types.UUID(ids.NewV7())
-}
-
 func testOrgID(t *testing.T) ids.OrganizationID {
 	t.Helper()
 	return ids.From[ids.OrganizationKind](ids.NewV7())
 }
 
-// message builds one timeline entry of a two-way kind.
-func message(kind crmcontracts.ActivityKind, dir crmcontracts.ActivityDirection, at time.Time) crmcontracts.Activity {
-	return crmcontracts.Activity{
-		Id:         newTestID(),
-		Kind:       kind,
-		Direction:  &dir,
-		OccurredAt: at,
-	}
-}
-
-func timeline(entries ...crmcontracts.Activity) *crmcontracts.Organization360 {
-	return &crmcontracts.Organization360{
-		Activities: &crmcontracts.ActivityListResponse{Data: entries},
+// sentAgo is one exchange on the account, that many days back.
+func sentAgo(days int, direction crmcontracts.ActivityDirection) lastMessage {
+	return lastMessage{
+		ID:        ids.NewV7(),
+		Direction: string(direction),
+		At:        suggestNow.AddDate(0, 0, -days),
 	}
 }
 
 // TestStaleThreadFiresOnOurUnansweredMessage is the rule's whole point: we
 // spoke last, long enough ago that a reply was due.
-//
-// Every two-way channel is covered, because a rep who sent the last message on
-// WhatsApp is waiting exactly as long as one who sent an email, and a rule that
-// only recognized mail would go quiet on the accounts that talk any other way.
 func TestStaleThreadFiresOnOurUnansweredMessage(t *testing.T) {
-	for _, kind := range []crmcontracts.ActivityKind{
-		crmcontracts.ActivityKindEmail,
-		crmcontracts.ActivityKindWhatsapp,
-		crmcontracts.ActivityKindTelegram,
-	} {
-		t.Run(string(kind), func(t *testing.T) {
-			orgID := testOrgID(t)
-			sent := suggestNow.AddDate(0, 0, -10)
-			view := timeline(message(kind, crmcontracts.ActivityDirectionOutbound, sent))
+	orgID := testOrgID(t)
+	newest := sentAgo(10, crmcontracts.ActivityDirectionOutbound)
 
-			got := staleThreadSuggestion(orgID, suggestNow, view)
-			if got == nil {
-				t.Fatalf("no suggestion for a 10-day-old unanswered outbound %s", kind)
-			}
-			if string(got.Kind) != suggestNoReply {
-				t.Errorf("kind = %q, want %q", got.Kind, suggestNoReply)
-			}
-			if got.Reason == "" {
-				t.Error("reason is empty — a suggestion the rep cannot check is a verdict")
-			}
-			if len(got.Evidence) != 1 || got.Evidence[0].EntityId != view.Activities.Data[0].Id {
-				t.Errorf("evidence = %+v, want the message it fired on", got.Evidence)
-			}
-		})
+	got := staleThread(orgID, suggestNow, newest)
+	if got == nil {
+		t.Fatal("no suggestion for a 10-day-old unanswered outbound message")
+	}
+	if got.Kind != suggestNoReply {
+		t.Errorf("kind = %q, want %q", got.Kind, suggestNoReply)
+	}
+	if got.Reason == "" {
+		t.Error("reason is empty — a suggestion the rep cannot check is a verdict")
+	}
+	if len(got.Evidence) != 1 || got.Evidence[0].EntityId != openapi_types.UUID(newest.ID) {
+		t.Errorf("evidence = %+v, want the message it fired on", got.Evidence)
 	}
 }
 
-// TestStaleThreadStaysSilentWhenTheyWroteLast guards the direction half of
+// TestStaleThreadStaysSilentWhenTheyAnsweredLast guards the direction half of
 // the rule. An unanswered INBOUND message is a thread waiting on us — the
-// opposite problem, with the opposite action — so telling the rep to chase
-// the person who is waiting for their reply would be worse than silence.
-func TestStaleThreadStaysSilentWhenTheyWroteLast(t *testing.T) {
+// opposite problem, with the opposite action — so telling the rep to chase the
+// person who is waiting for their reply would be worse than silence.
+func TestStaleThreadStaysSilentWhenTheyAnsweredLast(t *testing.T) {
 	orgID := testOrgID(t)
-	view := timeline(
-		message(crmcontracts.ActivityKindEmail, crmcontracts.ActivityDirectionInbound, suggestNow.AddDate(0, 0, -10)),
-		message(crmcontracts.ActivityKindEmail, crmcontracts.ActivityDirectionOutbound, suggestNow.AddDate(0, 0, -20)),
-	)
-	if got := staleThreadSuggestion(orgID, suggestNow, view); got != nil {
+	if got := staleThread(orgID, suggestNow, sentAgo(10, crmcontracts.ActivityDirectionInbound)); got != nil {
 		t.Fatalf("suggestion %+v for a thread waiting on US", got)
 	}
 }
@@ -99,79 +73,33 @@ func TestStaleThreadStaysSilentWhenTheyWroteLast(t *testing.T) {
 // threshold, not a formality: a normal reply time must not fire it.
 func TestStaleThreadStaysSilentInsideTheReplyWindow(t *testing.T) {
 	orgID := testOrgID(t)
-	view := timeline(message(
-		crmcontracts.ActivityKindEmail, crmcontracts.ActivityDirectionOutbound, suggestNow.AddDate(0, 0, -2)))
-	if got := staleThreadSuggestion(orgID, suggestNow, view); got != nil {
+	if got := staleThread(orgID, suggestNow, sentAgo(2, crmcontracts.ActivityDirectionOutbound)); got != nil {
 		t.Fatalf("suggestion %+v for a message sent 2 days ago", got)
 	}
 }
 
-// TestStaleThreadIgnoresOurOwnNotes proves a note or a task cannot start a
-// wait: nobody owes a reply to something we wrote to ourselves. The email
-// UNDER the note is what the rule must read.
-func TestStaleThreadIgnoresOurOwnNotes(t *testing.T) {
-	orgID := testOrgID(t)
-	note := crmcontracts.Activity{
-		Id:         newTestID(),
-		Kind:       crmcontracts.ActivityKindNote,
-		OccurredAt: suggestNow.AddDate(0, 0, -1),
-	}
-	email := message(crmcontracts.ActivityKindEmail, crmcontracts.ActivityDirectionOutbound, suggestNow.AddDate(0, 0, -30))
-	view := timeline(note, email)
-
-	got := staleThreadSuggestion(orgID, suggestNow, view)
-	if got == nil {
-		t.Fatal("a note written yesterday suppressed a 30-day-old unanswered email")
-	}
-	if got.Evidence[0].EntityId != email.Id {
-		t.Errorf("evidence cites %v, want the email %v", got.Evidence[0].EntityId, email.Id)
-	}
-}
-
-// TestStaleThreadStaysSilentWithoutADirection proves an unknown direction is
-// not read as outbound. A capture that never recorded who spoke cannot
-// support advice about who owes a reply.
+// TestStaleThreadStaysSilentWithoutADirection proves an unrecorded direction is
+// not read as outbound. A capture that never said who spoke cannot support
+// advice about who owes a reply.
 func TestStaleThreadStaysSilentWithoutADirection(t *testing.T) {
 	orgID := testOrgID(t)
-	view := timeline(crmcontracts.Activity{
-		Id:         newTestID(),
-		Kind:       crmcontracts.ActivityKindEmail,
-		OccurredAt: suggestNow.AddDate(0, 0, -30),
-	})
-	if got := staleThreadSuggestion(orgID, suggestNow, view); got != nil {
+	newest := lastMessage{ID: ids.NewV7(), At: suggestNow.AddDate(0, 0, -30)}
+	if got := staleThread(orgID, suggestNow, newest); got != nil {
 		t.Fatalf("suggestion %+v for a message with no recorded direction", got)
 	}
 }
 
-// TestStaleThreadStaysSilentWithoutTheTimeline proves the withheld case: a
-// caller with no activity grant gets no advice derived from activities,
-// rather than advice derived from their absence.
-func TestStaleThreadStaysSilentWithoutTheTimeline(t *testing.T) {
-	orgID := testOrgID(t)
-	if got := staleThreadSuggestion(orgID, suggestNow, &crmcontracts.Organization360{}); got != nil {
-		t.Fatalf("suggestion %+v with the activities section withheld", got)
-	}
-}
-
-func openDeal(name string, stalled bool) crmcontracts.Organization360Deal {
-	return crmcontracts.Organization360Deal{
-		DealId:  newTestID(),
-		Name:    name,
-		Stalled: stalled,
-		Status:  crmcontracts.Organization360DealStatusOpen,
-	}
+func idle(name string, stalled bool) openDeal {
+	return openDeal{ID: ids.NewV7(), Name: name, Stalled: stalled}
 }
 
 // TestStalledDealsRaiseOnePerDeal proves each stalled deal is its own
 // suggestion with its own subject, so dismissing one does not silence the
 // other, and a healthy deal alongside them raises nothing.
 func TestStalledDealsRaiseOnePerDeal(t *testing.T) {
-	stalledA, stalledB, healthy := openDeal("Renewal", true), openDeal("Expansion", true), openDeal("Pilot", false)
-	view := &crmcontracts.Organization360{Deals: &crmcontracts.Organization360Deals{
-		Data: []crmcontracts.Organization360Deal{stalledA, healthy, stalledB},
-	}}
+	stalledA, healthy, stalledB := idle("Renewal", true), idle("Pilot", false), idle("Expansion", true)
 
-	got := stalledDealSuggestions(view)
+	got := stalledDealSuggestions([]openDeal{stalledA, healthy, stalledB})
 	if len(got) != 2 {
 		t.Fatalf("got %d suggestions, want one per stalled deal", len(got))
 	}
@@ -179,39 +107,40 @@ func TestStalledDealsRaiseOnePerDeal(t *testing.T) {
 		t.Error("both stalled deals share a fingerprint — dismissing one would silence the other")
 	}
 	for _, suggestion := range got {
-		if suggestion.SubjectId == nil || *suggestion.SubjectId == healthy.DealId {
+		if suggestion.SubjectId == nil || *suggestion.SubjectId == openapi_types.UUID(healthy.ID) {
 			t.Errorf("subject = %v, want one of the stalled deals", suggestion.SubjectId)
 		}
 	}
 }
 
+// noTasks is the next-steps section present and empty — the caller may read
+// tasks, and there are none.
+func noTasks() *crmcontracts.Organization360 {
+	return &crmcontracts.Organization360{
+		NextSteps: &struct {
+			Data []crmcontracts.Organization360NextStep `json:"data"`
+			Page crmcontracts.PageInfo                  `json:"page"`
+		}{},
+	}
+}
+
 // TestNoNextStepFiresOnlyOnAnActiveAccount pins the deliberate narrowness of
-// the rule. An open deal with no task is a gap worth naming; a dormant
-// account with no task is not, and a surface that says so would teach the rep
-// to scroll past it.
+// the rule. An open deal with no task is a gap worth naming; a dormant account
+// with no task is not, and a surface that says so would teach the rep to scroll
+// past it.
 func TestNoNextStepFiresOnlyOnAnActiveAccount(t *testing.T) {
 	orgID := testOrgID(t)
-	noSteps := &struct {
-		Data []crmcontracts.Organization360NextStep `json:"data"`
-		Page crmcontracts.PageInfo                  `json:"page"`
-	}{}
 
-	active := &crmcontracts.Organization360{
-		NextSteps: noSteps,
-		Deals:     &crmcontracts.Organization360Deals{Data: []crmcontracts.Organization360Deal{openDeal("Renewal", false)}},
-	}
-	if got := noNextStepSuggestion(orgID, active); got == nil {
+	if got := noNextStepSuggestion(orgID, noTasks(), []openDeal{idle("Renewal", false)}); got == nil {
 		t.Error("no suggestion for an open deal with nothing scheduled")
 	}
-
-	dormant := &crmcontracts.Organization360{NextSteps: noSteps, Deals: &crmcontracts.Organization360Deals{}}
-	if got := noNextStepSuggestion(orgID, dormant); got != nil {
+	if got := noNextStepSuggestion(orgID, noTasks(), nil); got != nil {
 		t.Errorf("suggestion %+v on a dormant account — nothing there to advance", got)
 	}
 }
 
-// TestNoNextStepStaysSilentWhenSomethingIsScheduled is the honest-absent
-// half: a task on the account already answers "what happens next".
+// TestNoNextStepStaysSilentWhenSomethingIsScheduled is the honest-absent half:
+// a task on the account already answers "what happens next".
 func TestNoNextStepStaysSilentWhenSomethingIsScheduled(t *testing.T) {
 	orgID := testOrgID(t)
 	view := &crmcontracts.Organization360{
@@ -219,32 +148,31 @@ func TestNoNextStepStaysSilentWhenSomethingIsScheduled(t *testing.T) {
 			Data []crmcontracts.Organization360NextStep `json:"data"`
 			Page crmcontracts.PageInfo                  `json:"page"`
 		}{Data: []crmcontracts.Organization360NextStep{{
-			ActivityId: newTestID(), Subject: "Call the CFO",
+			ActivityId: openapi_types.UUID(ids.NewV7()), Subject: "Call the CFO",
 		}}},
-		Deals: &crmcontracts.Organization360Deals{Data: []crmcontracts.Organization360Deal{openDeal("Renewal", false)}},
 	}
-	if got := noNextStepSuggestion(orgID, view); got != nil {
+	if got := noNextStepSuggestion(orgID, view, []openDeal{idle("Renewal", false)}); got != nil {
 		t.Fatalf("suggestion %+v with a task already on the account", got)
 	}
 }
 
-// TestNoNextStepRidesTheOpenDeals proves the fingerprint tracks WHICH deals
+// TestNoNextStepStaysSilentWithoutTheTaskSection is the withheld case: a caller
+// who cannot read tasks must not be told there are none.
+func TestNoNextStepStaysSilentWithoutTheTaskSection(t *testing.T) {
+	orgID := testOrgID(t)
+	withheld := &crmcontracts.Organization360{}
+	if got := noNextStepSuggestion(orgID, withheld, []openDeal{idle("Renewal", false)}); got != nil {
+		t.Fatalf("suggestion %+v with the next-steps section withheld", got)
+	}
+}
+
+// TestNoNextStepRidesEveryOpenDeal proves the fingerprint tracks WHICH deals
 // are open. A dismissal must not carry over to a different pipeline: closing
 // one deal and opening another is a new situation, and the advice re-arms.
-func TestNoNextStepRidesTheOpenDeals(t *testing.T) {
+func TestNoNextStepRidesEveryOpenDeal(t *testing.T) {
 	orgID := testOrgID(t)
-	noSteps := &struct {
-		Data []crmcontracts.Organization360NextStep `json:"data"`
-		Page crmcontracts.PageInfo                  `json:"page"`
-	}{}
-	first := noNextStepSuggestion(orgID, &crmcontracts.Organization360{
-		NextSteps: noSteps,
-		Deals:     &crmcontracts.Organization360Deals{Data: []crmcontracts.Organization360Deal{openDeal("Renewal", false)}},
-	})
-	second := noNextStepSuggestion(orgID, &crmcontracts.Organization360{
-		NextSteps: noSteps,
-		Deals:     &crmcontracts.Organization360Deals{Data: []crmcontracts.Organization360Deal{openDeal("Expansion", false)}},
-	})
+	first := noNextStepSuggestion(orgID, noTasks(), []openDeal{idle("Renewal", false)})
+	second := noNextStepSuggestion(orgID, noTasks(), []openDeal{idle("Expansion", false)})
 	if first == nil || second == nil {
 		t.Fatal("both accounts should raise the suggestion")
 	}
@@ -260,20 +188,36 @@ func TestFingerprintSeparatesKindAndEvidence(t *testing.T) {
 	subject := ids.NewV7().String()
 	cited := []crmcontracts.OrganizationBriefEvidence{{
 		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeDeal,
-		EntityId:   newTestID(),
+		EntityId:   openapi_types.UUID(ids.NewV7()),
 	}}
-	base := fingerprint(suggestStalledDeal, subject, cited)
+	base := fingerprint(string(suggestStalledDeal), subject, cited)
 
-	if again := fingerprint(suggestStalledDeal, subject, cited); again != base {
+	if again := fingerprint(string(suggestStalledDeal), subject, cited); again != base {
 		t.Error("the same situation hashed differently — a dismissal would not hold")
 	}
-	if other := fingerprint(suggestNoNextStep, subject, cited); other == base {
+	if other := fingerprint(string(suggestNoNextStep), subject, cited); other == base {
 		t.Error("two kinds on the same subject collided")
 	}
 	moved := []crmcontracts.OrganizationBriefEvidence{{
-		EntityType: cited[0].EntityType, EntityId: newTestID(),
+		EntityType: cited[0].EntityType, EntityId: openapi_types.UUID(ids.NewV7()),
 	}}
-	if other := fingerprint(suggestStalledDeal, subject, moved); other == base {
+	if other := fingerprint(string(suggestStalledDeal), subject, moved); other == base {
 		t.Error("changed evidence hashed the same — the dismissal would never re-arm")
+	}
+}
+
+// TestFingerprintShapeIsWhatTheDismissalAccepts ties the two halves together:
+// the endpoint validates a shape rather than re-deriving the value, so the shape
+// the rules produce has to be the one it accepts — otherwise every dismissal
+// would be refused with a 422 nobody could act on.
+func TestFingerprintShapeIsWhatTheDismissalAccepts(t *testing.T) {
+	produced := fingerprint(string(suggestNoReply), testOrgID(t).String(), nil)
+	if !isFingerprint(produced) {
+		t.Errorf("the rules produce %q, which the dismissal endpoint would refuse", produced)
+	}
+	for _, refused := range []string{"", "   ", "not-a-digest", produced + "0", "ABCDEF"} {
+		if isFingerprint(refused) {
+			t.Errorf("%q passes as a fingerprint", refused)
+		}
 	}
 }

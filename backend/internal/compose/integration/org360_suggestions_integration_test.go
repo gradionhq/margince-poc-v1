@@ -17,8 +17,11 @@ package integration
 // land on the wrong side of a stale-thread window by accident.
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -26,6 +29,10 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// wellFormedFingerprint has the shape the endpoint accepts, so a test about the
+// RECORD gate is not answered by the body check instead.
+const wellFormedFingerprint = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
 // seedUnansweredOutbound logs an outbound email old enough to be worth
 // chasing, linked to the account.
@@ -38,6 +45,51 @@ func seedUnansweredOutbound(t *testing.T, e *Env, org ids.UUID) {
 		        '2026-05-10T09:00:00Z', '2026-05-10T09:00:00Z', 'manual', 'human:x')`, e.WS)
 	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
 		VALUES ($1, $2, 'organization', $3)`, e.WS, sent, org)
+}
+
+// The rules must look PAST the section page cap.
+//
+// The 360's collections are truncated summaries (sectionLimit = 25). A rule
+// derived from that page would miss an overdue unanswered email buried under 25
+// newer notes, and a rep would read the silent card as "nothing to chase here" —
+// which is the one thing this surface must never say wrongly.
+func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	seedUnansweredOutbound(t, e, org.UUID)
+
+	// Thirty notes, every one NEWER than the unanswered email, so the newest 25
+	// timeline entries the section carries are all notes.
+	for i := range 30 {
+		note := ids.NewV7()
+		if _, err := owner.Exec(context.Background(), `INSERT INTO activity
+			(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
+			VALUES ($1, $2, 'note', $3, $4, $4, 'manual', 'human:x')`,
+			note, e.WS, fmt.Sprintf("note %d", i), org360Clock.AddDate(0, 0, -i)); err != nil {
+			t.Fatalf("seeding note %d: %v", i, err)
+		}
+		e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
+			VALUES ($1, $2, 'organization', $3)`, e.WS, note, org.UUID)
+	}
+
+	view, err := svc.Assemble(e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms), org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.Suggestions == nil {
+		t.Fatal("suggestions absent")
+	}
+	found := false
+	for _, suggestion := range *view.Suggestions {
+		if suggestion.Kind == "no_reply" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("no no_reply suggestion with 30 newer notes on the account: %+v", *view.Suggestions)
+	}
 }
 
 // A dismissal belongs to the rep who made it. One rep judging a suggestion
@@ -133,7 +185,7 @@ func TestSuggestionDismissalRefusesAnInvisibleAccount(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Someone else's account", &e.Rep3))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
 
-	err := svc.DismissSuggestion(rep, org, "any-fingerprint")
+	err := svc.DismissSuggestion(rep, org, wellFormedFingerprint)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("dismiss on an invisible account → %v, want ErrNotFound (existence-hiding)", err)
 	}
@@ -149,24 +201,30 @@ func TestSuggestionDismissalRefusesAnAgent(t *testing.T) {
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 
-	err := svc.DismissSuggestion(agentWithOrgRead(e), org, "any-fingerprint")
+	err := svc.DismissSuggestion(agentWithOrgRead(e), org, wellFormedFingerprint)
 	if !errors.Is(err, apperrors.ErrPermissionDenied) {
 		t.Errorf("agent dismissal → %v, want ErrPermissionDenied", err)
 	}
 }
 
-// A blank fingerprint names no suggestion. Storing it would silence nothing
-// while reporting success, so it is refused at the door.
-func TestSuggestionDismissalRefusesABlankFingerprint(t *testing.T) {
+// A fingerprint the read never served names no suggestion. Storing arbitrary
+// text would make this endpoint a write-anything store, so its shape is checked
+// — after the record gate, so the refusal cannot double as an existence probe.
+func TestSuggestionDismissalRefusesAMalformedFingerprint(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
 
-	var detailed *httperr.DetailedError
-	err := svc.DismissSuggestion(rep, org, "   ")
-	if !errors.As(err, &detailed) || detailed.Status != http.StatusUnprocessableEntity {
-		t.Errorf("blank fingerprint → %v, want a 422 validation error", err)
+	for _, refused := range []string{"", "   ", "not-a-digest", strings.ToUpper(wellFormedFingerprint)} {
+		var detailed *httperr.DetailedError
+		err := svc.DismissSuggestion(rep, org, refused)
+		if !errors.As(err, &detailed) || detailed.Status != http.StatusUnprocessableEntity {
+			t.Errorf("fingerprint %q → %v, want a 422 validation error", refused, err)
+		}
+	}
+	if count := e.WsCount(t, `SELECT count(*) FROM suggestion_dismissal`); count != 0 {
+		t.Errorf("suggestion_dismissal rows = %d after refused dismissals, want 0", count)
 	}
 }
 

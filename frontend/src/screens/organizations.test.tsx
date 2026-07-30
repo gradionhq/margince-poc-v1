@@ -90,6 +90,7 @@ const org360 = {
   // Assembled and empty: the section came back, and the account needs nothing.
   // Suites that exercise the card pass their own through `org360`.
   suggestions: [],
+  suggestions_dropped: 0,
 };
 
 // The roll-up backstop. It sits in the company view's left rail now rather

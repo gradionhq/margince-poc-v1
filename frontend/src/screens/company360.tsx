@@ -714,13 +714,20 @@ function WrittenBy({ by }: Readonly<{ by: Brief["generated_by"] }>) {
 }
 
 // The prepared questions, in the order the card offers them: what is open now,
-// then what to walk in with, then what has moved. Typed against the contract's
-// enum, so a question added upstream fails to compile here until it is offered.
-const QUESTIONS: readonly Question[] = [
-  "whats_open",
-  "meeting_prep",
-  "whats_changed",
-];
+// then what to walk in with, then what has moved.
+//
+// Keyed by question rather than listed, so the type is EXHAUSTIVE: a question
+// declared upstream and not given a position here fails to compile, instead of
+// shipping a server that answers it and a card that never asks.
+const QUESTION_ORDER: Record<Question, number> = {
+  whats_open: 0,
+  meeting_prep: 1,
+  whats_changed: 2,
+};
+
+const QUESTIONS: readonly Question[] = (
+  Object.keys(QUESTION_ORDER) as Question[]
+).sort((a, b) => QUESTION_ORDER[a] - QUESTION_ORDER[b]);
 
 /**
  * AskCard is "Ask Margince": three prepared questions, answered from this
@@ -902,6 +909,13 @@ export function SuggestionsCard({
           </li>
         ))}
       </ul>
+      {/* The card offers a handful, so what it left out is named. A truncated
+          list with no count reads as "that is everything". */}
+      {(view?.suggestions_dropped ?? 0) > 0 && (
+        <p className="co-row-meta">
+          {t("co.suggest.more", { count: view?.suggestions_dropped ?? 0 })}
+        </p>
+      )}
       {/* A dismissal that failed must say so: the row staying put with no word
           reads as a click that missed, and the rep clicks again. */}
       {dismiss.isError && (

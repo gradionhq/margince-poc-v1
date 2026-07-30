@@ -6152,7 +6152,9 @@ export interface components {
          * @description The prepared questions. Fixed, because each one names the records its answer is
          *     written from — which is what makes the answer citable.
          *
-         *     `whats_open` — the open deals, the open tasks and anything waiting on approval.
+         *     `whats_open` — the open deals and the open tasks. Deliberately not approvals: an
+         *     approval is not a citable record type here, and an answer that named one could
+         *     not be checked the way every other sentence can.
          *     `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
          *     `whats_changed` — what has moved on this account recently.
          * @enum {string}
@@ -6359,6 +6361,13 @@ export interface components {
              *     rather than with a verdict.
              */
             suggestions?: components["schemas"]["Organization360Suggestion"][];
+            /**
+             * @description How many further suggestions this account has that `suggestions` does not
+             *     list — the card offers at most a handful, because advice past that is a list
+             *     a rep learns to scroll past. Reported rather than dropped in silence: a
+             *     truncated list with no count reads as "that is everything".
+             */
+            suggestions_dropped: number;
         };
         /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
@@ -11579,7 +11588,12 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": {
-                    /** @description The `fingerprint` from the suggestion being dismissed. */
+                    /**
+                     * @description The `fingerprint` from the suggestion being dismissed, unchanged — a
+                     *     sha256 digest in lowercase hex. Anything else is a 422: the server
+                     *     cannot re-derive it (the situation may legitimately have moved on
+                     *     between the render and the click), so its shape is what is checked.
+                     */
                     fingerprint: string;
                 };
             };

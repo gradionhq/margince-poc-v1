@@ -12,10 +12,15 @@ package org360
 // A model could phrase these more warmly; it could not make them checkable,
 // and checkable is what makes advice actionable.
 //
-// Each suggestion is derived from the 360 the caller already read, so it can
-// only ever point at records that caller can open. Nothing is staged and
-// nothing is sent: the actions offered are the same governed endpoints the
-// rep would have used anyway.
+// Each rule runs under the same row-scope predicates as the section it
+// concerns, and only when that section reached this caller — so a suggestion
+// can only ever point at records they can open, and a withheld section
+// produces silence rather than advice inferred from the gap. What the rules
+// read, and why they do not read the truncated section pages, is
+// suggestionreads.go.
+//
+// Nothing is staged and nothing is sent: the actions offered are the same
+// governed endpoints the rep would have used anyway.
 
 import (
 	"crypto/sha256"
@@ -27,9 +32,8 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // noReplyDays is how long an unanswered outbound message waits before it is
@@ -37,47 +41,100 @@ import (
 // normal reply time does not trigger it.
 const noReplyDays = 7
 
-// suggestionKinds, spelled once — the contract's enum and the keys the
-// dismissal fingerprints are built from.
-const (
-	suggestNoReply     = "no_reply"
-	suggestStalledDeal = "stalled_deal"
-	suggestNoNextStep  = "no_next_step"
+// maxSuggestions is how many rows the card offers.
+//
+// A product bound, not a performance one: advice past a handful is a list a rep
+// learns to scroll past, and a card nobody reads is worth less than a shorter
+// one they act on. What it drops is REPORTED in suggestions_dropped, because a
+// silent cap reads as "that is everything".
+const maxSuggestions = 5
+
+// The suggestion kinds, DERIVED from the contract's enum rather than
+// re-spelled, so a rename upstream fails to compile here instead of laundering
+// a hand-typed string past the type.
+//
+// They double as the fingerprint's leading key, which means a rename does
+// invalidate the dismissals stored against the old name. That is the right
+// outcome: a renamed kind is a different kind, and a rep's judgment of the old
+// one is not a judgment of the new.
+var (
+	suggestNoReply     = crmcontracts.Organization360SuggestionKindNoReply
+	suggestStalledDeal = crmcontracts.Organization360SuggestionKindStalledDeal
+	suggestNoNextStep  = crmcontracts.Organization360SuggestionKindNoNextStep
 )
 
-// suggestionsFor derives the account's next steps from what the caller can
-// see, then drops the ones this caller has already judged.
+// readSuggestions is the section.
 //
-// It reads the assembled view rather than the database: a suggestion about a
-// record the caller cannot open would be advice they cannot take, and
-// deriving from the gated read makes that impossible rather than merely
-// unlikely.
-// readSuggestions is the section. It rides the ACTIVITY grant because every
-// rule reads the timeline or the deals hanging off it: a caller who sees
-// neither has nothing to be advised about, and a suggestion assembled without
-// that grant would be derived from an absence rather than from records.
+// It holds no grant of its own. Advice is derived from the timeline and the
+// pipeline, and both of those already refused or answered under their own
+// gates: whichever reached this caller is what the rules may read, and a caller
+// shown NEITHER has nothing to be advised from, so the section is omitted and
+// named. Requiring one fixed grant here instead would withhold stalled-deal
+// advice from a caller who can read deals but not activities — advice they are
+// entitled to and can act on.
 func (a *assembly) readSuggestions() error {
-	if err := auth.Require(a.ctx, "activity", principal.ActionRead); err != nil {
-		return err
+	if a.out.Activities == nil && a.out.Deals == nil {
+		return fmt.Errorf(
+			"suggestions are read from the timeline and the pipeline, and this caller may read neither: %w",
+			apperrors.ErrPermissionDenied)
 	}
-	suggestions, err := a.suggestionsFor()
+	found, dropped, err := a.suggestionsFor()
 	if err != nil {
 		return err
 	}
-	a.out.Suggestions = &suggestions
+	a.out.Suggestions = &found
+	a.out.SuggestionsDropped = dropped
 	return nil
 }
 
-func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, error) {
-	orgID, view := a.orgID, a.out
-	found := make([]crmcontracts.Organization360Suggestion, 0, 3)
-	found = appendIf(found, staleThreadSuggestion(orgID, a.now, view))
-	found = append(found, stalledDealSuggestions(view)...)
-	found = appendIf(found, noNextStepSuggestion(orgID, view))
+// suggestionsFor runs every rule, drops what this caller has already judged,
+// and caps what is left — reporting how many rows the cap and the scan bound
+// took together.
+func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, int, error) {
+	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
+	beyondScan := 0
+
+	// The timeline reached this caller, so the no-reply rule can run.
+	if a.out.Activities != nil {
+		stale, err := a.staleThreadSuggestion()
+		if err != nil {
+			return nil, 0, err
+		}
+		found = appendIf(found, stale)
+	}
+
+	// Both deal-shaped rules need the pipeline. An absent deals section means
+	// the caller may not read deals at all, and advice about a pipeline they
+	// cannot see is advice they cannot take.
+	if a.out.Deals != nil {
+		open, past, err := visibleOpenDeals(a.ctx, a.tx, a.orgID, a.now)
+		if err != nil {
+			return nil, 0, err
+		}
+		beyondScan = past
+		found = append(found, stalledDealSuggestions(open)...)
+		found = appendIf(found, noNextStepSuggestion(a.orgID, a.out, open))
+	}
+
+	kept, err := a.keepUndismissed(found)
+	if err != nil {
+		return nil, 0, err
+	}
+	if len(kept) > maxSuggestions {
+		return kept[:maxSuggestions], beyondScan + len(kept) - maxSuggestions, nil
+	}
+	return kept, beyondScan, nil
+}
+
+// keepUndismissed removes the suggestions this caller has already judged. The
+// database is asked only when there is something to filter.
+func (a *assembly) keepUndismissed(
+	found []crmcontracts.Organization360Suggestion,
+) ([]crmcontracts.Organization360Suggestion, error) {
 	if len(found) == 0 {
 		return found, nil
 	}
-	dismissed, err := a.svc.dismissedFingerprints(a.ctx, a.tx, orgID)
+	dismissed, err := a.svc.dismissedFingerprints(a.ctx, a.tx, a.orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -100,80 +157,73 @@ func appendIf(
 	return append(into, *one)
 }
 
-// staleThreadSuggestion fires when the account's most recent message was
-// OURS and nobody answered it.
-//
-// Direction is the whole rule: an unanswered outbound is a thread waiting on
-// them, while an unanswered inbound is a thread waiting on US — which is a
-// different problem with a different action, and conflating the two would
-// tell a rep to chase someone who is waiting for their reply.
-func staleThreadSuggestion(
-	orgID ids.OrganizationID, now time.Time, view *crmcontracts.Organization360,
-) *crmcontracts.Organization360Suggestion {
-	if view.Activities == nil || len(view.Activities.Data) == 0 {
-		return nil
+// staleThreadSuggestion reads the account's newest message and applies the
+// rule to it.
+func (a *assembly) staleThreadSuggestion() (*crmcontracts.Organization360Suggestion, error) {
+	newest, found, err := newestMessage(a.ctx, a.tx, a.orgID)
+	if err != nil {
+		return nil, err
 	}
-	// The timeline is newest-first, so the first message-shaped activity is
-	// the last thing that happened on this account.
-	for _, activity := range view.Activities.Data {
-		if !isMessage(activity.Kind) {
-			continue
-		}
-		if activity.Direction == nil || *activity.Direction != crmcontracts.ActivityDirectionOutbound {
-			return nil // they spoke last, or the direction is unknown
-		}
-		waited := now.Sub(activity.OccurredAt)
-		if waited < noReplyDays*24*time.Hour {
-			return nil
-		}
-		evidence := []crmcontracts.OrganizationBriefEvidence{{
-			EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeActivity,
-			EntityId:   activity.Id,
-		}}
-		return &crmcontracts.Organization360Suggestion{
-			Kind:        crmcontracts.Organization360SuggestionKind(suggestNoReply),
-			Reason:      fmt.Sprintf("You wrote %d days ago and nobody has replied.", int(waited.Hours()/24)),
-			Fingerprint: fingerprint(suggestNoReply, orgID.String(), evidence),
-			Evidence:    evidence,
-		}
+	if !found {
+		// Nobody has ever exchanged a message with this account: no wait to
+		// report, and no error either.
+		return nil, nil //nolint:nilnil // found reports the absence; the caller appends nothing
 	}
-	return nil
+	return staleThread(a.orgID, a.now, newest), nil
 }
 
-// isMessage is the set of activity kinds that constitute a two-way exchange.
-// A note or a task is something WE wrote to ourselves; nobody owes a reply to
-// it, so it can neither start nor end a wait.
-func isMessage(kind crmcontracts.ActivityKind) bool {
-	switch kind {
-	case crmcontracts.ActivityKindEmail, crmcontracts.ActivityKindWhatsapp, crmcontracts.ActivityKindTelegram:
-		return true
-	default:
-		return false
+// staleThread fires when the account's most recent message was OURS and nobody
+// answered it.
+//
+// Direction is the whole rule: an unanswered outbound is a thread waiting on
+// them, while an unanswered inbound is a thread waiting on US — a different
+// problem with a different action, and conflating the two would tell a rep to
+// chase someone who is waiting for their reply.
+func staleThread(
+	orgID ids.OrganizationID, now time.Time, newest lastMessage,
+) *crmcontracts.Organization360Suggestion {
+	// An unrecorded direction cannot support advice about who owes a reply: a
+	// capture that never said who spoke is not evidence that we did.
+	if newest.Direction != string(crmcontracts.ActivityDirectionOutbound) {
+		return nil
+	}
+	waited := now.Sub(newest.At)
+	if waited < noReplyDays*24*time.Hour {
+		return nil
+	}
+	evidence := []crmcontracts.OrganizationBriefEvidence{{
+		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeActivity,
+		EntityId:   openapi_types.UUID(newest.ID),
+	}}
+	return &crmcontracts.Organization360Suggestion{
+		Kind: suggestNoReply,
+		// Channel-neutral wording: the newest exchange may have been a call or a
+		// meeting, and "you wrote" would be a small false statement about it.
+		Reason:      fmt.Sprintf("You reached out %d days ago and nobody has come back.", int(waited.Hours()/24)),
+		Fingerprint: fingerprint(string(suggestNoReply), orgID.String(), evidence),
+		Evidence:    evidence,
 	}
 }
 
 // stalledDealSuggestions raises one per stalled open deal. The stall flag is
-// the server's — computed against the pipeline's own window — never
-// re-derived here from a date.
-func stalledDealSuggestions(view *crmcontracts.Organization360) []crmcontracts.Organization360Suggestion {
-	if view.Deals == nil {
-		return nil
-	}
+// the deals module's own (deals.IsStalled, against the pipeline's window),
+// never re-derived here from a date.
+func stalledDealSuggestions(open []openDeal) []crmcontracts.Organization360Suggestion {
 	out := make([]crmcontracts.Organization360Suggestion, 0)
-	for _, deal := range view.Deals.Data {
+	for _, deal := range open {
 		if !deal.Stalled {
 			continue
 		}
 		evidence := []crmcontracts.OrganizationBriefEvidence{{
 			EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeDeal,
-			EntityId:   deal.DealId,
+			EntityId:   openapi_types.UUID(deal.ID),
 		}}
 		subjectType := crmcontracts.Organization360SuggestionSubjectTypeDeal
-		subjectID := deal.DealId
+		subjectID := openapi_types.UUID(deal.ID)
 		out = append(out, crmcontracts.Organization360Suggestion{
-			Kind:        crmcontracts.Organization360SuggestionKind(suggestStalledDeal),
+			Kind:        suggestStalledDeal,
 			Reason:      fmt.Sprintf("%q has had no activity long enough to count as stalled.", deal.Name),
-			Fingerprint: fingerprint(suggestStalledDeal, deal.DealId.String(), evidence),
+			Fingerprint: fingerprint(string(suggestStalledDeal), deal.ID.String(), evidence),
 			SubjectType: &subjectType,
 			SubjectId:   &subjectID,
 			Evidence:    evidence,
@@ -190,29 +240,27 @@ func stalledDealSuggestions(view *crmcontracts.Organization360) []crmcontracts.O
 // noise the rep would learn to scroll past, which costs the whole surface its
 // credibility.
 func noNextStepSuggestion(
-	orgID ids.OrganizationID, view *crmcontracts.Organization360,
+	orgID ids.OrganizationID, view *crmcontracts.Organization360, open []openDeal,
 ) *crmcontracts.Organization360Suggestion {
-	if view.NextSteps == nil || len(view.NextSteps.Data) > 0 {
-		return nil
-	}
-	if view.Deals == nil || len(view.Deals.Data) == 0 {
+	present, scheduled := openTasks(view)
+	if !present || scheduled || len(open) == 0 {
 		return nil
 	}
 	evidence := []crmcontracts.OrganizationBriefEvidence{{
 		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeOrganization,
 		EntityId:   openapi_types.UUID(orgID.UUID),
 	}}
-	// The open deals ride the fingerprint, so closing one and opening another
-	// re-raises this rather than leaving a stale dismissal in force.
-	var deals []string
-	for _, deal := range view.Deals.Data {
-		deals = append(deals, deal.DealId.String())
+	// Every open deal rides the fingerprint, in the read's stable order, so
+	// closing one or opening another re-raises this rather than leaving a
+	// dismissal in force over a pipeline the account no longer has.
+	dealIDs := make([]string, 0, len(open))
+	for _, deal := range open {
+		dealIDs = append(dealIDs, deal.ID.String())
 	}
 	return &crmcontracts.Organization360Suggestion{
-		Kind: crmcontracts.Organization360SuggestionKind(suggestNoNextStep),
-		Reason: fmt.Sprintf("%d open deal(s) here and no task saying what happens next.",
-			len(view.Deals.Data)),
-		Fingerprint: fingerprint(suggestNoNextStep, strings.Join(deals, ","), evidence),
+		Kind:        suggestNoNextStep,
+		Reason:      fmt.Sprintf("%d open deal(s) here and no task saying what happens next.", len(open)),
+		Fingerprint: fingerprint(string(suggestNoNextStep), strings.Join(dealIDs, ","), evidence),
 		Evidence:    evidence,
 	}
 }

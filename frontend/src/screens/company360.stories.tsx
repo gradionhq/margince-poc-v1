@@ -40,6 +40,7 @@ const populated = {
     updated_at: "2026-06-01T08:00:00Z",
   },
   sections_omitted: [],
+  suggestions_dropped: 0,
   // Two suggestions from two different rules, so the card shows what makes it
   // useful: each row's own reason, and its own evidence.
   suggestions: [
@@ -208,12 +209,17 @@ function Cards({ view }: Readonly<{ view: View }>) {
         question: "whats_open",
         generated_at: "2026-07-13T09:00:00Z",
         generated_by: "deterministic",
-        sentences: [
-          {
-            text: "2 open deal(s) worth about 57000 EUR.",
-            evidence: [{ entity_type: "deal", entity_id: "d-1" }],
-          },
-        ],
+        // The answer follows the account the story renders: an account with no
+        // deals must not answer with one, or the empty-state story shows a
+        // populated card.
+        sentences: view.deals?.data?.length
+          ? [
+              {
+                text: "2 open deal(s) worth about 57000 EUR.",
+                evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+              },
+            ]
+          : [],
       }),
   });
   return (

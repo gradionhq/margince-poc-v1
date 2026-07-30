@@ -95,7 +95,7 @@ func AskRequest(question crmcontracts.OrganizationQuestion, in Input) model.Requ
 func Answer(
 	ctx context.Context, lane Completer, question crmcontracts.OrganizationQuestion, orgID string, in Input,
 ) ([]Sentence, crmcontracts.WrittenBy, error) {
-	deterministic := DeterministicAnswer(question, orgID, in)
+	deterministic := deterministicAnswer(question, orgID, in)
 	if lane == nil {
 		return deterministic, crmcontracts.Deterministic, nil
 	}
@@ -131,14 +131,18 @@ func answerWithModel(
 	return kept, nil
 }
 
-// DeterministicAnswer answers without a model, from the same input. Each
-// question reads only its own slice of the account, so the floor and the
-// model path answer the same question from the same facts.
+// deterministicAnswer answers without a model, from the same input. Each
+// question reads only its own slice of the account, so the floor and the model
+// path answer the same question from the same facts.
 //
 // An empty result is a real outcome, not a failure: a question whose records
-// this caller cannot see has no answer, and saying nothing is more honest
-// than a sentence written around the gap.
-func DeterministicAnswer(question crmcontracts.OrganizationQuestion, orgID string, in Input) []Sentence {
+// this caller cannot see has no answer, and saying nothing is more honest than
+// a sentence written around the gap.
+//
+// Unexported on purpose. The only way in is Answer, which every caller reaches
+// through ParseQuestion — so a question this switch does not handle cannot
+// arrive, and the function never has to answer "nothing" to a bad argument.
+func deterministicAnswer(question crmcontracts.OrganizationQuestion, orgID string, in Input) []Sentence {
 	switch question {
 	case askWhatsOpen:
 		return openAnswer(in)
@@ -147,9 +151,11 @@ func DeterministicAnswer(question crmcontracts.OrganizationQuestion, orgID strin
 	case askWhatsChanged:
 		return changedAnswer(in)
 	default:
-		// Unreachable: ParseQuestion refuses anything else before the service
-		// gets here. Returning nothing rather than guessing keeps that true if
-		// a fourth question is declared and only half-wired.
+		// A question declared in the contract, accepted by ParseQuestion, and
+		// not wired here. Returning nothing rather than guessing keeps the
+		// promise that an answer is written from the records it cites; the
+		// completeness of askInstruction is what stops it happening (a question
+		// missing from that map is refused at the door).
 		return nil
 	}
 }

@@ -16,7 +16,7 @@ package org360
 import (
 	"context"
 	"fmt"
-	"strings"
+	"regexp"
 
 	"github.com/jackc/pgx/v5"
 
@@ -38,10 +38,6 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
 		return err
 	}
-	if strings.TrimSpace(fingerprint) == "" {
-		return httperr.Validation("fingerprint", "required",
-			"name the suggestion to dismiss by the fingerprint it was served with")
-	}
 	userID, err := actingUser(ctx)
 	if err != nil {
 		return err
@@ -53,6 +49,14 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
+		// The body is checked AFTER the record gate, the house order: a caller
+		// who may not read this account must get the same 404 whatever they put
+		// in the body, or the shape of their mistake becomes an answer about
+		// whether the account exists.
+		if !isFingerprint(fingerprint) {
+			return httperr.Validation("fingerprint", "malformed",
+				"dismiss a suggestion by the fingerprint it was served with, unchanged")
+		}
 		_, err := tx.Exec(ctx, `
 			INSERT INTO suggestion_dismissal
 			  (workspace_id, user_id, organization_id, fingerprint, dismissed_at)
@@ -63,8 +67,50 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 		if err != nil {
 			return fmt.Errorf("record the suggestion dismissal: %w", err)
 		}
-		return nil
+		return s.pruneDismissals(ctx, tx, userID, orgID)
 	})
+}
+
+// fingerprintPattern is the shape fingerprint() produces: a sha256 digest in
+// lowercase hex.
+//
+// Checking it is what keeps this endpoint from being a write-anything store.
+// The server cannot re-derive the fingerprint to verify it — the situation may
+// legitimately have moved on between the render and the click, and refusing
+// then would lose a dismissal the rep meant — so the shape is the check that
+// stays true. It also fixes the row size, and rejects the NUL byte Postgres
+// would otherwise turn into a 500 for what is a client mistake.
+var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+func isFingerprint(value string) bool {
+	return fingerprintPattern.MatchString(value)
+}
+
+// dismissalsPerAccount bounds how many dismissals one person keeps for one
+// account. The rules raise at most a handful at a time, so this is far above
+// any honest use; it exists because a well-formed fingerprint that matches no
+// suggestion is still storable, and nothing else would ever collect it.
+const dismissalsPerAccount = 50
+
+// pruneDismissals drops this person's oldest dismissals for this account past
+// the bound. The oldest is the right one to lose: a dismissal that far back has
+// almost certainly outlived the evidence it was keyed on, so losing it shows
+// the advice again rather than hiding anything.
+func (s *Service) pruneDismissals(
+	ctx context.Context, tx pgx.Tx, userID ids.UserID, orgID ids.OrganizationID,
+) error {
+	_, err := tx.Exec(ctx, `
+		DELETE FROM suggestion_dismissal
+		WHERE user_id = $1 AND organization_id = $2
+		  AND id NOT IN (
+		    SELECT id FROM suggestion_dismissal
+		    WHERE user_id = $1 AND organization_id = $2
+		    ORDER BY dismissed_at DESC, id DESC
+		    LIMIT $3)`, userID, orgID, dismissalsPerAccount)
+	if err != nil {
+		return fmt.Errorf("bound the stored suggestion dismissals: %w", err)
+	}
+	return nil
 }
 
 // dismissedFingerprints reads this caller's own dismissals for one account.
