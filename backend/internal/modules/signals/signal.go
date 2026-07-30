@@ -207,6 +207,28 @@ type ListSignalsInput struct {
 	IncludeArchived bool
 }
 
+// OfOrganizationWhere is the ONE spelling of "this signal belongs to this
+// account", for a query that aliases signal as s. orgPos is the bind position
+// carrying the organization id; both arms read the same one.
+//
+// Two arms, because a signal reaches an organization two ways: the resolver
+// stamps resolved_org_id on the item it attributed, and a signal created
+// directly ABOUT the organization carries the subject pair and no
+// resolved_org_id at all. Both belong to the account.
+//
+// A deal-subject signal belongs to its DEAL, even when the resolver attributed
+// it to this account, so the resolved arm excludes it.
+//
+// Exported because the signal list is not its only reader: the company view's
+// connections card cites the account's active signal, and a second spelling
+// would let the card name a signal the account's own signal list refuses to
+// show — or miss one it does.
+func OfOrganizationWhere(orgPos int) string {
+	return storekit.SQLf(
+		`((s.entity_type IS DISTINCT FROM 'deal' AND s.resolved_org_id = $%[1]d)
+		  OR (s.entity_type = 'organization' AND s.entity_id = $%[1]d))`, orgPos)
+}
+
 func (s *Store) ListSignals(ctx context.Context, in ListSignalsInput) ([]crmcontracts.Signal, storekit.Page, error) {
 	if err := auth.Require(ctx, "signal", principal.ActionRead); err != nil {
 		return nil, storekit.Page{}, err
@@ -229,17 +251,7 @@ func (s *Store) ListSignals(ctx context.Context, in ListSignalsInput) ([]crmcont
 		where = append(where, storekit.SQLf("s.resolution_state = $%d", arg(*in.ResolutionState)))
 	}
 	if in.OrganizationID != nil {
-		// Two arms, because a signal reaches an organization two ways: the
-		// resolver stamps resolved_org_id on the item it attributed, and a
-		// signal created directly ABOUT the organization carries the subject
-		// pair and no resolved_org_id at all. Both belong to the account.
-		//
-		// A deal-subject signal belongs to its DEAL, even when the resolver
-		// attributed it to this account, so the resolved arm excludes it.
-		pos := arg(*in.OrganizationID)
-		where = append(where, storekit.SQLf(
-			`((s.entity_type IS DISTINCT FROM 'deal' AND s.resolved_org_id = $%d)
-			  OR (s.entity_type = 'organization' AND s.entity_id = $%d))`, pos, pos))
+		where = append(where, OfOrganizationWhere(arg(*in.OrganizationID)))
 	}
 	scope, err := auth.SignalScopeClause(ctx, "s", arg)
 	if err != nil {
