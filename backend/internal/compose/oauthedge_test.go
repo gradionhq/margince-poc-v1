@@ -17,7 +17,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 )
@@ -78,7 +77,7 @@ func TestVaryingTheClientIDCannotEscapeTheTokenCeiling(t *testing.T) {
 	if got := serveStatus(edge, tokenRequest("client-a", elsewhere)); got != http.StatusOK {
 		t.Fatalf("an exchange from another peer → %d, want 200", got)
 	}
-	clock.advance(time.Minute)
+	clock.advanceWindow()
 	if got := serveStatus(edge, tokenRequest("client-602", grinder)); got != http.StatusOK {
 		t.Fatalf("after the window → %d, want the budget to have reopened (200)", got)
 	}
@@ -239,7 +238,7 @@ func TestRegistrationSurvivesRealVolumeAndItsDenialDoesNotOutliveTheFlood(t *tes
 	}
 	// The window is a MINUTE: a flood denies registration while it is running
 	// and not for an hour after it stops.
-	clock.advance(time.Minute)
+	clock.advanceWindow()
 	if got := serveStatus(edge, registerAt(frontEnd)); got != http.StatusCreated {
 		t.Fatalf("a minute after the flood → %d, want 201: the denial must not outlive the flood", got)
 	}
@@ -325,7 +324,7 @@ func TestVaryingTheSessionCookieCannotEscapeTheConsentCeiling(t *testing.T) {
 	if got := serveStatus(edge, consentRequest(http.MethodGet, "marcus-session", elsewhere)); got != http.StatusOK {
 		t.Fatalf("a consent form from another peer → %d, want 200: the ceiling is per peer", got)
 	}
-	clock.advance(time.Minute)
+	clock.advanceWindow()
 	if got := serveStatus(edge, consentRequest(http.MethodGet, "forged-602", grinder)); got != http.StatusOK {
 		t.Fatalf("after the window → %d, want the ceiling to have reopened (200)", got)
 	}
@@ -373,6 +372,12 @@ func TestRevocationIsReachableWhateverElseTheEdgeIsRefusing(t *testing.T) {
 	}
 	if got := serveStatus(edge, revokeRequest("mgp_another-clients-token", frontEnd)); got != http.StatusOK {
 		t.Fatalf("revoking a different token from the same peer → %d, want 200: the budget follows the presented token", got)
+	}
+	// The other direction of that same key: moving peers buys no fresh
+	// allowance for a token already spent, which is what bounds repetition at
+	// all behind a shared front end.
+	if got := serveStatus(edge, revokeRequest("mgp_the-clients-own-token", "198.51.100.4")); got != http.StatusTooManyRequests {
+		t.Fatalf("the spent token from another peer → %d, want 429: the budget follows the presented token", got)
 	}
 }
 

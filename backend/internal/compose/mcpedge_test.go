@@ -26,7 +26,10 @@ type stepClock struct{ at time.Time }
 
 func (c *stepClock) now() time.Time { return c.at }
 
-func (c *stepClock) advance(d time.Duration) { c.at = c.at.Add(d) }
+// advanceWindow crosses one fixed window. Every ceiling on the connector's
+// edges — the transport's and the authorization server's — is measured over a
+// minute, so reopening any of them is the same move.
+func (c *stepClock) advanceWindow() { c.at = c.at.Add(time.Minute) }
 
 func newStepClock() *stepClock {
 	return &stepClock{at: time.Date(2026, 7, 30, 9, 0, 0, 0, time.UTC)}
@@ -117,7 +120,7 @@ func TestPreAuthFailuresAreMeteredPerPresentedCredential(t *testing.T) {
 	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", innocent)); got != http.StatusTooManyRequests {
 		t.Fatalf("the same spent credential from another peer → %d, want 429: the budget follows the credential", got)
 	}
-	clock.advance(time.Minute)
+	clock.advanceWindow()
 	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", grinder)); got != http.StatusUnauthorized {
 		t.Fatalf("after the window → %d, want the budget to have reopened (401)", got)
 	}
@@ -205,7 +208,7 @@ func TestAVaryingCredentialCannotEscapeThePreAuthCeiling(t *testing.T) {
 	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-602", elsewhere)); got != http.StatusUnauthorized {
 		t.Fatalf("a forged bearer from another peer → %d, want 401", got)
 	}
-	clock.advance(time.Minute)
+	clock.advanceWindow()
 	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-603", frontEnd)); got != http.StatusUnauthorized {
 		t.Fatalf("after the window → %d, want the ceiling to have reopened (401)", got)
 	}
@@ -259,7 +262,7 @@ func TestAuthenticatedCallsSpendOnlyTheirOwnPassportBudget(t *testing.T) {
 	if got := serveStatus(edge, mcpRequest(http.MethodPost, "", egress)); got != http.StatusOK {
 		t.Fatalf("an unauthenticated call after 240 served ones → %d, want the pre-auth budget untouched", got)
 	}
-	clock.advance(time.Minute)
+	clock.advanceWindow()
 	if got := serveStatus(edge, mcpRequest(http.MethodPost, "passport-a", egress)); got != http.StatusOK {
 		t.Fatalf("after the window → %d, want the budget to have reopened (200)", got)
 	}
