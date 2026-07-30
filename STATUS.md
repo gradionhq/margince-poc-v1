@@ -89,6 +89,14 @@ lanes green. What it deliberately did NOT include, for whoever picks up next:
   the shared engine (`internal/modules/migration`) and its `import_run` store
   exist; the connectors, mapping UI, dry-run/approve lifecycle, and undo are
   the import-export-migration chapter's own tickets (IEM-GAP-1..3 first).
+- **The RBAC fitness matcher only sees receivers named exactly `Store` or
+  `Service`** (`backend/rbacgate_test.go`), so a module whose store is named
+  `RunStore`/`MirrorStore` sits outside `TestEveryStoreEntryPointIsAuthGated`
+  entirely. The cutover's own new entry points are gated by hand; widening the
+  matcher to a suffix surfaces ~30 pre-existing ungated methods across ai,
+  capture and others, which wants its own change rather than riding a feature
+  PR.
+
 - **Spec-fills raised upstream** (disclosed in the PR): the `blocking[]`
   reason literals incl. `incumbent_unreachable`; the emergency variant's API
   shape (`mode` field, reachable-refusal rule); `import_run.connector` gaining

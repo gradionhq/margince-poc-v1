@@ -173,8 +173,8 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'hubspot:%'`, 2)
 	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'hubspot:%'`, 2)
 	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'hubspot:%'`, 2)
-	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE source_system = 'hubspot'`, 1)
-	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE source_system = 'hubspot'`, 1)
+	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`, 1)
+	assertCount("reconstructed activities", `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`, 1)
 	assertCount("reconstructed deal→org FK", `
 		SELECT count(*) FROM deal d JOIN organization o ON o.id = d.organization_id AND o.workspace_id = d.workspace_id
 		WHERE d.source = 'hubspot:deal:d-open' AND o.source = 'hubspot:organization:org-1'`, 1)

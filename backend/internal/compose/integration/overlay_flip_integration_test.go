@@ -261,8 +261,8 @@ func (f flipEstate) nativeEstateRows(t *testing.T) map[string]int {
 		"person":       `SELECT count(*) FROM person WHERE source LIKE 'hubspot:%'`,
 		"organization": `SELECT count(*) FROM organization WHERE source LIKE 'hubspot:%'`,
 		"deal":         `SELECT count(*) FROM deal WHERE source LIKE 'hubspot:%'`,
-		"lead":         `SELECT count(*) FROM lead WHERE source_system = 'hubspot'`,
-		"activity":     `SELECT count(*) FROM activity WHERE source_system = 'hubspot'`,
+		"lead":         `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`,
+		"activity":     `SELECT count(*) FROM activity WHERE source_system = 'mirror:hubspot'`,
 	} {
 		var n int
 		f.inWorkspaceTx(t, func(tx pgx.Tx) error {
@@ -466,7 +466,7 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		SELECT count(*) FROM activity_link al
 		JOIN activity a ON a.id = al.activity_id AND a.workspace_id = al.workspace_id
 		JOIN person p ON p.id = al.person_id AND p.workspace_id = al.workspace_id
-		WHERE a.source_system = 'hubspot' AND p.source = 'hubspot:person:p-1'`)
+		WHERE a.source_system = 'mirror:hubspot' AND p.source = 'hubspot:person:p-1'`)
 	assertOne("closed-won deal", `
 		SELECT count(*) FROM deal WHERE source = 'hubspot:deal:d-won' AND status = 'won'`)
 	// Owners survive the flip: every estate row named incumbent owner
