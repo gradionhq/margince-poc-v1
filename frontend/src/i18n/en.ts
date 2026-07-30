@@ -1737,6 +1737,11 @@ export const en = {
   "auth.coreDisclosure": "Margince · AI system",
   "auth.coreBoundary":
     "I can only use your context after Margince verifies that it's you.",
+  // The scope of the context the statement above is about. Bounded on purpose:
+  // "nothing else" is what keeps it a limit rather than a list of capabilities,
+  // which is what the artifact's version of this line was.
+  "auth.coreScope":
+    "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
   "auth.corePermission": "I use your permissions.",
   "auth.coreCites": "I cite what I find.",
   "auth.coreWaits": "I wait before taking external action.",

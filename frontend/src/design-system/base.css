@@ -1,5 +1,23 @@
 /* Base controls (foundation v0 vocabulary) — grows as tickets need atoms. */
 
+/* Text for assistive technology only: in the accessibility tree, off the
+   screen. Clipped to 1px rather than `display: none` or `visibility: hidden` —
+   both of those remove it from the tree as well, which is the opposite of what
+   this is for. Its one caller today is the typed statement on the
+   unauthenticated surface, which hands a screen reader the COMPLETE sentence
+   while the visible layer is still being assembled a character at a time. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .btn {
   font-family: var(--f-body);
   font-weight: 600;

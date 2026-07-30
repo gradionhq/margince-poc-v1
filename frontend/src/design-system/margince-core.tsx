@@ -61,6 +61,10 @@ export function MarginceCoreScene({
   return (
     <div className={classes} data-core-state={state} aria-hidden="true">
       <span className="core-glow" />
+      {/* The caustic: light pooling on the ground beneath the glass. The artifact
+          has it and the port dropped it, which is most of why the sphere floated
+          rather than sitting somewhere. Decorative, inside the aria-hidden root. */}
+      <span className="core-caustic" />
       <div className="core-tilt">
         {/* Two wrappers, both load-bearing: .core-glass paints the shell and
             .core-liquid clips the canvas to the sphere. The canvas fills

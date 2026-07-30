@@ -29,4 +29,19 @@
   --accentSurface: color-mix(in srgb, var(--accent) 5%, var(--bgElevated));
   --accentSoft: color-mix(in oklab, var(--accent) 68%, var(--overlayLight));
   --accentDeep: color-mix(in oklab, var(--accent) 84%, var(--overlayDark));
+
+  /* The Core's LIGHT, and it exists because one tint could not do two jobs.
+   *
+   * The reference artifact paints the sphere with six different colours, and the
+   * port substituted --coreTint for all of them. That is right for the parts
+   * meant to be DARK (the outer drop shadow, the inner crescent, both of which
+   * want a deep green) and destroys the parts meant to be BRIGHT: the artifact's
+   * halo is a saturated mint, its bottom bounce-light is nearly white, and the
+   * feed motes glow. Rendered in the accent they all went grey and the sphere
+   * lost its light source.
+   *
+   * So: --coreTint is the shade, --coreLight is the light. Both derive from the
+   * accent, so a re-themed palette still moves the whole sphere together.
+   */
+  --coreLight: color-mix(in oklab, var(--accent) 52%, var(--overlayLight));
 }

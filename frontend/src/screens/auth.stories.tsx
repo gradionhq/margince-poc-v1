@@ -38,7 +38,10 @@ function AuthStory({
   notice,
   // Empty is what the running installation serves — the OIDC flow has not
   // shipped (§19) — so it stays the default here too. A STORY seeds providers to
-  // review the federated design; nothing under src/ ever does.
+  // review the federated design; the shipped app never seeds the capability
+  // response. The one way to see this block on the running app is the
+  // `VITE_UI_PREVIEW_OIDC` preview switch (`app/ui-preview.ts`), which overrides
+  // at the render boundary and leaves the wire alone.
   oidcProviders = [],
 }: Readonly<{
   profile: AssistantProfile;
@@ -73,10 +76,11 @@ export const ConfiguredHybrid: Story = {
 /**
  * The installation's administrator has wired SSO (§11).
  *
- * This is the ONLY place in this repo the federated block can be seen: the real
- * server serves `oidc_providers: []` until the OIDC flow ships, and the component
- * renders nothing for an empty list. Seeding it here reviews the design without
- * claiming the build can complete the flow.
+ * The real server serves `oidc_providers: []` until the OIDC flow ships, and the
+ * component renders nothing for an empty list. Seeding it here reviews the design
+ * without claiming the build can complete the flow. The same block can be put on
+ * the running app for a walkthrough with `VITE_UI_PREVIEW_OIDC=1 pnpm dev` — same
+ * override discipline, same inert buttons (`app/ui-preview.ts`).
  *
  * The password form is still there and still complete — it is the fallback door,
  * which is why the divider labels IT rather than the buttons above.

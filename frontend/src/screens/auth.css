@@ -412,7 +412,18 @@
   line-height: 1.5;
   color: var(--textMeta);
 }
+/* The sentence wraps INSIDE its own column; the links never get pushed onto a
+   second line. Without the `1 1 120px` the German sentence ("Der Zugang zu
+   dieser Organisation ist beschränkt.") plus "Nutzungsbedingungen · Datenschutz"
+   overflows 440px, `flex-wrap` drops the links below, and `space-between` then
+   left-aligns them under the text so the row reads as two ragged fragments.
+   English fitting on one line is what hid this. */
+.auth-legal > p {
+  flex: 1 1 120px;
+  min-width: 0;
+}
 .auth-legal-links {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -459,16 +470,27 @@
   gap: var(--space-6);
   padding: 48px 5vw;
   border-right: 1px solid var(--borderSubtle);
+  /* Four layers, matching the artifact's stack. The port had three and had the
+     first one backwards: the artifact's top-left wash is an opaque pale mint
+     that LIGHTENS toward white, and a translucent accent wash darkens instead.
+     Same footprint, opposite luminance, and it is why the whole column sat
+     heavier than the picture. --coreLight carries the lift, so it still follows
+     the palette into dark. */
   background:
     radial-gradient(
       760px 580px at 34% 22%,
-      color-mix(in srgb, var(--accent) 7%, transparent) 0%,
+      color-mix(in srgb, var(--coreLight) 40%, transparent) 0%,
       transparent 60%
     ),
     radial-gradient(
       560px 480px at 4% 104%,
-      color-mix(in srgb, var(--accent) 5%, transparent),
+      color-mix(in srgb, var(--coreLight) 22%, transparent),
       transparent 60%
+    ),
+    radial-gradient(
+      520px 420px at 96% 8%,
+      color-mix(in srgb, var(--accent) 6%, transparent),
+      transparent 58%
     ),
     linear-gradient(
       160deg,
@@ -476,13 +498,40 @@
       color-mix(in srgb, var(--accent) 7%, var(--bgElevated)) 100%
     );
 }
-.auth-identity-top,
+.auth-identity-copy,
 .auth-identity-foot {
   position: relative;
   z-index: 1;
   width: 100%;
   max-width: 470px;
-  animation: authRise 0.8s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+/* The staggered reveal (motion budget, ADR-0076 Decision 5).
+   Each row is COMPLETE TEXT fading up, not text being assembled: only the
+   statement is typed, and everything else must already be readable. The last row
+   lands at 240 + 520 = 760 ms, inside the budget and inside the 800 ms entry
+   ceiling, with 80 ms between rows so the eye gets an order to read in rather
+   than four things arriving at once. */
+.auth-kicker,
+.auth-statement,
+.auth-scope,
+.auth-limits,
+.auth-identity-foot {
+  animation: authRise 0.52s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.auth-kicker {
+  animation-delay: 0ms;
+}
+.auth-statement {
+  animation-delay: 80ms;
+}
+.auth-scope {
+  animation-delay: 160ms;
+}
+.auth-limits {
+  animation-delay: 240ms;
+}
+.auth-identity-foot {
+  animation-delay: 320ms;
 }
 /* (a) identity: the system's presence and name. Mono, small, unmissable. */
 .auth-kicker {
@@ -505,6 +554,7 @@
 /* (b) the boundary, in the first person. Not a heading — the h1 belongs to the
    task (§6.4), and this is a paragraph however large it is set. */
 .auth-statement {
+  position: relative;
   margin-top: var(--space-3);
   font-family: var(--f-display);
   font-size: clamp(22px, 2.4vw, 32px);
@@ -512,6 +562,46 @@
   line-height: 1.14;
   letter-spacing: -0.025em;
   color: var(--textPrimary);
+}
+/* ZERO layout shift while typing. The ghost is the full sentence rendered
+   invisibly, so the paragraph is already its final height on the first frame and
+   the scope line below it never moves. `visibility: hidden` rather than
+   `opacity: 0`, because the ghost must not be paintable at all. */
+.auth-statement-ghost {
+  visibility: hidden;
+}
+.auth-statement-live {
+  position: absolute;
+  inset: 0;
+}
+.auth-caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.85em;
+  margin-left: 3px;
+  vertical-align: -0.08em;
+  background: var(--accent);
+  animation: authCaret 1s steps(1) infinite;
+}
+@keyframes authCaret {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+/* The scope of that context, and the reason it is a separate line rather than a
+   second clause: the statement says what has to happen first, this says what the
+   context IS. Bounded on purpose ("nothing else") so it stays a limit. */
+.auth-scope {
+  margin-top: var(--space-3);
+  max-width: 42ch;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--textContent);
 }
 /* (c) a server-read fact. Reserves its height so the column does not jump when
    the probe resolves — and stays empty rather than guessing when it fails. */
@@ -521,7 +611,6 @@
   align-items: center;
   gap: var(--space-2);
   min-height: 31px;
-  margin-bottom: var(--space-3);
   font-family: var(--f-mono);
   font-size: 11px;
   color: var(--textMeta);
@@ -591,9 +680,15 @@
   .auth-identity {
     border-right: none;
     border-top: 1px solid var(--borderSubtle);
+    /* Copy left, Core right, runtime line under the copy. The Core stays beside
+       the text rather than above it: stacked, a 150px sphere plus four limits
+       pushes the runtime line off a phone screen, and §5.2 says nothing here may
+       be dropped to make room. */
     grid-template-rows: auto auto;
     grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
+    justify-items: start;
+    gap: var(--space-4) var(--space-6);
     padding: 32px 28px;
   }
   .auth-identity .core {
@@ -602,8 +697,20 @@
     --coreSize: 150px;
     --coreGlass: 118px;
   }
+  .auth-identity-copy {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .auth-identity-foot {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .auth-statement {
+    font-size: 23px;
+  }
   .auth-limits {
     grid-template-columns: 1fr;
+    gap: var(--space-2);
   }
 }
 
@@ -619,19 +726,55 @@
     font-size: 16px;
   }
   .auth-identity {
-    /* May reduce to the Core and its one statement. May NOT be removed: the
-       disclosure is the reason the region exists (ADR-0076 Decision 1). */
-    padding: 24px 20px max(24px, env(safe-area-inset-bottom));
+    /* One column, Core first, exactly the wide order. May reduce; may NOT be
+       removed: the disclosure is the reason the region exists (Decision 1). */
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    justify-items: center;
+    text-align: center;
+    gap: var(--space-4);
+    padding: 28px 20px max(24px, env(safe-area-inset-bottom));
   }
   .auth-identity .core {
-    --coreSize: 120px;
-    --coreGlass: 96px;
+    grid-column: 1;
+    grid-row: 1;
+    --coreSize: 132px;
+    --coreGlass: 104px;
+  }
+  .auth-identity-copy {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .auth-identity-foot {
+    grid-column: 1;
+    grid-row: 3;
+  }
+  .auth-kicker,
+  .auth-runtime {
+    justify-content: center;
   }
   .auth-statement {
-    font-size: 19px;
+    font-size: 21px;
   }
-  .auth-runtime {
-    margin-bottom: 0;
+  .auth-scope {
+    /* Centred text needs a measure, or it reads as a ragged block. */
+    max-width: 34ch;
+    margin-inline: auto;
+    font-size: 13px;
+  }
+  /* Two columns of limits at phone width, not one: four single-column rows is a
+     tall list that pushes the runtime line under the fold, and each limit is
+     three or four words. */
+  .auth-limits {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-3) var(--space-2);
+    text-align: start;
+  }
+  .auth-legal {
+    justify-content: center;
+  }
+  .auth-legal > p {
+    flex: 0 1 auto;
   }
 }
 
@@ -639,9 +782,18 @@
   /* The end state, not nothing: both regions arrive in place rather than
      arriving at all. */
   .auth-task-in,
-  .auth-identity-top,
+  .auth-kicker,
+  .auth-statement,
+  .auth-scope,
+  .auth-limits,
   .auth-identity-foot {
     animation: none;
+  }
+  /* The caret is a cursor, not a state. With the text complete on the first
+     render there is nothing left to type, so a blinking caret would be claiming
+     otherwise. */
+  .auth-caret {
+    display: none;
   }
 }
 

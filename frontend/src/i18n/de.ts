@@ -1773,6 +1773,8 @@ export const de = {
   "auth.coreDisclosure": "Margince · KI-System",
   "auth.coreBoundary":
     "Ich kann deinen Kontext erst nutzen, nachdem Margince bestätigt hat, dass du es bist.",
+  "auth.coreScope":
+    "Dieser Kontext ist deine Mailbox, dein Kalender und was ich im offenen Web lesen kann. Nichts anderes, und nichts ohne deine Freigabe.",
   "auth.corePermission": "Ich nutze deine Berechtigungen.",
   "auth.coreCites": "Ich belege, was ich finde.",
   "auth.coreWaits": "Vor externen Aktionen warte ich auf deine Freigabe.",

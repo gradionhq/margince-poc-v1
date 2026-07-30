@@ -11,6 +11,7 @@ import {
   MarginceCoreScene,
   type MarginceCoreState,
 } from "../design-system/margince-core";
+import { useTypeStream } from "../design-system/motion";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
 
@@ -68,6 +69,26 @@ const modeKeys: Record<AssistantProfile["inference_mode"], MessageKey> = {
   none: "auth.coreModeNone",
   development: "auth.coreModeDevelopment",
 };
+
+/**
+ * The motion budget, in one place (ADR-0076 Decision 5): the statement reaches
+ * its full text within 1200 ms of mount, or renders complete immediately.
+ *
+ * The speed is DERIVED from the text rather than fixed, and that is the whole
+ * reason the budget survives translation. A fixed 34 ms/char (which is what the
+ * artifact uses) blows the budget at 36 characters, and the German statement is
+ * roughly a quarter longer than the English one, so a constant tuned on English
+ * would quietly break for the beachhead's own language. Solve for the budget and
+ * the copy can grow without anyone re-checking this number.
+ */
+const TYPE_START_MS = 90;
+const TYPE_BUDGET_MS = 1010;
+
+function typeSpeedFor(text: string): number {
+  // Clamped at both ends: a very short statement should not crawl at 26 ms/char,
+  // and a very long one should not become an unreadable 3 ms flicker.
+  return Math.max(8, Math.min(26, Math.floor(TYPE_BUDGET_MS / text.length)));
+}
 
 export function AuthExperience({
   children,
@@ -140,6 +161,13 @@ function LegalFooter() {
  * system enforces, stated absolutely. They are not bullets selling a feature,
  * which is the distinction the July login spec collapsed and ADR-0076 restored.
  *
+ * ORDER, top to bottom, and it is the artifact's: the Core, then the system's
+ * name, then what it says about itself, then the scope of that, then the limits,
+ * then the server-read runtime line. The Core leads because it is the thing that
+ * is PRESENT; the copy explains what is present. The previous order opened with
+ * the sentence and buried the Core in the middle, which is a paragraph with an
+ * illustration rather than a system introducing itself.
+ *
  * NO CONTROLS AND NO COPY THE TASK DEPENDS ON. That is what stops this region
  * competing with the form, and it is structural rather than a matter of taste.
  */
@@ -151,29 +179,23 @@ export function IdentityRegion({
   const identityId = useId();
   return (
     <aside className="auth-identity" aria-labelledby={identityId}>
-      <div className="auth-identity-top">
+      <MarginceCoreScene state={coreState(phase)} />
+
+      <div className="auth-identity-copy">
         <p className="auth-kicker" id={identityId}>
           <span className="auth-kicker-dot" aria-hidden />
           {t("auth.coreDisclosure")}
         </p>
-        {/* Not a heading. The one h1 belongs to the task (§6.4), and this is a
-            paragraph however large it is set. */}
-        <p className="auth-statement">{t("auth.coreBoundary")}</p>
-      </div>
 
-      <MarginceCoreScene state={coreState(phase)} />
+        <TypedStatement text={t("auth.coreBoundary")} />
 
-      <div className="auth-identity-foot">
-        {/* Absent rather than guessed: a runtime line the frontend invented is
-            the one thing Decision 2c forbids, so an in-flight or failed probe
-            renders nothing. The row reserves its height in CSS so the column
-            does not jump when it arrives. */}
-        {profile && <RuntimePosture profile={profile} />}
+        <p className="auth-scope">{t("auth.coreScope")}</p>
+
         {/* Four, from the artifact's five, and two of the five did not travel.
             "Enriches records from sources it names" is a capability claim and
             Decision 2 admits only limits. "Switch it off, the CRM still works"
             IS a limit, but it is already the second half of the runtime line
-            above when the AI is unconfigured, and that is where it belongs: it
+            below when the AI is unconfigured, and that is where it belongs: it
             is a server-read fact about this installation, not a standing
             promise. Saying it twice on one screen weakens both. */}
         <ul className="auth-limits">
@@ -183,7 +205,61 @@ export function IdentityRegion({
           <Limit icon={<PenLine />} text={t("auth.coreMarks")} />
         </ul>
       </div>
+
+      {/* Absent rather than guessed: a runtime line the frontend invented is
+          the one thing Decision 2c forbids, so an in-flight or failed probe
+          renders nothing. The row reserves its height in CSS so the column
+          does not jump when it arrives. */}
+      <div className="auth-identity-foot">
+        {profile && <RuntimePosture profile={profile} />}
+      </div>
     </aside>
+  );
+}
+
+/**
+ * The typed statement, in its own component so that a state update per character
+ * re-renders one paragraph rather than the region that also holds the Core.
+ *
+ * This is a precaution, not a fix for a measured bug, and the distinction is
+ * worth recording because the obvious reading is wrong: a stream that looked
+ * like 300 ms/char turned out to be Chrome throttling `setTimeout` to 1/second in
+ * a tab that was not visible, which `useTypeStream` now handles at the source.
+ * The isolation stays because per-tick state next to a WebGL canvas is a bad
+ * shape regardless of whether it has bitten yet.
+ *
+ * Not a heading. The one h1 belongs to the task (§6.4), and this is a paragraph
+ * however large it is set. Two details keep it honest:
+ *
+ *  - the GHOST is an invisible copy of the full sentence holding the final height
+ *    open, so the scope line and the limits below never move. A typewriter that
+ *    reflows the column under itself is worse than none.
+ *  - the sentence reaches assistive tech COMPLETE, through an `.sr-only` span,
+ *    because a screen reader must not be fed a partial sentence character by
+ *    character. It is a span rather than an `aria-label` on the <p> because a
+ *    paragraph has no role that supports being named — biome's a11y lint says so
+ *    too.
+ *
+ * Under reduced motion (or on a hidden tab) `useTypeStream` returns the complete
+ * text on its first render and reports `done`, so this is a static paragraph with
+ * no caret.
+ */
+function TypedStatement({ text }: Readonly<{ text: string }>) {
+  const { shown, done } = useTypeStream(text, {
+    speed: typeSpeedFor(text),
+    startDelay: TYPE_START_MS,
+  });
+  return (
+    <p className="auth-statement">
+      <span className="sr-only">{text}</span>
+      <span className="auth-statement-ghost" aria-hidden>
+        {text}
+      </span>
+      <span className="auth-statement-live" aria-hidden>
+        {shown}
+        {done ? null : <span className="auth-caret" />}
+      </span>
+    </p>
   );
 }
 
