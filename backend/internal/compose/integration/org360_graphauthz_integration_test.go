@@ -203,13 +203,20 @@ func TestOrganizationGraphPrunesNodesToTheCallersRowScope(t *testing.T) {
 		t.Error("a stakeholder edge was drawn for a person outside the caller's row scope")
 	}
 	// referred_by is recorded on the PARTNER's row, so the edge starts there.
+	// Counted as well as checked: a loop that only judges the edges it finds
+	// passes just as happily when the edge went missing altogether.
+	referrals := 0
 	for _, edge := range graph.Edges {
 		if edge.Kind != crmcontracts.OrganizationGraphEdgeKindReferredBy {
 			continue
 		}
+		referrals++
 		if ids.UUID(edge.From) != myPartner || ids.UUID(edge.To) != org {
 			t.Errorf("referred_by edge runs %v -> %v, want %v -> %v", edge.From, edge.To, myPartner, org)
 		}
+	}
+	if referrals != 1 {
+		t.Errorf("referred_by edges = %d, want exactly 1 — the in-scope partner and only it", referrals)
 	}
 }
 

@@ -77,29 +77,23 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-// The card renders EntityRef per node, and each one reads the record it names
-// to resolve a display name. The stub answers those too, so a test asserting
-// on names is asserting on the card rather than on a pending fetch.
+// The card names every node from the graph payload's own label, so the ONLY
+// request a test should see is the graph read. The stub still answers a record
+// read if one is made — and `fetched` is how a test proves none was.
 function stub(body: unknown, status = 200) {
+  const fetched: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
       const pathname = new URL(request.url).pathname;
+      fetched.push(pathname);
       if (pathname.endsWith("/graph")) {
         return jsonResponse(body, status);
-      }
-      if (pathname.endsWith("/people/p-1")) {
-        return jsonResponse({ id: "p-1", full_name: "Dana Buyer" });
-      }
-      if (pathname.endsWith("/deals/d-1")) {
-        return jsonResponse({ id: "d-1", name: "Renewal" });
-      }
-      if (pathname.endsWith("/organizations/org-parent")) {
-        return jsonResponse({ id: "org-parent", display_name: "Holding" });
       }
       return jsonResponse({ data: [], page: { has_more: false } });
     }),
   );
+  return fetched;
 }
 
 afterEach(() => {
@@ -125,13 +119,47 @@ describe("connections card", () => {
 
     const list = await screen.findByRole("list");
     expect(within(list).getAllByRole("listitem")).toHaveLength(2);
-    await waitFor(() => {
-      expect(within(list).getByText("Dana Buyer")).toBeTruthy();
-    });
+    expect(within(list).getByText("Dana Buyer")).toBeTruthy();
     expect(within(list).getByText("Renewal")).toBeTruthy();
     // The account itself is not a row: it is the record the reader is on, and
     // a link back to the current page is a dead end.
     expect(within(list).queryByText("Brandt")).toBeNull();
+  });
+
+  it("names its nodes from the payload, without a request per node", async () => {
+    const fetched = stub(graph());
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const list = await screen.findByRole("list");
+    // Every name is already on screen — no waitFor, because nothing is in
+    // flight to wait for.
+    expect(within(list).getByText("Dana Buyer")).toBeTruthy();
+    expect(within(list).getByText("Renewal")).toBeTruthy();
+    // One request for the whole card. A per-node record read would be an N+1
+    // fan-out for names this payload already carried, and each row would show
+    // its raw uuid until the read landed.
+    await waitFor(() => {
+      expect(fetched.filter((path) => path.endsWith("/graph"))).toHaveLength(1);
+    });
+    expect(fetched.filter((path) => !path.endsWith("/graph"))).toEqual([]);
+  });
+
+  it("falls back to the id when the payload carries no label", async () => {
+    stub(
+      graph({
+        nodes: [
+          node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
+          node({ id: "p-1", kind: "person", label: "" }),
+        ],
+        edges: [{ from: ROOT, to: "p-1", kind: "employment" as const }],
+      }),
+    );
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const list = await screen.findByRole("list");
+    // An unnamed record reads as its id, never as a blank row or a dead link.
+    expect(within(list).getByTitle("p-1").textContent).toBe("p-1");
+    expect(within(list).queryByRole("button", { name: "" })).toBeNull();
   });
 
   it("hides the diagram from assistive technology, because the list is the content", async () => {

@@ -26,8 +26,9 @@ import { EntityRef } from "./entityref";
 // diagram is a glance: it is `aria-hidden` and carries no interaction, because
 // a hand-rolled SVG is not something a screen reader or a keyboard can be
 // given a good experience in. The list underneath holds every node the
-// diagram draws, in the same order, each routing through EntityRef — so
-// everything the picture shows can be reached and opened without it.
+// diagram draws, in the same order, each routing through EntityRef on the
+// label the payload already carries — so everything the picture shows can be
+// reached and opened without it, and without a second request per node.
 
 type Graph = components["schemas"]["OrganizationGraph"];
 type GraphNode = components["schemas"]["OrganizationGraphNode"];
@@ -263,7 +264,11 @@ function NodeList({ graph }: Readonly<{ graph: Graph }>) {
       {neighbours.map((node) => (
         <li key={node.id} className="co-row">
           <span className="cx-node-name">
-            <EntityRef kind={node.kind} id={node.id} />
+            {/* The label comes off THIS payload. EntityRef would otherwise
+                fetch each record's name — one request per visible node, with
+                the raw id showing until it lands — for names the graph read
+                already returned. */}
+            <EntityRef kind={node.kind} id={node.id} name={node.label} />
             {node.intro_path && (
               <Badge tone="accent">{t("co.connections.introPath")}</Badge>
             )}
