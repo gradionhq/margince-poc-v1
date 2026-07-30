@@ -34,6 +34,26 @@ type GraphNode = components["schemas"]["OrganizationGraphNode"];
 type GraphEdge = components["schemas"]["OrganizationGraphEdge"];
 type Group = Graph["groups_omitted"][number];
 
+/**
+ * RelationKey is the closed set of relations a node can hold to the account,
+ * and it is the second half of each `co.connections.rel.*` catalog key.
+ *
+ * Spelled as a union rather than derived from the edge kind, because two kinds
+ * split by direction and one does not: a mismatch between this and the catalog
+ * fails to compile instead of rendering a raw key at a reader.
+ */
+type RelationKey =
+  | "employment"
+  | "has_deal"
+  | "deal_stakeholder"
+  | "parent"
+  | "child"
+  | "partner_of.counterparty"
+  | "partner_of.owner"
+  | "referred_by.counterparty"
+  | "referred_by.owner"
+  | "co_sell_with";
+
 /** useOrganizationGraph reads the account's one-hop connections. */
 export function useOrganizationGraph(id: string) {
   return useQuery({
@@ -166,8 +186,68 @@ function nodeClass(node: GraphNode): string {
 }
 
 /**
+ * relationKeys names how one node attaches to the account, read off the EDGES
+ * rather than guessed from the node's kind.
+ *
+ * The kind alone is not the relation, and the difference is the thing a rep
+ * acts on: a contact may be an employee, a stakeholder on a deal, or both; a
+ * company may be the parent, a subsidiary, or a reseller. The diagram carries
+ * that in the line it draws, so the list has to carry it in words — otherwise
+ * a reader who cannot see the picture learns WHO is attached and never HOW.
+ *
+ * Every edge kind describes its `to` end. `employment`, `has_deal` and
+ * `deal_stakeholder` say nothing about their `from` end that the reader needs,
+ * so a node sitting there gets no label from them — a deal is not "a
+ * stakeholder" because a stakeholder edge leaves it.
+ *
+ * On the remaining kinds both ends mean something and the direction is what
+ * says which. The hierarchy edge runs parent → child. A partner edge runs from
+ * the organization that RECORDS it to its counterparty, so `referred_by`
+ * pointing at this account means that company referred it, while pointing away
+ * means this account referred them — calling both "referral" would lose which.
+ * `co_sell_with` is the one partner edge whose sides read the same, so it gets
+ * one label rather than two that would say the same thing twice.
+ */
+export function relationKeys(graph: Graph, nodeId: string): RelationKey[] {
+  const keys: RelationKey[] = [];
+  for (const edge of graph.edges) {
+    const key = relationKey(edge, nodeId);
+    if (key) {
+      keys.push(key);
+    }
+  }
+  // A person holding two seats on two drawn deals is a stakeholder once as far
+  // as the reader is concerned; the repeated word adds nothing.
+  return [...new Set(keys)];
+}
+
+// relationKey is one edge's label for one node, or null when that edge says
+// nothing about it — either because the node is not on the edge at all, or
+// because the node is at the end the edge does not describe.
+function relationKey(edge: GraphEdge, nodeId: string): RelationKey | null {
+  const pointsAtNode = edge.to === nodeId;
+  if (!pointsAtNode && edge.from !== nodeId) {
+    return null;
+  }
+  switch (edge.kind) {
+    case "parent_of":
+      return pointsAtNode ? "child" : "parent";
+    case "partner_of":
+    case "referred_by":
+      // `counterparty` is the far end the recording organization points at;
+      // `owner` is the organization whose row carries the edge.
+      return `${edge.kind}.${pointsAtNode ? "counterparty" : "owner"}`;
+    case "co_sell_with":
+      return edge.kind;
+    default:
+      return pointsAtNode ? edge.kind : null;
+  }
+}
+
+/**
  * NodeList is the card's accessible content: every node the diagram draws, in
- * the same order, each reachable by keyboard through EntityRef's own link.
+ * the same order, each reachable by keyboard through EntityRef's own link and
+ * each naming how it attaches to the account.
  *
  * The root is left out — it is the record the reader is already on, and a
  * link back to the current page is a dead end that costs a tab stop.
@@ -189,9 +269,11 @@ function NodeList({ graph }: Readonly<{ graph: Graph }>) {
             )}
           </span>
           <span className="co-row-meta">
-            <span className="cx-kind">
-              {t(`co.connections.kind.${node.kind}`)}
-            </span>
+            {relationKeys(graph, node.id).map((key) => (
+              <span key={key} className="cx-relation">
+                {t(`co.connections.rel.${key}`)}
+              </span>
+            ))}
             {node.detail && <span>{node.detail}</span>}
             {node.strength != null && node.strength_bucket && (
               <Badge tone={strengthTone(node.strength_bucket)}>

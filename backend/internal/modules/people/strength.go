@@ -252,12 +252,9 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
-	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	scope, err := personScopePredicate(ctx, arg)
 	if err != nil {
 		return nil, err
-	}
-	if scope == "" {
-		scope = "TRUE"
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT p.id FROM person p
@@ -283,6 +280,21 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	return contactStrengths(ctx, tx, contacts, now)
 }
 
+// personScopePredicate is the caller's person row-scope predicate for a query
+// that aliases person as p, spelled once for the two batch reads below. An
+// unbounded caller gets the always-true predicate rather than an empty string,
+// so the SQL that embeds it needs only one shape.
+func personScopePredicate(ctx context.Context, arg func(any) int) (string, error) {
+	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return "", err
+	}
+	if scope == "" {
+		return "TRUE", nil
+	}
+	return scope, nil
+}
+
 // StrengthForPeople computes §4 for an ARBITRARY contact set inside the
 // caller's own transaction, pruned to their person row scope and to live
 // rows. A person the caller may not read, or one that is archived, is
@@ -304,12 +316,9 @@ func StrengthForPeople(ctx context.Context, tx pgx.Tx, people []ids.PersonID, no
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	peoplePos := arg(people)
-	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	scope, err := personScopePredicate(ctx, arg)
 	if err != nil {
 		return nil, err
-	}
-	if scope == "" {
-		scope = "TRUE"
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT p.id FROM person p

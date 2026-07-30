@@ -95,6 +95,22 @@ func seedOpenSignal(t *testing.T, owner *pgx.Conn, ws, org ids.UUID) ids.UUID {
 	return id
 }
 
+// seedOrgSubjectSignal records an open signal created directly ABOUT the
+// account: the subject pair is set and resolved_org_id is NULL, the shape the
+// resolver never produces and a hand-created signal always does.
+func seedOrgSubjectSignal(t *testing.T, owner *pgx.Conn, ws, org ids.UUID) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), `
+		INSERT INTO signal (id, workspace_id, kind, summary, entity_type, entity_id,
+		                    resolution_state, status, source, captured_by)
+		VALUES ($1, $2, 'risk', 'their CFO left', 'organization', $3,
+		        'resolved', 'open', 'manual', 'human:x')`, id, ws, org); err != nil {
+		t.Fatalf("seeding an org-subject signal: %v", err)
+	}
+	return id
+}
+
 // employ ties a person to an organization as a current employee.
 func employ(t *testing.T, e *Env, person, org ids.UUID, title string) {
 	t.Helper()
@@ -296,10 +312,10 @@ func TestOrganizationGraphTransportServesANativeWorkspace(t *testing.T) {
 		t.Errorf("root label = %q, want Acme", body.Nodes[0].Label)
 	}
 	// The three collection fields are always arrays on the wire: a client that
-	// had to handle null for "none" would branch on it in four places.
-	if body.Edges == nil || body.GroupsOmitted == nil {
-		t.Errorf("edges = %v, groups_omitted = %v; both must be arrays, never null",
-			body.Edges, body.GroupsOmitted)
+	// had to handle null for "none" would branch on it in three places.
+	if body.Nodes == nil || body.Edges == nil || body.GroupsOmitted == nil {
+		t.Errorf("nodes = %v, edges = %v, groups_omitted = %v; all three must be arrays, never null",
+			body.Nodes, body.Edges, body.GroupsOmitted)
 	}
 }
 

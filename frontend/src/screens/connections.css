@@ -68,9 +68,10 @@
   font-size: 13px;
 }
 
-.cx-kind {
+/* How a node attaches to the account. Set apart from the record's own detail
+   (a title, a stage) because the two answer different questions. */
+.cx-relation {
   color: var(--textMeta);
-  text-transform: lowercase;
 }
 
 .cx-actions {

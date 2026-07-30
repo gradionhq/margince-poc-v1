@@ -42,7 +42,6 @@ func newGraph(t *testing.T) (*graphAssembly, ids.OrganizationID) {
 		now:       graphNow,
 		out:       out,
 		nodeIndex: map[ids.UUID]int{},
-		omitted:   map[crmcontracts.OrganizationGraphGroupsOmitted]bool{},
 		strengths: map[ids.PersonID]people.RelationshipStrength{},
 	}
 	g.addNode(crmcontracts.OrganizationGraphNode{
@@ -55,13 +54,32 @@ func newGraph(t *testing.T) (*graphAssembly, ids.OrganizationID) {
 }
 
 // employee registers one contact with the given score, so a test states the
-// strength it is ordering by rather than seeding activities to produce one.
+// strength it is ordering by rather than seeding activities to produce one. It
+// bumps employeeTotal with it, because the account's true headcount is what
+// dropped_count is counted against.
 func (g *graphAssembly) employee(t *testing.T, name string, score int) ids.PersonID {
+	t.Helper()
+	personID := g.unmeasuredEmployee(t, name)
+	g.strengths[personID] = people.RelationshipStrength{Strength: score, Bucket: "strong"}
+	return personID
+}
+
+// unmeasuredEmployee registers a contact the read could not score — the state
+// a missing strengths entry means, kept distinct from a stored zero.
+func (g *graphAssembly) unmeasuredEmployee(t *testing.T, name string) ids.PersonID {
 	t.Helper()
 	personID := ids.From[ids.PersonKind](ids.NewV7())
 	g.employees = append(g.employees, graphPersonEdge{personID: personID, fullName: name})
-	g.strengths[personID] = people.RelationshipStrength{Strength: score, Bucket: "strong"}
+	g.employeeTotal++
 	return personID
+}
+
+// openDeal registers one open deal on the account, total included.
+func (g *graphAssembly) openDeal(name string, amountMinor *int64) ids.UUID {
+	dealID := ids.NewV7()
+	g.openDeals = append(g.openDeals, graphDeal{dealID: dealID, name: name, amountMinor: amountMinor})
+	g.openDealTotal++
+	return dealID
 }
 
 // nodeIDs is the placed node order, which is the order a client lays out.
@@ -120,12 +138,15 @@ func TestEquallyStrongContactsTieBreakOnId(t *testing.T) {
 
 // TestAnUnscoredContactSortsLastAndCarriesNoStrength holds the line between
 // "we measured a cold relationship" and "we could not measure one": the node
-// must not claim a zero the read never produced.
+// must not claim a zero the read never produced, and it must not tie with a
+// contact that genuinely scored zero — a bare map read would collapse both,
+// because a missing entry and a stored 0 look the same.
 func TestAnUnscoredContactSortsLastAndCarriesNoStrength(t *testing.T) {
 	g, _ := newGraph(t)
-	scored := g.employee(t, "Scored", 5)
-	unscored := ids.From[ids.PersonKind](ids.NewV7())
-	g.employees = append(g.employees, graphPersonEdge{personID: unscored, fullName: "Unscored"})
+	// Measured at ZERO, not merely weak: the point is that an unmeasured
+	// contact loses to a contact we measured and found cold.
+	scored := g.employee(t, "Scored at zero", 0)
+	unscored := g.unmeasuredEmployee(t, "Unscored")
 
 	g.placeContacts()
 
@@ -160,6 +181,37 @@ func TestTheContactCapReportsWhatItLeftOut(t *testing.T) {
 	}
 }
 
+// TestDroppedCountReportsPastTheBoundedRead is why the counts are taken from
+// each group's own total rather than from the rows in hand: the reads are
+// bounded (graphScanCap), so an account larger than the bound would otherwise
+// report only the part the query happened to fetch — understating, which reads
+// as "that is nearly everything".
+func TestDroppedCountReportsPastTheBoundedRead(t *testing.T) {
+	g, _ := newGraph(t)
+	for range graphContactCap + 1 {
+		g.employee(t, "Fetched", 50)
+	}
+	// The account has far more contacts than the read brought back.
+	g.employeeTotal = 900
+	amount := int64(1)
+	g.openDeal("Fetched", &amount)
+	g.openDealTotal = 40
+	g.relatedTotal = 25
+
+	g.placeContacts()
+	g.placeDeals()
+	g.placeRelated([]graphRelatedOrg{
+		{orgID: ids.NewV7(), displayName: "Holding", relation: graphRelationParent},
+	})
+
+	// 900 − 15 contacts, 40 − 1 deals, 25 − 1 organizations.
+	want := (900 - graphContactCap) + (40 - 1) + (25 - 1)
+	if g.out.DroppedCount != want {
+		t.Errorf("dropped_count = %d, want %d — the count must run from each group's true total",
+			g.out.DroppedCount, want)
+	}
+}
+
 // TestASeatOnADroppedDealDrawsNoEdge is the no-dangling-edge rule: the cap
 // removes the deal node, so the stakeholder edge that pointed at it must go
 // too.
@@ -167,13 +219,12 @@ func TestASeatOnADroppedDealDrawsNoEdge(t *testing.T) {
 	g, _ := newGraph(t)
 	amount := int64(1)
 	for range graphDealCap {
-		g.openDeals = append(g.openDeals, graphDeal{dealID: ids.NewV7(), name: "Kept", amountMinor: &amount})
+		g.openDeal("Kept", &amount)
 	}
-	dropped := graphDeal{dealID: ids.NewV7(), name: "Dropped"}
-	g.openDeals = append(g.openDeals, dropped)
+	droppedDeal := g.openDeal("Dropped", nil)
 	seated := ids.From[ids.PersonKind](ids.NewV7())
 	g.seats = append(g.seats, graphSeat{
-		dealID: dropped.dealID,
+		dealID: droppedDeal,
 		person: graphPersonEdge{personID: seated, fullName: "Stakeholder"},
 	})
 
@@ -183,7 +234,7 @@ func TestASeatOnADroppedDealDrawsNoEdge(t *testing.T) {
 		t.Error("a stakeholder of a dropped deal was placed as a node")
 	}
 	for _, edge := range g.out.Edges {
-		if ids.UUID(edge.To) == seated.UUID || ids.UUID(edge.To) == dropped.dealID {
+		if ids.UUID(edge.To) == seated.UUID || ids.UUID(edge.To) == droppedDeal {
 			t.Errorf("edge %s -> %s points at a record the cap dropped", ids.UUID(edge.From), ids.UUID(edge.To))
 		}
 	}
@@ -199,11 +250,10 @@ func TestAStakeholderWhoAlsoWorksHereIsOneNode(t *testing.T) {
 	title := "CTO"
 	personID := g.employee(t, "Both", 60)
 	g.employees[0].title = &title
-	deal := graphDeal{dealID: ids.NewV7(), name: "Renewal"}
-	g.openDeals = append(g.openDeals, deal)
+	dealID := g.openDeal("Renewal", nil)
 	role := "champion"
 	g.seats = append(g.seats, graphSeat{
-		dealID: deal.dealID,
+		dealID: dealID,
 		person: graphPersonEdge{personID: personID, fullName: "Both"},
 		role:   &role,
 	})
@@ -241,6 +291,7 @@ func TestTheHierarchyEdgeAlwaysPointsParentToChild(t *testing.T) {
 	parent := graphRelatedOrg{orgID: ids.NewV7(), displayName: "Holding", relation: graphRelationParent}
 	child := graphRelatedOrg{orgID: ids.NewV7(), displayName: "Subsidiary", relation: graphRelationChild}
 
+	g.relatedTotal = 2
 	g.placeRelated([]graphRelatedOrg{parent, child})
 
 	want := map[ids.UUID]ids.UUID{parent.orgID: orgID.UUID, orgID.UUID: child.orgID}
@@ -276,6 +327,7 @@ func TestAPartnerEdgePointsFromTheOrgThatRecordsIt(t *testing.T) {
 		partnerKind: &kind, edgeOwner: &oursOwner,
 	}
 
+	g.relatedTotal = 2
 	g.placeRelated([]graphRelatedOrg{theirs, mine})
 
 	oriented := map[ids.UUID]ids.UUID{}
@@ -311,6 +363,9 @@ func TestTheOrganizationCapCountsCompaniesOnce(t *testing.T) {
 		})
 	}
 
+	// Eleven DISTINCT companies on twelve rows: the doubly-attached one counts
+	// once, the way the read's own DISTINCT total counts it.
+	g.relatedTotal = graphOrgCap + 1
 	g.placeRelated(related)
 
 	// The doubly-attached company takes ONE of the cap's slots, so exactly one

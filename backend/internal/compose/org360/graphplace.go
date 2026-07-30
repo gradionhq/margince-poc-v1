@@ -22,20 +22,32 @@ import (
 
 // placeContacts adds the employees, strongest relationship first with person
 // id as the tie-break, and counts the ones the cap left out.
+//
+// A contact whose strength the read did not resolve sorts strictly LAST,
+// behind one measured at zero. The two are different facts — "we have no
+// relationship here" against "we could not measure one" — and a bare map read
+// would collapse them, because a missing entry and a stored 0 look the same.
 func (g *graphAssembly) placeContacts() {
 	kept := make([]graphPersonEdge, len(g.employees))
 	copy(kept, g.employees)
 	sort.SliceStable(kept, func(i, j int) bool {
-		left, right := kept[i].personID, kept[j].personID
-		if g.strengths[left].Strength != g.strengths[right].Strength {
-			return g.strengths[left].Strength > g.strengths[right].Strength
+		left, leftMeasured := g.strengths[kept[i].personID]
+		right, rightMeasured := g.strengths[kept[j].personID]
+		if leftMeasured != rightMeasured {
+			return leftMeasured
 		}
-		return left.String() < right.String()
+		if left.Strength != right.Strength {
+			return left.Strength > right.Strength
+		}
+		return kept[i].personID.String() < kept[j].personID.String()
 	})
 	if len(kept) > graphContactCap {
-		g.out.DroppedCount += len(kept) - graphContactCap
 		kept = kept[:graphContactCap]
 	}
+	// Counted against the account's true headcount, not against the rows this
+	// read fetched: the read is bounded (graphScanCap) and a count taken from
+	// what it happened to hold would understate a large account.
+	g.out.DroppedCount += g.employeeTotal - len(kept)
 	for _, edge := range kept {
 		g.addPersonNode(edge)
 		g.addEdge(g.orgID.UUID, edge.personID.UUID,
@@ -43,15 +55,25 @@ func (g *graphAssembly) placeContacts() {
 	}
 }
 
+// keptDeals is the ONE spelling of "the open deals this graph draws" — the
+// first graphDealCap of the amount-ordered read. Both readers go through it:
+// the seat read, which must ask about exactly the deals that will be drawn,
+// and the placement below. Two copies of that slice rule would let seats be
+// read for one set and edges drawn for another, and the dangling-edge guard
+// would hide the drift.
+func (g *graphAssembly) keptDeals() []graphDeal {
+	if len(g.openDeals) > graphDealCap {
+		return g.openDeals[:graphDealCap]
+	}
+	return g.openDeals
+}
+
 // placeDeals adds the open deals in amount order and, under each, the
 // stakeholder seats on it. A seat whose person the caller cannot read never
 // arrived, so no edge here can dangle.
 func (g *graphAssembly) placeDeals() {
-	kept := g.openDeals
-	if len(kept) > graphDealCap {
-		g.out.DroppedCount += len(kept) - graphDealCap
-		kept = kept[:graphDealCap]
-	}
+	kept := g.keptDeals()
+	g.out.DroppedCount += g.openDealTotal - len(kept)
 	drawn := map[ids.UUID]bool{}
 	for _, deal := range kept {
 		drawn[deal.dealID] = true
@@ -94,43 +116,24 @@ const (
 	graphRelationPartner = "partner"
 )
 
-// placeRelatedOrganizations adds the account's parent, its children and its
-// partner counterparties — all one hop, all pruned to the caller's
-// organization row scope. Name order with the id as tie-break, so two reads
-// of an unchanged account draw the same organizations.
-//
-// It needs no grant of its own: the organization read this endpoint already
-// demands covers it, which is why it is not one of the omittable groups.
-func (g *graphAssembly) placeRelatedOrganizations() error {
-	related, err := g.readRelatedOrganizations()
-	if err != nil {
-		return err
-	}
-	g.placeRelated(related)
-	return nil
-}
-
-// placeRelated caps the related organizations and draws them. Split from the
-// read so the cap's own rule — distinct companies, each judged once — is
-// provable without a database.
+// placeRelated caps the account's parent, children and partner counterparties
+// and draws them — all one hop, all already pruned to the caller's
+// organization row scope by the read. Name order with the id as tie-break, so
+// two reads of an unchanged account draw the same organizations.
 func (g *graphAssembly) placeRelated(related []graphRelatedOrg) {
-	// The cap counts DISTINCT organizations, not rows: one company that is
-	// both this account's parent and its reseller is one node with two edges,
-	// and counting it twice would drop a company that fits. Which is also why
-	// `judged` is separate from `within` — a company already refused must not
-	// be counted as dropped again on its second row.
-	judged, within := map[ids.UUID]bool{}, map[ids.UUID]bool{}
+	// The cap counts DISTINCT organizations, not rows: one company that is both
+	// this account's parent and its reseller is one node with two edges, and
+	// counting it twice would drop a company that fits. What was left out comes
+	// from the read's own DISTINCT total, so a company appearing on three rows
+	// is one drop rather than three.
+	within := map[ids.UUID]bool{}
 	for _, row := range related {
-		if judged[row.orgID] {
-			continue
-		}
-		judged[row.orgID] = true
-		if len(within) == graphOrgCap {
-			g.out.DroppedCount++
+		if within[row.orgID] || len(within) == graphOrgCap {
 			continue
 		}
 		within[row.orgID] = true
 	}
+	g.out.DroppedCount += g.relatedTotal - len(within)
 	for _, row := range related {
 		if !within[row.orgID] {
 			continue

@@ -23,9 +23,18 @@ import (
 )
 
 // readEmployment reads the account's current employees, pruned to the
-// caller's person row scope. A person with more than one live employment
-// row at the same account appears once — the lowest relationship id wins,
-// so two reads of the same account report the same title.
+// caller's person row scope. A person with more than one live employment row
+// at the same account appears once — the lowest relationship id wins, so two
+// reads of the same account report the same ROLE for them. (The title comes
+// off the person row, so the dedupe cannot change it.)
+//
+// The read is bounded by graphScanCap, and the headcount rides the SAME
+// statement as the rows. Two statements would each take their own Read
+// Committed snapshot, so a concurrent hire between them could make
+// dropped_count NEGATIVE — a response violating the contract's own
+// `minimum: 0`. The contact ORDER is the §4 score, resolved after this read,
+// so the bound cannot be a top-N LIMIT; graphScanCap says what that costs on
+// an account past it.
 func (g *graphAssembly) readEmployment() error {
 	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
 		return err
@@ -38,26 +47,30 @@ func (g *graphAssembly) readEmployment() error {
 		return err
 	}
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
-		SELECT p.id, p.full_name, p.title, r.role
-		FROM relationship r
-		JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
-		WHERE r.kind = 'employment' AND r.organization_id = $%d
-		  AND r.ended_at IS NULL AND r.archived_at IS NULL AND (%s)
-		ORDER BY p.id, r.id`, orgPos, personScope), args...)
+		WITH employed AS (
+			SELECT p.id, p.full_name, p.title, r.role,
+			       row_number() OVER (PARTITION BY p.id ORDER BY r.id) AS edge_rank
+			FROM relationship r
+			JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
+			WHERE r.kind = 'employment' AND r.organization_id = $%d
+			  AND r.ended_at IS NULL AND r.archived_at IS NULL AND (%s)
+		)
+		SELECT id, full_name, title, role, count(*) OVER () AS headcount
+		FROM employed WHERE edge_rank = 1
+		ORDER BY id
+		LIMIT %d`, orgPos, personScope, graphScanCap), args...)
 	if err != nil {
 		return err
 	}
 	defer rows.Close()
-	seen := map[ids.PersonID]bool{}
 	for rows.Next() {
 		var edge graphPersonEdge
-		if err := rows.Scan(&edge.personID, &edge.fullName, &edge.title, &edge.role); err != nil {
+		// Every row carries the same headcount; they agree because they come
+		// from one statement.
+		if err := rows.Scan(&edge.personID, &edge.fullName, &edge.title, &edge.role,
+			&g.employeeTotal); err != nil {
 			return err
 		}
-		if seen[edge.personID] {
-			continue
-		}
-		seen[edge.personID] = true
 		g.employees = append(g.employees, edge)
 	}
 	return rows.Err()
@@ -68,9 +81,11 @@ func (g *graphAssembly) readEmployment() error {
 // open deal of this account that this caller may list" — so this card can
 // never draw a deal the deals section would refuse to show.
 //
-// The seats are read only when the contacts group was granted: an edge names
-// two records, and a caller who may not read people may not learn who sits
-// on a deal either.
+// The seats are read behind their OWN person gate, inside readSeats: an edge
+// names two records, and a caller who may not read people may not learn who
+// sits on a deal either. A missing person grant leaves the seats out and the
+// deals in, which is why that refusal is swallowed here rather than failing
+// the deals group with it.
 func (g *graphAssembly) readOpenDeals() error {
 	if err := auth.Require(g.ctx, "deal", principal.ActionRead); err != nil {
 		return err
@@ -82,37 +97,45 @@ func (g *graphAssembly) readOpenDeals() error {
 	if err != nil {
 		return err
 	}
+	// The order is SQL's, so LIMIT gives the true top N — this bound costs no
+	// accuracy, unlike the contact scan above. The total rides the same
+	// statement, for the same reason readEmployment's headcount does: two
+	// snapshots could disagree and make dropped_count negative.
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
-		SELECT d.id, d.name, s.name, d.amount_minor
+		SELECT d.id, d.name, s.name, d.amount_minor, count(*) OVER () AS open_total
 		FROM deal d
 		LEFT JOIN stage s ON s.id = d.stage_id AND s.workspace_id = d.workspace_id
 		%s
-		ORDER BY d.amount_minor DESC NULLS LAST, d.id`, openDealsWhere(orgPos, dealScope)), args...)
+		ORDER BY d.amount_minor DESC NULLS LAST, d.id
+		LIMIT %d`, openDealsWhere(orgPos, dealScope), graphDealCap), args...)
 	if err != nil {
 		return err
 	}
 	g.openDeals, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (graphDeal, error) {
 		var deal graphDeal
-		err := row.Scan(&deal.dealID, &deal.name, &deal.stageName, &deal.amountMinor)
+		err := row.Scan(&deal.dealID, &deal.name, &deal.stageName, &deal.amountMinor,
+			&g.openDealTotal)
 		return deal, err
 	})
 	if err != nil {
 		return err
 	}
-	if g.omitted[graphGroupContacts] {
+	if err := g.readSeats(g.selectedDealIDs()); errors.Is(err, apperrors.ErrPermissionDenied) {
+		// No person grant. The contacts group names that refusal, and the deals
+		// still belong on the card — so this one is absorbed here rather than
+		// failing the deals group along with it.
 		return nil
+	} else if err != nil {
+		return err
 	}
-	return g.readSeats(g.selectedDealIDs())
+	return nil
 }
 
 // selectedDealIDs is the deal ids the graph will actually draw. Seats are
 // read for those alone: a seat on a deal the cap dropped would be an edge
 // with no node at its far end.
 func (g *graphAssembly) selectedDealIDs() []ids.UUID {
-	kept := g.openDeals
-	if len(kept) > graphDealCap {
-		kept = kept[:graphDealCap]
-	}
+	kept := g.keptDeals()
 	out := make([]ids.UUID, len(kept))
 	for i, deal := range kept {
 		out[i] = deal.dealID
@@ -120,9 +143,14 @@ func (g *graphAssembly) selectedDealIDs() []ids.UUID {
 	return out
 }
 
-// readSeats reads the stakeholder seats on the given deals, pruned to the
-// caller's person row scope.
+// readSeats reads the stakeholder seats on the given deals. It carries its own
+// PERSON gate rather than trusting the order the groups happen to run in: a
+// seat names a person, so this is a person read, and a reordered group list
+// must not be able to turn it into an ungated one.
 func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
+	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
+		return err
+	}
 	if len(dealIDs) == 0 {
 		return nil
 	}
@@ -159,13 +187,15 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 // card and the warm room propose different people to ask for an intro.
 //
 // The intro path names a person, so it needs the person grant as well as the
-// signal one — a caller without contacts gets neither.
+// signal one. Both are asked here, not inferred from whether the contacts
+// group happened to run first — a group list reordered for any reason must not
+// be able to name a contact to a caller who may not read people.
 func (g *graphAssembly) readRouteIn() error {
 	if err := auth.Require(g.ctx, "signal", principal.ActionRead); err != nil {
 		return err
 	}
-	if g.omitted[graphGroupContacts] {
-		return apperrors.ErrPermissionDenied
+	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
+		return err
 	}
 	signalID, active, err := g.activeSignal()
 	if err != nil {
@@ -186,6 +216,12 @@ func (g *graphAssembly) readRouteIn() error {
 // with no active signal is an ordinary answer, not a zero id the caller has to
 // recognize. Most recent by detection, id descending as the deterministic
 // tie-break.
+//
+// "Belongs to this account" is the signals module's own predicate, not a local
+// copy: a deal-subject signal belongs to its deal even when the resolver
+// attributed it here, and a signal created directly about the organization has
+// no resolved_org_id at all. A second spelling would let this card cite a
+// signal the account's signal list refuses to show, and miss one it does.
 func (g *graphAssembly) activeSignal() (ids.UUID, bool, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -200,10 +236,10 @@ func (g *graphAssembly) activeSignal() (ids.UUID, bool, error) {
 	var id ids.UUID
 	err = g.tx.QueryRow(g.ctx, fmt.Sprintf(`
 		SELECT s.id FROM signal s
-		WHERE s.resolved_org_id = $%d AND s.status = 'open'
+		WHERE %s AND s.status = 'open'
 		  AND s.resolution_state = 'resolved' AND s.archived_at IS NULL AND (%s)
 		ORDER BY s.detected_at DESC, s.id DESC
-		LIMIT 1`, orgPos, signalScope), args...).Scan(&id)
+		LIMIT 1`, signals.OfOrganizationWhere(orgPos), signalScope), args...).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ids.UUID{}, false, nil
 	}
@@ -241,6 +277,11 @@ func (g *graphAssembly) scorePeople() error {
 		add(candidate.PersonID)
 	}
 	if len(wanted) == 0 {
+		// Either no group produced a person, or the caller may not read people
+		// and every person read already refused. Both mean there is nothing to
+		// score — and returning early keeps the people store's own grant check
+		// from failing a whole graph that has already named contacts as
+		// withheld.
 		return nil
 	}
 	scored, err := people.StrengthForPeople(g.ctx, g.tx, wanted, g.now)
@@ -273,8 +314,11 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 	if err != nil {
 		return nil, err
 	}
+	// The arms live in a CTE so the DISTINCT company count comes off the same
+	// evaluation the capped rows do — a second copy of the union would be a
+	// second chance for the total and the rows to disagree.
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
-		SELECT id, display_name, relation, partner_kind, edge_owner FROM (
+		WITH related AS (
 			SELECT o.id, o.display_name, '%[2]s' AS relation,
 			       NULL::text AS partner_kind, NULL::uuid AS edge_owner
 			FROM organization o
@@ -293,17 +337,22 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 			  AND r.archived_at IS NULL AND r.ended_at IS NULL
 			  AND $%[1]d IN (r.organization_id, r.counterparty_org_id)
 			  AND o.archived_at IS NULL AND (%[7]s)
-		) related
-		ORDER BY display_name, id, relation`,
+		)
+		SELECT id, display_name, relation, partner_kind, edge_owner,
+		       (SELECT count(DISTINCT id) FROM related)
+		FROM related
+		ORDER BY display_name, id, relation
+		LIMIT %[8]d`,
 		orgPos, graphRelationParent, graphRelationChild, graphRelationPartner,
-		parentScope, childScope, partnerScope), args...)
+		parentScope, childScope, partnerScope, graphScanCap), args...)
 	if err != nil {
 		return nil, err
 	}
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (graphRelatedOrg, error) {
 		var related graphRelatedOrg
+		// Every row carries the same total; the last write wins and they agree.
 		err := row.Scan(&related.orgID, &related.displayName, &related.relation,
-			&related.partnerKind, &related.edgeOwner)
+			&related.partnerKind, &related.edgeOwner, &g.relatedTotal)
 		return related, err
 	})
 }

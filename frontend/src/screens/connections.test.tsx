@@ -10,7 +10,7 @@ import {
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { ConnectionsCard, layout } from "./connections";
+import { ConnectionsCard, layout, relationKeys } from "./connections";
 
 // The connections card's own rules:
 //
@@ -20,7 +20,9 @@ import { ConnectionsCard, layout } from "./connections";
 //     contacts;
 //   - a capped graph names what it left out;
 //   - the layout is deterministic, because a picture that moves on every read
-//     is one nobody learns to read.
+//     is one nobody learns to read;
+//   - every row says HOW its record attaches, because the edge meaning is
+//     otherwise only in the picture.
 
 const ROOT = "org-root";
 
@@ -53,9 +55,14 @@ function graph(overrides: Record<string, unknown> = {}) {
       node({ id: "d-1", kind: "deal", label: "Renewal", detail: "Proposal" }),
     ],
     edges: [
-      { from: ROOT, to: "p-1", kind: "employment", role: "cto" },
-      { from: ROOT, to: "d-1", kind: "has_deal" },
-      { from: "d-1", to: "p-1", kind: "deal_stakeholder", role: "champion" },
+      { from: ROOT, to: "p-1", kind: "employment" as const, role: "cto" },
+      { from: ROOT, to: "d-1", kind: "has_deal" as const },
+      {
+        from: "d-1",
+        to: "p-1",
+        kind: "deal_stakeholder" as const,
+        role: "champion",
+      },
     ],
     dropped_count: 0,
     groups_omitted: [],
@@ -158,7 +165,7 @@ describe("connections card", () => {
           node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
           node({ id: "d-1", kind: "deal", label: "Renewal" }),
         ],
-        edges: [{ from: ROOT, to: "d-1", kind: "has_deal" }],
+        edges: [{ from: ROOT, to: "d-1", kind: "has_deal" as const }],
         groups_omitted: ["contacts", "intro_path"],
       }),
     );
@@ -225,7 +232,7 @@ describe("connections card", () => {
             intro_path: true,
           }),
         ],
-        edges: [{ from: ROOT, to: "p-1", kind: "employment" }],
+        edges: [{ from: ROOT, to: "p-1", kind: "employment" as const }],
         intro_path: { signal_id: "s-1", contact_id: "p-1" },
       }),
     );
@@ -247,6 +254,96 @@ describe("connections card", () => {
     // The dialog carries the list too, not just a bigger picture: the reader
     // who needed the list in the rail still needs it here.
     expect(within(dialog).getAllByRole("listitem")).toHaveLength(2);
+  });
+});
+
+describe("connections relations", () => {
+  it("names how each node attaches, not just what it is", async () => {
+    stub(graph());
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const list = await screen.findByRole("list");
+    // The contact is an employee AND a stakeholder on the drawn deal; both
+    // relations show, because either alone would misdescribe them.
+    for (const relation of [
+      "works here",
+      "stakeholder on a deal",
+      "open deal",
+    ]) {
+      expect(within(list).getAllByText(relation), relation).toHaveLength(1);
+    }
+    // The deal is at the FROM end of the stakeholder edge, and that edge says
+    // nothing about it: a deal is not "a stakeholder".
+    expect(relationKeys(graph(), "d-1")).toEqual(["has_deal"]);
+  });
+
+  it("tells a parent from a subsidiary, because the edge runs one way", () => {
+    const g = graph({
+      nodes: [
+        node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
+        node({ id: "o-up", kind: "organization", label: "Holding" }),
+        node({ id: "o-down", kind: "organization", label: "Subsidiary" }),
+      ],
+      edges: [
+        { from: "o-up", to: ROOT, kind: "parent_of" as const },
+        { from: ROOT, to: "o-down", kind: "parent_of" as const },
+      ],
+    });
+
+    expect(relationKeys(g, "o-up")).toEqual(["parent"]);
+    expect(relationKeys(g, "o-down")).toEqual(["child"]);
+  });
+
+  it("keeps the two directions of a referral apart", () => {
+    const g = graph({
+      nodes: [
+        node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
+        node({ id: "o-them", kind: "organization", label: "Referrer" }),
+        node({ id: "o-us", kind: "organization", label: "Referred" }),
+      ],
+      // referred_by is recorded on the row of the org that WAS referred, and
+      // the edge runs from it to the partner who referred it.
+      edges: [
+        { from: ROOT, to: "o-them", kind: "referred_by" as const },
+        { from: "o-us", to: ROOT, kind: "referred_by" as const },
+      ],
+    });
+
+    expect(relationKeys(g, "o-them")).toEqual(["referred_by.counterparty"]);
+    expect(relationKeys(g, "o-us")).toEqual(["referred_by.owner"]);
+  });
+
+  it("says a symmetric co-sell edge once, whichever side recorded it", () => {
+    const g = graph({
+      nodes: [
+        node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
+        node({ id: "o-1", kind: "organization", label: "Co-seller" }),
+      ],
+      edges: [{ from: "o-1", to: ROOT, kind: "co_sell_with" as const }],
+    });
+
+    expect(relationKeys(g, "o-1")).toEqual(["co_sell_with"]);
+  });
+
+  it("says one relation once, however many edges carry it", () => {
+    const g = graph({
+      nodes: [
+        node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
+        node({ id: "d-1", kind: "deal", label: "One" }),
+        node({ id: "d-2", kind: "deal", label: "Two" }),
+        node({ id: "p-1", kind: "person", label: "Dana" }),
+      ],
+      edges: [
+        { from: ROOT, to: "d-1", kind: "has_deal" as const },
+        { from: ROOT, to: "d-2", kind: "has_deal" as const },
+        { from: "d-1", to: "p-1", kind: "deal_stakeholder" as const },
+        { from: "d-2", to: "p-1", kind: "deal_stakeholder" as const },
+      ],
+    });
+
+    // Two seats, one word: "stakeholder on a deal, stakeholder on a deal"
+    // reads as a rendering bug, not as two facts.
+    expect(relationKeys(g, "p-1")).toEqual(["deal_stakeholder"]);
   });
 });
 

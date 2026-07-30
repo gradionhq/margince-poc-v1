@@ -23,11 +23,62 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/signals"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// TestRouteInEdgesRefusesWithoutThePersonGrant pins the gate at the ENTRY
+// POINT rather than at the callers.
+//
+// Every row RouteInEdges returns names a person, and its row-scope clause
+// narrows WHICH people a caller sees, never whether they may see people at
+// all — so the object grant has to be asked here, or each new caller has to
+// remember to ask it and one eventually will not. The warm/cold join and the
+// connections card are both callers today; when this read was gated only by
+// its callers, reordering the graph's group list turned it into an ungated one.
+func TestRouteInEdgesRefusesWithoutThePersonGrant(t *testing.T) {
+	e := Setup(t)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
+	employ(t, e, contact, org.UUID, "cto")
+
+	noPeople := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true},
+			"signal":       {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	})
+	err := database.WithWorkspaceTx(noPeople, e.Pool, func(tx pgx.Tx) error {
+		_, err := signals.RouteInEdges(noPeople, tx, org)
+		return err
+	})
+	if !errors.Is(err, apperrors.ErrPermissionDenied) {
+		t.Errorf("RouteInEdges without the person grant → %v, want ErrPermissionDenied", err)
+	}
+
+	// The positive control: the same call WITH the grant returns the contact, so
+	// the gate refuses a missing grant rather than breaking the read.
+	granted := e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms)
+	var edges []signals.RouteInEdge
+	if err := database.WithWorkspaceTx(granted, e.Pool, func(tx pgx.Tx) error {
+		var err error
+		edges, err = signals.RouteInEdges(granted, tx, org)
+		return err
+	}); err != nil {
+		t.Fatalf("RouteInEdges with the person grant: %v", err)
+	}
+	if len(edges) != 1 || edges[0].PersonID.UUID != contact {
+		t.Errorf("route-in edges = %+v, want the account's one contact %v", edges, contact)
+	}
+}
 
 // TestOrganizationGraphOmitsAGroupTheCallerMayNotRead is the honesty rule the
 // whole card rests on: a company with contacts the caller cannot read must not
@@ -243,6 +294,39 @@ func TestOrganizationGraphIntroPathNamesTheWarmRoomsContact(t *testing.T) {
 	}
 	if !graphHasNode(graph, warm) {
 		t.Error("the contact is missing for a caller who holds the person grant")
+	}
+}
+
+// TestOrganizationGraphCitesAnOrganizationSubjectSignal: a signal created
+// directly ABOUT the account carries the subject pair and no resolved_org_id at
+// all, so a card that only looked at resolved_org_id would never cite one. The
+// predicate comes from the signals module (signals.OfOrganizationWhere), which
+// is what keeps this card and GET /signals agreeing about what belongs to an
+// account.
+func TestOrganizationGraphCitesAnOrganizationSubjectSignal(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	contact := e.SeedPerson(t, "Warm Contact", &e.Rep1)
+	employ(t, e, contact, org, "cto")
+	activity := SeedRow(t, owner, `INSERT INTO activity (id, workspace_id, kind, subject, occurred_at, direction, source, captured_by)
+		VALUES ($1, $2, 'email', 'terms', '2026-05-30T09:00:00Z', 'inbound', 'manual', 'human:x')`, e.WS)
+	LinkActivity(t, owner, e.WS, activity, "person", contact)
+	signal := seedOrgSubjectSignal(t, owner, e.WS, org)
+
+	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
+		ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+	if graph.IntroPath == nil {
+		t.Fatal("no intro path for a signal created about the account itself")
+	}
+	if ids.UUID(graph.IntroPath.SignalId) != signal {
+		t.Errorf("intro path cites signal %v, want the org-subject signal %v",
+			graph.IntroPath.SignalId, signal)
 	}
 }
 

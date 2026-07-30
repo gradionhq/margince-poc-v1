@@ -149,7 +149,16 @@ func RankRouteIn(edges []RouteInEdge, score func(ids.PersonID) (int, bool)) []Ro
 // view's connection graph marks the same route-in contact, and a second
 // spelling of "who anchors this account" would let the card and the warm
 // room name different people to ask for an intro.
+//
+// It carries the PERSON object gate itself. Every row it returns names a
+// person, and the row-scope clause below narrows WHICH people a caller sees,
+// never whether they may see people at all — so a caller holding the signal
+// grant and not the person one is refused here rather than at whichever call
+// site remembered to ask.
 func RouteInEdges(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) ([]RouteInEdge, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, err
+	}
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)

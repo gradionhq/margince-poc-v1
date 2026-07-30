@@ -925,9 +925,19 @@ paths:
         group has a fixed order — contacts by relationship strength then id, deals by
         amount then id, organizations by name then id — so two reads of an unchanged
         account return the same nodes. `dropped_count` says how many nodes the caps left
-        out; a truncated graph with no count reads as the whole neighbourhood. Stakeholder
-        contacts have no cap of their own — they are bounded by the deals already
-        selected — so they are the one node kind that number does not speak for.
+        out, counted over each group's whole membership — a truncated graph with no count
+        reads as the whole neighbourhood, and a count taken from a bounded read would
+        understate it. Stakeholder contacts have no cap of their own — they are bounded by
+        the deals already selected — so they are the one node kind that number does not
+        speak for.
+
+        The reads themselves are bounded, so one request's cost follows the caps and not
+        the account. Deals are ordered and limited in the database, so their slice is
+        exactly the top N. Contacts are ordered by a relationship strength computed after
+        the read, so an account with more than 500 contacts contributes the strongest of
+        the first 500 by id rather than of all of them; `dropped_count` is still the true
+        remainder. No real account is near that bound, and an installation that reaches it
+        should read the contact list from `GET /people` rather than from a card.
 
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`, the same refusal the 360 gives, because the

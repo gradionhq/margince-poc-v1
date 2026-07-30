@@ -3,17 +3,16 @@
 
 package org360
 
-// The connections card: the account's one-hop neighbourhood as an explicit
-// node/edge set the client lays out. It is the same page as the 360 and the
-// same posture — one transaction, one instant, per-group authorization, and
-// a cap that reports what it left out — but a separate read, because a
-// client that wants the profile does not always want the graph and the
-// layout is the browser's work, never the server's.
+// The connections card. What it is and why it is a second read is in doc.go;
+// this file is the one-hop rule and the assembly that enforces it.
 //
 // One hop means one edge from the account. A contact's other employers, a
 // deal's other accounts and a partner's own partners are NOT walked: the
 // second hop is a different read with a different cost, and a card that
 // sometimes went two hops would have no honest cap.
+//
+// The layout is the browser's work, never the server's — this returns the set,
+// not a picture.
 
 import (
 	"context"
@@ -58,6 +57,19 @@ const (
 	graphDealCap    = 10
 	graphOrgCap     = 10
 )
+
+// graphScanCap bounds the two reads whose display order this code cannot push
+// into SQL, so one graph's query size follows the cap rather than the account.
+//
+// The contact order is the §4 score, resolved after the rows are read, and the
+// related-organization cap counts DISTINCT companies while the read returns one
+// row per edge — neither can be a top-N LIMIT. Each read therefore takes at
+// most this many rows and gets its true total from a COUNT over the same
+// predicate, so dropped_count stays exact either way. On an account past the
+// bound the card shows the strongest of the first graphScanCap contacts by id
+// rather than of all of them, which the contract states; at 500 against a
+// display cap of 15 that is an account nobody has.
+const graphScanCap = 500
 
 // Graph reads the account's one-hop connections inside ONE workspace
 // transaction. The organization read is mandatory and its refusal is the
@@ -116,13 +128,20 @@ type graphAssembly struct {
 	// who is both an employee and a stakeholder is one node with two edges.
 	nodeIndex map[ids.UUID]int
 
-	omitted   map[crmcontracts.OrganizationGraphGroupsOmitted]bool
 	employees []graphPersonEdge
 	openDeals []graphDeal
 	seats     []graphSeat
 	routeIn   []signals.RouteInEdge
 	signalID  *ids.UUID
 	strengths map[ids.PersonID]people.RelationshipStrength
+
+	// The true size of each capped group, counted over the same predicate the
+	// read used. dropped_count is derived from these rather than from the rows
+	// in hand, so a read bounded by graphScanCap still reports the whole
+	// remainder instead of only the part it happened to fetch.
+	employeeTotal int
+	openDealTotal int
+	relatedTotal  int
 }
 
 // graphPersonEdge is one employment edge: who, and what they do here.
@@ -149,8 +168,13 @@ type graphSeat struct {
 }
 
 // build reads every group, scores the people once, then places the nodes.
+//
+// Every read happens before any placement, and every gate is asked inside the
+// read it belongs to — so the order of the slice below decides only which
+// group is NAMED first in groups_omitted, never what a caller is allowed to
+// see. The related organizations are read here too, outside the group loop,
+// because they have no grant of their own to be refused for.
 func (g *graphAssembly) build() error {
-	g.omitted = map[crmcontracts.OrganizationGraphGroupsOmitted]bool{}
 	for _, group := range []struct {
 		name crmcontracts.OrganizationGraphGroupsOmitted
 		read func() error
@@ -163,27 +187,31 @@ func (g *graphAssembly) build() error {
 			return err
 		}
 	}
+	related, err := g.readRelatedOrganizations()
+	if err != nil {
+		return err
+	}
 	if err := g.scorePeople(); err != nil {
 		return err
 	}
 	g.placeContacts()
 	g.placeDeals()
-	if err := g.placeRelatedOrganizations(); err != nil {
-		return err
-	}
+	g.placeRelated(related)
 	g.markIntroPath()
 	return nil
 }
 
-// group runs one group's read and records it as omitted when the caller's
-// grants refuse it. Any other error fails the whole graph, because a group
-// that broke for a real reason must never be reported as one the caller may
-// not see.
+// group runs one group's read and NAMES it as omitted when the caller's grants
+// refuse it. Any other error fails the whole graph, because a group that broke
+// for a real reason must never be reported as one the caller may not see.
+//
+// The refusal is only ever reported here. No read decides its own gate from
+// whether another group was refused — each asks auth.Require itself — so this
+// records an outcome rather than holding state the reads consult.
 func (g *graphAssembly) group(name crmcontracts.OrganizationGraphGroupsOmitted, read func() error) error {
 	err := read()
 	if errors.Is(err, apperrors.ErrPermissionDenied) {
 		g.out.GroupsOmitted = append(g.out.GroupsOmitted, name)
-		g.omitted[name] = true
 		return nil
 	}
 	return err
