@@ -196,7 +196,7 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 
 	// Deliverability is derived here, after the gates, so both transports
 	// get it and neither can send marketing mail without it.
-	listUnsubscribe, body, err := s.deliverability(ctx, in.Body, in.Recipients, in.ConsentPurpose)
+	derived, err := s.deliverability(ctx, in.Body, in.Recipients, in.ConsentPurpose)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -205,8 +205,9 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 	message := outboundMessage{
 		in:              in,
 		messageID:       messageID,
-		body:            body,
-		listUnsubscribe: listUnsubscribe,
+		body:            derived.transmitted,
+		recordedBody:    derived.recorded,
+		listUnsubscribe: derived.listUnsubscribe,
 		to:              toRecipients(in.Recipients, in.Cc),
 		links:           inheritedLinks(anchor),
 	}
@@ -245,9 +246,16 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 // side by side: a field that disagreed between them would be a message whose
 // record and whose transmission say different things.
 type outboundMessage struct {
-	in              SendEmailInput
-	messageID       string
+	in        SendEmailInput
+	messageID string
+	// body is what the recipient receives; recordedBody is what the
+	// workspace keeps. They differ by exactly one thing — the live
+	// preference token the footer carries — because the timeline row is
+	// served back to any seat holding activity:read, and that token is a
+	// bearer credential over the recipient's consent record (see
+	// redactedToken). Only the delivery may read body.
 	body            string
+	recordedBody    string
 	listUnsubscribe string
 	to              []string
 	links           []ActivityLinkInput
@@ -259,7 +267,7 @@ func (m outboundMessage) activity(chain threading) LogActivityInput {
 	return LogActivityInput{
 		Kind:         "email",
 		Subject:      &m.in.Subject,
-		Body:         &m.body,
+		Body:         &m.recordedBody,
 		Direction:    &direction,
 		Links:        m.links,
 		Source:       "manual",

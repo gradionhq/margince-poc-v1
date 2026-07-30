@@ -284,7 +284,7 @@ var rowScopedFKDecisions = map[string]string{
 	"person_consent.lead_id":              "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20)",
 	"consent_event.lead_id":               "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20); proof rows append only inside that path",
 	"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
-	"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
+	"preference_token.person_id":          "gated: auth.EnsureVisible on the recipient in PreferenceTokenForEmail — the id is server-derived from the send path's RLS-scoped email→person resolve, and the minted token is a bearer credential over that person, so the mint carries the same row-scope probe the sibling read does; the public surface reads the row as the token→tenant resolver before any principal exists",
 	// Server-derived pointers: stamped from an operation's outcome,
 	// never accepted from the request body.
 	"lead.promoted_person_id":          "server-derived: stamped by PromoteLead",
