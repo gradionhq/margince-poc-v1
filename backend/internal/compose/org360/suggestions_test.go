@@ -131,17 +131,31 @@ func TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked(t *testing.T) {
 		t.Error("the same stall hashed differently between reads — a dismissal would not hold")
 	}
 
-	// Monotonicity: every episode this deal has ever produced must be distinct, so
-	// walking its activity forward can never land back on a dismissed shape.
+	// Advancing a stage is work too, and it moves no timestamp the stall rule
+	// reads — so a fingerprint over the idle instant alone would stay silenced
+	// through every stage the deal went on to reach.
+	advanced := stalledDeal{ID: first.ID, Name: first.Name, IdleSince: first.IdleSince, StageMoves: 1}
+	moved := stalledDealSuggestions([]stalledDeal{advanced})
+	if moved[0].Fingerprint == before[0].Fingerprint {
+		t.Error("a deal advanced to a new stage reuses the earlier fingerprint — " +
+			"the dismissal would outlast every stage it goes on to reach")
+	}
+
+	// Monotonicity: every episode this deal can produce must be distinct, whichever
+	// way it is worked, so it can never land back on a dismissed shape.
 	seen := map[string]bool{}
 	idleAt := first.IdleSince
-	for range 5 {
-		episode := stalledDeal{ID: first.ID, Name: first.Name, IdleSince: idleAt}.episode()
-		if seen[episode] {
-			t.Fatalf("episode %q recurred — a dismissal made against it would resurrect", episode)
+	for moves := range 5 {
+		for _, at := range []time.Time{idleAt, idleAt.AddDate(0, 0, 61)} {
+			episode := stalledDeal{
+				ID: first.ID, Name: first.Name, IdleSince: at, StageMoves: moves,
+			}.episode()
+			if seen[episode] {
+				t.Fatalf("episode %q recurred — a dismissal made against it would resurrect", episode)
+			}
+			seen[episode] = true
 		}
-		seen[episode] = true
-		idleAt = idleAt.AddDate(0, 0, 61)
+		idleAt = idleAt.AddDate(0, 0, 122)
 	}
 }
 

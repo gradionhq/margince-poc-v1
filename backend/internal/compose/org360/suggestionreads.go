@@ -112,32 +112,40 @@ type stalledDeal struct {
 	// IdleSince is the instant the stall is measured from — the deal's last
 	// activity, or its creation if it has none.
 	IdleSince time.Time
+	// StageMoves is how many times this deal has changed stage, counting the row
+	// its creation writes. Advancing a deal is the most deliberate kind of work
+	// there is on one, and it moves no timestamp the stall rule reads — so
+	// without this the advice a rep dismissed would stay silenced through every
+	// stage the deal went on to reach.
+	StageMoves int
 }
 
-// episode identifies the STALL, not the deal: the deal and the instant it went
-// idle, and nothing else.
+// episode identifies the STALL, not the deal: the two ways a deal gets worked,
+// and nothing else.
 //
 // It must MOVE when the deal is worked and stalls again, or one dismissal silences
 // that deal for good. It must move only FORWARD, or a shape the rep already
 // dismissed can recur and that old dismissal comes back to life — silencing advice
-// they may have been shown again in between. last_activity_at satisfies both:
-// activities.LogActivity advances it with greatest() and nothing lowers it.
+// they may have been shown again in between. Both components satisfy the second
+// property by construction: activities.LogActivity advances last_activity_at with
+// greatest() and nothing lowers it, and deal_stage_history is append-only, so the
+// count of moves only rises.
 //
-// Two mutable facts the stall rule also reads are deliberately left out, because
-// each of them can return to an earlier value and would break the second property:
+// Together they are what "worked" means for a deal. Neither alone is enough —
+// logging a call moves the timestamp and not the count, advancing a stage moves
+// the count and not the timestamp — and the stall rule reads only the first, so
+// the count is the half a fingerprint built from IsStalled's own inputs would miss.
 //
-//   - wait_until. While a deferral runs the deal is not stalled at all, so no
-//     advice is due for a dismissal to affect; when it ends the deal is in exactly
-//     the state the rep declined, with nothing worked in between.
-//   - status and archived_at. A deal that is closed and reopened, or archived and
-//     restored, leaves the candidate set and comes back — and comes back to the
-//     same episode. So a dismissal survives that round trip.
+// wait_until is deliberately NOT here, though the stall rule reads it: a deferral
+// can be set, expire, and be cleared, returning the deal to a shape the rep already
+// dismissed. While it runs the deal is not stalled at all, so no advice is due for
+// a dismissal to affect, and when it ends the deal is in exactly the state they
+// declined with nothing worked in between.
 //
 // The rule that leaves is one sentence, and it is the one a rep means: "not now"
-// silences this deal until it is next worked. TestADismissalSurvivesADealRoundTrip
-// holds the round-trip half of it, so the behaviour is chosen rather than noticed.
+// silences this deal until it is next worked.
 func (d stalledDeal) episode() string {
-	return d.ID.String() + "@" + d.IdleSince.UTC().Format(time.RFC3339Nano)
+	return fmt.Sprintf("%s@%s#%d", d.ID, d.IdleSince.UTC().Format(time.RFC3339Nano), d.StageMoves)
 }
 
 // pipeline is the account's open pipeline as the deal-shaped rules read it.
@@ -189,7 +197,8 @@ func openPipeline(
 	// by id so that order is deterministic between two deals idle since the same
 	// instant.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until
+		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until,
+		       (SELECT count(*) FROM deal_stage_history h WHERE h.deal_id = d.id)
 		%s
 		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`,
 		"FROM deal d\n\t\t"+openDealsWhere(orgPos, dealScope)), args...)
@@ -197,17 +206,19 @@ func openPipeline(
 		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
 	type openRow struct {
-		id        ids.UUID
-		name      string
-		stalled   bool
-		idleSince time.Time
+		id         ids.UUID
+		name       string
+		stalled    bool
+		idleSince  time.Time
+		stageMoves int
 	}
 	open, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (openRow, error) {
 		var r openRow
 		var status string
 		var createdAt time.Time
 		var lastActivityAt, waitUntil *time.Time
-		if err := row.Scan(&r.id, &r.name, &status, &createdAt, &lastActivityAt, &waitUntil); err != nil {
+		if err := row.Scan(&r.id, &r.name, &status, &createdAt, &lastActivityAt, &waitUntil,
+			&r.stageMoves); err != nil {
 			return r, err
 		}
 		r.stalled = deals.IsStalled(status, createdAt, lastActivityAt, waitUntil, now)
@@ -229,7 +240,8 @@ func openPipeline(
 		sorted = append(sorted, deal.id.String())
 		if deal.stalled {
 			out.Stalled = append(out.Stalled, stalledDeal{
-				ID: deal.id, Name: deal.name, IdleSince: deal.idleSince,
+				ID: deal.id, Name: deal.name,
+				IdleSince: deal.idleSince, StageMoves: deal.stageMoves,
 			})
 		}
 	}

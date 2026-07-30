@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -400,18 +401,18 @@ func TestADeferralNeverResurrectsADismissal(t *testing.T) {
 	}
 }
 
-// A dismissal survives the deal leaving and re-entering the candidate set.
+// Advancing the deal re-arms the advice, through the real transition path.
 //
-// Closing and reopening a deal, or archiving and restoring one, changes neither
-// its idle instant nor anything else the episode carries — so the rep's "not now"
-// still holds. That is chosen, not overlooked: `status` and `archived_at` can both
-// return to an earlier value, so putting either in the fingerprint would let a
-// dismissed shape recur and resurrect a judgment. The one sentence that survives
-// is "not now silences this deal until it is next worked", and this pins it.
-func TestADismissalSurvivesADealRoundTrip(t *testing.T) {
+// A stage advance is the most deliberate kind of work there is on a deal, and it
+// moves no timestamp the stall rule reads — so a fingerprint built from that rule's
+// own inputs would keep the advice silenced through every stage the deal reached.
+// It goes through deals.AdvanceDeal rather than an UPDATE, because what the episode
+// counts is the history row that path writes.
+func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	pipelineID, stage, _ := DealFixture(t, e)
+	next := secondOpenStage(t, e, pipelineID, stage)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
 	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
@@ -429,20 +430,50 @@ func TestADismissalSurvivesADealRoundTrip(t *testing.T) {
 	if err := svc.DismissSuggestion(rep, org, dismissed[0]); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
+	if quiet, err := svc.Assemble(rep, org); err != nil {
+		t.Fatalf("re-assemble: %v", err)
+	} else if left := stalledFingerprints(*quiet.Suggestions); len(left) != 0 {
+		t.Fatalf("%d stalled suggestions right after dismissing the only one", len(left))
+	}
 
-	// Closed and reopened, with nothing worked on it in between.
-	e.WsExec(t, `UPDATE deal SET status = 'lost', lost_reason = 'other', closed_at = $2 WHERE id = $1`,
-		deal, org360Clock)
-	e.WsExec(t, `UPDATE deal SET status = 'open', lost_reason = NULL, closed_at = NULL WHERE id = $1`, deal)
+	// The deal moves to another OPEN stage, so it stays a candidate. Nothing logs
+	// an activity, so the stall rule's own inputs are unchanged and the deal is
+	// still stalled — but it has plainly been worked.
+	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
+		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
+		t.Fatalf("advancing the deal: %v", err)
+	}
 
 	after, err := svc.Assemble(rep, org)
 	if err != nil {
-		t.Fatalf("assemble after the round trip: %v", err)
+		t.Fatalf("assemble after the advance: %v", err)
 	}
-	if left := stalledFingerprints(*after.Suggestions); len(left) != 0 {
-		t.Errorf("the reopened deal offers %d stalled suggestions, want the rep's "+
-			"dismissal to still hold — nothing was worked on it", len(left))
+	fresh := stalledFingerprints(*after.Suggestions)
+	if len(fresh) != 1 {
+		t.Fatalf("the advanced deal raised %d stalled suggestions, want 1 — the "+
+			"dismissal outlasted a stage the rep never judged", len(fresh))
 	}
+	if fresh[0] == dismissed[0] {
+		t.Error("the advanced deal reuses the dismissed fingerprint")
+	}
+}
+
+// secondOpenStage finds another open stage in the pipeline, so a deal can be
+// advanced without leaving the open set the suggestion rules read.
+func secondOpenStage(t *testing.T, e *Env, pipelineID ids.PipelineID, notThisOne ids.StageID) ids.StageID {
+	t.Helper()
+	p, err := e.Deals.GetPipeline(e.Admin(), pipelineID)
+	if err != nil {
+		t.Fatalf("reading the pipeline: %v", err)
+	}
+	for _, st := range *p.Stages {
+		id := ids.From[ids.StageKind](ids.UUID(st.Id))
+		if st.Semantic == "open" && id != notThisOne {
+			return id
+		}
+	}
+	t.Fatal("the default pipeline has only one open stage, so a deal cannot advance within it")
+	return ids.StageID{}
 }
 
 // The no-next-step fingerprint covers every open deal, not the listed ones.
