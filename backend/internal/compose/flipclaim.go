@@ -18,9 +18,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -117,4 +119,25 @@ func FlipImportProbe(ctx context.Context, tx pgx.Tx) (bool, error) {
 		return false, err
 	}
 	return migration.MirrorRunInFlight(ctx, tx)
+}
+
+// ClaimFlipForTest takes the flip's real advisory claim so the
+// integration lane can prove the claim and FlipImportProbe key on the
+// same lock. Nothing else can: claimFlip is bound to a flipRunner the
+// lane has no reason to build, and a fake would defeat the point.
+func ClaimFlipForTest(ctx context.Context, t testingTB, pool *pgxpool.Pool) func() {
+	t.Helper()
+	runner := &flipRunner{pool: pool, log: slog.New(slog.DiscardHandler)}
+	release, err := runner.claimFlip(ctx)
+	if err != nil {
+		t.Fatalf("claiming the flip: %v", err)
+	}
+	return release
+}
+
+// testingTB is the slice of testing.TB this helper needs, so the
+// production package does not import testing.
+type testingTB interface {
+	Helper()
+	Fatalf(format string, args ...any)
 }
