@@ -35,8 +35,8 @@ another `main` push putting it BEHIND again: merge `origin/main`, confirm no
 migration-number collision (mine is `0145_suggestion_dismissal`), push, and
 auto-merge takes it.
 
-**Next: PR 6 — the connections card (graph level 1).** Plan at
-`~/.claude/plans/mutable-coalescing-sutherland.md`. Scope: a compose-level
+**Next: PR 6 — the connections card (graph level 1).** Scope, in full, because the
+concept it comes from is not in this repo: a compose-level
 `GET /organizations/{id}/graph` returning `{nodes[], edges[]}` — contacts by
 employment (strength-weighted), open deals with their stakeholder edges,
 partner/parent orgs, the active signal's intro path. One hop, RBAC-pruned the way
