@@ -81,10 +81,9 @@ func (e *revocationEnv) connectOAuthFor(t *testing.T, consenter Identity) connec
 //
 // The race is run repeatedly because the interleaving is the scheduler's
 // choice, not ours: one pass proves little, and a pass that never deadlocks
-// across many attempts is the strongest deterministic statement available
-// (see the report — a true deadlock cannot be forced without observing the
-// other transaction's locks, so this suite proves the absence, not the
-// presence).
+// across many attempts is the strongest deterministic statement available. A
+// true deadlock cannot be forced from outside without observing the other
+// transaction's locks, so this suite proves the absence, not the presence.
 func TestARevokeRacingARotationNeverDeadlocksOrLeavesACredentialLive(t *testing.T) {
 	e := setupRevocationEnv(t, "oauth-lock-order")
 

@@ -80,7 +80,7 @@ func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handl
 	// indistinguishable from a mount that never happened.
 	log.Info("mcp: hosted connector transport mounted", "path", "/mcp", "tools", len(s.toolRegistry.Specs()))
 	return agents.NewHTTPHandler(s.toolRegistry, mcpAuthenticate(auth),
-		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion)
+		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion, log)
 }
 
 // mcpAuthenticate binds one request to its agent principal. It runs on EVERY

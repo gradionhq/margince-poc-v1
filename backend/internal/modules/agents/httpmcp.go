@@ -13,6 +13,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -137,11 +138,14 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) 
 // the same whether a session never existed or belongs to someone else; the
 // registry is the only place that distinction is visible).
 type httpMCPHandler struct {
-	registry     *Registry
+	// server is the SAME dispatcher the stdio transport runs, built once:
+	// method dispatch, the tool surface and the scrubbed-error rules are
+	// shared rather than re-derived per request, so the two transports cannot
+	// answer one call differently. It holds no per-request state — the
+	// request's own authenticated context is what dispatch runs on.
+	server       *StdioServer
 	authenticate func(*http.Request) (context.Context, error)
 	challenge    func(*http.Request) string
-	name         string
-	version      string
 	sessions     *sessionRegistry
 }
 
@@ -151,16 +155,27 @@ type httpMCPHandler struct {
 // A1 loop guarantees. challenge builds the 401's RFC 9728 pointer from
 // the request, so the origin (and the scopes a deployment asks for) is the
 // mounting server's decision rather than a constant frozen in here.
-func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string) http.Handler {
+//
+// log is the mounting process's configured logger, and it is not optional
+// plumbing: a scrubbed tool failure tells the untrusted client nothing about
+// its cause, so the one place that cause survives is this logger. A nil one
+// falls back to slog.Default(), which in a process that never called
+// SetDefault means the record is written somewhere nobody is reading.
+func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string, log *slog.Logger) http.Handler {
 	return &httpMCPHandler{
-		registry:     registry,
+		server:       NewStdioServer(registry, bindAuthenticated, name, version).WithLogger(log),
 		authenticate: authenticate,
 		challenge:    challenge,
-		name:         name,
-		version:      version,
 		sessions:     newSessionRegistry(),
 	}
 }
+
+// bindAuthenticated is the Binder the shared dispatcher gets on this
+// transport: the edge already authenticated THIS request and the context it
+// produced is the one dispatch runs on, so there is nothing left to bind. The
+// stdio transport's binder authenticates instead, because its session is one
+// long-lived pipe rather than one request.
+func bindAuthenticated(ctx context.Context) (context.Context, error) { return ctx, nil }
 
 func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
@@ -262,10 +277,7 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// bind is a passthrough: this request's ctx IS the authenticated
-	// session, minted moments ago.
-	server := NewStdioServer(h.registry, func(context.Context) (context.Context, error) { return ctx, nil }, h.name, h.version)
-	resp := server.handle(ctx, req)
+	resp := h.server.handle(ctx, req)
 	if req.Method == methodInitialize && resp.Error == nil {
 		h.mintSession(ctx, w)
 	}

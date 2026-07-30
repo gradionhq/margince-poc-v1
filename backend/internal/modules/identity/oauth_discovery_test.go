@@ -14,6 +14,8 @@ import (
 	"net/http/httptest"
 	"slices"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // A grant type a client cannot see is a grant type it will not use: without
@@ -34,6 +36,40 @@ func TestServerMetadataAdvertisesBothGrantTypes(t *testing.T) {
 	for _, want := range []string{"authorization_code", "refresh_token"} {
 		if !slices.Contains(doc.GrantTypes, want) {
 			t.Errorf("grant_types_supported = %v, want it to include %q", doc.GrantTypes, want)
+		}
+	}
+}
+
+// TestDiscoveryAdvertisesEveryGrantableScope is the fitness function behind
+// oauthScopesSupported's claim to be derived: it reads the document a client
+// actually fetches and holds it against the vocabulary the passport mint
+// admits. A grantable scope missing from discovery is a scope no client asks
+// for and therefore no human is ever offered — and the two lists drifting apart
+// is exactly what a second hand-typed copy would allow.
+func TestDiscoveryAdvertisesEveryGrantableScope(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Handlers{}.OAuthServerMetadata(rec, httptest.NewRequest(http.MethodGet,
+		"https://crm.example.com/.well-known/oauth-authorization-server", nil))
+
+	var doc struct {
+		Scopes []string `json:"scopes_supported"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for scope := range validScopes {
+		if !slices.Contains(doc.Scopes, string(scope)) {
+			t.Errorf("scopes_supported = %v, want it to include the grantable scope %q", doc.Scopes, scope)
+		}
+	}
+	// And nothing beyond them but the session-lifetime marker: advertising a
+	// scope the mint would refuse strands a client after the human consented.
+	for _, advertised := range doc.Scopes {
+		if advertised == scopeOfflineAccess {
+			continue
+		}
+		if !validScopes[principal.Scope(advertised)] {
+			t.Errorf("scopes_supported advertises %q, which the passport mint does not admit", advertised)
 		}
 	}
 }

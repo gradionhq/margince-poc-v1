@@ -16,13 +16,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
-// passthroughBind is a Binder that returns its input context unchanged — the
-// negotiation tests below exercise handle() directly and have no session to
-// authenticate.
-func passthroughBind(ctx context.Context) (context.Context, error) {
-	return ctx, nil
-}
-
 // The tool client sits outside the trust boundary: an error the sentinel
 // taxonomy does not know (driver text, hosts, wrap chains) surfaces as a
 // generic message, and the real cause goes to the server-side log only.
@@ -99,7 +92,7 @@ func TestCallScrubsBindFailures(t *testing.T) {
 }
 
 func TestInitializeNegotiatesTheClientsProtocolRevision(t *testing.T) {
-	s := NewStdioServer(NewRegistry(nil, nil), passthroughBind, "margince-crm", "test")
+	s := NewStdioServer(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
 	for _, tc := range []struct{ name, requested, want string }{
 		{
 			"echoes a supported revision", supportedProtocolVersions[len(supportedProtocolVersions)-1],

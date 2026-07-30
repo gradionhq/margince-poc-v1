@@ -9,8 +9,6 @@ package identity
 // type or a parameter the endpoints do not honour strands a client after the
 // human has already consented, which is the worst possible moment to fail.
 
-import "github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
-
 const (
 	// oauthParamClientID and oauthParamResource are RFC 6749 / RFC 8707
 	// request parameters; each is also the name of the field the audit trail
@@ -28,15 +26,19 @@ const (
 )
 
 // oauthScopesSupported is the passport vocabulary the metadata advertises,
-// least authority first, plus the session-lifetime marker. It is derived from
-// the principal scope constants rather than spelled again here, so a scope
-// added to the closed vocabulary cannot be left out of discovery — a scope a
-// client cannot see is a scope it will never ask for.
-var oauthScopesSupported = []string{
-	string(principal.ScopeRead),
-	string(principal.ScopeDraft),
-	string(principal.ScopeWrite),
-	string(principal.ScopeSend),
-	string(principal.ScopeEnrich),
-	scopeOfflineAccess,
-}
+// least authority first, plus the session-lifetime marker. It is DERIVED from
+// passportScopeVocabulary (passport.go) — the same list admission tests
+// against — rather than spelled again here, so a scope added to the closed
+// vocabulary cannot be left out of discovery. A scope a client cannot see is a
+// scope it will never ask for.
+//
+// offline_access is appended last and is not a member of that vocabulary: it
+// asks for the connection's lifetime, not authority over any record, and its
+// durable home is oauth_grant.refresh_allowed.
+var oauthScopesSupported = func() []string {
+	advertised := make([]string, 0, len(passportScopeVocabulary)+1)
+	for _, scope := range passportScopeVocabulary {
+		advertised = append(advertised, string(scope))
+	}
+	return append(advertised, scopeOfflineAccess)
+}()

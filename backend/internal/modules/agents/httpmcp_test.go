@@ -4,9 +4,12 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -16,12 +19,19 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// discardLog is the logger for the cases that assert something other than what
+// was logged: a handler built with the process default would write this
+// package's diagnostics into the test output of every one of them.
+func discardLog() *slog.Logger {
+	return slog.New(slog.NewTextHandler(io.Discard, nil))
+}
+
 func TestUnauthenticatedRequestChallengesWithAnAbsolutePointerAndConservativeScope(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil),
 		func(*http.Request) (context.Context, error) { return nil, errors.New("no token") },
 		func(*http.Request) string {
 			return `Bearer resource_metadata="https://crm.example.com/.well-known/oauth-protected-resource", scope="read draft"`
-		}, "margince-crm", "test")
+		}, "margince-crm", "test", discardLog())
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{}`)))
@@ -71,7 +81,7 @@ func authenticatedForTest(*http.Request) (context.Context, error) {
 // serve, turning a working fallback into a hard failure.
 func TestUnsupportedProtocolVersionHeaderIsRejectedWithPlain400(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
-		func(*http.Request) string { return "" }, "margince-crm", "test")
+		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 
 	req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
 	req.Header.Set("MCP-Protocol-Version", "1999-01-01")
@@ -99,7 +109,7 @@ func TestUnsupportedProtocolVersionHeaderIsRejectedWithPlain400(t *testing.T) {
 // implement.
 func TestMissingProtocolVersionHeaderIsServedNormally(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
-		func(*http.Request) string { return "" }, "margince-crm", "test")
+		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -123,7 +133,7 @@ func TestMissingProtocolVersionHeaderIsServedNormally(t *testing.T) {
 // not yet negotiated cannot be expected to already send a supported value.
 func TestInitializeIsExemptFromTheProtocolVersionHeaderCheck(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
-		func(*http.Request) string { return "" }, "margince-crm", "test")
+		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -144,6 +154,43 @@ func TestInitializeIsExemptFromTheProtocolVersionHeaderCheck(t *testing.T) {
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200 (initialize negotiates via its own body, not the header)", resp.StatusCode)
+	}
+}
+
+// A tool failure outside the sentinel taxonomy is scrubbed on its way to the
+// client by design, so the server-side log line is the ONLY place its cause
+// survives. That makes the logger this transport dispatches with load-bearing:
+// falling back to slog.Default() in a process that never called SetDefault —
+// which cmd/api does not — writes the one diagnostic to a handler nobody
+// configured, in a format nobody is parsing.
+func TestScrubbedToolFailuresReachTheConfiguredLogger(t *testing.T) {
+	var logged bytes.Buffer
+	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
+		func(*http.Request) string { return "" }, "margince-crm", "test",
+		slog.New(slog.NewTextHandler(&logged, nil)))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL, "application/json",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"no_such_tool"}}`))
+	if err != nil {
+		t.Fatalf("POST: %v", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the response: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Errorf("closing response body: %v", err)
+	}
+
+	// The client half: generic, and it does not name the tool it could not find.
+	if !strings.Contains(string(body), "internal reason") {
+		t.Fatalf("the client answer %q is not the scrubbed one, so this proves nothing about what was logged instead", body)
+	}
+	// The server half, which is the point.
+	if !strings.Contains(logged.String(), "mcp: tool call failed") || !strings.Contains(logged.String(), "no_such_tool") {
+		t.Errorf("the configured logger recorded %q, want the cause of the scrubbed failure: the transport dispatched with a logger nobody configured", logged.String())
 	}
 }
 
@@ -204,7 +251,7 @@ func TestInitializeReturnsASessionIDAndDeleteClosesOnlyYourOwn(t *testing.T) {
 	passportA, passportB := ids.NewV7(), ids.NewV7()
 	h := NewHTTPHandler(NewRegistry(nil, nil),
 		authenticateAsPassport(map[string]ids.UUID{"a": passportA, "b": passportB}),
-		func(*http.Request) string { return "" }, "margince-crm", "test")
+		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 
@@ -252,7 +299,7 @@ func TestInitializeReturnsASessionIDAndDeleteClosesOnlyYourOwn(t *testing.T) {
 // legitimately has no resources or prompts, but answering -32601 method-
 // not-found reads as a broken server rather than an empty, valid catalog.
 func TestResourcesAndPromptsAnswerEmptyRatherThanMethodNotFound(t *testing.T) {
-	s := NewStdioServer(NewRegistry(nil, nil), passthroughBind, "margince-crm", "test")
+	s := NewStdioServer(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
 	for _, method := range []string{"resources/list", "resources/templates/list", "prompts/list"} {
 		resp := s.handle(context.Background(), rpcRequest{
 			JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method,
@@ -271,7 +318,7 @@ func TestUnauthenticatedDeleteChallengesLikePost(t *testing.T) {
 		func(*http.Request) (context.Context, error) { return nil, errors.New("no token") },
 		func(*http.Request) string {
 			return `Bearer resource_metadata="https://crm.example.com/.well-known/oauth-protected-resource", scope="read draft"`
-		}, "margince-crm", "test")
+		}, "margince-crm", "test", discardLog())
 
 	req := httptest.NewRequest(http.MethodDelete, "/mcp", nil)
 	req.Header.Set("Mcp-Session-Id", "whatever")
@@ -290,7 +337,7 @@ func TestUnauthenticatedDeleteChallengesLikePost(t *testing.T) {
 // there is nothing to look up.
 func TestDeleteWithoutSessionHeaderIsBadRequest(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
-		func(*http.Request) string { return "" }, "margince-crm", "test")
+		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodDelete, "/mcp", nil))
@@ -304,7 +351,7 @@ func TestDeleteWithoutSessionHeaderIsBadRequest(t *testing.T) {
 // frame carrying the JSON-RPC response, not the plain JSON body.
 func TestPostWithEventStreamAcceptFramesASingleDataFrame(t *testing.T) {
 	h := NewHTTPHandler(NewRegistry(nil, nil), authenticatedForTest,
-		func(*http.Request) string { return "" }, "margince-crm", "test")
+		func(*http.Request) string { return "" }, "margince-crm", "test", discardLog())
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 

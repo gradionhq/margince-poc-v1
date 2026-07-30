@@ -40,11 +40,26 @@ const (
 	maxPassportTTL     = 90 * 24 * time.Hour
 )
 
-// validScopes is the closed verb vocabulary (interfaces.md §2).
-var validScopes = map[principal.Scope]bool{
-	principal.ScopeRead: true, principal.ScopeDraft: true, principal.ScopeWrite: true,
-	principal.ScopeSend: true, principal.ScopeEnrich: true,
+// passportScopeVocabulary is the closed verb vocabulary (interfaces.md §2), in
+// ascending authority order. It is the ONE list: admission (validScopes) and
+// discovery (oauthScopesSupported) are both derived from it, so a scope added
+// here cannot be grantable-but-undiscoverable — a scope a client cannot see in
+// the metadata is a scope it will never ask for.
+var passportScopeVocabulary = []principal.Scope{
+	principal.ScopeRead, principal.ScopeDraft, principal.ScopeWrite,
+	principal.ScopeSend, principal.ScopeEnrich,
 }
+
+// validScopes is the admission form of that vocabulary: the mint and the
+// authorize parser both test membership, and neither may accept a verb the
+// metadata does not advertise.
+var validScopes = func() map[principal.Scope]bool {
+	admitted := make(map[principal.Scope]bool, len(passportScopeVocabulary))
+	for _, scope := range passportScopeVocabulary {
+		admitted[scope] = true
+	}
+	return admitted
+}()
 
 // IssuePassportInput — the granting human comes from the session, never
 // from the request: a passport is always on_behalf_of its issuer.

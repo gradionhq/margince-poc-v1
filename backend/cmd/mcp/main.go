@@ -266,7 +266,8 @@ func serveHosted(ctx context.Context, addr string, auth *identity.Service, regis
 	// discovery documents — the split origin is exactly why the api's own
 	// /mcp mount supersedes this transport; a proxy that fronts both is the
 	// only way a client's RFC 9728 lookup resolves here.
-	mux.Handle("/mcp", agents.NewHTTPHandler(registry, authenticate, agents.ResourceMetadataChallenge, "margince-crm", "0.1.0"))
+	mux.Handle("/mcp", agents.NewHTTPHandler(registry, authenticate,
+		agents.ResourceMetadataChallenge, "margince-crm", "0.1.0", logger))
 
 	server := &http.Server{
 		Addr: addr,

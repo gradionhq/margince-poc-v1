@@ -10,8 +10,9 @@ package identity
 // covered were recoverable only from the passport's label.
 //
 // A grant is one act of consent, not one connection: re-consenting mints
-// another grant for the same client, so what ends a connection is disabling
-// the CLIENT and cascading to every grant beneath it.
+// another grant for the same client. So a client an operator switches off has
+// as many connections beneath it as the human consented to, and each one ends
+// through the same cascade below.
 
 import (
 	"context"
@@ -148,10 +149,17 @@ func lockGrant(ctx context.Context, tx pgx.Tx, grantID ids.UUID) error {
 
 // revokeGrantTx ends a whole connection inside the caller's transaction: the
 // consent, every refresh token that could renew it, and every passport it
-// issued. It is the ONE cascade — detected reuse, an admin disabling or
-// deleting a client, a human deleting a passport and RFC 7009 revocation all
-// reach these three writes, so no path can end a connection halfway and no
-// path can leave refresh able to resurrect it.
+// issued. It is the ONE cascade, and four paths reach these three writes:
+// detected refresh-token reuse (rotateRefreshToken), a human deleting a
+// passport (RevokePassport), a client revoking its own credential
+// (revokeToken, RFC 7009) and an admin deactivating the human whose authority
+// the connection borrows (revokeGrantsOfUserTx). So no path can end a
+// connection halfway and none can leave refresh able to resurrect it.
+//
+// A client disabled or deleted OUT OF BAND — there is no admin client surface
+// yet, so that is raw SQL today — reaches no cascade at all: what stops it is
+// the liveness predicate every read of oauth_client carries (liveClientPredicate,
+// oauth.go), which refuses authentication, renewal and fresh consent alike.
 //
 // The actor must already be bound on ctx (actorCtx): the audit row names
 // whose action this was, and storekit refuses an unattributed write rather

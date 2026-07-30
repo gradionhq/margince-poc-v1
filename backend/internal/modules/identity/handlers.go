@@ -254,9 +254,10 @@ func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListPassports implements (GET /passports): passport metadata for the
-// Settings list. Tokens are never re-disclosed; agent_id and
-// last_used_at have no storage yet and read as absent (recorded in the
-// batch's decision file).
+// Settings list. Tokens are never re-disclosed. agent_id has no storage
+// (the A1/local path has no agent-connection table); last_used_at has a
+// column but no writer — the stamp lives on the authenticated /mcp path,
+// where it is debounced — so both read as absent here.
 func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
 	identity, ok := identityFrom(r.Context())
 	if !ok {

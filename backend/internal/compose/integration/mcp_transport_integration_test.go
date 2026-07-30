@@ -262,7 +262,12 @@ func observableFingerprint(got httpResult) string {
 	return strings.Join(parts, " ")
 }
 
-// dereferences it, not later as an unexplained refusal.
+// pathOn turns an advertised absolute URL into the path to request on this
+// harness, and fails if that URL is not on the harness's own origin. That check
+// is this suite's whole same-origin claim: the RFC 9728 chain only closes if the
+// 401's pointer, the metadata documents and the token endpoint all live on one
+// origin, and a URL that leaves it must fail HERE, where a test says what it
+// dereferences, not later as an unexplained refusal.
 func (e *connectorEnv) pathOn(t *testing.T, advertised string) string {
 	t.Helper()
 	if !strings.HasPrefix(advertised, e.origin+"/") {

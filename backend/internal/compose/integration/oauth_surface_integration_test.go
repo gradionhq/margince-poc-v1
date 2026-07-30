@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -121,7 +122,9 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 		}
 		return principal.WithCorrelationID(principal.WithActor(ctx, agent.Principal()), ids.NewV7()), nil
 	}
-	hosted := httptest.NewServer(agents.NewHTTPHandler(registry, authenticate, agents.ResourceMetadataChallenge, "margince-crm", "test"))
+	hosted := httptest.NewServer(agents.NewHTTPHandler(registry, authenticate,
+		agents.ResourceMetadataChallenge, "margince-crm", "test",
+		slog.New(slog.NewTextHandler(io.Discard, nil))))
 	t.Cleanup(hosted.Close)
 
 	rpc := func(bearer, payload string) (int, string) {

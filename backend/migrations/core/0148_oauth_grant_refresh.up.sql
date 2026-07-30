@@ -1,4 +1,4 @@
--- 0145: the durable consent behind a remote MCP connection — the grant the
+-- 0148: the durable consent behind a remote MCP connection — the grant the
 -- human approved once, the rotating refresh tokens minted under it, and the
 -- client-lifecycle columns that let an admin switch a connection off.
 --
@@ -63,17 +63,32 @@ ALTER TABLE passport ADD COLUMN oauth_grant_id uuid NULL;
 ALTER TABLE passport ADD CONSTRAINT passport_grant_fkey
   FOREIGN KEY (workspace_id, oauth_grant_id)
   REFERENCES oauth_grant (workspace_id, id) ON DELETE RESTRICT;
+-- passport.last_used_at is the Settings list's "last used" column, which the
+-- contract already declares (PassportSummary.last_used_at). Its writer is the
+-- stamp on the authenticated /mcp path, debounced to at most one update per
+-- passport per minute because it is a write on the hot path.
 ALTER TABLE passport ADD COLUMN last_used_at timestamptz NULL;
 
 -- Client lifecycle. Disable is reversible, delete is not, and delete is SOFT:
 -- a hard row delete cannot express "revoke every passport and refresh token
 -- under this client first" atomically, would fight the RESTRICT above, and
--- would take the audit trail of the connection with it.
+-- would take the audit trail of the connection with it. Every statement that
+-- reads oauth_client carries both columns already (identity's
+-- liveClientPredicate — issuance and authentication alike); the surface that
+-- SETS them is the admin client screen, where PATCH disables and DELETE
+-- soft-deletes and runs the revoke cascade.
 ALTER TABLE oauth_client ADD COLUMN disabled_at  timestamptz NULL;
 ALTER TABLE oauth_client ADD COLUMN deleted_at   timestamptz NULL;
--- Existing rows are 'dcr' by construction: dynamic registration was the only
--- way a client row could come into being before this migration.
+-- created_via separates a dynamically registered client from one an admin
+-- entered, for the consent page's unverified-client warning: anyone may
+-- register through DCR, so the human approving one has to be told. Existing
+-- rows are 'dcr' by construction — dynamic registration was the only way a
+-- client row could come into being before this migration.
 ALTER TABLE oauth_client ADD COLUMN created_via  text NOT NULL DEFAULT 'dcr' CHECK (created_via IN ('dcr','admin'));
+-- Claude registers a fresh client on every new connection, so an installation
+-- accumulates client rows. oauth_client.last_used_at is what the admin client
+-- list sorts on to make the never-used ones deletable in bulk; that is the one
+-- capability it serves.
 ALTER TABLE oauth_client ADD COLUMN last_used_at timestamptz NULL;
 
 -- Tenant tables ⇒ RLS, same deny-on-unset policy as every other
