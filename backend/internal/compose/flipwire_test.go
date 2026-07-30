@@ -123,3 +123,45 @@ func TestBundleSourceImportsTheEstateInDependencyOrder(t *testing.T) {
 		t.Errorf("order %v does not import activities last", order)
 	}
 }
+
+func TestFlipAddressOnlyBuildsAnAddressThatSaysSomething(t *testing.T) {
+	// The incumbent's address transform emits a property map; a row with
+	// no address at all, or one whose fields are all empty, must yield
+	// nil rather than an Address of blanks the native row would store.
+	for name, fields := range map[string]map[string]any{
+		"no address key":     {"display_name": "Acme"},
+		"address not a map":  {"address": "12 Main St"},
+		"empty address map":  {"address": map[string]any{}},
+		"only unknown parts": {"address": map[string]any{"floor": "3"}},
+	} {
+		if got := flipAddress(fields); got != nil {
+			t.Errorf("%s: flipAddress = %+v, want nil", name, got)
+		}
+	}
+
+	full := flipAddress(map[string]any{"address": map[string]any{
+		"address": "12 Main St", "city": "Frankfurt", "state": "HE",
+		"zip": "60311", "country": "DE",
+	}})
+	if full == nil {
+		t.Fatal("a populated incumbent address must map to a native Address")
+	}
+	for field, got := range map[string]*string{
+		"line1": full.Line1, "city": full.City, "region": full.Region,
+		"postal_code": full.PostalCode, "country": full.Country,
+	} {
+		if got == nil || *got == "" {
+			t.Errorf("%s did not carry through: %+v", field, full)
+		}
+	}
+
+	// A partial address still lands — dropping it would lose the only
+	// location the incumbent had.
+	partial := flipAddress(map[string]any{"address": map[string]any{"city": "Berlin"}})
+	if partial == nil || partial.City == nil || *partial.City != "Berlin" {
+		t.Errorf("partial address = %+v, want the city carried", partial)
+	}
+	if partial != nil && partial.Line1 != nil {
+		t.Errorf("absent parts must stay nil, got line1 = %v", *partial.Line1)
+	}
+}

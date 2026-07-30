@@ -44,7 +44,10 @@ package integration
 // for upstream reconciliation instead.
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -553,5 +556,87 @@ func TestOverlayFlipEmergencyCutover(t *testing.T) {
 	counts := f.nativeEstateRows(t)
 	if counts["person"] != 2 || counts["deal"] != 2 {
 		t.Errorf("estate after emergency cutover = %+v, want the last-known mirror imported", counts)
+	}
+}
+
+// The pre-flip export's own HTTP surface: the producer the flip's
+// export_missing gate depends on. It is admin/ops + human-only, and its
+// audit row — the thing the preflight actually reads — must be written
+// only once a complete bundle has streamed.
+func TestOverlayExportDownload(t *testing.T) {
+	f := setupFlipEstate(t)
+	e := f.e
+
+	auditRows := func() int {
+		t.Helper()
+		var n int
+		f.inWorkspaceTx(t, func(tx pgx.Tx) error {
+			return tx.QueryRow(f.adminCtx,
+				`SELECT count(*) FROM audit_log WHERE entity_type = 'workspace' AND action = 'export'`).Scan(&n)
+		})
+		return n
+	}
+	if auditRows() != 0 {
+		t.Fatal("no export has happened yet")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, e.ts.URL+"/v1/overlay/export", nil)
+	if err != nil {
+		t.Fatalf("building the export request: %v", err)
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatalf("GET /v1/overlay/export: %v", err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the bundle: %v", err)
+	}
+	if err := resp.Body.Close(); err != nil {
+		t.Fatalf("closing the response: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/overlay/export = %d", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/zip" {
+		t.Errorf("Content-Type = %q, want application/zip", ct)
+	}
+	if !strings.Contains(resp.Header.Get("Content-Disposition"), "attachment") {
+		t.Errorf("Content-Disposition = %q, want an attachment", resp.Header.Get("Content-Disposition"))
+	}
+
+	// A real archive, carrying the overlay-mode manifest disclosure the
+	// flip's honest-scope gate is about (AC-OV-9).
+	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatalf("the downloaded bundle is not a zip: %v", err)
+	}
+	var manifest struct {
+		CanonicalDataResidesIn string `json:"canonical_data_resides_in"`
+	}
+	mf, err := zr.Open("manifest.json")
+	if err != nil {
+		t.Fatalf("bundle has no manifest: %v", err)
+	}
+	if err := json.NewDecoder(mf).Decode(&manifest); err != nil {
+		t.Fatalf("decoding the manifest: %v", err)
+	}
+	if err := mf.Close(); err != nil {
+		t.Fatalf("closing the manifest: %v", err)
+	}
+	if manifest.CanonicalDataResidesIn != "hubspot" {
+		t.Errorf("manifest discloses %q, want the incumbent — P7 is partial until the flip", manifest.CanonicalDataResidesIn)
+	}
+
+	// Exactly one audit row, and it satisfies the preflight's gate.
+	if got := auditRows(); got != 1 {
+		t.Errorf("export audit rows = %d, want exactly 1", got)
+	}
+	var verdict crmcontracts.OverlayFlipPreflight
+	if code := e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+		t.Fatalf("preflight after export = %d", code)
+	}
+	if hasBlocking(verdict, "export_missing") {
+		t.Error("a completed export must clear the export_missing gate")
 	}
 }
