@@ -86,8 +86,12 @@ func setupRevocationEnv(t *testing.T, slug string) *revocationEnv {
 	svc := NewService(pool)
 	ctx := context.Background()
 	// The database persists across binary runs; key the slug (and the
-	// emails derived from it) uniquely so reruns never collide.
-	slug += "-" + ids.NewV7().String()[:8]
+	// emails derived from it) uniquely so reruns never collide. The suffix is
+	// the id's RANDOM tail, not its leading bytes: those are a millisecond
+	// timestamp whose first 8 hex digits only change about once a minute, so
+	// two runs inside the same minute produced the same slug and the second
+	// one failed on workspace_slug_unique.
+	slug += "-" + ids.NewV7().String()[24:]
 
 	// createInstallation directly: the test database persists across
 	// binary runs and accumulates one workspace per env, so the

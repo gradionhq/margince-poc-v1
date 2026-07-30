@@ -383,6 +383,38 @@ func TestReplayedRefreshOutsideTheWindowRevokesEverything(t *testing.T) {
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'passport.revoked'`)
 }
 
+// A connection bound to an audience at authorize must still renew when the
+// client names no audience on the refresh request. Omitting it is not a client
+// asking for a foreign resource, so the renewal binds to the audience the
+// grant already carries — refusing it would kill a working connection a month
+// after anyone was watching. A resource that IS named is still checked.
+func TestRefreshOfAnAudienceBoundGrantAcceptsAnAbsentResource(t *testing.T) {
+	o := setupOAuth(t)
+	resource := o.origin + "/mcp"
+	code := o.authorize(t, url.Values{"scope": {"read write offline_access"}, "resource": {resource}})
+	status, body := o.exchange(t, url.Values{"code": {code}, "resource": {resource}})
+	if status != http.StatusOK {
+		t.Fatalf("code exchange → %d %v", status, body)
+	}
+	refresh, _ := body["refresh_token"].(string)
+	if refresh == "" {
+		t.Fatalf("audience-bound handshake returned no refresh token: %v", body)
+	}
+
+	// A foreign audience is refused, and — like every other refusal — must not
+	// spend the token: the renewal below proves it survived.
+	o.refuseRenewal(t, refresh, url.Values{"resource": {"https://attacker.example/mcp"}})
+
+	status, body = o.renew(t, refresh, nil)
+	if status != http.StatusOK {
+		t.Fatalf("renewal without a resource against a bound grant → %d %v", status, body)
+	}
+	next, _ := body["refresh_token"].(string)
+	if status, body := o.renew(t, next, url.Values{"resource": {resource}}); status != http.StatusOK {
+		t.Fatalf("renewal naming the bound resource → %d %v", status, body)
+	}
+}
+
 // A renewal may ask for less than the human approved and never for more: the
 // grant is the ceiling, and a request past it is refused without spending the
 // token — a client that asks wrongly must not be locked out by its own bug.

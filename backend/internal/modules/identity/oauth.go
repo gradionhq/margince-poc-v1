@@ -414,6 +414,31 @@ func audienceMatches(presented, canonical string, bound *string) bool {
 	return bound == nil || presented == *bound
 }
 
+// refreshAudienceMatches is the same rule for a RENEWAL, and it differs from
+// redemption in exactly one place, on purpose.
+//
+// A PRESENTED resource is judged identically: it must name this
+// installation's canonical endpoint, and must also match the binding a grant
+// carries, so neither a foreign audience nor a grant that outlived a
+// reconfigured resource gets through. An ABSENT resource, though, means "the
+// audience this grant is already bound to" rather than a refusal — and that is
+// where the two rules part.
+//
+// The asymmetry is a risk judgement, not a shrug. Naming no audience is not a
+// client asking for a foreign one, so renewing against the grant's own
+// recorded resource hands out no authority the consent did not already carry.
+// Refusing it, on the other hand, would kill a working connection 30 days
+// after anyone was watching — the exact failure this whole feature exists to
+// prevent — for any client that omits the parameter on refresh. A code
+// exchange has no such trap: it happens seconds after a human approved it, in
+// a flow a client developer is watching, so redemption stays strict.
+func refreshAudienceMatches(presented, canonical string, bound *string) bool {
+	if presented == "" {
+		return true
+	}
+	return audienceMatches(presented, canonical, bound)
+}
+
 // validRedirectURI admits https anywhere and plain http only on
 // loopback (native-app dev flows).
 func validRedirectURI(raw string) bool {
