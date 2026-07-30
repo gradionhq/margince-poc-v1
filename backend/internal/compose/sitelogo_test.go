@@ -317,20 +317,16 @@ func TestReclaimSurvivesTheDeadlineThatCausedIt(t *testing.T) {
 	}
 }
 
-func TestAnAmbiguousRowWriteKeepsItsBytes(t *testing.T) {
-	// A failing SetOrganizationLogo does NOT mean the write did not happen: a
-	// transaction can commit and still fail the caller on the way back. If it
-	// did commit, the row names these bytes — deleting them would show a
-	// broken image where a company's face should be. An orphan costs storage;
-	// that costs the user the thing this whole lane exists to give them.
-	//
-	// The rule lives in resolveLogo's error branch, and this pins the reclaim
-	// helper's half of it: only definitive outcomes reach it.
+func TestReclaimCollectsAKeyNoRowNames(t *testing.T) {
+	// The three definitive outcomes hand this helper a key nothing references:
+	// the guard declined, the Put failed, or a successful write named the key
+	// it superseded. Only those reach it — resolveLogo's error branch
+	// deliberately does not, because a failed SetOrganizationLogo does not
+	// mean the write did not happen, and deleting bytes a committed row names
+	// would show a broken image instead of the company's face.
 	blob := &deadlineBlob{Store: blobstore.NewMemory()}
 	w := &siteDeepReadWorker{blob: blob, log: slog.New(slog.DiscardHandler)}
 
-	// A key the caller knows nothing references — the guard-declined and
-	// failed-Put cases — is collected.
 	orphan := "ws/organization_logo/org/orphan"
 	w.reclaimLogoObject(context.Background(), ids.NewV7(), &orphan)
 	if len(blob.deletedLive) != 1 || blob.deletedLive[0] != orphan {
