@@ -1502,6 +1502,40 @@ describe("CompanyScreen — next-step suggestions", () => {
     expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
   });
 
+  it("names how many suggestions the card left out", async () => {
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        suggestions: [stalledSuggestion],
+        suggestions_dropped: 3,
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    // A truncated list with no count reads as "that is everything".
+    await waitFor(() =>
+      expect(screen.getByText("3 more not shown here.")).toBeTruthy(),
+    );
+  });
+
+  it("stays silent about what it left out when the count is absent", async () => {
+    // Absent means the section was never computed. A "0 more" line would state a
+    // fact about an account this read did not look at.
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        suggestions: [stalledSuggestion],
+        suggestions_dropped: undefined,
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/more not shown here/)).toBeNull();
+  });
+
   it("says nothing at all when the account needs nothing", async () => {
     stubFetch(companyBackstop);
     render(<CompanyScreen id="o-1" />);

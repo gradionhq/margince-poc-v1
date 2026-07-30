@@ -400,6 +400,51 @@ func TestADeferralNeverResurrectsADismissal(t *testing.T) {
 	}
 }
 
+// A dismissal survives the deal leaving and re-entering the candidate set.
+//
+// Closing and reopening a deal, or archiving and restoring one, changes neither
+// its idle instant nor anything else the episode carries — so the rep's "not now"
+// still holds. That is chosen, not overlooked: `status` and `archived_at` can both
+// return to an earlier value, so putting either in the fingerprint would let a
+// dismissed shape recur and resurrect a judgment. The one sentence that survives
+// is "not now silences this deal until it is next worked", and this pins it.
+func TestADismissalSurvivesADealRoundTrip(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	dismissed := stalledFingerprints(*view.Suggestions)
+	if len(dismissed) != 1 {
+		t.Fatalf("got %d stalled suggestions, want the one seeded deal", len(dismissed))
+	}
+	if err := svc.DismissSuggestion(rep, org, dismissed[0]); err != nil {
+		t.Fatalf("dismiss: %v", err)
+	}
+
+	// Closed and reopened, with nothing worked on it in between.
+	e.WsExec(t, `UPDATE deal SET status = 'lost', lost_reason = 'other', closed_at = $2 WHERE id = $1`,
+		deal, org360Clock)
+	e.WsExec(t, `UPDATE deal SET status = 'open', lost_reason = NULL, closed_at = NULL WHERE id = $1`, deal)
+
+	after, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble after the round trip: %v", err)
+	}
+	if left := stalledFingerprints(*after.Suggestions); len(left) != 0 {
+		t.Errorf("the reopened deal offers %d stalled suggestions, want the rep's "+
+			"dismissal to still hold — nothing was worked on it", len(left))
+	}
+}
+
 // The no-next-step fingerprint covers every open deal, not the listed ones.
 //
 // Closing a deal the card never showed still changes the situation the rep

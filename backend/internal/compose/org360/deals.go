@@ -28,9 +28,7 @@ import (
 // Both this section and the suggestion rules build their query around it. That is
 // what makes the rules' guarantee structural rather than a claim two queries have
 // to keep in step: a suggestion cannot name a deal the card would refuse to show,
-// because a condition added here reaches both. The previous shape repeated the
-// predicate and asserted the equality in a comment, which is exactly the sibling
-// a reviewer catches after someone edits one of the two.
+// because a condition added here reaches both.
 func openDealsWhere(orgPos int, dealScope string) string {
 	return fmt.Sprintf(
 		`WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)`,

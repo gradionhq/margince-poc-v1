@@ -15,7 +15,7 @@ package org360
 // client chooses to send. No retention cap is needed, and no judgment is ever
 // deleted to make room for another.
 //
-// The two obvious alternatives are both wrong, and both were tried. Accepting any
+// The two obvious alternatives are both wrong. Accepting any
 // well-formed fingerprint makes this an authenticated write sink — every distinct
 // value is a row nothing will ever collect. Capping the stored count instead
 // silently deletes the earliest judgments on an account with more suggestions
@@ -84,10 +84,9 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 			// asking.
 			return nil
 		}
-		// The row's existence IS the dismissal, so a repeat click is a no-op rather
-		// than a re-stamp. Nothing reads a dismissal's age — the count-based
-		// retention that ordered by it is gone — and the id is a v7 uuid, so when
-		// support needs the moment it is recoverable without a column nobody reads.
+		// The row's existence IS the dismissal, so a repeat click is a no-op. Nothing
+		// reads a dismissal's age, and the id is a v7 uuid, so the instant stays
+		// recoverable for support without a column nobody reads.
 		_, err = tx.Exec(ctx, `
 			INSERT INTO suggestion_dismissal (workspace_id, user_id, organization_id, fingerprint)
 			VALUES ($1, $2, $3, $4)
@@ -138,11 +137,8 @@ func isFingerprint(value string) bool {
 // dismissedFingerprints asks which of THESE suggestions this caller has already
 // judged.
 //
-// It asks about the candidates rather than reading the whole stored set, so the
-// page read is bounded by the suggestions in hand. Nothing prunes the table
-// either, and nothing needs to: DismissSuggestion only ever writes a fingerprint
-// the rules produce, so the stored set is already bounded by the account's own
-// data.
+// It asks about the candidates in hand rather than reading the whole stored set,
+// so the page read is bounded by the suggestions this account raises.
 //
 // The user_id predicate is explicit in SQL: RLS binds the workspace, so without
 // it one rep's judgment would silence their colleague's suggestions.

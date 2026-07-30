@@ -114,25 +114,28 @@ type stalledDeal struct {
 	IdleSince time.Time
 }
 
-// episode identifies the STALL, not the deal, and it only ever moves FORWARD.
+// episode identifies the STALL, not the deal: the deal and the instant it went
+// idle, and nothing else.
 //
-// That second property is the whole constraint, and it is what rules out the two
-// shapes tried before it:
+// It must MOVE when the deal is worked and stalls again, or one dismissal silences
+// that deal for good. It must move only FORWARD, or a shape the rep already
+// dismissed can recur and that old dismissal comes back to life — silencing advice
+// they may have been shown again in between. last_activity_at satisfies both:
+// activities.LogActivity advances it with greatest() and nothing lowers it.
 //
-//   - The deal id alone never moves, so one dismissal silenced that deal for good.
-//   - The deal id plus wait_until moves, but not monotonically: a deferral that is
-//     set, expires and is then CLEARED returns the deal to a shape the rep already
-//     dismissed, and that old dismissal comes back to life. A rep who saw the
-//     advice again in between, and left it, would silently lose it.
+// Two mutable facts the stall rule also reads are deliberately left out, because
+// each of them can return to an earlier value and would break the second property:
 //
-// last_activity_at is monotone by construction — activities.LogActivity advances it
-// with greatest(), never lowers it — so an episode keyed on it can only be new. A
-// deferral is deliberately NOT in here: while it runs the deal is not stalled at
-// all, so no advice is due for the dismissal to affect, and when it ends the deal
-// is in exactly the state the rep declined with nothing worked in between.
+//   - wait_until. While a deferral runs the deal is not stalled at all, so no
+//     advice is due for a dismissal to affect; when it ends the deal is in exactly
+//     the state the rep declined, with nothing worked in between.
+//   - status and archived_at. A deal that is closed and reopened, or archived and
+//     restored, leaves the candidate set and comes back — and comes back to the
+//     same episode. So a dismissal survives that round trip.
 //
-// The rule that leaves, stated once: "not now" silences this deal until it is next
-// worked.
+// The rule that leaves is one sentence, and it is the one a rep means: "not now"
+// silences this deal until it is next worked. TestADismissalSurvivesADealRoundTrip
+// holds the round-trip half of it, so the behaviour is chosen rather than noticed.
 func (d stalledDeal) episode() string {
 	return d.ID.String() + "@" + d.IdleSince.UTC().Format(time.RFC3339Nano)
 }
