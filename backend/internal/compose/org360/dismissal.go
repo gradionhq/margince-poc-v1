@@ -67,7 +67,7 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 		if err != nil {
 			return fmt.Errorf("record the suggestion dismissal: %w", err)
 		}
-		return s.pruneDismissals(ctx, tx, userID, orgID)
+		return nil
 	})
 }
 
@@ -86,38 +86,25 @@ func isFingerprint(value string) bool {
 	return fingerprintPattern.MatchString(value)
 }
 
-// dismissalsPerAccount bounds how many dismissals one person keeps for one
-// account. The rules raise at most a handful at a time, so this is far above
-// any honest use; it exists because a well-formed fingerprint that matches no
-// suggestion is still storable, and nothing else would ever collect it.
-const dismissalsPerAccount = 50
-
-// pruneDismissals drops this person's oldest dismissals for this account past
-// the bound. The oldest is the right one to lose: a dismissal that far back has
-// almost certainly outlived the evidence it was keyed on, so losing it shows
-// the advice again rather than hiding anything.
-func (s *Service) pruneDismissals(
-	ctx context.Context, tx pgx.Tx, userID ids.UserID, orgID ids.OrganizationID,
-) error {
-	_, err := tx.Exec(ctx, `
-		DELETE FROM suggestion_dismissal
-		WHERE user_id = $1 AND organization_id = $2
-		  AND id NOT IN (
-		    SELECT id FROM suggestion_dismissal
-		    WHERE user_id = $1 AND organization_id = $2
-		    ORDER BY dismissed_at DESC, id DESC
-		    LIMIT $3)`, userID, orgID, dismissalsPerAccount)
-	if err != nil {
-		return fmt.Errorf("bound the stored suggestion dismissals: %w", err)
-	}
-	return nil
-}
-
-// dismissedFingerprints reads this caller's own dismissals for one account.
-// The user_id predicate is explicit in SQL: RLS binds the workspace, so
-// without it one rep's judgment would silence their colleague's suggestions.
+// dismissedFingerprints asks which of THESE suggestions this caller has already
+// judged.
+//
+// It asks about the candidates rather than reading the whole stored set, and that
+// is what keeps the page read bounded no matter how many rows the table holds. A
+// dismissal matching no suggestion the rules produced is never read at all — so a
+// caller who writes well-formed fingerprints that mean nothing pays for the
+// storage and changes nothing else.
+//
+// Nothing prunes those rows. A count-bounded retention did, and it was wrong: on
+// an account with more stalled deals than the bound, a rep dismissing them one
+// after another would have their earliest judgments deleted and the advice come
+// back. Silently resurrecting a decision the rep made is a worse failure than
+// keeping inert rows in their own tenant.
+//
+// The user_id predicate is explicit in SQL: RLS binds the workspace, so without
+// it one rep's judgment would silence their colleague's suggestions.
 func (s *Service) dismissedFingerprints(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, candidates []string,
 ) (map[string]bool, error) {
 	userID, err := actingUser(ctx)
 	if err != nil {
@@ -125,7 +112,8 @@ func (s *Service) dismissedFingerprints(
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT fingerprint FROM suggestion_dismissal
-		WHERE user_id = $1 AND organization_id = $2`, userID, orgID)
+		WHERE user_id = $1 AND organization_id = $2 AND fingerprint = ANY($3)`,
+		userID, orgID, candidates)
 	if err != nil {
 		return nil, fmt.Errorf("read the suggestion dismissals: %w", err)
 	}

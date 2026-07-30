@@ -93,14 +93,22 @@ func AskRequest(question crmcontracts.OrganizationQuestion, in Input) model.Requ
 // is not an error state: it is the deployment saying this role runs no model,
 // and the deterministic floor is the answer.
 func Answer(
-	ctx context.Context, lane Completer, question crmcontracts.OrganizationQuestion, orgID string, in Input,
+	ctx context.Context, lane Completer, raw crmcontracts.OrganizationQuestion, orgID string, in Input,
 ) ([]Sentence, crmcontracts.WrittenBy, error) {
+	// Validated HERE, not only in the service: this is exported, so a second
+	// caller must not be able to reach the writers with a question the package
+	// does not answer. It is what makes deterministicAnswer's default branch
+	// unreachable through any path rather than through the paths that remember.
+	question, err := ParseQuestion(raw)
+	if err != nil {
+		return nil, "", err
+	}
 	deterministic := deterministicAnswer(question, orgID, in)
 	if lane == nil {
 		return deterministic, crmcontracts.Deterministic, nil
 	}
-	written, err := answerWithModel(ctx, lane, question, orgID, in)
-	if err != nil {
+	written, modelErr := answerWithModel(ctx, lane, question, orgID, in)
+	if modelErr != nil {
 		// The declared degrade posture, not a swallowed error: a model that is
 		// unavailable, over budget, or answering unparseable JSON must not take
 		// the answer down with it, and generated_by reports which the reader
@@ -139,9 +147,8 @@ func answerWithModel(
 // this caller cannot see has no answer, and saying nothing is more honest than
 // a sentence written around the gap.
 //
-// Unexported on purpose. The only way in is Answer, which every caller reaches
-// through ParseQuestion — so a question this switch does not handle cannot
-// arrive, and the function never has to answer "nothing" to a bad argument.
+// Unexported on purpose, and reached only through Answer, which validates its
+// question first — so a question this switch does not handle cannot arrive.
 func deterministicAnswer(question crmcontracts.OrganizationQuestion, orgID string, in Input) []Sentence {
 	switch question {
 	case askWhatsOpen:
@@ -151,11 +158,11 @@ func deterministicAnswer(question crmcontracts.OrganizationQuestion, orgID strin
 	case askWhatsChanged:
 		return changedAnswer(in)
 	default:
-		// A question declared in the contract, accepted by ParseQuestion, and
-		// not wired here. Returning nothing rather than guessing keeps the
-		// promise that an answer is written from the records it cites; the
-		// completeness of askInstruction is what stops it happening (a question
-		// missing from that map is refused at the door).
+		// Unreachable: Answer validates against askInstruction, and
+		// TestEveryPreparedQuestionCarriesItsOwnInstruction reads the contract's
+		// own enum to prove that map covers every declared question. Returning
+		// nothing rather than guessing keeps the promise that an answer is
+		// written from the records it cites.
 		return nil
 	}
 }

@@ -136,10 +136,9 @@ func TestSuggestionCountsAreTheAccountsNotTheReads(t *testing.T) {
 			listed, view.SuggestionsDropped, listed+view.SuggestionsDropped, openDeals+1)
 	}
 
-	// Stalled deals lead, so the advice the cap cuts is the no-next-step row —
-	// a rep with eight stuck deals needs them unstuck, not a note that nothing
-	// is scheduled.
-	for _, suggestion := range (*view.Suggestions)[:listed] {
+	// Nothing here is waiting on a reply, so the priority order puts stalled
+	// deals first and the no-next-step row is what the cap drops.
+	for _, suggestion := range *view.Suggestions {
 		if string(suggestion.Kind) != "stalled_deal" {
 			t.Errorf("suggestion %q was listed ahead of a stalled deal", suggestion.Kind)
 		}
@@ -204,6 +203,66 @@ func stalledFingerprints(found []crmcontracts.Organization360Suggestion) []strin
 		}
 	}
 	return out
+}
+
+// A judgment the rep made is never resurrected, however many they make.
+//
+// The suggestion set is bounded only by the account's own data, so any
+// count-bounded retention on the dismissals would eventually delete the earliest
+// ones and bring that advice back. A rep who works through a busy account has to
+// be able to reach the end of it.
+func TestNoDismissalIsEverResurrected(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	// More stalled deals than any retention bound would plausibly keep.
+	const stalled = 60
+	for i := range stalled {
+		deal := e.SeedDeal(t, fmt.Sprintf("Deal %d", i), pipelineID, stage, &e.Rep1)
+		e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+			WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200-i))
+	}
+
+	// Work the card the way a rep does: dismiss what it offers, re-read, repeat,
+	// until it stops offering stalled deals.
+	judged := map[string]bool{}
+	for round := 0; round < stalled+2; round++ {
+		view, err := svc.Assemble(rep, org)
+		if err != nil {
+			t.Fatalf("assemble in round %d: %v", round, err)
+		}
+		offered := stalledFingerprints(*view.Suggestions)
+		if len(offered) == 0 {
+			break
+		}
+		for _, fingerprint := range offered {
+			if judged[fingerprint] {
+				t.Fatalf("round %d re-offered a suggestion this rep already dismissed", round)
+			}
+			if err := svc.DismissSuggestion(rep, org, fingerprint); err != nil {
+				t.Fatalf("dismiss in round %d: %v", round, err)
+			}
+			judged[fingerprint] = true
+		}
+	}
+	if len(judged) != stalled {
+		t.Errorf("worked through %d suggestions, want all %d stalled deals reachable", len(judged), stalled)
+	}
+
+	// And the card is genuinely empty of them now, not merely quiet this round.
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("final assemble: %v", err)
+	}
+	if left := stalledFingerprints(*view.Suggestions); len(left) != 0 {
+		t.Errorf("%d stalled suggestions left after dismissing every one", len(left))
+	}
+	if view.SuggestionsDropped != 0 {
+		t.Errorf("suggestions_dropped = %d with nothing left to show", view.SuggestionsDropped)
+	}
 }
 
 // The no-next-step fingerprint covers every open deal, not the listed ones.
@@ -403,15 +462,59 @@ func TestSuggestionDismissalRefusesAMalformedFingerprint(t *testing.T) {
 	}
 }
 
-// The rules read the sections the caller was actually shown, so a reader
-// without the activity grant gets no advice derived from an absence.
-func TestSuggestionsAreOmittedWithoutTheActivityGrant(t *testing.T) {
+// A reader who can see the pipeline but not the timeline still gets the advice
+// their grants support.
+//
+// The section holds no grant of its own, so this is the half of that design that
+// a fixed activity gate would have broken: stalled-deal advice is something a
+// deal reader can act on, and withholding it because they cannot read activities
+// would cost them advice they are entitled to.
+func TestSuggestionsSurviveWithoutTheActivityGrant(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	deal := e.SeedDeal(t, "Fleet retrofit", pipelineID, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
+
+	// Deals and pipelines, no activity grant at all.
+	dealReader := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
+		RoleKeys: []string{"rep"},
+		Objects: map[string]principal.ObjectGrant{
+			"organization": {Read: true}, "deal": {Read: true}, "pipeline": {Read: true},
+		},
+		RowScope: principal.RowScopeTeam,
+	})
+	view, err := svc.Assemble(dealReader, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.Suggestions == nil {
+		t.Fatalf("suggestions omitted for a caller who can read the pipeline (sections_omitted=%v)",
+			view.SectionsOmitted)
+	}
+	if got := stalledFingerprints(*view.Suggestions); len(got) != 1 {
+		t.Errorf("got %d stalled-deal suggestions, want the one this reader can act on: %+v",
+			len(got), *view.Suggestions)
+	}
+	// And nothing derived from the timeline they cannot read.
+	for _, suggestion := range *view.Suggestions {
+		if string(suggestion.Kind) == "no_reply" {
+			t.Error("a no_reply suggestion reached a caller with no activity grant")
+		}
+	}
+}
+
+// A caller shown neither the timeline nor the pipeline has nothing to be advised
+// from, so the section is omitted and named rather than answering empty.
+func TestSuggestionsAreOmittedWhenNeitherInputReachesTheCaller(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	seedUnansweredOutbound(t, e, org.UUID)
 
-	// Organization read only: no activity grant at all.
+	// Organization read only: neither the timeline nor the pipeline.
 	reader := e.As(e.Rep1, []ids.UUID{e.Team1}, principal.Permissions{
 		RoleKeys: []string{"rep"},
 		Objects:  map[string]principal.ObjectGrant{"organization": {Read: true}},

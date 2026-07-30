@@ -11,9 +11,12 @@ package orgbrief
 // it, and over one that cannot.
 
 import (
+	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 )
@@ -59,9 +62,7 @@ func TestEveryPreparedQuestionAnswersFromItsOwnRecords(t *testing.T) {
 	in := askInput()
 	known := knownRecords(askOrgID, in)
 
-	for _, question := range []crmcontracts.OrganizationQuestion{
-		crmcontracts.WhatsOpen, crmcontracts.MeetingPrep, crmcontracts.WhatsChanged,
-	} {
+	for _, question := range declaredQuestions(t) {
 		t.Run(string(question), func(t *testing.T) {
 			answered := deterministicAnswer(question, askOrgID, in)
 			if len(answered) == 0 {
@@ -153,9 +154,7 @@ func TestASectionTheReaderCannotSeeIsNeverDescribed(t *testing.T) {
 // answering a different question than the one asked is indistinguishable from
 // answering the one asked badly.
 func TestParseQuestionRefusesAnythingNotPrepared(t *testing.T) {
-	for _, prepared := range []crmcontracts.OrganizationQuestion{
-		crmcontracts.WhatsOpen, crmcontracts.MeetingPrep, crmcontracts.WhatsChanged,
-	} {
+	for _, prepared := range declaredQuestions(t) {
 		if got, err := ParseQuestion(prepared); err != nil || got != prepared {
 			t.Errorf("ParseQuestion(%q) = (%q, %v), want it accepted", prepared, got, err)
 		}
@@ -168,26 +167,65 @@ func TestParseQuestionRefusesAnythingNotPrepared(t *testing.T) {
 }
 
 // TestEveryPreparedQuestionCarriesItsOwnInstruction is the completeness gate
-// between the contract and this package. A question declared upstream and not
-// wired here would reach deterministicAnswer's default and answer nothing, so
-// the map is what has to be complete — and ParseQuestion reads the same map,
-// which is what turns a missing entry into a refusal instead of silence.
+// between the contract and this package, and it reads the CONTRACT's own enum
+// rather than a list beside it.
+//
+// A hand-typed list is not a gate: a fourth question declared upstream would
+// compile, pass a list that never mentions it, and reach deterministicAnswer's
+// default to answer nothing. Reading api/crm.yaml means the declaration is what
+// fails the build.
 func TestEveryPreparedQuestionCarriesItsOwnInstruction(t *testing.T) {
-	declared := []crmcontracts.OrganizationQuestion{
-		crmcontracts.WhatsOpen, crmcontracts.MeetingPrep, crmcontracts.WhatsChanged,
+	declared := declaredQuestions(t)
+	if len(declared) == 0 {
+		t.Fatal("the contract declares no OrganizationQuestion — the gate would pass on nothing")
 	}
 	if len(askInstruction) != len(declared) {
-		t.Errorf("askInstruction has %d entries for %d declared questions", len(askInstruction), len(declared))
+		t.Errorf("askInstruction has %d entries for %d declared questions: %v",
+			len(askInstruction), len(declared), declared)
 	}
 	for _, question := range declared {
 		instruction, wired := askInstruction[question]
 		if !wired || strings.TrimSpace(instruction) == "" {
 			t.Errorf("question %q has no instruction, so its answer would not differ from the others", question)
+			continue
+		}
+		if _, err := ParseQuestion(question); err != nil {
+			t.Errorf("ParseQuestion(%q) refuses a question the contract declares: %v", question, err)
 		}
 		if len(deterministicAnswer(question, askOrgID, askInput())) == 0 {
 			t.Errorf("question %q has an instruction but no deterministic answer", question)
 		}
 	}
+}
+
+// declaredQuestions reads OrganizationQuestion's enum out of the authoritative
+// contract document, so this package cannot drift from it silently.
+func declaredQuestions(t *testing.T) []crmcontracts.OrganizationQuestion {
+	t.Helper()
+	const contractPath = "../../../api/crm.yaml"
+	raw, err := os.ReadFile(contractPath)
+	if err != nil {
+		t.Fatalf("reading %s: %v", contractPath, err)
+	}
+	var doc struct {
+		Components struct {
+			Schemas map[string]struct {
+				Enum []string `yaml:"enum"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("parsing %s: %v", contractPath, err)
+	}
+	schema, declared := doc.Components.Schemas["OrganizationQuestion"]
+	if !declared {
+		t.Fatalf("%s declares no OrganizationQuestion schema", contractPath)
+	}
+	out := make([]crmcontracts.OrganizationQuestion, 0, len(schema.Enum))
+	for _, value := range schema.Enum {
+		out = append(out, crmcontracts.OrganizationQuestion(value))
+	}
+	return out
 }
 
 // TestTheAskPromptFencesTheAccountWithItsOwnNonce proves the boundary the

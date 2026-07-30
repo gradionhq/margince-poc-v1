@@ -19,8 +19,9 @@ package org360
 // read, and why they do not read the truncated section pages, is
 // suggestionreads.go.
 //
-// Nothing is staged and nothing is sent: the actions offered are the same
-// governed endpoints the rep would have used anyway.
+// Nothing is staged and nothing is sent. A suggestion is a sentence and its
+// evidence; what to DO about it stays the rep's move through the same endpoints
+// they would have used anyway.
 
 import (
 	"crypto/sha256"
@@ -90,6 +91,18 @@ func (a *assembly) readSuggestions() error {
 // suggestionsFor runs every rule, drops what this caller has already judged,
 // and caps what is left — reporting exactly how many of THEIR undismissed
 // suggestions the answer does not carry.
+//
+// The order the rules run in IS the priority the cap applies, so it is a product
+// decision rather than a consequence of how the blocks are arranged:
+//
+//  1. no_reply — a person is waiting on us. Nothing else on the card is someone
+//     else's time.
+//  2. stalled_deal, longest idle first — money that has stopped moving.
+//  3. no_next_step — a gap in the plan, which the two above usually imply
+//     anyway, so it is the one worth losing when the card is full.
+//
+// What the cap drops is reported, never shown, so a rep who never scrolls past
+// the card still sees the most urgent thing on it.
 func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, int, error) {
 	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
 
@@ -127,15 +140,22 @@ func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, i
 	return kept, 0, nil
 }
 
-// keepUndismissed removes the suggestions this caller has already judged. The
-// database is asked only when there is something to filter.
+// keepUndismissed removes the suggestions this caller has already judged.
+//
+// The database is asked about THESE fingerprints, not for the caller's whole
+// dismissal history — so the read is bounded by the suggestions in hand rather
+// than by how many rows the table has accumulated.
 func (a *assembly) keepUndismissed(
 	found []crmcontracts.Organization360Suggestion,
 ) ([]crmcontracts.Organization360Suggestion, error) {
 	if len(found) == 0 {
 		return found, nil
 	}
-	dismissed, err := a.svc.dismissedFingerprints(a.ctx, a.tx, a.orgID)
+	candidates := make([]string, 0, len(found))
+	for _, suggestion := range found {
+		candidates = append(candidates, suggestion.Fingerprint)
+	}
+	dismissed, err := a.svc.dismissedFingerprints(a.ctx, a.tx, a.orgID, candidates)
 	if err != nil {
 		return nil, err
 	}

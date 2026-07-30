@@ -89,10 +89,10 @@ func (orgBriefCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prepare
 	}
 	in, label, err := orgBriefInput(f)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("summarize/org_brief: %w", err)
 	}
 	if err := refuseUngroundableBrief(want, label); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("summarize/org_brief: %w", err)
 	}
 	return &orgBriefCase{
 		site: "summarize/org_brief", request: orgbrief.BriefRequest,

@@ -9859,6 +9859,7 @@ components:
           items: { $ref: '#/components/schemas/Organization360Suggestion' }
         suggestions_dropped:
           type: integer
+          minimum: 0
           description: |
             How many further suggestions this account has that `suggestions` does not
             list — the card offers at most a handful, because advice past that is a list

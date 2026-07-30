@@ -16,7 +16,8 @@ package org360
 //
 // So each rule reads exactly what it needs, under the SAME row-scope
 // predicates the sections use — the caller cannot see more this way, only
-// further back.
+// further back. The one exception is openTasks at the bottom of this file, which
+// CAN read its section page, and says why.
 //
 // Every figure they state covers the whole visible set, and comes from ONE read
 // of it. A count bounded by its own fetch is one a rep cannot tell from a real
@@ -141,10 +142,11 @@ type pipeline struct {
 // small columns of one account's open pipeline, reached through the
 // organization_id index.
 //
-// The stall flag is folded with deals.IsStalled — the same predicate that stamps
-// the wire flag, at this read's injected instant. Filtering it in SQL would be a
-// second spelling of §8.1 next to a query, and the one that drifted would be
-// this one.
+// The stall flag is folded with deals.IsStalled — the same call that stamps the
+// wire flag — rather than filtered in SQL. The deals module's SQL spelling of the
+// rule is unexported, and it evaluates against the database's now(); this read
+// pins its own instant, so a clause on the database clock would put a suggestion
+// on a different moment than the as_of it is reported under.
 func openPipeline(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
 ) (pipeline, error) {
@@ -155,15 +157,14 @@ func openPipeline(
 	if err != nil {
 		return pipeline{}, err
 	}
-	// The same predicate the deals section lists by, so a rule can never advise
-	// on a deal the card would refuse to show. Ordered longest idle first, which
-	// is the order the stalled rows are offered in, and by id so a digest over
-	// the same set is stable across reads.
+	// Longest idle first, which is the order the stalled rows are offered in, and
+	// by id so that order is deterministic between two deals idle since the same
+	// instant.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until
-		FROM deal d
-		WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)
-		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`, orgPos, dealScope), args...)
+		%s
+		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`,
+		"FROM deal d\n\t\t"+openDealsWhere(orgPos, dealScope)), args...)
 	if err != nil {
 		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
