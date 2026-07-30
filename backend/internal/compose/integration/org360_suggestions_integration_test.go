@@ -640,11 +640,13 @@ func TestSuggestionDismissalIsPerUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble as the first rep: %v", err)
 	}
-	if view.Suggestions == nil || len(*view.Suggestions) == 0 {
-		t.Fatalf("no suggestion for a 3-week-old unanswered outbound email (sections_omitted=%v)",
-			view.SectionsOmitted)
+	if view.Suggestions == nil {
+		t.Fatalf("suggestions absent (sections_omitted=%v)", view.SectionsOmitted)
 	}
-	fingerprint := (*view.Suggestions)[0].Fingerprint
+	// Named by kind rather than taken at [0]: a fixture that later grows a deal
+	// would put a stalled-deal row first, and this would silently start testing
+	// per-user-ness of a rule it was not written for.
+	fingerprint := fingerprintOfKind(t, *view.Suggestions, "no_reply")
 
 	if err := svc.DismissSuggestion(rep1, org, fingerprint); err != nil {
 		t.Fatalf("dismiss: %v", err)
@@ -692,7 +694,7 @@ func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	dismissedFingerprint := (*first.Suggestions)[0].Fingerprint
+	dismissedFingerprint := fingerprintOfKind(t, *first.Suggestions, "no_reply")
 	if err := svc.DismissSuggestion(rep, org, dismissedFingerprint); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
@@ -705,16 +707,16 @@ func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("re-assemble: %v", err)
 	}
-	if again.Suggestions == nil || len(*again.Suggestions) == 0 {
-		t.Fatal("a newer unanswered message raised nothing — the dismissal buried the rule, not the situation")
+	if again.Suggestions == nil {
+		t.Fatal("suggestions absent")
 	}
-	// The fingerprint has to be a DIFFERENT one. Asserting only that something
-	// fired would keep passing if this fixture ever gained a deal and the
-	// suggestion came from another rule entirely.
-	for _, suggestion := range *again.Suggestions {
-		if suggestion.Fingerprint == dismissedFingerprint {
-			t.Error("the re-armed suggestion carries the dismissed fingerprint")
-		}
+	// It has to be a NO_REPLY with a different fingerprint. Asserting that
+	// something fired, or that nothing carries the dismissed fingerprint, both
+	// pass on a suggestion from another rule entirely — so fingerprintOfKind
+	// fatals when the rule under test stayed silenced.
+	reArmed := fingerprintOfKind(t, *again.Suggestions, "no_reply")
+	if reArmed == dismissedFingerprint {
+		t.Error("the re-armed suggestion carries the dismissed fingerprint")
 	}
 }
 
@@ -780,10 +782,11 @@ func TestSuggestionDismissalStoresNothingForASuggestionTheAccountDoesNotRaise(t 
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	if view.Suggestions == nil || len(*view.Suggestions) == 0 {
-		t.Fatal("no suggestion to dismiss")
+	if view.Suggestions == nil {
+		t.Fatal("suggestions absent")
 	}
-	if err := svc.DismissSuggestion(rep, org, (*view.Suggestions)[0].Fingerprint); err != nil {
+	served := fingerprintOfKind(t, *view.Suggestions, "no_reply")
+	if err := svc.DismissSuggestion(rep, org, served); err != nil {
 		t.Fatalf("dismiss a served suggestion: %v", err)
 	}
 	if count := e.WsCount(t, `SELECT count(*) FROM suggestion_dismissal`); count != 1 {
