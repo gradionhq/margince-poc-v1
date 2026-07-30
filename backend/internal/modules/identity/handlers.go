@@ -363,17 +363,6 @@ func (h Handlers) serveAsHuman(ctx context.Context, w http.ResponseWriter, r *ht
 	next.ServeHTTP(w, r.WithContext(ctx))
 }
 
-// bearerToken extracts an Authorization: Bearer credential; empty when
-// the request carries none.
-func bearerToken(r *http.Request) string {
-	auth := r.Header.Get("Authorization")
-	const prefix = "Bearer "
-	if len(auth) > len(prefix) && strings.EqualFold(auth[:len(prefix)], prefix) {
-		return auth[len(prefix):]
-	}
-	return ""
-}
-
 // restScope maps an HTTP method onto the passport verb it exercises on
 // the REST surface: reads need `read`, everything mutating needs `write`.
 // (send/enrich guard their own tools on the MCP surface; no REST path

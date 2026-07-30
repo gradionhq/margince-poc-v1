@@ -3,13 +3,14 @@
 
 package compose
 
-// The connector's internet-facing edge: the Origin allowlist and the six
-// buckets that bound /mcp and the authorization server. Every limit here is
+// The connector's internet-facing edge: the Origin allowlist and every bucket
+// that bounds /mcp and the authorization server. Each limit here is
 // asserted at its exact boundary against an ADVANCEABLE clock, so the numbers
 // a deployment runs are the numbers under test and no assertion depends on
 // wall-clock timing.
 
 import (
+	"crypto/sha256"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -264,6 +265,51 @@ func TestTokenRequestsAreMeteredPerClientAndIP(t *testing.T) {
 	}
 	if got := serveStatus(edge, tokenRequest("client-a", elsewhere)); got != http.StatusOK {
 		t.Fatalf("the same client from another IP → %d, want 200: the bucket is (client_id, IP)", got)
+	}
+}
+
+// TestVaryingTheClientIDCannotEscapeTheTokenCeiling is the other half of that
+// pair: client_id comes out of the request body, so the caller picks it, and a
+// per-(client, IP) bucket alone hands a fresh allowance to every fresh value —
+// no bound at all on the endpoint that mints passports. The per-IP ceiling is
+// what a rotating client_id runs into.
+func TestVaryingTheClientIDCannotEscapeTheTokenCeiling(t *testing.T) {
+	const grinder, elsewhere = "203.0.113.9", "198.51.100.4"
+	clock := newStepClock()
+	edge := oauthEdge(answering(http.StatusOK), newMCPLimitersWithClock(clock.now))
+
+	for i := 1; i <= 600; i++ {
+		if got := serveStatus(edge, tokenRequest("client-"+strconv.Itoa(i), grinder)); got != http.StatusOK {
+			t.Fatalf("exchange %d under a fresh client_id → %d, want 200 within the budget", i, got)
+		}
+	}
+	if got := serveStatus(edge, tokenRequest("client-601", grinder)); got != http.StatusTooManyRequests {
+		t.Fatalf("the 601st exchange under yet another fresh client_id → %d, want 429: a varying client_id is not a bypass", got)
+	}
+	// The ceiling is per peer, so it is not a lever on anyone else.
+	if got := serveStatus(edge, tokenRequest("client-a", elsewhere)); got != http.StatusOK {
+		t.Fatalf("an exchange from another peer → %d, want 200", got)
+	}
+	clock.advance(time.Minute)
+	if got := serveStatus(edge, tokenRequest("client-602", grinder)); got != http.StatusOK {
+		t.Fatalf("after the window → %d, want the budget to have reopened (200)", got)
+	}
+}
+
+// A client_id longer than any this server issues must not become a long-lived
+// map key: the limiter retains keys for up to two windows, so an unbounded key
+// is a memory sink an unauthenticated caller can drive. The key is a digest, so
+// two oversized values are still two buckets — and still bounded ones.
+func TestTokenBucketKeyIsBoundedWhateverTheClientIDLength(t *testing.T) {
+	const ip = "203.0.113.9"
+	oversized := strings.Repeat("p", tokenFormPeek)
+
+	key := tokenBucketKey(oversized, ip)
+	if len(key) != sha256.Size*2+1+len(ip) {
+		t.Errorf("key for a %d-char client_id is %d chars, want a fixed-length digest plus the peer", len(oversized), len(key))
+	}
+	if key == tokenBucketKey(oversized+"x", ip) {
+		t.Error("two different client_ids share one bucket, so the per-client ceiling is not per client")
 	}
 }
 

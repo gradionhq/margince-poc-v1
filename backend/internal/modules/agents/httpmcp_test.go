@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -192,6 +193,66 @@ func TestScrubbedToolFailuresReachTheConfiguredLogger(t *testing.T) {
 	if !strings.Contains(logged.String(), "mcp: tool call failed") || !strings.Contains(logged.String(), "no_such_tool") {
 		t.Errorf("the configured logger recorded %q, want the cause of the scrubbed failure: the transport dispatched with a logger nobody configured", logged.String())
 	}
+}
+
+// The registry is attacker-reachable state: `initialize` inserts an entry and
+// only an exact-match DELETE ever removed one, so a client that never sends
+// DELETE — a crash, a dropped connection, or a caller doing it on purpose —
+// grew the map for the life of the process. These caps are what make it a
+// bounded structure, and the eviction order is what makes the bound harmless:
+// the session a client is actually using is the newest one.
+func TestTheSessionRegistryIsBoundedPerPassportAndOverall(t *testing.T) {
+	t.Run("one passport cannot exceed its own cap", func(t *testing.T) {
+		registry := newSessionRegistry()
+		passport := ids.NewV7()
+		opened := make([]string, 0, maxSessionsPerPassport+1)
+		for i := 0; i <= maxSessionsPerPassport; i++ {
+			id := "session-" + strconv.Itoa(i)
+			opened = append(opened, id)
+			registry.register(passport, id)
+		}
+
+		if got := len(registry.sessions); got != maxSessionsPerPassport {
+			t.Errorf("registry holds %d sessions for one passport, want the cap of %d", got, maxSessionsPerPassport)
+		}
+		// The oldest gave way, and the newest — the one the client is using —
+		// is the one that survived.
+		if registry.close(passport, opened[0]) {
+			t.Error("the oldest session survived, so the cap evicted something else")
+		}
+		if !registry.close(passport, opened[len(opened)-1]) {
+			t.Error("the newest session was evicted: a client's live session must outlive its abandoned ones")
+		}
+	})
+
+	t.Run("the whole registry is bounded across passports", func(t *testing.T) {
+		registry := newSessionRegistry()
+		// The per-passport cap alone leaves the PASSPORT dimension unbounded:
+		// every refresh rotation mints a fresh one, each with its own
+		// allowance, so a long-lived connection walks through credentials.
+		for i := 0; i <= maxSessions; i++ {
+			registry.register(ids.NewV7(), "session-"+strconv.Itoa(i))
+		}
+		if got := len(registry.sessions); got > maxSessions {
+			t.Errorf("registry holds %d sessions, want at most the cap of %d", got, maxSessions)
+		}
+	})
+
+	t.Run("one passport cannot evict another's sessions", func(t *testing.T) {
+		registry := newSessionRegistry()
+		innocent, noisy := ids.NewV7(), ids.NewV7()
+		registry.register(innocent, "innocent-session")
+		for i := 0; i < maxSessions; i++ {
+			registry.register(noisy, "noisy-"+strconv.Itoa(i))
+		}
+
+		if got := len(registry.sessions); got > maxSessionsPerPassport+1 {
+			t.Errorf("registry holds %d sessions, want one passport bounded to %d plus the other's one", got, maxSessionsPerPassport)
+		}
+		if !registry.close(innocent, "innocent-session") {
+			t.Error("a flood of sessions under one passport closed another passport's session")
+		}
+	})
 }
 
 // authenticateAsPassport builds an authenticate func for tests that need

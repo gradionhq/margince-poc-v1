@@ -321,6 +321,16 @@ func (a AgentIdentity) Principal() principal.Principal {
 	}
 }
 
+// liveClientPredicate is the ONE spelling of "this client is still a client",
+// carried by EVERY statement that reads oauth_client: authentication (the rule
+// below) and issuance alike (the consent form, the consent POST and the code
+// exchange, in oauth.go and oauth_token.go). Disable and soft-delete are the
+// operator's off switch, and a switch that only stops calls — while consent and
+// issuance carry on beneath it — spends a human's approval on a client an admin
+// already killed. The client table is aliased c in each of those statements so
+// this is one string rather than four that can rot apart.
+const liveClientPredicate = `c.disabled_at IS NULL AND c.deleted_at IS NULL`
+
 // The LEFT JOINs and the predicate below are the liveness rule for an
 // OAuth-issued passport: a revoked grant, or a disabled or soft-deleted
 // client, must stop the credential on the very next call. They are the

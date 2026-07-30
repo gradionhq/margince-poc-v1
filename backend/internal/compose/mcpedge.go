@@ -43,6 +43,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -98,7 +99,7 @@ func mcpAuthenticate(auth *identity.Service) func(*http.Request) (context.Contex
 		// after it. A TrimPrefix-style read would accept a header that never
 		// carried the prefix, turning an unrelated credential (or a Basic
 		// header) into a passport lookup.
-		bearer := bearerToken(r.Header.Get("Authorization"))
+		bearer := httpserver.BearerToken(r.Header.Get("Authorization"))
 		if bearer == "" {
 			return nil, errMissingBearer
 		}
@@ -132,7 +133,8 @@ type mcpLimiters struct {
 	perPassport *ratelimit.Limiter // 240/min — authenticated tool-call volume
 	preAuth     *ratelimit.Limiter // 60/min per presented credential, per peer when none (preAuthKey)
 	streams     *ratelimit.Limiter // 30/min per passport — stream-open churn
-	token       *ratelimit.Limiter // 60/min per (client_id, IP) — the passport mint
+	token       *ratelimit.Limiter // 60/min per (client_id digest, IP) — the passport mint
+	tokenIP     *ratelimit.Limiter // 600/min per IP — the ceiling a varying client_id cannot escape
 	authorize   *ratelimit.Limiter // 60/min per IP — the consent form and the grant
 	register    *ratelimit.Limiter // 10/hour per IP — dynamic client registration
 }
@@ -149,6 +151,7 @@ func newMCPLimitersWithClock(now func() time.Time) mcpLimiters {
 		preAuth:     ratelimit.NewWithClock(60, time.Minute, now),
 		streams:     ratelimit.NewWithClock(30, time.Minute, now),
 		token:       ratelimit.NewWithClock(60, time.Minute, now),
+		tokenIP:     ratelimit.NewWithClock(600, time.Minute, now),
 		authorize:   ratelimit.NewWithClock(60, time.Minute, now),
 		register:    ratelimit.NewWithClock(10, time.Hour, now),
 	}
@@ -239,28 +242,60 @@ func preAuthKey(ip, credential string) string {
 // costs a map lookup instead of a session read.
 func oauthEdge(next http.Handler, lim mcpLimiters) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
-		// The default bucket covers /oauth/authorize — the GET consent form
-		// and the POST grant share it, being two halves of one human flow —
-		// and every other path this router grows.
-		bucket, key := lim.authorize, ip
-		switch r.URL.Path {
-		case oauthTokenPath:
-			// (client_id, IP), never IP alone: one published egress range for
-			// all of claude.ai means an IP-only bucket here is one ceiling for
-			// the whole installation, where one busy client would lock out
-			// every other. A request whose client_id cannot be read shares the
-			// bucket of its IP, which is the previous behaviour, not a bypass.
-			bucket, key = lim.token, tokenClientID(r)+"|"+ip
-		case oauthRegisterPath:
-			bucket = lim.register
-		}
-		if !bucket.Allow(key) {
+		if !oauthAdmits(r, lim) {
 			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// oauthAdmits meters one authorization-server request against every ceiling
+// that applies to it. The default arm covers /oauth/authorize — the GET consent
+// form and the POST grant share it, being two halves of one human flow — and
+// every path this router grows later, so a new endpoint arrives limited rather
+// than unlimited.
+func oauthAdmits(r *http.Request, lim mcpLimiters) bool {
+	ip := clientIP(r)
+	switch r.URL.Path {
+	case oauthTokenPath:
+		// TWO ceilings on the passport mint, because neither key is a bound on
+		// its own. Per (client_id, IP) and never IP alone: all of claude.ai
+		// arrives from one published egress range, so an IP-only bucket here
+		// would be one ceiling for the whole installation and one busy client
+		// would lock out every other. But the caller CHOOSES its client_id, so
+		// that bucket alone is no ceiling either — a fresh random value bought
+		// a fresh 60/min allowance on the endpoint that mints passports. The
+		// per-IP bucket is what a varying client_id cannot escape; it sits an
+		// order of magnitude above the per-client one so an installation's real
+		// handshake traffic (a few exchanges per client per minute) never
+		// approaches it. Keying per real client behind a shared front end is
+		// the front end's job, which clientIP's own doc names.
+		//
+		// Both are Allow (they COUNT), so both are spent on every request:
+		// short-circuiting with && would leave one ceiling unmetered on the
+		// requests the other one admitted.
+		perClient := lim.token.Allow(tokenBucketKey(tokenClientID(r), ip))
+		perIP := lim.tokenIP.Allow(ip)
+		return perClient && perIP
+	case oauthRegisterPath:
+		return lim.register.Allow(ip)
+	default:
+		return lim.authorize.Allow(ip)
+	}
+}
+
+// tokenBucketKey bounds the per-client half of that key. A DCR client_id is a
+// 43-char base64url string, but what arrives on the wire is whatever the caller
+// sent — up to tokenFormPeek — and a limiter retains each key for up to two
+// windows, so an unbounded key turns the limiter meant to bound this endpoint
+// into a memory sink reachable by an unauthenticated caller. The digest is
+// fixed length and collision-resistant, so the bucket is still per client. A
+// request whose client_id cannot be read shares one bucket per IP, which is a
+// ceiling, not a bypass.
+func tokenBucketKey(clientID, ip string) string {
+	sum := sha256.Sum256([]byte(clientID))
+	return hex.EncodeToString(sum[:]) + "|" + ip
 }
 
 // originAllowed decides the Origin guard. Absent is allowed — see the file
@@ -307,7 +342,7 @@ func mcpOriginOf(resource string) string {
 // ceiling is the refresh chain's own, at the token endpoint. The digest —
 // never the credential — is what becomes a long-lived map key.
 func passportBucket(r *http.Request) string {
-	bearer := bearerToken(r.Header.Get("Authorization"))
+	bearer := httpserver.BearerToken(r.Header.Get("Authorization"))
 	if bearer == "" {
 		return ""
 	}

@@ -38,17 +38,6 @@ import (
 // generous for a redirect round-trip.
 const authCodeTTL = 5 * time.Minute
 
-// liveClientPredicate is the ONE spelling of "this client is still a client",
-// and every statement that reads oauth_client carries it — issuance (the
-// consent form, the consent POST, the code exchange) as much as authentication
-// (the passport liveness rule in passport.go). Disable and soft-delete are the
-// operator's off switch; a switch that only stops calls, while consent and
-// issuance carry on beneath it, spends a human's approval on a client an admin
-// already killed and accumulates credentials under it. The client table is
-// aliased c in each of those statements so this is one string rather than four
-// that can rot apart.
-const liveClientPredicate = `c.disabled_at IS NULL AND c.deleted_at IS NULL`
-
 // OAuthRouter serves the authorization-server endpoints. Mounted
 // behind the same workspace/session middleware as /v1: register, token
 // and revoke are public (the workspace still binds via slug/subdomain);
@@ -454,50 +443,6 @@ func refreshAudienceMatches(presented, canonical string, bound *string) bool {
 		return true
 	}
 	return audienceMatches(presented, canonical, bound)
-}
-
-// validRedirectURI admits https anywhere and plain http only on
-// loopback (native-app dev flows).
-func validRedirectURI(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || u.Fragment != "" {
-		return false
-	}
-	switch u.Scheme {
-	case "https":
-		return u.Host != ""
-	case "http":
-		return isLoopbackHost(u.Hostname())
-	default:
-		return false
-	}
-}
-
-// redirectURIMatches compares a registered redirect URI with a presented one.
-// Non-loopback URIs must match exactly. Loopback URIs match ignoring the PORT
-// (RFC 8252 §7.3): a native client binds an ephemeral port per session, so an
-// exact comparison refuses every CLI client — Claude Code, Cursor, MCP
-// Inspector and mcp-remote all behave this way.
-func redirectURIMatches(registered, presented string) bool {
-	if registered == presented {
-		return true
-	}
-	reg, err := url.Parse(registered)
-	if err != nil {
-		return false
-	}
-	pres, err := url.Parse(presented)
-	if err != nil {
-		return false
-	}
-	if !isLoopbackHost(reg.Hostname()) || !isLoopbackHost(pres.Hostname()) {
-		return false
-	}
-	return reg.Scheme == pres.Scheme && reg.Hostname() == pres.Hostname() && reg.Path == pres.Path
-}
-
-func isLoopbackHost(host string) bool {
-	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func hashOAuthCode(code string) string {

@@ -15,6 +15,34 @@ import (
 	"time"
 )
 
+// TestBearerTokenReadsOneSchemeForEveryTransport pins the reading every
+// credentialed surface in this process shares. The lowercase row is the reason
+// it is shared: RFC 7235 §2.1 makes the scheme a case-insensitive token, and
+// while two spellings existed the SAME passport authenticated on /v1 and 401'd
+// on /mcp — which a client reads as "re-authorize", forever, against a
+// credential that was valid all along.
+func TestBearerTokenReadsOneSchemeForEveryTransport(t *testing.T) {
+	for header, want := range map[string]string{
+		"Bearer abc":  "abc",
+		"bearer abc":  "abc", // RFC 7235: the scheme is case-insensitive
+		"BEARER abc":  "abc",
+		"Bearer  abc": "abc", // surrounding whitespace is not part of the credential
+		// A prefix that is not there must not be invented: reading past a
+		// scheme this is not turns another credential into a token lookup.
+		"Basic dXNlcjpwYXNz": "",
+		"abc":                "",
+		// Present scheme, absent credential: a caller must never look up "".
+		"Bearer ":  "",
+		"Bearer":   "",
+		"Bearer  ": "",
+		"":         "",
+	} {
+		if got := BearerToken(header); got != want {
+			t.Errorf("BearerToken(%q) = %q, want %q", header, got, want)
+		}
+	}
+}
+
 // TestWriteOverlayMetricsRendersEveryCounter pins the overlay sync-health
 // section /metrics emits: the per-object-class source lag gauge and all
 // three mirror counters (synced, conflict, deleted). A counter that is

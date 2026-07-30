@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -86,6 +87,27 @@ func RequestOrigin(r *http.Request) string {
 		}
 	}
 	return scheme + "://" + r.Host
+}
+
+// BearerToken reads the credential out of an Authorization header value, and
+// it is the ONE reading of it in this process — /v1, the MCP transport and the
+// provider push webhooks all come here. Two spellings meant the same
+// credential authenticated on one transport and 401'd on the other, which a
+// client experiences as an infinite re-authorization loop against a token that
+// is perfectly valid.
+//
+// The scheme name is matched case-INSENSITIVELY (RFC 7235 §2.1 makes it a
+// case-insensitive token; `bearer` is a shape real clients send), and the
+// prefix must actually be present: a TrimPrefix-style read would accept a
+// header that never carried it, turning an unrelated credential — or a Basic
+// header — into a token lookup. An empty credential after the scheme reads as
+// no credential at all, so a caller never looks up "".
+func BearerToken(header string) string {
+	const prefix = "Bearer "
+	if len(header) < len(prefix) || !strings.EqualFold(header[:len(prefix)], prefix) {
+		return ""
+	}
+	return strings.TrimSpace(header[len(prefix):])
 }
 
 // Correlate opens the per-request trace scope: one freshly minted

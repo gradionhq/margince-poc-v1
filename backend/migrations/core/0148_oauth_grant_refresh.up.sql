@@ -108,3 +108,8 @@ CREATE POLICY oauth_refresh_token_tenant_isolation ON oauth_refresh_token
 -- above cascades on grant delete. Without this index both are a sequential
 -- scan of every refresh token in the installation.
 CREATE INDEX oauth_refresh_token_grant_ix ON oauth_refresh_token (workspace_id, grant_id);
+-- The same walk, one table over: the cascade retires every passport under a
+-- grant, and so does EVERY rotation (the predecessor dies before its
+-- replacement is minted), which makes this the hotter of the two. The existing
+-- idx_passport_obo is on (workspace_id, on_behalf_of) and cannot serve it.
+CREATE INDEX passport_oauth_grant_ix ON passport (workspace_id, oauth_grant_id);

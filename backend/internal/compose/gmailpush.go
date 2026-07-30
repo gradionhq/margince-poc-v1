@@ -25,12 +25,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strings"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 )
 
@@ -89,16 +89,6 @@ func WithGmailPush(inserter *jobs.Runner, cfg GmailPushConfig) Option {
 	}
 }
 
-// bearerToken extracts the token from an "Authorization: Bearer <t>" header;
-// anything else — wrong scheme, bare token, empty — yields "".
-func bearerToken(header string) string {
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return ""
-	}
-	return strings.TrimSpace(header[len(prefix):])
-}
-
 func (h *gmailPushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -118,7 +108,7 @@ func (h *gmailPushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// OIDC token. 401 (not 403): Pub/Sub re-mints and retries, so a key
 	// rotation blip heals; the rejection detail stays in server logs.
 	if h.verifier != nil {
-		if err := h.verifier.Verify(r.Context(), bearerToken(r.Header.Get("Authorization"))); err != nil {
+		if err := h.verifier.Verify(r.Context(), httpserver.BearerToken(r.Header.Get("Authorization"))); err != nil {
 			h.log.WarnContext(r.Context(), "gmail push: OIDC verification failed", "err", err)
 			w.WriteHeader(http.StatusUnauthorized)
 			return

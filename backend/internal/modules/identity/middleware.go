@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -115,7 +116,7 @@ func (h Handlers) Middleware(next http.Handler) http.Handler {
 		// agent gate resolves the operation's 🟢/🟡 tier against the
 		// tool's declared scope and either admits, stages an approval,
 		// or default-denies an un-tiered operation.
-		if bearer := bearerToken(r); bearer != "" {
+		if bearer := httpserver.BearerToken(r.Header.Get("Authorization")); bearer != "" {
 			h.serveAsAgent(ctx, w, r, next, bearer)
 			return
 		}
