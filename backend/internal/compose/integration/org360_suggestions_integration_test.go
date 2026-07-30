@@ -554,6 +554,11 @@ func secondOpenStage(t *testing.T, e *Env, pipelineID ids.PipelineID, notThisOne
 	if err != nil {
 		t.Fatalf("reading the pipeline: %v", err)
 	}
+	// Dereferencing a nil Stages would surface as a panic somewhere unrelated;
+	// the fixture's own precondition should say what is missing.
+	if p.Stages == nil {
+		t.Fatal("the pipeline read carried no stages, so no advance target exists")
+	}
 	for _, st := range *p.Stages {
 		id := ids.From[ids.StageKind](ids.UUID(st.Id))
 		if st.Semantic == "open" && id != notThisOne {
@@ -562,6 +567,49 @@ func secondOpenStage(t *testing.T, e *Env, pipelineID ids.PipelineID, notThisOne
 	}
 	t.Fatal("the default pipeline has only one open stage, so a deal cannot advance within it")
 	return ids.StageID{}
+}
+
+// A task the next-steps PAGE does not show still counts as something scheduled.
+//
+// hasOpenTask asks the database directly rather than reading that page, and this is
+// the case that distinguishes the two: 30 tasks, so the section truncates at 25,
+// and the account is left with an open deal. If the rule read the page it would
+// still see tasks here — so the test also pins the reachability the direct query
+// uses, by linking the only task through the DEAL rather than to the account.
+func TestNoNextStepSeesATaskThePageDoesNot(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2 WHERE id = $1`, deal, org.UUID)
+
+	// One task, reachable only through the deal — never linked to the account.
+	task := ids.NewV7()
+	if _, err := owner.Exec(context.Background(), `INSERT INTO activity
+		(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by, is_done)
+		VALUES ($1, $2, 'task', 'Call the CFO', $3, $3, 'manual', 'human:x', false)`,
+		task, e.WS, org360Clock); err != nil {
+		t.Fatalf("seeding the task: %v", err)
+	}
+	e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, deal_id)
+		VALUES ($1, $2, 'deal', $3)`, e.WS, task, deal)
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.Suggestions == nil {
+		t.Fatalf("suggestions absent (sections_omitted=%v)", view.SectionsOmitted)
+	}
+	for _, suggestion := range *view.Suggestions {
+		if suggestion.Kind == "no_next_step" {
+			t.Errorf("no_next_step fired on an account with an open task reachable "+
+				"through its deal: %+v", suggestion)
+		}
+	}
 }
 
 // The no-next-step fingerprint covers every open deal, not the listed ones.
