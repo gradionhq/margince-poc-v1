@@ -10,11 +10,6 @@ package compose
 // cmd/api or cmd/worker: the lane compiles this package with the tag,
 // so it still takes the REAL advisory claim, while the shipped binaries
 // carry no exported surface with no product caller.
-//
-// ReconstructForTest deliberately does NOT live here: the rebuild it
-// wraps has no product caller either (the /import/* wire is IEM-GAP-2's
-// contract extension), so tag-gating its only caller would make the
-// whole rebuild path read as dead code to every untagged build.
 
 import (
 	"context"

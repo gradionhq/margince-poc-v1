@@ -89,9 +89,10 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 		// The overlay→native cutover: the typed confirmation phrase is
 		// the human-intent control, so an agent supplying it in staged
 		// arguments would collapse confirm-first to one approval click
-		// on a one-way, estate-wide change. Pinned here because the
-		// annotation alone is a line someone can re-add.
+		// on a one-way, estate-wide change.
 		"preflightOverlayFlip": true, "executeOverlayFlip": true,
+		// The export is human-only for a different reason: it streams
+		// the whole estate, audit log included, in a single GET.
 		"downloadOverlayExport": true,
 	}
 	seen := map[string]bool{}

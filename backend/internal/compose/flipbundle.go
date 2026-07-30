@@ -307,6 +307,12 @@ func bundleString(raw map[string]any, key string) string {
 // unexported rebuild — its only caller until the /import/* wire lands
 // (IEM-GAP-2's contract extension), which is why the rebuild itself
 // stays unexported and this seam is named for what it is.
+//
+// Unlike ClaimFlipForTest (flipclaim_integration.go) this is NOT behind
+// the integration tag, deliberately: claimFlip has product callers, so
+// gating its seam costs nothing, while reconstructFromBundle's only
+// caller is this function — gating it would leave the whole rebuild
+// path unreferenced, reading as dead code, in every untagged build.
 func ReconstructForTest(ctx context.Context, pool *pgxpool.Pool, bundle []byte) (migration.Report, error) {
 	return reconstructFromBundle(ctx, pool, bundle)
 }

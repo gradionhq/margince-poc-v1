@@ -58,6 +58,14 @@ func (h overlayExportHandlers) DownloadOverlayExport(w http.ResponseWriter, r *h
 		httperr.Write(w, r, err)
 		return
 	}
+	// The human-only class is enforced here as well as at the transport:
+	// this streams the whole estate, audit log included, in one GET, and
+	// it should not rest on route-pattern resolution alone (the same
+	// pairing overlay's user-map reads use).
+	if err := auth.RequireHuman(r.Context()); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="margince-export.zip"`)
 	if _, err := h.writer.WriteBundle(r.Context(), w); err != nil {
