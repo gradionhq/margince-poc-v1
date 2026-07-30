@@ -47,7 +47,9 @@ rates:
 
 # Remote MCP connector (Gate 1). OFF by default: turning it on exposes the
 # OAuth authorization server and the agent tool surface to the internet. The
-# per-workspace toggle is the second gate. Requires public_base_url.
+# per-workspace toggle is the second gate. Requires public_base_url — `make dev`
+# already passes that flag unconditionally, so enabling this locally just works;
+# a real deployment still has to supply --public-base-url itself.
 # mcp:
 #   connector_enabled: true
 

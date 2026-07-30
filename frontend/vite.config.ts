@@ -25,6 +25,14 @@ export default defineConfig({
       "/readyz": { target: proxyTarget, changeOrigin: false, secure: false },
       "/healthz": { target: proxyTarget, changeOrigin: false, secure: false },
       "/metrics": { target: proxyTarget, changeOrigin: false, secure: false },
+      // The MCP connector's three route groups proxy together, never
+      // separately: RFC 9728 discovery is a chain rooted at the resource
+      // server's 401, so the transport (/mcp), the authorization server
+      // (/oauth) and the discovery documents (/.well-known) must all answer
+      // on the SAME origin a client typed, or the handshake cannot resolve.
+      "/mcp": { target: proxyTarget, changeOrigin: false, secure: false },
+      "/oauth": { target: proxyTarget, changeOrigin: false, secure: false },
+      "/.well-known": { target: proxyTarget, changeOrigin: false, secure: false },
     },
   },
   test: {
