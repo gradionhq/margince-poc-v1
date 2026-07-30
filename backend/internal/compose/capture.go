@@ -125,7 +125,7 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
-	ensurer := peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger())}
+	ensurer := peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger()), log: cfg.logger()}
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
@@ -159,6 +159,10 @@ type peopleEnsurer struct {
 	// website reads exist — the seam it owns says "make the counterparty real",
 	// and what a new company is then worth is the composition's business.
 	enrich *autoEnrichTrigger
+	// log reports a failed identity-review enqueue (raiseIdentityConflict) —
+	// the one fault on this path that must never become a returned error,
+	// because that would fail the capture that found it.
+	log *slog.Logger
 }
 
 func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) (capture.EnsureOutcome, error) {
@@ -211,7 +215,30 @@ func (p peopleEnsurer) EnsureChannelCounterparty(ctx context.Context, in capture
 	if err != nil {
 		return capture.EnsureOutcome{}, err
 	}
+	if res.Conflict != nil {
+		p.raiseIdentityConflict(ctx, *res.Conflict, in.Source, in.CapturedBy)
+	}
 	return capture.EnsureOutcome{PersonCreated: res.PersonCreated}, nil
+}
+
+// raiseIdentityConflict is the D8 identity-review half of routing (design
+// §7.3): the ensure above already routed the message deterministically and
+// wrote nothing onto the rival, so what remains is telling a human "these two
+// records may be one person." It runs in its own transaction (EnqueueIdentityConflict),
+// AFTER the ensure's own commit, and deliberately swallows nothing into
+// silence — a failure is logged with the pair and both lanes so it is
+// actionable — but never returns an error: the message that surfaced this
+// conflict is already on the timeline, and it must stay there even when this
+// write does not succeed. Every later message from the same conflicting
+// identity retries this call, and dedupequeue's own pair index absorbs the
+// repeat (EnqueueIdentityConflict's own contract), so a transient failure
+// here self-heals on the next message rather than needing a retry queue.
+func (p peopleEnsurer) raiseIdentityConflict(ctx context.Context, conflict people.LaneConflict, source, capturedBy string) {
+	if _, err := p.store.EnqueueIdentityConflict(ctx, conflict, source, capturedBy); err != nil {
+		p.log.ErrorContext(ctx, "capture: identity-conflict review failed to enqueue",
+			"routed_to", conflict.RoutedTo.String(), "routed_lane", conflict.RoutedLane,
+			"rival", conflict.Rival.String(), "rival_lane", conflict.RivalLane, "err", err)
+	}
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app

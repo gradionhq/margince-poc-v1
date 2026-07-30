@@ -62,6 +62,13 @@ type EnsureChannelCounterpartyResult struct {
 	PersonID       ids.PersonID
 	PersonCreated  bool
 	DedupeRecorded bool
+	// Conflict is non-nil only when a later exact lane named a different
+	// person than the one routing chose (dedupe.go's routeExact). It is a
+	// REPORT the caller decides what to do with (design §7.3/D8) — this
+	// store already wrote nothing onto the rival, and routing already
+	// happened; raising the identity review is the caller's job precisely so
+	// a failure to raise it can never fail this ensure.
+	Conflict *LaneConflict
 }
 
 // EnsureChannelCounterparty resolves-or-creates the person behind one inbound
@@ -133,8 +140,12 @@ func (s *Store) resolveChannelPerson(ctx context.Context, tx pgx.Tx, in EnsureCh
 	}
 	if match.Decision == DecisionExactCollision {
 		// A live binding already names this human; every later message from the
-		// same sender takes this branch.
+		// same sender takes this branch. Conflict rides along unread here —
+		// routing is this function's whole job, and design §7.3/D8 puts the
+		// identity-review decision one layer up, where a failure to raise it
+		// can be logged without risking the routing this message needs.
 		res.PersonID = match.PersonID
+		res.Conflict = match.Conflict
 		return nil
 	}
 
