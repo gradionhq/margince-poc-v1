@@ -180,9 +180,9 @@ type pipeline struct {
 // every number it reports: a count capped at the fetch is one a rep cannot tell
 // from a real one, a digest over a fetched page leaves a dismissal in force when
 // a deal outside it changes, and a stalled list cut before dismissals are
-// applied shrinks by one each time the rep judges a row. The rows are three
-// small columns of one account's open pipeline, reached through the
-// organization_id index.
+// applied shrinks by one each time the rep judges a row. It reads seven narrow
+// values per open deal of one account — six columns through the organization_id
+// index, plus a count served by idx_dsh_deal.
 //
 // The stall flag is folded with deals.IsStalled — the same call that stamps the
 // wire flag — rather than filtered in SQL. The deals module's SQL spelling of the

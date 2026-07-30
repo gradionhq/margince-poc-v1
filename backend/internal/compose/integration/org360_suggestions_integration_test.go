@@ -444,13 +444,6 @@ func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 		t.Fatalf("advancing the deal: %v", err)
 	}
 
-	// Re-selecting the stage it is now in writes another history row and is not
-	// work, so it must not disturb anything either way.
-	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
-		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
-		t.Fatalf("re-selecting the same stage: %v", err)
-	}
-
 	after, err := svc.Assemble(rep, org)
 	if err != nil {
 		t.Fatalf("assemble after the advance: %v", err)
@@ -462,6 +455,30 @@ func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 	}
 	if fresh[0] == dismissed[0] {
 		t.Error("the advanced deal reuses the dismissed fingerprint")
+	}
+
+	// Now the other half. The rep judges the new advice, and then someone opens the
+	// stage picker and re-selects the stage the deal is already in. That writes a
+	// history row and is not work, so the advice must stay dismissed.
+	//
+	// The dismissal has to happen HERE, after the advance: asserting against the
+	// pre-advance fingerprint would hold whether or not the no-op row is counted,
+	// which is a test that cannot fail for the behaviour it names.
+	if err := svc.DismissSuggestion(rep, org, fresh[0]); err != nil {
+		t.Fatalf("dismiss the post-advance advice: %v", err)
+	}
+	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
+		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
+		t.Fatalf("re-selecting the same stage: %v", err)
+	}
+
+	settled, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble after the no-op: %v", err)
+	}
+	if left := stalledFingerprints(*settled.Suggestions); len(left) != 0 {
+		t.Errorf("re-selecting the same stage handed back %d dismissed suggestions — "+
+			"opening the stage picker and changing nothing counted as work", len(left))
 	}
 }
 
