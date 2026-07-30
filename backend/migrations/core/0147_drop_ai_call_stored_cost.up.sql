@@ -1,0 +1,31 @@
+-- Drop the per-call cost column 0100 added to `ai_call`. Nothing has ever
+-- written it: ADR-0067/A113 landed price-on-read in the same period, and the
+-- column was left behind as the write-path pricer that decision ratified out
+-- of existence. Every row in every installation carries NULL here.
+--
+-- Removing it is not tidiness. A stored per-call cost freezes whichever rate
+-- was on the sheet the day the call ran, and `ai_model_rate` is explicitly
+-- expected to be corrected after the fact — SeedModelRates ships two rows
+-- (gpt-5-mini, gemini-embedding-001) marked NEEDS OPERATOR CONFIRMATION. Under
+-- price-on-read a corrected rate re-prices history, which is the behaviour the
+-- effective-dated sheet exists to provide; a stored number cannot follow the
+-- correction, so keeping the column invites a future "helpful" backfill that
+-- would silently pin wrong prices into permanent telemetry.
+--
+-- It also reads as a defect to anyone inspecting the database: an all-NULL
+-- cost column next to a populated rate sheet looks exactly like a pricing
+-- pipeline that broke, and has already been reported as one.
+--
+-- lock_timeout for the same reason 0139 sets it. DROP COLUMN is metadata-only
+-- in Postgres — there is no rewrite of the table's rows — but it still needs
+-- ACCESS EXCLUSIVE on `ai_call`, and `ai_call` takes a write on every model
+-- call the runtime makes. On a busy installation that acquisition queues
+-- behind whatever transaction is already open while every arriving request
+-- queues behind the acquisition. Three seconds turns that into a fast, loud
+-- failure the operator retries in a quiet window instead of a stall.
+--
+-- IF EXISTS so an installation that has not yet applied 0100 (which applies
+-- both in the same run) and one that has been running on it for months both
+-- end in the same place.
+SET LOCAL lock_timeout = '3s';
+ALTER TABLE ai_call DROP COLUMN IF EXISTS estimated_cost_microusd;

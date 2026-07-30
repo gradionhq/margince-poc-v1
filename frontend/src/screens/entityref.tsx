@@ -92,6 +92,23 @@ export function useRoster(kind: RosterKind, enabled: boolean) {
   });
 }
 
+// The resolved display name only, sharing EntityRef's exact cache entry so
+// nothing is fetched twice. Exported for chrome that wants the name as plain
+// text rather than as EntityRef's navigating button — the breadcrumb names the
+// record you are already looking at, so linking it would go nowhere.
+export function useEntityName(
+  kind: EntityKind,
+  id: string | null | undefined,
+): string | null {
+  const query = useQuery({
+    queryKey: [kind, "ref", id],
+    queryFn: () => fetchEntityName(kind, id ?? ""),
+    enabled: Boolean(id),
+    staleTime: 60_000,
+  });
+  return query.data ?? null;
+}
+
 function rosterName(kind: RosterKind, entry: User | Team): string | null {
   if (kind === "user") {
     return (entry as User).display_name ?? null;
