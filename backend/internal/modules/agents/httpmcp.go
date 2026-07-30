@@ -32,8 +32,13 @@ const mcpCallDeadline = 150 * time.Second
 // own origin because a client dereferences it as given — a bare path only
 // resolves for a client that already knows where it is talking to, which is
 // the one thing discovery exists to tell it.
+//
+// The scope hint is not decoration: absent it, a client requests every scope
+// the protected-resource metadata advertises in scopes_supported, including
+// send. Naming "read draft" makes the conservative grant the default, with
+// the human free to widen it on the consent page.
 func ResourceMetadataChallenge(r *http.Request) string {
-	return `Bearer resource_metadata="` + httpserver.RequestOrigin(r) + `/.well-known/oauth-protected-resource"` // NOSONAR: RFC 9728 challenge, not a secret
+	return `Bearer resource_metadata="` + httpserver.RequestOrigin(r) + `/.well-known/oauth-protected-resource", scope="read draft"` // NOSONAR: RFC 9728 challenge, not a secret
 }
 
 // NewHTTPHandler serves MCP over HTTP. authenticate runs PER REQUEST —
