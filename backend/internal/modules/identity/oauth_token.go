@@ -106,7 +106,7 @@ func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID
 		if err != nil {
 			return err
 		}
-		if r.PostForm.Get("client_id") != clientID || r.PostForm.Get("redirect_uri") != redirectURI {
+		if r.PostForm.Get("client_id") != clientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
 			return errGrantMismatch
 		}
 		// RFC 8707: a code bound to a resource mints tokens for that

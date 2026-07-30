@@ -164,7 +164,9 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 		if err != nil {
 			return err
 		}
-		if !slices.Contains(uris, req.RedirectURI) {
+		if !slices.ContainsFunc(uris, func(registered string) bool {
+			return redirectURIMatches(registered, req.RedirectURI)
+		}) {
 			return errRedirectMismatch
 		}
 		return nil
@@ -332,11 +334,37 @@ func validRedirectURI(raw string) bool {
 	case "https":
 		return u.Host != ""
 	case "http":
-		host := u.Hostname()
-		return host == "localhost" || host == "127.0.0.1" || host == "::1"
+		return isLoopbackHost(u.Hostname())
 	default:
 		return false
 	}
+}
+
+// redirectURIMatches compares a registered redirect URI with a presented one.
+// Non-loopback URIs must match exactly. Loopback URIs match ignoring the PORT
+// (RFC 8252 §7.3): a native client binds an ephemeral port per session, so an
+// exact comparison refuses every CLI client — Claude Code, Cursor, MCP
+// Inspector and mcp-remote all behave this way.
+func redirectURIMatches(registered, presented string) bool {
+	if registered == presented {
+		return true
+	}
+	reg, err := url.Parse(registered)
+	if err != nil {
+		return false
+	}
+	pres, err := url.Parse(presented)
+	if err != nil {
+		return false
+	}
+	if !isLoopbackHost(reg.Hostname()) || !isLoopbackHost(pres.Hostname()) {
+		return false
+	}
+	return reg.Scheme == pres.Scheme && reg.Hostname() == pres.Hostname() && reg.Path == pres.Path
+}
+
+func isLoopbackHost(host string) bool {
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
 func hashOAuthCode(code string) string {
