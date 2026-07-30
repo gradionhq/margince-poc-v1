@@ -266,11 +266,23 @@ func (f *Fetcher) pathAllowed(ctx context.Context, page *url.URL) (bool, error) 
 		f.robots[origin] = entry
 		f.mu.Unlock()
 	}
+	return entry.policy.allows(robotsTarget(page)), nil
+}
+
+// robotsTarget renders the URL the way a robots rule is written against it:
+// the path AND its query. The query is not decoration here — RFC 9309 patterns
+// match the whole thing, so a site that disallows `/*?share=` is refused by a
+// rule that would never fire against the bare path. A URL with no path is `/`,
+// which is what a rule anchored at the root matches.
+func robotsTarget(page *url.URL) string {
 	path := page.EscapedPath()
 	if path == "" {
 		path = "/"
 	}
-	return entry.policy.allows(path), nil
+	if page.RawQuery == "" {
+		return path
+	}
+	return path + "?" + page.RawQuery
 }
 
 // fetchRobots retrieves and parses <origin>/robots.txt. A 4xx answer means the

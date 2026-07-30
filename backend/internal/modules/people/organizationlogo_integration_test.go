@@ -122,6 +122,18 @@ func TestSetOrganizationLogoNeverReplacesTheOneAPersonSet(t *testing.T) {
 		t.Fatalf("seed a human-set logo: %v", err)
 	}
 
+	// The caller must be able to learn this BEFORE it writes any bytes: the
+	// object key is derived from the organization id, so a resolve that stored
+	// first and asked afterwards would already have overwritten the person's
+	// own image whatever the row guard then decided.
+	held, err := e.store.LogoHeldByHuman(ctx, orgID)
+	if err != nil {
+		t.Fatalf("LogoHeldByHuman: %v", err)
+	}
+	if !held {
+		t.Fatal("a human-set logo must be reported as held before any byte is written")
+	}
+
 	written, err := e.store.SetOrganizationLogo(ctx, orgID,
 		e.ws.String()+"/organization_logo/"+orgID.String(), "https://nordwind.test/favicon.ico")
 	if err != nil {
@@ -175,6 +187,9 @@ func TestOrganizationLogoIsRowScopedLikeEveryOtherRead(t *testing.T) {
 	stranger := e.asOwnScoped(ids.NewV7())
 	if _, err := e.store.OrganizationLogoKey(stranger, orgID); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("an out-of-scope logo read must be existence-hidden, got %v", err)
+	}
+	if _, err := e.store.LogoHeldByHuman(stranger, orgID); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("an out-of-scope provenance read must be existence-hidden, got %v", err)
 	}
 	if _, err := e.store.SetOrganizationLogo(stranger, orgID, key, "https://fremd.test/other.png"); !errors.Is(err, apperrors.ErrNotFound) {
 		t.Fatalf("an out-of-scope logo write must be existence-hidden, got %v", err)

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -56,7 +57,7 @@ func (s *assetSite) FetchAsset(_ context.Context, rawURL string) ([]byte, string
 const logoSeed = "https://acme.example/"
 
 func TestLogoCandidateOrderPrefersTheDeclarationsMostLikelyToBeTheMark(t *testing.T) {
-	got := logoCandidates(logoSeed, declaredAssets{
+	got, dropped := logoCandidates(logoSeed, declaredAssets{
 		ogImage: "https://acme.example/share.png",
 		icons: []webread.IconRef{
 			{URL: "https://acme.example/icon-32.png", Rel: webread.RelIcon, Sizes: "32x32"},
@@ -76,15 +77,46 @@ func TestLogoCandidateOrderPrefersTheDeclarationsMostLikelyToBeTheMark(t *testin
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("candidate order:\n got %v\nwant %v", got, want)
 	}
+	if dropped != 0 {
+		t.Fatalf("six candidates fit under the cap, yet %d were dropped", dropped)
+	}
+}
+
+func TestLogoCandidatesAreCappedAndTheDropIsReported(t *testing.T) {
+	// A page can declare an unbounded number of icons; the chain is fetched
+	// serially on a two-worker queue, so it stops — and says that it did.
+	icons := make([]webread.IconRef, 0, 50)
+	for i := range 50 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/icon-%d.png", i), Rel: webread.RelIcon,
+		})
+	}
+	got, dropped := logoCandidates(logoSeed, declaredAssets{icons: icons})
+	if len(got) != logoMaxCandidates {
+		t.Fatalf("tried %d candidates, want the cap of %d", len(got), logoMaxCandidates)
+	}
+	if dropped != 51-logoMaxCandidates {
+		t.Fatalf("dropped %d, want %d (50 icons + /favicon.ico, less the cap)", dropped, 51-logoMaxCandidates)
+	}
+
+	site := &assetSite{assets: map[string][]byte{}}
+	_, attempts := resolveOrganizationLogo(context.Background(), site, logoSeed, declaredAssets{icons: icons})
+	if len(site.asked) != logoMaxCandidates {
+		t.Fatalf("fetched %d assets, want the cap of %d", len(site.asked), logoMaxCandidates)
+	}
+	last := attempts[len(attempts)-1]
+	if !strings.Contains(last.Outcome, "not tried") {
+		t.Fatalf("the truncation must be reported, not silent: %+v", attempts)
+	}
 }
 
 func TestLogoCandidatesAlwaysEndAtTheWellKnownFaviconWithoutRepeatingIt(t *testing.T) {
-	bare := logoCandidates(logoSeed, declaredAssets{})
+	bare, _ := logoCandidates(logoSeed, declaredAssets{})
 	if !reflect.DeepEqual(bare, []string{"https://acme.example/favicon.ico"}) {
 		t.Fatalf("a page declaring nothing must still try /favicon.ico, got %v", bare)
 	}
 
-	declared := logoCandidates(logoSeed, declaredAssets{
+	declared, _ := logoCandidates(logoSeed, declaredAssets{
 		icons: []webread.IconRef{{URL: "https://acme.example/favicon.ico", Rel: webread.RelIcon}},
 	})
 	if len(declared) != 1 {

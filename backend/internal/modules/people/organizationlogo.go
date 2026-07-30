@@ -60,6 +60,15 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
 			return err
 		}
+		// Lock the row before reading who holds the field. The guard is a read
+		// followed by a write, so without the lock a person's upload landing
+		// between the two would be read as absent and then overwritten — the
+		// precedence rule would hold on every run except the one where it
+		// matters. Any writer of this organization takes the same lock, so the
+		// two serialize instead of racing.
+		if err := lockOrganization(ctx, tx, id); err != nil {
+			return err
+		}
 		held, err := logoHeldByHuman(ctx, tx, id)
 		if err != nil {
 			return err
@@ -105,6 +114,43 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 		return false, err
 	}
 	return written, nil
+}
+
+// LogoHeldByHuman answers whether a person set this organization's logo, for a
+// caller that must know BEFORE it does expensive or irreversible work — the
+// site read asks first so it neither fetches a logo it may not use nor
+// overwrites the object a person's own logo already occupies. It carries the
+// record's read gate, so an organization the caller cannot see is not found.
+//
+// The write applies the same rule again under a row lock: this read is an
+// optimization and a byte-safety check, never the authority.
+func (s *Store) LogoHeldByHuman(ctx context.Context, id ids.OrganizationID) (bool, error) {
+	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		return false, err
+	}
+	var held bool
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		if err := auth.EnsureVisible(ctx, tx, "organization", id.UUID); err != nil {
+			return err
+		}
+		var err error
+		held, err = logoHeldByHuman(ctx, tx, id)
+		return err
+	})
+	return held, err
+}
+
+// lockOrganization takes the row lock every logo write serializes on.
+func lockOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID) error {
+	var locked ids.UUID
+	err := tx.QueryRow(ctx, `SELECT id FROM organization WHERE id = $1 FOR UPDATE`, id).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return fmt.Errorf("lock organization: %w", err)
+	}
+	return nil
 }
 
 // logoHeldByHuman reports whether a person set this organization's logo. It

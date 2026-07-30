@@ -43,10 +43,16 @@ import (
 const ContentType = "image/png"
 
 // maxSourcePixels bounds a decode. An image header is cheap to forge and
-// costs the decoder width*height*4 bytes to believe, so the declared size is
-// refused before any of it is allocated. 40 Mpx covers every real logo and
-// every plausible og:image with room to spare.
-const maxSourcePixels = 40 << 20
+// costs the decoder its whole canvas to believe, so the declared size is
+// refused before any of it is allocated.
+//
+// The bound is deliberately well under what a machine could survive, because
+// the cost per pixel is not fixed: a 16-bit RGBA PNG allocates 8 bytes per
+// pixel, twice what the common 8-bit case suggests, and the deep-read queue
+// runs several of these at once. 8 Mpx is a 2828x2828 source — far past any
+// logo or sharing image a site actually publishes — and caps one decode near
+// 64 MiB even in the widest pixel format.
+const maxSourcePixels = 8 << 20
 
 // ErrUnsupported reports bytes this package cannot turn into a picture: a
 // format it carries no decoder for (SVG, a bitmap-only ICO), a truncated

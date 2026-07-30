@@ -193,3 +193,28 @@ func TestFetchAssetHonoursTheStatusAndTheRobotsGate(t *testing.T) {
 		t.Fatalf("a disallowed asset path must report the site's answer, got %v", err)
 	}
 }
+
+func TestRobotsRulesMatchTheQuerySiteOperatorsWriteThemAgainst(t *testing.T) {
+	// A REP pattern matches path AND query (RFC 9309), so a rule aimed at a
+	// query parameter must fire — reading the bare path would let every
+	// query-scoped Disallow through.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			_, _ = w.Write([]byte("User-agent: *\nDisallow: /*?share=\n"))
+			return
+		}
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte{0x89, 'P', 'N', 'G'})
+	}))
+	defer server.Close()
+	fetcher := newFetcher(server.Client().Transport)
+
+	_, _, err := fetcher.FetchAsset(context.Background(), server.URL+"/img.png?share=1")
+	if !errors.Is(err, ErrRobotsDisallowed) {
+		t.Fatalf("a query-scoped Disallow must refuse the asset, got %v", err)
+	}
+	// The same path without that query is untouched by the rule.
+	if _, _, err := fetcher.FetchAsset(context.Background(), server.URL+"/img.png?v=2"); err != nil {
+		t.Fatalf("an unrelated query must stay allowed: %v", err)
+	}
+}

@@ -48,6 +48,14 @@ const (
 	// is a banner or a hero shot, which says nothing about the company at
 	// avatar size.
 	logoMaxAspect = 2.5
+	// logoMaxCandidates bounds how many assets one resolve will ask a site
+	// for. The chain is fetched serially and the deep-read queue is two
+	// workers wide, so a page declaring a thousand icon links would otherwise
+	// let one site hold a worker until its deadline. A site that has not shown
+	// its mark in the first few declarations is not hiding it in the
+	// thousandth, and everything past the bound is reported as dropped rather
+	// than silently ignored.
+	logoMaxCandidates = 8
 )
 
 // Outcomes the resolve records per candidate. They are the quality signal the
@@ -102,8 +110,8 @@ type logoAttempt struct {
 // remembered and only used if nothing squarer turns up, so a site whose
 // og:image is a sharing banner still ends up with its real icon.
 func resolveOrganizationLogo(ctx context.Context, fetch assetFetcher, seedURL string, declared declaredAssets) (resolvedLogo, []logoAttempt) {
-	candidates := logoCandidates(seedURL, declared)
-	attempts := make([]logoAttempt, 0, len(candidates))
+	candidates, dropped := logoCandidates(seedURL, declared)
+	attempts := make([]logoAttempt, 0, len(candidates)+1)
 	var fallback resolvedLogo
 	for _, candidate := range candidates {
 		if fallback.PNG != nil && candidate == fallback.SourceURL {
@@ -122,6 +130,14 @@ func resolveOrganizationLogo(ctx context.Context, fetch assetFetcher, seedURL st
 		default:
 			attempts = append(attempts, logoAttempt{URL: candidate, Outcome: logoOutcomeSkipped})
 		}
+	}
+	if dropped > 0 {
+		// A cap that truncates in silence reads afterwards as "the site
+		// declared nothing better", which is a different fact.
+		attempts = append(attempts, logoAttempt{
+			URL:     fmt.Sprintf("%d further declared candidate(s)", dropped),
+			Outcome: fmt.Sprintf("not tried: the chain stops at %d", logoMaxCandidates),
+		})
 	}
 	return fallback, attempts
 }
@@ -162,7 +178,7 @@ func fetchLogoCandidate(ctx context.Context, fetch assetFetcher, rawURL string) 
 // logoCandidates builds the ordered, deduplicated candidate chain from what
 // the seed page declared plus the well-known favicon path every site answers
 // whether it declares one or not.
-func logoCandidates(seedURL string, declared declaredAssets) []string {
+func logoCandidates(seedURL string, declared declaredAssets) (candidates []string, dropped int) {
 	ordered := make([]string, 0, len(declared.icons)+2)
 	if declared.ogImage != "" {
 		ordered = append(ordered, declared.ogImage)
@@ -182,7 +198,10 @@ func logoCandidates(seedURL string, declared declaredAssets) []string {
 		seen[candidate] = true
 		unique = append(unique, candidate)
 	}
-	return unique
+	if len(unique) > logoMaxCandidates {
+		return unique[:logoMaxCandidates], len(unique) - logoMaxCandidates
+	}
+	return unique, 0
 }
 
 // iconURLsByRel selects one rel's icons, largest declared size first. A page
@@ -254,6 +273,24 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 	orgID := ids.From[ids.OrganizationKind](*claim.OrganizationID)
+	// Ask BEFORE resolving anything. The stored object lives at a key derived
+	// from the organization id, so writing bytes is what actually replaces a
+	// person's own logo — the row guard alone would decline to change the row
+	// while the bytes underneath it had already been overwritten, which is the
+	// one outcome the precedence rule exists to prevent. Asking first also
+	// spares a fetch and a normalize nobody would use.
+	held, err := w.people.LogoHeldByHuman(ctx, orgID)
+	if err != nil {
+		w.log.WarnContext(ctx, "reading the organization's logo provenance failed",
+			"read", args.SiteReadID.String(), "err", err)
+		return
+	}
+	if held {
+		w.log.InfoContext(ctx, "logo resolve skipped: a person's own logo holds the field",
+			"read", args.SiteReadID.String())
+		return
+	}
+
 	logo, attempts := resolveOrganizationLogo(ctx, w.fetch, claim.SeedURL, crawl.SeedAssets)
 	if logo.PNG == nil {
 		w.log.InfoContext(ctx, "site read resolved no logo",
