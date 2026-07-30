@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -82,9 +83,16 @@ func siteDeepReadInsertOpts() *river.InsertOpts {
 // queued forever.
 type siteDeepReadWorker struct {
 	river.WorkerDefaults[SiteDeepReadArgs]
-	people     *people.Store
-	crawler    *siteCrawler
-	extract    evidenceExtractor
+	people  *people.Store
+	crawler *siteCrawler
+	extract evidenceExtractor
+	// fetch is the same guarded egress the crawl uses, for the ONE thing the
+	// crawl does not fetch itself: the logo asset the seed page declared.
+	fetch assetFetcher
+	// blob holds the normalized logo bytes. Nil is a worker role with no
+	// object store: it reads sites and resolves no logos, and every company
+	// keeps its monogram.
+	blob       blobstore.Store
 	approvals  *approvals.Service
 	autoEnrich *capture.AutoEnrichStore
 	// settings answers the auto-enrich flag at CLAIM time. The sweep checks it
@@ -102,13 +110,15 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps, blob blobstore.Store) *siteDeepReadWorker {
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
 		people:     people.NewStore(pool),
 		crawler:    newSiteCrawler(fetcher, caps),
 		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
+		fetch:      fetcher,
+		blob:       blob,
 		approvals:  approvals.NewService(pool),
 		autoEnrich: capture.NewAutoEnrichStore(pool),
 		settings:   capture.NewSettings(pool),
@@ -235,6 +245,12 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		w.log.ErrorContext(ctx, "site deep read degraded to partial: extraction failed in part",
 			"read", args.SiteReadID.String(), "err", extraction.err)
 	}
+
+	// The logo lands before the findings are staged and outside their
+	// confirm-first path: it is a 🟢 display asset (A55), so no human has to
+	// approve a picture, and it is the half of the read that pays off even
+	// when the model half comes back thin.
+	w.resolveLogo(ctx, args, claim, crawl)
 
 	var proposalIDs []ids.UUID
 	if claim.OrganizationID != nil {

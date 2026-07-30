@@ -55,6 +55,10 @@ type SiteReadDebugReport struct {
 	Extraction DebugExtraction          `json:"extraction"`
 	ModelCalls []DebugModelCall         `json:"model_calls"`
 	Proposal   *people.DeepReadProposal `json:"proposal"`
+	// Logo is what the visual-identity lane made of the seed page's
+	// declarations. The debug run resolves and normalizes exactly as the
+	// worker does but stores nothing — it is DB-less and blob-less.
+	Logo DebugLogo `json:"logo"`
 	// ModelLaneError mirrors the worker's degraded-to-partial path: the
 	// extraction error that stopped the model lane midway, empty when
 	// every page got its passes.
@@ -73,12 +77,14 @@ type SiteReadDebugReport struct {
 // a midway model-lane death degrades to a partial report.
 func RunSiteReadDebug(ctx context.Context, opts SiteReadDebugOptions) (SiteReadDebugReport, error) {
 	fetcher := webread.New()
-	return siteReadDebugRun(ctx, opts, newSiteCrawler(fetcher, opts.Caps), fetcher)
+	return siteReadDebugRun(ctx, opts, newSiteCrawler(fetcher, opts.Caps), fetcher, fetcher)
 }
 
 // siteReadDebugRun is the seam unit tests drive with an in-memory site;
-// production enters through RunSiteReadDebug's real fetcher.
-func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *siteCrawler, pageFetch PageFetcher) (SiteReadDebugReport, error) {
+// production enters through RunSiteReadDebug's real fetcher. A nil pageFetch
+// or logoFetch leaves that lane out of the report, the way a test that is
+// asserting about the model lanes does.
+func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *siteCrawler, pageFetch PageFetcher, logoFetch assetFetcher) (SiteReadDebugReport, error) {
 	if opts.Brain == nil {
 		return SiteReadDebugReport{}, fmt.Errorf("siteread debug: no brain configured")
 	}
@@ -129,6 +135,9 @@ func siteReadDebugRun(ctx context.Context, opts SiteReadDebugOptions, crawler *s
 		report.ModelLaneError = extraction.err.Error()
 	}
 	report.Crawl = debugCrawl(crawl, crawl.Pages, opts.IncludePageText, crawlMs)
+	if logoFetch != nil {
+		report.Logo = debugLogo(resolveOrganizationLogo(ctx, logoFetch, opts.SeedURL, crawl.SeedAssets))
+	}
 
 	mergedFields, legalConflict, legalDrops := applyLegalGate(extraction.fields, extraction.merged.entities, pageKindsOf(crawl.Pages), extraction.legalCensusIncomplete)
 	extraction.merged.entities = enrichLegalEntitiesFromProfile(extraction.merged.entities, mergedFields)

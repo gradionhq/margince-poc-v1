@@ -4,11 +4,15 @@
 package people
 
 import (
+	"errors"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/imagenorm"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -77,6 +81,53 @@ func (h Handlers) GetOrganization(w http.ResponseWriter, r *http.Request, id crm
 		return
 	}
 	httperr.WriteJSON(w, http.StatusOK, org)
+}
+
+// GetOrganizationLogo streams the organization's resolved logo. A record with
+// no logo, one this caller cannot see, and one that does not exist all answer
+// 404: the client's response to all three is the same monogram, and telling
+// them apart would leak which organizations exist.
+func (h Handlers) GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	key, err := h.store.OrganizationLogoKey(r.Context(), pathID[ids.OrganizationKind](id))
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	if h.blob == nil {
+		httperr.NotImplemented(w, r, "GetOrganizationLogo")
+		return
+	}
+	rc, obj, err := h.blob.Get(r.Context(), key)
+	if err != nil {
+		if errors.Is(err, blobstore.ErrNotFound) {
+			// The row points at bytes the store does not have. To the client
+			// that is a company without a logo, same as any other.
+			writeStoreErr(w, r, apperrors.ErrNotFound)
+			return
+		}
+		httperr.Write(w, r, err)
+		return
+	}
+	contentType := imagenorm.ContentType
+	if obj.ContentType != "" {
+		contentType = obj.ContentType
+	}
+	// These bytes were normalized from a third-party website's asset. What is
+	// stored is always this server's own PNG re-encode, and these two headers
+	// hold that line at the response: the type cannot be sniffed into
+	// something active, and the document that renders can reach nothing.
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	// A logo changes only when a site read resolves a new one, while a company
+	// list asks for one per row — so a short private cache saves most of the
+	// requests without holding a stale mark for long.
+	w.Header().Set("Cache-Control", "private, max-age=300")
+	httperr.StreamObject(w, r, httperr.StreamedObject{
+		Body:        rc,
+		ContentType: contentType,
+		Inline:      true,
+		Size:        obj.Size,
+	}, "organization logo "+id.String())
 }
 
 func (h Handlers) UpdateOrganization(w http.ResponseWriter, r *http.Request, id crmcontracts.Id, _ crmcontracts.UpdateOrganizationParams) {

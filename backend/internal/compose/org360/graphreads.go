@@ -331,17 +331,17 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 	// second chance for the total and the rows to disagree.
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
 		WITH related AS (
-			SELECT o.id, o.display_name, '%[2]s' AS relation,
+			SELECT o.id, o.display_name, o.logo_object_key, '%[2]s' AS relation,
 			       NULL::text AS partner_kind, NULL::uuid AS edge_owner
 			FROM organization o
 			JOIN organization root ON root.parent_org_id = o.id
 			WHERE root.id = $%[1]d AND o.archived_at IS NULL AND (%[5]s)
 			UNION ALL
-			SELECT o.id, o.display_name, '%[3]s', NULL::text, NULL::uuid
+			SELECT o.id, o.display_name, o.logo_object_key, '%[3]s', NULL::text, NULL::uuid
 			FROM organization o
 			WHERE o.parent_org_id = $%[1]d AND o.archived_at IS NULL AND (%[6]s)
 			UNION ALL
-			SELECT o.id, o.display_name, '%[4]s', r.kind, r.organization_id
+			SELECT o.id, o.display_name, o.logo_object_key, '%[4]s', r.kind, r.organization_id
 			FROM relationship r
 			JOIN organization o ON o.id = CASE WHEN r.organization_id = $%[1]d
 			                                   THEN r.counterparty_org_id ELSE r.organization_id END
@@ -350,11 +350,11 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 			  AND $%[1]d IN (r.organization_id, r.counterparty_org_id)
 			  AND o.archived_at IS NULL AND (%[7]s)
 		), companies AS (
-			SELECT DISTINCT id, display_name FROM related
+			SELECT DISTINCT id, display_name, logo_object_key FROM related
 		), chosen AS (
 			SELECT id FROM companies ORDER BY display_name, id LIMIT %[8]d
 		)
-		SELECT DISTINCT related.id, related.display_name, related.relation,
+		SELECT DISTINCT related.id, related.display_name, related.logo_object_key, related.relation,
 		       related.partner_kind, related.edge_owner,
 		       (SELECT count(*) FROM companies)
 		FROM related JOIN chosen ON chosen.id = related.id
@@ -367,7 +367,7 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 	return pgx.CollectRows(rows, func(row pgx.CollectableRow) (graphRelatedOrg, error) {
 		var related graphRelatedOrg
 		// Every row carries the same total; the last write wins and they agree.
-		err := row.Scan(&related.orgID, &related.displayName, &related.relation,
+		err := row.Scan(&related.orgID, &related.displayName, &related.logoObjectKey, &related.relation,
 			&related.partnerKind, &related.edgeOwner, &g.relatedTotal)
 		return related, err
 	})

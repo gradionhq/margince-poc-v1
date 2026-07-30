@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
@@ -186,6 +187,11 @@ type JobRunnerConfig struct {
 	// DeepReadCaps bounds each deep-read crawl; the zero value takes the
 	// compose defaults (CrawlCaps.withDefaults).
 	DeepReadCaps CrawlCaps
+	// Blobstore holds the logo bytes a deep read resolves from the site it
+	// crawls (A55). Nil is a worker role with no object store: reads still
+	// run and still land their facts, and every company keeps the monogram
+	// the render layer draws when no logo is on file.
+	Blobstore blobstore.Store
 	// Embedder is the retrieval embed lane (ModelPath.Embedder) the
 	// embed-reindex worker re-embeds under. The worker registers
 	// regardless of whether this is nil: a picked-up embed_reindex job
@@ -248,7 +254,7 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	workers := river.NewWorkers()
 	// The deep read is not periodic — the api enqueues one job per started
 	// dossier; the worker role only needs the worker registered.
-	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps))
+	river.AddWorker(workers, newSiteDeepReadWorker(pool, cfg.DeepReadBrain, cfg.DeepReadFactBrain, log, cfg.DeepReadCaps, cfg.Blobstore))
 	// The voice build is not periodic — the api enqueues one job per created
 	// build; only the deferred-retry sweep ticks. Both register even with a
 	// nil brain so a queued build fails actionably instead of rotting.
