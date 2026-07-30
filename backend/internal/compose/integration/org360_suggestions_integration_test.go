@@ -401,7 +401,7 @@ func TestADeferralNeverResurrectsADismissal(t *testing.T) {
 	}
 }
 
-// Advancing the deal re-arms the advice, through the real transition path.
+// Advancing the deal re-arms the advice; re-selecting its stage does not.
 //
 // A stage advance is the most deliberate kind of work there is on a deal, and it
 // moves no timestamp the stall rule reads — so a fingerprint built from that rule's
@@ -442,6 +442,13 @@ func TestAdvancingADealReArmsDismissedStallAdvice(t *testing.T) {
 	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
 		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
 		t.Fatalf("advancing the deal: %v", err)
+	}
+
+	// Re-selecting the stage it is now in writes another history row and is not
+	// work, so it must not disturb anything either way.
+	if _, err := e.Deals.AdvanceDeal(e.As(e.Rep1, nil, AdminPerms),
+		ids.From[ids.DealKind](deal), deals.AdvanceDealInput{ToStageID: next}); err != nil {
+		t.Fatalf("re-selecting the same stage: %v", err)
 	}
 
 	after, err := svc.Assemble(rep, org)

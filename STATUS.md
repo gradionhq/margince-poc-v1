@@ -491,15 +491,39 @@ this build repo.
   beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
   what a committed run reports.
 - **The company view's five new surfaces are build-side, not yet in the spec.**
-  `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`, the
-  `organization_id` filter on `GET /signals`, the `OrganizationStrength` schema,
-  and the `user_record_view` table were built from the reviewed company-view
-  concept, not from a spec chapter. Raise all five upstream so the contract and
+  `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`,
+  `GET|POST /organizations/{id}/brief`, `POST /organizations/{id}/ask`,
+  `POST /organizations/{id}/suggestions/dismiss`, the `organization_id` filter on
+  `GET /signals`, the `OrganizationStrength`, `OrganizationBrief`,
+  `OrganizationAnswer` and `Organization360Suggestion` schemas, and the
+  `user_record_view`, `org_brief` and `suggestion_dismissal` tables were built from
+  the reviewed company-view concept, not from a spec chapter. Raise all five upstream so the contract and
   the spec agree before the frontend depends on them. The 360's deliberate V1
   limits belong in the same raise: it is native-system-of-record only (an
   overlay workspace gets `422 unsupported_in_overlay_mode`), and its nested
   collections are truncated summaries, not paging surfaces — follow-up pages come
   from the dedicated endpoint for each collection.
+- **"What counts as working a deal" is a product decision the build has been
+  inferring.** A next-step suggestion is dismissed per user and keyed on a
+  fingerprint, and that fingerprint has to change when the situation the rep judged
+  is replaced by a new one — otherwise a dismissal either silences the deal forever
+  or comes back to life. The build now defines the stalled-deal case as "the deal's
+  last activity, plus how many times it has really changed stage", monotone in both
+  so a dismissed shape can never recur. Eight review rounds landed on that
+  definition one input at a time (`wait_until` excluded because it can be cleared;
+  a stage advance included because it moves no timestamp the stall rule reads; a
+  same-stage re-select excluded because it is not work). The edges left are
+  judgment, not code: does re-assigning the owner count? re-opening a lost deal
+  through a path that writes no history? editing the amount? Get the founder's rule
+  and pin it in `specs/subsystems/deals-and-pipeline.md`, then derive the
+  fingerprint from that rather than from the schema. Until then the rule the code
+  states is "not now silences this deal until it is next worked".
+- **The company view's suggestion read is deliberately unbounded.** `openPipeline`
+  reads every open deal of one account in one statement, because every bound put
+  the read's own limit inside a number the card reported. An account with tens of
+  thousands of open deals therefore makes each 360 read of it expensive. Bounded by
+  stored data, not by anything a request supplies; raised by the security review as
+  a known tradeoff rather than a finding.
 - **The company view's "New deal" action needs a staged approval kind.** The
   concept calls for a 🟡 `create_deal` staging; the approval catalog has no such
   kind, so the interim build creates the deal directly under a confirm modal.

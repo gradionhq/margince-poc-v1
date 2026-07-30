@@ -112,11 +112,17 @@ type stalledDeal struct {
 	// IdleSince is the instant the stall is measured from — the deal's last
 	// activity, or its creation if it has none.
 	IdleSince time.Time
-	// StageMoves is how many times this deal has changed stage, counting the row
-	// its creation writes. Advancing a deal is the most deliberate kind of work
-	// there is on one, and it moves no timestamp the stall rule reads — so
-	// without this the advice a rep dismissed would stay silenced through every
-	// stage the deal went on to reach.
+	// StageMoves is how many times this deal has actually CHANGED stage, counting
+	// the row its creation writes.
+	//
+	// Advancing a deal is the most deliberate kind of work there is on one, and it
+	// moves no timestamp the stall rule reads — so without this the advice a rep
+	// dismissed would stay silenced through every stage the deal went on to reach.
+	//
+	// Re-selecting the stage a deal is already in still writes a history row
+	// (nothing rejects it), and that is not work. Counting it would hand the rep
+	// back advice they dismissed because someone opened the stage picker and
+	// changed nothing.
 	StageMoves int
 }
 
@@ -128,8 +134,8 @@ type stalledDeal struct {
 // dismissed can recur and that old dismissal comes back to life — silencing advice
 // they may have been shown again in between. Both components satisfy the second
 // property by construction: activities.LogActivity advances last_activity_at with
-// greatest() and nothing lowers it, and deal_stage_history is append-only, so the
-// count of moves only rises.
+// greatest() and nothing lowers it, and deal_stage_history is append-only under a
+// fixed predicate, so the count of real moves only rises.
 //
 // Together they are what "worked" means for a deal. Neither alone is enough —
 // logging a call moves the timestamp and not the count, advancing a stage moves
@@ -198,7 +204,8 @@ func openPipeline(
 	// instant.
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until,
-		       (SELECT count(*) FROM deal_stage_history h WHERE h.deal_id = d.id)
+		       (SELECT count(*) FROM deal_stage_history h
+		         WHERE h.deal_id = d.id AND h.from_stage_id IS DISTINCT FROM h.to_stage_id)
 		%s
 		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`,
 		"FROM deal d\n\t\t"+openDealsWhere(orgPos, dealScope)), args...)

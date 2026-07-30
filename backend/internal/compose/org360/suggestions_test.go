@@ -140,6 +140,12 @@ func TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked(t *testing.T) {
 		t.Error("a deal advanced to a new stage reuses the earlier fingerprint — " +
 			"the dismissal would outlast every stage it goes on to reach")
 	}
+	// Re-selecting the same stage writes a history row that this count excludes,
+	// so it produces the same episode — opening the stage picker and changing
+	// nothing must not hand back advice the rep dismissed.
+	if again := stalledDealSuggestions([]stalledDeal{advanced}); again[0].Fingerprint != moved[0].Fingerprint {
+		t.Error("the same deal at the same stage hashed differently")
+	}
 
 	// Monotonicity: every episode this deal can produce must be distinct, whichever
 	// way it is worked, so it can never land back on a dismissed shape.
