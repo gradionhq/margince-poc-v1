@@ -134,7 +134,7 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Email address")).toBeTruthy();
+    expect(await screen.findByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByText("Configured")).toBeNull();
   });
@@ -151,10 +151,7 @@ describe("AuthScreen login", () => {
       screen.queryByText(/create (your )?workspace|create one|sign up/i),
     ).toBeNull();
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     // Enter inside the real <form> submits — no button click needed.
     await userEvent.type(
       screen.getByLabelText("Password"),
@@ -174,10 +171,7 @@ describe("AuthScreen login", () => {
     const probe = vi.fn().mockRejectedValue(new Error("session rejected"));
     const { container } = render(<AuthScreen onAuthed={probe} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(
       screen.getByLabelText("Password"),
       "correct-horse-battery{enter}",
@@ -201,17 +195,14 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "wrong{enter}");
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
       "We couldn't sign you in. Check your email and password and try again.",
     );
-    expect(screen.getByLabelText("Email address")).toHaveProperty(
+    expect(screen.getByLabelText("Email")).toHaveProperty(
       "value",
       "ada@example.com",
     );
@@ -225,10 +216,7 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
 
     const alert = await screen.findByRole("alert");
@@ -243,10 +231,7 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
 
     const alert = await screen.findByRole("alert");
@@ -260,10 +245,7 @@ describe("AuthScreen login", () => {
     window.location.hash = "#/deals/d-42";
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(
       screen.getByLabelText("Password"),
       "correct-horse-battery{enter}",
@@ -290,11 +272,29 @@ describe("AuthScreen login", () => {
   it("hides the forgot-password link when the capability is off, shows it when on", async () => {
     stubApi({ password: true, password_reset: false }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    await screen.findByLabelText("Email address");
+    await screen.findByLabelText("Email");
     expect(screen.queryByText("Forgot password?")).toBeNull();
     cleanup();
 
     stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(await screen.findByText("Forgot password?")).toBeTruthy();
+  });
+
+  // The reset UI-preview switch (app/ui-preview.ts), on the screen. The capability
+  // is `false` in both halves — the running installation's own answer, since it
+  // has no mailer — so the switch is the only difference, which is the property
+  // this pair exists to pin.
+  it("draws the forgot-password link on a false capability only under the UI-preview switch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(screen.queryByText("Forgot password?")).toBeNull();
+    cleanup();
+
+    vi.stubEnv("VITE_UI_PREVIEW_RESET", "1");
+    stubApi({ password: true, password_reset: false }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
     expect(await screen.findByText("Forgot password?")).toBeTruthy();
   });
@@ -307,7 +307,7 @@ describe("AuthScreen login", () => {
   it("names both fields with a real label, not a placeholder", async () => {
     stubApi({ password: true, password_reset: true }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    for (const name of ["Email address", "Password"]) {
+    for (const name of ["Email", "Password"]) {
       const field = await screen.findByLabelText(name);
       expect(field.tagName).toBe("INPUT");
       // The accessible name comes from the <label>, so it survives typing.
@@ -347,7 +347,7 @@ describe("federated sign-in", () => {
   it("offers a provider only when the installation serves one", async () => {
     stubApi({ password: true, password_reset: true }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    await screen.findByLabelText("Email address");
+    await screen.findByLabelText("Email");
     expect(
       screen.queryByRole("button", { name: "Continue with Google" }),
     ).toBeNull();
@@ -385,7 +385,7 @@ describe("federated sign-in", () => {
     vi.spyOn(console, "warn").mockImplementation(() => undefined);
     stubApi({ password: true, password_reset: true }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    await screen.findByLabelText("Email address");
+    await screen.findByLabelText("Email");
     expect(
       screen.queryByRole("button", { name: "Continue with Google" }),
     ).toBeNull();
@@ -396,12 +396,17 @@ describe("federated sign-in", () => {
     // override is presentation, so the wire is identical in both halves.
     stubApi({ password: true, password_reset: true }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    const google = await screen.findByRole("button", {
+    const google = await screen.findByRole<HTMLButtonElement>("button", {
       name: "Continue with Google",
     });
-    expect(
-      screen.getByRole("button", { name: "Continue with Microsoft" }),
-    ).toBeTruthy();
+    expect(google.disabled).toBe(false);
+    // The same switch marks the SECOND provider not-yet-available, so the preview
+    // shows both halves of the design rather than two identical buttons.
+    const microsoft = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Continue with Microsoft",
+    });
+    expect(microsoft.disabled).toBe(true);
+    expect(microsoft.classList.contains("is-unavailable")).toBe(true);
     // Inert, and that is the point of the switch: it draws the design, it does
     // not invent a redirect. Clicking must neither navigate nor hit the wire.
     const calls = stubApi({ password: true, password_reset: true }, () =>
@@ -410,6 +415,72 @@ describe("federated sign-in", () => {
     await userEvent.click(google);
     expect(calls).toEqual([]);
     expect(google).toBeTruthy();
+  });
+
+  // The product path, asserted as a property rather than assumed. A real server
+  // can never mark a provider — `oidc_providers[]` items are `{ key, label }` with
+  // no availability field — so on the shipped surface every button an
+  // installation serves is live and unannotated. This is the case that fails if
+  // the preview marker ever leaks into the default render.
+  it("leaves every served provider enabled and unannotated, with no unavailable set", async () => {
+    stubApi(
+      {
+        password: true,
+        password_reset: true,
+        oidc_providers: [
+          { key: "google", label: "Continue with Google" },
+          { key: "microsoft", label: "Continue with Microsoft" },
+        ],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const label of ["Continue with Google", "Continue with Microsoft"]) {
+      const button = await screen.findByRole<HTMLButtonElement>("button", {
+        name: label,
+      });
+      expect(button.disabled).toBe(false);
+      // The accessible name is the server's label and nothing else.
+      expect(button.textContent).toBe(label);
+    }
+    expect(document.querySelector(".is-unavailable")).toBeNull();
+  });
+
+  // The preview marker (app/ui-preview.ts), on the component that renders it.
+  // Passing the set explicitly rather than through the env switch is deliberate:
+  // this case is about what the MARKUP does with a marked key, and the switch is
+  // pinned where it lives.
+  it("renders a marked provider as disabled without touching its label", async () => {
+    render(
+      <ProviderButtons
+        providers={[
+          { key: "google", label: "Continue with Google" },
+          { key: "microsoft", label: "Continue with Microsoft" },
+        ]}
+        unavailable={new Set(["microsoft"])}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    // The state is `disabled` plus a class the stylesheet draws, and the
+    // accessible name is left as the installation's own string. That is the
+    // assertion worth pinning: the marker must not append copy to somebody
+    // else's label, so an unrecognised provider on a real installation could
+    // never have words we wrote spliced onto the words they wrote.
+    const microsoft = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Continue with Microsoft",
+    });
+    expect(microsoft.disabled).toBe(true);
+    expect(microsoft.classList.contains("is-unavailable")).toBe(true);
+    expect(microsoft.textContent).toBe("Continue with Microsoft");
+
+    // Only the marked one. The other provider is offered exactly as it would be
+    // on an installation that serves it.
+    const google = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Continue with Google",
+    });
+    expect(google.disabled).toBe(false);
   });
 
   it("renders nothing at all for an empty capability", () => {
@@ -447,7 +518,7 @@ describe("AuthScreen forgot password", () => {
 
     await userEvent.click(await screen.findByText("Forgot password?"));
     await userEvent.type(
-      screen.getByLabelText("Email address"),
+      screen.getByLabelText("Email"),
       "ada@example.com{enter}",
     );
 
@@ -516,6 +587,6 @@ describe("AvailabilityScreen", () => {
     render(<AvailabilityScreen kind="installation" onRetry={vi.fn()} />);
     expect(screen.getByText("Installation not ready")).toBeTruthy();
     // No credential fields: this is not a login problem.
-    expect(screen.queryByLabelText("Email address")).toBeNull();
+    expect(screen.queryByLabelText("Email")).toBeNull();
   });
 });

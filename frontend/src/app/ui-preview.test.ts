@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { previewedOidcProviders, uiPreviewOidcEnabled } from "./ui-preview";
+import {
+  previewedOidcProviders,
+  previewedPasswordReset,
+  previewedUnavailableProviders,
+  uiPreviewOidcEnabled,
+  uiPreviewResetEnabled,
+} from "./ui-preview";
 
 // The UI-preview switch, pinned in BOTH positions. Off is the one that matters
 // most: a preview switch nobody checks the default of is how presentation
@@ -46,5 +52,56 @@ describe("VITE_UI_PREVIEW_OIDC", () => {
     vi.stubEnv("VITE_UI_PREVIEW_OIDC", "1");
     const served = [{ key: "corp-sso", label: "Anmeldung über Werk-IT" }];
     expect(previewedOidcProviders(served)).toBe(served);
+  });
+
+  // The per-provider marker rides the SAME switch, and the empty default is the
+  // assertion that matters: an empty set is what makes ProviderButtons' product
+  // behaviour identical to what it was before the marker existed.
+  it("marks no provider unavailable with the switch off", () => {
+    expect(previewedUnavailableProviders().size).toBe(0);
+  });
+
+  it("marks exactly microsoft unavailable with the switch on", () => {
+    vi.stubEnv("VITE_UI_PREVIEW_OIDC", "1");
+    expect([...previewedUnavailableProviders()]).toEqual(["microsoft"]);
+  });
+});
+
+describe("VITE_UI_PREVIEW_RESET", () => {
+  it("is off with no env var, and passes the server's answer through verbatim", () => {
+    expect(import.meta.env.VITE_UI_PREVIEW_RESET).toBeUndefined();
+    expect(uiPreviewResetEnabled()).toBe(false);
+    // `false` is what the running installation reports — no `email:` block, so no
+    // mailer, so no reset flow — and it has to reach the screen unchanged, which
+    // is what keeps the forgot-password link absent.
+    expect(previewedPasswordReset(false)).toBe(false);
+  });
+
+  it("is off for any value that is not an explicit yes", () => {
+    for (const value of ["", "0", "false", "no", "yes", "on"]) {
+      vi.stubEnv("VITE_UI_PREVIEW_RESET", value);
+      expect(uiPreviewResetEnabled(), value).toBe(false);
+      expect(previewedPasswordReset(false), value).toBe(false);
+    }
+  });
+
+  it("draws the reset link when explicitly enabled", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    for (const value of ["1", "true"]) {
+      vi.stubEnv("VITE_UI_PREVIEW_RESET", value);
+      expect(uiPreviewResetEnabled()).toBe(true);
+      expect(previewedPasswordReset(false)).toBe(true);
+    }
+    // Once, not per render — the override site is called on every paint.
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("never overrides an installation that does serve the reset flow", () => {
+    vi.stubEnv("VITE_UI_PREVIEW_RESET", "1");
+    // A served `true` is the truth and comes back untouched; the preview only
+    // ever fills a genuine `false`.
+    expect(previewedPasswordReset(true)).toBe(true);
+    vi.unstubAllEnvs();
+    expect(previewedPasswordReset(true)).toBe(true);
   });
 });

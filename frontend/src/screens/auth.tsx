@@ -11,7 +11,11 @@ import {
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
-import { previewedOidcProviders } from "../app/ui-preview";
+import {
+  previewedOidcProviders,
+  previewedPasswordReset,
+  previewedUnavailableProviders,
+} from "../app/ui-preview";
 import wordmarkDark from "../assets/wordmark-dark.png";
 import wordmarkWhite from "../assets/wordmark-white.png";
 import { Button } from "../design-system/atoms";
@@ -41,6 +45,11 @@ export type AuthNotice = "signed-out" | "session-expired" | null;
 // is not involved. Only the MARK is ours to choose, from `key`.
 export type OidcProviders =
   components["schemas"]["AuthCapabilities"]["oidc_providers"];
+
+// The product's answer to "which providers are unavailable": none. A module-level
+// constant rather than an inline `new Set()` default, so every render of the
+// federated block compares equal instead of allocating a fresh set.
+const NO_UNAVAILABLE_PROVIDERS: ReadonlySet<string> = new Set();
 
 type View =
   | { kind: "login" }
@@ -96,7 +105,12 @@ export function AuthScreen({
     staleTime: 60_000,
     retry: 1,
   });
-  const resetAvailable = capabilities.data?.password_reset === true;
+  // The capability's real value, passed through the ONE ui-preview override site
+  // for the reset link. Off by default, in which case this is the identity
+  // function on the server's own answer.
+  const resetAvailable = previewedPasswordReset(
+    capabilities.data?.password_reset === true,
+  );
 
   // This query is presentation-only and deliberately independent of auth:
   // profile latency or failure hides the live runtime line but can never
@@ -147,6 +161,10 @@ export function AuthScreen({
             providers={previewedOidcProviders(
               capabilities.data?.oidc_providers ?? [],
             )}
+            /* Empty in the product, always: the capability carries no
+               availability field, so only the preview layer can mark a provider
+               (app/ui-preview.ts). */
+            unavailableProviders={previewedUnavailableProviders()}
             onForgot={() => setView({ kind: "forgot" })}
           />
         </>
@@ -338,10 +356,20 @@ function loginErrorKey(error: unknown): MessageKey {
 export function ProviderButtons({
   providers,
   disabled = false,
+  unavailable = NO_UNAVAILABLE_PROVIDERS,
   onSelect,
 }: Readonly<{
   providers: OidcProviders;
   disabled?: boolean;
+  /**
+   * Provider keys to render as not-yet-available. **Empty in the product**, and
+   * structurally so: the capability's items are `{ key, label }` with no
+   * availability field, so nothing on the wire can populate this — only
+   * `app/ui-preview.ts` can, for a design review, and §3.3 keeps a dead provider
+   * control illegal on the shipped surface. This component never infers
+   * availability from a key: a provider it has no logo for is still a working one.
+   */
+  unavailable?: ReadonlySet<string>;
   onSelect: (providerKey: string) => void;
 }>) {
   const t = useT();
@@ -351,18 +379,30 @@ export function ProviderButtons({
   return (
     <>
       <div className="auth-sso">
-        {providers.map((provider) => (
-          <button
-            key={provider.key}
-            type="button"
-            className="auth-social"
-            disabled={disabled}
-            onClick={() => onSelect(provider.key)}
-          >
-            <ProviderMark providerKey={provider.key} />
-            {provider.label}
-          </button>
-        ))}
+        {providers.map((provider) => {
+          const isUnavailable = unavailable.has(provider.key);
+          return (
+            <button
+              key={provider.key}
+              type="button"
+              /* A class rather than `:disabled` alone, because `disabled` is
+                 also how the form marks every provider while a sign-in is in
+                 flight, and the two want opposite treatments: in-flight is
+                 momentary and the control is coming back, this is a resting
+                 state. One selector for both tunes each at the other's expense.
+                 The button carries no appended copy, so its accessible name
+                 stays the installation's own label. */
+              className={
+                isUnavailable ? "auth-social is-unavailable" : "auth-social"
+              }
+              disabled={disabled || isUnavailable}
+              onClick={() => onSelect(provider.key)}
+            >
+              <ProviderMark providerKey={provider.key} />
+              {provider.label}
+            </button>
+          );
+        })}
       </div>
       {/* Labels the path BELOW it, so a screen reader hears what the divider
           separates rather than a decorative rule. */}
@@ -397,6 +437,7 @@ function LoginForm({
   onPhase,
   resetAvailable,
   providers,
+  unavailableProviders,
   onForgot,
 }: Readonly<{
   onAuthed: () => void | Promise<void>;
@@ -404,6 +445,8 @@ function LoginForm({
   resetAvailable: boolean;
   /** §11: served by /auth/capabilities. Empty means no federated block. */
   providers: OidcProviders;
+  /** Preview-only; empty in the product. See `ProviderButtons`. */
+  unavailableProviders: ReadonlySet<string>;
   onForgot: () => void;
 }>) {
   const t = useT();
@@ -482,6 +525,7 @@ function LoginForm({
       <ProviderButtons
         providers={providers}
         disabled={login.isPending}
+        unavailable={unavailableProviders}
         onSelect={startFederatedSignIn}
       />
       <div className="auth-fields">

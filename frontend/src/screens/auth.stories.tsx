@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { AuthScreen, AvailabilityScreen } from "./auth";
-import type { AssistantProfile } from "./auth-core";
+import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
+import { type AssistantProfile, AuthExperience } from "./auth-core";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
 
 /**
@@ -94,6 +94,47 @@ export const WithProviders: Story = {
         { key: "microsoft", label: "Continue with Microsoft" },
       ]}
     />
+  ),
+};
+
+/**
+ * One provider offered, one marked **not yet available** (§11 + `app/ui-preview.ts`).
+ *
+ * This state exists only for design review, and the reason is structural rather
+ * than a policy someone could relax: `oidc_providers[]` items are `{ key, label }`
+ * with no availability field, so no server can produce a marked provider —
+ * `ProviderButtons` receives the marker from the preview layer or from nothing.
+ * §3.3 forbids a dead provider control on the product surface by name (Google,
+ * Microsoft, SSO) and ADR-0076 keeps §3.3 load-bearing, so a story and a
+ * `VITE_UI_PREVIEW_OIDC=1` build are the only two places this may be seen.
+ *
+ * What it reviews: the note sits INSIDE the button, so it is part of the accessible
+ * name — a natively disabled button is not focusable, so a description hung off it
+ * would never be reached. And it wraps to its own line, which is what keeps the two
+ * buttons the same height down to 320px.
+ */
+export const ProviderNotYetAvailable: Story = {
+  render: () => (
+    <StoryProviders>
+      {/* The block itself, inside the real surface frame rather than inside
+          `AuthScreen`. `AuthScreen` gets the marker from
+          `previewedUnavailableProviders()`, which reads a BUILD-time var no story
+          can set — so the honest way to review this state is to hand the marker
+          to the component that renders it. Same component, same stylesheet, real
+          task measure. */}
+      <AuthExperience profile={configured} phase="idle">
+        <div className="auth-card">
+          <ProviderButtons
+            providers={[
+              { key: "google", label: "Continue with Google" },
+              { key: "microsoft", label: "Continue with Microsoft" },
+            ]}
+            unavailable={new Set(["microsoft"])}
+            onSelect={() => undefined}
+          />
+        </div>
+      </AuthExperience>
+    </StoryProviders>
   ),
 };
 
