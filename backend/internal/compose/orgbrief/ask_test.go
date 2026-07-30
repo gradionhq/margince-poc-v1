@@ -140,19 +140,22 @@ func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 	}
 }
 
-// TestAWithheldSectionLeavesNoRecordsToDescribe is the per-viewer guarantee where
-// it is actually enforced.
+// TestTwoReadersOfTheSameAccountCannotShareABrief is the per-viewer guarantee
+// where it has a real failure mode.
 //
-// The floor cannot describe a withheld section because FromView never puts its
-// records in the Input — a section the caller's grants withheld arrives as a nil
-// pointer on the 360. Asserting over the floor instead would pass for the wrong
-// reason: an Input with no deals answers empty whether or not the section was
-// withheld, so no change to the omission handling could fail it.
-func TestAWithheldSectionLeavesNoRecordsToDescribe(t *testing.T) {
-	withheld := crmcontracts.Organization360{
-		Organization:    crmcontracts.Organization{DisplayName: "Nordwind AG"},
-		SectionsOmitted: []crmcontracts.Organization360SectionsOmitted{"deals"},
-		// Present, so the contrast is real: people came back, deals did not.
+// Two callers, one account, one instant: the difference is that the second may not
+// read deals. Their inputs must fingerprint differently, because the fingerprint IS
+// the cache key — if they collide, whichever reader arrives first writes a brief
+// the other then reads, and the restricted one is served sentences about a pipeline
+// they were refused.
+//
+// Asserting instead that a withheld section leaves no deals in the Input would
+// prove nothing: a nil section yields nothing by Go's own semantics, and no change
+// to how omission is handled could make that fail. What CAN break is
+// Input.SectionsOmitted no longer riding the hash, and that is what this catches.
+func TestTwoReadersOfTheSameAccountCannotShareABrief(t *testing.T) {
+	account := crmcontracts.Organization360{
+		Organization: crmcontracts.Organization{DisplayName: "Nordwind AG"},
 		People: &struct {
 			Data []crmcontracts.Organization360Contact `json:"data"`
 			Page crmcontracts.PageInfo                 `json:"page"`
@@ -160,19 +163,28 @@ func TestAWithheldSectionLeavesNoRecordsToDescribe(t *testing.T) {
 			PersonId: openapi_types.UUID(ids.NewV7()), FullName: "Dana Buyer",
 		}}},
 	}
+	// The reader who may not see deals. Everything else about the account, and the
+	// instant it was read at, is identical.
+	restricted := account
+	restricted.SectionsOmitted = []crmcontracts.Organization360SectionsOmitted{"deals"}
 
-	in := FromView(withheld)
-	if len(in.OpenDeals) != 0 {
-		t.Errorf("input carries %d deals from a withheld section", len(in.OpenDeals))
+	full, err := Fingerprint(FromView(account), "routing-1")
+	if err != nil {
+		t.Fatalf("fingerprint the unrestricted input: %v", err)
 	}
-	if len(in.Contacts) != 1 {
-		t.Errorf("input carries %d contacts, want the section that DID come back", len(in.Contacts))
+	narrow, err := Fingerprint(FromView(restricted), "routing-1")
+	if err != nil {
+		t.Fatalf("fingerprint the restricted input: %v", err)
 	}
-	// The writer is told what it may not speak about, so the model path stays
-	// silent on it too rather than inferring around the gap.
-	if len(in.SectionsOmitted) != 1 || in.SectionsOmitted[0] != "deals" {
-		t.Errorf("sections_omitted = %v, want the withheld section named for the prompt",
-			in.SectionsOmitted)
+	if full == narrow {
+		t.Error("two readers with different grants fingerprint the same, so they share " +
+			"one cached brief — the restricted one would be served the other's pipeline")
+	}
+
+	// And the writer is told which subject to stay off, rather than being left to
+	// infer around the gap.
+	if got := FromView(restricted).SectionsOmitted; len(got) != 1 || got[0] != "deals" {
+		t.Errorf("sections_omitted = %v, want the withheld section named for the prompt", got)
 	}
 }
 
