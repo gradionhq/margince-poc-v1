@@ -25,6 +25,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
 )
 
 type oauthEnv struct {
@@ -42,7 +44,15 @@ const oauthRedirect = "https://client.example/cb"
 // which is the property that suite asserts.
 func setupOAuth(t *testing.T) *oauthEnv {
 	t.Helper()
-	e := setupConnector(t)
+	return setupOAuthWith(t)
+}
+
+// setupOAuthWith is setupOAuth plus whatever else one test needs wired, so
+// setupOAuth stays the plain deployment posture this suite mostly asserts
+// against — the same split setupConnector/setupConnectorWith makes.
+func setupOAuthWith(t *testing.T, extra ...compose.Option) *oauthEnv {
+	t.Helper()
+	e := setupConnectorWith(t, extra...)
 
 	var registered struct {
 		ClientID string `json:"client_id"`

@@ -40,6 +40,12 @@ const (
 	maxPassportTTL     = 90 * 24 * time.Hour
 )
 
+// MaxOAuthAccessTokenTTL is the ceiling mintPassport admits a TTL against,
+// exported so a process role can refuse an out-of-range
+// --oauth-access-token-ttl while it boots rather than leaving the first
+// connector handshake to discover it.
+const MaxOAuthAccessTokenTTL = maxPassportTTL
+
 // passportScopeVocabulary is the closed verb vocabulary (interfaces.md §2), in
 // ascending authority order. It is the ONE list: admission (validScopes) and
 // discovery (oauthScopesSupported) are both derived from it, so a scope added

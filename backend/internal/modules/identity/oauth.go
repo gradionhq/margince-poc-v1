@@ -239,15 +239,18 @@ func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
 	for _, scope := range req.Scopes {
 		page.WriteString("<li>" + template.HTMLEscapeString(scope) + "</li>")
 	}
-	// offline_access is not shown as a scope because it is not authority over
-	// any record — it is authority over the connection's LIFETIME, which the
-	// exchange records as the grant's refresh_allowed. It must still be shown:
-	// that audit row asserts the human approved a self-renewing connection, so
-	// the screen they approved has to have said so.
+	page.WriteString(`</ul>`)
+	// offline_access is not authority over any record — it is authority over the
+	// connection's LIFETIME, which the exchange records as the grant's
+	// refresh_allowed. It must still be disclosed, because that audit row
+	// asserts the human approved a self-renewing connection, so the screen they
+	// approved has to have said so. It is disclosed BELOW the scope list and
+	// never as an item in it: inside "requests the scopes:" a human cannot tell
+	// it apart from a permission, which is the one presentation ruled out.
 	if req.Offline {
-		page.WriteString(`<li>stay connected without asking again, renewing access until you revoke it</li>`)
+		page.WriteString(`<p>This connection will stay connected without asking again, renewing access until you revoke it.</p>`)
 	}
-	page.WriteString(`</ul><form method="post" action="/oauth/authorize">`)
+	page.WriteString(`<form method="post" action="/oauth/authorize">`)
 	// The hidden "scope" field re-adds offline_access (never shown in the
 	// <ul> above, and never a passport scope) so the POST that follows
 	// re-derives the same Offline marker — without it, the round trip

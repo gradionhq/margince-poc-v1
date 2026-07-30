@@ -121,6 +121,18 @@ func TestConsentFormDisclosesTheRenewalRequest(t *testing.T) {
 	if !strings.Contains(body, "without asking again") {
 		t.Fatalf("consent form never discloses the renewal request: %s", body)
 	}
+	// And it discloses it BELOW the scope list, not as an item in it: a bullet
+	// under "requests the scopes:" is indistinguishable from a permission, and
+	// offline_access is authority over the connection's lifetime rather than
+	// over any record.
+	scopeList := strings.Index(body, "</ul>")
+	disclosure := strings.Index(body, "without asking again")
+	if scopeList < 0 {
+		t.Fatalf("consent form renders no scope list: %s", body)
+	}
+	if disclosure < scopeList {
+		t.Fatalf("the renewal disclosure sits inside the scope list, where a human reads it as a permission: %s", body)
+	}
 
 	// A request that did not ask to stay connected must not claim it did.
 	status, body = o.authorizeRaw(t, url.Values{"scope": {"read"}})

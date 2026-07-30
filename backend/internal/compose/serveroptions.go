@@ -60,6 +60,19 @@ func WithMCPResource(resource string) Option {
 	}
 }
 
+// WithOAuthAccessTokenTTL shortens the passport the OAuth handshake mints —
+// the code exchange and every rotation alike. Without it a connector's access
+// token keeps the passport default (30 days), which is the posture every
+// deployment ran before this knob existed; with it an operator can take that to
+// connector norms (minutes plus refresh) without a code change, and the refresh
+// machinery is what makes that cheap. cmd passes it from
+// --oauth-access-token-ttl / MARGINCE_OAUTH_ACCESS_TOKEN_TTL.
+func WithOAuthAccessTokenTTL(ttl time.Duration) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithOAuthAccessTokenTTL(ttl)
+	}
+}
+
 // WithMCPConnector turns the remote MCP connector on: the /mcp transport,
 // the OAuth authorization server and both discovery documents are mounted
 // together. Without it none of those routes exists — an installation that

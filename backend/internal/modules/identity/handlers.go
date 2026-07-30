@@ -70,6 +70,16 @@ type Handlers struct {
 	// controls via Host/X-Forwarded-Proto and which an OAuth audience
 	// decision must not depend on.
 	mcpResource string
+
+	// oauthAccessTokenTTL is the operator's lifetime for an OAuth-minted
+	// passport, from --oauth-access-token-ttl. Zero means unset, and an
+	// unset TTL keeps the mint's own default: a connector's access token
+	// is a 30-day passport unless an operator shortens it, which is the
+	// posture every deployment had before the flag existed. It applies to
+	// BOTH mints of a connection's life — the code exchange and every
+	// rotation — because a short-lived access token an hour-old rotation
+	// re-issues for 30 days is not short-lived.
+	oauthAccessTokenTTL time.Duration
 }
 
 // NewHandlers builds the identity transport surface over its service.
@@ -109,6 +119,27 @@ func (h Handlers) WithSorMode(resolve func(context.Context) (bool, error)) Handl
 func (h Handlers) WithMCPResource(resource string) Handlers {
 	h.mcpResource = resource
 	return h
+}
+
+// WithOAuthAccessTokenTTL sets how long a passport minted through the OAuth
+// handshake lives. Connector norms are minutes plus refresh, while a passport
+// defaults to 30 days; this is the knob that lets an operator take that to
+// 15m without a code change, now that the refresh machinery makes a short
+// lifetime cheap. Zero leaves the default alone.
+func (h Handlers) WithOAuthAccessTokenTTL(ttl time.Duration) Handlers {
+	h.oauthAccessTokenTTL = ttl
+	return h
+}
+
+// accessTokenTTL is what the two OAuth mints pass to mintPassport: nil when no
+// operator TTL is configured, so the mint applies its own default rather than
+// this package deciding the number twice.
+func (h Handlers) accessTokenTTL() *time.Duration {
+	if h.oauthAccessTokenTTL == 0 {
+		return nil
+	}
+	ttl := h.oauthAccessTokenTTL
+	return &ttl
 }
 
 // resolveSorMode names the caller's workspace system-of-record mode for
@@ -259,10 +290,11 @@ func (h Handlers) IssuePassport(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListPassports implements (GET /passports): passport metadata for the
-// Settings list. Tokens are never re-disclosed. agent_id has no storage
-// (the A1/local path has no agent-connection table); last_used_at has a
-// column but no writer — the stamp lives on the authenticated /mcp path,
-// where it is debounced — so both read as absent here.
+// Settings list. Tokens are never re-disclosed. Two contract fields answer as
+// absent because nothing stores them: agent_id has no storage at all (the
+// A1/local path has no agent-connection table), and last_used_at has a column
+// that nothing writes yet — its debounced stamp on the authenticated /mcp path
+// arrives with the per-workspace admin surface.
 func (h Handlers) ListPassports(w http.ResponseWriter, r *http.Request) {
 	identity, ok := identityFrom(r.Context())
 	if !ok {

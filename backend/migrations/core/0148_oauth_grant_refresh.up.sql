@@ -63,10 +63,13 @@ ALTER TABLE passport ADD COLUMN oauth_grant_id uuid NULL;
 ALTER TABLE passport ADD CONSTRAINT passport_grant_fkey
   FOREIGN KEY (workspace_id, oauth_grant_id)
   REFERENCES oauth_grant (workspace_id, id) ON DELETE RESTRICT;
--- passport.last_used_at is the Settings list's "last used" column, which the
--- contract already declares (PassportSummary.last_used_at). Its writer is the
--- stamp on the authenticated /mcp path, debounced to at most one update per
--- passport per minute because it is a write on the hot path.
+-- passport.last_used_at backs the Settings list's "last used" column, which the
+-- contract already declares (PassportSummary.last_used_at). The column lands
+-- with this DDL and nothing writes it yet: its writer — a stamp on the
+-- authenticated /mcp path, debounced to at most one update per passport per
+-- minute because it is a write on the hot path — arrives with the per-workspace
+-- admin surface. Until then every row reads NULL and the API answers the field
+-- as absent.
 ALTER TABLE passport ADD COLUMN last_used_at timestamptz NULL;
 
 -- Client lifecycle. Disable is reversible, delete is not, and delete is SOFT:
@@ -74,9 +77,11 @@ ALTER TABLE passport ADD COLUMN last_used_at timestamptz NULL;
 -- under this client first" atomically, would fight the RESTRICT above, and
 -- would take the audit trail of the connection with it. Every statement that
 -- reads oauth_client carries both columns already (identity's
--- liveClientPredicate — issuance and authentication alike); the surface that
--- SETS them is the admin client screen, where PATCH disables and DELETE
--- soft-deletes and runs the revoke cascade.
+-- liveClientPredicate — issuance and authentication alike). Nothing in the
+-- application SETS them yet, so an operator disabling a client does it in raw
+-- SQL today; the admin client screen that will — PATCH disabling, DELETE
+-- soft-deleting and running the revoke cascade — arrives with the per-workspace
+-- admin surface.
 ALTER TABLE oauth_client ADD COLUMN disabled_at  timestamptz NULL;
 ALTER TABLE oauth_client ADD COLUMN deleted_at   timestamptz NULL;
 -- created_via separates a dynamically registered client from one an admin

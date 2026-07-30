@@ -94,6 +94,7 @@ func (h Handlers) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
 		Scopes:            strings.Fields(r.PostForm.Get("scope")),
 		Resource:          r.PostForm.Get(oauthParamResource),
 		CanonicalResource: h.mcpResource,
+		AccessTokenTTL:    h.accessTokenTTL(),
 	})
 	switch {
 	case errors.Is(err, errRefreshScope):
@@ -181,7 +182,7 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 		label := oauthPassportLabel(redeemed.ClientID)
 		issued, err = mintPassport(r.Context(), tx,
 			Identity{UserID: redeemed.UserID, WorkspaceID: redeemed.WorkspaceID},
-			IssuePassportInput{Label: &label, Scopes: passportScopes}, &grantID)
+			IssuePassportInput{Label: &label, Scopes: passportScopes, TTL: h.accessTokenTTL()}, &grantID)
 		return err
 	})
 	if err != nil {

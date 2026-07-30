@@ -282,6 +282,12 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 		// run() that requires this flag once the connector gate is on.
 		opts = append(opts, compose.WithMCPResource(strings.TrimSuffix(cfg.publicBaseURL, "/")+"/mcp"))
 	}
+	// An operator-shortened access token, applied to both mints of a
+	// connection's life. Zero is "not configured", which keeps the passport
+	// default — declared by omission, never a silent guess.
+	if cfg.oauthAccessTokenTTL != 0 {
+		opts = append(opts, compose.WithOAuthAccessTokenTTL(cfg.oauthAccessTokenTTL))
+	}
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {
