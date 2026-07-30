@@ -244,7 +244,12 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 		}
 		rep.Objects = append(rep.Objects, or)
 		rep.Imported += int64(or.Created + or.Updated)
-		seen, done = advanced, advanced
+		// Only the global cursor advances. `done` is the checkpoint this
+		// attempt STARTED from and must stay put: reassigning it would
+		// make the next class compute a zero local offset and re-walk
+		// rows the run already landed, which the store's monotonic
+		// cursor then refuses — wedging every retry of a crashed flip.
+		seen = advanced
 	}
 
 	assocs, err := src.Associations(ctx)

@@ -469,6 +469,16 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		WHERE a.source_system = 'hubspot' AND p.source = 'hubspot:person:p-1'`)
 	assertOne("closed-won deal", `
 		SELECT count(*) FROM deal WHERE source = 'hubspot:deal:d-won' AND status = 'won'`)
+	// Owners survive the flip: every estate row named incumbent owner
+	// "owner-1", which mirror_user_map binds to the admin.
+	var ownedByAdmin int
+	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
+		return tx.QueryRow(f.adminCtx,
+			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id = $1`, f.adminID).Scan(&ownedByAdmin)
+	})
+	if ownedByAdmin != 2 {
+		t.Errorf("imported persons owned by the mapped admin = %d, want 2 — the mirror_user_map owner must survive the flip", ownedByAdmin)
+	}
 
 	// The lifecycle ops fall back to mode_not_overlay, /me reports
 	// native, and the native read serves the imported person.

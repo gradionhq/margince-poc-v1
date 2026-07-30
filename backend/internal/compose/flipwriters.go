@@ -27,7 +27,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -36,8 +35,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -48,9 +45,19 @@ type flipWriters struct {
 	deals      *deals.Store
 	activities *activities.Store
 	ms         *overlay.MirrorStore
+	identities *migration.RunStore
 	// incumbent names the source system in provenance stamps
-	// ("hubspot:person:123" — UC-E11-03's <source>:<object>:<id>).
+	// ("hubspot:person:123" — UC-E11-03's <source>:<object>:<id>) and
+	// keys the engine-owned identity map.
 	incumbent string
+	// runID attributes each identity-map row to the run that landed it.
+	runID migration.RunID
+	// operator owns records whose incumbent owner did not map. Pre-flip
+	// those rows are hidden from EVERY seat (the mirror's fail-closed
+	// NULL-owner rule); a native row with a null owner is workspace-
+	// shared at every tier, so importing them ownerless would silently
+	// widen visibility the cutover was never asked to change.
+	operator *ids.UserID
 	// nativeIDs caches external key → native id within one run; a resumed
 	// run rebuilds entries lazily through lookupBySource.
 	nativeIDs map[string]ids.UUID
@@ -81,6 +88,7 @@ func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent strin
 		deals:      deals.NewStore(pool),
 		activities: activities.NewStore(pool),
 		ms:         ms,
+		identities: migration.NewRunStore(pool),
 		incumbent:  incumbent,
 		nativeIDs:  map[string]ids.UUID{},
 	}
@@ -89,6 +97,14 @@ func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent strin
 // SetAssociations hands the estate's edges to the writer before the run
 // (see the assocs field for why activities need them at insert time).
 func (w *flipWriters) SetAssociations(assocs []migration.Assoc) { w.assocs = assocs }
+
+// forRun binds the writer to the run whose identities it records and to
+// the operator who inherits unmapped-owner records.
+func (w *flipWriters) forRun(runID migration.RunID, operator *ids.UserID) *flipWriters {
+	w.runID = runID
+	w.operator = operator
+	return w
+}
 
 var _ migration.Writers = (*flipWriters)(nil)
 
@@ -107,40 +123,21 @@ func (w *flipWriters) Exists(ctx context.Context, object, ext string) (bool, err
 	return found, err
 }
 
+// lookup answers whether this external id already landed natively, via
+// the ENGINE-OWNED identity map. It deliberately does not read the rows'
+// own source/source_system columns: those are client-writable on every
+// create path, so a caller could pre-plant a row under an incumbent id
+// and have the flip treat the real estate record as already imported —
+// suppressing it, and capturing the activities that resolve through the
+// same identity.
 func (w *flipWriters) lookup(ctx context.Context, object, ext string) (ids.UUID, bool, error) {
+	if !flipImportable(object) {
+		return ids.UUID{}, false, fmt.Errorf("flip import: %q is not an importable object", object)
+	}
 	if id, ok := w.nativeIDs[w.cacheKey(object, ext)]; ok {
 		return id, true, nil
 	}
-	var query string
-	var args []any
-	// No archived_at filter on either arm: an archived row still holds
-	// the provenance key, so re-importing over it would mint a duplicate
-	// rather than recognise what already landed. (lead/activity have no
-	// archived_at-free natural key to fall back on — their unique index
-	// spans archived rows too, so the two arms must agree.)
-	switch object {
-	case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
-		query = fmt.Sprintf(`SELECT id FROM %s WHERE source = $1`, object)
-		args = []any{w.provenance(object, ext)}
-	case flipObjectLead, flipObjectActivity:
-		query = fmt.Sprintf(`SELECT id FROM %s WHERE source_system = $1 AND source_id = $2`, object)
-		args = []any{w.incumbent, ext}
-	default:
-		return ids.UUID{}, false, fmt.Errorf("flip import: %q is not an importable object", object)
-	}
-	var id ids.UUID
-	found := false
-	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx, query, args...).Scan(&id)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return nil
-		}
-		if err != nil {
-			return fmt.Errorf("flip import: looking up %s %s by provenance: %w", object, ext, err)
-		}
-		found = true
-		return nil
-	})
+	id, found, err := w.identities.LookupIdentity(ctx, w.incumbent, object, ext)
 	if err != nil {
 		return ids.UUID{}, false, err
 	}
@@ -150,8 +147,23 @@ func (w *flipWriters) lookup(ctx context.Context, object, ext string) (ids.UUID,
 	return id, found, nil
 }
 
-func (w *flipWriters) remember(object, ext string, id ids.UUID) {
+// flipImportable gates the object names that may reach a lookup or an
+// ensure — the allowlist the identity map's own writes rely on.
+func flipImportable(object string) bool {
+	switch object {
+	case flipObjectPerson, flipObjectOrganization, flipObjectDeal, flipObjectLead, flipObjectActivity:
+		return true
+	default:
+		return false
+	}
+}
+
+// remember records the external→native identity in the engine-owned map
+// (and the per-run cache), so a later page, a resumed run, and the
+// association phase all resolve the same row.
+func (w *flipWriters) remember(ctx context.Context, object, ext string, id ids.UUID) error {
 	w.nativeIDs[w.cacheKey(object, ext)] = id
+	return w.identities.RecordIdentity(ctx, w.runID, w.incumbent, object, ext, id)
 }
 
 // Ensure lands one estate row through the owning store.
@@ -200,10 +212,22 @@ func (w *flipWriters) resolveOwner(ctx context.Context, row migration.Row, objec
 		}
 	}
 	if !found {
-		return nil, fmt.Sprintf("%s %s: incumbent owner %s has no user mapping; imported ownerless", object, row.ExternalID, raw), nil
+		// Inherited by the operator, not left ownerless: an ownerless
+		// native row is visible to every seat, while the mirror row it
+		// came from was hidden from all of them.
+		return w.operator, fmt.Sprintf("%s %s: incumbent owner %s has no user mapping; imported under the flip operator rather than left workspace-visible", object, row.ExternalID, raw), nil
 	}
 	owner := ids.From[ids.UserKind](id)
 	return &owner, "", nil
+}
+
+// ownerOrOperator applies the same posture to a row that names no
+// incumbent owner at all.
+func (w *flipWriters) ownerOrOperator(owner *ids.UserID) *ids.UserID {
+	if owner != nil {
+		return owner
+	}
+	return w.operator
 }
 
 func flipAddress(fields map[string]any) *crmcontracts.Address {
@@ -240,7 +264,7 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 	in := people.CreateOrganizationInput{
 		DisplayName: name,
 		Industry:    fieldStringPtr(row.Fields, "industry"),
-		OwnerID:     owner,
+		OwnerID:     w.ownerOrOperator(owner),
 		Address:     flipAddress(row.Fields),
 		Source:      w.provenance(flipObjectOrganization, row.ExternalID),
 	}
@@ -252,7 +276,9 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating organization %s: %w", row.ExternalID, err)
 	}
-	w.remember(flipObjectOrganization, row.ExternalID, ids.UUID(org.Id))
+	if err := w.remember(ctx, flipObjectOrganization, row.ExternalID, ids.UUID(org.Id)); err != nil {
+		return migration.EnsureResult{}, err
+	}
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
 
@@ -288,7 +314,9 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		}
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating person %s: %w", row.ExternalID, err)
 	}
-	w.remember(flipObjectPerson, row.ExternalID, ids.UUID(person.Id))
+	if err := w.remember(ctx, flipObjectPerson, row.ExternalID, ids.UUID(person.Id)); err != nil {
+		return migration.EnsureResult{}, err
+	}
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
 
@@ -303,7 +331,7 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 		Email:        fieldStringPtr(row.Fields, "email"),
 		CompanyName:  fieldStringPtr(row.Fields, "company_name"),
 		Status:       "new",
-		OwnerID:      owner,
+		OwnerID:      w.ownerOrOperator(owner),
 		SourceSystem: &w.incumbent,
 		SourceID:     &ext,
 		Source:       w.provenance(flipObjectLead, ext),
@@ -312,8 +340,13 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating lead %s: %w", ext, err)
 	}
-	w.remember(flipObjectLead, ext, ids.UUID(lead.Id))
-	return migration.EnsureResult{Created: created, Disclosure: disclosure}, nil
+	if err := w.remember(ctx, flipObjectLead, ext, ids.UUID(lead.Id)); err != nil {
+		return migration.EnsureResult{}, err
+	}
+	// The store's natural-key replay returns the existing row: that is an
+	// already-landed row, not an update (the same disposition the
+	// provenance lookup above reports for the other classes).
+	return migration.EnsureResult{Created: created, Unchanged: !created, Disclosure: disclosure}, nil
 }
 
 func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
@@ -337,7 +370,7 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 		Currency:   fieldStringPtr(row.Fields, "currency"),
 		PipelineID: placement.pipeline,
 		StageID:    placement.birthStage,
-		OwnerID:    owner,
+		OwnerID:    w.ownerOrOperator(owner),
 		Source:     w.provenance(flipObjectDeal, row.ExternalID),
 	}
 	if minor, ok := fieldInt64(row.Fields, "amount_minor"); ok {
@@ -351,7 +384,9 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating deal %s: %w", row.ExternalID, err)
 	}
 	dealID := ids.From[ids.DealKind](ids.UUID(deal.Id))
-	w.remember(flipObjectDeal, row.ExternalID, ids.UUID(deal.Id))
+	if err := w.remember(ctx, flipObjectDeal, row.ExternalID, ids.UUID(deal.Id)); err != nil {
+		return migration.EnsureResult{}, err
+	}
 
 	// A closed estate deal is born open (the store's open-birth-stage
 	// rule), then advanced to the terminal stage — the same won/lost path
@@ -366,7 +401,7 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 			return migration.EnsureResult{}, fmt.Errorf("flip import: closing imported deal %s: %w", row.ExternalID, err)
 		}
 	}
-	notes := stages.disclosure(rawStage, row.ExternalID)
+	notes := stageDisclosure(placement, rawStage, row.ExternalID)
 	if disclosure != "" {
 		if notes != "" {
 			notes += "; "
@@ -398,81 +433,9 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: logging activity %s: %w", ext, err)
 	}
-	w.remember(flipObjectActivity, ext, ids.UUID(activity.Id))
-	return migration.EnsureResult{Created: created}, nil
-}
-
-// activityLinks resolves the activity's own edges to already-imported
-// native targets (activities import last, so every endpoint exists).
-// An edge whose target never landed (skipped row) is dropped WITH the
-// engine's knowledge via Associate's disclosure path — here it simply
-// doesn't become a link.
-func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLinkInput {
-	var links []activities.ActivityLinkInput
-	for _, a := range w.assocs {
-		if a.FromType != flipObjectActivity || a.FromID != activityExt {
-			continue
-		}
-		switch a.ToType {
-		case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
-			if id, ok := w.nativeIDs[w.cacheKey(a.ToType, a.ToID)]; ok {
-				links = append(links, activities.ActivityLinkInput{EntityType: a.ToType, EntityID: id})
-			}
-		}
+	if err := w.remember(ctx, flipObjectActivity, ext, ids.UUID(activity.Id)); err != nil {
+		return migration.EnsureResult{}, err
 	}
-	return links
-}
-
-// Associate applies one estate edge after the row phase. Activity edges
-// were already applied at insert time (see activityLinks); person→org
-// edges become employment relationship rows; deal→org edges set the
-// deal's organization FK — IEM-FORM-2's detangling, on the edges the
-// mirror actually holds. Every non-applied edge returns its reason, so
-// the run report discloses it rather than counting it as applied.
-func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
-	if a.FromType == flipObjectActivity || a.ToType == flipObjectActivity {
-		return migration.AssocResult{Applied: true}, nil // applied at LogActivity insert time
-	}
-	fromID, fromOK, err := w.lookup(ctx, a.FromType, a.FromID)
-	if err != nil {
-		return migration.AssocResult{}, err
-	}
-	toID, toOK, err := w.lookup(ctx, a.ToType, a.ToID)
-	if err != nil {
-		return migration.AssocResult{}, err
-	}
-	if !fromOK || !toOK {
-		return migration.AssocResult{Reason: "endpoint_not_imported"}, nil
-	}
-	switch {
-	case a.FromType == flipObjectDeal && a.ToType == flipObjectOrganization:
-		orgID := ids.From[ids.OrganizationKind](toID)
-		if _, err := w.deals.UpdateDeal(ctx, ids.From[ids.DealKind](fromID), deals.UpdateDealInput{OrganizationID: &orgID}); err != nil {
-			return migration.AssocResult{}, fmt.Errorf("flip import: linking deal %s to organization %s: %w", a.FromID, a.ToID, err)
-		}
-		return migration.AssocResult{Applied: true}, nil
-	case a.FromType == flipObjectPerson && a.ToType == flipObjectOrganization:
-		personID := ids.From[ids.PersonKind](fromID)
-		orgID := ids.From[ids.OrganizationKind](toID)
-		_, err := w.people.CreateRelationship(ctx, people.CreateRelationshipInput{
-			Kind:             "employment",
-			PersonID:         &personID,
-			OrganizationID:   &orgID,
-			IsCurrentPrimary: strings.EqualFold(a.Label, "primary"),
-			Source:           w.provenance("relationship", a.FromID+"→"+a.ToID),
-		})
-		if err != nil {
-			// The employment edge is unique per (person, organization):
-			// a resumed run replaying its association phase re-offers an
-			// edge that already landed, which is convergence, not a
-			// failure — every other error still stops the run.
-			if errors.Is(err, apperrors.ErrConflict) {
-				return migration.AssocResult{Applied: true}, nil
-			}
-			return migration.AssocResult{}, fmt.Errorf("flip import: creating employment %s→%s: %w", a.FromID, a.ToID, err)
-		}
-		return migration.AssocResult{Applied: true}, nil
-	default:
-		return migration.AssocResult{Reason: "unmodelled_edge_shape"}, nil
-	}
+	// See ensureLead: an idempotent replay is Unchanged, never an update.
+	return migration.EnsureResult{Created: created, Unchanged: !created}, nil
 }

@@ -120,11 +120,12 @@ func (c *flipStageCatalog) add(st flipStage, name string, isDefault bool) {
 	}
 }
 
-func (c *flipStageCatalog) disclosure(rawStage, dealExt string) string {
-	if c == nil {
-		return ""
-	}
-	if p := c.place(rawStage); !p.matched {
+// disclosure names a deal whose incumbent stage did not resolve. It
+// takes the placement the caller already computed rather than redoing
+// the lookup, so the line can never describe a different decision than
+// the one the deal actually got.
+func stageDisclosure(p flipPlacement, rawStage, dealExt string) string {
+	if !p.matched {
 		if strings.TrimSpace(rawStage) == "" {
 			return fmt.Sprintf("deal %s: no incumbent stage identity; placed on the default pipeline's first open stage", dealExt)
 		}

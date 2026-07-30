@@ -36,6 +36,12 @@ type ObjectSyncStatus struct {
 	LastSyncedAt     time.Time
 	State            string
 	BackfillComplete bool
+	// FrozenForFlip marks a mirror held still by a pending overlay→native
+	// flip (flipstate.go's seal). While it is set the sweep skips this
+	// workspace entirely, so staleness grows on purpose — saying so here
+	// is the difference between "sync is paused for the cutover" and a
+	// mirror that merely looks idle.
+	FrozenForFlip bool
 }
 
 // SyncStatus states (overlay_mirror.sync_state's CHECK vocabulary,

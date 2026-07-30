@@ -169,21 +169,79 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 	return run, nil
 }
 
-// FlipImportRunning answers, inside the caller's transaction, whether a
-// mirror-connector run (the overlay→native flip's import) is mid-run.
-// The overlay module's Disconnect consults it through an injected probe
-// so tearing the mirror down cannot race a running import — a read, not
-// a mutation, so it carries no RBAC gate of its own beyond the
-// transaction the caller already authorized.
-func FlipImportRunning(ctx context.Context, tx pgx.Tx) (bool, error) {
-	var running bool
-	if err := tx.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM import_run WHERE connector = $1 AND status = $2)`,
-		ConnectorMirror, StatusRunning,
-	).Scan(&running); err != nil {
-		return false, fmt.Errorf("migration: checking for a running flip import: %w", err)
+// LookupIdentity resolves an external id to the native row a previous
+// (or the current) run landed for it. The engine-owned map is the ONLY
+// authority for "already imported": the rows' own source/source_system
+// columns are client-writable on every create path, so keying on those
+// would let a caller pre-plant a row under a source id and have the
+// import treat the real record as already landed.
+func (s *RunStore) LookupIdentity(ctx context.Context, sourceSystem, object, externalID string) (ids.UUID, bool, error) {
+	var id ids.UUID
+	found := false
+	err := s.tx(ctx, func(tx pgx.Tx) error {
+		err := tx.QueryRow(ctx, `
+			SELECT native_id FROM import_record_map
+			WHERE source_system = $1 AND object = $2 AND external_id = $3`,
+			sourceSystem, object, externalID).Scan(&id)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("migration: looking up the %s %s identity: %w", object, externalID, err)
+		}
+		found = true
+		return nil
+	})
+	if err != nil {
+		return ids.UUID{}, false, err
 	}
-	return running, nil
+	return id, found, nil
+}
+
+// RecordIdentity records the external→native identity a run just landed.
+// Idempotent: a resumed run replaying its last page re-asserts the same
+// pair rather than failing.
+func (s *RunStore) RecordIdentity(ctx context.Context, runID RunID, sourceSystem, object, externalID string, nativeID ids.UUID) error {
+	return s.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
+			ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
+			sourceSystem, object, externalID, nativeID, runID)
+		if err != nil {
+			return fmt.Errorf("migration: recording the %s %s identity: %w", object, externalID, err)
+		}
+		return nil
+	})
+}
+
+// FlipImportLiveness reports whether a flip import is ACTUALLY in
+// flight, for the overlay module's Disconnect probe.
+//
+// It derives liveness from the executing session's advisory lock rather
+// than from import_run.status. The status column cannot be trusted for
+// this: a cancelled request or a pod restart leaves a run stuck at
+// `running` (the failure write rides the same cancelled context), and
+// refusing disconnect on that would permanently block the only path
+// that revokes the incumbent credential and purges mirrored PII — the
+// latch this probe exists to avoid. The lock is held by the executing
+// connection and dies with it, so an abandoned run frees it.
+//
+// lockKey is the flip's advisory-lock key for this workspace, computed
+// by the composition layer that owns the flip (compose/flip.go) — the
+// module never invents the key itself.
+func FlipImportLiveness(ctx context.Context, tx pgx.Tx, lockKey int64) (bool, error) {
+	var held bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_locks
+			WHERE locktype = 'advisory' AND granted
+			  AND ((classid::bigint << 32) | objid::bigint) = $1)`,
+		lockKey,
+	).Scan(&held); err != nil {
+		return false, fmt.Errorf("migration: checking whether a flip import is in flight: %w", err)
+	}
+	return held, nil
 }
 
 // advanceCheckpoint moves the resume cursor forward — called after every

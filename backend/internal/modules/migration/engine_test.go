@@ -6,6 +6,7 @@ package migration
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -85,7 +86,13 @@ func newFakeRuns() *fakeRuns {
 
 func (r *fakeRuns) Get(context.Context, RunID) (Run, error) { return r.run, nil }
 
+// advanceCheckpoint mirrors the SQL store's monotonic guard (run.go's
+// `checkpoint <= $2`): a fake that accepts a backwards cursor would hide
+// exactly the resume bugs this suite exists to catch.
 func (r *fakeRuns) advanceCheckpoint(_ context.Context, _ RunID, checkpoint int) error {
+	if checkpoint < r.run.Checkpoint {
+		return fmt.Errorf("checkpoint %d is behind %d: %w", checkpoint, r.run.Checkpoint, apperrors.ErrConflict)
+	}
 	r.run.Checkpoint = checkpoint
 	return nil
 }
@@ -242,6 +249,62 @@ func TestRunResumesFromCheckpointAndConverges(t *testing.T) {
 	}
 	if rep.Imported != 2 {
 		t.Errorf("resumed attempt imported = %d, want 2 (only the remaining person rows)", rep.Imported)
+	}
+}
+
+// threeObjectSource crashes-and-resumes across a LATER class boundary
+// than twoObjectSource can reach — the offset where a checkpoint that
+// wrongly tracks the finished class's cursor sends the loop backwards.
+func threeObjectSource() *fakeSource {
+	return &fakeSource{
+		order: []string{"organization", "person", "deal"},
+		objects: map[string][]Row{
+			"organization": {
+				{ExternalID: "org-1", Fields: map[string]any{"display_name": "One"}},
+				{ExternalID: "org-2", Fields: map[string]any{"display_name": "Two"}},
+			},
+			"person": {
+				{ExternalID: "p-1", Fields: map[string]any{"full_name": "Ada"}},
+				{ExternalID: "p-2", Fields: map[string]any{"full_name": "Mor"}},
+			},
+			"deal": {
+				{ExternalID: "d-1", Fields: map[string]any{"name": "First"}},
+				{ExternalID: "d-2", Fields: map[string]any{"name": "Second"}},
+			},
+		},
+	}
+}
+
+// A crash in the LAST class must resume from the run's checkpoint, not
+// from the finished class's cursor: the store's monotonic guard refuses
+// a backwards cursor, so getting this wrong wedges every retry.
+func TestRunResumesAcrossALaterClassBoundary(t *testing.T) {
+	src := threeObjectSource()
+	w := &fakeWriters{existing: map[string]bool{}, failAt: 6} // crash on deal/d-2
+	runs := newFakeRuns()
+	e := &Engine{runs: runs, w: w}
+
+	if _, err := e.Run(context.Background(), RunID{}, src); err == nil {
+		t.Fatal("Run must surface the injected crash")
+	}
+	if runs.run.Checkpoint != 5 {
+		t.Fatalf("checkpoint after crash = %d, want 5 (five rows landed before the failing one)", runs.run.Checkpoint)
+	}
+
+	runs.run.Status = StatusRunning
+	w.failAt = 0
+	if _, err := e.Run(context.Background(), RunID{}, src); err != nil {
+		t.Fatalf("resumed Run: %v — a crash past the first class must still resume", err)
+	}
+	uniq := map[string]bool{}
+	for _, k := range w.ensured {
+		if uniq[k] {
+			t.Errorf("row %s imported twice across the resume", k)
+		}
+		uniq[k] = true
+	}
+	if len(uniq) != 6 {
+		t.Errorf("rows landed = %d, want 6 (identical to an uninterrupted run)", len(uniq))
 	}
 }
 

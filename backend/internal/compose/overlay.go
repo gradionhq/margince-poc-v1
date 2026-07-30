@@ -23,7 +23,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/hubspot"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -93,7 +92,7 @@ func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay
 		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
 		WithIncumbentFactory(incumbent).
 		WithModeFlipObserver(onModeFlip).
-		WithFlipImportProbe(migration.FlipImportRunning).
+		WithFlipImportProbe(FlipImportProbe).
 		WithLogger(log)
 	return overlay.NewHandlers(svc).WithFlipRunner(newFlipRunner(pool, svc, ms, log))
 }

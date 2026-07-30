@@ -39,6 +39,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay/fake"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // snapshotIncumbent deep-copies the fake incumbent's whole record state
@@ -150,9 +151,9 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	// CLEAN native instance — a fresh workspace — through the same
 	// engine, with zero incumbent calls (this path holds no adapter).
 	cleanCtx := seedCleanWorkspace(t, f)
-	rep, err := compose.ReconstructFromBundle(cleanCtx, f.pool, bundle.Bytes())
+	rep, err := compose.ReconstructForTest(cleanCtx, f.pool, bundle.Bytes())
 	if err != nil {
-		t.Fatalf("ReconstructFromBundle: %v", err)
+		t.Fatalf("reconstruction: %v", err)
 	}
 	if rep.Imported == 0 {
 		t.Fatal("reconstruction imported nothing")
@@ -180,6 +181,24 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	assertCount("reconstructed employment", `
 		SELECT count(*) FROM relationship r JOIN person p ON p.id = r.person_id AND p.workspace_id = r.workspace_id
 		WHERE r.kind = 'employment' AND p.source = 'hubspot:person:p-1'`, 1)
+	// The bundle's owner map named the SOURCE workspace's admin, who does
+	// not exist in this clean instance — so ownership falls to the
+	// rebuild's own operator rather than landing ownerless (an ownerless
+	// native row is visible to every seat; the mirror row was not).
+	rebuildOperator, ok := principal.Actor(cleanCtx)
+	if !ok {
+		t.Fatal("the clean-instance context carries no actor")
+	}
+	var ownedByOperator int
+	if err := database.WithWorkspaceTx(cleanCtx, f.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(cleanCtx,
+			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id = $1`, rebuildOperator.UserID).Scan(&ownedByOperator)
+	}); err != nil {
+		t.Fatalf("counting rebuilt persons by owner: %v", err)
+	}
+	if ownedByOperator != 2 {
+		t.Errorf("rebuilt persons owned by the operator = %d, want 2 — an unmapped owner must not leave the row workspace-visible", ownedByOperator)
+	}
 
 	// The incumbent still untouched after reconstruction — the rebuild
 	// needed no live incumbent access at all.

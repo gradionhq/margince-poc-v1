@@ -11123,10 +11123,13 @@ type OverlayOwnerDirectory struct {
 // OverlaySyncStatus Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7).
 type OverlaySyncStatus struct {
 	Objects *[]struct {
-		BackfillComplete *bool                          `json:"backfillComplete,omitempty"`
-		LastSyncedAt     *time.Time                     `json:"lastSyncedAt,omitempty"`
-		Object           *string                        `json:"object,omitempty"`
-		State            *OverlaySyncStatusObjectsState `json:"state,omitempty"`
+		BackfillComplete *bool `json:"backfillComplete,omitempty"`
+
+		// FrozenForFlip The mirror is held still by a pending overlay→native flip: the sweep skips this workspace entirely, so staleness grows on purpose. Stated rather than left to be inferred from a mirror that merely looks idle.
+		FrozenForFlip *bool                          `json:"frozenForFlip,omitempty"`
+		LastSyncedAt  *time.Time                     `json:"lastSyncedAt,omitempty"`
+		Object        *string                        `json:"object,omitempty"`
+		State         *OverlaySyncStatusObjectsState `json:"state,omitempty"`
 	} `json:"objects,omitempty"`
 }
 

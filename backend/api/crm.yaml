@@ -8045,6 +8045,7 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayFlipPreflight' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
         '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
   /overlay/flip:
     post:
@@ -9195,6 +9196,13 @@ components:
               lastSyncedAt: { type: [string, 'null'], format: date-time }
               state: { type: string, enum: [fresh, pending_sync, stale] }
               backfillComplete: { type: boolean }
+              frozenForFlip:
+                type: boolean
+                description: >-
+                  The mirror is held still by a pending overlay→native flip:
+                  the sweep skips this workspace entirely, so staleness grows
+                  on purpose. Stated rather than left to be inferred from a
+                  mirror that merely looks idle.
     OverlayBudget:
       type: object
       description: >-

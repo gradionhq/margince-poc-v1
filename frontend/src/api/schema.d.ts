@@ -5711,6 +5711,8 @@ export interface components {
                 /** @enum {string} */
                 state?: "fresh" | "pending_sync" | "stale";
                 backfillComplete?: boolean;
+                /** @description The mirror is held still by a pending overlay→native flip: the sweep skips this workspace entirely, so staleness grows on purpose. Stated rather than left to be inferred from a mirror that merely looks idle. */
+                frozenForFlip?: boolean;
             }[];
         };
         /** @description The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5). */
@@ -21097,6 +21099,7 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
             404: components["responses"]["NotFound"];
         };
     };

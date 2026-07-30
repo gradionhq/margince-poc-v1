@@ -29,11 +29,9 @@ package compose
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math"
 	"strings"
 	"time"
 
@@ -147,14 +145,35 @@ func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.Ove
 	if err := auth.Require(ctx, "overlay_connection", principal.ActionUpdate); err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
 	}
+	// The same claim the execute takes: a preflight that unseals while
+	// an import is mid-run would let the mirror drift under a positional
+	// cursor, silently dropping one estate row per concurrent insert.
+	unlock, err := f.claimFlip(ctx)
+	if err != nil {
+		return crmcontracts.OverlayFlipPreflight{}, err
+	}
+	defer unlock()
+
 	sealed := false
 	defer func() {
 		if sealed {
 			return
 		}
-		if unsealErr := f.svc.UnsealFlipSnapshot(ctx); unsealErr != nil && err == nil {
-			verdictOut, err = crmcontracts.OverlayFlipPreflight{}, unsealErr
+		unsealErr := f.svc.UnsealFlipSnapshot(ctx)
+		if unsealErr == nil {
+			return
 		}
+		if err == nil {
+			verdictOut, err = crmcontracts.OverlayFlipPreflight{}, unsealErr
+			return
+		}
+		// The preflight already failed AND the unseal failed: the
+		// workspace is frozen with nobody told, which is exactly the
+		// state this defer exists to prevent. The original failure is
+		// what the caller needs, so the unseal failure is logged rather
+		// than swallowed or substituted.
+		f.log.Error("overlay flip: the mirror stayed frozen after a failed preflight — unsealing failed",
+			"preflight_err", err, "unseal_err", unsealErr)
 	}()
 
 	v, err := f.verdict(ctx)
@@ -191,6 +210,8 @@ func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.Ove
 // parityPreview runs the migration engine's zero-write dry-run over the
 // sealed mirror (AC-mode-flip-7): counts per object, skips with reasons.
 func (f *flipRunner) parityPreview(ctx context.Context, incumbent string) ([]crmcontracts.OverlayFlipParityEntry, error) {
+	// The dry-run writes nothing, so it needs neither a run id to
+	// attribute identities to nor an operator to inherit records.
 	writers := newFlipWriters(f.pool, f.ms, incumbent)
 	rep, err := migration.NewEngine(f.runs, writers).DryRun(ctx, mirrorFlipSource{ms: f.ms})
 	if err != nil {
@@ -223,17 +244,27 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	if err := auth.Require(ctx, "overlay_connection", principal.ActionUpdate); err != nil {
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
-	if req.ConfirmationPhrase != flipConfirmationPhrase {
-		return crmcontracts.OverlayFlipAccepted{}, httperr.Validation("confirmation_phrase", "confirmation_phrase_mismatch",
-			fmt.Sprintf("type the exact phrase %q to run the flip", flipConfirmationPhrase))
+	mode, err := parseFlipRequest(req)
+	if err != nil {
+		return crmcontracts.OverlayFlipAccepted{}, err
 	}
-	mode := crmcontracts.OverlayFlipRequestModeFreshSync
-	if req.Mode != nil {
-		if !req.Mode.Valid() {
-			return crmcontracts.OverlayFlipAccepted{}, httperr.Validation("mode", "invalid_mode", "mode must be fresh_sync or emergency")
+
+	// One flip at a time per workspace, claimed BEFORE the verdict:
+	// admitMode may unseal, and an unseal racing another request's
+	// running import is exactly the drift the freeze exists to prevent.
+	// Without the claim two overlapping executes would also re-enter the
+	// same run with independent writer caches and import the estate
+	// twice.
+	unlock, err := f.claimFlip(ctx)
+	if err != nil {
+		return crmcontracts.OverlayFlipAccepted{}, err
+	}
+	released := false
+	defer func() {
+		if !released {
+			unlock()
 		}
-		mode = *req.Mode
-	}
+	}()
 
 	v, err := f.verdict(ctx)
 	if err != nil {
@@ -243,17 +274,6 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	if err := f.admitMode(ctx, mode, v); err != nil {
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
-
-	// One flip at a time per workspace. Without this, two overlapping
-	// requests re-enter the same run with independent writer caches,
-	// each classifying a row as absent before the other writes it, and
-	// the estate imports twice — person/organization/deal carry no
-	// natural-key constraint to catch it (only lead and activity do).
-	unlock, err := f.claimFlip(ctx)
-	if err != nil {
-		return crmcontracts.OverlayFlipAccepted{}, err
-	}
-	defer unlock()
 
 	// Freeze (idempotent — a green preflight already sealed).
 	snap, err := f.svc.SealFlipSnapshot(ctx)
@@ -266,8 +286,12 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
 
+	operator, err := flipOperator(ctx)
+	if err != nil {
+		return crmcontracts.OverlayFlipAccepted{}, err
+	}
 	source := mirrorFlipSource{ms: f.ms}
-	writers := newFlipWriters(f.pool, f.ms, v.checks.Incumbent)
+	writers := newFlipWriters(f.pool, f.ms, v.checks.Incumbent).forRun(run.ID, operator)
 	assocs, err := source.Associations(ctx)
 	if err != nil {
 		return crmcontracts.OverlayFlipAccepted{}, err
@@ -304,6 +328,24 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	return out, nil
 }
 
+// parseFlipRequest is the confirm-first gate on the request itself: the
+// exact typed phrase (AC-mode-flip-5), and a mode the contract knows.
+// An absent body decodes to the zero request, which fails the phrase
+// check — the same refusal a wrong phrase gets.
+func parseFlipRequest(req crmcontracts.OverlayFlipRequest) (crmcontracts.OverlayFlipRequestMode, error) {
+	if req.ConfirmationPhrase != flipConfirmationPhrase {
+		return "", httperr.Validation("confirmation_phrase", "confirmation_phrase_mismatch",
+			fmt.Sprintf("type the exact phrase %q to run the flip", flipConfirmationPhrase))
+	}
+	if req.Mode == nil {
+		return crmcontracts.OverlayFlipRequestModeFreshSync, nil
+	}
+	if !req.Mode.Valid() {
+		return "", httperr.Validation("mode", "invalid_mode", "mode must be fresh_sync or emergency")
+	}
+	return *req.Mode, nil
+}
+
 // admitMode is the per-mode gate: fresh_sync requires every readiness
 // check (and unseals when one fails, so a refused execute leaves a
 // healthy overlay), emergency requires the opposite — an unreachable
@@ -335,54 +377,6 @@ func (f *flipRunner) admitMode(ctx context.Context, mode crmcontracts.OverlayFli
 	}
 	return nil
 }
-
-// claimFlip takes a workspace-scoped advisory lock for the duration of
-// one execute. A second concurrent flip is refused outright rather than
-// queued: it would be running against the same sealed snapshot, so
-// waiting for the first to finish only to import an already-imported
-// estate helps nobody. The returned release is safe to call once.
-func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
-	ws, ok := principal.WorkspaceID(ctx)
-	if !ok {
-		return nil, errors.New("compose: flip execute called outside a workspace context")
-	}
-	conn, err := f.pool.Acquire(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("flip execute: acquiring the claim connection: %w", err)
-	}
-	// A 64-bit key derived from the workspace id, XORed with the flip's
-	// own namespace constant: the same workspace always maps to the same
-	// lock, distinct workspaces effectively never collide, and the
-	// namespace keeps the flip clear of any other advisory-lock user.
-	// (The single-argument bigint form — the two-argument one takes
-	// int4s, which a workspace-derived key overflows.)
-	// Masked to 63 bits before the signed conversion: the lock key only
-	// has to be stable and collision-resistant per workspace, and
-	// wrapping into the negative range would be an overflow the linter
-	// is right to refuse.
-	key := int64(binary.BigEndian.Uint64(ws[:8])&math.MaxInt64) ^ flipAdvisoryLockNamespace
-	var claimed bool
-	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&claimed); err != nil {
-		conn.Release()
-		return nil, fmt.Errorf("flip execute: claiming the flip: %w", err)
-	}
-	if !claimed {
-		conn.Release()
-		return nil, fmt.Errorf("another flip is already running for this workspace: %w", apperrors.ErrConflict)
-	}
-	return func() {
-		if _, err := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, key); err != nil {
-			// The lock dies with the connection anyway; log rather than
-			// mask the flip's own outcome.
-			f.log.Warn("overlay flip: releasing the flip claim failed", "err", err)
-		}
-		conn.Release()
-	}, nil
-}
-
-// flipAdvisoryLockNamespace keeps the flip's advisory-lock keys clear of
-// any other user of the shared 64-bit advisory-lock space.
-const flipAdvisoryLockNamespace int64 = 0x464C4950 // "FLIP"
 
 // resumeOrCreateRun continues an interrupted flip run for the SAME
 // sealed snapshot (checkpoint intact — never from zero, never past it),
@@ -439,13 +433,20 @@ func emergencyDisclosure(lastSynced time.Time) *struct {
 		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
 		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
 	}{UnverifiableParityNotice: flipUnverifiableParityNotice}
-	if !lastSynced.IsZero() {
-		last := lastSynced
-		staleness := int64(time.Since(last) / time.Second)
-		out.LastSyncedAt = &last
-		out.StalenessSeconds = &staleness
-	}
+	out.LastSyncedAt, out.StalenessSeconds = staleness(lastSynced)
 	return out
+}
+
+// staleness renders a watermark as the disclosure pair both emergency
+// blocks carry: how old the snapshot is, or nothing at all when the
+// mirror never synced (never a fabricated zero).
+func staleness(lastSynced time.Time) (*time.Time, *int64) {
+	if lastSynced.IsZero() {
+		return nil, nil
+	}
+	last := lastSynced
+	seconds := int64(time.Since(last) / time.Second)
+	return &last, &seconds
 }
 
 // wireEmergency builds the preflight's emergency block (OVA-AC-6 b):
@@ -466,11 +467,6 @@ func wireEmergency(checks overlay.FlipChecks) *struct {
 		Available:                checks.MirrorRows > 0,
 		UnverifiableParityNotice: flipUnverifiableParityNotice,
 	}
-	if !checks.LastSyncedAt.IsZero() {
-		last := checks.LastSyncedAt
-		staleness := int64(time.Since(last) / time.Second)
-		out.LastSyncedAt = &last
-		out.StalenessSeconds = &staleness
-	}
+	out.LastSyncedAt, out.StalenessSeconds = staleness(checks.LastSyncedAt)
 	return out
 }

@@ -10,9 +10,11 @@ package compose
 // holds an incumbent adapter at all). It does not restore the incumbent
 // as system of record and makes no native→overlay reverse claim.
 //
-// This is the engine's `bundle` connector. It has no HTTP surface yet on
-// purpose: the /import/* wire is IEM-GAP-2's contract extension; until
-// that lands, reconstruction is an operator/compose-level entry point.
+// This is the engine's `bundle` connector, exercised today by the
+// OVA-AC-6(d) lane. It is deliberately package-internal: the /import/*
+// wire that would expose it is IEM-GAP-2's contract extension, and
+// exporting a rebuild entry point with no caller that ships would be
+// surface without a consumer.
 
 import (
 	"archive/zip"
@@ -154,12 +156,12 @@ func parseBundle(bundle []byte) (bundleContents, error) {
 	return bundleContents{source: src, incumbent: manifest.CanonicalDataResidesIn, owners: owners}, nil
 }
 
-// ReconstructFromBundle rebuilds a clean native instance from a pre-flip
+// reconstructFromBundle rebuilds a clean native instance from a pre-flip
 // export bundle: a `bundle`-connector migration run through the same
 // engine and native writers the flip used. The target workspace is the
 // ctx's — reconstruction assumes a clean instance and is idempotent on
 // the rows' provenance if re-run.
-func ReconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byte) (migration.Report, error) {
+func reconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byte) (migration.Report, error) {
 	// Gated here as well as at the run store: a rebuild writes the whole
 	// estate into this workspace, so the caller must hold the import
 	// grant before the bundle is even parsed.
@@ -179,10 +181,6 @@ func ReconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	if err != nil {
 		return migration.Report{}, err
 	}
-	// unresolvedOwnerEmails, not nil: the reconstruction path never
-	// resolves an owner email (owners come from the bundle's own map),
-	// and a fail-loud placeholder beats a nil-interface panic if that
-	// ever stops being true.
 	// The bundle's owner map names app_users of the workspace it was
 	// exported FROM. Reconstruction may land in a different tenant whose
 	// user set differs, and an owner_id pointing at a stranger would be
@@ -193,7 +191,15 @@ func ReconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	if err != nil {
 		return migration.Report{}, err
 	}
+	// unresolvedOwnerEmails, not nil: this path never resolves an owner
+	// email (owners come from the bundle's own map), and a fail-loud
+	// placeholder beats a nil-interface panic if that stops being true.
+	operator, err := flipOperator(ctx)
+	if err != nil {
+		return migration.Report{}, err
+	}
 	writers := newFlipWriters(pool, overlay.NewMirrorStore(pool, unresolvedOwnerEmails{}), contents.incumbent).
+		forRun(run.ID, operator).
 		WithOwnerMap(owners)
 	assocs, err := contents.source.Associations(ctx)
 	if err != nil {
@@ -209,21 +215,34 @@ func presentOwners(ctx context.Context, pool *pgxpool.Pool, owners map[string]id
 	if len(owners) == 0 {
 		return owners, nil
 	}
-	present := make(map[string]ids.UUID, len(owners))
+	candidates := make([]ids.UUID, 0, len(owners))
+	for _, appUser := range owners {
+		candidates = append(candidates, appUser)
+	}
+	live := make(map[ids.UUID]bool, len(candidates))
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		for incumbentUser, appUser := range owners {
-			var exists bool
-			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1)`, appUser).Scan(&exists); err != nil {
-				return fmt.Errorf("reconstruction: checking whether owner %s travelled with the bundle: %w", appUser, err)
-			}
-			if exists {
-				present[incumbentUser] = appUser
-			}
+		rows, err := tx.Query(ctx, `SELECT id FROM app_user WHERE id = ANY($1)`, candidates)
+		if err != nil {
+			return fmt.Errorf("reconstruction: checking which bundle owners exist here: %w", err)
 		}
-		return nil
+		defer rows.Close()
+		for rows.Next() {
+			var id ids.UUID
+			if err := rows.Scan(&id); err != nil {
+				return fmt.Errorf("reconstruction: scanning a surviving owner: %w", err)
+			}
+			live[id] = true
+		}
+		return rows.Err()
 	})
 	if err != nil {
 		return nil, err
+	}
+	present := make(map[string]ids.UUID, len(owners))
+	for incumbentUser, appUser := range owners {
+		if live[appUser] {
+			present[incumbentUser] = appUser
+		}
 	}
 	return present, nil
 }
@@ -282,4 +301,13 @@ func bundleString(raw map[string]any, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
+}
+
+// ReconstructForTest is the OVA-AC-6(d) lane's entry point into the
+// unexported rebuild. The rebuild has no product caller yet — the
+// /import/* wire that would give it one is IEM-GAP-2's contract
+// extension — so this seam exists so the acceptance criterion can be
+// proven without exporting a surface nothing ships.
+func ReconstructForTest(ctx context.Context, pool *pgxpool.Pool, bundle []byte) (migration.Report, error) {
+	return reconstructFromBundle(ctx, pool, bundle)
 }

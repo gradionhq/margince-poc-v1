@@ -149,6 +149,7 @@ func (h Handlers) GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request) {
 // crmcontracts.OverlaySyncStatus.Objects with no per-field copy.
 type wireSyncObject = struct {
 	BackfillComplete *bool                                       `json:"backfillComplete,omitempty"` //nolint:tagliatelle // must match the generated OverlaySyncStatus.Objects element shape verbatim (crm.yaml's own camelCase)
+	FrozenForFlip    *bool                                       `json:"frozenForFlip,omitempty"`    //nolint:tagliatelle // see above
 	LastSyncedAt     *time.Time                                  `json:"lastSyncedAt,omitempty"`     //nolint:tagliatelle // see above
 	Object           *string                                     `json:"object,omitempty"`
 	State            *crmcontracts.OverlaySyncStatusObjectsState `json:"state,omitempty"`
@@ -164,9 +165,12 @@ func syncStatusToWire(objects []ObjectSyncStatus) crmcontracts.OverlaySyncStatus
 	}
 	wire := make([]wireSyncObject, len(objects))
 	for i, o := range objects {
-		object, lastSyncedAt, complete := o.Object, o.LastSyncedAt, o.BackfillComplete
+		object, lastSyncedAt, complete, frozen := o.Object, o.LastSyncedAt, o.BackfillComplete, o.FrozenForFlip
 		state := crmcontracts.OverlaySyncStatusObjectsState(o.State)
-		wire[i] = wireSyncObject{BackfillComplete: &complete, LastSyncedAt: &lastSyncedAt, Object: &object, State: &state}
+		wire[i] = wireSyncObject{
+			BackfillComplete: &complete, FrozenForFlip: &frozen,
+			LastSyncedAt: &lastSyncedAt, Object: &object, State: &state,
+		}
 	}
 	return crmcontracts.OverlaySyncStatus{Objects: &wire}
 }

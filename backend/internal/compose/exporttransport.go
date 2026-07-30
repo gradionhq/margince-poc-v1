@@ -16,7 +16,7 @@ package compose
 // and streamed inline rather than staged.
 
 import (
-	"bytes"
+	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,18 +28,27 @@ import (
 
 type overlayExportHandlers struct {
 	writer *ExportWriter
+	log    *slog.Logger
 }
 
-func newOverlayExportHandlers(pool *pgxpool.Pool) overlayExportHandlers {
-	return overlayExportHandlers{writer: NewExportWriter(pool)}
+func newOverlayExportHandlers(pool *pgxpool.Pool, log *slog.Logger) overlayExportHandlers {
+	return overlayExportHandlers{writer: NewExportWriter(pool), log: log}
 }
 
-// DownloadOverlayExport streams the bundle. The body is written directly
-// to the response, so a mid-stream failure cannot be turned into a
-// problem document — the bundle is assembled into the ResponseWriter
-// only after the gate passes, and a write failure surfaces as a
-// truncated download plus a server-side error, never a 200 that claims
-// completeness it does not have.
+// DownloadOverlayExport streams the bundle straight to the response:
+// the estate can be large (it carries the whole audit log and, in
+// overlay mode, the whole mirror), and buffering it in the API process
+// would put the workspace's size between a caller and every other
+// request this process is serving.
+//
+// Streaming costs the ability to answer a problem document once the
+// first byte is out. That trade is deliberate and the failure is still
+// honest: the gate runs BEFORE any header is written, so a refusal is a
+// clean 4xx, and a mid-stream failure aborts the connection — the
+// client sees a truncated, invalid zip rather than a 200 that claims a
+// completeness it does not have. It is logged server-side; writing a
+// problem body after the body has begun would only corrupt the archive
+// further.
 func (h overlayExportHandlers) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
 	if h.writer == nil {
 		httperr.NotImplemented(w, r, "downloadOverlayExport")
@@ -49,14 +58,9 @@ func (h overlayExportHandlers) DownloadOverlayExport(w http.ResponseWriter, r *h
 		httperr.Write(w, r, err)
 		return
 	}
-	var buf bytes.Buffer
-	if _, err := h.writer.WriteBundle(r.Context(), &buf); err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="margince-export.zip"`)
-	if _, err := w.Write(buf.Bytes()); err != nil {
-		httperr.Write(w, r, err)
+	if _, err := h.writer.WriteBundle(r.Context(), w); err != nil {
+		h.log.ErrorContext(r.Context(), "overlay export: the bundle failed mid-stream; the client's download is truncated", "err", err)
 	}
 }
