@@ -110,6 +110,11 @@ type Server struct {
 	// way to switch off.
 	mcpConnectorEnabled bool
 
+	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
+	// admits — derived by WithMCPResource from the configured
+	// --public-base-url, never from a request header a caller controls.
+	mcpAllowedOrigin string
+
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.

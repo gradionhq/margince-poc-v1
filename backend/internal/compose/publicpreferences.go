@@ -54,7 +54,7 @@ func publicPreferences(store *consent.Store, limits publicPreferenceLimiters) fu
 				httperr.Write(w, r, apperrors.ErrNotFound)
 				return
 			}
-			if !limits.perIP.Allow(publicClientIP(r)) {
+			if !limits.perIP.Allow(clientIP(r)) {
 				httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 				return
 			}

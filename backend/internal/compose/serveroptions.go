@@ -50,9 +50,13 @@ func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
 // protected-resource document names the MCP server URL itself rather than
 // the bare request origin. cmd computes the value from --public-base-url;
 // an OAuth audience decision must never be derived from the Host header.
+// The connector's Origin guard reads its allowlist from the same value: the
+// origin a browser client may present is the origin the resource document
+// names, so the two cannot drift apart through a second flag.
 func WithMCPResource(resource string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.authHandlers = s.WithMCPResource(resource)
+		s.mcpAllowedOrigin = mcpOriginOf(resource)
 	}
 }
 

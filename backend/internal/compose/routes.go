@@ -9,11 +9,13 @@ package compose
 // probes, metrics, the anonymous public paths, the gated remote MCP
 // connector, and the provider push webhooks). server.go owns the Server
 // inventory and its wiring options; this file owns how those handlers
-// become one mux.
+// become one mux — including the one client-IP rule every throttled edge
+// mounted here keys on.
 
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -133,12 +135,17 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// registered, so the mux's own 404 answers all of them identically and
 	// nothing tells a prober which gate is closed.
 	if mcp := srv.mcpHandler(identitySvc, log); mcp != nil {
-		mux.Handle("/mcp", httpserver.Correlate(httpserver.AccessLog(log, mcp)))
+		// ONE set of limiters for the whole group: the transport and the
+		// authorization server are two halves of one internet-facing surface,
+		// and a second construction would give each its own private ceilings.
+		mcpLimits := newMCPLimiters()
+		mux.Handle("/mcp", httpserver.Correlate(httpserver.AccessLog(log, mcpEdge(mcp, mcpLimits, srv.mcpAllowedOrigin))))
 		// The AS endpoints live outside the generated resource surface but
 		// behind the same workspace and session middleware
 		// (/oauth/authorize requires a live session); the discovery
-		// documents are static.
-		mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
+		// documents are static. The limits wrap that middleware rather than
+		// sitting inside it, so a refused request costs no session read.
+		mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, oauthEdge(authH.Middleware(authH.OAuthRouter()), mcpLimits))))
 		mux.HandleFunc("/.well-known/oauth-authorization-server", authH.OAuthServerMetadata)
 		mux.HandleFunc("/.well-known/oauth-protected-resource", authH.ProtectedResourceMetadata)
 		// Claude probes the path-suffixed form FIRST when a 401 carries no
@@ -156,4 +163,18 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
 	}
 	return mux
+}
+
+// clientIP is the ONE client-IP rule every throttled edge on this mux keys
+// on — the anonymous booking and preference paths, and the MCP connector. It
+// mirrors the login throttle's key: the direct peer. A raw X-Forwarded-For is
+// attacker-chosen and deliberately not read; a deployment fronted by a proxy
+// terminates rate limiting there (or extends this to a TRUSTED Forwarded
+// header — never trusted blindly).
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

@@ -13,7 +13,6 @@ package compose
 // attribution as actor_type=system) then works unchanged.
 
 import (
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -57,7 +56,7 @@ func publicBooking(store *activities.Store, limits publicBookingLimiters) func(h
 				httperr.Write(w, r, apperrors.ErrNotFound)
 				return
 			}
-			if !limits.perIP.Allow(publicClientIP(r)) {
+			if !limits.perIP.Allow(clientIP(r)) {
 				httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 				return
 			}
@@ -81,15 +80,4 @@ func publicBooking(store *activities.Store, limits publicBookingLimiters) func(h
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
-}
-
-// publicClientIP mirrors the login throttle's key: the direct peer. A
-// deployment fronted by a proxy terminates rate limiting there (or
-// extends this to a TRUSTED Forwarded header — never trusted blindly).
-func publicClientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }
