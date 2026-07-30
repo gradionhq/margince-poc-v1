@@ -127,15 +127,23 @@ func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped 
 // as it appears leaves no batch anywhere to be dropped, double-credited, or
 // fenced off.
 //
-// What this guarantees, exactly: it never double-counts, because a row is
-// created once and this runs on that one outcome. It is NOT exactly-once. The
-// row is created in the resolver's transaction and counted in this one, so a
-// failure here loses the count of ONE row — bounded, logged at ERROR, and
-// permanent, since nothing retries it. Closing that would take a ledger keyed
-// on the created row's id, idempotent under retry, with the counts derived from
-// it rather than accumulated; the number feeds a progress display and the cost
-// estimator's ratios, and neither is worth a table and a retry path today.
-// Recorded as open work in STATUS.md rather than papered over here.
+// What this guarantees, exactly, and what it does not:
+//
+//   - It never DOUBLE-counts. A row is created once, and this runs on that
+//     single outcome; nothing retries the write, so nothing can apply it twice.
+//   - It is not exactly-once. The row is created in the resolver's transaction
+//     and counted in this one, so a failed write loses the count of the creation
+//     it was about, permanently — capture's idempotency means no replay re-offers
+//     that row to anyone.
+//   - The loss is per failure, and NOTHING caps the total. A database fault
+//     spanning a page loses one count for every creation inside it. Calling it
+//     "one row" would be true only of a single blip.
+//
+// So the committed columns are a floor on what the run created, never an
+// overcount. Closing the gap takes a ledger keyed on the created row's id,
+// idempotent under retry, with the counts derived from it rather than
+// accumulated; the number feeds a progress display and the cost estimator's
+// ratios. Recorded as open work in STATUS.md rather than papered over here.
 //
 // Unfenced on the run's liveness and on the connection's generation. The row
 // exists; a cancelled run and a rebound connection do not un-create it, and
