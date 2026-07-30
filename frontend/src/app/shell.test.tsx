@@ -56,7 +56,7 @@ const render = (ui: ReactNode) => {
 };
 
 // The route id never changes with a label: `deals` presents as Pipeline and
-// `inbox` as Approvals (draft ADR-0077 §B).
+// `inbox` as Approvals, which names a governance surface rather than a mailbox.
 const CANONICAL_ORDER = [
   "Home",
   "Contacts",
@@ -172,11 +172,31 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
   // carries it instead, or the bar shows no active tab at all.
   it("marks More as the active tab for a destination the phone bar hides", () => {
     const sheeted = render(<WorkspaceRail route={{ screen: "reports" }} />);
-    expect(sheeted.container.querySelector(".railmore.active")).not.toBeNull();
+    const more = sheeted.container.querySelector(".railmore.active");
+    expect(more).not.toBeNull();
+    // Announced, not merely tinted: the hidden route's own link is out of the
+    // accessibility tree at phone width, so More has to report the current page.
+    expect(more?.getAttribute("aria-current")).toBe("page");
     cleanup();
 
     const onBar = render(<WorkspaceRail route={{ screen: "contacts" }} />);
-    expect(onBar.container.querySelector(".railmore.active")).toBeNull();
+    const inactive = onBar.container.querySelector(".railmore");
+    expect(inactive?.className).not.toContain("active");
+    expect(inactive?.getAttribute("aria-current")).toBeNull();
+  });
+
+  // Open, the sheet renders the real row for that route, which carries
+  // aria-current itself. Two elements claiming the current page is worse than
+  // the visual-only state this replaced.
+  it("hands the current-page claim back to the real row once the sheet is open", async () => {
+    const { container } = render(
+      <WorkspaceRail route={{ screen: "reports" }} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(
+      container.querySelector(".railmore")?.getAttribute("aria-current"),
+    ).toBeNull();
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
   });
 
   it("renders the collapse control with the state it will move to", () => {
@@ -217,7 +237,7 @@ describe("Sign-out (AS-1)", () => {
       <QueryClientProvider client={client}>
         <LocaleProvider initial="en">
           {/* Sign-out lives in the top bar beside the account link; the
-              sidebar foot carries the agent panel (draft ADR-0077 §E). */}
+              sidebar foot carries the agent panel. */}
           <TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />
         </LocaleProvider>
       </QueryClientProvider>,

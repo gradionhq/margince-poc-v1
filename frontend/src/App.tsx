@@ -299,7 +299,7 @@ function AuthedApp({
 // approvals read mounts only once a session exists — calling it beside the
 // auth probe would fire an unauthenticated request on the login path.
 //
-// A badge counts only what wants attention (draft ADR-0077 §C): approvals
+// A badge counts only what wants attention: approvals
 // waiting. Tasks will join it once there is a due-count to read; until then the
 // slot renders nothing rather than a fabricated number.
 function AuthedShell({

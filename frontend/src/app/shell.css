@@ -2,8 +2,7 @@
  * floating top bar. The chrome is WHITE, not §2b's deep ink-green field: the
  * founder ruling of 2026-07-23 makes the product surface white, so rail icons
  * read as ordinary theme tokens rather than white-alpha on a dark ground. The
- * ink-green field keeps the agent panel and the marketing surfaces
- * (docs/reference/draft-adr-app-shell.md). */
+ * ink-green field keeps the agent panel and the marketing surfaces. */
 
 /* The chrome floats: sidebar, top bar and content are inset panels on the matte
  * ground with a ~10px margin between them, the same gesture design.md:139
@@ -137,7 +136,7 @@
   }
 }
 
-/* ===== sidebar (draft ADR-0077) =====
+/* ===== sidebar =====
  * The ground is the matte near-white surface in BOTH states. The collapsed
  * state matches the canonical rail's geometry — 64px, 44px targets, the
  * logomark chip, the active indicator bar — but not its ink-green field: the

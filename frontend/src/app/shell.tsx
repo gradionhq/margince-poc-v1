@@ -40,10 +40,10 @@ import "./shell.css";
 
 type CompanyProfile = components["schemas"]["CompanyProfile"];
 
-// The app shell (draft ADR-0077): a labeled sidebar that collapses to the
-// canonical 64px rail. Collapsed is the rail WDS-NAV-1 specifies, unchanged —
-// the expanded state is additive. The top bar shows only what is true for the
-// current state (§2b, the cold-start rule).
+// The app shell: a labeled sidebar that collapses to the canonical 64px rail.
+// Collapsed is the rail WDS-NAV-1 specifies, unchanged — the expanded state is
+// additive, so the spec stays true at 64px rather than being replaced. The top
+// bar shows only what is true for the current state (§2b, the cold-start rule).
 
 export type ShellCounts = Partial<Record<string, number>>;
 
@@ -332,6 +332,12 @@ export function WorkspaceRail({
         className={inSheet ? "railmore active" : "railmore"}
         aria-label={t("shell.more")}
         aria-expanded={sheetOpen}
+        // The state has to reach a screen reader, not just the eye: the hidden
+        // route's own link is out of the accessibility tree at this width, so
+        // without this nothing in the bar reports the current page. Dropped once
+        // the sheet is open, because the real row is then visible and carrying
+        // it — two elements claiming the current page is worse than none.
+        aria-current={inSheet && !sheetOpen ? "page" : undefined}
         onClick={() => setSheetOpen((open) => !open)}
       >
         {sheetOpen ? <X aria-hidden /> : <Menu aria-hidden />}
@@ -492,7 +498,7 @@ export function TopBar({
   );
 }
 
-// The avatar owns Settings and sign-out (draft ADR-0077 §E). A menu rather than
+// The avatar owns Settings and sign-out. A menu rather than
 // two chrome buttons: the prototype's top bar carries one account affordance,
 // and sign-out beside every screen invites a misclick.
 function AccountMenu({
