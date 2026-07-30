@@ -60,7 +60,7 @@ type PurposeChoice struct {
 }
 
 // preferenceTokenTTLDays is how long one preference link stays honoured
-// after the message that carried it (0143). Generous where its sibling
+// after the message that carried it (0144). Generous where its sibling
 // doiTokenTTL is short, because the two credentials answer opposite
 // questions: an unclicked confirmation is a refusal, while an unsubscribe
 // link a recipient reaches for weeks later must still work. The send path
@@ -72,7 +72,7 @@ const preferenceTokenTTLDays = 30
 // the send path retires the token and mints a fresh one, so a leaked copy is
 // bounded even for a recipient who receives mail forever. Without it the
 // slide alone would leave exactly the population at risk — an active bulk-mail
-// subscriber — holding one permanent credential, which is the defect 0143
+// subscriber — holding one permanent credential, which is the defect 0144
 // exists to end. The residue is honest and bounded: a token retired at the
 // ceiling is revoked immediately, but one whose recipient stops receiving
 // mail just before it simply ages out, so the worst case is this ceiling plus
@@ -172,7 +172,7 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 // when it matched, so a token past either bound cannot be handed back by
 // accident — it falls through to rotation. Reuse is deliberate (the
 // preference centre is revisitable, and one message's link must keep working
-// after the next one goes out); what 0143 ends is reuse without a bound.
+// after the next one goes out); what 0144 ends is reuse without a bound.
 func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (string, error) {
 	var token string
 	err := tx.QueryRow(ctx, `

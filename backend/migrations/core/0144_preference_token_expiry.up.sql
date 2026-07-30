@@ -1,4 +1,4 @@
--- 0143: bound the preference-center token's lifetime. 0048 shipped it with
+-- 0144: bound the preference-center token's lifetime. 0048 shipped it with
 -- none — no expiry column, one permanently-reused token per person pinned by
 -- a partial unique index, and a revoked_at that no production code wrote. But
 -- that token is the SOLE authorization decision on the anonymous
