@@ -123,12 +123,20 @@ func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID
 		if r.PostForm.Get("client_id") != clientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
 			return errGrantMismatch
 		}
-		// RFC 8707: a code bound to a resource mints tokens for that
-		// resource only, and only for this installation's canonical
-		// endpoint — checked against both the stored grant and the
-		// live configuration, not a self-compare, so a stale grant
-		// cannot outlive a reconfigured resource.
-		if resource != nil && (r.PostForm.Get("resource") != *resource || r.PostForm.Get("resource") != h.mcpResource) {
+		// RFC 8707: two independent rules, not one compound check. A
+		// presented resource must always name this installation's
+		// canonical endpoint — checked unconditionally, so a client that
+		// omitted resource at authorize (the accepted older-client path,
+		// stored NULL) cannot smuggle a foreign audience through at
+		// redemption by presenting it only here. Separately, a code that
+		// WAS bound to a resource at authorize requires the presented
+		// value to match that binding, so a stale grant cannot outlive a
+		// reconfigured resource.
+		presented := r.PostForm.Get("resource")
+		if presented != "" && presented != h.mcpResource {
+			return errAudienceMismatch
+		}
+		if resource != nil && presented != *resource {
 			return errAudienceMismatch
 		}
 		// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.

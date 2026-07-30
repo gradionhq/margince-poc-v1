@@ -342,6 +342,15 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 	if status, body := o.exchange(t, url.Values{"code": {code}, "resource": {"https://other.example"}}); status != http.StatusBadRequest || body["error"] != "invalid_target" {
 		t.Fatalf("audience mismatch → %d %v, want invalid_target", status, body)
 	}
+
+	// The canonical check is unconditional: a code minted with NO resource
+	// at authorize (the accepted older-client path, stored NULL) must still
+	// refuse a foreign resource presented only at redemption — the
+	// canonical comparison must not depend on a stored value existing.
+	nullResourceCode := o.authorize(t, nil)
+	if status, body := o.exchange(t, url.Values{"code": {nullResourceCode}, "resource": {"https://attacker.example/mcp"}}); status != http.StatusBadRequest || body["error"] != "invalid_target" {
+		t.Fatalf("foreign resource against a NULL-bound code → %d %v, want invalid_target", status, body)
+	}
 }
 
 // TestAuthorizeRefusesAForeignResourceBeforeMintingACode proves the RFC 8707
