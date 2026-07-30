@@ -79,24 +79,24 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		// Terminally fail the run like every sibling execution-phase error —
 		// returning bare would strand it queued/running, blocking every future
 		// StartBackfill for the connection and never surfacing as failed.
-		return true, false, 0, r.failBackfill(ctx, backfillID, err)
+		return true, false, 0, r.failBackfill(ctx, backfillID, nil, err)
 	}
 	bf, ok := c.(connector.Backfiller)
 	if !ok {
-		return true, false, 0, r.failBackfill(ctx, backfillID, ErrBackfillUnsupported)
+		return true, false, 0, r.failBackfill(ctx, backfillID, nil, ErrBackfillUnsupported)
 	}
 	runCtx, err := r.connectorContext(ctx, name, grantedBy)
 	if err != nil {
-		return true, false, 0, r.failBackfill(ctx, backfillID, err)
+		return true, false, 0, r.failBackfill(ctx, backfillID, nil, err)
 	}
 	auth, err := r.resolveCredential(ctx, credentialRef, authBytes)
 	if err != nil {
-		return true, false, 0, r.failBackfill(ctx, backfillID, err)
+		return true, false, 0, r.failBackfill(ctx, backfillID, nil, err)
 	}
 
 	pageToken, err := backfillPageCursor(cursor)
 	if err != nil {
-		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, err))
+		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, nil, err))
 	}
 
 	// The page's live tally: the connector reports what it has walked and the
@@ -107,7 +107,7 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 	pageCtx, progress := withPageProgress(runCtx, r, backfillID, generation)
 	res, err := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
 	if err != nil {
-		return r.recordPageFault(ctx, backfillID, err)
+		return r.recordPageFault(ctx, backfillID, progress, err)
 	}
 	done, completed, err = r.commitBackfillPage(ctx, backfillID, generation, res, progress)
 	return done, completed, 0, err
@@ -129,19 +129,19 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 // ends the run reports done=true, and only the arm that leaves the run LIVE for
 // a later retry reports done=false with the delay to wait. A caller consulting
 // done without err must never page a run that has already ended.
-func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cause error) (done, completed bool, retryAfter time.Duration, err error) {
+func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, yields *pageProgress, cause error) (done, completed bool, retryAfter time.Duration, err error) {
 	class := classifySyncError(cause)
 	if class != classRateLimited && class != classUnreachable {
-		return true, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, cause))
+		return true, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, yields, cause))
 	}
-	failures, live, countErr := r.countBackfillFailure(ctx, backfillID, class)
+	failures, live, countErr := r.countBackfillFailure(ctx, backfillID, yields, class)
 	if countErr != nil {
 		// The ladder write is what leaves a live run resumable, so a run whose
 		// ladder cannot be written must not be left live: the caller stops paging
 		// after this, and a live run nobody pages sits behind
 		// uq_capture_backfill_live answering 409 to every later start, with nothing
 		// a human can clear. End it on the class the page actually failed with.
-		return true, false, 0, errors.Join(cause, countErr, r.failBackfill(ctx, backfillID, cause))
+		return true, false, 0, errors.Join(cause, countErr, r.failBackfill(ctx, backfillID, yields, cause))
 	}
 	if !live {
 		// The run reached a terminal state under us (a cancel, most likely).
@@ -149,7 +149,7 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 		return true, false, 0, cause
 	}
 	if failures >= backfillMaxConsecutiveFailures {
-		return true, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, cause))
+		return true, false, 0, errors.Join(cause, r.failBackfill(ctx, backfillID, yields, cause))
 	}
 	return false, false, backfillRetryDelay(failures, cause), cause
 }
@@ -164,7 +164,8 @@ func (r *Registry) recordPageFault(ctx context.Context, backfillID ids.UUID, cau
 // that deadline as its own unreachable — so this write would fail on the very
 // context that produced the fault it is recording, and the run would keep a
 // ladder that never climbs and a retry nobody scheduled.
-func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID, class errorClass) (failures int, live bool, err error) {
+func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID, yields *pageProgress, class errorClass) (failures int, live bool, err error) {
+	people, organizations := yields.totals()
 	countCtx, cancel := detachedWrite(ctx)
 	defer cancel()
 	err = database.WithWorkspaceTx(countCtx, r.pool, func(tx pgx.Tx) error {
@@ -172,10 +173,11 @@ func (r *Registry) countBackfillFailure(ctx context.Context, backfillID ids.UUID
 		// leaving it 'queued' would misreport a live import as one never begun.
 		scanErr := tx.QueryRow(countCtx, `
 			UPDATE capture_backfill
-			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2`+settleInflightProgress+`,
+			SET consecutive_failures = consecutive_failures + 1, last_error_class = $2,
+			    people_created = people_created + $3, organizations_created = organizations_created + $4`+resetInflightProgress+`,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
 			WHERE id = $1 AND status IN ('queued','running')
-			RETURNING consecutive_failures`, backfillID, string(class)).Scan(&failures)
+			RETURNING consecutive_failures`, backfillID, string(class), people, organizations).Scan(&failures)
 		if errors.Is(scanErr, pgx.ErrNoRows) {
 			return nil
 		}
@@ -259,10 +261,12 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 		// uq_capture_backfill_live would hold a run nothing can ever finish,
 		// answering 409 to every later start for the connection. Cancelled is
 		// what happened — the import stopped, and what it already captured is
-		// kept.
+		// kept, counterparty yields included: they exist, and a replay never
+		// offers them to the resolver again.
 		_, err = tx.Exec(ctx, `
-			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+settleInflightProgress+`
-			WHERE id = $1 AND status IN ('queued','running')`, backfillID)
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now(),
+			    people_created = people_created + $2, organizations_created = organizations_created + $3`+resetInflightProgress+`
+			WHERE id = $1 AND status IN ('queued','running')`, backfillID, peopleCreated, orgsCreated)
 		return err
 	})
 	if err != nil {
@@ -289,14 +293,16 @@ func detachedWrite(ctx context.Context) (context.Context, context.CancelFunc) {
 // failBackfill records a terminal failure class on the run (detail goes to
 // the job log); captured rows are retained. Ending the run is the one write
 // that must outlive the job, so it is detached.
-func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, cause error) error {
+func (r *Registry) failBackfill(ctx context.Context, backfillID ids.UUID, yields *pageProgress, cause error) error {
 	class := classifySyncError(cause)
+	people, organizations := yields.totals()
 	failCtx, cancel := detachedWrite(ctx)
 	defer cancel()
 	return database.WithWorkspaceTx(failCtx, r.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(failCtx, `
-			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now()`+settleInflightProgress+`
-			WHERE id = $1 AND status IN ('queued','running')`, backfillID, string(class))
+			UPDATE capture_backfill SET status = 'error', last_error_class = $2, completed_at = now(),
+			    people_created = people_created + $3, organizations_created = organizations_created + $4`+resetInflightProgress+`
+			WHERE id = $1 AND status IN ('queued','running')`, backfillID, string(class), people, organizations)
 		return err
 	})
 }

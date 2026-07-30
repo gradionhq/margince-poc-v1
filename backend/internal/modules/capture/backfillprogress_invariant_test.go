@@ -156,7 +156,7 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 		case matchesEveryColumn(sql, fromParameter):
 			writers++
 		case !matchesEveryColumn(sql, toZero):
-			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end it with settleInflightProgress (a page-ending write, which keeps the counterparty yields) or resetInflightProgress (the page commit, which has already folded them in), or the status read counts that page's work twice:\n%s",
+			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end it with resetInflightProgress, and if it ends a page also credit the counterparty yields it is clearing, or the status read counts that page's work twice:\n%s",
 				fset.Position(expr.Pos()), strings.Join(inflightColumns, ", "), sql)
 		}
 		return false

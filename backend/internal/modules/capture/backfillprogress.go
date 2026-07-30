@@ -142,10 +142,11 @@ func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if outcome.OrganizationCreated {
 		c.tally.organizations++
 	}
-	// Unpaced, unlike the message tally. A yield write is rare — only an ensure
-	// that actually minted a row reaches here — and it is the ONE number a
-	// page-ending write promotes out of the row rather than out of this
-	// collector, so a paced-away increment would be lost for good.
+	// Unpaced, unlike the message tally: a yield write is rare — only an ensure
+	// that actually minted a row reaches here — and these are the two numbers a
+	// watching human reads as "it found someone", so they should not wait out a
+	// pacing window. Correctness does not depend on it; every write that ends a
+	// page credits the yields from THIS collector, never from the row.
 	c.persist(ctx, unpaced)
 }
 
@@ -235,23 +236,3 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 // and never as the first one.
 const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
 	    inflight_people = 0, inflight_organizations = 0`
-
-// settleInflightProgress is what every OTHER page-ending write carries — a
-// transient fault, a terminal failure, a cancel. It keeps the counterparty
-// yields and drops only the message tally, because the two halves survive a
-// failed page differently:
-//
-//   - scanned/captured/skipped describe messages the retry will walk again and
-//     restate, so keeping them would double-count.
-//   - people/organizations describe rows that ALREADY EXIST. Capture is
-//     idempotent on the natural key, so a replayed message returns
-//     created=false and never reaches the counterparty resolver again — the
-//     retry cannot re-count them, and anything dropped here is undercounted
-//     for the life of the run.
-//
-// Promoting from the ROW rather than from the collector is deliberate: cancel
-// runs in the api process, which holds no collector for a page the worker is
-// still walking. The same statement zeroes what it promoted, so no later write
-// can promote it twice.
-const settleInflightProgress = `, people_created = people_created + inflight_people,
-	    organizations_created = organizations_created + inflight_organizations` + resetInflightProgress

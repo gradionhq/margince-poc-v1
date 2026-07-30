@@ -255,7 +255,7 @@ func (r *Registry) CancelBackfill(ctx context.Context, provider string, userID i
 			return err
 		}
 		tag, err := tx.Exec(ctx, `
-			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+settleInflightProgress+`
+			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+resetInflightProgress+`
 			WHERE connection_id = $1 AND status IN ('queued','running')`, connID)
 		if err != nil {
 			return err
