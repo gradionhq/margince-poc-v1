@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -69,6 +70,23 @@ func TestAcknowledgeOrganizationViewRefusesAnOverlayWorkspace(t *testing.T) {
 
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("status = %d, want 422 — the mirror holds no visit marks either", rec.Code)
+	}
+}
+
+// The nil service is the point: it proves the overlay gate runs BEFORE anything
+// touches the database, so a mirror-backed workspace cannot write a dismissal
+// against records this system of record does not own.
+func TestDismissOrganizationSuggestionRefusesAnOverlayWorkspace(t *testing.T) {
+	h := NewHandlers(nil, overlayModeReturning(true, nil))
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/organizations/x/suggestions/dismiss",
+		strings.NewReader(`{"fingerprint":"`+strings.Repeat("a", 64)+`"}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	h.DismissOrganizationSuggestion(rec, req, crmcontracts.Id(ids.NewV7()))
+
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("status = %d, want 422 — the mirror raises no suggestions to dismiss", rec.Code)
 	}
 }
 

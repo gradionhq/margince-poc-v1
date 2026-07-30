@@ -24,6 +24,37 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-07-30
+
+**The company-view rebuild is 5 of 7 PRs in.** #309 (composite read), #313
+(one-page view), #315 (evidence mark) and #317 (account brief) are merged. **#319
+(next-step suggestions + Ask Margince) is feature-complete with auto-merge armed**
+— all local gates green with `main` merged, the branch's one review round done and
+its four bot threads resolved. If it has not landed, the only likely cause is
+another `main` push putting it BEHIND again: merge `origin/main`, confirm no
+migration-number collision (mine is `0145_suggestion_dismissal`), push, and
+auto-merge takes it.
+
+**Next: PR 6 — the connections card (graph level 1).** Scope, in full, because the
+concept it comes from is not in this repo: a compose-level
+`GET /organizations/{id}/graph` returning `{nodes[], edges[]}` — contacts by
+employment (strength-weighted), open deals with their stakeholder edges,
+partner/parent orgs, the active signal's intro path. One hop, RBAC-pruned the way
+the roll-up walk is, deterministic node selection, and `dropped_count` rather than
+a silent cap. Frontend: a collapsed ego view in the right rail (hand-rolled SVG,
+fixed radial layout) with a keyboard-navigable node list as the real fallback, an
+expandable `Modal size="wide"`, and nodes routing through `EntityRef`. It replaces
+`RecordContextPanel` on this screen; graph level 2 is deferred. **Start it in a
+fresh context** — this session ran long.
+
+**Two things worth knowing before touching the suggestion code.** The stall
+episode's monotonicity constraint is written at `stalledDeal.episode()` in
+`internal/compose/org360/suggestionreads.go`, with both rejected shapes and why
+each fails; changing what re-arms a dismissal means reading that first. And the
+open questions this arc deliberately did not answer alone are the STATUS bullets
+below — which deal edits count as "working" it, the O(N) suggestion read, the
+uncapped `/ask` model call, and the `org_ask` corpus gap.
+
 ## Pick up here
 
 Open work, roughly in priority order.
@@ -490,16 +521,81 @@ this build repo.
   0141), and `interfaces.md` §1 gains an optional `BackfillProgress` seam
   beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
   what a committed run reports.
-- **The company view's five new surfaces are build-side, not yet in the spec.**
-  `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`, the
-  `organization_id` filter on `GET /signals`, the `OrganizationStrength` schema,
-  and the `user_record_view` table were built from the reviewed company-view
-  concept, not from a spec chapter. Raise all five upstream so the contract and
+- **The company view's new surfaces are build-side, not yet in the spec.**
+  `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`,
+  `GET|POST /organizations/{id}/brief`, `POST /organizations/{id}/ask`,
+  `POST /organizations/{id}/suggestions/dismiss`, the `organization_id` filter on
+  `GET /signals`, the `OrganizationStrength`, `OrganizationBrief`,
+  `OrganizationAnswer` and `Organization360Suggestion` schemas, and the
+  `user_record_view`, `org_brief` and `suggestion_dismissal` tables were built from
+  the reviewed company-view concept, not from a spec chapter. Raise them upstream so the contract and
   the spec agree before the frontend depends on them. The 360's deliberate V1
   limits belong in the same raise: it is native-system-of-record only (an
   overlay workspace gets `422 unsupported_in_overlay_mode`), and its nested
   collections are truncated summaries, not paging surfaces — follow-up pages come
   from the dedicated endpoint for each collection.
+- **"What counts as working a deal" is a product decision the build has been
+  inferring.** A next-step suggestion is dismissed per user and keyed on a
+  fingerprint, and that fingerprint has to change when the situation the rep judged
+  is replaced by a new one — otherwise a dismissal either silences the deal forever
+  or comes back to life. The build now defines the stalled-deal case as "the deal's
+  last activity, plus how many times it has really changed stage", monotone in both
+  so a dismissed shape can never recur. Eight review rounds landed on that
+  definition one input at a time (`wait_until` excluded because it can be cleared;
+  a stage advance included because it moves no timestamp the stall rule reads; a
+  same-stage re-select excluded because it is not work). The edges left are
+  judgment, not code: does re-assigning the owner count? re-opening a lost deal
+  through a path that writes no history? editing the amount? Get the founder's rule
+  and pin it in `specs/subsystems/deals-and-pipeline.md`, then derive the
+  fingerprint from that rather than from the schema. Until then the rule the code
+  states is "not now silences this deal until it is next worked".
+- **Three deferred findings on the company view's suggestion card**, all raised by
+  review and none a defect in what ships:
+  1. `Organization360Suggestion.subject_type`/`subject_id` are written only by the
+     stalled-deal rule, duplicate its single evidence entry, and no consumer reads
+     them; the enum also declares `person` and `organization` with no producer.
+     Either give the card a use for them or drop them from the contract — a wire
+     field with no reader is a promise nobody keeps.
+  2. The no-reply rule's activity-kind set is hand-typed in SQL
+     (`email, whatsapp, telegram, call, meeting`) while the rest of the feature
+     derives from the contract enum. Its correctness depends on that being the exact
+     complement of `note`/`task`: a new two-way kind added upstream would make the
+     rule say "nobody has come back" about a thread that was answered. Derive it, or
+     add a fitness test over the enum.
+  3. A caller holding `deal:read` but not `activity:read` gets the suggestions
+     section with `suggestions_dropped: 0`, which the card renders as "that is
+     everything" — while the no-reply rule was never evaluated. It under-advises
+     rather than over-advises, so it is a truthfulness gap, not a disclosure.
+- **The company view's suggestion read is O(N) in an account's open deals, and
+  four surfaces now pay it.** `openPipeline` reads every open deal of one account
+  in one statement plus a correlated `count(*)` over `deal_stage_history` per deal,
+  because every bound tried put the read's own limit inside a number the card
+  reported. It runs on every `Assemble`, which serves `GET /organizations/{id}/360`,
+  `GET`/`POST /organizations/{id}/brief` and `POST /organizations/{id}/ask`. A
+  tenant-internal principal that can create deals — including an agent, since
+  `createDeal` is auto-execute — can make every later view of that company page an
+  O(N) read. Not cross-tenant and not a leak; a self-inflicted latency amplifier.
+  The fix that keeps the stated semantics (exact count, whole-set digest,
+  dismissals applied before the cap) is to fold in SQL rather than in Go: `count(*)`,
+  `md5(string_agg(id::text, ',' ORDER BY id))` for the digest, and a `LIMIT`ed
+  stalled list ordered by `coalesce(last_activity_at, created_at)` with headroom for
+  the caller's dismissals. Raised by the security review as a NOTE.
+- **`POST /organizations/{id}/ask` is an uncapped per-click model call.** Nothing is
+  cached (deliberately — a cached answer would break the "written from the account
+  as it is now" promise), and the authenticated `/v1` surface has no rate limit, so
+  one session can spend the workspace's AI budget at request rate. Bounded by
+  `ai.Router`'s budget guard and it degrades to the deterministic floor rather than
+  failing, and `POST .../brief`'s force-refresh already had the same profile — so a
+  widening of an accepted posture, not a new class. The honest fix is a per-user
+  `ratelimit` in front of the two model-spending POSTs, not a cache.
+- **Two smaller company-view follow-ups from the final review.** The suggestion
+  card renders a localized kind label above a server-generated ENGLISH reason, so a
+  German reader sees "Deal steht" over an English sentence; the three deterministic
+  reasons could ship as i18n keys plus parameters (the brief has the same property,
+  but its text is model prose). And the `summarize/org_ask` corpus cannot reach half
+  of the `whats_open` instruction: `orgBriefFixture` carries no `open_tasks`, so no
+  scenario can expect a task citation — the unit test covers that half, the
+  certification lane silently does not. Add the field and one scenario.
 - **The company view's "New deal" action needs a staged approval kind.** The
   concept calls for a 🟡 `create_deal` staging; the approval catalog has no such
   kind, so the interim build creates the deal directly under a confirm modal.

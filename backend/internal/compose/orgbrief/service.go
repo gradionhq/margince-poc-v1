@@ -110,12 +110,52 @@ func (s *Service) Get(ctx context.Context, orgID ids.OrganizationID, force bool)
 	return written.wire(orgID), nil
 }
 
+// Ask answers one prepared question about the account.
+//
+// Nothing is cached. A brief is standing text every visit re-reads, so a cache
+// earns its keep there; a question is asked once and read once, and a cached
+// answer would only introduce the chance of answering from an account state
+// the reader has already moved past.
+func (s *Service) Ask(
+	ctx context.Context, orgID ids.OrganizationID, raw crmcontracts.OrganizationQuestion,
+) (crmcontracts.OrganizationAnswer, error) {
+	// A prepared question is a reading aid for a person; an agent asking about
+	// an account has the records themselves.
+	if err := auth.RequireHuman(ctx); err != nil {
+		return crmcontracts.OrganizationAnswer{}, err
+	}
+	question, err := ParseQuestion(raw)
+	if err != nil {
+		return crmcontracts.OrganizationAnswer{}, err
+	}
+	// The gates that matter run HERE, in the caller's own composite read: an
+	// answer can only be written from what this caller may see, and an account
+	// they cannot read refuses before a single word is written.
+	view, err := s.view.Assemble(ctx, orgID)
+	if err != nil {
+		return crmcontracts.OrganizationAnswer{}, err
+	}
+	in := FromView(view)
+	sentences, by, err := Answer(ctx, s.lane, question, orgID.String(), in)
+	if err != nil {
+		return crmcontracts.OrganizationAnswer{}, err
+	}
+	answer := stored{GeneratedAt: s.now().UTC(), GeneratedBy: by, Sentences: sentences}.wire(orgID)
+	return crmcontracts.OrganizationAnswer{
+		OrganizationId: answer.OrganizationId,
+		Question:       question,
+		GeneratedAt:    answer.GeneratedAt,
+		GeneratedBy:    answer.GeneratedBy,
+		Sentences:      answer.Sentences,
+	}, nil
+}
+
 // stored is the cached payload's shape.
 type stored struct {
-	Fingerprint string     `json:"-"`
-	GeneratedAt time.Time  `json:"generated_at"`
-	GeneratedBy string     `json:"generated_by"`
-	Sentences   []Sentence `json:"sentences"`
+	Fingerprint string                 `json:"-"`
+	GeneratedAt time.Time              `json:"generated_at"`
+	GeneratedBy crmcontracts.WrittenBy `json:"generated_by"`
+	Sentences   []Sentence             `json:"sentences"`
 }
 
 func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
@@ -141,7 +181,7 @@ func (b stored) wire(orgID ids.OrganizationID) crmcontracts.OrganizationBrief {
 	return crmcontracts.OrganizationBrief{
 		OrganizationId: openapi_types.UUID(orgID.UUID),
 		GeneratedAt:    b.GeneratedAt,
-		GeneratedBy:    crmcontracts.OrganizationBriefGeneratedBy(b.GeneratedBy),
+		GeneratedBy:    b.GeneratedBy,
 		Sentences:      sentences,
 	}
 }
