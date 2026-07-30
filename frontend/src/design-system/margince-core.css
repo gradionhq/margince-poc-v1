@@ -6,12 +6,12 @@
  * interactive mockup designs against — ported from that repo's
  * `shared/core/core.css` so the two trees can stay diffable.
  *
- * State (WDS-CORE-2) arrives as `data-core-state` and resolves to exactly two
- * custom properties, `--coreTint` and `--coreBeat`. Every rule below reads those
- * rather than branching per state, so adding a state is one block and changing
- * what a state means is one line. The shader reads --coreTint too (see
- * OrbFluid), which is what keeps the sphere inside the token layer instead of
- * carrying its own palette.
+ * State (WDS-CORE-2) arrives as `data-core-state` and resolves to exactly three
+ * custom properties, `--coreTint`, `--coreTintMix` and `--coreBeat`. Every rule
+ * below reads those rather than branching per state, so adding a state is one
+ * block and changing what a state means is one line. The shader reads
+ * --coreTint and --coreTintMix too (see margince-core-liquid.tsx), which is what
+ * keeps the sphere inside the token layer instead of carrying its own palette.
  *
  * Only the four status states change hue. idle / listening / working stay brand
  * emerald and differ in motion, because "one meaning per colour" (ADR-0040) is
@@ -27,6 +27,15 @@
   /* Defaults, overridden per state below. A Core with no data-core-state still
      renders as idle rather than as nothing. */
   --coreTint: var(--accent);
+  /* How hard the shader pulls its colour ramp toward --coreTint.
+     LOW for the three brand states, and that is the point rather than a
+     tuning: the ramp the shader ships IS the artifact's pale mint glass, and
+     --accent is the colour of an ACTION (a filled button, a link) at a
+     saturation no material should carry. Pulling 72% of the way there turned
+     the sphere into a dark emerald marble. At 0.22 the palette still steers
+     the hue, so a re-themed accent still moves the Core, and the glass stays
+     glass. Status states below invert this: there the hue IS the message. */
+  --coreTintMix: 0.22;
   --coreBeat: 5.6s;
   --coreSize: 230px;
   --coreGlass: 172px;
@@ -39,39 +48,47 @@
 /* ---- state: the whole vocabulary, in one place -------------------------- */
 .core[data-core-state="idle"] {
   --coreTint: var(--accent);
+  --coreTintMix: 0.22;
   --coreBeat: 5.6s;
 }
 /* listening: the same colour, a quicker pulse. Nothing has been claimed yet. */
 .core[data-core-state="listening"] {
   --coreTint: var(--accent);
+  --coreTintMix: 0.22;
   --coreBeat: 3.4s;
 }
 .core[data-core-state="working"] {
   --coreTint: var(--accent);
+  --coreTintMix: 0.22;
   --coreBeat: 2.2s;
 }
 .core[data-core-state="success"] {
   --coreTint: var(--success);
+  --coreTintMix: 0.9;
   --coreBeat: 6.4s;
 }
 .core[data-core-state="attention"] {
   --coreTint: var(--warn);
+  --coreTintMix: 0.9;
   --coreBeat: 2.8s;
 }
 .core[data-core-state="error"] {
   --coreTint: var(--danger);
+  --coreTintMix: 0.9;
   --coreBeat: 4.2s;
 }
 /* quiet: present, not working. Desaturated rather than dimmed, so it does not
    read as a disabled control. */
 .core[data-core-state="quiet"] {
   --coreTint: var(--textTertiary);
+  --coreTintMix: 0.9;
   --coreBeat: 9s;
 }
 /* unavailable: the one state that does not breathe. A server we cannot reach
    should not look busy. */
 .core[data-core-state="unavailable"] {
   --coreTint: var(--textMuted);
+  --coreTintMix: 0.9;
 }
 .core[data-core-state="unavailable"] .core-glass,
 .core[data-core-state="unavailable"] .core-tilt,
@@ -118,15 +135,75 @@
     );
   box-shadow:
     inset 0 0 0 1.5px color-mix(in srgb, var(--overlayLight) 65%, transparent),
-    inset -8px -12px 22px
-    color-mix(in oklab, var(--coreTint) 60%, var(--overlayDark) 18%),
+    /* 18% ALPHA, not an opaque dark green. `color-mix(… var(--overlayDark)
+       18%)` mixes toward black and stays fully opaque, which painted a solid
+       dark crescent over two thirds of the sphere and is what made the Core
+       read as a dark marble rather than as glass. The artifact's value is the
+       same hue at 18% alpha — barely there. */
+    inset
+    -8px -12px 22px
+    color-mix(
+      in srgb,
+      color-mix(in oklab, var(--coreTint) 55%, var(--overlayDark)) 18%,
+      transparent
+    ),
     inset 6px 9px 18px color-mix(in srgb, var(--overlayLight) 32%, transparent),
-    inset 0 -3px 12px color-mix(in srgb, var(--coreTint) 30%, transparent),
+    /* The bounce light off the bottom of the glass. The artifact's is nearly
+       white at 45% alpha: this is the sphere's SECOND light source, and rendering
+       it in the shade colour at a lower alpha is what made the glass look unlit
+       from below. */
+    inset
+    0 -3px 12px color-mix(in srgb, var(--coreLight) 45%, transparent),
     0 18px 34px color-mix(in srgb, var(--coreTint) 20%, transparent),
     0 4px 10px color-mix(in srgb, var(--coreTint) 10%, transparent);
   animation:
     coreBreathe var(--coreBeat) ease-in-out infinite,
     coreLit calc(var(--coreBeat) * 0.7) ease-in-out infinite;
+}
+/* Light pooling on the ground under the glass. Sized from --coreSize like the
+   halo, so it tracks every breakpoint instead of the artifact's fixed 150×26px.
+   Without it the sphere floats rather than sitting somewhere. */
+.core-caustic {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: calc(var(--coreSize) * 0.65);
+  height: calc(var(--coreSize) * 0.113);
+  margin: calc(var(--coreSize) * 0.417) 0 0 calc(var(--coreSize) * -0.326);
+  z-index: 0;
+  border-radius: var(--r-full);
+  pointer-events: none;
+  opacity: 0.85;
+  background: radial-gradient(
+    ellipse,
+    color-mix(in srgb, var(--coreLight) 40%, transparent),
+    transparent 70%
+  );
+  filter: blur(6px);
+}
+/* The specular highlight, and its absence was a primary reason the sphere read
+   flat. In the artifact this comes from `.login-orb::after` — a 92%-white blurred
+   ellipse over the top-left, ABOVE the canvas. The port inherited the group rule
+   that disabled `::before` (the rotating sheen, correctly dropped for cost) and
+   lost the `::after` with it. Without it there is no hard light source and the
+   liquid inside is the only thing lighting the glass. */
+.core-glass::after {
+  content: "";
+  position: absolute;
+  left: 16%;
+  top: 9%;
+  width: 36%;
+  height: 24%;
+  z-index: 2;
+  border-radius: var(--r-full);
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--overlayLight) 92%, transparent),
+    transparent 70%
+  );
+  filter: blur(1px);
+  transform: rotate(-20deg);
 }
 @keyframes coreBreathe {
   0%,
@@ -206,9 +283,9 @@
   z-index: 0;
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--coreTint) 20%, transparent) 0%,
-    color-mix(in srgb, var(--coreTint) 11%, transparent) 30%,
-    color-mix(in srgb, var(--coreTint) 4%, transparent) 55%,
+    color-mix(in srgb, var(--coreLight) 26%, transparent) 0%,
+    color-mix(in srgb, var(--coreLight) 14%, transparent) 30%,
+    color-mix(in srgb, var(--coreLight) 5%, transparent) 55%,
     transparent 70%
   );
   animation: coreFed calc(var(--coreBeat) * 0.7) ease-in-out infinite;
@@ -251,10 +328,10 @@
   background: radial-gradient(
     circle,
     color-mix(in srgb, var(--overlayLight) 95%, transparent) 0%,
-    var(--coreTint) 42%,
+    var(--coreLight) 42%,
     transparent 100%
   );
-  box-shadow: 0 0 10px 3px color-mix(in srgb, var(--coreTint) 22%, transparent);
+  box-shadow: 0 0 10px 3px color-mix(in srgb, var(--coreLight) 22%, transparent);
   animation: coreFeed var(--t) cubic-bezier(0.32, 0, 0.5, 1) var(--dl) infinite;
 }
 /* one long smooth spiral: transform is set only at the ends, so the path never

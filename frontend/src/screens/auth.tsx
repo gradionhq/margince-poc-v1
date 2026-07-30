@@ -11,6 +11,7 @@ import {
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import { navigate } from "../app/router";
+import { previewedOidcProviders } from "../app/ui-preview";
 import wordmarkDark from "../assets/wordmark-dark.png";
 import wordmarkWhite from "../assets/wordmark-white.png";
 import { Button } from "../design-system/atoms";
@@ -139,7 +140,13 @@ export function AuthScreen({
             onAuthed={onAuthed}
             onPhase={setAuthPhase}
             resetAvailable={resetAvailable}
-            providers={capabilities.data?.oidc_providers ?? []}
+            /* The server's answer, passed through the ONE ui-preview override
+               site. Off by default, in which case this is the identity
+               function and the capability's real value reaches the form
+               verbatim. */
+            providers={previewedOidcProviders(
+              capabilities.data?.oidc_providers ?? [],
+            )}
             onForgot={() => setView({ kind: "forgot" })}
           />
         </>
@@ -313,7 +320,14 @@ function loginErrorKey(error: unknown): MessageKey {
  * complete never reaches the screen. This build's server serves `[]` until the
  * OIDC flow ships, which is why no provider button appears at runtime today. Do
  * not "fix" this to render a disabled button, and do not seed a provider list
- * anywhere in src/ — the empty list IS the gate.
+ * into the capability response — the empty list IS the gate, and this component
+ * must keep asking only "did I get providers?".
+ *
+ * The one thing that may put providers here without a server is
+ * `app/ui-preview.ts`, and it is not an exception to the above: it substitutes
+ * at the CALL SITE in `AuthScreen`, off unless `VITE_UI_PREVIEW_OIDC` is set at
+ * build time, and it draws the block without making the flow work. This
+ * component cannot tell the difference and must not try to.
  *
  * **The label is the server's string, not ours.** The contract types it as
  * `{ key, label }` and documents `label` as the button text, so the installation
@@ -368,12 +382,14 @@ export function ProviderButtons({
 // so there is no endpoint to send the browser to, and composing a start URL out
 // of the provider key would be inventing a wire this build cannot honour.
 //
-// Nothing reaches it in this build, and that is the honest part rather than a
+// No USER reaches it in this build, and that is the honest part rather than a
 // loose end: the server serves `oidc_providers: []`, so `ProviderButtons`
-// renders nothing and no user can meet this (§19). The seeded story and the
-// seeded e2e case are catalog fixtures for reviewing the DESIGN. When the flow
-// ships, this function is the one thing that changes — the markup, the copy and
-// the capability gate are already right.
+// renders nothing and no user can meet this (§19). The seeded story, the seeded
+// e2e case and the `VITE_UI_PREVIEW_OIDC` preview build are review fixtures for
+// the DESIGN — the preview draws the buttons and they land here, which is to say
+// they do nothing, deliberately and visibly. When the flow ships, this function
+// is the one thing that changes — the markup, the copy and the capability gate
+// are already right.
 function startFederatedSignIn(_providerKey: string): void {}
 
 function LoginForm({

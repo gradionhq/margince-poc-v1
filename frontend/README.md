@@ -19,6 +19,37 @@ From the repo root: `make frontend-check`, `make frontend-e2e`, and `make dev`
 (the full running stack — api + this SPA). The frontend lane is separate from
 the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
 
+### UI-preview switches (`VITE_UI_PREVIEW_*`)
+
+Presentation scaffolding for design review, off unless the var is set, and
+**not** feature flags — they cannot make a flow work, only draw one. They live
+in `src/app/ui-preview.ts`; the naming prefix is the contract with the reader.
+
+| Var | What it draws |
+|---|---|
+| `VITE_UI_PREVIEW_OIDC=1` | The federated sign-in buttons on the login screen. |
+
+```sh
+VITE_UI_PREVIEW_OIDC=1 pnpm dev     # login screen, with the SSO block drawn
+```
+
+`/auth/capabilities` serves `oidc_providers: []` because the OIDC flow has not
+shipped (§19), and `ProviderButtons` correctly renders nothing for an empty
+list — so the block is otherwise only visible in Storybook. With the switch on,
+two providers are substituted **at the render boundary in `AuthScreen`**, after
+the query: the wire is untouched, the query cache still holds the server's real
+empty answer, and the buttons **complete no sign-in** — `startFederatedSignIn`
+stays inert, because the contract documents no OIDC start or callback path. The
+labels are deliberately not in the i18n catalogs: `oidc_providers[].label` is
+server-owned copy that §11.5 says is never translated. A preview build logs a
+one-time `console.warn` saying exactly this.
+
+Unset, the switch reads `undefined` and nothing changes. Both positions are
+pinned by `src/app/ui-preview.test.ts` and the `federated sign-in` cases in
+`src/screens/auth.test.tsx`; the e2e lane builds without any of them, so
+`offers no identity provider that does not work` still measures the real
+default.
+
 ## Layout
 
 - `src/design-system/` — tokens (Ledger Green canon, pinned by

@@ -215,10 +215,18 @@ export function CoreLiquid({
     const uTint = gl.getUniformLocation(program, "uTint");
     const uTintMix = gl.getUniformLocation(program, "uTintMix");
 
-    const tint = resolveTint(canvas.parentElement ?? canvas);
+    const host = canvas.parentElement ?? canvas;
+    const tint = resolveTint(host);
     if (tint) {
       gl.uniform3f(uTint, tint[0], tint[1], tint[2]);
-      gl.uniform1f(uTintMix, 0.72);
+      // Read as text, not painted: --coreTintMix is a plain number, so
+      // getPropertyValue hands back exactly what the state block authored.
+      // (--coreTint needs the probe above because a color-mix() only becomes a
+      // colour by being painted. A number needs no such trick.)
+      const authored = Number.parseFloat(
+        getComputedStyle(host).getPropertyValue("--coreTintMix"),
+      );
+      gl.uniform1f(uTintMix, Number.isFinite(authored) ? authored : 0.22);
     } else {
       gl.uniform1f(uTintMix, 0);
     }

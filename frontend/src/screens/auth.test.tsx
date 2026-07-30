@@ -20,6 +20,11 @@ import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The UI-preview switch is read from import.meta.env at the call, so a case
+  // that turns it on must not leak into the next one — the default-off surface
+  // is what every other case in this file asserts.
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   window.location.hash = "";
 });
 
@@ -98,9 +103,20 @@ describe("AuthScreen login", () => {
     render(<AuthScreen onAuthed={vi.fn()} />);
 
     expect(screen.getByText("Margince · AI system")).toBeTruthy();
+    // The statement is TYPED now (ADR-0076 Decision 5), so the visible layer
+    // holds a partial string for the first second and there are three nodes
+    // carrying this sentence. Assert on the `.sr-only` one: it is what a screen
+    // reader is handed, it is complete on the first render, and reading the
+    // visible layer instead would be asserting on a race.
     expect(
       screen.getByText(
         "I can only use your context after Margince verifies that it's you.",
+        { selector: ".sr-only" },
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
       ),
     ).toBeTruthy();
     expect(await screen.findByText("Configured")).toBeTruthy();
@@ -358,6 +374,42 @@ describe("federated sign-in", () => {
     ).toBeTruthy();
     // The divider labels the PASSWORD path below it, not the buttons above.
     expect(screen.getByText("or with email")).toBeTruthy();
+  });
+
+  // The UI-preview switch (app/ui-preview.ts), on the screen rather than on the
+  // pure function. Both positions, and the OFF one is the assertion that matters:
+  // every other case in this file runs with the var unset, so the default is
+  // pinned by the whole suite — this pair pins that the switch is what changes it
+  // and that nothing else does.
+  it("draws the federated block on the real empty capability only under the UI-preview switch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email address");
+    expect(
+      screen.queryByRole("button", { name: "Continue with Google" }),
+    ).toBeNull();
+    cleanup();
+
+    vi.stubEnv("VITE_UI_PREVIEW_OIDC", "1");
+    // Same stub, same empty `oidc_providers` the running server serves — the
+    // override is presentation, so the wire is identical in both halves.
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    const google = await screen.findByRole("button", {
+      name: "Continue with Google",
+    });
+    expect(
+      screen.getByRole("button", { name: "Continue with Microsoft" }),
+    ).toBeTruthy();
+    // Inert, and that is the point of the switch: it draws the design, it does
+    // not invent a redirect. Clicking must neither navigate nor hit the wire.
+    const calls = stubApi({ password: true, password_reset: true }, () =>
+      ok(200),
+    );
+    await userEvent.click(google);
+    expect(calls).toEqual([]);
+    expect(google).toBeTruthy();
   });
 
   it("renders nothing at all for an empty capability", () => {
