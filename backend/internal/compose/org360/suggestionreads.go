@@ -109,6 +109,11 @@ func newestMessage(
 type stalledDeal struct {
 	ID   ids.UUID
 	Name string
+	// IdleSince is the instant the stall is measured from — the deal's last
+	// activity, or its creation if it has none. It rides the fingerprint, so a
+	// deal that gets worked and then goes quiet again raises NEW advice instead of
+	// staying silenced by a dismissal of the previous stall.
+	IdleSince time.Time
 }
 
 // pipeline is the account's open pipeline as the deal-shaped rules read it.
@@ -168,9 +173,10 @@ func openPipeline(
 		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
 	type openRow struct {
-		id      ids.UUID
-		name    string
-		stalled bool
+		id        ids.UUID
+		name      string
+		stalled   bool
+		idleSince time.Time
 	}
 	open, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (openRow, error) {
 		var r openRow
@@ -181,6 +187,12 @@ func openPipeline(
 			return r, err
 		}
 		r.stalled = deals.IsStalled(status, createdAt, lastActivityAt, waitUntil, now)
+		// The same base IsStalled measures from, so the fingerprint moves exactly
+		// when the stall the rep judged is replaced by a new one.
+		r.idleSince = createdAt
+		if lastActivityAt != nil {
+			r.idleSince = *lastActivityAt
+		}
 		return r, nil
 	})
 	if err != nil {
@@ -192,7 +204,9 @@ func openPipeline(
 	for _, deal := range open {
 		sorted = append(sorted, deal.id.String())
 		if deal.stalled {
-			out.Stalled = append(out.Stalled, stalledDeal{ID: deal.id, Name: deal.name})
+			out.Stalled = append(out.Stalled, stalledDeal{
+				ID: deal.id, Name: deal.name, IdleSince: deal.idleSince,
+			})
 		}
 	}
 	// Sorted by id rather than by the read's order, so the digest depends on

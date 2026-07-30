@@ -10304,7 +10304,11 @@ type Organization360 struct {
 	//
 	// Counted after this caller's own dismissals, so a suggestion they have already
 	// judged is in neither the list nor this number.
-	SuggestionsDropped int    `json:"suggestions_dropped"`
+	//
+	// Absent exactly when `suggestions` is — a section the caller's grants withheld
+	// was never computed, and a `0` there would state "no further suggestions"
+	// about an account this read never looked at.
+	SuggestionsDropped *int   `json:"suggestions_dropped,omitempty"`
 	Tags               *[]Tag `json:"tags,omitempty"`
 }
 

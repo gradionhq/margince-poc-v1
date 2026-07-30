@@ -93,6 +93,11 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 	}
 }
 
+// maxListedSuggestions mirrors the card's own cap (org360.maxSuggestions). Spelled
+// here because the integration package cannot see the unexported constant, and a
+// test that derived it from the answer could not tell a cap from a coincidence.
+const maxListedSuggestions = 5
+
 // Every figure a suggestion states is the ACCOUNT's, never this read's.
 //
 // The card lists at most a handful of stalled deals. The count in the
@@ -125,15 +130,19 @@ func TestSuggestionCountsAreTheAccountsNotTheReads(t *testing.T) {
 		t.Fatal("suggestions absent")
 	}
 	listed := len(*view.Suggestions)
-	if listed == 0 || listed >= openDeals {
-		t.Fatalf("listed %d suggestions for %d stalled deals, want a bounded handful", listed, openDeals)
+	if listed != maxListedSuggestions {
+		t.Fatalf("listed %d suggestions for %d stalled deals, want the card's %d",
+			listed, openDeals, maxListedSuggestions)
 	}
 	// The dropped total plus the listed rows must account for every one of them.
 	// The no-next-step rule also fires here (nothing is scheduled), so the
 	// suggestion count is the stalled deals plus that one.
-	if listed+view.SuggestionsDropped != openDeals+1 {
+	if view.SuggestionsDropped == nil {
+		t.Fatal("suggestions_dropped absent on a section that was computed")
+	}
+	if listed+*view.SuggestionsDropped != openDeals+1 {
 		t.Errorf("listed %d + dropped %d = %d, want the %d suggestions this account has",
-			listed, view.SuggestionsDropped, listed+view.SuggestionsDropped, openDeals+1)
+			listed, *view.SuggestionsDropped, listed+*view.SuggestionsDropped, openDeals+1)
 	}
 
 	// Nothing here is waiting on a reply, so the priority order puts stalled
@@ -260,8 +269,57 @@ func TestNoDismissalIsEverResurrected(t *testing.T) {
 	if left := stalledFingerprints(*view.Suggestions); len(left) != 0 {
 		t.Errorf("%d stalled suggestions left after dismissing every one", len(left))
 	}
-	if view.SuggestionsDropped != 0 {
-		t.Errorf("suggestions_dropped = %d with nothing left to show", view.SuggestionsDropped)
+	if view.SuggestionsDropped == nil || *view.SuggestionsDropped != 0 {
+		t.Errorf("suggestions_dropped = %v with nothing left to show", view.SuggestionsDropped)
+	}
+}
+
+// A dismissed stall comes back when the deal stalls AGAIN, end to end.
+//
+// The unit test pins the fingerprint; this pins that the read produces the
+// changed one, so the two halves cannot pass while disagreeing.
+func TestADismissedStallReturnsWhenTheDealStallsAgain(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+	deal := e.SeedDeal(t, "Renewal", pipelineID, stage, &e.Rep1)
+	e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+		WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	first := stalledFingerprints(*view.Suggestions)
+	if len(first) != 1 {
+		t.Fatalf("got %d stalled suggestions, want the one seeded deal", len(first))
+	}
+	if err := svc.DismissSuggestion(rep, org, first[0]); err != nil {
+		t.Fatalf("dismiss: %v", err)
+	}
+	if after, err := svc.Assemble(rep, org); err != nil {
+		t.Fatalf("re-assemble: %v", err)
+	} else if left := stalledFingerprints(*after.Suggestions); len(left) != 0 {
+		t.Fatalf("%d stalled suggestions right after dismissing the only one", len(left))
+	}
+
+	// The deal is worked, and then goes quiet again for longer than the window.
+	e.WsExec(t, `UPDATE deal SET last_activity_at = $2 WHERE id = $1`,
+		deal, org360Clock.AddDate(0, 0, -90))
+
+	again, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble after the second stall: %v", err)
+	}
+	second := stalledFingerprints(*again.Suggestions)
+	if len(second) != 1 {
+		t.Fatalf("the second stall raised %d suggestions, want 1 — the first dismissal "+
+			"silenced this deal for good", len(second))
+	}
+	if second[0] == first[0] {
+		t.Error("the second stall reuses the first stall's fingerprint")
 	}
 }
 

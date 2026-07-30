@@ -859,6 +859,7 @@ export function SuggestionsCard({
   });
 
   const suggestions: Suggestion[] = view?.suggestions ?? [];
+  const dropped = view?.suggestions_dropped;
   const state = sectionState(
     view,
     "suggestions",
@@ -910,10 +911,11 @@ export function SuggestionsCard({
         ))}
       </ul>
       {/* The card offers a handful, so what it left out is named. A truncated
-          list with no count reads as "that is everything". */}
-      {(view?.suggestions_dropped ?? 0) > 0 && (
+          list with no count reads as "that is everything". Absent means the
+          section was never computed, which this card does not render at all. */}
+      {dropped !== undefined && dropped > 0 && (
         <p className="co-row-meta">
-          {t("co.suggest.more", { count: view?.suggestions_dropped ?? 0 })}
+          {t("co.suggest.more", { count: dropped })}
         </p>
       )}
       {/* A dismissal that failed must say so: the row staying put with no word

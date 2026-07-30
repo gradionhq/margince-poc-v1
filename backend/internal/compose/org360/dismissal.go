@@ -10,9 +10,10 @@ package org360
 // while the situation holds and re-arms by itself when the evidence changes.
 //
 // A row is written ONLY for a fingerprint the rules currently produce for this
-// account and this caller. That is what bounds the table: the stored set can
-// never exceed the suggestions the account actually raises, per user, so no
-// retention cap is needed and no judgment is ever deleted to make room.
+// account and this caller. That is what bounds the table: one row per suggestion
+// a human actually clicked, so it grows with use rather than with whatever a
+// client chooses to send. No retention cap is needed, and no judgment is ever
+// deleted to make room for another.
 //
 // The two obvious alternatives are both wrong, and both were tried. Accepting any
 // well-formed fingerprint makes this an authenticated write sink — every distinct
@@ -83,13 +84,15 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 			// asking.
 			return nil
 		}
+		// The row's existence IS the dismissal, so a repeat click is a no-op rather
+		// than a re-stamp. Nothing reads a dismissal's age — the count-based
+		// retention that ordered by it is gone — and the id is a v7 uuid, so when
+		// support needs the moment it is recoverable without a column nobody reads.
 		_, err = tx.Exec(ctx, `
-			INSERT INTO suggestion_dismissal
-			  (workspace_id, user_id, organization_id, fingerprint, dismissed_at)
-			VALUES ($1, $2, $3, $4, $5)
-			ON CONFLICT (workspace_id, user_id, organization_id, fingerprint)
-			DO UPDATE SET dismissed_at = EXCLUDED.dismissed_at`,
-			storekit.MustWorkspace(ctx), userID, orgID, fingerprint, now)
+			INSERT INTO suggestion_dismissal (workspace_id, user_id, organization_id, fingerprint)
+			VALUES ($1, $2, $3, $4)
+			ON CONFLICT (workspace_id, user_id, organization_id, fingerprint) DO NOTHING`,
+			storekit.MustWorkspace(ctx), userID, orgID, fingerprint)
 		if err != nil {
 			return fmt.Errorf("record the suggestion dismissal: %w", err)
 		}

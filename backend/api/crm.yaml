@@ -985,9 +985,8 @@ paths:
         caller. A fingerprint that matches nothing answers `204` without storing
         anything — either the situation resolved between the render and the click, in
         which case the suggestion is already gone, or it was never served, in which case
-        there is nothing to silence. That is what bounds the stored set to the
-        suggestions an account actually raises, so no dismissal is ever dropped to make
-        room for another.
+        there is nothing to silence. So the stored set grows by one row per suggestion a
+        human actually dismissed, and no dismissal is ever dropped to make room.
 
         Human-only: an agent has no opinion to record.
       requestBody:
@@ -9827,7 +9826,7 @@ components:
       description: |
         The company record page in one payload. Every section except `organization` is
         optional: absent means the caller lacks its grant, and `sections_omitted` names it.
-      required: [as_of, organization, sections_omitted, suggestions_dropped]
+      required: [as_of, organization, sections_omitted]
       properties:
         as_of:
           type: string
@@ -9882,6 +9881,10 @@ components:
 
             Counted after this caller's own dismissals, so a suggestion they have already
             judged is in neither the list nor this number.
+
+            Absent exactly when `suggestions` is — a section the caller's grants withheld
+            was never computed, and a `0` there would state "no further suggestions"
+            about an account this read never looked at.
 
     # ---- Relationship ----
     Relationship:

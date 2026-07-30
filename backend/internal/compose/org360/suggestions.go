@@ -12,12 +12,11 @@ package org360
 // A model could phrase these more warmly; it could not make them checkable,
 // and checkable is what makes advice actionable.
 //
-// Each rule runs under the same row-scope predicates as the section it
-// concerns, and only when that section reached this caller — so a suggestion
-// can only ever point at records they can open, and a withheld section
-// produces silence rather than advice inferred from the gap. What the rules
-// read, and why they do not read the truncated section pages, is
-// suggestionreads.go.
+// Each rule runs under the same row-scope predicates as the section it concerns,
+// and only when the caller holds the grant that section rides — so a suggestion
+// can only ever point at records they can open, and a grant they lack produces
+// silence rather than advice inferred from the gap. What the rules read, and why
+// they do not read the truncated section pages, is suggestionreads.go.
 //
 // Nothing is staged and nothing is sent. A suggestion is a sentence and its
 // evidence; what to DO about it stays the rep's move through the same endpoints
@@ -88,7 +87,10 @@ func (a *assembly) readSuggestions() error {
 		return err
 	}
 	a.out.Suggestions = &found
-	a.out.SuggestionsDropped = dropped
+	// Set together with the list, so the count is absent exactly when the section
+	// is. A zero on a section this read never computed would state "no further
+	// suggestions" about an account it did not look at.
+	a.out.SuggestionsDropped = &dropped
 	return nil
 }
 
@@ -233,9 +235,15 @@ func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization36
 		subjectType := crmcontracts.Organization360SuggestionSubjectTypeDeal
 		subjectID := openapi_types.UUID(deal.ID)
 		out = append(out, crmcontracts.Organization360Suggestion{
-			Kind:        suggestStalledDeal,
-			Reason:      fmt.Sprintf("%q has had no activity long enough to count as stalled.", deal.Name),
-			Fingerprint: fingerprint(string(suggestStalledDeal), deal.ID.String(), evidence),
+			Kind:   suggestStalledDeal,
+			Reason: fmt.Sprintf("%q has had no activity long enough to count as stalled.", deal.Name),
+			// The stall's own start rides the fingerprint alongside the deal id. The
+			// deal alone would silence it forever: a rep who dismisses one stall
+			// would never hear about that deal again, however many times it is
+			// worked and goes quiet after. THIS stall stays dismissed; the next one
+			// is a new fact about the account.
+			Fingerprint: fingerprint(string(suggestStalledDeal),
+				deal.ID.String()+"@"+deal.IdleSince.UTC().Format(time.RFC3339Nano), evidence),
 			SubjectType: &subjectType,
 			SubjectId:   &subjectID,
 			Evidence:    evidence,

@@ -91,7 +91,7 @@ func TestStaleThreadStaysSilentWithoutADirection(t *testing.T) {
 }
 
 func idle(name string) stalledDeal {
-	return stalledDeal{ID: ids.NewV7(), Name: name}
+	return stalledDeal{ID: ids.NewV7(), Name: name, IdleSince: suggestNow.AddDate(0, 0, -200)}
 }
 
 // liveAccount is a caller holding both grants, on an account with open deals and
@@ -100,6 +100,35 @@ func liveAccount(openCount int, digest string) suggestionInputs {
 	return suggestionInputs{
 		timeline: true, pipeline: true,
 		open: pipeline{OpenCount: openCount, OpenDigest: digest},
+	}
+}
+
+// TestStalledDealFingerprintFollowsTheStallItself is the re-arm half of the
+// dismissal contract, for the one kind whose subject never changes.
+//
+// A fingerprint over the deal id alone would silence that deal forever: a rep who
+// dismissed one stall would never hear about it again, however many times it was
+// worked and went quiet after. The stall's own start rides the digest, so THIS
+// stall stays dismissed and the next one is a new fact about the account.
+func TestStalledDealFingerprintFollowsTheStallItself(t *testing.T) {
+	first := idle("Renewal")
+	// The same deal, worked and then stalled again from a later instant.
+	again := stalledDeal{ID: first.ID, Name: first.Name, IdleSince: suggestNow.AddDate(0, 0, -70)}
+
+	before := stalledDealSuggestions([]stalledDeal{first})
+	after := stalledDealSuggestions([]stalledDeal{again})
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("got %d and %d suggestions, want one each", len(before), len(after))
+	}
+	if before[0].Fingerprint == after[0].Fingerprint {
+		t.Error("a second stall on the same deal reuses the first stall's fingerprint — " +
+			"one dismissal would silence that deal for good")
+	}
+	// And the same stall keeps its fingerprint, or the dismissal would not hold
+	// for as long as the situation does.
+	repeat := stalledDealSuggestions([]stalledDeal{first})
+	if repeat[0].Fingerprint != before[0].Fingerprint {
+		t.Error("the same stall hashed differently between reads — a dismissal would not hold")
 	}
 }
 
@@ -174,13 +203,14 @@ func TestNoNextStepNeedsBothGrants(t *testing.T) {
 	dealsOnly.timeline = false
 	dealsOnly.open.Stalled = []stalledDeal{idle("Renewal")}
 
-	for _, suggestion := range candidateSuggestions(orgID, suggestNow, dealsOnly) {
+	found := candidateSuggestions(orgID, suggestNow, dealsOnly)
+	for _, suggestion := range found {
 		if suggestion.Kind == suggestNoNextStep {
 			t.Error("a no-next-step suggestion reached a caller who cannot read tasks")
 		}
 	}
 	// The advice that grant DOES support still arrives.
-	if len(candidateSuggestions(orgID, suggestNow, dealsOnly)) == 0 {
+	if len(found) == 0 {
 		t.Error("a deal reader got no advice at all about a stalled deal they can open")
 	}
 }

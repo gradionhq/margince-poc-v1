@@ -538,9 +538,8 @@ export interface paths {
          *     caller. A fingerprint that matches nothing answers `204` without storing
          *     anything — either the situation resolved between the render and the click, in
          *     which case the suggestion is already gone, or it was never served, in which case
-         *     there is nothing to silence. That is what bounds the stored set to the
-         *     suggestions an account actually raises, so no dismissal is ever dropped to make
-         *     room for another.
+         *     there is nothing to silence. So the stored set grows by one row per suggestion a
+         *     human actually dismissed, and no dismissal is ever dropped to make room.
          *
          *     Human-only: an agent has no opinion to record.
          */
@@ -6380,8 +6379,12 @@ export interface components {
              *
              *     Counted after this caller's own dismissals, so a suggestion they have already
              *     judged is in neither the list nor this number.
+             *
+             *     Absent exactly when `suggestions` is — a section the caller's grants withheld
+             *     was never computed, and a `0` there would state "no further suggestions"
+             *     about an account this read never looked at.
              */
-            suggestions_dropped: number;
+            suggestions_dropped?: number;
         };
         /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
