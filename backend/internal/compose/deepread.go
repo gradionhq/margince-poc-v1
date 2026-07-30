@@ -213,6 +213,13 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		}
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
+	// The logo lands as soon as the CRAWL succeeded, before anything the model
+	// lane produced is judged: it is a 🟢 display asset (A55) that no human has
+	// to approve, and it is read off the seed page's own markup, so a company
+	// gets its face even on a read whose extraction later comes back empty or
+	// dies outright.
+	w.resolveLogo(ctx, args, claim, crawl)
+
 	if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, extraction.err); deferred {
 		return deferErr
 	}
@@ -245,12 +252,6 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		w.log.ErrorContext(ctx, "site deep read degraded to partial: extraction failed in part",
 			"read", args.SiteReadID.String(), "err", extraction.err)
 	}
-
-	// The logo lands before the findings are staged and outside their
-	// confirm-first path: it is a 🟢 display asset (A55), so no human has to
-	// approve a picture, and it is the half of the read that pays off even
-	// when the model half comes back thin.
-	w.resolveLogo(ctx, args, claim, crawl)
 
 	var proposalIDs []ids.UUID
 	if claim.OrganizationID != nil {

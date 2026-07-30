@@ -51,15 +51,76 @@ func TestDecodeReadsThePixelFormatsASitePublishesAMarkIn(t *testing.T) {
 	}
 }
 
-func TestDecodeRefusesWhatIsNotAPictureItCanRender(t *testing.T) {
-	// An SVG is the case that matters most: it decodes nowhere here, which is
-	// what keeps third-party markup from ever becoming stored bytes.
-	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>`)
-	if _, err := Decode(svg); !errors.Is(err, ErrUnsupported) {
-		t.Fatalf("an SVG must be unsupported, got %v", err)
+func TestDecodeRasterizesAVectorMarkIntoPixels(t *testing.T) {
+	// A flat two-colour mark, the shape a favicon SVG actually takes.
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50">` +
+		`<rect x="0" y="0" width="100" height="50" fill="#ff6b00"/></svg>`)
+	img, err := Decode(svg)
+	if err != nil {
+		t.Fatalf("rasterizing an SVG: %v", err)
 	}
+	bounds := img.Bounds()
+	if bounds.Dx() != svgRasterEdge || bounds.Dy() != svgRasterEdge/2 {
+		t.Fatalf("rasterized to %v, want the viewBox aspect fitted to %d", bounds, svgRasterEdge)
+	}
+	if _, _, _, alpha := img.At(bounds.Dx()/2, bounds.Dy()/2).RGBA(); alpha == 0 {
+		t.Fatal("the rasterized mark is blank")
+	}
+}
+
+func TestDecodeDrawsAViewBoxThatDoesNotStartAtTheOrigin(t *testing.T) {
+	// A mark whose viewBox is offset — a real shape, and the case a naive
+	// transform draws shifted off the canvas. The square fills its whole
+	// viewBox, so every corner of the raster must be painted.
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 10 10">` +
+		`<rect x="-5" y="-5" width="10" height="10" fill="#000"/></svg>`)
+	img, err := Decode(svg)
+	if err != nil {
+		t.Fatalf("rasterizing an offset viewBox: %v", err)
+	}
+	bounds := img.Bounds()
+	for _, p := range []image.Point{
+		{X: 2, Y: 2},
+		{X: bounds.Dx() - 3, Y: 2},
+		{X: 2, Y: bounds.Dy() - 3},
+		{X: bounds.Dx() - 3, Y: bounds.Dy() - 3},
+	} {
+		if _, _, _, alpha := img.At(p.X, p.Y).RGBA(); alpha == 0 {
+			t.Fatalf("corner %v is unpainted — the viewBox offset shifted the drawing off the canvas", p)
+		}
+	}
+}
+
+func TestDecodeRasterizesAScriptedSVGRatherThanKeepingItsMarkup(t *testing.T) {
+	// The security property this whole package rests on: a document that
+	// carries script comes out as pixels, so nothing a caller serves back can
+	// still execute. What must NOT happen is the markup surviving.
+	svg := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">` +
+		`<script>alert(1)</script><circle cx="5" cy="5" r="5" fill="#000"/></svg>`)
+	img, err := Decode(svg)
+	if err != nil {
+		t.Fatalf("a scripted SVG must still rasterize: %v", err)
+	}
+	out, err := SquarePNG(img, 64)
+	if err != nil {
+		t.Fatalf("SquarePNG: %v", err)
+	}
+	if bytes.Contains(out, []byte("script")) || bytes.Contains(out, []byte("alert")) {
+		t.Fatal("the SVG's markup survived into the stored bytes")
+	}
+	if _, err := png.Decode(bytes.NewReader(out)); err != nil {
+		t.Fatalf("the stored bytes are not a PNG: %v", err)
+	}
+}
+
+func TestDecodeRefusesWhatIsNotAPictureItCanRender(t *testing.T) {
 	if _, err := Decode([]byte("<!doctype html><title>404</title>")); !errors.Is(err, ErrUnsupported) {
 		t.Fatal("an HTML error page served as an image must be unsupported")
+	}
+	// An HTML page whose body mentions <svg> is not an SVG document: the sniff
+	// reads the ROOT element, so a page like this must not reach the rasterizer.
+	if _, err := Decode([]byte(`<!doctype html><body><p>use &lt;svg&gt;</p></body>`)); !errors.Is(err, ErrUnsupported) {
+		t.Fatal("an HTML page mentioning svg must not pass as an SVG document")
 	}
 	if _, err := Decode(nil); !errors.Is(err, ErrUnsupported) {
 		t.Fatal("empty bytes must be unsupported")

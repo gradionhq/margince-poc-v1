@@ -10,9 +10,10 @@
 //
 // Two properties make it safe to point at bytes a third-party website served:
 //   - Nothing passes through. Every output is this package's own PNG encoder's
-//     work, so markup smuggled inside an image-typed response (the classic
-//     scripted SVG) cannot reach a caller that serves the result back — an SVG
-//     simply fails to decode here.
+//     work, so markup smuggled inside an image-typed response cannot reach a
+//     caller that serves the result back. An SVG is not an exception: it is
+//     rasterized on the way in (svg.go), so what leaves is pixels, never the
+//     document — and a scripted one has nothing left to script.
 //   - Declared dimensions are checked before pixels are allocated, so a
 //     kilobyte-sized header claiming 30000x30000 is refused rather than
 //     turned into gigabytes of image buffer.
@@ -59,6 +60,11 @@ var ErrUnsupported = errors.New("imagenorm: unsupported or undecodable image")
 // ErrUnsupported, because those frames' stride and transparency-mask rules
 // are a decoder this package deliberately does not own.
 func Decode(src []byte) (image.Image, error) {
+	if looksLikeSVG(src) {
+		// A vector mark has no pixels of its own, so it is drawn here rather
+		// than decoded — and never kept as the document it arrived as.
+		return rasterizeSVG(src)
+	}
 	if frame, isICO := icoPNGFrame(src); isICO {
 		if frame == nil {
 			return nil, fmt.Errorf("%w: the ICO carries no PNG frame", ErrUnsupported)

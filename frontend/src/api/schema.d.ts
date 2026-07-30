@@ -416,6 +416,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Stream an organization's logo image.
+         * @description The bytes behind `Organization.logo_url` (A55): the company mark resolved from its
+         *     own website during enrichment, normalized once at store time to a square PNG. The
+         *     response is always `image/png` — whatever the source format was, what is served is
+         *     the server's own re-encode, so no third-party markup is ever served from this origin.
+         *     404 when the organization has no resolved logo, is invisible to the caller, or does
+         *     not exist — a client renders the deterministic monogram for all three alike. 501 when
+         *     the deployment has no object store configured.
+         */
+        get: operations["getOrganizationLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/360": {
         parameters: {
             query?: never;
@@ -6102,6 +6131,15 @@ export interface components {
              * @enum {string|null}
              */
             classification?: null | "prospect" | "customer" | "agency" | "reseller" | "tech_vendor" | "platform" | "partner" | "competitor" | "other";
+            /**
+             * @description Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
+             *     path for this record, cookie-authenticated and same-origin. Null when no logo
+             *     resolved, which is the common case and never an error: a client renders the
+             *     deterministic monogram then, so it never shows a broken image or an empty slot.
+             *     The stored object key is deliberately not exposed; it names a bucket path, and a
+             *     client's business is the endpoint that streams the bytes.
+             */
+            readonly logo_url?: string | null;
             /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
             readonly strength?: components["schemas"]["RelationshipStrength"];
             source: string;
@@ -6499,6 +6537,12 @@ export interface components {
              *     present. Absent on every other node — there is nothing to say about them.
              */
             intro_path?: boolean;
+            /**
+             * @description The company node's resolved logo (A55), same value `Organization.logo_url` carries.
+             *     Null on an organization with no resolved logo and on every person or deal node —
+             *     a client draws the node's monogram or its token-coloured circle instead.
+             */
+            logo_url?: string | null;
         };
         /**
          * @description One edge, from the record that owns it to the record it points at. Both ends are
@@ -11705,6 +11749,41 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganizationLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The normalized logo bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The deployment has no object store configured, so no logo can be stored or served. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     getOrganization360: {

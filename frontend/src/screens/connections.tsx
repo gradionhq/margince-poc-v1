@@ -6,6 +6,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
+  Avatar,
   Badge,
   Button,
   Modal,
@@ -152,15 +153,37 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
           />
         );
       })}
-      {placed.map((p) => (
-        <circle
-          key={p.node.id}
-          className={nodeClass(p.node)}
-          cx={p.x}
-          cy={p.y}
-          r={p.node.root ? ROOT_RADIUS : NODE_RADIUS}
-        />
-      ))}
+      {placed.map((p) => {
+        const r = p.node.root ? ROOT_RADIUS : NODE_RADIUS;
+        return (
+          <g key={p.node.id}>
+            <circle className={nodeClass(p.node)} cx={p.x} cy={p.y} r={r} />
+            {p.node.logo_url && (
+              <>
+                {/* One clip per node: a clipPath is defined in the diagram's
+                    own coordinates, so a shared one would clip every logo to
+                    a single node's position. */}
+                <clipPath id={`cx-clip-${p.node.id}`}>
+                  <circle cx={p.x} cy={p.y} r={r - 1} />
+                </clipPath>
+                {/* The circle underneath keeps its fill and its ring, so a
+                    company whose image never loads is still a drawn node
+                    rather than a hole in the diagram. */}
+                <image
+                  className="cx-node-logo"
+                  href={p.node.logo_url}
+                  clipPath={`url(#cx-clip-${p.node.id})`}
+                  x={p.x - r + 2}
+                  y={p.y - r + 2}
+                  width={(r - 2) * 2}
+                  height={(r - 2) * 2}
+                  preserveAspectRatio="xMidYMid meet"
+                />
+              </>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -182,6 +205,12 @@ function nodeClass(node: GraphNode): string {
   }
   if (node.intro_path) {
     classes.push("cx-node-intro");
+  }
+  if (node.logo_url) {
+    // A company that carries a logo needs the same neutral backing the avatar
+    // chip gives it elsewhere: a mark drawn on transparency would otherwise
+    // read against the node's own dark fill.
+    classes.push("cx-node-marked");
   }
   return classes.join(" ");
 }
@@ -263,7 +292,10 @@ function NodeList({ graph }: Readonly<{ graph: Graph }>) {
     <ul className="co-list cx-nodes">
       {neighbours.map((node) => (
         <li key={node.id} className="co-row">
-          <span className="cx-node-name">
+          <span className="cx-node-name avatar-row">
+            {node.kind === "organization" && (
+              <Avatar name={node.label} src={node.logo_url} tinted />
+            )}
             {/* The label comes off THIS payload. EntityRef would otherwise
                 fetch each record's name — one request per visible node, with
                 the raw id showing until it lands — for names the graph read
