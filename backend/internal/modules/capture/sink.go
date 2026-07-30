@@ -29,12 +29,13 @@ import (
 // Sink is the one connector.Sink implementation — the chokepoint every
 // captured record passes on its way into the domain.
 type Sink struct {
-	pool          *pgxpool.Pool
-	stager        MergeStager
-	exclusions    ExclusionRules
-	ensurer       CounterpartyEnsurer
-	freemail      *FreemailList
-	transactional *TransactionalList
+	pool           *pgxpool.Pool
+	stager         MergeStager
+	exclusions     ExclusionRules
+	ensurer        CounterpartyEnsurer
+	channelEnsurer ChannelCounterpartyEnsurer
+	freemail       *FreemailList
+	transactional  *TransactionalList
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for

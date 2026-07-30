@@ -40,6 +40,13 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	// The A13 resurrection guard: an erased subject's address
 	// refuses re-capture — deletion sticks. The natural key, not
 	// the address, names the skip (the log must not re-store PII).
+	//
+	// An address is the only identifier this path can be given: LeadFields
+	// carries no channel identity, because a channel identity is a
+	// person-resolution key and a lead is not a person (ADR-0008 — leads
+	// graduate). So the channel twin of this probe has nothing to guard here;
+	// it guards the path a channel record does take, people's
+	// EnsureChannelCounterparty.
 	if fields.Email != "" {
 		suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
 		if err != nil {

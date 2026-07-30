@@ -26,6 +26,7 @@
 // itself calls this a small, single-organization fleet, and two cheap
 // probes read far more plainly than smuggling state between two
 // independently-documented WebhookSpec hooks over a shared *http.Request.
+
 package compose
 
 import (
@@ -52,7 +53,7 @@ import (
 // registered at setWebhook (design §6.2 step 2) — a header, never the path
 // or a query string, so it is never captured by an access log or a
 // browser's URL history.
-const telegramSecretHeader = "X-Telegram-Bot-Api-Secret-Token"
+const telegramSecretHeader = "X-Telegram-Bot-Api-Secret-Token" //nolint:gosec // G101 false positive: the header's NAME, not the secret it carries
 
 // TelegramIngestArgs is the durable work request the webhook's one
 // transaction enqueues alongside the raw row. Task 9's worker

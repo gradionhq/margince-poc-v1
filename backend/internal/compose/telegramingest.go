@@ -9,6 +9,7 @@
 // joins the connection's bot id onto the payload (capture/telegram's
 // Normalize is pure and knows nothing of connections), and hands every
 // resulting record to the ONE guarded Sink every capture path shares.
+
 package compose
 
 import (
@@ -128,17 +129,21 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 // comment) — reusing it as this principal's UserID/OnBehalfOf would make
 // every captured message look like the connecting admin's own row-scoped
 // activity, which is exactly the "owned record" §4.1 forbids. Its
-// permissions are the fixed minimum this worker exercises (activity
-// creation) and workspace-wide (RowScopeAll): a channel message belongs to
-// the whole workspace a single bot serves, not to whichever human happened
-// to run Connect.
+// permissions are the fixed minimum this worker exercises — the activity it
+// captures, and the person the channel ensure auto-creates for an unmatched
+// sender (design D1) — and workspace-wide (RowScopeAll): a channel message
+// belongs to the whole workspace a single bot serves, not to whichever human
+// happened to run Connect.
 func telegramChannelPrincipal() principal.Principal {
 	return principal.Principal{
 		Type: principal.PrincipalConnector,
 		ID:   telegram.CapturedByTelegram,
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"channel"},
-			Objects:  map[string]principal.ObjectGrant{"activity": {Create: true}},
+			Objects: map[string]principal.ObjectGrant{
+				"activity": {Create: true},
+				"person":   {Create: true},
+			},
 			RowScope: principal.RowScopeAll,
 		},
 	}

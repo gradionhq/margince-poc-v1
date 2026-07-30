@@ -115,6 +115,12 @@ type PendingCounterparty struct {
 // caller records as its own breadcrumb: a capture that asks no question is a
 // different event from one that joins an existing one, and only the first means
 // the workspace is being flooded.
+//
+// The erasure-suppression probe below has no channel twin, and that is
+// structural rather than an omission: this ledger is keyed on an address, so a
+// record identified by a channel identity can never reach it. The channel key's
+// own refusal lives where such a record does go — people's
+// EnsureChannelCounterparty, through storekit.ChannelIdentitySuppressed.
 func recordDisposition(ctx context.Context, tx pgx.Tx, in dispositionRow) (string, error) {
 	email := normalizeEmail(in.Email)
 	if email == "" {

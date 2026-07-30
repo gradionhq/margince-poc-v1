@@ -125,6 +125,7 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
+	ensurer := peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger())}
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
@@ -136,13 +137,21 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// chokepoint — composed here so capture never imports people. The
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
-		WithEnsurer(peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger())},
+		WithEnsurer(ensurer,
 			capture.NewFreemailList(cfg.FreemailExtra),
-			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever))
+			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever)).
+		// The channel twin of the line above (telegram-oa design §6.4): an
+		// inbound channel message reaches the SAME module through its own
+		// contract — one adapter serving two seams, so the two ensures cannot
+		// drift onto different dedupe implementations.
+		WithChannelEnsurer(ensurer)
 }
 
 // peopleEnsurer adapts the people module's auto-create engine onto
-// capture's resolver seam.
+// capture's resolver seams — the mail one and the channel one. Both land in the
+// same module because both must resolve through the same dedupe chokepoint; the
+// contracts differ because a mail counterparty is named by an address and a
+// channel counterparty by a provider identity.
 type peopleEnsurer struct {
 	store *people.Store
 	// enrich queues the web dossier for a company this ensure just minted. It
@@ -179,6 +188,30 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
 	}
 	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
+}
+
+// EnsureChannelCounterparty is the same adaptation for an inbound channel
+// message (telegram-oa design §6.4). No company is derived and so no web
+// dossier is queued: a channel identity carries no domain, and there is nothing
+// for the enrich trigger to read a website from.
+func (p peopleEnsurer) EnsureChannelCounterparty(ctx context.Context, in capture.EnsureChannelRequest) (capture.EnsureOutcome, error) {
+	res, err := p.store.EnsureChannelCounterparty(ctx, people.EnsureChannelCounterpartyInput{
+		Identity:    in.Identity,
+		DisplayName: in.DisplayName,
+		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
+		Source:      in.Source,
+		CapturedBy:  in.CapturedBy,
+	})
+	if errors.Is(err, people.ErrCounterpartySuppressed) {
+		// A13 on the channel key: an erased subject stays dead — a deliberate
+		// no-op, not a fault for the reconcile queue, and nothing was created
+		// to count.
+		return capture.EnsureOutcome{}, nil
+	}
+	if err != nil {
+		return capture.EnsureOutcome{}, err
+	}
+	return capture.EnsureOutcome{PersonCreated: res.PersonCreated}, nil
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app

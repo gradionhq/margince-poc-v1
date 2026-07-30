@@ -128,7 +128,7 @@ func (s *Store) EnsureCounterpartyTx(ctx context.Context, tx pgx.Tx, in EnsureCo
 			return EnsureCounterpartyResult{}, err
 		}
 	}
-	if err := s.linkActivityToPerson(ctx, tx, in, res.PersonID); err != nil {
+	if err := s.linkActivityToPerson(ctx, tx, in.ActivityID, res.PersonID); err != nil {
 		return EnsureCounterpartyResult{}, err
 	}
 	return res, nil
@@ -261,14 +261,16 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 
 // linkActivityToPerson attaches the captured activity to the person —
 // person-only by decision (the org rolls up through employment, a direct
-// org link would double-count the same mail).
-func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID) error {
+// org link would double-count the same mail). Shared with the channel ensure,
+// which links the same way: it takes the activity id rather than either
+// path's input so neither has to know the other's shape.
+func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, personID ids.PersonID) error {
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 		SELECT $1, $2, 'person', $3
 		WHERE NOT EXISTS (
 			SELECT 1 FROM activity_link WHERE activity_id = $2 AND entity_type = 'person' AND person_id = $3)`,
-		workspaceID(ctx), in.ActivityID, personID); err != nil {
+		workspaceID(ctx), activityID, personID); err != nil {
 		return fmt.Errorf("people: linking activity to person: %w", err)
 	}
 	return nil
@@ -320,7 +322,16 @@ func counterpartyName(displayName, email string) string {
 // address on a DIFFERENT domain ("ceo@acme.com <attacker@evil.example>").
 // Flagged rows carry quarantined_at for the review surface; capture still
 // records them — hiding suspicious mail would be worse than labeling it.
+//
+// Both tells are statements ABOUT the sender's mail domain, so with no domain
+// there is nothing for either to contradict and the answer is no. Without that
+// floor the second tell compares an embedded address against "" and matches
+// every display name that merely contains an "@" — quarantining a record for a
+// reason that cannot apply to it.
 func quarantineSuspect(displayName, domain string) bool {
+	if domain == "" {
+		return false
+	}
 	if strings.HasPrefix(domain, "xn--") || strings.Contains(domain, ".xn--") {
 		return true
 	}
