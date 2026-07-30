@@ -931,17 +931,21 @@ paths:
         the deals already selected — so they are the one node kind that number does not
         speak for.
 
-        The reads themselves are bounded, so one request's cost follows the caps and not
-        the account. Deals are ordered and limited in the database, so their slice is
-        exactly the top N. Organizations are limited by COMPANY rather than by row, so a
-        company attached several ways — a parent that is also a reseller — cannot fill the
+        How each group picks its slice, because the three differ in ways a client can
+        see. Deals are ordered and limited in the database, so their slice is exactly the
+        top N. Organizations are limited by COMPANY rather than by row, so a company
+        attached several ways — a parent that is also a reseller — cannot fill the
         allowance and leave the others out; a relationship recorded twice is one edge, not
         two. Contacts are the one group ordered by something the database does not know
         yet (a relationship strength computed after the read), so an account with more
         than 500 contacts contributes the strongest of the first 500 by id rather than of
-        all of them. `dropped_count` is the true remainder in every case. No real account
-        is near that bound, and an installation that reaches it should read the contact
-        list from `GET /people` rather than from a card.
+        all of them — no real account is near that, and an installation that reaches it
+        should read the contact list from `GET /people` rather than from a card.
+
+        `dropped_count` is the true remainder in every case, including past that 500.
+        Keeping it true costs a count over each group's whole membership, so this read is
+        proportional to the account it describes and not to the caps; the caps bound the
+        rows returned and the per-contact work done on them, which is what grows fast.
 
         Native system-of-record only: a workspace reading from an incumbent mirror gets
         `422 unsupported_in_overlay_mode`, the same refusal the 360 gives, because the
