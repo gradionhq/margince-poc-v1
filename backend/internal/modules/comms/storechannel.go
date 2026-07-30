@@ -89,3 +89,42 @@ func (s *Store) StageChannelTx(ctx context.Context, tx pgx.Tx, in StageChannelIn
 	}
 	return id, nil
 }
+
+// MarkInFlight records — DURABLY, before anything reaches the provider — that
+// this delivery is about to be transmitted through a seam whose retries cannot
+// detect a prior send (design §8.4).
+//
+// The ordering is the entire guarantee. Marked afterwards, a worker that died
+// mid-send would leave a row that looks untried, the job would be redelivered,
+// and Telegram — which has no idempotency key and no prior-send lookup — would
+// deliver a second copy with nothing able to notice. Marked first, the next
+// attempt can see that the outcome was never learned and stop.
+//
+// It is deliberately NOT a status and NOT a claim. An in-flight status would
+// make River's redelivery a silent skip for mail as well, disabling the
+// connector's retransmission check in exactly the crash it exists for; this
+// column is read only by the seams that need it, which is why the schema
+// constrains it to the channel shape.
+//
+// Guarded on status = 'pending' like every other transition here: a stale
+// attempt that lost a race to one which already closed the row reports
+// ErrTerminal rather than marking a finished delivery live again.
+func (s *Store) MarkInFlight(ctx context.Context, id ids.UUID) error {
+	return s.update(ctx, `
+		UPDATE comms_outbound SET inflight_at = $2
+		 WHERE id = $1 AND status = 'pending'`, id, s.now().UTC())
+}
+
+// ClearInFlight retracts the marker, and its caller is the one place that may:
+// a DEFINITE answer from the provider, which proves the message did not go.
+// Anything less — a timeout, a reset, a response that could not be read — leaves
+// the marker standing, because that is the whole fact it exists to carry.
+//
+// It is shape-BLIND on purpose. inflight_at is NULL on every mail row, so
+// clearing one is a no-op there, and the send path gets one rule ("a definite
+// refusal retracts the marker") instead of a second branch on provider class.
+func (s *Store) ClearInFlight(ctx context.Context, id ids.UUID) error {
+	return s.update(ctx, `
+		UPDATE comms_outbound SET inflight_at = NULL
+		 WHERE id = $1 AND status = 'pending'`, id)
+}

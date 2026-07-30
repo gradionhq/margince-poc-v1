@@ -12,12 +12,16 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // OutboundChannelMessage is one message to send into a chat.
@@ -160,9 +164,14 @@ func (a *httpAPI) SendMessage(ctx context.Context, token string, m OutboundChann
 		return 0, err
 	}
 	if out.MessageID == 0 {
-		// Without the provider's id there is nothing a later reply can thread
-		// under, so this is not a send we may report as delivered.
-		return 0, fmt.Errorf("sendMessage answered without a message id: %w", ErrRequestRejected)
+		// ok=true is Telegram ACCEPTING the message, so it may well be on its
+		// way — but without the provider's id there is nothing a later reply can
+		// thread under and nothing to record as a receipt. The outcome is
+		// therefore unknowable rather than refused, and it takes the
+		// reachability sentinel: the answer never arrived in usable form, which
+		// for a send is the same fact as no answer at all. Read as a refusal it
+		// would invite a retry that delivers a second copy.
+		return 0, fmt.Errorf("sendMessage answered without a message id: %w", ErrUnreachable)
 	}
 	return out.MessageID, nil
 }
@@ -173,6 +182,12 @@ type envelope struct {
 	OK          bool            `json:"ok"`
 	Description string          `json:"description"`
 	Result      json.RawMessage `json:"result"`
+	// Parameters is the Bot API's structured refusal detail. Only retry_after
+	// is read — see retryAfterOf, which is where a throttle's interval comes
+	// from.
+	Parameters struct {
+		RetryAfter int `json:"retry_after"`
+	} `json:"parameters"`
 }
 
 // call performs one Bot API method and decodes its `result` into out (nil when
@@ -209,7 +224,7 @@ func (a *httpAPI) call(ctx context.Context, token, method string, body map[strin
 	// server-side log — the transport never puts it on the wire.
 	var env envelope
 	decodeErr := json.Unmarshal(raw, &env)
-	if err := classify(resp.StatusCode, method, env.Description); err != nil {
+	if err := classify(resp.StatusCode, method, env.Description, retryAfterOf(resp, env)); err != nil {
 		return err
 	}
 	if decodeErr != nil {
@@ -252,13 +267,44 @@ func (a *httpAPI) request(ctx context.Context, token, method string, body map[st
 	return req, nil
 }
 
+// maxRetryAfter caps a throttle interval this package will report. Telegram's
+// real values are seconds to about a minute; the cap exists because the send
+// path SNOOZES a delivery for whatever interval comes back, so one malformed or
+// hostile response must not be able to take a message out of circulation for
+// longer than the retry ladder that bounds it.
+const maxRetryAfter = 5 * time.Minute
+
+// retryAfterOf reads how long Telegram says to wait before the next request.
+// The Bot API states it in the envelope's `parameters.retry_after` (seconds);
+// the standard Retry-After header is read only as a fallback, for a 429
+// answered by something in front of the Bot API that carries no envelope.
+//
+// Zero means neither named an interval, and the caller falls back to its own
+// backoff — which is the one case where guessing is better than waiting
+// forever.
+func retryAfterOf(resp *http.Response, env envelope) time.Duration {
+	seconds := env.Parameters.RetryAfter
+	if seconds <= 0 {
+		header, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After")))
+		if err != nil {
+			return 0
+		}
+		seconds = header
+	}
+	if seconds <= 0 {
+		return 0
+	}
+	return min(time.Duration(seconds)*time.Second, maxRetryAfter)
+}
+
 // classify is the ONE status verdict for every Bot API call, so the connect
 // path's branching cannot disagree with the send path's about what the same
 // status means. It returns nil for a 2xx.
 //
 // description is Telegram's own refusal text: carried into the wrapped error
-// for the server-side log, never onto the wire.
-func classify(status int, method, description string) error {
+// for the server-side log, never onto the wire. retryAfter is the interval
+// Telegram stated for a throttle, zero when it stated none.
+func classify(status int, method, description string, retryAfter time.Duration) error {
 	switch {
 	case status >= 200 && status < 300:
 		return nil
@@ -267,6 +313,21 @@ func classify(status int, method, description string) error {
 		// for a token that does not name a bot, because the token is part of
 		// the path.
 		return fmt.Errorf("telegram: %s: %s: %w", method, description, ErrTokenRejected)
+	case status == http.StatusTooManyRequests:
+		// A throttle is a DEFINITE answer — Telegram refused this request, so
+		// nothing was transmitted — and the interval it names is the one the
+		// caller must wait. Backing off on a schedule of our own earns a harder
+		// limit, so the interval travels in the shared RateLimitedError the send
+		// ladder reads with errors.As.
+		//
+		// It ALSO answers ErrRequestRejected, joined rather than replaced,
+		// because that is what a 429 has always been to the connect transport:
+		// a request Telegram understood and refused on its own terms. Two
+		// readers, one error, neither taught about the other.
+		return errors.Join(
+			fmt.Errorf("telegram: %s: %s: %w", method, description, ErrRequestRejected),
+			&connector.RateLimitedError{RetryAfter: retryAfter},
+		)
 	case status >= 500:
 		return fmt.Errorf("telegram: %s: upstream status %d: %w", method, status, ErrUnreachable)
 	default:

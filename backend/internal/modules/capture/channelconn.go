@@ -48,7 +48,7 @@ const channelConnectionObject = "channel_connection"
 
 // ProviderTelegram is the only channel provider implemented, and the only
 // value channel_connection.provider's CHECK admits.
-const ProviderTelegram = "telegram"
+const ProviderTelegram = telegram.ProviderName
 
 // The channel_connection lifecycle states this file drives. The column's CHECK
 // also admits 'error' and 'reauth_required', which no path here sets yet —

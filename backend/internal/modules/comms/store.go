@@ -143,9 +143,16 @@ type Delivery struct {
 	InReplyTo       string
 	References      []string
 	ListUnsubscribe string
-	Status          string
-	Attempts        int
-	CreatedAt       time.Time
+	// InFlightAt is when a PREVIOUS attempt handed this delivery to the provider
+	// without recording what came back — nil when none did. It is set only on
+	// the shapes whose retries cannot detect a prior send
+	// (comms_outbound_inflight_is_channel, 0150), and reading it non-nil is what
+	// makes the difference between an unsent message and a second copy of one
+	// the customer already has.
+	InFlightAt *time.Time
+	Status     string
+	Attempts   int
+	CreatedAt  time.Time
 }
 
 // IsChannel reports whether this delivery leaves through a messaging channel
@@ -265,9 +272,10 @@ func marshalList(values []string) ([]byte, error) {
 // address/reference lists are all NULL there. Without the coalesces the very
 // first channel delivery fails at load time — a NULL into a Go string, and a
 // NULL jsonb into a decode — which is a delivery that can never leave and a
-// fault that names the scan rather than the shape. channel_user_id is the one
-// column NOT coalesced: it is the shape discriminator, and NULL is the answer
-// this scan needs from it.
+// fault that names the scan rather than the shape. channel_user_id and
+// inflight_at are the two columns NOT coalesced: one is the shape discriminator
+// and the other says whether a prior attempt reached the provider, and for both
+// of them NULL is the answer this scan needs rather than a value to substitute.
 func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	var d Delivery
 	var recipients, cc, refs []byte
@@ -280,10 +288,10 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 			          coalesce(recipients, '[]'::jsonb), coalesce(cc, '[]'::jsonb),
 			          coalesce(subject, ''), body, channel_user_id, consent_purpose,
 			          coalesce(in_reply_to, ''), coalesce(references_chain, '[]'::jsonb),
-			          coalesce(list_unsubscribe, ''), status, attempts, created_at`,
+			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at`,
 			id).Scan(&d.ID, &d.ActivityID, &d.UserID, &d.Provider, &d.MessageID,
 			&recipients, &cc, &d.Subject, &d.Body, &d.ChannelUserID, &d.ConsentPurpose,
-			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.Status, &d.Attempts, &d.CreatedAt)
+			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Delivery{}, ErrTerminal
@@ -356,6 +364,13 @@ func (s *Store) RecordSent(ctx context.Context, id ids.UUID, receipt connector.S
 // is durable. It reports ErrTerminal for a delivery a newer attempt already
 // closed, and a wrapped error for the one failure that IS the dispatcher's to
 // act on: a receipt that did not land at all.
+//
+// message_id is COALESCED for Load's reason: it is NULL on a channel row, and a
+// NULL into a Go string fails the scan — which would report a receipt as
+// unrecorded for a message the provider has already accepted, and send the
+// delivery back to a ladder that cannot tell it went. The staged identity that
+// comes back is then empty, which the reconcile reads as "nothing to re-key" —
+// the correct answer for a transport with no mail identity at all.
 func (s *Store) commitReceipt(ctx context.Context, id ids.UUID, receipt connector.SendReceipt) (ids.ActivityID, string, error) {
 	ctx, cancel := detachedWrite(ctx)
 	defer cancel()
@@ -363,11 +378,17 @@ func (s *Store) commitReceipt(ctx context.Context, id ids.UUID, receipt connecto
 	var activityID ids.ActivityID
 	var staged string
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// inflight_at is cleared with the receipt: the outcome is now KNOWN, and
+		// a sent row still carrying the marker would read as a transmission
+		// nobody could account for. It is already NULL on every mail row, so this
+		// is the one write that closes the marker rather than a shape-specific
+		// branch.
 		return tx.QueryRow(ctx, `
 			UPDATE comms_outbound
-			   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL
+			   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL,
+			       inflight_at = NULL
 			 WHERE id = $1 AND status = 'pending'
-			RETURNING activity_id, message_id`,
+			RETURNING activity_id, coalesce(message_id, '')`,
 			id, receipt.ProviderMessageID, s.now().UTC()).Scan(&activityID, &staged)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

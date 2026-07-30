@@ -37,12 +37,21 @@ type fakeStore struct {
 	stamped  string
 	deferred string
 
+	// marked and cleared count the at-most-once marker's two transitions. They
+	// are COUNTS rather than flags because the invariant is about how many times
+	// each happened relative to the provider call: one mark before a
+	// transmission, and a retraction only on a definite answer.
+	marked  int
+	cleared int
+
 	// Per-transition faults. ErrTerminal from any of them is the benign
 	// no-op the store documents: a newer attempt already closed the row.
 	sentErr   error
 	parkErr   error
 	failedErr error
 	deferErr  error
+	markErr   error
+	clearErr  error
 }
 
 func (f *fakeStore) Load(context.Context, ids.UUID) (Delivery, error) { return f.delivery, f.loadErr }
@@ -75,6 +84,29 @@ func (f *fakeStore) RecordDeferral(_ context.Context, _ ids.UUID, r string) erro
 	return f.deferErr
 }
 
+// MarkInFlight records the pre-call marker the fake delivery ALSO carries
+// forward, so a second dispatch of the same fake store sees what the first one
+// wrote. Without that the crash case could not be exercised at all: the whole
+// guarantee is that the marker outlives the attempt that set it.
+func (f *fakeStore) MarkInFlight(_ context.Context, _ ids.UUID) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	f.marked++
+	at := testNow
+	f.delivery.InFlightAt = &at
+	return nil
+}
+
+func (f *fakeStore) ClearInFlight(_ context.Context, _ ids.UUID) error {
+	if f.clearErr != nil {
+		return f.clearErr
+	}
+	f.cleared++
+	f.delivery.InFlightAt = nil
+	return nil
+}
+
 type fakeSender struct {
 	calls int
 	seen  connector.EmailMessage
@@ -89,12 +121,20 @@ func (f *fakeSender) SendEmail(_ context.Context, _ connector.Auth, m connector.
 
 type fakeResolver struct {
 	sender  connector.EmailSender
+	channel connector.MessageSender
 	granted []string
 	err     error
 }
 
 func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return f.sender, connector.Auth("cred"), f.granted, f.err
+}
+
+// ResolveChannel answers with the bot token itself as the credential, which is
+// what the real resolver hands back: a channel binding has no OAuth bundle and
+// therefore no scope list either.
+func (f fakeResolver) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+	return f.channel, connector.Auth("bot-token"), f.err
 }
 
 // stubConsent records WHO it was asked about, not only what it answered. The

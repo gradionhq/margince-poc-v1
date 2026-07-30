@@ -30,6 +30,11 @@ type deliveryStore interface {
 	Park(ctx context.Context, id ids.UUID, reason string) error
 	RecordFailure(ctx context.Context, id ids.UUID, reason string) error
 	RecordDeferral(ctx context.Context, id ids.UUID, reason string) error
+	// The at-most-once marker, for the seams whose retries cannot detect a prior
+	// send. Both are ordinary status-guarded transitions; what makes them a
+	// guarantee is WHEN the dispatcher calls them (sendseam.go).
+	MarkInFlight(ctx context.Context, id ids.UUID) error
+	ClearInFlight(ctx context.Context, id ids.UUID) error
 }
 
 var _ deliveryStore = (*Store)(nil)
@@ -136,6 +141,26 @@ var ErrProviderNotConfigured = errors.New("comms: no integration for this provid
 // permanently destroy a legitimate send that nothing is wrong with.
 type ConnectionResolver interface {
 	Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error)
+
+	// ResolveChannel resolves the WORKSPACE's transmitting channel binding: the
+	// connector's message seam and its unsealed credential.
+	//
+	// It takes no user id because there is none to take. A channel is bound once
+	// for the whole workspace by an admin, not granted per seat, so the
+	// credential lookup is keyed on the workspace RLS already binds. What does
+	// NOT move is the seat check: the human who staged the message is still
+	// re-read at transmit time (gateSeat), so a rep who lost their seat between
+	// staging and transmission is refused on either transport.
+	//
+	// There is no scope list, for the reason SendsWithoutScope names: a bot token
+	// carries no OAuth grant, so there is nothing for the authority gate to
+	// intersect and an empty list would be a refusal rather than an absence.
+	//
+	// It reports the SAME three deployment facts Resolve does, and every other
+	// error is transient for the same reason — including a workspace holding more
+	// than one live binding, which is a fault an operator repairs, not a fact
+	// about the deployment.
+	ResolveChannel(ctx context.Context, provider string) (connector.MessageSender, connector.Auth, error)
 }
 
 // consentRecipients is every subject this delivery reaches, in the vocabulary

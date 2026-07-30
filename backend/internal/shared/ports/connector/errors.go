@@ -24,6 +24,25 @@ var ErrAuthRejected = errors.New("connector: authorization rejected")
 // off and retrying.
 var ErrUnreachable = errors.New("connector: provider unreachable")
 
+// ErrSendOutcomeUnknown marks a transmission whose OUTCOME the provider never
+// reported: the request went out and no usable answer came back — a timeout, a
+// reset connection, a response that could not be read. The message may be on
+// its way and may not, and nothing on hand can tell.
+//
+// It is separate from ErrUnreachable because retrying is only safe where a
+// retry can DISCOVER that an earlier attempt already transmitted. A mail seam
+// can: the RFC822 identity the message was staged under is searchable at the
+// provider, so mail reports an unanswered send as ErrUnreachable and lets the
+// ladder run. Telegram's sendMessage offers neither an idempotency key nor a
+// prior-send lookup, so no later attempt could ever find out, and a retry would
+// message a customer twice with nothing able to detect it.
+//
+// A caller therefore NEVER retries this class — the delivery stops with the
+// uncertainty on the record. Only a seam that cannot detect a prior send may
+// report it; a seam that can must go and find out rather than declare the
+// outcome unknowable.
+var ErrSendOutcomeUnknown = errors.New("connector: the provider never reported the outcome of this transmission")
+
 // ErrCursorGone marks a stored sync watermark the provider no longer honors
 // (e.g. Gmail 404 on an old historyId): the connector recovers with its
 // bounded re-list; the registry records the class, nothing more.

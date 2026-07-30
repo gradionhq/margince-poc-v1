@@ -25,6 +25,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -116,6 +117,14 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.
 	r.Register(imap.NewStanding())
+	// Telegram is registered on the same terms and for the same reason: a bot
+	// binding's token is per-connection and vault-sealed, so there is no
+	// deployment-wide app to configure. It is the registration that lets the send
+	// path resolve the workspace's bot at all — Registry.ChannelSenderFor
+	// type-asserts the message seam off this map, so an unregistered connector
+	// reads as "this installation has no Telegram integration" and parks every
+	// reply a rep writes.
+	r.Register(telegram.New(telegram.NewAPI(nil, "")))
 	return r
 }
 

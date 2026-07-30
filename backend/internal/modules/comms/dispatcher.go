@@ -134,10 +134,13 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Resolve first, because the authority gate reads the scopes the provider
 	// says this grant holds right now — not a copy stored when it was granted.
-	sender, auth, granted, err := d.resolver.Resolve(ctx, del.UserID, del.Provider)
+	// resolveSeam is the ONE branch on provider class (sendseam.go); everything
+	// from here down is one path for both transports.
+	seam, err := d.resolveSeam(ctx, del)
 	switch {
 	case errors.Is(err, ErrNoMailbox):
-		return d.park(ctx, del.ID, "no mailbox is connected for this provider; connect one to enable sending")
+		return d.park(ctx, del.ID, fmt.Sprintf(
+			"nothing is connected for %s to transmit through; connect it to enable sending", del.Provider))
 	case errors.Is(err, ErrCannotSend):
 		return d.park(ctx, del.ID, fmt.Sprintf("the %s connection cannot transmit messages", del.Provider))
 	case errors.Is(err, ErrProviderNotConfigured):
@@ -150,7 +153,7 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Gate: authority. It refuses first so that a caller with no rights at
 	// all learns nothing about the recipients' consent state.
-	if outcome, wait, err := d.gateSendAuthority(ctx, del, granted); outcome != outcomeUndecided {
+	if outcome, wait, err := d.gateSendAuthority(ctx, del, seam.granted); outcome != outcomeUndecided {
 		return outcome, wait, err
 	}
 
@@ -185,7 +188,7 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 		return d.park(ctx, del.ID, fmt.Sprintf("the retry ladder is exhausted after %d attempts", del.Attempts))
 	}
 
-	return d.transmit(ctx, del, sender, auth)
+	return d.transmit(ctx, del, seam)
 }
 
 // gateSendAuthority refuses a delivery this installation's own knowledge of the
@@ -297,23 +300,16 @@ func (d *Dispatcher) pace(ctx context.Context, del Delivery) (Outcome, time.Dura
 	return outcomeUndecided, 0, nil
 }
 
-// transmit hands the message to the provider and records what came back.
-func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connector.EmailSender, auth connector.Auth) (Outcome, time.Duration, error) {
-	// Every staged field travels: a retry must rebuild an identical message,
-	// and a field dropped here is a header silently missing from real mail.
-	// Attempt counts the transmissions BEFORE this one — Load already counted
-	// this attempt — so a first transmission arrives as 0 and the connector's
-	// prior-send lookup runs only on a real retry.
-	receipt, err := sender.SendEmail(ctx, auth, connector.EmailMessage{
-		To: del.Recipients, Cc: del.Cc,
-		Subject: del.Subject, Body: del.Body,
-		MessageID:           del.MessageID,
-		InReplyTo:           del.InReplyTo,
-		References:          del.References,
-		ListUnsubscribe:     del.ListUnsubscribe,
-		ListUnsubscribePost: rfc8058Post(del.ListUnsubscribe),
-		Attempt:             max(del.Attempts-1, 0),
-	})
+// transmit hands the message to the provider and records what came back. The
+// seam already carries the shape-specific half (sendseam.go), so what follows is
+// the same for a mail message and a channel one.
+func (d *Dispatcher) transmit(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
+	// At-most-once, for the seams that need it: a transmission whose outcome was
+	// never learned is never attempted a second time.
+	if outcome, wait, err := d.guardAtMostOnce(ctx, del, seam); outcome != outcomeUndecided {
+		return outcome, wait, err
+	}
+	receipt, err := seam.transmit(ctx)
 	if err != nil {
 		return d.classifySendFailure(ctx, del, err)
 	}
@@ -357,8 +353,29 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connecto
 // rejected recipient therefore burns the whole retry ladder before its job
 // exhausts and the delivery parks.
 func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err error) (Outcome, time.Duration, error) {
+	if errors.Is(err, connector.ErrSendOutcomeUnknown) {
+		// NEVER retried, and no shape test is needed to decide that: only a seam
+		// that cannot discover a prior send reports this class, and one that can
+		// is obliged to go and find out instead. The in-flight marker
+		// deliberately STAYS — it is the durable record that a message may
+		// already be with the customer, and the park reason is the only honest
+		// thing to tell the operator reading the row.
+		return d.park(ctx, del.ID, unknownOutcomeReason)
+	}
+	// Everything below is a DEFINITE answer from the provider, which proves
+	// nothing was transmitted — so the in-flight marker is retracted before the
+	// delivery goes back on the ladder. It is a no-op for a seam that never set
+	// one, which is what keeps this a single rule rather than a second branch on
+	// provider class.
+	if clearErr := d.store.ClearInFlight(ctx, del.ID); clearErr != nil && !errors.Is(clearErr, ErrTerminal) {
+		// The marker is still standing, so the next attempt will park rather
+		// than re-send. Both causes go back for the job log, and the delivery
+		// errs toward an unsent message — the direction this whole path is built
+		// to err in.
+		return d.retry(ctx, del.ID, errors.Join(err, clearErr))
+	}
 	if errors.Is(err, connector.ErrAuthRejected) {
-		return d.park(ctx, del.ID, "the provider rejected this mailbox's credential; reconnect the mailbox to resume sending")
+		return d.park(ctx, del.ID, "the provider rejected the credential this delivery transmits through; reconnect it to resume sending")
 	}
 	// Honour the provider's own interval when it named one: it knows when it
 	// will accept the next message, and guessing shorter earns another

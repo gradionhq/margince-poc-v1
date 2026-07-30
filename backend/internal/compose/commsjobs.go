@@ -206,8 +206,10 @@ type mailboxSenders interface {
 
 var _ mailboxSenders = (*capture.Registry)(nil)
 
-// commsResolver resolves the transmitting mailbox over the capture registry —
-// the cross-module edge comms must not hold itself.
+// commsResolver resolves the transmitting connection over the capture registry —
+// the cross-module edge comms must not hold itself. Both halves land on the same
+// *capture.Registry; they are two fields because they are two different lookups
+// (see channelSenders in commschannel.go, which holds the channel half).
 //
 // The translation is the whole point of this type, and it is deliberately
 // narrow. Only three capture answers are FACTS about the deployment — no
@@ -215,7 +217,10 @@ var _ mailboxSenders = (*capture.Registry)(nil)
 // integration for; everything else is a failure to get an answer, and turning
 // one of those into a parking sentinel would permanently destroy legitimate
 // mail that nothing is wrong with.
-type commsResolver struct{ registry mailboxSenders }
+type commsResolver struct {
+	registry mailboxSenders
+	channels channelSenders
+}
 
 var _ comms.ConnectionResolver = commsResolver{}
 
@@ -448,7 +453,7 @@ func newSendWorker(pool *pgxpool.Pool, registry *capture.Registry, pacing SendPa
 		// itself: activities owns the timeline row, comms owns the delivery,
 		// and the two meet here.
 		comms.NewStore(pool, time.Now, activities.NewStore(pool)),
-		commsResolver{registry: registry},
+		commsResolver{registry: registry, channels: registry},
 		NewSendSeatAuthority(pool),
 		consent.NewGate(consent.NewStore(pool)),
 		[]comms.SendPolicy{comms.NewMailboxRatePolicy(p.Limit, p.Window, time.Now)},

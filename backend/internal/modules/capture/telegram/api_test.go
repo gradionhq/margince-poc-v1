@@ -180,11 +180,21 @@ func TestSetWebhookSendsTheSecretAndTheAllowedUpdates(t *testing.T) {
 // Threading is carried by the parent message id, so a send that cannot report
 // its own id has nothing a later reply could thread under and must not be
 // reported as delivered.
+//
+// It is a REACHABILITY failure and not a refusal, which is the load-bearing
+// half: ok=true means Telegram accepted the message, so it may be on its way,
+// and the send path reads this class as an outcome it can never learn. Reported
+// as a refusal it would look like a message that did not go, and the retry that
+// followed would deliver a second copy.
 func TestSendMessageRefusesAResultWithoutAMessageID(t *testing.T) {
 	api, _ := serve(t, http.StatusOK, `{"ok":true,"result":{}}`)
 
-	if _, err := api.SendMessage(context.Background(), "1:x", OutboundChannelMessage{ChatID: 7, Text: "hi"}); !errors.Is(err, ErrRequestRejected) {
-		t.Fatalf("SendMessage on an id-less result: got %v, want ErrRequestRejected", err)
+	_, err := api.SendMessage(context.Background(), "1:x", OutboundChannelMessage{ChatID: 7, Text: "hi"})
+	if !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("SendMessage on an id-less result: got %v, want ErrUnreachable", err)
+	}
+	if errors.Is(err, ErrRequestRejected) {
+		t.Fatalf("got %v, which also reads as a refusal — a retry on that class would send the message twice", err)
 	}
 }
 
