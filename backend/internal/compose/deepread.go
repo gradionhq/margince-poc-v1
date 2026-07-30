@@ -134,12 +134,14 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 // escalate headroom.
 const extractLaneBudget = 90 * time.Second
 
-// Timeout overrides River's 1-minute default: the crawl wall plus the
-// parallel extraction budget plus a minute for the staging and dossier
-// writes — floored at eight minutes so a tightened cap never squeezes
-// the terminal writes.
+// Timeout overrides River's 1-minute default: the crawl wall, plus the
+// parallel extraction budget, plus the logo lane's own bounded spend, plus a
+// minute for the staging and dossier writes — floored at eight minutes so a
+// tightened cap never squeezes the terminal writes. Every lane that can hold
+// the job is counted here, or a slow one silently eats the allowance the
+// terminal write depends on.
 func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	budget := w.caps.Wall + extractLaneBudget + time.Minute
+	budget := w.caps.Wall + extractLaneBudget + logoLaneBudget + time.Minute
 	if floor := 8 * time.Minute; budget < floor {
 		return floor
 	}

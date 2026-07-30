@@ -126,6 +126,10 @@ export function layout(nodes: readonly GraphNode[]): Placed[] {
 function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
   const placed = layout(graph.nodes);
   const at = new Map(placed.map((p) => [p.node.id, p]));
+  // Logos that failed to load. A node then keeps its kind colour and reads as
+  // an ordinary node, which is the same floor the list's monogram gives it —
+  // never a pale empty disc where a company should be.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
   return (
     <svg
       className="cx-diagram"
@@ -155,10 +159,16 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
       })}
       {placed.map((p) => {
         const r = p.node.root ? ROOT_RADIUS : NODE_RADIUS;
+        const logo = p.node.logo_url && !broken.has(p.node.logo_url);
         return (
           <g key={p.node.id}>
-            <circle className={nodeClass(p.node)} cx={p.x} cy={p.y} r={r} />
-            {p.node.logo_url && (
+            <circle
+              className={nodeClass(p.node, Boolean(logo))}
+              cx={p.x}
+              cy={p.y}
+              r={r}
+            />
+            {logo && p.node.logo_url && (
               <>
                 {/* One clip per node: a clipPath is defined in the diagram's
                     own coordinates, so a shared one would clip every logo to
@@ -178,6 +188,11 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
                   width={(r - 2) * 2}
                   height={(r - 2) * 2}
                   preserveAspectRatio="xMidYMid meet"
+                  onError={() =>
+                    setBroken((was) =>
+                      p.node.logo_url ? new Set(was).add(p.node.logo_url) : was,
+                    )
+                  }
                 />
               </>
             )}
@@ -198,7 +213,7 @@ function edgeKey(edge: GraphEdge): string {
 // nodeClass carries the node's kind, whether it is the centre, and whether it
 // is on the intro path into CSS, so the diagram's palette lives in the
 // stylesheet rather than in inline attributes.
-function nodeClass(node: GraphNode): string {
+function nodeClass(node: GraphNode, hasLogo: boolean): string {
   const classes = ["cx-node", `cx-node-${node.kind}`];
   if (node.root) {
     classes.push("cx-node-root");
@@ -206,10 +221,12 @@ function nodeClass(node: GraphNode): string {
   if (node.intro_path) {
     classes.push("cx-node-intro");
   }
-  if (node.logo_url) {
-    // A company that carries a logo needs the same neutral backing the avatar
-    // chip gives it elsewhere: a mark drawn on transparency would otherwise
-    // read against the node's own dark fill.
+  if (hasLogo) {
+    // A company whose logo IS being drawn needs the same neutral backing the
+    // avatar chip gives it elsewhere: a mark drawn on transparency would
+    // otherwise read against the node's own dark fill. Keyed off the drawing,
+    // not off the field — a node whose image failed keeps its kind colour
+    // instead of becoming a pale empty disc.
     classes.push("cx-node-marked");
   }
   return classes.join(" ");

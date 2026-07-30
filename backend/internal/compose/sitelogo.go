@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
@@ -61,6 +62,11 @@ const (
 	// one declared asset per company that the read exists to find.
 	logoMaxCandidates = 8
 )
+
+// logoLaneBudget bounds the whole resolve. It is counted into the deep read's
+// job timeout (deepread.go), so the lane can never spend the allowance that
+// exists to close the dossier.
+const logoLaneBudget = 20 * time.Second
 
 // organizationLogoKind is the blobstore key's entity discriminator, the peer
 // of "attachment" (blobstore.WorkspaceKey).
@@ -257,17 +263,20 @@ func iconURLsByRel(icons []webread.IconRef, rel string) []string {
 
 // declaredIconEdge reads the largest edge out of a sizes attribute
 // ("32x32", "16x16 32x32", "any"), or 0 when it states nothing usable —
-// "any" means a scalable source, which says nothing about pixels.
+// "any" means a scalable source, which says nothing about pixels. Both sides
+// of each token count: a rare non-square declaration is ranked by its longer
+// edge, which is what "largest" has to mean for the ordering to hold.
 func declaredIconEdge(sizes string) int {
 	largest := 0
 	for _, token := range strings.Fields(sizes) {
-		width, _, found := strings.Cut(token, "x")
+		width, height, found := strings.Cut(token, "x")
 		if !found {
 			continue
 		}
-		edge, err := strconv.Atoi(width)
-		if err == nil && edge > largest {
-			largest = edge
+		for _, side := range []string{width, height} {
+			if edge, err := strconv.Atoi(side); err == nil && edge > largest {
+				largest = edge
+			}
 		}
 	}
 	return largest
@@ -306,6 +315,16 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		// with no organization row to point at one yet.
 		return
 	}
+	// The lane gets its own deadline. Eight candidates against an unresponsive
+	// host would otherwise spend eight fetch timeouts here — time the job
+	// budget reserves for CLOSING the dossier, so a slow logo could get the
+	// read cancelled before finish() records its outcome and leave it running
+	// forever, squatting the organization's one in-flight slot. A logo is
+	// never worth that: past the deadline the resolve stops and the record
+	// keeps its monogram.
+	ctx, cancel := context.WithTimeout(ctx, logoLaneBudget)
+	defer cancel()
+
 	orgID := ids.From[ids.OrganizationKind](*claim.OrganizationID)
 	// Ask before resolving anything: a field a person holds is not going to be
 	// written, so fetching and normalizing a mark for it is work nobody uses.

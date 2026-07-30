@@ -133,6 +133,9 @@ func TestDeclaredIconEdgeReadsTheLargestStatedSize(t *testing.T) {
 		"180X180":       180,
 		"notasize":      0,
 		"16x16 garbage": 16,
+		// A non-square declaration ranks by its longer edge.
+		"32x64": 64,
+		"64x32": 64,
 	}
 	for sizes, want := range cases {
 		if got := declaredIconEdge(strings.ToLower(sizes)); got != want {
