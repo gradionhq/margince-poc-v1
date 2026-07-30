@@ -1,0 +1,92 @@
+name: SBOM
+
+# Regenerate the source-tree SBOM whenever a dependency set (Go or Node) or the
+# SBOM pipeline itself (Makefile targets, syft/grant policy, this workflow)
+# changes. syft/grant/cosign run through digest-pinned Docker images (see the
+# Makefile), so the runner needs only Docker — pre-installed on ubuntu-latest.
+on:
+  workflow_dispatch:
+  # Anchored once, reused by both events (YAML alias — DRY).
+  pull_request:
+    # Match ci.yml: ready_for_review joins the defaults so leaving draft triggers
+    # a run, and the job's draft guard skips work while the PR is still a draft.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths: &dep-paths
+      - "go.work"
+      - "go.work.sum"
+      - "**/go.mod"
+      - "**/go.sum"
+      - "pnpm-lock.yaml"
+      - "**/package.json"
+      - "Makefile"
+      - ".syft.yaml"
+      - ".grant.yaml"
+      - ".github/workflows/sbom.yml"
+  push:
+    branches: [main]
+    paths: *dep-paths
+
+# contents: read is the floor for every job. The OIDC minting credential
+# (id-token: write) is NOT granted here — only the isolated sign job requests it,
+# so PR-controlled generation code can never mint a signing token.
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: sbom
+    runs-on: ubuntu-latest
+    # A draft PR iterating on dependency bumps has no SBOM consumer — skip it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          # SBOM_VERSION reads `git describe --tags --exact-match` (else the short
+          # revision); resolving a release tag needs the tags and history.
+          fetch-depth: 0
+      - name: Generate SBOMs
+        run: make sbom
+      - name: License gate
+        run: make sbom-check
+      - name: Publish SBOMs
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: sboms
+          path: sboms/
+          if-no-files-found: error
+          # PR artifacts are superseded by the next push; only main's linger.
+          retention-days: ${{ github.event_name == 'pull_request' && 14 || 90 }}
+
+  # Keyless signing is isolated from generation so PR-controlled build code never
+  # runs while id-token: write is in scope. Only main's SBOMs are signed: keyless
+  # cosign signatures land permanently in the public Rekor log and cannot be
+  # retracted, so a PR preview or a feature-branch dispatch must never produce
+  # one. `needs: sbom` means the license gate has already passed, so a
+  # policy-failing SBOM never reaches this job.
+  sign:
+    name: sign
+    needs: sbom
+    if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # keyless cosign signing via the GitHub OIDC token
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - name: Fetch generated SBOMs
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: sboms
+          path: sboms/
+      - name: Sign SBOMs (keyless cosign)
+        run: make sbom-sign
+      - name: Publish signatures
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: sbom-signatures
+          path: sboms/*.cosign.bundle
+          if-no-files-found: error
+          retention-days: 90

@@ -1,0 +1,29 @@
+# Keep the image build context lean. The Go images need the whole repo (backend,
+# backend/tools, cli/craft, extensions/*, go.work, the composition/ stub) so the
+# gen-composition step can materialize build/composition/ — do NOT exclude those.
+# The web image needs frontend/ + backend/api/*.yaml. Only regenerable machine
+# debris is excluded here.
+.git
+**/node_modules
+.pnpm-store
+scratchpad
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+frontend/storybook-static
+# build/composition/ is regenerated inside the image; a stale local copy must
+# never ride in.
+build/composition
+.tmp
+*.log
+# Local/instance runtime configuration never belongs in the build context. The
+# Go builder does `COPY . .`, so any secret-bearing local file would otherwise
+# ride into the builder layer + build cache. The generic images bake NO instance
+# config (it is provided at runtime), so none of these are ever needed here.
+.env
+.env.*
+# The gitignored local instance configs (may carry real BYOK keys / the admin
+# password) — mirror .gitignore's config/ entries.
+config/margince.yaml
+config/ai-routing.yaml
+config/margince-admin-password
