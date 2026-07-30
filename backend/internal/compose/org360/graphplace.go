@@ -121,23 +121,14 @@ const (
 // organization row scope by the read. Name order with the id as tie-break, so
 // two reads of an unchanged account draw the same organizations.
 func (g *graphAssembly) placeRelated(related []graphRelatedOrg) {
-	// The cap counts DISTINCT organizations, not rows: one company that is both
-	// this account's parent and its reseller is one node with two edges, and
-	// counting it twice would drop a company that fits. What was left out comes
-	// from the read's own DISTINCT total, so a company appearing on three rows
-	// is one drop rather than three.
-	within := map[ids.UUID]bool{}
+	// Every row given here is drawn: the cap is the READ's, applied to companies
+	// rather than to rows, because one company holding many partner edges must
+	// not fill a row budget and starve the others. What was left out is the
+	// difference against the read's own DISTINCT company count, so a company
+	// appearing on three rows is one drop rather than three.
+	drawn := map[ids.UUID]bool{}
 	for _, row := range related {
-		if within[row.orgID] || len(within) == graphOrgCap {
-			continue
-		}
-		within[row.orgID] = true
-	}
-	g.out.DroppedCount += g.relatedTotal - len(within)
-	for _, row := range related {
-		if !within[row.orgID] {
-			continue
-		}
+		drawn[row.orgID] = true
 		g.addNode(crmcontracts.OrganizationGraphNode{
 			Id:    openapi_types.UUID(row.orgID),
 			Kind:  crmcontracts.OrganizationGraphNodeKindOrganization,
@@ -146,6 +137,7 @@ func (g *graphAssembly) placeRelated(related []graphRelatedOrg) {
 		from, to, kind := g.relatedEdge(row)
 		g.addEdge(from, to, kind, nil)
 	}
+	g.out.DroppedCount += g.relatedTotal - len(drawn)
 }
 
 // relatedEdge orients one related organization's edge. The hierarchy edge

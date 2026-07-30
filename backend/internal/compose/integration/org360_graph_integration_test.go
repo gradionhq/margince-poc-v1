@@ -17,6 +17,7 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -243,6 +244,72 @@ func assertNoDanglingEdge(t *testing.T, graph crmcontracts.OrganizationGraph) {
 		if !graphHasNode(graph, ids.UUID(edge.From)) || !graphHasNode(graph, ids.UUID(edge.To)) {
 			t.Errorf("edge %v -> %v names a record that is not a node", edge.From, edge.To)
 		}
+	}
+}
+
+// TestOrganizationGraphRelatedCapCountsCompaniesNotEdges is the bug a row-based
+// cap would have: one company can attach to an account many ways — a parent that
+// is also a reseller, a referrer and a co-seller, each recordable more than once
+// because the partner edges carry no uniqueness constraint. A cap counting rows
+// would spend its whole budget on that company and draw a handful of companies
+// where the card allows ten, silently, because dropped_count comes off the whole
+// set either way.
+func TestOrganizationGraphRelatedCapCountsCompaniesNotEdges(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+
+	// One company that attaches many ways, named to sort FIRST so a row-based
+	// cap would meet it before anything else.
+	greedy := e.SeedOrg(t, "AAA Greedy Partner", &e.Rep1)
+	for range 30 {
+		for _, kind := range []string{"partner_of", "referred_by", "co_sell_with"} {
+			e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
+				VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, e.WS, kind, org, greedy)
+		}
+	}
+	// Plus a plain partner each, more than the display cap so the drop count
+	// has something to report.
+	plain := map[ids.UUID]bool{}
+	for i := range 12 {
+		partner := e.SeedOrg(t, fmt.Sprintf("Partner %02d", i), &e.Rep1)
+		plain[partner] = true
+		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
+			VALUES ($1, 'partner_of', $2, $3, 'manual', 'human:x')`, e.WS, org, partner)
+	}
+
+	graph, err := svc.Graph(e.As(e.Rep1, nil, graphAdminPerms), ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+	companies := 0
+	for _, node := range graph.Nodes {
+		if node.Kind == crmcontracts.OrganizationGraphNodeKindOrganization && !node.Root {
+			companies++
+		}
+	}
+	// Thirteen companies attach; the card draws its full allowance of them.
+	if companies != 10 {
+		t.Errorf("drew %d related companies, want the full allowance of 10 — the greedy company's %d edges must not starve the others",
+			companies, 30*3)
+	}
+	if !graphHasNode(graph, greedy) {
+		t.Error("the greedy company is missing; it sorts first and must be drawn")
+	}
+	// The 90 duplicate edge records collapse: the same relationship recorded
+	// twice is one line on the card.
+	kinds := graphEdgeKinds(graph)
+	for _, kind := range []crmcontracts.OrganizationGraphEdgeKind{
+		crmcontracts.OrganizationGraphEdgeKindReferredBy,
+		crmcontracts.OrganizationGraphEdgeKindCoSellWith,
+	} {
+		if kinds[kind] != 1 {
+			t.Errorf("%s edges = %d, want 1 — duplicate records are one edge", kind, kinds[kind])
+		}
+	}
+	if graph.DroppedCount != 3 {
+		t.Errorf("dropped_count = %d, want 3 — thirteen companies attach and ten are drawn",
+			graph.DroppedCount)
 	}
 }
 

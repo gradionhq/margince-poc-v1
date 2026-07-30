@@ -298,6 +298,18 @@ func (g *graphAssembly) scorePeople() error {
 // ordered set. Each arm renders the organization row-scope predicate for its
 // own alias and registers its own bind positions, the same shape the
 // next-steps section uses for its two link sub-selects.
+//
+// The cap is applied in SQL, and it counts COMPANIES, because that is what
+// graphOrgCap means. A row limit would count edges instead: one company holding
+// many partner edges to this account would fill the budget and starve the
+// others, drawing three companies where the card allows ten — and silently,
+// since the total comes off the whole set either way. Choosing the companies
+// first bounds the result properly too, at graphOrgCap × the distinct ways one
+// company can attach.
+//
+// Distinct rows, for the same reason: the partner edges carry no uniqueness
+// constraint, so the same relationship recorded twice would otherwise draw as
+// two identical lines.
 func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
@@ -314,8 +326,8 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 	if err != nil {
 		return nil, err
 	}
-	// The arms live in a CTE so the DISTINCT company count comes off the same
-	// evaluation the capped rows do — a second copy of the union would be a
+	// The arms live in a CTE so the company count, the chosen companies and the
+	// rows all come off ONE evaluation — a second copy of the union would be a
 	// second chance for the total and the rows to disagree.
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
 		WITH related AS (
@@ -337,14 +349,18 @@ func (g *graphAssembly) readRelatedOrganizations() ([]graphRelatedOrg, error) {
 			  AND r.archived_at IS NULL AND r.ended_at IS NULL
 			  AND $%[1]d IN (r.organization_id, r.counterparty_org_id)
 			  AND o.archived_at IS NULL AND (%[7]s)
+		), companies AS (
+			SELECT DISTINCT id, display_name FROM related
+		), chosen AS (
+			SELECT id FROM companies ORDER BY display_name, id LIMIT %[8]d
 		)
-		SELECT id, display_name, relation, partner_kind, edge_owner,
-		       (SELECT count(DISTINCT id) FROM related)
-		FROM related
-		ORDER BY display_name, id, relation
-		LIMIT %[8]d`,
+		SELECT DISTINCT related.id, related.display_name, related.relation,
+		       related.partner_kind, related.edge_owner,
+		       (SELECT count(*) FROM companies)
+		FROM related JOIN chosen ON chosen.id = related.id
+		ORDER BY related.display_name, related.id, related.relation`,
 		orgPos, graphRelationParent, graphRelationChild, graphRelationPartner,
-		parentScope, childScope, partnerScope, graphScanCap), args...)
+		parentScope, childScope, partnerScope, graphOrgCap), args...)
 	if err != nil {
 		return nil, err
 	}

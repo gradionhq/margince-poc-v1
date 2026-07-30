@@ -58,17 +58,20 @@ const (
 	graphOrgCap     = 10
 )
 
-// graphScanCap bounds the two reads whose display order this code cannot push
-// into SQL, so one graph's query size follows the cap rather than the account.
+// graphScanCap bounds the ONE read whose display order this code cannot push
+// into SQL, so a graph's query size follows the cap rather than the account.
 //
-// The contact order is the §4 score, resolved after the rows are read, and the
-// related-organization cap counts DISTINCT companies while the read returns one
-// row per edge — neither can be a top-N LIMIT. Each read therefore takes at
-// most this many rows and gets its true total from a COUNT over the same
-// predicate, so dropped_count stays exact either way. On an account past the
-// bound the card shows the strongest of the first graphScanCap contacts by id
-// rather than of all of them, which the contract states; at 500 against a
-// display cap of 15 that is an account nobody has.
+// Contacts are ordered by the §4 score, which is resolved after the rows are
+// read, so their slice cannot be a top-N LIMIT: the read takes at most this
+// many people and the true headcount rides the same statement, keeping
+// dropped_count exact. On an account past the bound the card shows the
+// strongest of the first graphScanCap contacts by id rather than of all of
+// them, which the contract states; at 500 against a display cap of 15 that is
+// an account nobody has.
+//
+// The other two groups need no such bound. Deals are ordered in SQL, and the
+// related organizations are capped in SQL by COMPANY — a row bound there would
+// let one company's many partner edges starve the others.
 const graphScanCap = 500
 
 // Graph reads the account's one-hop connections inside ONE workspace

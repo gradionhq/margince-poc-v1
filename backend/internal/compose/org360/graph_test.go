@@ -345,10 +345,14 @@ func TestAPartnerEdgePointsFromTheOrgThatRecordsIt(t *testing.T) {
 	}
 }
 
-// TestTheOrganizationCapCountsCompaniesOnce: a company attached twice — a
-// parent that is also a reseller — is one node with two edges, and judging it
-// twice would both double-count the cap and double-count the drop.
-func TestTheOrganizationCapCountsCompaniesOnce(t *testing.T) {
+// TestACompanyAttachedTwiceIsOneNodeAndOneDrop: the read hands back one row per
+// way a company attaches, and a company attached two ways is still one record —
+// one node with two edges, and one company's worth of the drop count.
+//
+// The CAP itself is the read's, applied to companies rather than to rows
+// (readRelatedOrganizations), so it is not provable here; the integration suite
+// pins that a company with many edges cannot starve the others.
+func TestACompanyAttachedTwiceIsOneNodeAndOneDrop(t *testing.T) {
 	g, _ := newGraph(t)
 	kind := "partner_of"
 	both := ids.NewV7()
@@ -357,24 +361,20 @@ func TestTheOrganizationCapCountsCompaniesOnce(t *testing.T) {
 		{orgID: both, displayName: "Holding", relation: graphRelationParent},
 		{orgID: both, displayName: "Holding", relation: graphRelationPartner, partnerKind: &kind, edgeOwner: &owner},
 	}
-	for range graphOrgCap {
-		related = append(related, graphRelatedOrg{
-			orgID: ids.NewV7(), displayName: "Other", relation: graphRelationChild,
-		})
-	}
+	// The account has three related companies; the read chose this one.
+	g.relatedTotal = 3
 
-	// Eleven DISTINCT companies on twelve rows: the doubly-attached one counts
-	// once, the way the read's own DISTINCT total counts it.
-	g.relatedTotal = graphOrgCap + 1
 	g.placeRelated(related)
 
-	// The doubly-attached company takes ONE of the cap's slots, so exactly one
-	// of the ten others is left out.
-	if orgs := len(g.out.Nodes) - 1; orgs != graphOrgCap {
-		t.Errorf("placed %d organizations, want the cap of %d", orgs, graphOrgCap)
+	if orgs := len(g.out.Nodes) - 1; orgs != 1 {
+		t.Errorf("placed %d organizations, want 1 for a company attached two ways", orgs)
 	}
-	if g.out.DroppedCount != 1 {
-		t.Errorf("dropped_count is %d, want 1 — the company beyond the cap, counted once", g.out.DroppedCount)
+	if len(g.out.Edges) != 2 {
+		t.Errorf("drew %d edges, want 2 — one per way the company attaches", len(g.out.Edges))
+	}
+	if g.out.DroppedCount != 2 {
+		t.Errorf("dropped_count is %d, want 2 — the companies the read left out, the doubly-attached one counted once",
+			g.out.DroppedCount)
 	}
 }
 
