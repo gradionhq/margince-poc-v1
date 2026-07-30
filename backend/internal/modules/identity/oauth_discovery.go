@@ -20,10 +20,14 @@ import (
 func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 	issuer := requestIssuer(r)
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"issuer":                   issuer,
-		"authorization_endpoint":   issuer + "/oauth/authorize",
-		"token_endpoint":           issuer + "/oauth/token",
-		"registration_endpoint":    issuer + "/oauth/register",
+		"issuer":                 issuer,
+		"authorization_endpoint": issuer + "/oauth/authorize",
+		"token_endpoint":         issuer + "/oauth/token",
+		"registration_endpoint":  issuer + "/oauth/register",
+		// RFC 7009: a client that cannot see this here will never call it —
+		// it hands back a credential and ends the connection on its own
+		// initiative, not on a server-side hint.
+		"revocation_endpoint":      issuer + "/oauth/revoke",
 		"response_types_supported": []string{"code"},
 		// refresh_token is advertised because a client that cannot see it
 		// here will not present one: it asks for offline_access, stores the

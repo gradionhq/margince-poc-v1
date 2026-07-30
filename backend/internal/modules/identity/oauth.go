@@ -39,8 +39,8 @@ import (
 const authCodeTTL = 5 * time.Minute
 
 // OAuthRouter serves the authorization-server endpoints. Mounted
-// behind the same workspace/session middleware as /v1: register and
-// token are public (the workspace still binds via slug/subdomain);
+// behind the same workspace/session middleware as /v1: register, token
+// and revoke are public (the workspace still binds via slug/subdomain);
 // authorize demands the signed-in human whose authority the passport
 // will borrow.
 func (h Handlers) OAuthRouter() http.Handler {
@@ -49,6 +49,7 @@ func (h Handlers) OAuthRouter() http.Handler {
 	mux.HandleFunc("GET /oauth/authorize", h.oauthConsentForm)
 	mux.HandleFunc("POST /oauth/authorize", h.oauthAuthorize)
 	mux.HandleFunc("POST /oauth/token", h.oauthToken)
+	mux.HandleFunc("POST /oauth/revoke", h.oauthRevoke)
 	return mux
 }
 

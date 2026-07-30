@@ -20,6 +20,8 @@ package integration
 import (
 	"context"
 	"net/http"
+	"net/url"
+	"strings"
 	"testing"
 )
 
@@ -104,6 +106,28 @@ func (c *connectedClient) disableClient(t *testing.T) {
 func (c *connectedClient) deleteClient(t *testing.T) {
 	t.Helper()
 	c.cut(t, `UPDATE oauth_client SET deleted_at = now() WHERE client_id = $1`, c.clientID)
+}
+
+// revoke posts one presented token to RFC 7009 and returns the status alone
+// — the endpoint answers 200 regardless of what it did, so status is the
+// only thing a caller may observe about the outcome directly.
+func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
+	t.Helper()
+	form := url.Values{"token": {token}}
+	if tokenTypeHint != "" {
+		form.Set("token_type_hint", tokenTypeHint)
+	}
+	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/revoke", strings.NewReader(form.Encode()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := o.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeBody(t, resp)
+	return resp.StatusCode
 }
 
 // cut applies one store-level revocation and insists it hit exactly one row: a
@@ -212,5 +236,92 @@ func TestALocallyMintedPassportIsUnaffectedByADeadConnector(t *testing.T) {
 	}
 	if code := c.callMCP(t); code != http.StatusUnauthorized {
 		t.Fatalf("the connector's own credential → %d, want 401", code)
+	}
+}
+
+// RFC 7009 revocation (POST /oauth/revoke) is the fifth way a connection
+// ends, and the first with a client-initiated operator surface: a connector
+// handing back either half of its credential pair, on its own side, without
+// the human ever opening Settings. It reaches the same cascade as the other
+// four, so it is proven the same way — the next call is refused and refresh
+// cannot resurrect it.
+
+// Presenting the access token is the shape a client uses when a human
+// disconnects from ITS side: the whole connection dies, not just that one
+// credential, so a racing refresh cannot mint a replacement seconds later.
+func TestRevokingTheAccessTokenEndsTheWholeConnection(t *testing.T) {
+	c := setupConnectedClient(t)
+	if code := c.callMCP(t); code != http.StatusOK {
+		t.Fatalf("precondition: connected call → %d", code)
+	}
+
+	if status := c.revoke(t, c.access, "access_token"); status != http.StatusOK {
+		t.Fatalf("revoke → %d, want 200", status)
+	}
+
+	if code := c.callMCP(t); code != http.StatusUnauthorized {
+		t.Fatalf("after revoking the access token → %d, want 401", code)
+	}
+	if c.refreshSucceeds(t) {
+		t.Fatal("after revoking the access token, refresh still mints a credential")
+	}
+}
+
+// Presenting the refresh token reaches exactly the same cascade: RFC 7009
+// treats both halves of a connection's credential pair as one namespace, so
+// a client that only ever touches its refresh token still ends the whole
+// connection, not just that one row.
+func TestRevokingTheRefreshTokenEndsTheWholeConnection(t *testing.T) {
+	c := setupConnectedClient(t)
+	if code := c.callMCP(t); code != http.StatusOK {
+		t.Fatalf("precondition: connected call → %d", code)
+	}
+
+	if status := c.revoke(t, c.refresh, "refresh_token"); status != http.StatusOK {
+		t.Fatalf("revoke → %d, want 200", status)
+	}
+
+	if code := c.callMCP(t); code != http.StatusUnauthorized {
+		t.Fatalf("after revoking the refresh token → %d, want 401", code)
+	}
+	if c.refreshSucceeds(t) {
+		t.Fatal("after revoking the refresh token, refresh still mints a credential")
+	}
+}
+
+// RFC 7009's non-disclosure rule: an unknown token must answer exactly like a
+// successful revocation, or the endpoint becomes an oracle for whether a
+// token string is real. The live connection is asserted untouched, not just
+// the status code — a 200 that happened to also kill the wrong grant would
+// pass a status-only check and fail every client relying on this endpoint.
+func TestRevokingAnUnknownTokenStillAnswersSuccess(t *testing.T) {
+	c := setupConnectedClient(t)
+
+	if status := c.revoke(t, "mgp_this-token-was-never-issued", "access_token"); status != http.StatusOK {
+		t.Fatalf("revoke of an unknown token → %d, want 200", status)
+	}
+
+	if c.grantRevoked(t) {
+		t.Fatal("revoking an unknown token revoked the live connection's grant")
+	}
+	if code := c.callMCP(t); code != http.StatusOK {
+		t.Fatalf("after revoking an unknown token, the live connection → %d, want 200", code)
+	}
+}
+
+// A client that cannot see revocation_endpoint in discovery will never call
+// it: RFC 7009 is opt-in advertisement, not a well-known path a client is
+// expected to guess.
+func TestDiscoveryAdvertisesTheRevocationEndpoint(t *testing.T) {
+	o := setupOAuth(t)
+
+	var metadata struct {
+		RevocationEndpoint string `json:"revocation_endpoint"`
+	}
+	if status := o.call(t, "GET", "/.well-known/oauth-authorization-server", nil, nil, &metadata); status != http.StatusOK {
+		t.Fatalf("discovery → %d", status)
+	}
+	if !strings.HasSuffix(metadata.RevocationEndpoint, "/oauth/revoke") {
+		t.Fatalf("revocation_endpoint = %q, want it to end in /oauth/revoke", metadata.RevocationEndpoint)
 	}
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -259,4 +260,106 @@ func revokingUser(ctx context.Context) (ids.UserID, error) {
 		return ids.UserID{}, err
 	}
 	return ids.From[ids.UserKind](actor.UserID), nil
+}
+
+// revokeTokenInput is a presented token as RFC 7009 places it on the wire:
+// the token itself and an optional hint at which kind it is.
+type revokeTokenInput struct {
+	Token         string
+	TokenTypeHint string
+}
+
+// clientRevokeReason is what the audit row says when the CLIENT ended the
+// connection from its own side (RFC 7009) — distinct from a human deleting a
+// passport in Settings (passportRevokedReason) and from detected
+// refresh-token reuse (reuseRevokeReason).
+const clientRevokeReason = "revoked via RFC 7009 /oauth/revoke"
+
+// revokeToken is RFC 7009 revocation: whichever half of a connection's
+// credential pair was presented, the whole connection dies through the ONE
+// cascade. Resolution is unlocked exactly like grantOfPresentedToken — it
+// names which grant to lock and decides nothing else, so revokeGrantTx alone
+// takes the grant → refresh → passport order (oauth_grant.go) and no read
+// here can invert it by locking a passport or refresh row first.
+//
+// An unresolved token — unknown, from another workspace, or naming no grant
+// at all (a locally minted passport answers to no connection) — commits
+// nothing and reports success exactly like a genuine revocation: RFC 7009
+// forbids this endpoint from ever becoming an oracle for whether a token
+// string is real.
+func (s *Service) revokeToken(ctx context.Context, in revokeTokenInput) error {
+	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		grantID, err := resolveGrantID(ctx, tx, in)
+		if err != nil {
+			return err
+		}
+		if grantID == ids.Nil {
+			return nil
+		}
+		var userID ids.UserID
+		if err := tx.QueryRow(ctx, `SELECT user_id FROM oauth_grant WHERE id = $1`, grantID).
+			Scan(&userID); err != nil {
+			return err
+		}
+		// The human attributed is the one who consented, not whoever
+		// presented the token — there is no session on this call, exactly as
+		// a refresh rotation has none (lockedGrant.identity()).
+		return s.revokeGrantTx(actorCtx(ctx, Identity{UserID: userID}), tx, grantID, clientRevokeReason)
+	})
+}
+
+// resolveGrantID names which grant a presented token belongs to, checking
+// passport and oauth_refresh_token by hash — the two tables a client may hand
+// back either half of a connection's credential pair from. token_type_hint
+// only orders which table is tried first: a miss on the hinted table still
+// falls through to the other, so a wrong hint never turns into a refusal
+// (RFC 7009 §2.1 — the hint "SHOULD" be honored, but a server "MUST NOT" rely
+// on it as authoritative).
+func resolveGrantID(ctx context.Context, tx pgx.Tx, in revokeTokenInput) (ids.UUID, error) {
+	hash := hashToken(in.Token)
+	if in.TokenTypeHint == "refresh_token" {
+		if grantID, err := refreshGrantID(ctx, tx, hash); err != nil || grantID != ids.Nil {
+			return grantID, err
+		}
+		return passportGrantID(ctx, tx, hash)
+	}
+	if grantID, err := passportGrantID(ctx, tx, hash); err != nil || grantID != ids.Nil {
+		return grantID, err
+	}
+	return refreshGrantID(ctx, tx, hash)
+}
+
+// passportGrantID resolves a presented access token to the grant it was
+// issued under. A locally minted passport — one with no OAuth grant beneath
+// it — reports no grant: this endpoint's one cascade ends a CONNECTION, and a
+// passport with no connection to revoke is, for this purpose, indistinguishable
+// from an unknown token.
+func passportGrantID(ctx context.Context, tx pgx.Tx, hash string) (ids.UUID, error) {
+	var grantID *ids.UUID
+	err := tx.QueryRow(ctx, `SELECT oauth_grant_id FROM passport WHERE token_hash = $1`, hash).
+		Scan(&grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.Nil, nil
+	}
+	if err != nil {
+		return ids.Nil, err
+	}
+	if grantID == nil {
+		return ids.Nil, nil
+	}
+	return *grantID, nil
+}
+
+// refreshGrantID resolves a presented refresh token to the grant it renews.
+// Unlocked for the same reason grantOfPresentedToken is (oauth_refresh.go):
+// naming the grant is all a resolution read may decide — the lock itself is
+// revokeGrantTx's, taken in the one order this connection's rows obey.
+func refreshGrantID(ctx context.Context, tx pgx.Tx, hash string) (ids.UUID, error) {
+	var grantID ids.UUID
+	err := tx.QueryRow(ctx, `SELECT grant_id FROM oauth_refresh_token WHERE token_hash = $1`, hash).
+		Scan(&grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ids.Nil, nil
+	}
+	return grantID, err
 }
