@@ -102,12 +102,9 @@ type Server struct {
 	overlayWebhook http.Handler
 
 	// mcpConnectorEnabled is the remote-connector deployment gate, set by
-	// WithMCPConnector from the deployment file. It governs the whole
-	// connector — the /mcp transport, the authorization server and both
-	// discovery documents — as ONE group: off means none of those routes
-	// exists, so an internet-facing installation cannot end up with open
-	// client registration and a passport-minting token endpoint it has no
-	// way to switch off.
+	// WithMCPConnector from the deployment file. It governs the connector as
+	// ONE group — transport, authorization server, both discovery documents —
+	// and routes.go, where the group is mounted, carries why.
 	mcpConnectorEnabled bool
 
 	// mcpAllowedOrigin is the scheme+host the connector's Origin guard
