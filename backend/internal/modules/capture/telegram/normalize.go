@@ -159,6 +159,18 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		return nil, fmt.Errorf("telegram: update %d is in a %q chat, not a private one: %w",
 			update.UpdateID, msg.Chat.Type, connector.ErrSkip)
 	}
+	// A message Telegram delivers with no `from` at all — an anonymous group
+	// admin posts under `sender_chat` instead — decodes to sender id 0, which
+	// is not an account: it is a valid, non-empty key that every such sender
+	// shares, so they would collapse onto ONE Person, one identity row, and one
+	// conversation reading as reachable at chat 0. The identity is minted a few
+	// lines below, so the rule about what counts as an account belongs here —
+	// the chat-scope gate above narrows which update shapes arrive, it does not
+	// decide whether the sender is addressable.
+	if msg.From.ID == 0 {
+		return nil, fmt.Errorf("telegram: update %d carries no addressable sender: %w",
+			update.UpdateID, connector.ErrSkip)
+	}
 	chatID := fmt.Sprintf("%d", msg.Chat.ID)
 	// The natural key is chat-scoped and that is load-bearing (design §6.3):
 	// Telegram's message_id is unique only WITHIN a chat, and a private
@@ -178,7 +190,16 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		},
 		Source:     Provider + ":" + naturalID,
 		CapturedBy: CapturedByTelegram,
-		Raw:        env.Update,
+		// Raw is deliberately EMPTY, unlike every mail connector's record. The
+		// ingress webhook already persisted this exact update as the only-copy
+		// evidence row before it answered 200 (design §6.5), keyed on the
+		// per-bot update_id; handing the same bytes to the Sink would store the
+		// message a SECOND time under a chat-scoped key with the opposite
+		// conflict rule — an append-once evidence table half of whose Telegram
+		// rows are rewritable, an unbounded second copy of the largest column,
+		// and a subject access request that hands the human every message twice.
+		// The erasure purge and the SAR section both match raw_capture by JSONB
+		// path, so they reach the webhook's row without this one.
 		Counterparty: connector.Counterparty{
 			// No outbound echo (design §6.4): a bot has no companion app a
 			// human types into, so every update this webhook ever delivers

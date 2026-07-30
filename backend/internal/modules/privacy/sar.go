@@ -226,9 +226,13 @@ func sarSections(pkg *SARPackage) []sarSection {
 		// history from the export, and their sender id is a bare digit run
 		// that a substring match would also match against other rows' message
 		// ids, timestamps and other people's ids. The two payload shapes
-		// matched (message.from.id, my_chat_member.new_chat_member.user.id)
-		// are the same two capture/telegram's Normalize and ParseMembership
-		// read the sender id from — both update kinds land in raw_capture.
+		// matched (message.from.id, my_chat_member.chat.id) are the same two
+		// capture/telegram's Normalize and ParseMembership read the customer's
+		// id from — both update kinds land in raw_capture. The membership arm
+		// reads the chat and not new_chat_member.user, which is the BOT
+		// (capture/telegram/membership.go): keyed on that, a subject who only
+		// ever blocked the bot would be handed an export missing the one
+		// record the installation holds about them.
 		{&pkg.RawCapture, `SELECT rc.source_system, rc.source_id, rc.payload, rc.received_at
 		   FROM raw_capture rc
 		   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
@@ -237,7 +241,7 @@ func sarSections(pkg *SARPackage) []sarSection {
 		      OR EXISTS (SELECT 1 FROM person_channel_identity pci WHERE pci.person_id = $1
 		                 AND rc.source_system = pci.provider
 		                 AND (rc.payload->'message'->'from'->>'id' = pci.channel_user_id
-		                      OR rc.payload->'my_chat_member'->'new_chat_member'->'user'->>'id' = pci.channel_user_id))`},
+		                      OR rc.payload->'my_chat_member'->'chat'->>'id' = pci.channel_user_id))`},
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
 		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},

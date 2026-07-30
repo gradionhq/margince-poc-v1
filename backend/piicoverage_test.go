@@ -178,7 +178,9 @@ func sqlLiterals(t *testing.T, path string) []string {
 // exists to prevent.
 var erasureCascadeFiles = []string{
 	"internal/modules/privacy/erasure.go",
+	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
+	"internal/modules/privacy/erasure_rivals.go",
 	"internal/modules/privacy/deliveries.go",
 }
 

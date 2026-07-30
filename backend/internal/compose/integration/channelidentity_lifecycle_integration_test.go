@@ -19,6 +19,7 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"testing"
@@ -28,6 +29,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -227,11 +229,17 @@ func seedTelegramMessageRaw(t *testing.T, e *Env, sourceID string, messageID int
 }
 
 // seedTelegramMembershipRaw plants one raw_capture row shaped like a real
-// my_chat_member update (a block/unblock report): the sender id lives at
-// my_chat_member.new_chat_member.user.id, the second of the two shapes
+// my_chat_member update (a block/unblock report), the second of the two shapes
 // purgeChannelRawCapture and the SAR raw-capture section both match — a
 // Telegram-only subject who only ever blocked the bot, and never sent a
-// message, must still be reachable.
+// message, must still be reachable by both.
+//
+// The shape is load-bearing and is Telegram's, not a convenience: my_chat_member
+// reports a change to THE BOT's membership, so new_chat_member.user is the bot
+// (99 here) and the customer appears only as the private chat, whose id IS
+// their user id. A fixture that instead put the customer in new_chat_member.user
+// would agree with a matcher reading that path and prove nothing about
+// production, where such a matcher purges and exports nothing at all.
 func seedTelegramMembershipRaw(t *testing.T, e *Env, sourceID string, updateID int64, senderID, status string) {
 	t.Helper()
 	e.WsExec(t, `
@@ -239,8 +247,9 @@ func seedTelegramMembershipRaw(t *testing.T, e *Env, sourceID string, updateID i
 		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'telegram', $1,
 		  jsonb_build_object('update_id', $2::bigint,
 		    'my_chat_member', jsonb_build_object(
+		      'chat', jsonb_build_object('id', $3::bigint, 'type', 'private', 'username', 'seed'),
 		      'new_chat_member', jsonb_build_object(
-		        'user', jsonb_build_object('id', $3::bigint, 'username', 'seed'),
+		        'user', jsonb_build_object('id', 99, 'is_bot', true, 'username', 'acme_bot'),
 		        'status', $4::text))))`,
 		sourceID, updateID, senderID, status)
 }
@@ -347,5 +356,120 @@ func TestSARIncludesAChannelOnlySubjectsRawCapture(t *testing.T) {
 	}
 	if got["sar-unrelated-message"] {
 		t.Error("SAR included a DIFFERENT subject's raw capture — the channel-identity match is too broad")
+	}
+}
+
+// seedPersonEmail binds one address to a person. person_email's dedupe index
+// is partial on archived_at IS NULL exactly like the channel one's, which is
+// what makes the two halves of the guard below the SAME defect.
+func seedPersonEmail(t *testing.T, e *Env, person ids.UUID, email string) {
+	t.Helper()
+	e.WsExec(t, `
+		INSERT INTO person_email (workspace_id, person_id, email, source, captured_by)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'manual', 'user:test')`,
+		person, email)
+}
+
+// archiveAndRebindTheAccount reproduces the sequence that legitimately puts one
+// channel account on two Person rows: a record is archived (which archives its
+// binding), the same customer writes again, the identity lane misses the
+// archived row, and a SECOND Person is created holding a live binding for the
+// same account. uq_person_channel_identity admits it — it is partial on
+// archived_at IS NULL. Returns both records.
+func archiveAndRebindTheAccount(t *testing.T, e *Env, account, handle string) (archived, live ids.UUID) {
+	t.Helper()
+	archived = e.SeedPerson(t, "Ada Archived", nil)
+	seedChannelIdentity(t, e, archived, account, handle)
+	if _, err := e.People.ArchivePerson(e.Admin(), personIDOf(archived)); err != nil {
+		t.Fatalf("ArchivePerson: %v", err)
+	}
+	live = e.SeedPerson(t, "Ada Writes Again", nil)
+	seedChannelIdentity(t, e, live, account, handle)
+	return archived, live
+}
+
+// Erasure resolves the SUBJECT by person_id but suppresses and purges by
+// IDENTIFIER, and those are not the same scope once two Person rows share one
+// account. Running it on the archived half would arm the suppression hash for
+// the account and delete every raw_capture row that account ever produced —
+// including the live half's — while anonymizing only the archived record. What
+// is left is an "erased" human who is still named, still bound, and still
+// message-able by any rep, whose surviving record has had its evidence
+// destroyed by an erasure that was never about it.
+//
+// Refusing is the answer rather than cascading: an Art. 17 request must not
+// anonymize records it did not name. The refusal is actionable — merge the
+// duplicates, then erase the survivor — and it leaves the installation
+// untouched, which the assertions below insist on.
+func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameChannelAccount(t *testing.T) {
+	e := Setup(t)
+	archived, live := archiveAndRebindTheAccount(t, e, "60601", "ada")
+	seedTelegramMessageRaw(t, e, "rival-account-message", 11, "60601", "written to the surviving record")
+
+	err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), archived, "test")
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("ErasePerson = %v, want a conflict — the erasure cannot cover an account a second live record holds", err)
+	}
+
+	// Nothing may have been destroyed on the way to that refusal.
+	if !rawCaptureSurvives(t, e, "rival-account-message") {
+		t.Error("the surviving record's raw capture was purged by an erasure that refused")
+	}
+	if n := liveIdentities(t, e, live); n != 1 {
+		t.Errorf("%d live bindings on the surviving record, want 1 — a refused erasure unbound it anyway", n)
+	}
+	if suppressed(t, e, "60601") {
+		t.Error("the account is on the suppression list after a REFUSED erasure — " +
+			"the live record's next message would be silently refused for an erasure that never happened")
+	}
+}
+
+// The person_email sibling of the case above: same partial-unique shape, same
+// archive-then-rebind sequence, same half-erasure. The guard is one function
+// covering both satellites (erasure_rivals.go) rather than a fix applied to
+// whichever one was reported.
+func TestErasureRefusesWhenAnotherLivePersonHoldsTheSameEmail(t *testing.T) {
+	e := Setup(t)
+	archived := e.SeedPerson(t, "Bruno Archived", nil)
+	seedPersonEmail(t, e, archived, "bruno@rival.test")
+	if _, err := e.People.ArchivePerson(e.Admin(), personIDOf(archived)); err != nil {
+		t.Fatalf("ArchivePerson: %v", err)
+	}
+	live := e.SeedPerson(t, "Bruno Captured Again", nil)
+	seedPersonEmail(t, e, live, "bruno@rival.test")
+
+	err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), archived, "test")
+	if !errors.Is(err, apperrors.ErrConflict) {
+		t.Fatalf("ErasePerson = %v, want a conflict — the erasure cannot cover an address a second live record holds", err)
+	}
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM person_email WHERE person_id = $1 AND archived_at IS NULL`, live); n != 1 {
+		t.Errorf("%d live addresses on the surviving record, want 1 — a refused erasure deleted it anyway", n)
+	}
+}
+
+// The other order, which must SUCCEED: erasing the live record while an
+// archived duplicate holds the same account. Nothing is left to merge into, so
+// refusing here would leave the subject permanently un-erasable. Instead the
+// identifier-scoped delete reaches the archived duplicate's binding too — a
+// row that would otherwise go on holding the erased human's account id and
+// handle after the erasure certified them gone.
+func TestErasingTheLiveRecordAlsoClearsAnArchivedDuplicatesBinding(t *testing.T) {
+	e := Setup(t)
+	_, live := archiveAndRebindTheAccount(t, e, "60701", "beatrix")
+
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM person_channel_identity WHERE channel_user_id = $1`, "60701"); n != 2 {
+		t.Fatalf("%d bindings hold the account before the erasure, want the archived one and the live one", n)
+	}
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), live, "test"); err != nil {
+		t.Fatalf("ErasePerson: %v", err)
+	}
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM person_channel_identity WHERE channel_user_id = $1`, "60701"); n != 0 {
+		t.Errorf("%d bindings still hold the erased account, want 0 — the archived duplicate kept the subject's id and handle", n)
+	}
+	if !suppressed(t, e, "60701") {
+		t.Error("the erased account is not suppressed")
 	}
 }

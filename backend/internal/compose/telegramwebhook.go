@@ -36,15 +36,19 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
+	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -62,9 +66,30 @@ const telegramSecretHeader = "X-Telegram-Bot-Api-Secret-Token" //nolint:gosec //
 // row to normalize, so a redelivery that refreshed an existing raw_capture
 // row (rather than minting a new one) still points the job at the right
 // payload.
+//
+// BotID is the bot that RECEIVED this update, pinned here at delivery
+// exactly as the raw row's key is, and never resolved from the connection
+// row when the job runs. ReplaceToken re-points a live connection at a
+// different bot in place, so the row's channel_id is mutable state: a job
+// reading it later would build the message's natural key and thread_key
+// from whichever bot is current, filing one bot's message into another
+// bot's conversation — and because Telegram's message ids restart per chat
+// per bot, that re-keyed natural key can equal a real message of the new
+// bot's, whereupon the Sink's idempotent upsert merges two different
+// customers' messages into one activity. The bot that received an update is
+// a fact about the delivery, so it travels with the delivery.
+//
+// A field constant per raw row does not weaken river's ByArgs dedupe: every
+// redelivery of one update resolves to the same raw row and therefore the
+// same bot.
 type TelegramIngestArgs struct {
-	Workspace    string `json:"workspace"`
+	Workspace string `json:"workspace"`
+	// ConnectionID names which connection delivered the update. The worker
+	// resolves nothing from it — that is the point of BotID — but it is the
+	// operational link between a queued job and the connection an operator is
+	// looking at, and the key the ingest jobs are queried by.
 	ConnectionID string `json:"connection_id"`
+	BotID        string `json:"bot_id"`
 	RawCaptureID string `json:"raw_capture_id"`
 }
 
@@ -90,6 +115,14 @@ func WithTelegramWebhook(inserter *jobs.Runner) Option {
 	}
 }
 
+// newTelegramWebhookHandler composes the whole ingress edge: the throttle in
+// front of the shared chassis. It is the ONE spelling of that composition, so
+// a test exercising "the Telegram webhook" exercises the same handler
+// cmd/api mounts rather than the chassis alone with the brake missing.
+func newTelegramWebhookHandler(pool *pgxpool.Pool, vault keyvault.Vault, inserter telegramEnqueuer, limits telegramWebhookLimiters, log *slog.Logger) http.Handler {
+	return throttleTelegramWebhook(limits, Webhook(telegramWebhookSpec(pool, vault, inserter, log), log))
+}
+
 // telegramWebhookSpec declares Telegram's side of the chassis (design
 // §6.2/§6.5): a per-connection secret rather than one deployment-wide
 // token, no second verifier, and a Handle that persists the update before
@@ -100,9 +133,54 @@ func telegramWebhookSpec(pool *pgxpool.Pool, vault keyvault.Vault, inserter tele
 		Provider: "telegram",
 		MaxBody:  1 << 20,
 		Secret:   telegramSecretFunc(pool, vault, log),
-		Handle:   handleTelegramWebhook(pool, inserter),
+		Handle:   handleTelegramWebhook(pool, inserter, log),
 		OnAccept: http.StatusOK,
 	}
+}
+
+// telegramWebhookLimiters brake the one unauthenticated edge in this
+// installation that does DATABASE work to decide admission: verifying the
+// secret means resolving the connection first, which is a pool query plus a
+// probe under every live workspace's GUC. Gmail's side of the same chassis
+// compares an in-memory constant and touches nothing, so it needs no brake;
+// this one does, for the same reason the two other public edges have theirs
+// (publicbooking.go, publicpreferences.go) — an anonymous caller must not be
+// able to spend the pool.
+//
+// Per-IP is the brake that actually holds: a flood comes from one or a few
+// hosts, and Telegram's own deliveries arrive from its published ranges.
+// Per-connection covers a distributed flood aimed at one connection id.
+// Both are set far above any real bot's traffic — a busy official account is
+// orders of magnitude below these — so a legitimate delivery is never the
+// request that trips them.
+type telegramWebhookLimiters struct {
+	perIP         *ratelimit.Limiter
+	perConnection *ratelimit.Limiter
+}
+
+func newTelegramWebhookLimiters() telegramWebhookLimiters {
+	return telegramWebhookLimiters{
+		perIP:         ratelimit.New(600, time.Minute),
+		perConnection: ratelimit.New(300, time.Minute),
+	}
+}
+
+// throttleTelegramWebhook refuses over-budget deliveries before the chassis
+// reads a body or the secret function touches the pool.
+//
+// 429 rather than a 4xx that ends the delivery: Telegram treats anything that
+// is not a 2xx as "try again later", and that is exactly right here — a
+// throttled delivery was never inspected, so the update is not poison and
+// must not be dropped (there is no history API to re-fetch it from). The
+// response carries no body, like every other refusal on this edge.
+func throttleTelegramWebhook(limits telegramWebhookLimiters, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !limits.perIP.Allow(publicClientIP(r)) || !limits.perConnection.Allow(r.PathValue("connection_id")) {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // telegramSecretFunc resolves the connection named in the path and unseals
@@ -116,6 +194,15 @@ func telegramWebhookSpec(pool *pgxpool.Pool, vault keyvault.Vault, inserter tele
 func telegramSecretFunc(pool *pgxpool.Pool, vault keyvault.Vault, log *slog.Logger) func(*http.Request) (want, got string) {
 	return func(r *http.Request) (want, got string) {
 		got = r.Header.Get(telegramSecretHeader)
+		if got == "" {
+			// Answered before any database work. setWebhook always registers a
+			// secret, so a genuine delivery always carries this header; a
+			// request without one cannot be admitted whatever the connection
+			// row says, and resolving that row first would let an anonymous
+			// caller spend a pool connection per live workspace to learn
+			// nothing.
+			return telegramUnmatchableSecret(), got
+		}
 		id, err := ids.Parse(r.PathValue("connection_id"))
 		if err != nil {
 			return telegramUnmatchableSecret(), got
@@ -183,6 +270,40 @@ func telegramRawSourceID(botID string, updateID int64) string {
 // dropping a good message silently is the one outcome design §6.2 forbids.
 var errTelegramConnectionVanished = errors.New("telegram webhook: connection resolved during admission is gone")
 
+// errTelegramSubjectErased unwinds the write transaction for an update whose
+// sender this installation has erased under Art. 17. It is a control signal,
+// not a fault: the delivery was understood and answered, there is simply
+// nothing this installation is still permitted to keep about the human who
+// sent it.
+var errTelegramSubjectErased = errors.New("telegram webhook: the update's subject has been erased")
+
+// telegramSubjectErased reports whether any account this update is about
+// carries an erasure suppression entry. The probe runs inside the write
+// transaction and BEFORE the raw insert, because the raw row is the whole
+// problem: the erasure suppression list stops the Person from being recreated,
+// but a verbatim update persisted anyway holds the sender's numeric id,
+// handle, first and last name and the full message text — and no later erasure
+// can reach it, because both the raw purge and the suppression are driven off
+// person_channel_identity rows that the first erasure deleted and the
+// suppression guarantees are never recreated. Refusing to persist is
+// therefore the only point at which this data can be kept out.
+//
+// Nothing is preserved for the operator to inspect. That is deliberate: an
+// installation told to stop profiling a human does not get to keep their words
+// in a quarantine table.
+func telegramSubjectErased(ctx context.Context, tx pgx.Tx, accounts []string) (bool, error) {
+	for _, account := range accounts {
+		suppressed, err := storekit.ChannelIdentitySuppressed(ctx, tx, telegram.Provider, account)
+		if err != nil {
+			return false, fmt.Errorf("telegram webhook: probing the erasure suppression list: %w", err)
+		}
+		if suppressed {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // handleTelegramWebhook persists the update and enqueues its normalize job
 // in ONE transaction, then reports Accepted — never the reverse order (see
 // the file comment: Telegram has no history API, so an update acknowledged
@@ -194,11 +315,19 @@ var errTelegramConnectionVanished = errors.New("telegram webhook: connection res
 // transaction is Transient: redelivery is exactly the recovery path, and
 // it is the ONLY recovery path, because there is no history API to
 // re-fetch this update from if it is dropped here.
-func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(context.Context, *http.Request, []byte) (Disposition, error) {
+//
+// An update from an erased subject is the one case that is Accepted with
+// NOTHING committed — see telegramSubjectErased for why storing it would put
+// the subject's identifiers and words beyond the reach of any later erasure.
+func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer, log *slog.Logger) func(context.Context, *http.Request, []byte) (Disposition, error) {
 	return func(ctx context.Context, r *http.Request, body []byte) (Disposition, error) {
 		var update telegramUpdateEnvelope
 		if err := json.Unmarshal(body, &update); err != nil {
 			return Poison, fmt.Errorf("telegram webhook: decoding the update envelope: %w", err)
+		}
+		accounts, err := telegram.SubjectAccountIDs(body)
+		if err != nil {
+			return Poison, fmt.Errorf("telegram webhook: reading the update's subject: %w", err)
 		}
 
 		id, err := ids.Parse(r.PathValue("connection_id"))
@@ -219,6 +348,13 @@ func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(c
 
 		wsCtx := principal.WithWorkspaceID(ctx, conn.WorkspaceID)
 		err = database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
+			erased, err := telegramSubjectErased(wsCtx, tx, accounts)
+			if err != nil {
+				return err
+			}
+			if erased {
+				return errTelegramSubjectErased
+			}
 			rawID, err := capture.InsertRawCaptureTx(wsCtx, tx, capture.RawRecord{
 				SourceSystem: "telegram",
 				SourceID:     telegramRawSourceID(conn.ChannelID, update.UpdateID),
@@ -230,9 +366,20 @@ func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(c
 			return inserter.EnqueueTx(wsCtx, tx, TelegramIngestArgs{
 				Workspace:    conn.WorkspaceID.String(),
 				ConnectionID: id.String(),
+				BotID:        conn.ChannelID,
 				RawCaptureID: rawID.String(),
 			}, &river.InsertOpts{UniqueOpts: river.UniqueOpts{ByArgs: true}})
 		})
+		if errors.Is(err, errTelegramSubjectErased) {
+			// Accepted, and indistinguishable from an ordinary accept on the
+			// wire: a status Telegram could tell apart would let anyone holding
+			// the connection URL and secret test whether a given account has
+			// been erased. The log names no account for the same reason the
+			// row was not written.
+			log.InfoContext(ctx, "telegram webhook: dropped an update whose subject has been erased",
+				"connection", id.String())
+			return Accepted, nil
+		}
 		if err != nil {
 			return Transient, fmt.Errorf("telegram webhook: persisting the raw update and its enqueue: %w", err)
 		}

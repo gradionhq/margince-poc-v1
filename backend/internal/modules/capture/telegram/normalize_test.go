@@ -162,6 +162,36 @@ func TestNormalizeSkipsAChatOfUnstatedType(t *testing.T) {
 	}`)
 }
 
+// A sender id of 0 — Telegram's rendering of a message with no `from` — is a
+// valid, non-empty key that EVERY anonymous sender shares. Captured, it merges
+// distinct humans onto one Person and one identity row, which then reads as
+// reachable at chat id 0. The private-chat gate excludes the shape this
+// arrives in today, so the refusal is stated here, where the identity is
+// minted, rather than left resting on a gate that exists for another reason.
+func TestNormalizeSkipsAMessageWithNoSender(t *testing.T) {
+	assertSkipped(t, `{
+		"update_id": 104,
+		"message": {
+			"message_id": 10,
+			"chat": {"id": 1001, "type": "private", "username": "annlee"},
+			"date": 1690000100,
+			"text": "who sent this?"
+		}
+	}`)
+}
+
+// Raw must stay EMPTY for Telegram, and this is the assertion that keeps it
+// that way. The ingress webhook already stored this exact update as the
+// only-copy evidence row before answering 200; a record carrying Raw makes the
+// Sink store the same bytes a second time under a different key with the
+// opposite conflict rule — every inbound message duplicated in the largest
+// column, and handed to the subject twice in their Art. 15 export.
+func TestNormalizeCarriesNoRawBecauseTheWebhookOwnsTheEvidenceCopy(t *testing.T) {
+	if raw := normalizeFixture(t).Raw; len(raw) != 0 {
+		t.Errorf("Raw = %s, want empty — the webhook's raw_capture row is the single evidence copy", raw)
+	}
+}
+
 // A text message's body is its text — the baseline the media cases below vary.
 func TestNormalizeCapturesTheMessageTextAsTheBody(t *testing.T) {
 	if body := bodyOf(t, normalizeFixture(t)); body != "hello" {

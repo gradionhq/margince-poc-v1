@@ -132,7 +132,7 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// composes no handler here, the same declared-by-omission posture as
 		// the channel-connect surface above.
 		if s.telegramInserter != nil {
-			s.telegramWebhook = Webhook(telegramWebhookSpec(pool, vault, s.telegramInserter, s.log), s.log)
+			s.telegramWebhook = newTelegramWebhookHandler(pool, vault, s.telegramInserter, newTelegramWebhookLimiters(), s.log)
 		}
 		// The pre-flight reads whichever registry the lines above just
 		// ensured exists — the SAME one, never a second construction — so a

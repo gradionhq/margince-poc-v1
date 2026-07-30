@@ -13,7 +13,6 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -141,29 +140,4 @@ func ResolveChannelConnection(ctx context.Context, pool *pgxpool.Pool, id ids.UU
 		}
 	}
 	return ChannelConnection{}, false, nil
-}
-
-// ChannelBotID reads one connection's bot id directly — the ingest worker's
-// lookup (design §6.3), unlike ResolveChannelConnection's blind fleet probe
-// above: the worker's job args already NAME the workspace and the
-// connection, so there is nothing to search for and no need to enumerate the
-// fleet. Scoped to the caller's own transaction, so RLS resolves under
-// whatever workspace GUC the caller already set from those same args.
-//
-// Deliberately ignores status and archived_at: the bot id a message's
-// natural key is scoped to is a historical fact about which bot received it,
-// not a liveness signal — a connection disconnected between enqueue and
-// processing must not change the key an already-captured update resolves
-// to, and refusing on that account would retry a job forever for no fault
-// of the message's own.
-func ChannelBotID(ctx context.Context, tx pgx.Tx, id ids.UUID) (string, error) {
-	var botID string
-	err := tx.QueryRow(ctx, `SELECT channel_id FROM channel_connection WHERE id = $1`, id).Scan(&botID)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return "", fmt.Errorf("capture: channel connection %s: %w", id, apperrors.ErrNotFound)
-	}
-	if err != nil {
-		return "", fmt.Errorf("capture: reading channel connection bot id: %w", err)
-	}
-	return botID, nil
 }

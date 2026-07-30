@@ -367,21 +367,34 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 	}
 }
 
-// TestErasedChannelIdentityIsNotRecreatedOnRedelivery holds Art. 17 against the
-// one path that can silently undo it: the erased subject's account writing
-// again. Nothing errors when this is wrong — the ensure simply re-creates the
-// person it just destroyed, and the erasure certificate becomes a lie.
+// TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing holds Art. 17
+// against the one path that can silently undo it: the erased subject's account
+// writing again. Nothing errors when this is wrong — the person is quietly
+// recreated, or their words are quietly re-stored, and the erasure certificate
+// becomes a lie.
+//
+// The suppression list alone is not enough, and that is the whole point of this
+// case. It stops the PERSON from being recreated, but the webhook persists the
+// verbatim update — numeric sender id, @username, first and last name, full
+// message body — as the only copy of the message, and the Sink would then commit
+// the body onto an activity too. No later erasure can reach any of it: both the
+// raw purge and the suppression are driven off person_channel_identity rows,
+// which the first erasure deleted and the suppression guarantees are never
+// recreated, and raw_capture has no retention policy. So an erased subject
+// would stay fully re-identifiable, indefinitely, from data written AFTER their
+// erasure. Refusing to persist is the only moment this can be stopped.
 //
 // The redelivered message is deliberately a NEW update, not a replay of the
 // erased one: a replay would be absorbed by the raw layer's own dedupe and
 // would prove nothing about the suppression list.
-func TestErasedChannelIdentityIsNotRecreatedOnRedelivery(t *testing.T) {
+func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 	c := setupTelegramConnected(t)
 	before := telegramUpdate{updateID: 5801, messageID: 81, senderID: 770801, username: "forgetme", firstName: "Iris", text: "please delete me"}
 
 	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{})
 	startTelegramWorker(t, runner)
-	if status, _ := c.deliver(t, before); status != http.StatusOK {
+	acceptedStatus, acceptedBody := c.deliver(t, before)
+	if acceptedStatus != http.StatusOK {
 		t.Fatal("the first delivery was not accepted")
 	}
 	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
@@ -407,28 +420,37 @@ func TestErasedChannelIdentityIsNotRecreatedOnRedelivery(t *testing.T) {
 		t.Fatal("the erased account is not on the suppression list — their next message would recreate them")
 	}
 
+	jobsBeforeRedelivery := c.ingestJobs(t)
 	after := telegramUpdate{updateID: 5802, messageID: 82, senderID: 770801, username: "forgetme", firstName: "Iris", text: "hello again"}
-	if status, _ := c.deliver(t, after); status != http.StatusOK {
-		t.Fatal("the post-erasure delivery was not accepted")
-	}
-	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
+	status, body := c.deliver(t, after)
 
+	// Byte-identical to the accept the FIRST delivery got. A distinguishable
+	// answer would turn this edge into an oracle: anyone holding the URL and the
+	// connection's secret could test whether a given Telegram account has been
+	// erased, which is a disclosure about the subject in its own right.
+	if status != acceptedStatus || body != acceptedBody {
+		t.Fatalf("the post-erasure delivery answered %d/%q, want %d/%q — Telegram (and anyone else) can tell the two apart",
+			status, body, acceptedStatus, acceptedBody)
+	}
+
+	// Nothing was written, at any layer. raw_capture first, because it is the
+	// verbatim payload and the one no later erasure could reach.
+	if n := c.rawCaptures(t, after.updateID); n != 0 {
+		t.Errorf("%d raw captures for an erased subject's message, want 0 — "+
+			"their id, handle, name and message text were stored where no erasure can reach them", n)
+	}
+	if n := c.ingestJobs(t); n != jobsBeforeRedelivery {
+		t.Errorf("ingest jobs went from %d to %d — an update that must not be stored must not be queued for capture either",
+			jobsBeforeRedelivery, n)
+	}
+	if n := c.telegramActivities(t, after); n != 0 {
+		t.Errorf("%d activities for an erased subject's message, want 0 — activity.body is their words", n)
+	}
 	if n := c.channelIdentities(t, after); n != 0 {
-		t.Fatalf("%d channel identities exist after the erased account wrote again, want 0 — the erasure was undone", n)
+		t.Errorf("%d channel identities exist after the erased account wrote again, want 0 — the erasure was undone", n)
 	}
 	if !c.accountSuppressed(t, after.account()) {
-		t.Fatal("the suppression entry did not survive the redelivery")
-	}
-	// The message itself IS captured and stays unbound: capture never fails on
-	// a suppression, and an activity linked to nobody is the honest record of a
-	// message from an account this installation may no longer profile.
-	if n := c.telegramActivities(t, after); n != 1 {
-		t.Fatalf("%d activities for the post-erasure message, want 1", n)
-	}
-	if n := c.count(t, `
-		SELECT count(*) FROM activity_link l JOIN activity a ON a.id = l.activity_id
-		 WHERE a.source_id = $1`, after.naturalKey()); n != 0 {
-		t.Fatalf("%d person links on a message from an erased account, want 0", n)
+		t.Error("the suppression entry did not survive the redelivery")
 	}
 }
 

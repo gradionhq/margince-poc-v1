@@ -6,7 +6,7 @@
 // update to a captured activity. It re-establishes the workspace context
 // from its job args exactly as CaptureSyncArgs does (jobs_capture.go), reads
 // back what the webhook wrote in the SAME transaction it was written in,
-// joins the connection's bot id onto the payload (capture/telegram's
+// joins the bot id the delivery pinned onto the payload (capture/telegram's
 // Normalize is pure and knows nothing of connections), and hands every
 // resulting record to the ONE guarded Sink every capture path shares.
 
@@ -57,9 +57,10 @@ func newTelegramIngestWorker(pool *pgxpool.Pool, cfg CaptureConfig, log *slog.Lo
 
 // Work re-establishes the workspace context from job.Args (never inherited
 // from ctx, which carries none — the job queue is not a request), reads back
-// the connection's bot id and the raw update the webhook persisted, and
-// normalizes+captures. Every failure past that point — a vanished
-// connection, a decode fault, a Sink error including a unique-constraint
+// the raw update the webhook persisted, and normalizes+captures. Every
+// identity the message is keyed on comes from the args, which were stamped at
+// delivery. Every failure past that point — a missing raw row,
+// a decode fault, a Sink error including a unique-constraint
 // race the Sink's own idempotent upserts did not absorb — is returned
 // unswallowed: River's retry is Telegram's ONLY recovery path (there is no
 // history API to re-fetch a dropped update from), so treating any of these
@@ -70,10 +71,6 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: workspace id: %w", err)
 	}
-	connID, err := ids.Parse(job.Args.ConnectionID)
-	if err != nil {
-		return fmt.Errorf("telegram_ingest: connection id: %w", err)
-	}
 	rawID, err := ids.Parse(job.Args.RawCaptureID)
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: raw capture id: %w", err)
@@ -81,22 +78,21 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 
 	wsCtx := principal.WithWorkspaceID(ctx, ws)
 
-	var botID string
 	var payload []byte
 	err = database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
 		var err error
-		botID, err = capture.ChannelBotID(wsCtx, tx, connID)
-		if err != nil {
-			return err
-		}
 		payload, err = capture.GetRawCapturePayloadTx(wsCtx, tx, rawID)
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("telegram_ingest: reading the connection and raw payload: %w", err)
+		return fmt.Errorf("telegram_ingest: reading the raw payload: %w", err)
 	}
 
-	raw, err := telegram.BuildRawEnvelope(botID, payload)
+	// job.Args.BotID, never a read of the connection row: the bot that received
+	// this update is pinned at delivery, and the row's channel_id is mutable
+	// (ReplaceToken re-points a live connection at a different bot). See
+	// TelegramIngestArgs for what re-keying an already-delivered message costs.
+	raw, err := telegram.BuildRawEnvelope(job.Args.BotID, payload)
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: building the normalize envelope: %w", err)
 	}

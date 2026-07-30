@@ -31,7 +31,12 @@ type channelIdentity struct {
 	ChannelUserID string
 }
 
-// personChannelIdentities reads the subject's live channel-identity bindings.
+// personChannelIdentities reads every channel account bound to the subject,
+// archived bindings included: an archived row still holds the provider account
+// id and the handle, which identify the human exactly as a live row does, and
+// archiving a Person archives their bindings (people/person.go), so a
+// live-only read would erase nobody who had ever been archived.
+//
 // Called BEFORE anything downstream deletes person_channel_identity — both
 // eraseChannelIdentities (which deletes the rows this returns) and
 // purgeDerivedTraces (which needs the same identifiers to reach the subject's
@@ -56,12 +61,22 @@ func personChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.Person
 // without its suppression row would leave the subject erasable-but-resurrectable,
 // which is indistinguishable from a working erasure until the next message
 // arrives.
-func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonID, identities []channelIdentity) (int, error) {
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM person_channel_identity WHERE person_id = $1`, personID); err != nil {
-		return 0, err
-	}
+//
+// The delete resolves by ACCOUNT, not by person_id. uq_person_channel_identity
+// is partial on archived_at IS NULL, so the same provider account can be bound
+// by more than one Person row once an earlier binding is archived — and every
+// one of those rows holds the erased human's account id and handle. Deleting
+// only the subject's own rows would suppress and purge on an identifier that a
+// sibling row goes on storing. refuseRivalIdentifierHolders (erasure_rivals.go)
+// is what keeps this from reaching a LIVE Person's binding: this delete only
+// ever also covers rows hanging off already-archived duplicates.
+func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, identities []channelIdentity) (int, error) {
 	for _, identity := range identities {
+		if _, err := tx.Exec(ctx,
+			`DELETE FROM person_channel_identity WHERE provider = $1 AND channel_user_id = $2`,
+			identity.Provider, identity.ChannelUserID); err != nil {
+			return 0, err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO erasure_suppression (workspace_id, kind, value_hash)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'channel_identity', $1)
@@ -92,10 +107,17 @@ func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonI
 // Both payload shapes below are matched because both land in raw_capture
 // under the SAME source_system: capture/telegram's Normalize reads the sender
 // from message.from.id for an ordinary message, and ParseMembership reads it
-// from my_chat_member.new_chat_member.user.id for a block/unblock report —
-// the ingest worker persists the raw update before it classifies which kind
-// it is (compose/telegramwebhook.go), so an unerased row of either shape
-// would still resolve back onto this subject's account.
+// from my_chat_member.chat.id for a block/unblock report — the webhook
+// persists the raw update before anything classifies which kind it is
+// (compose/telegramwebhook.go), so an unerased row of either shape would
+// still resolve back onto this subject's account.
+//
+// The membership arm reads the CHAT and not new_chat_member.user, which is
+// the bot: my_chat_member reports a change to the bot's own membership
+// (capture/telegram/membership.go), so that user id belongs to no Person and
+// an erasure keyed on it would purge nothing while appearing to cover the
+// shape. A private chat's id IS the customer's own user id, which is exactly
+// what person_channel_identity stores.
 //
 // ai_call_payload (erasure.go's purgeDerivedTraces) gets no equivalent lane:
 // 0089's schema gives it no structural link to a subject at all, so the only
@@ -109,7 +131,7 @@ func purgeChannelRawCapture(ctx context.Context, tx pgx.Tx, identities []channel
 			DELETE FROM raw_capture
 			 WHERE source_system = $1
 			   AND (payload->'message'->'from'->>'id' = $2
-			        OR payload->'my_chat_member'->'new_chat_member'->'user'->>'id' = $2)`,
+			        OR payload->'my_chat_member'->'chat'->>'id' = $2)`,
 			identity.Provider, identity.ChannelUserID)
 		if err != nil {
 			return 0, err

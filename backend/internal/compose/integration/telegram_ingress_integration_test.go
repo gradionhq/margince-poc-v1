@@ -26,6 +26,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/compose"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -408,5 +409,44 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 		t.Fatalf("the receipt→capture window measured %s against an injected receipt of %s; "+
 			"a window that cannot exceed AC7.1's %s ceiling is not measuring the async leg at all",
 			window, injectedReceipt, captureLatencyBudget)
+	}
+}
+
+// One inbound message is stored ONCE. The webhook's raw_capture row is the
+// only-copy evidence (design §6.5) — written before the delivery was
+// acknowledged, keyed on the per-bot update_id, append-once. A normalized
+// record that also carried the update in Raw makes the Sink store the same
+// bytes a SECOND time under a chat-scoped key with the opposite conflict rule,
+// so the evidence table ends up half rewritable for one provider, the largest
+// column in the installation grows at twice the rate of the conversation, and
+// Art. 15 hands the subject every message they ever sent twice over.
+//
+// The count is taken AFTER the worker has run, which is the whole point: every
+// other raw-capture assertion in this suite samples between the ack and the
+// job, where the duplicate does not exist yet.
+func TestOneInboundMessageLeavesOneRawEvidenceRowAndIsExportedOnce(t *testing.T) {
+	c := setupTelegramConnected(t)
+	u := telegramUpdate{updateID: 5901, messageID: 91, senderID: 770901, username: "onlyonce", firstName: "Omar", text: "store me once"}
+
+	c.ingestOne(t, u, compose.JobRunnerConfig{})
+
+	if n := c.rawCaptures(t, u.updateID); n != 1 {
+		t.Fatalf("%d raw captures for one delivered message once the worker has run, want exactly 1", n)
+	}
+
+	// And the subject's own export says the same. The SAR reaches raw_capture
+	// by the sender id in the payload, so a duplicate row is a duplicate entry
+	// in the package handed to the human.
+	_, personID := c.capturedMessage(t, u)
+	person, err := ids.Parse(personID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg, err := privacy.AssembleSAR(c.adminStoreCtx(t), c.pool, ids.From[ids.PersonKind](person))
+	if err != nil {
+		t.Fatalf("AssembleSAR: %v", err)
+	}
+	if len(pkg.RawCapture) != 1 {
+		t.Errorf("the subject's SAR carries %d raw captures for their one message, want 1", len(pkg.RawCapture))
 	}
 }

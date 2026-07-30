@@ -30,8 +30,8 @@ const telegramBlockedFixture = `{
 	}
 }`
 
-// parseMembership runs ParseMembership over one verbatim update as bot 42.
-func parseMembership(t *testing.T, update string) (Membership, bool) {
+// parseMembershipUpdate runs ParseMembership over one verbatim update as bot 42.
+func parseMembershipUpdate(t *testing.T, update string) (Membership, bool) {
 	t.Helper()
 	raw, err := BuildRawEnvelope("42", []byte(update))
 	if err != nil {
@@ -51,7 +51,7 @@ func parseMembership(t *testing.T, update string) (Membership, bool) {
 // customer keeps rendering as reachable and every reply is accepted only to
 // fail at Telegram.
 func TestParseMembershipReadsTheCustomerFromTheChatNotTheBot(t *testing.T) {
-	mem, ok := parseMembership(t, telegramBlockedFixture)
+	mem, ok := parseMembershipUpdate(t, telegramBlockedFixture)
 	if !ok {
 		t.Fatal("ParseMembership declined a private-chat my_chat_member update")
 	}
@@ -68,7 +68,7 @@ func TestParseMembershipReadsTheCustomerFromTheChatNotTheBot(t *testing.T) {
 // edge that CLEARS blocked_at, and it has to read the same identity as the
 // block did or the two never cancel out.
 func TestParseMembershipReadsAnUnblockOfTheSameIdentity(t *testing.T) {
-	mem, ok := parseMembership(t, `{
+	mem, ok := parseMembershipUpdate(t, `{
 		"update_id": 201,
 		"my_chat_member": {
 			"chat": {"id": 556, "type": "private", "username": "blockeduser"},
@@ -91,7 +91,7 @@ func TestParseMembershipReadsAnUnblockOfTheSameIdentity(t *testing.T) {
 // (normalize.go's chatTypePrivate). Classifying it as membership would write a
 // reachability state against the group's own negative id.
 func TestParseMembershipDeclinesAGroupChatUpdate(t *testing.T) {
-	if _, ok := parseMembership(t, `{
+	if _, ok := parseMembershipUpdate(t, `{
 		"update_id": 202,
 		"my_chat_member": {
 			"chat": {"id": -1001234567890, "type": "supergroup", "title": "Acme Support"},
@@ -108,7 +108,7 @@ func TestParseMembershipDeclinesAGroupChatUpdate(t *testing.T) {
 // A message update is not a membership update: ok=false is what sends it down
 // the Normalize path instead, so a true here would swallow every message.
 func TestParseMembershipDeclinesAMessageUpdate(t *testing.T) {
-	if _, ok := parseMembership(t, telegramUpdateFixture); ok {
+	if _, ok := parseMembershipUpdate(t, telegramUpdateFixture); ok {
 		t.Error("ParseMembership claimed a message update as a membership change")
 	}
 }
@@ -119,5 +119,22 @@ func TestParseMembershipDeclinesAMessageUpdate(t *testing.T) {
 func TestParseMembershipFailsOnAnUndecodableUpdate(t *testing.T) {
 	if _, _, err := ParseMembership(connector.RawRecord(`{"bot_id":"42","update":"not-an-object"}`)); err == nil {
 		t.Error("ParseMembership accepted an update that is not a JSON object")
+	}
+}
+
+// A my_chat_member update whose chat id is 0 names no addressable customer:
+// this function reads the account OUT of the chat, so 0 would write a
+// reachability state against "telegram:0" — an account every such update
+// shares. Declining is the same answer a group update gets, which sends it to
+// Normalize and the deliberate-skip path.
+func TestParseMembershipDeclinesAnUpdateWithNoChatID(t *testing.T) {
+	if _, ok := parseMembershipUpdate(t, `{
+		"update_id": 203,
+		"my_chat_member": {
+			"chat": {"type": "private"},
+			"new_chat_member": {"user": {"id": 42, "is_bot": true}, "status": "kicked"}
+		}
+	}`); ok {
+		t.Error("ParseMembership claimed a chat-less update as a reachability change for account 0")
 	}
 }

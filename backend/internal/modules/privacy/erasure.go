@@ -113,6 +113,14 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// Refused BEFORE the first destructive statement: everything below
+		// this line suppresses and purges by IDENTIFIER, and a rival record
+		// holding the same identifier would be left named, reachable, and
+		// stripped of the evidence that was never this request's to destroy
+		// (erasure_rivals.go).
+		if err := refuseRivalIdentifierHolders(ctx, tx, subject, emails, identities); err != nil {
+			return err
+		}
 
 		leadsWiped, err := anonymizeSubjectRows(ctx, tx, subject, emails)
 		if err != nil {
@@ -157,7 +165,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		channelsSuppressed, err := eraseChannelIdentities(ctx, tx, subject, identities)
+		channelsSuppressed, err := eraseChannelIdentities(ctx, tx, identities)
 		if err != nil {
 			return err
 		}
@@ -178,55 +186,6 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		}
 		return storekit.EmitEventForEntity(ctx, tx, auditID, "person", subject.UUID, retentionAppliedPayload(actionErase, nil, &reason))
 	})
-}
-
-// subjectAttachmentsWhere selects the attachments Art. 17 erasure removes for
-// a person: those hung off the person and those on the person's destroyable
-// subject-only activities (floor-shielded correspondence keeps its
-// attachments too). $1 is the person id; $2/$3 are the statutory floor's
-// interval and calendar-year-end anchor.
-var subjectAttachmentsWhere = `(entity_type = 'person' AND entity_id = $1)
-	   OR (entity_type = 'activity' AND entity_id IN (` + subjectOnlyDestroyable + `))`
-
-// eraseAttachments purges the matched attachments' objects and deletes their
-// rows within the caller's transaction, objects FIRST: the keys live in the
-// rows, so purging before the DELETE means any failure (a store error, or no
-// store configured while objects exist) rolls the transaction back with the
-// keys intact — a retry re-purges idempotently, and no bytes are ever
-// orphaned with their only key gone. Erasure is rare and not latency-bound,
-// so the brief object-store I/O held under the transaction is an acceptable
-// trade for that durability guarantee.
-func (e *Eraser) eraseAttachments(ctx context.Context, tx pgx.Tx, where string, args ...any) error {
-	rows, err := tx.Query(ctx, `SELECT storage_key FROM attachment WHERE `+where, args...)
-	if err != nil {
-		return err
-	}
-	var keys []string
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			rows.Close()
-			return err
-		}
-		keys = append(keys, key)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(keys) > 0 {
-		if e.blob == nil {
-			return fmt.Errorf("privacy: %d attachment object(s) to purge but no object store is configured", len(keys))
-		}
-		for _, key := range keys {
-			if err := e.blob.Delete(ctx, key); err != nil {
-				return fmt.Errorf("privacy: purging attachment object: %w", err)
-			}
-		}
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM attachment WHERE `+where, args...); err != nil {
-		return err
-	}
-	return nil
 }
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
@@ -266,7 +225,14 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
+	// By ADDRESS as well as by person_id, for the reason eraseChannelIdentities
+	// deletes by account (erasure_rivals.go): uq_person_email_dedupe is partial
+	// on archived_at IS NULL, so an archived duplicate Person can hold the same
+	// address, and leaving that row behind would keep the erased subject's
+	// address stored under a record this erasure suppressed and purged for.
+	// A LIVE duplicate never reaches here — the guard refuses the erasure.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_email WHERE person_id = $1 OR email = ANY($2)`, personID, emails); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {

@@ -134,10 +134,17 @@ func postTelegramWebhook(t *testing.T, srv *httptest.Server, connID ids.UUID, se
 	return resp
 }
 
+// newTelegramTestMux mounts the SAME handler serveroptions.go composes —
+// throttle included — under the same route pattern, so nothing here can pass
+// against a composition production does not use.
 func newTelegramTestMux(pool *pgxpool.Pool, vault keyvault.Vault, enqueuer telegramEnqueuer) http.Handler {
+	return newTelegramTestMuxWithLimits(pool, vault, enqueuer, newTelegramWebhookLimiters())
+}
+
+func newTelegramTestMuxWithLimits(pool *pgxpool.Pool, vault keyvault.Vault, enqueuer telegramEnqueuer, limits telegramWebhookLimiters) http.Handler {
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	mux := http.NewServeMux()
-	mux.Handle("/webhooks/telegram/{connection_id}", Webhook(telegramWebhookSpec(pool, vault, enqueuer, quiet), quiet))
+	mux.Handle("/webhooks/telegram/{connection_id}", newTelegramWebhookHandler(pool, vault, enqueuer, limits, quiet))
 	return mux
 }
 
@@ -225,14 +232,17 @@ func deliverAccepted(t *testing.T, srv *httptest.Server, conn capture.ChannelCon
 }
 
 // workOneIngestJob runs one enqueued job through the real worker, with the args
-// the webhook actually stamped rather than args assembled by the caller.
+// the webhook actually stamped — read back off river_job rather than assembled
+// here, so the worker is fed exactly what the delivery pinned.
 func workOneIngestJob(t *testing.T, e *integration.Env, worker *telegramIngestWorker, conn capture.ChannelConnection, rawID string) {
 	t.Helper()
-	if err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
-		Args: TelegramIngestArgs{
-			Workspace: e.WS.String(), ConnectionID: conn.ID.String(), RawCaptureID: rawID,
-		},
-	}); err != nil {
+	var args TelegramIngestArgs
+	if err := e.Pool.QueryRow(context.Background(),
+		`SELECT args FROM river_job WHERE kind = $1 AND args->>'raw_capture_id' = $2`,
+		TelegramIngestArgs{}.Kind(), rawID).Scan(&args); err != nil {
+		t.Fatalf("reading the enqueued args for raw row %s: %v", rawID, err)
+	}
+	if err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{Args: args}); err != nil {
 		t.Fatalf("Work for bot %s: %v", conn.ChannelID, err)
 	}
 }

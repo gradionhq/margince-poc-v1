@@ -105,7 +105,7 @@ func TestIngestWorkerReestablishesWorkspaceContextFromArgs(t *testing.T) {
 	// proving the worker itself resolves the tenant from job.Args, not from
 	// whatever the caller happened to have bound.
 	err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
-		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), BotID: "42", RawCaptureID: rawID.String()},
 	})
 	if err != nil {
 		t.Fatalf("Work: %v", err)
@@ -151,7 +151,7 @@ func TestIngestWorkerTreatsAUniqueViolationAsRetryable(t *testing.T) {
 
 	worker := &telegramIngestWorker{pool: e.Pool, sink: uniqueViolationSink{}, log: quiet}
 	err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
-		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), BotID: "42", RawCaptureID: rawID.String()},
 	})
 	if err == nil {
 		t.Fatal("Work returned nil — a unique violation must propagate so River redelivers, not be swallowed")
@@ -200,7 +200,7 @@ func TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity(t *testing.T) {
 
 	worker := newTelegramIngestWorker(e.Pool, CaptureConfig{}, quiet)
 	err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
-		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), BotID: "42", RawCaptureID: rawID.String()},
 	})
 	if err != nil {
 		t.Fatalf("Work: %v", err)
@@ -258,7 +258,7 @@ func TestIngestWorkerCapturesNothingFromAGroupChat(t *testing.T) {
 	// nil, not an error: a scope exclusion is a deliberate skip, and River
 	// retrying it forever would be a fault report for working as designed.
 	if err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
-		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), BotID: "42", RawCaptureID: rawID.String()},
 	}); err != nil {
 		t.Fatalf("Work: %v", err)
 	}

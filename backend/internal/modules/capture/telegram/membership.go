@@ -101,6 +101,15 @@ func ParseMembership(raw connector.RawRecord) (Membership, bool, error) {
 	if !upd.Chat.isPrivate() {
 		return Membership{}, false, nil
 	}
+	// A chat id of 0 is Telegram reporting no chat at all, and this function
+	// reads the customer's account OUT of the chat — so 0 would be written as a
+	// reachability state against the account "telegram:0", which every such
+	// update shares. Declining is the same answer a group update gets, and for
+	// the same reason: no addressable customer is named, so the caller falls
+	// through to Normalize, which counts it as the deliberate skip it is.
+	if upd.Chat.ID == 0 {
+		return Membership{}, false, nil
+	}
 	return Membership{
 		Identity: connector.ChannelIdentity{
 			Provider:      Provider,
