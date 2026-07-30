@@ -151,6 +151,34 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     expect(document.activeElement).toBe(pipeline);
   });
 
+  // WCAG 1.4.13 also requires the tooltip be HOVERABLE: reaching for it must not
+  // dismiss it. The tooltip is a descendant of the row it belongs to, so moving
+  // the pointer onto it never fires the row's mouseleave. As a sibling it would
+  // vanish under the cursor, and no assertion on its text would notice.
+  it("nests the collapsed tooltip inside its own row so hovering it cannot dismiss it", async () => {
+    render(<WorkspaceRail route={{ screen: "home" }} collapsed />);
+    const pipeline = screen.getByRole("link", { name: "Pipeline" });
+
+    await userEvent.hover(pipeline);
+    const tip = await screen.findByRole("tooltip");
+    expect(pipeline.contains(tip)).toBe(true);
+
+    await userEvent.hover(tip);
+    expect(screen.queryByRole("tooltip")).not.toBeNull();
+  });
+
+  // On a phone the four bar tabs are the only rows rendered, so a route living
+  // in the More sheet has nothing to carry the current-destination state. More
+  // carries it instead, or the bar shows no active tab at all.
+  it("marks More as the active tab for a destination the phone bar hides", () => {
+    const sheeted = render(<WorkspaceRail route={{ screen: "reports" }} />);
+    expect(sheeted.container.querySelector(".railmore.active")).not.toBeNull();
+    cleanup();
+
+    const onBar = render(<WorkspaceRail route={{ screen: "contacts" }} />);
+    expect(onBar.container.querySelector(".railmore.active")).toBeNull();
+  });
+
   it("renders the collapse control with the state it will move to", () => {
     const onToggle = vi.fn();
     render(<WorkspaceRail route={{ screen: "home" }} onToggle={onToggle} />);

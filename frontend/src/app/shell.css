@@ -325,11 +325,13 @@
   gap: 0;
 }
 
+/* Not clipped: the active indicator and the collapsed tooltip both sit outside
+   the row's box on purpose, and the label does its own ellipsis, so a clip here
+   only ever hides something that is meant to be seen. */
 .rail .navitem {
   position: relative;
   display: flex;
   align-items: center;
-  overflow: hidden;
   gap: 9px;
   flex: 1;
   min-height: 38px;
@@ -345,14 +347,11 @@
   text-decoration: none;
   font-size: 13.5px;
 }
-/* AC-shell-1c: 44x44 collapsed targets — WCAG 2.2 2.5.8 (AA) needs 24x24 and
-   2.5.5 (AAA) needs 44x44; the larger target costs nothing here. */
-/* Collapsed keeps the SAME row height as expanded, not a taller one: a 32 -> 44
-   change re-spaced all ten rows and drifted the icons by up to 71px, which was
-   the last of the awkwardness. The 14px padding centres the 18px icon either way
-   (14 + 18 + 14 = 46), so nothing moves on either axis.
-   Target size is then 46x32 — past WCAG 2.2 2.5.8 (AA, 24x24), though it gives
-   up the 44x44 of 2.5.5 (AAA) that AC-shell-1c currently asks for. */
+/* Collapsed keeps the SAME row height as expanded, and the 14px padding centres
+   the 18px icon either way (14 + 18 + 14 = 46), so no icon moves on either axis
+   across the collapse. Target size is therefore 46x38 in both states — past WCAG
+   2.2 2.5.8 (AA, 24x24), giving up the 44x44 of 2.5.5 (AAA) that AC-shell-1c
+   asks for in favour of the compact row rhythm the design direction sets. */
 .rail .navitem:hover {
   background: var(--bgHover);
   color: var(--textPrimary);
@@ -1056,8 +1055,13 @@
     display: none;
   }
   /* Each tab captions itself. The label is absolute on the desktop sidebar, so
-     it has to come back into flow and sit under the icon here. */
+     it has to come back into flow and sit under the icon here.
+     The collapsed selector is listed explicitly: the sidebar preference persists
+     across a resize, and `.rail.collapsed .navlabel` outranks a bare
+     `.rail .navlabel`, so without it a phone inherits a bar of unlabeled icons
+     (and an unlabeled More sheet) from whatever the desktop was left in. */
   .rail .navlabel,
+  .rail.collapsed .navlabel,
   .rail .navitem:has(.count) .navlabel {
     position: static;
     left: auto;
@@ -1077,6 +1081,7 @@
   }
   .rail .railmore {
     display: flex;
+    position: relative;
     flex-direction: column;
     align-items: center;
     justify-content: center;
@@ -1122,11 +1127,30 @@
     right: 6px;
     margin-left: 0;
   }
-  .rail .navitem.active::before {
+  /* The bar runs UNDER the tab here, not down its left edge. The collapsed
+     sidebar rule is more specific, so it has to be named to be overridden. */
+  .rail .navitem.active::before,
+  .rail.collapsed .navitem.active::before {
     content: "";
     position: absolute;
     left: 50%;
     top: auto;
+    bottom: -5px;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 3px;
+    background: var(--accent);
+    border-radius: var(--r-full);
+  }
+  /* A destination inside the More sheet is still the current one; without this
+     the closed bar shows no active tab at all on those routes. */
+  .rail .railmore.active {
+    color: var(--accent);
+  }
+  .rail .railmore.active::before {
+    content: "";
+    position: absolute;
+    left: 50%;
     bottom: -5px;
     transform: translateX(-50%);
     width: 20px;
@@ -1200,6 +1224,11 @@
     position: absolute;
     top: 10px;
     right: 10px;
+  }
+  /* Open, the sheet shows the active row itself, and More has become its close
+     control — an indicator under a close button would name the wrong thing. */
+  .rail.sheetopen .railmore.active::before {
+    display: none;
   }
 
   /* the bar floats over the content, so the scroll area ends above it */

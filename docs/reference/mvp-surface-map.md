@@ -4,9 +4,10 @@ Working reference for the design build-out. Derived 2026-07-30 from three audits
 the spec repo's screen canon, this repo's frontend build state, and the backend's
 endpoint readiness.
 
-Companion file: [screen-specs.md](screen-specs.md) carries the per-screen features
-and numbered acceptance criteria. This file answers "what is the state of this page
-and what is the job", that one answers "what exactly goes on it".
+This file answers "what is the state of this page and what is the job". The
+per-screen features and numbered acceptance criteria stay in the spec repo
+(`margince-foundation`), which is their source of truth — transcribing them here
+would only give them a second, drifting copy.
 
 ---
 
@@ -57,16 +58,26 @@ specific.
 
 ### What `frontend/src/app/` implements today
 
-**Rail** (`shell.tsx:53`, items in `nav.ts:24`) — 64px, nine items in a pinned order
-asserted by `shell.test.tsx`: Home, Contacts, Companies, Leads, Deals, Tasks, Inbox,
-Reports, Ask AI. Below a flex spacer sits a sign-out button (wired to
-`POST /auth/logout`) and a user avatar linking to `#/settings`. Active state is real
-(`aria-current="page"` plus an `active` class off `route.screen`).
+Symbols, not line numbers: line references rot within a day of being written.
 
-**Top bar** (`shell.tsx:123`) — breadcrumb title plus `· {route.id}` for record pages.
-Right side in order: caller-supplied actions, `SorModeChip` (renders nothing in native
-mode; in overlay mode an accent badge linking to `#/settings/overlay`), search button,
-EN/DE locale toggle, light/dark theme toggle.
+**Sidebar** (`WorkspaceRail` in `shell.tsx`, items in `nav.ts`) — a ~250px labeled
+sidebar that collapses to the canonical 64px rail, the preference persisted in
+`localStorage`. Ten items in a pinned order asserted by `shell.test.tsx` and by
+`e2e/ac.spec.ts`, grouped records / work / intelligence: Home, Contacts, Companies,
+Leads, Pipeline, Tasks, Approvals, Reports, Automations, Ask Margince. `deals` and
+`inbox` are the route ids behind the last two relabelings; no route id changed.
+Badges render for Tasks and Approvals only, from live counts. Active state is real
+(`aria-current="page"` plus an `active` class off `route.screen`). Below the nav sits
+the agent panel. At phone width the same element becomes a bottom bar of four
+captioned destinations plus More, which expands it into a sheet.
+
+**Top bar** (`TopBar` in `shell.tsx`) — a breadcrumb that names the record and links
+the section back to its list, falling back to the raw id in mono when the name cannot
+be resolved. Right side in order: caller-supplied actions, `SorModeChip` (renders
+nothing in native mode; in overlay mode an accent badge linking to
+`#/settings/overlay`), the search affordance, EN/DE locale toggle, light/dark theme
+toggle, and the account menu (which carries sign-out, wired to
+`POST /auth/logout`).
 
 **Banners** — `EconomyBanner` (AI budget, only when the band is off-normal) and
 `EmbedReindexBanner`, both ops-gated and both deliberately rendering `null` on error so
@@ -80,44 +91,34 @@ failure degrades to builtin commands rather than breaking the palette.
 **Rail-less routes** work: `{onboarding, book, client, preferences}` render an
 `app railless` frame, and `App.tsx` has a matching frame for pre-session screens.
 
-### Shell gaps, in the order I'd fix them
+### Shell gaps still open
 
-1. **Rail badge counts never appear.** `WorkspaceRail` accepts `counts?: ShellCounts`
-   and renders the badge, but `App.tsx` mounts `Shell` without a `counts` prop in both
-   paths. The inbox pending-approval count is already fetched by `usePendingApprovals`
-   in `home.tsx` — wiring it is close to a one-line change. The mockup shows Tasks 4 and
-   Inbox 3, so the design assumes badges exist.
-2. **Off-rail pages show a raw slug as their title.** `OFF_RAIL_TITLE_KEYS` covers only
-   `settings`, `design`, `automations`, so `#/dedupe`, `#/products`, `#/offer-templates`,
-   `#/custom-fields`, `#/offers/<id>`, `#/share/…` and `#/search` render an untranslated
-   lowercase slug. This is the most visible small polish gap in the app.
-3. **The Ask FAB looks interactive and isn't.** `fab.tsx` renders a textarea with no
+The badge counts, the off-rail titles, theme persistence and the nine-vs-ten nav were
+the shell's four gaps and are closed; `draft-adr-app-shell.md` records what was ruled.
+Two remain:
+
+1. **The Ask FAB looks interactive and isn't.** `fab.tsx` renders a textarea with no
    `value`/`onChange` and a Send button with no `onClick`. Either wire it or visibly
    disable it — right now it silently does nothing.
-4. **Theme does not persist.** Component-local `useState` initialised to `"light"`; no
-   `localStorage`, no `prefers-color-scheme` read. Reloading resets to light.
-5. **The palette's most prominent row leads nowhere.** Choosing "Ask AI" stores the
+2. **The palette's most prominent row leads nowhere.** Choosing "Ask AI" stores the
    query in `sessionStorage` and navigates to `#/ai`, which echoes it back and stops.
 
-### Two shell decisions to make before you design it
+And one naming question is still open rather than settled:
 
-**Nine items or ten?** `specs/architecture/web-design-system.md:162-182` (WDS-NAV-1,
-the normative build spec) says nine. But `corpus/design/00-design-language.md:69`,
-`corpus/design/design.md:154-156` and the prototype's own `mockups/shell.js:10-19` all
-say ten, inserting **Automations** at position 9 before Ask AI, promoted per
-A72/ADR-0035 Am.1. The ten-item version is newer and is what the clickable prototype
-implements; WDS-NAV-1 looks stale. This repo built the nine. Rule it and amend upstream.
+**"Approvals" or "Assistant (n)"?** Eric's 2026-07-28 review argues the approval count
+belongs in the nav label — "Assistant (12)" — because the autonomy panel is the
+differentiator and a visible approval count is what convinces a works council. The
+shipped label is **Approvals** with the count as a badge, which names the surface for
+an auditor reading a screenshot. Moving the count into the label is an IA change and
+needs a ruling, not a quiet edit.
 
-**"Inbox" or "Assistant (n)"?** Eric's 2026-07-28 review argues the approval count
-belongs in the nav label — "Assistant (12)" rather than "Inbox" — because the autonomy
-panel is the differentiator and a visible approval count is what convinces a works
-council. That is a naming and IA change, so it needs an ADR, not a quiet edit.
-
-Rail visual spec from `corpus/design/00-design-language.md`, if you want to match the
-prototype exactly: deep ink-green gradient `#183028 → #13231D → #0E1B16`, nav items
-44×40px at radius 10, inactive icons white/40, hover white/10, active white/15 with a
-white icon and a `w-1 h-6` white indicator bar, Margin-rule M logomark in white on an
-emerald `#0B7A53` chip at the top.
+The rail visual spec in `corpus/design/00-design-language.md` still describes it on the
+deep ink-green field (gradient `#183028 → #13231D → #0E1B16`, icons and indicator in
+white). **That fill is superseded**: the founder ruling of 2026-07-23 makes the product
+surface white, and the shipped sidebar is white with the accent carrying the active
+state. What survives from that spec is its geometry — a panel inset on the matte ground,
+rounded nav rows, a left indicator bar, the M logomark on an emerald `#0B7A53` chip.
+`draft-adr-app-shell.md` has the reasoning and the upstream amendment this needs.
 
 ---
 
@@ -322,7 +323,7 @@ does **not** hot-reload — any backend change needs `make dev` again, and a sta
 
 ## Suggested order
 
-1. **Shell** — the five gaps above, plus the nine-vs-ten and Inbox-vs-Assistant rulings.
+1. **Shell** — done bar the two gaps above and the Approvals-vs-Assistant naming call.
 2. **The five cross-cutting rulings** as ADRs.
 3. **Approval Inbox / Assistant** — the canonical yellow surface; defines the trust
    language every other screen reuses.
@@ -340,7 +341,7 @@ does **not** hot-reload — any backend change needs `make dev` again, and a sta
 
 ## Sources
 
-- Per-screen features and numbered ACs: [screen-specs.md](screen-specs.md)
+- Per-screen features and numbered ACs: the spec repo's own chapters (see below)
 - Frontend build state, file by file: the screen-state audit in the session scratchpad
 - Backend endpoint readiness: the readiness map in the session scratchpad
 - Spec canon: `margince-foundation` → `corpus/design/` (mockups, design system,

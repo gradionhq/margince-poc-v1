@@ -33,6 +33,7 @@ import {
   NAV_GROUPS,
   RAIL_LESS_SCREENS,
 } from "./nav";
+import { paletteHotkeyLabel } from "./palette";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
 import "./shell.css";
@@ -230,6 +231,12 @@ export function WorkspaceRail({
     }
   }, []);
 
+  // A nav destination that the phone bar hides behind More: on those routes More
+  // is the current tab, since the row that would carry the state is not rendered.
+  const inSheet = NAV.some(
+    (item) => item.screen === route.screen && !MOBILE_PRIMARY.has(item.screen),
+  );
+
   const classes = ["rail", collapsed ? "collapsed" : "expanded"];
   if (sheetOpen) {
     classes.push("sheetopen");
@@ -299,22 +306,30 @@ export function WorkspaceRail({
                   {count !== undefined && count > 0 && (
                     <span className="count">{count}</span>
                   )}
+                  {/* Inside the row, not beside it: the tooltip sits outside the
+                      row's box but within its subtree, so moving the pointer onto
+                      it never leaves the row and never tears it away mid-read
+                      (WCAG 1.4.13, hoverable). A sibling could not manage that
+                      without making the wrapper itself interactive. */}
+                  {collapsed && tip === item.screen && (
+                    <span className="navtip" role="tooltip">
+                      {label}
+                    </span>
+                  )}
                 </a>
-                {collapsed && tip === item.screen && (
-                  <span className="navtip" role="tooltip">
-                    {label}
-                  </span>
-                )}
               </div>
             );
           })}
         </div>
       ))}
       {/* Phone-width only: expands the bar into a sheet carrying every
-          destination. Hidden by CSS on the desktop sidebar. */}
+          destination. Hidden by CSS on the desktop sidebar.
+          It carries the active state for every destination it hides, so the
+          closed bar always shows where you are — the four tabs cannot, because
+          those routes' own rows are display:none at this width. */}
       <button
         type="button"
-        className="railmore"
+        className={inSheet ? "railmore active" : "railmore"}
         aria-label={t("shell.more")}
         aria-expanded={sheetOpen}
         onClick={() => setSheetOpen((open) => !open)}
@@ -449,7 +464,7 @@ export function TopBar({
         >
           <Search aria-hidden />
           <span className="searchhint">{t("shell.searchHint")}</span>
-          <kbd className="t-mono">⌘K</kbd>
+          <kbd className="t-mono">{paletteHotkeyLabel(navigator.platform)}</kbd>
         </button>
         <button
           type="button"
