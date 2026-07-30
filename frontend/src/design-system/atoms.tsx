@@ -211,32 +211,8 @@ export function Modal({
         onClose();
         return;
       }
-      if (event.key !== "Tab" || !dialog.current) {
-        return;
-      }
-      // Keep Tab inside the dialog. `aria-modal` tells a screen reader the
-      // rest of the page is inert; it does nothing for the Tab key, so
-      // without this a keyboard reader walks straight out of the dialog into
-      // the page behind it and can operate a surface the dialog is covering.
-      const stops = focusableWithin(dialog.current);
-      if (stops.length === 0) {
-        event.preventDefault();
-        return;
-      }
-      const first = stops[0];
-      const last = stops[stops.length - 1];
-      const active = document.activeElement;
-      if (
-        event.shiftKey &&
-        (active === first || !dialog.current.contains(active))
-      ) {
-        event.preventDefault();
-        last.focus();
-        return;
-      }
-      if (!event.shiftKey && active === last) {
-        event.preventDefault();
-        first.focus();
+      if (event.key === "Tab" && dialog.current) {
+        keepTabInside(event, dialog.current);
       }
     };
     globalThis.addEventListener("keydown", onKey);
@@ -290,6 +266,29 @@ export function Modal({
       </div>
     </div>
   );
+}
+
+// Keep Tab inside the dialog. `aria-modal` tells a screen reader the rest of
+// the page is inert; it does nothing for the Tab key, so without this a
+// keyboard reader walks straight out of the dialog into the page behind it and
+// can operate a surface the dialog is covering.
+function keepTabInside(event: KeyboardEvent, dialog: HTMLElement) {
+  const stops = focusableWithin(dialog);
+  if (stops.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const active = document.activeElement;
+  const leavingBackwards =
+    event.shiftKey && (active === first || !dialog.contains(active));
+  const leavingForwards = !event.shiftKey && active === last;
+  if (!leavingBackwards && !leavingForwards) {
+    return;
+  }
+  event.preventDefault();
+  (leavingBackwards ? last : first).focus();
 }
 
 // The tab stops inside a container, in document order. Disabled controls and
