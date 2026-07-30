@@ -1,13 +1,12 @@
--- One-time D13 database bootstrap. Run ONCE against the managed Postgres as the
--- `postgres` superuser BEFORE the first api deploy, then never again.
+-- One-time database bootstrap. Run ONCE against your Postgres as a superuser
+-- BEFORE the first api deploy, then never again. For example:
 --
---   kubectl -n margince-staging exec -it <postgres-pod> -- \
---     psql -U postgres -v owner_pw="'…'" -v app_pw="'…'" -f - < scripts/d13/db-bootstrap.sql
+--   psql "postgres://postgres:…@<host>:5432/postgres" \
+--     -v owner_pw="'…'" -v app_pw="'…'" -f scripts/deploy/db-bootstrap.sql
 --
--- (or pipe it through a psql that reaches the `database` service). Pass the two
--- role passwords as psql variables so they never land in this committed file;
--- they MUST match the passwords embedded in MARGINCE_OWNER_DSN / MARGINCE_DSN in
--- Vault.
+-- Pass the two role passwords as psql variables so they never land in this
+-- committed file; they MUST match the passwords embedded in the app's
+-- MARGINCE_OWNER_DSN / MARGINCE_DSN.
 --
 -- Why two non-superuser roles: margince enforces tenant isolation with
 -- FORCE ROW LEVEL SECURITY, which a superuser (and only a superuser) bypasses.

@@ -1,4 +1,4 @@
-# Keep the D13 build context lean. The Go image needs the whole repo (backend,
+# Keep the image build context lean. The Go images need the whole repo (backend,
 # backend/tools, cli/craft, extensions/*, go.work, the composition/ stub) so the
 # gen-composition step can materialize build/composition/ — do NOT exclude those.
 # The web image needs frontend/ + backend/api/*.yaml. Only regenerable machine
@@ -14,6 +14,6 @@ frontend/storybook-static
 build/composition
 .tmp
 *.log
-# Never ship a developer's personal secrets. The Vault-managed .env IS copied in
-# (D13 materializes it before the build), so it is deliberately not excluded.
+# Local per-developer secrets never belong in an image.
+.env
 .env.local

@@ -1,10 +1,14 @@
 # cmd/api — the HTTP process role (serves /v1 + /healthz + /readyz + /metrics).
 #
+# Deployment-target-agnostic: it bakes in NO instance configuration. Every
+# setting comes from the runtime environment (the MARGINCE_* vars in
+# docs/reference/configuration.md) and, for first-boot bootstrap, a margince.yaml
+# mounted at the path MARGINCE_CONFIG points to. See docs/deployment.md.
+#
 # The build is NOT a plain `go build ./cmd/api`: gen-composition must run first
 # to materialize build/composition/go.work (the composed workspace that folds in
 # the enabled extensions/* packs), then the binary builds under that workspace.
-# This mirrors `make -C backend build` (which is `composition` then a composed
-# `go build`). See CLAUDE.md § "make composition".
+# This mirrors `make -C backend build`. See CLAUDE.md § "make composition".
 
 # ── Stage 1: build (composed workspace) ──────────────────────────────────────
 FROM golang:1.26-alpine AS builder
@@ -38,22 +42,14 @@ RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /bin/margince-api /usr/local/bin/margince-api
 COPY --from=builder /bin/margince-migrate /usr/local/bin/margince-migrate
+COPY scripts/deploy/api-entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Bootstrap config (org + admin) and the AI tier→model binding. Both are read at
-# boot; the admin password itself comes from the Vault-managed environment and is
-# written to secrets/admin-password by the entrypoint (never baked into the image).
-COPY config/margince.staging.yaml /app/config/margince.yaml
-COPY config/ai-routing.example.yaml /app/config/ai-routing.yaml
-COPY scripts/d13/api-entrypoint.sh /usr/local/bin/entrypoint.sh
-
-# The Vault-managed env file (D13 materializes it from Vault before this build).
-COPY .env /.env
-
-# Run as a non-root user. /app must be writable — the entrypoint writes the
-# admin password into /app/secrets on boot.
+# Run as a non-root user. /app/config is where a deployment mounts its
+# margince.yaml (+ ai-routing.yaml); /app/secrets is where the entrypoint writes
+# the bootstrap admin password. Both must be writable by the runtime user.
 RUN chmod +x /usr/local/bin/entrypoint.sh \
     && adduser -D -u 10001 app \
-    && mkdir -p /app/secrets \
+    && mkdir -p /app/config /app/secrets \
     && chown -R app:app /app
 
 WORKDIR /app

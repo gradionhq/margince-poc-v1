@@ -2,10 +2,11 @@
 # leave without it), the retention evaluator, the clock time-scan, and — with a
 # bound model — the Surface-B agent runner + embeddings lane. No HTTP surface.
 #
-# Same composed-workspace build as Dockerfile.api. The worker does NOT run
-# migrations; the api role owns that (entrypoint) so exactly one role applies the
-# schema. On a cold database the worker simply waits (and k8s restarts it) until
-# the api has migrated.
+# Deployment-target-agnostic: no baked instance config. Every setting comes from
+# the runtime environment (docs/reference/configuration.md). Same composed-
+# workspace build as Dockerfile.api. The worker does NOT run migrations; the api
+# role owns that, so exactly one role applies the schema. On a cold database the
+# worker waits (and k8s restarts it) until the api has migrated.
 
 # ── Stage 1: build (composed workspace) ──────────────────────────────────────
 FROM golang:1.26-alpine AS builder
@@ -27,17 +28,13 @@ FROM alpine:3.21
 RUN apk add --no-cache ca-certificates tzdata
 
 COPY --from=builder /bin/margince-worker /usr/local/bin/margince-worker
+COPY scripts/deploy/worker-entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# The worker reads --config for the ai.capture_payloads posture and --ai-routing
-# for the Surface-B runner + embeddings.
-COPY config/margince.staging.yaml /app/config/margince.yaml
-COPY config/ai-routing.example.yaml /app/config/ai-routing.yaml
-COPY scripts/d13/worker-entrypoint.sh /usr/local/bin/entrypoint.sh
-
-COPY .env /.env
-
+# /app/config is where a deployment mounts its margince.yaml / ai-routing.yaml.
 RUN chmod +x /usr/local/bin/entrypoint.sh \
-    && adduser -D -u 10001 app
+    && adduser -D -u 10001 app \
+    && mkdir -p /app/config \
+    && chown -R app:app /app
 
 WORKDIR /app
 USER app
