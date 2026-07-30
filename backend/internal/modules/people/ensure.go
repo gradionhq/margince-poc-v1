@@ -37,18 +37,19 @@ const (
 	evidenceRightKey  = "right_value"
 	evidenceScoreKey  = "score"
 	evidenceSignalKey = "signal"
-	// The fuzzy tier's signal vocabulary. These three strings are the
-	// contract's DedupeCandidate.evidence[].signal values (crm.yaml) and the
-	// queue renderer selects on them, so they are pinned by the wire, not
-	// ours to rename.
+	// The fuzzy tier's evidence signals. "collide" is observable downstream:
+	// the review queue renders the value as a row data attribute its
+	// stylesheet selects on, so the string reaches the UI even though the
+	// contract types the field as a bare string and nothing gates a rename.
 	evidenceSignalCollide  = "collide"
 	evidenceSignalOneSided = "one_sided"
-	entityPerson           = "person"
-	entityOrganization     = "organization"
-	fieldFullName          = "full_name"
-	fieldDisplayName       = "display_name"
-	fieldEmail             = "email"
-	emailTypeWork          = "work"
+
+	entityPerson       = "person"
+	entityOrganization = "organization"
+	fieldFullName      = "full_name"
+	fieldDisplayName   = "display_name"
+	fieldEmail         = "email"
+	emailTypeWork      = "work"
 )
 
 // ErrCounterpartySuppressed marks an erased address (A13): deletion sticks,
