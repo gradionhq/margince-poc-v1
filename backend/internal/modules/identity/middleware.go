@@ -31,9 +31,15 @@ var publicRequests = map[string]map[string]bool{
 	"/v1/auth/reset-password":  {http.MethodPost: true},
 	// The OAuth AS endpoints authenticate by their own means: DCR is
 	// open (public clients + PKCE), token exchange proves possession via
-	// the code + verifier. authorize is NOT here — it demands a session.
+	// the code + verifier, and RFC 7009 revocation proves it by presenting
+	// the credential it is handing back — a client revoking on shutdown, or
+	// because a human disconnected inside the client, has no cookie to send.
+	// A session requirement there would make the kill switch discovery
+	// advertises answer 401 to every real client. authorize is NOT here —
+	// it demands a session.
 	"/oauth/register": {http.MethodPost: true},
 	"/oauth/token":    {http.MethodPost: true},
+	"/oauth/revoke":   {http.MethodPost: true},
 }
 
 func isPublicRequest(r *http.Request) bool {

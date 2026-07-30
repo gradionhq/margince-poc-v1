@@ -108,9 +108,20 @@ func (c *connectedClient) deleteClient(t *testing.T) {
 	c.cut(t, `UPDATE oauth_client SET deleted_at = now() WHERE client_id = $1`, c.clientID)
 }
 
+// sessionlessClient is a client with NO cookie jar, which is the only honest
+// way to drive RFC 7009: the caller is a client process handing a credential
+// back, not a browser, and SameSite would keep a cookie off that request even
+// if one existed. The harness's own client carries the bootstrapped admin
+// session, so posting through it exercises the session-authenticated path and
+// says nothing about the one every real client takes.
+func (o *oauthEnv) sessionlessClient() *http.Client {
+	return &http.Client{Transport: o.ts.Client().Transport}
+}
+
 // revoke posts one presented token to RFC 7009 and returns the status alone
 // — the endpoint answers 200 regardless of what it did, so status is the
-// only thing a caller may observe about the outcome directly.
+// only thing a caller may observe about the outcome directly. It goes through
+// a session-less client for the reason above.
 func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
 	t.Helper()
 	form := url.Values{"token": {token}}
@@ -122,7 +133,7 @@ func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
 		t.Fatal(err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	resp, err := o.client.Do(req)
+	resp, err := o.sessionlessClient().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +256,50 @@ func TestALocallyMintedPassportIsUnaffectedByADeadConnector(t *testing.T) {
 // the human ever opening Settings. It reaches the same cascade as the other
 // four, so it is proven the same way — the next call is refused and refresh
 // cannot resurrect it.
+
+// sessionlessGet issues one GET through the session-less client and returns
+// the status. It exists to PROVE that client has no session before anything is
+// concluded from what the same client gets away with elsewhere.
+func (o *oauthEnv) sessionlessGet(t *testing.T, path string) int {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, o.ts.URL+path, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := o.sessionlessClient().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeBody(t, resp)
+	return resp.StatusCode
+}
+
+// Reachability is a separate property from behaviour, and it is the one this
+// endpoint is most easily robbed of: /oauth/ is mounted behind the same
+// session middleware /v1 sits behind, so a missing public-path exemption
+// answers every real client 401 while discovery goes on advertising
+// revocation_endpoint. The credential a client hands back IS its
+// authentication here; there is no cookie in a client process to send.
+func TestRFC7009RevocationIsReachableWithoutASession(t *testing.T) {
+	c := setupConnectedClient(t)
+
+	// The client the revocation goes through genuinely carries no session:
+	// without this, a 200 below could be coming from the harness's admin
+	// cookie rather than from the exemption under test.
+	if status := c.sessionlessGet(t, "/v1/people"); status != http.StatusUnauthorized {
+		t.Fatalf("the session-less client reached /v1/people → %d, want 401: it holds a session, so nothing below would be evidence", status)
+	}
+
+	if status := c.revoke(t, c.access, "access_token"); status != http.StatusOK {
+		t.Fatalf("session-less revocation → %d, want 200: every client discovery advertises this endpoint to has no cookie to send", status)
+	}
+	if code := c.callMCP(t); code != http.StatusUnauthorized {
+		t.Fatalf("after a session-less revocation → %d, want 401", code)
+	}
+	if c.refreshSucceeds(t) {
+		t.Fatal("after a session-less revocation, refresh still mints a credential")
+	}
+}
 
 // Presenting the access token is the shape a client uses when a human
 // disconnects from ITS side: the whole connection dies, not just that one

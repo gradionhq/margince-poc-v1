@@ -130,7 +130,7 @@ const tokenFormPeek = 8 << 10
 // shared ceiling for an entire installation.
 type mcpLimiters struct {
 	perPassport *ratelimit.Limiter // 240/min — authenticated tool-call volume
-	preAuth     *ratelimit.Limiter // 60/min per IP — bounds invalid-token grinding
+	preAuth     *ratelimit.Limiter // 60/min per presented credential, per peer when none (preAuthKey)
 	streams     *ratelimit.Limiter // 30/min per passport — stream-open churn
 	token       *ratelimit.Limiter // 60/min per (client_id, IP) — the passport mint
 	authorize   *ratelimit.Limiter // 60/min per IP — the consent form and the grant
@@ -167,16 +167,15 @@ func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Hand
 			})
 			return
 		}
-		ip := clientIP(r)
-		// The failure budget is read BEFORE the credential is keyed: a
-		// grinder who has already spent it must not be able to open one more
-		// per-credential bucket per forged token, which is how a limiter over
-		// attacker-chosen keys becomes a memory sink.
-		if lim.preAuth.Blocked(ip) {
+		credential := passportBucket(r)
+		failures := preAuthKey(clientIP(r), credential)
+		// Read BEFORE the transport authenticates, so a credential already
+		// known not to work is refused without spending a store lookup on it.
+		if lim.preAuth.Blocked(failures) {
 			httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 			return
 		}
-		if key := passportBucket(r); key != "" {
+		if credential != "" {
 			// A GET is a stream open: cheap to ask for, expensive to hold, so
 			// it gets its own tighter bucket. It is metered here, ahead of the
 			// transport's method dispatch, so what bounds the churn is whether
@@ -185,20 +184,54 @@ func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Hand
 			if r.Method == http.MethodGet {
 				bucket = lim.streams
 			}
-			if !bucket.Allow(key) {
+			if !bucket.Allow(credential) {
 				httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 				return
 			}
 		}
 		// The pre-auth bucket meters the OUTCOME, not the attempt: a
-		// legitimate connector's calls must not spend the failure budget its
-		// egress IP shares with every other client behind that range.
+		// legitimate connector's served calls must spend no failure budget at
+		// all.
 		outcome := &authOutcome{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(outcome, r)
 		if outcome.status == http.StatusUnauthorized {
-			lim.preAuth.Record(ip)
+			lim.preAuth.Record(failures)
 		}
 	})
+}
+
+// preAuthKey names WHOSE failure budget one request spends, and the choice is
+// the whole security property of that budget: it must never be a key a
+// legitimate client SHARES with an attacker. TLS terminates ahead of this
+// process in production, so clientIP is the front end's own address for every
+// request on the planet — an IP-keyed budget that gates all traffic is one
+// bucket for the entire installation, and 60 forged bearers a minute would
+// then answer every real connector's tools/call with a 429 before
+// authentication ever ran.
+//
+// So a request that PRESENTS a credential is metered on that credential's
+// digest, and only a request presenting none falls back to the peer address.
+// A credential-less request can never be anything but a 401, so refusing
+// those costs a client holding a working credential nothing.
+//
+// What this bounds: repeated presentation of a credential that does not work,
+// and credential-less probing per peer. What it deliberately does not bound is
+// one passport lookup per DISTINCT credential presented — a token nobody has
+// seen before is indistinguishable from a valid one until it is looked up, and
+// the only key that could gate it is the shared front-end address, i.e. the
+// outage. That floor is cheap and bounded elsewhere: a bearer that is not
+// passport-shaped is refused on its prefix without reaching the store
+// (identity.AuthenticateAgent), and the lookup that remains is one indexed
+// read on a unique hash.
+//
+// Both key shapes are FIXED length (a 64-char digest, or a peer address), and
+// ratelimit sweeps expired windows, so the resident key set is bounded by the
+// request rate within one window rather than growing with history.
+func preAuthKey(ip, credential string) string {
+	if credential == "" {
+		return "peer:" + ip
+	}
+	return "credential:" + credential
 }
 
 // oauthEdge bounds the authorization server's internet-facing endpoints. It
@@ -266,10 +299,13 @@ func mcpOriginOf(resource string) string {
 // passportBucket keys the authenticated buckets on a digest of the presented
 // credential rather than on the passport id: the id is known only after
 // authentication, and re-deriving it here would pay the whole authentication
-// cost twice on the hottest path. A passport's token is minted once and never
-// rotated (identity/passport.go only ever INSERTs token_hash), so the digest
-// is one-to-one with the passport it resolves to. The digest — never the
-// credential — is what becomes a long-lived map key.
+// cost twice on the hottest path. A passport row's token_hash is only ever
+// INSERTed, never updated (identity/passport.go), so one digest resolves to at
+// most one passport — but a CONNECTION is a SEQUENCE of passports, since every
+// refresh rotation mints a fresh one. What these ceilings bound is therefore
+// one credential, not one connector and not one human; the per-connection
+// ceiling is the refresh chain's own, at the token endpoint. The digest —
+// never the credential — is what becomes a long-lived map key.
 func passportBucket(r *http.Request) string {
 	bearer := bearerToken(r.Header.Get("Authorization"))
 	if bearer == "" {

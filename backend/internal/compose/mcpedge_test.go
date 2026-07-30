@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,33 +90,91 @@ func TestOriginGuardAllowsAbsentAndRefusesForeign(t *testing.T) {
 	}
 }
 
-// TestPreAuthFailuresAreMeteredByClientIPNotByCredential pins the bucket the
-// unauthenticated path had none of: invalid-token grinding costs a passport
-// lookup per attempt, so the ceiling has to hold no matter how many distinct
-// forged credentials the grinder presents.
-func TestPreAuthFailuresAreMeteredByClientIPNotByCredential(t *testing.T) {
+// TestPreAuthFailuresAreMeteredPerPresentedCredential pins the bucket the
+// unauthenticated path had none of: presenting a credential that does not work
+// costs a passport lookup, so repetition has to be bounded — and bounded on
+// the credential, because the peer address is the front end's for every
+// request in production and a budget keyed there is one bucket for everyone.
+func TestPreAuthFailuresAreMeteredPerPresentedCredential(t *testing.T) {
 	const grinder, innocent = "203.0.113.9", "198.51.100.4"
 	clock := newStepClock()
 	edge := mcpEdge(answering(http.StatusUnauthorized), newMCPLimitersWithClock(clock.now), "https://crm.example.com")
 
 	for i := 1; i <= 60; i++ {
-		// A fresh forged credential every time: the key that has to bound
-		// this is the peer, not the token.
-		got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-"+strings.Repeat("x", i), grinder))
+		got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", grinder))
 		if got != http.StatusUnauthorized {
-			t.Fatalf("failure %d from one IP → %d, want 401 within the budget", i, got)
+			t.Fatalf("failure %d on one credential → %d, want 401 within the budget", i, got)
 		}
 	}
-	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-61", grinder)); got != http.StatusTooManyRequests {
-		t.Fatalf("the 61st failure from one IP → %d, want 429", got)
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", grinder)); got != http.StatusTooManyRequests {
+		t.Fatalf("the 61st failure on one credential → %d, want 429", got)
 	}
-	// The budget is per peer: one grinder must not refuse everyone else.
-	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-1", innocent)); got != http.StatusUnauthorized {
-		t.Fatalf("first failure from another IP → %d, want 401", got)
+	// Another credential — even from the same peer — has its own budget, which
+	// is the property that keeps a grinder from refusing everyone else.
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-other", grinder)); got != http.StatusUnauthorized {
+		t.Fatalf("first failure on another credential → %d, want 401", got)
+	}
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", innocent)); got != http.StatusTooManyRequests {
+		t.Fatalf("the same spent credential from another peer → %d, want 429: the budget follows the credential", got)
 	}
 	clock.advance(time.Minute)
-	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-62", grinder)); got != http.StatusUnauthorized {
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged", grinder)); got != http.StatusUnauthorized {
 		t.Fatalf("after the window → %d, want the budget to have reopened (401)", got)
+	}
+}
+
+// TestCredentiallessProbingIsBoundedPerPeer is the other arm of that key: a
+// request carrying no Authorization header at all can only ever be a 401, so
+// refusing it once its peer has spent the budget takes nothing away from a
+// client that holds a working credential — and it keeps unauthenticated
+// probing from being free.
+func TestCredentiallessProbingIsBoundedPerPeer(t *testing.T) {
+	const prober, innocent = "203.0.113.9", "198.51.100.4"
+	clock := newStepClock()
+	edge := mcpEdge(answering(http.StatusUnauthorized), newMCPLimitersWithClock(clock.now), "https://crm.example.com")
+
+	for i := 1; i <= 60; i++ {
+		if got := serveStatus(edge, mcpRequest(http.MethodPost, "", prober)); got != http.StatusUnauthorized {
+			t.Fatalf("probe %d → %d, want 401 within the budget", i, got)
+		}
+	}
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "", prober)); got != http.StatusTooManyRequests {
+		t.Fatalf("the 61st credential-less probe → %d, want 429", got)
+	}
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, "", innocent)); got != http.StatusUnauthorized {
+		t.Fatalf("a credential-less probe from another peer → %d, want 401", got)
+	}
+}
+
+// TestAFloodOfInvalidCredentialsCannotRefuseAValidOne is the availability
+// property the whole keying exists for. In production TLS terminates ahead of
+// this process, so every request — the attacker's and the real connector's —
+// arrives from the front end's single address. A failure budget keyed there
+// and consulted ahead of ALL traffic turns 60 junk bearers a minute into a
+// total outage of the connector for every client of the installation.
+func TestAFloodOfInvalidCredentialsCannotRefuseAValidOne(t *testing.T) {
+	const frontEnd = "160.79.104.11"
+	const valid = "the-live-passport"
+	clock := newStepClock()
+	// The transport answers 401 to anything but the one credential that
+	// authenticates, which is what the real one does after its store lookup.
+	edge := mcpEdge(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.Header.Get("Authorization"), valid) {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusUnauthorized)
+	}), newMCPLimitersWithClock(clock.now), "https://crm.example.com")
+
+	// Well past the 60/min failure budget, all from the one address every
+	// request in this deployment shares.
+	for i := 1; i <= 200; i++ {
+		if got := serveStatus(edge, mcpRequest(http.MethodPost, "forged-"+strconv.Itoa(i), frontEnd)); got != http.StatusUnauthorized {
+			t.Fatalf("forged bearer %d → %d, want 401", i, got)
+		}
+	}
+	if got := serveStatus(edge, mcpRequest(http.MethodPost, valid, frontEnd)); got != http.StatusOK {
+		t.Fatalf("the real connector's authenticated call → %d, want 200: a flood of invalid credentials must not deny service to a valid one", got)
 	}
 }
 
