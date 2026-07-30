@@ -63,13 +63,18 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := run(ctx, os.Args[1:], os.Stdout); err != nil {
+	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, "mcp:", err)
 		os.Exit(1)
 	}
 }
 
-func run(ctx context.Context, args []string, stdout io.Writer) error {
+// run boots the process role. stdin/stdout are the A1 protocol channel
+// (stdout is never diagnostics — see the package doc); stderr is where
+// the logger, and the deprecation notice below, go. Both are explicit
+// parameters rather than the os.Std* globals so a test can drive a full
+// boot over pipes and assert on what the process actually printed.
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	dsn := fs.String("dsn", os.Getenv("MARGINCE_DSN"), "Postgres DSN (runtime app role)")
 	listen := fs.String("listen", "", "serve the hosted A2 transport on this address instead of stdio")
@@ -95,11 +100,12 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 	// Diagnostics go to stderr on BOTH transports: stdout is the stdio
 	// protocol channel, and the hosted transport keeps the same habit.
-	logger, err := newLogger(os.Stderr, *logLevel, *logFormat)
+	logger, err := newLogger(stderr, *logLevel, *logFormat)
 	if err != nil {
 		return err
 	}
 	slog.SetDefault(logger)
+	logDeprecationWarnings(logger, *listen != "")
 
 	pool, err := database.NewPool(ctx, *dsn)
 	if err != nil {
@@ -177,7 +183,24 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	logger.Info("mcp: serving over stdio", "tools", len(registry.Specs()), "workspace_id", wsID.String())
 	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
 		WithLogger(logger).
-		Serve(ctx, os.Stdin, stdout)
+		Serve(ctx, stdin, stdout)
+}
+
+// logDeprecationWarnings prints cmd/mcp's Phase 1 sunset notice (DESIGN
+// §5.1, D5): the api now serves the same governed tool surface at its own
+// origin, so this binary has no mode worth keeping — nothing is removed
+// yet, but every boot says so. listen additionally warns that its split
+// origin cannot host OAuth discovery, which is the whole reason the api
+// mount supersedes it.
+func logDeprecationWarnings(logger *slog.Logger, listen bool) {
+	logger.Warn("cmd/mcp is deprecated and will be removed: the api now serves the same governed " +
+		"tool surface at <public-base-url>/mcp, where OAuth discovery also resolves. " +
+		"Migrate: claude mcp add --transport http margince <base>/mcp --header \"Authorization: Bearer mgp_…\"")
+	if listen {
+		logger.Warn("--listen serves /mcp on an origin that hosts neither /oauth nor the " +
+			".well-known documents, so client discovery cannot resolve unless a proxy serves them here. " +
+			"Use the api's /mcp instead.")
+	}
 }
 
 // envOr keeps the flag defaults env-backed without cluttering run.

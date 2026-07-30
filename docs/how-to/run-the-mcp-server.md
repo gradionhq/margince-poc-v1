@@ -1,5 +1,13 @@
 # Run the MCP server
 
+> **Deprecated.** `cmd/mcp` is being phased out: the api now serves the
+> same governed tool surface at its own origin (`/mcp`, alongside
+> `/oauth/*` and the discovery documents), which is what makes OAuth
+> discovery actually resolve — this binary's split origin cannot host
+> those documents itself. Point your client at the api's `<public-base-url>/mcp`
+> instead (`http://localhost:8080/mcp` against `make dev`); everything
+> below still runs, unchanged, until this binary is removed.
+
 `cmd/mcp` serves the one governed agent tool surface over two
 transports. Both re-authenticate every call and re-load the granting
 human's RBAC, so revoking a passport binds mid-session.
