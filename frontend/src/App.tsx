@@ -12,7 +12,7 @@ import {
   usePaletteHotkey,
 } from "./app/palette";
 import { navigate } from "./app/router";
-import { Shell, useRoute } from "./app/shell";
+import { Shell, type ShellCounts, useRoute } from "./app/shell";
 import { EmptyState } from "./design-system/atoms";
 import { useT } from "./i18n";
 import { AskAiScreen } from "./screens/ai";
@@ -30,7 +30,7 @@ import { DealScreen, DealsScreen } from "./screens/deals";
 import { DedupeScreen } from "./screens/dedupe";
 import { DesignScreen } from "./screens/design";
 import { HomeScreen } from "./screens/home";
-import { InboxScreen } from "./screens/inbox";
+import { InboxScreen, usePendingApprovals } from "./screens/inbox";
 import { LeadScreen, LeadsScreen } from "./screens/leads";
 import { OfferScreen } from "./screens/offers";
 import { OfferTemplatesScreen } from "./screens/offertemplates";
@@ -282,9 +282,9 @@ function AuthedApp({
 
   return (
     <>
-      <Shell onOpenSearch={() => setPaletteOpen(true)}>
+      <AuthedShell onOpenSearch={() => setPaletteOpen(true)}>
         <ScreenView screen={route.screen} id={route.id} id2={route.id2} />
-      </Shell>
+      </AuthedShell>
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
@@ -292,6 +292,28 @@ function AuthedApp({
       />
       <AskFab route={route} />
     </>
+  );
+}
+
+// The shell plus its live badge counts. This is a separate component so the
+// approvals read mounts only once a session exists — calling it beside the
+// auth probe would fire an unauthenticated request on the login path.
+//
+// A badge counts only what wants attention (draft ADR-0077 §C): approvals
+// waiting. Tasks will join it once there is a due-count to read; until then the
+// slot renders nothing rather than a fabricated number.
+function AuthedShell({
+  children,
+  onOpenSearch,
+}: Readonly<{ children: ReactNode; onOpenSearch: () => void }>) {
+  const pending = usePendingApprovals();
+  const counts: ShellCounts | undefined = pending.data
+    ? { inbox: pending.data.data.length }
+    : undefined;
+  return (
+    <Shell counts={counts} onOpenSearch={onOpenSearch}>
+      {children}
+    </Shell>
   );
 }
 
