@@ -59,15 +59,24 @@ const (
 )
 
 // graphScanCap bounds the ONE read whose display order this code cannot push
-// into SQL, so a graph's query size follows the cap rather than the account.
+// into SQL: contacts are ordered by the §4 score, which is resolved after the
+// rows come back, so their slice cannot be a top-N LIMIT.
 //
-// Contacts are ordered by the §4 score, which is resolved after the rows are
-// read, so their slice cannot be a top-N LIMIT: the read takes at most this
-// many people and the true headcount rides the same statement, keeping
-// dropped_count exact. On an account past the bound the card shows the
-// strongest of the first graphScanCap contacts by id rather than of all of
-// them, which the contract states; at 500 against a display cap of 15 that is
-// an account nobody has.
+// What the cap bounds is the rows RETURNED and the work done per row — the §4
+// fold in people.StrengthForPeople, which joins activity and activity_link per
+// contact, and every node this package then builds. Both used to grow with the
+// account.
+//
+// It does NOT bound the count: the headcount rides the same statement (see
+// readEmployment for why it must), and counting means reading one account's
+// employment rows through idx_rel_org_people. That cost is deliberate. An exact
+// dropped_count is the contract's promise — a truncated graph reporting no
+// count reads as the whole neighbourhood — and one index range scan per account
+// is what keeping it exact costs.
+//
+// On an account past the bound the card shows the strongest of the first
+// graphScanCap contacts by id rather than of all of them, which the contract
+// states; at 500 against a display cap of 15 that is an account nobody has.
 //
 // The other two groups need no such bound. Deals are ordered in SQL, and the
 // related organizations are capped in SQL by COMPANY — a row bound there would

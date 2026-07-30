@@ -268,12 +268,10 @@ func TestOrganizationGraphRelatedCapCountsCompaniesNotEdges(t *testing.T) {
 				VALUES ($1, $2, $3, $4, 'manual', 'human:x')`, e.WS, kind, org, greedy)
 		}
 	}
-	// Plus a plain partner each, more than the display cap so the drop count
-	// has something to report.
-	plain := map[ids.UUID]bool{}
+	// Plus twelve companies attached one plain way each — more than the display
+	// cap, so the drop count has something to report.
 	for i := range 12 {
 		partner := e.SeedOrg(t, fmt.Sprintf("Partner %02d", i), &e.Rep1)
-		plain[partner] = true
 		e.WsExec(t, `INSERT INTO relationship (workspace_id, kind, organization_id, counterparty_org_id, source, captured_by)
 			VALUES ($1, 'partner_of', $2, $3, 'manual', 'human:x')`, e.WS, org, partner)
 	}
