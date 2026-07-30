@@ -77,6 +77,16 @@ func WithBlobstore(store blobstore.Store) Option {
 // connector credentials declares that gap at wiring time rather than
 // nil-derefing at Authenticate — a capture-capable role must pass this or
 // fail to boot (enforced in cmd).
+//
+// It ALSO installs the outbound send pre-flight (WithSendAuthority) over the
+// registry it just ensured exists, so the channel half of that check — is
+// there a live bot bound for this provider? — is live on every
+// capture-capable role, Google app or not: NewCaptureRegistry registers
+// Telegram unconditionally, so the registry answers that question correctly
+// even with no Gmail/Graph app configured. A role that later configures
+// Gmail (WithGmailCapture) re-wires this over its own richer registry, which
+// upgrades the mailbox half without ever making the channel half depend on
+// that config.
 func WithKeyvault(vault keyvault.Vault) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.vault = vault
@@ -124,6 +134,13 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		if s.telegramInserter != nil {
 			s.telegramWebhook = Webhook(telegramWebhookSpec(pool, vault, s.telegramInserter, s.log), s.log)
 		}
+		// The pre-flight reads whichever registry the lines above just
+		// ensured exists — the SAME one, never a second construction — so a
+		// mailbox or bot connected through it is a mailbox or bot the check
+		// asks about. WithGmailCapture below re-wires this same call over its
+		// own registry when the Google app is configured; until then this is
+		// the only place the channel branch gets to run at all.
+		WithSendAuthority(mailboxAuthority{grants: s.connectorHandlers.registry})(s, pool)
 	}
 }
 
