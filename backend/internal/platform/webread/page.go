@@ -99,10 +99,11 @@ func extractHeadAssets(rawHTML string, base *url.URL) (ogImage string, icons []I
 			return ogImage, icons
 		}
 		name, hasAttr := tokenizer.TagName()
-		// The harvest stops at </head>. A site declares its identity in the
-		// head; a <link rel="icon"> further down the body is markup anything
-		// that can put content on the page could have written, and a page
-		// carrying user-generated content is exactly where that happens.
+		// The harvest stops at </head>, because that is where a site declares
+		// its own identity. Markup in the body is not the same claim: on a page
+		// that renders user-generated content, whoever wrote that content also
+		// wrote the tags around it, and a <link rel="icon"> down there would
+		// let them choose the company's face.
 		if tokenType == html.EndTagToken && string(name) == "head" {
 			return ogImage, icons
 		}
