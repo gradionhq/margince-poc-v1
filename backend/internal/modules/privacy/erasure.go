@@ -66,9 +66,9 @@ func (e *Eraser) WithBlobstore(blob blobstore.Store) *Eraser {
 }
 
 // ErasePerson removes the subject's PII in ONE transaction: person row
-// anonymized, email/phone child rows deleted, raw capture purged,
-// embeddings dropped, identifiers hashed onto the suppression list,
-// tombstone written. Deleting a person row outright would cascade into
+// anonymized, email/phone/channel-identity child rows deleted, raw
+// capture purged, embeddings dropped, identifiers hashed onto the
+// suppression list, tombstone written. Deleting a person row outright would cascade into
 // business records other subjects appear in; anonymize-in-place is the
 // A13 posture.
 //
@@ -152,6 +152,10 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		channelsSuppressed, err := eraseChannelIdentities(ctx, tx, subject)
+		if err != nil {
+			return err
+		}
 
 		// The tombstone: action=erase with counts only — proof without
 		// PII. The counts are evidence ABOUT the scrub, so they ride the
@@ -162,6 +166,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
 			"ai_payloads_purged": aiPayloadsPurged, "activities_redacted": len(activitiesRedacted),
+			"channel_identities_suppressed": channelsSuppressed,
 		})
 		if err != nil {
 			return err

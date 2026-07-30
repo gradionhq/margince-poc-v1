@@ -29,18 +29,22 @@ import (
 // SARPackage is the assembled export. Sections hold raw row maps —
 // the package is a data handover, not an API shape.
 type SARPackage struct {
-	Subject       map[string]any   `json:"subject"`
-	Emails        []map[string]any `json:"emails"`
-	Phones        []map[string]any `json:"phones"`
-	Relationships []map[string]any `json:"relationships"`
-	Deals         []map[string]any `json:"deals"`
-	Leads         []map[string]any `json:"leads"`
-	Activities    []map[string]any `json:"activities"`
-	Attachments   []map[string]any `json:"attachments"`
-	Consent       []map[string]any `json:"consent"`
-	ConsentEvents []map[string]any `json:"consent_events"`
-	RawCapture    []map[string]any `json:"raw_capture"`
-	FieldOrigins  []map[string]any `json:"field_origins"`
+	Subject map[string]any   `json:"subject"`
+	Emails  []map[string]any `json:"emails"`
+	Phones  []map[string]any `json:"phones"`
+	// The messaging-channel accounts bound to the subject: which provider
+	// identity writes as them, the handle it carries, and whether they have
+	// blocked this installation's bot.
+	ChannelIdentities []map[string]any `json:"channel_identities"`
+	Relationships     []map[string]any `json:"relationships"`
+	Deals             []map[string]any `json:"deals"`
+	Leads             []map[string]any `json:"leads"`
+	Activities        []map[string]any `json:"activities"`
+	Attachments       []map[string]any `json:"attachments"`
+	Consent           []map[string]any `json:"consent"`
+	ConsentEvents     []map[string]any `json:"consent_events"`
+	RawCapture        []map[string]any `json:"raw_capture"`
+	FieldOrigins      []map[string]any `json:"field_origins"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -141,6 +145,11 @@ func sarSections(pkg *SARPackage) []sarSection {
 	return []sarSection{
 		{&pkg.Emails, `SELECT email, email_type, is_primary FROM person_email WHERE person_id = $1`},
 		{&pkg.Phones, `SELECT phone, phone_type FROM person_phone WHERE person_id = $1`},
+		// Archived identities are exported too, like the email and phone
+		// sections above: Art. 15 owes what is HELD, and a retired binding is
+		// still a record of which account wrote as the subject.
+		{&pkg.ChannelIdentities, `SELECT provider, channel_user_id, username, blocked_at, source, created_at
+		   FROM person_channel_identity WHERE person_id = $1`},
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
 		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency

@@ -44,3 +44,32 @@ func EmailSuppressed(ctx context.Context, tx pgx.Tx, email string) (bool, error)
 		SuppressionHash(email)).Scan(&suppressed)
 	return suppressed, err
 }
+
+// ChannelIdentityHash is the suppression key for a messaging-channel
+// identity: "provider:channel_user_id" under the hashing rule above,
+// applied per FIELD before they are joined. The two sides read the value
+// from different places — the eraser from the stored column, the ingest
+// probe from a freshly parsed provider payload — so trimming only the
+// joined string would let whitespace on one side alone fork the list.
+//
+// The bot (channel) id is deliberately absent. Telegram user ids are
+// GLOBAL rather than bot-scoped, so keying on the bot would make an
+// erasure stop holding the moment the workspace rotated its bot — the
+// erased subject's next message would resurrect them, with nothing
+// erroring and nothing logged. person_channel_identity's unique key omits
+// the bot id for the same reason (0146).
+func ChannelIdentityHash(provider, channelUserID string) string {
+	return SuppressionHash(strings.TrimSpace(provider) + ":" + strings.TrimSpace(channelUserID))
+}
+
+// ChannelIdentitySuppressed reports whether a channel identity belongs to
+// an erased subject in the current workspace (RLS scopes the read). It is
+// the channel twin of EmailSuppressed: an ingest path that can create or
+// re-bind a Person from an inbound message consults it first.
+func ChannelIdentitySuppressed(ctx context.Context, tx pgx.Tx, provider, channelUserID string) (bool, error) {
+	var suppressed bool
+	err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM erasure_suppression WHERE kind = 'channel_identity' AND value_hash = $1)`,
+		ChannelIdentityHash(provider, channelUserID)).Scan(&suppressed)
+	return suppressed, err
+}

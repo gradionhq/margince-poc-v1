@@ -72,11 +72,17 @@ var piiTables = map[string]piiHandling{
 	"person_email":  {erasureWrite: true, sarRead: true},
 	"person_social": {erasureWrite: true, sarRead: true},
 	"person_phone":  {erasureWrite: true, sarRead: true},
-	"lead":          {erasureWrite: true, sarRead: true},
-	"activity":      {erasureWrite: true, sarRead: true},
-	"attachment":    {erasureWrite: true, sarRead: true},
-	"raw_capture":   {erasureWrite: true, sarRead: true},
-	"embedding":     {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
+	// The channel identity binds a human to their Telegram account: the
+	// provider's user id for them plus the @username they message under. Both
+	// identify the subject as directly as an address does, and the id is the
+	// key a re-capture would resurrect them by — so erasure purges it, the
+	// suppression list keeps holding it, and Art. 15 hands it back.
+	"person_channel_identity": {erasureWrite: true, sarRead: true},
+	"lead":                    {erasureWrite: true, sarRead: true},
+	"activity":                {erasureWrite: true, sarRead: true},
+	"attachment":              {erasureWrite: true, sarRead: true},
+	"raw_capture":             {erasureWrite: true, sarRead: true},
+	"embedding":               {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},
@@ -172,6 +178,7 @@ func sqlLiterals(t *testing.T, path string) []string {
 // exists to prevent.
 var erasureCascadeFiles = []string{
 	"internal/modules/privacy/erasure.go",
+	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/deliveries.go",
 }
 
