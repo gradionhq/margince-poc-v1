@@ -184,11 +184,12 @@ func overlayOrgDomain(fields map[string]any) string {
 // package by arch rule, so the bits are set by hand. Non-authoritative like
 // every overlay wire value — it is never persisted or resolved back to a row.
 func overlayDomainID(orgID openapi_types.UUID, domain string) openapi_types.UUID {
-	h := sha256.New()
-	h.Write(orgID[:])
-	h.Write([]byte(domain))
+	buf := make([]byte, 0, len(orgID)+len(domain))
+	buf = append(buf, orgID[:]...)
+	buf = append(buf, domain...)
+	sum := sha256.Sum256(buf)
 	var id openapi_types.UUID
-	copy(id[:], h.Sum(nil))
+	copy(id[:], sum[:])
 	id[6] = (id[6] & 0x0f) | 0x80 // RFC 9562 version 8 (application-defined)
 	id[8] = (id[8] & 0x3f) | 0x80 // RFC 4122 variant
 	return id
