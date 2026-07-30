@@ -408,11 +408,15 @@ func (c *telegramEnv) count(t *testing.T, query string, args ...any) int {
 	return n
 }
 
-// rawCaptures counts the raw rows stored for one Telegram update_id.
+// rawCaptures counts the raw rows stored for one Telegram update_id. Matched
+// through the payload's own update_id rather than through source_id: the stored
+// key namespaces the update on the bot whose counter it came from (update_id is
+// per-bot), and what this suite asks is how many rows one update left behind,
+// not how the key spells it.
 func (c *telegramEnv) rawCaptures(t *testing.T, updateID int64) int {
 	t.Helper()
 	return c.count(t,
-		`SELECT count(*) FROM raw_capture WHERE source_system = 'telegram' AND source_id = $1`,
+		`SELECT count(*) FROM raw_capture WHERE source_system = 'telegram' AND payload->>'update_id' = $1`,
 		fmt.Sprintf("%d", updateID))
 }
 

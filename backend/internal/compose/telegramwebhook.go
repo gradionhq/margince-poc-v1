@@ -151,11 +151,28 @@ func telegramUnmatchableSecret() string {
 
 // telegramUpdateEnvelope reads only the one field this handler needs
 // before deciding whether the payload is even storable: Telegram's
-// update_id, the redelivery key raw_capture's unique index dedupes on —
-// never the bot:chat:message natural key, which belongs to Task 9's domain
-// row, not here.
+// update_id, the redelivery counter telegramRawSourceID builds the raw
+// row's key from — never the bot:chat:message natural key, which belongs
+// to Task 9's domain row, not here.
 type telegramUpdateEnvelope struct {
 	UpdateID int64 `json:"update_id"`
+}
+
+// telegramRawSourceID is raw_capture's redelivery key for one delivered
+// update. update_id is a PER-BOT sequence, so the key MUST carry the bot:
+// raw_capture_source_unique is (workspace_id, source_system, source_id) and
+// InsertRawCaptureTx's ON CONFLICT overwrites the stored payload, so a bare
+// update_id would let a second bot in the same workspace (uq_channel_connection_ws
+// permits several) land on the first bot's row and destroy the only copy of a
+// message this handler had already answered 200 for — unrecoverable, because
+// Telegram has no history API to re-fetch it from.
+//
+// The bot id and not the connection id, though the same index makes the two
+// interchangeable for live deliveries: the counter being namespaced is the
+// BOT's, so a bot disconnected and reconnected under a fresh connection id
+// still dedupes its own redeliveries against what it delivered before.
+func telegramRawSourceID(botID string, updateID int64) string {
+	return fmt.Sprintf("%s:%d", botID, updateID)
 }
 
 // errTelegramConnectionVanished marks the one honest race this handler can
@@ -201,13 +218,10 @@ func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(c
 		}
 
 		wsCtx := principal.WithWorkspaceID(ctx, conn.WorkspaceID)
-		// Both callees take wsCtx, not the request ctx: the GUC rides on tx
-		// today, so either would work, but a callee that later reads the
-		// workspace from context would silently see none.
 		err = database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
 			rawID, err := capture.InsertRawCaptureTx(wsCtx, tx, capture.RawRecord{
 				SourceSystem: "telegram",
-				SourceID:     fmt.Sprintf("%d", update.UpdateID),
+				SourceID:     telegramRawSourceID(conn.ChannelID, update.UpdateID),
 				Payload:      body,
 			})
 			if err != nil {

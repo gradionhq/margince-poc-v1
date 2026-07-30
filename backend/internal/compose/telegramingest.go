@@ -85,11 +85,11 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 	var payload []byte
 	err = database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
 		var err error
-		botID, err = capture.ChannelBotID(ctx, tx, connID)
+		botID, err = capture.ChannelBotID(wsCtx, tx, connID)
 		if err != nil {
 			return err
 		}
-		payload, err = capture.GetRawCapturePayloadTx(ctx, tx, rawID)
+		payload, err = capture.GetRawCapturePayloadTx(wsCtx, tx, rawID)
 		return err
 	})
 	if err != nil {
@@ -112,7 +112,7 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		return w.applyMembership(wsCtx, membership)
 	}
 
-	records, err := telegram.Normalize(ctx, raw)
+	records, err := telegram.Normalize(wsCtx, raw)
 	if err != nil {
 		if errors.Is(err, connector.ErrSkip) {
 			// A deliberate exclusion — an update kind neither the membership

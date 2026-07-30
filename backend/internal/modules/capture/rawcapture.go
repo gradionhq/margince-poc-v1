@@ -17,7 +17,7 @@ import (
 // RawRecord is one provider original waiting to be stored verbatim.
 type RawRecord struct {
 	SourceSystem string // e.g. "telegram"
-	SourceID     string // the provider's REDELIVERY key (Telegram's update_id), never the domain natural key
+	SourceID     string // the provider's REDELIVERY key, unique per workspace; never the domain natural key
 	Payload      []byte // the verbatim provider payload
 }
 
@@ -31,11 +31,18 @@ type RawRecord struct {
 // and enqueue its normalize job atomically (design §6.2), and that atomicity
 // is only possible if the raw insert runs on the caller's tx.
 //
-// source_id is the update_id, not the bot:chat:message natural key — a
-// redelivery repeats the update_id, and ON CONFLICT DO UPDATE refreshes the
-// stored original rather than duplicating it, exactly like
+// source_id is the provider's redelivery key, not the domain natural key — a
+// redelivery repeats it, and ON CONFLICT DO UPDATE refreshes the stored
+// original rather than duplicating it, exactly like
 // raw_capture_source_unique's own comment describes. The domain-row natural
 // key is a different question and belongs on the domain row, not here.
+//
+// Because that conflict OVERWRITES the payload, the caller owns an invariant
+// this function cannot check: source_id must be unique per workspace across
+// every source the workspace has connected. A counter the provider scopes to
+// one credential (Telegram's per-bot update_id) has to carry that credential
+// into the key, or a second connection's delivery silently destroys the only
+// copy of the first's already-acknowledged payload.
 func InsertRawCaptureTx(ctx context.Context, tx pgx.Tx, rec RawRecord) (ids.UUID, error) {
 	var id ids.UUID
 	err := tx.QueryRow(ctx, `

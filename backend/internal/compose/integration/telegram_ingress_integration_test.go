@@ -364,7 +364,8 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 	injectedReceipt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
-			`UPDATE raw_capture SET received_at = $2 WHERE source_system = 'telegram' AND source_id = $1`,
+			`UPDATE raw_capture SET received_at = $2
+			  WHERE source_system = 'telegram' AND payload->>'update_id' = $1`,
 			fmt.Sprintf("%d", u.updateID), injectedReceipt)
 		return err
 	}); err != nil {
@@ -379,7 +380,8 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx,
-			`SELECT received_at FROM raw_capture WHERE source_system = 'telegram' AND source_id = $1`,
+			`SELECT received_at FROM raw_capture
+			  WHERE source_system = 'telegram' AND payload->>'update_id' = $1`,
 			fmt.Sprintf("%d", u.updateID)).Scan(&receivedAt); err != nil {
 			return err
 		}
