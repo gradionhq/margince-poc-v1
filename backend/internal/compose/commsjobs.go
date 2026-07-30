@@ -14,7 +14,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -300,64 +299,6 @@ func (s commsSeats) ActiveSeat(ctx context.Context, userID ids.UserID) (bool, st
 	return true, "", nil
 }
 
-// mailboxGrants is the scopes-only half of the same capture lookup. The
-// pre-flight deliberately does NOT take mailboxSenders: resolving the
-// credential would unseal a secret to answer a question about scopes, spending
-// a vault round trip on every send request and turning a keyvault blip into a
-// user-facing refusal — where the delivery path classifies the identical fault
-// as transient and retries it.
-type mailboxGrants interface {
-	GrantedScopesFor(ctx context.Context, userID ids.UserID, provider string) ([]string, error)
-}
-
-var _ mailboxGrants = (*capture.Registry)(nil)
-
-// mailboxAuthority answers the request-time pre-flight over the SAME registry
-// the connect flow writes to, so what the user just connected is what the
-// check reads.
-//
-// It asks about the GRANT, not the connection. Every mailbox connected before
-// the send scope existed holds read-only access until its owner reconnects, so
-// a check that only asked "is something connected?" would pass all of them and
-// then park every send.
-type mailboxAuthority struct {
-	grants   mailboxGrants
-	provider string
-}
-
-var _ activities.MailboxAuthority = mailboxAuthority{}
-
-func (m mailboxAuthority) SendCapable(ctx context.Context) (bool, error) {
-	actor, ok := principal.Actor(ctx)
-	if !ok || actor.UserID.IsZero() {
-		// Sending is a human act (comms.Store.StageTx enforces the same
-		// rule), so a principal with no app_user identity has no mailbox to
-		// pre-flight and is told so here rather than at transmission.
-		return false, nil
-	}
-	scope, capability := comms.SendScopeFor(m.provider)
-	if capability == comms.CannotSend {
-		return false, nil
-	}
-	granted, err := m.grants.GrantedScopesFor(ctx, ids.From[ids.UserKind](actor.UserID), m.provider)
-	switch {
-	case errors.Is(err, capture.ErrNoConnection):
-		return false, nil
-	case err != nil:
-		// A pre-flight that cannot ask must not answer. Reporting the fault
-		// refuses the send loudly instead of asserting a grant nobody read.
-		return false, err
-	}
-	if capability == comms.SendsWithoutScope {
-		// There is no grant to intersect — the credential is the whole
-		// authority — so the live connection this lookup just proved IS the
-		// answer. Testing an empty scope against the list would refuse every
-		// such provider on a technicality of mail's authority model.
-		return true, nil
-	}
-	return slices.Contains(granted, scope), nil
-}
-
 // commsStager records an accepted send for transmission: the delivery row and
 // the job that will carry it, both on the caller's transaction. One commit, one
 // fact — a crash between them would either promise a send nothing queued or
@@ -367,14 +308,27 @@ type commsStager struct {
 	runner *jobs.Runner
 }
 
-var _ activities.DeliveryStager = commsStager{}
+var (
+	_ activities.DeliveryStager        = commsStager{}
+	_ activities.ChannelDeliveryStager = commsStager{}
+)
+
+// DeliveryMachinery is the ONE delivery path in both the shapes a message can be
+// staged in. It is a single seam rather than two because there is a single
+// machinery behind it — one delivery table, one status machine, one retry ladder,
+// one dispatcher — and a role able to wire mail staging without channel staging
+// could serve a reply surface that accepts a message nothing will ever carry.
+type DeliveryMachinery interface {
+	activities.DeliveryStager
+	activities.ChannelDeliveryStager
+}
 
 // NewDeliveryStager builds the delivery machinery every send transport is
 // composed with (compose.WithDelivery). The runner is insert-only in the api
 // role; the worker role works what it inserts.
 //
-//nolint:ireturn // returns the activities.DeliveryStager seam by design: the concrete type is unexported and every caller holds the interface
-func NewDeliveryStager(pool *pgxpool.Pool, runner *jobs.Runner) activities.DeliveryStager {
+//nolint:ireturn // returns the DeliveryMachinery seam by design: the concrete type is unexported and every caller holds the interface
+func NewDeliveryStager(pool *pgxpool.Pool, runner *jobs.Runner) DeliveryMachinery {
 	return commsStager{store: comms.NewStore(pool, time.Now, activities.NewStore(pool)), runner: runner}
 }
 
@@ -396,6 +350,33 @@ func (s commsStager) StageTx(ctx context.Context, tx pgx.Tx, in activities.Deliv
 		References:      in.References,
 		ThreadKey:       in.ThreadKey,
 		ListUnsubscribe: in.ListUnsubscribe,
+	})
+	if err != nil {
+		return err
+	}
+	return s.runner.EnqueueTx(ctx, tx, SendEmailArgs{
+		Workspace: ws.String(), DeliveryID: id.String(),
+	}, sendInsertOpts())
+}
+
+// StageChannelTx is the same staging for a channel reply: the channel-shaped row
+// and the SAME transmit job, on the caller's transaction.
+//
+// One job kind carries both shapes deliberately. The worker loads the delivery
+// and dispatches it, and the dispatcher branches on the ROW's shape exactly once
+// (comms/sendseam.go) — a second job kind would be a second path to keep in step
+// with the first, and the channel is the one that would fall behind.
+func (s commsStager) StageChannelTx(ctx context.Context, tx pgx.Tx, in activities.ChannelDeliveryRequest) error {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("comms: staging a channel delivery outside workspace context")
+	}
+	id, err := s.store.StageChannelTx(ctx, tx, comms.StageChannelInput{
+		ActivityID:     in.ActivityID,
+		Provider:       in.Provider,
+		Recipient:      in.Recipient,
+		Body:           in.Body,
+		ConsentPurpose: in.ConsentPurpose,
 	})
 	if err != nil {
 		return err

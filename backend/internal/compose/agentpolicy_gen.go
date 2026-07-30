@@ -206,6 +206,7 @@ var agentPolicies = map[string]agentPolicy{
 	"POST /v1/activities/{id}/draft-email":                               {Op: "draftEmail", Access: "tool", Tool: "draft_email", RecordType: "activity", Tier: "auto_execute"},
 	"POST /v1/activities/{id}/relink":                                    {Op: "relinkActivity", Access: "tool", Tool: "relink_activity", RecordType: "activity", Tier: "auto_execute"},
 	"POST /v1/activities/{id}/send-email":                                {Op: "sendEmail", Access: "tool", Tool: "send_email", RecordType: "activity", Tier: "confirmation_required"},
+	"POST /v1/activities/{id}/send-message":                              {Op: "sendMessage", Access: "tool", Tool: "send_message", RecordType: "activity", Tier: "confirmation_required"},
 	"POST /v1/ai-model-rates":                                            {Op: "setAiModelRate", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/ai-model-rates/propose-refresh":                            {Op: "proposeAiModelRateRefresh", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"POST /v1/approvals/{id}/approve":                                    {Op: "approveApproval", Access: "human-only", Tool: "", RecordType: "", Tier: ""},

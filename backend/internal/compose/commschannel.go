@@ -19,8 +19,13 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -59,4 +64,21 @@ func (r commsResolver) ResolveChannel(ctx context.Context, provider string) (con
 		return nil, nil, err
 	}
 	return sender, auth, nil
+}
+
+// channelReachability is the send path's other cross-module edge: the people
+// module owns the identity binding, and the reply surface must not read its rows
+// directly. It carries no state because the answer is one query on the caller's
+// transaction — the same transaction that reads the conversation, so the
+// recipient and the conversation are one snapshot.
+type channelReachability struct{}
+
+var _ activities.ChannelReachability = channelReachability{}
+
+// ReachableChannelIdentities forwards to people, typing the polymorphic link id
+// as the person it is. The activity link is (entity_type, entity_id) and stays
+// untyped on the activities side by design; the type belongs at the boundary
+// where the id is finally read as a person.
+func (channelReachability) ReachableChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.UUID, provider string) ([]connector.ChannelIdentity, error) {
+	return people.ReachableChannelIdentities(ctx, tx, ids.From[ids.PersonKind](personID), provider)
 }

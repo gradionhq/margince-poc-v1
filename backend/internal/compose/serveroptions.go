@@ -209,19 +209,25 @@ func WithPublicBaseURL(base string) Option {
 // transmission with, onto BOTH send transports this role serves: the HTTP
 // handler and the MCP send_email tool. Without it a send refuses rather than
 // log an activity claiming a message went out.
-func WithDelivery(stager activities.DeliveryStager) Option {
+//
+// It carries BOTH staging shapes (DeliveryMachinery), so the mail send and the
+// channel reply are wired by one call: they are the same machinery, and a role
+// that wired one without the other would serve a surface accepting messages
+// nothing will carry.
+func WithDelivery(stager DeliveryMachinery) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.Delivery = stager
 		s.rebuildToolRegistry(pool)
 	}
 }
 
-// WithMailbox wires the send-grant pre-flight onto the same transports, so a
-// user with no send-capable mailbox is told to reconnect it instead of being
-// handed a 202 for a message that can only park.
-func WithMailbox(authority activities.MailboxAuthority) Option {
+// WithSendAuthority wires the send pre-flight onto the same transports, so a
+// user with no send-capable mailbox — or a workspace with no bot bound — is told
+// what to do about it instead of being handed a 202 for a message that can only
+// park.
+func WithSendAuthority(authority activities.SendAuthority) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		s.send.Mailbox = authority
+		s.send.SendAuthority = authority
 		s.rebuildToolRegistry(pool)
 	}
 }

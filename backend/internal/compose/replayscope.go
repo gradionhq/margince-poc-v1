@@ -129,8 +129,14 @@ var replayableOperations = map[string]replayTarget{
 	"PATCH /v1/activities/{id}":           {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/relink":     {object: tableActivity, table: tableActivity, idPath: "id"},
 	"POST /v1/activities/{id}/send-email": {object: tableActivity, table: tableActivity, idPath: "id"},
-	"POST /v1/bookings":                   {object: tableActivity, table: tableActivity, idPath: "id"},
-	"POST /v1/voice-profiles":             {object: tableVoiceProfile, table: tableVoiceProfile, idPath: "id"},
+	// The channel reply answers with the outbound activity it wrote, so its
+	// replay is gated on that activity exactly as the mail send's is. It matters
+	// more here, not less: a channel send is irreversible with no provider-side
+	// idempotency key behind it, so a retried request that re-executed would put
+	// a second copy in the customer's chat.
+	"POST /v1/activities/{id}/send-message": {object: tableActivity, table: tableActivity, idPath: "id"},
+	"POST /v1/bookings":                     {object: tableActivity, table: tableActivity, idPath: "id"},
+	"POST /v1/voice-profiles":               {object: tableVoiceProfile, table: tableVoiceProfile, idPath: "id"},
 
 	"POST /v1/voice-profiles/{id}/corpus/clear": {object: tableVoiceProfile, table: tableVoiceProfile, idPath: "id"},
 

@@ -13,6 +13,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
@@ -55,5 +56,24 @@ func TestTheChannelProviderCommsCanSendForIsTheOneCaptureConnects(t *testing.T) 
 	}
 	if scope != "" {
 		t.Errorf("a bot token has no OAuth grant to intersect, yet comms demands scope %q of it", scope)
+	}
+}
+
+// The THIRD spelling of the same provider name, and the same silent drift: the
+// reply operation reads its transport off the anchor activity's kind, and capture
+// files a Telegram update under that kind. A kind the reply path does not
+// recognise reads as "not a channel conversation", so every reply is refused with
+// a 422 about the wrong record — nothing parks, nothing logs, and no mail test
+// notices.
+func TestTheChannelKindTheReplyPathAnswersIsTheOneCaptureFilesUnder(t *testing.T) {
+	if !activities.IsChannelKind(capture.ProviderTelegram) {
+		t.Errorf("activities does not recognise %q as a channel conversation; every Telegram reply would be refused as the wrong kind of anchor",
+			capture.ProviderTelegram)
+	}
+	// And it is not a blanket yes: mail has its own send path, and admitting it
+	// here would route a mail reply through a transport with no address to send
+	// to.
+	if activities.IsChannelKind("email") {
+		t.Error("activities treats mail as a messaging channel; a mail anchor would resolve a channel recipient it has none of")
 	}
 }

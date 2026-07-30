@@ -100,3 +100,63 @@ func TestBlockedIdentityReportsUnreachableButKeepsTheIdentity(t *testing.T) {
 		t.Fatalf("Since = %v, want the block timestamp %v", r.Since, *blockedAt)
 	}
 }
+
+// The SEND side of the same fact: the reply path asks where a person can be
+// reached, and gets only accounts a message could actually arrive at.
+func TestReachableChannelIdentitiesOmitsABlockedAccountAndReturnsEveryLiveOne(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	person := e.seedPerson(ctx, t, "Two Account Contact", nil, nil)
+	live := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "780003", Username: "first"}
+	second := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "780004", Username: "second"}
+	blocked := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "780005"}
+	for _, ci := range []connector.ChannelIdentity{live, second, blocked} {
+		e.bindIdentity(ctx, t, person, ci)
+	}
+	e.blockIdentity(ctx, t, blocked)
+
+	var reachable []connector.ChannelIdentity
+	if err := e.store.tx(ctx, func(tx pgx.Tx) (err error) {
+		reachable, err = ReachableChannelIdentities(ctx, tx, person, telegramProvider)
+		return err
+	}); err != nil {
+		t.Fatalf("ReachableChannelIdentities: %v", err)
+	}
+
+	// BOTH live accounts come back, and the blocked one does not. The caller
+	// refuses a conversation that reaches two rather than picking one, so
+	// collapsing them here would silently make that choice on its behalf.
+	accounts := map[string]string{}
+	for _, ci := range reachable {
+		accounts[ci.ChannelUserID] = ci.Username
+	}
+	if len(accounts) != 2 {
+		t.Fatalf("reachable = %+v, want the two live accounts and not the blocked one", reachable)
+	}
+	if accounts["780003"] != "first" || accounts["780004"] != "second" {
+		t.Fatalf("reachable = %+v, want both live accounts with their handles", reachable)
+	}
+	if _, present := accounts["780005"]; present {
+		t.Fatal("a blocked account is reported as reachable; a reply to it cannot be delivered")
+	}
+}
+
+// A person with no binding at all is unreachable, and that is an ANSWER: an
+// empty list, never an error. Reported as a fault it would reach the rep as a
+// server problem instead of "this person has not messaged you".
+func TestReachableChannelIdentitiesAnswersEmptyForAPersonWithNoBinding(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+	person := e.seedPerson(ctx, t, "Mail Only Contact", nil, nil)
+
+	var reachable []connector.ChannelIdentity
+	if err := e.store.tx(ctx, func(tx pgx.Tx) (err error) {
+		reachable, err = ReachableChannelIdentities(ctx, tx, person, telegramProvider)
+		return err
+	}); err != nil {
+		t.Fatalf("ReachableChannelIdentities on a person with no binding → %v, want no error", err)
+	}
+	if len(reachable) != 0 {
+		t.Fatalf("reachable = %+v, want none", reachable)
+	}
+}

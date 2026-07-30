@@ -80,12 +80,51 @@ func (r *Registry) ChannelSenderFor(ctx context.Context, provider string) (conne
 	return sender, auth, nil
 }
 
+// ChannelSendCapable answers the REQUEST-TIME pre-flight: has this workspace
+// bound a bot for provider at all? It reads the same rows ChannelSenderFor
+// resolves through and stops short of the credential, because unsealing a secret
+// to answer a question about liveness would spend a vault round trip on every
+// send request and turn a keyvault blip into a user-facing refusal — the posture
+// the mailbox half takes for the same reason (compose's mailboxGrants).
+//
+// It deliberately does NOT distinguish the ambiguous case. Which of two live
+// bindings transmits is the delivery path's decision, and that path refuses to
+// guess; the pre-flight answers only the fact a rep can act on — that no bot is
+// bound — and a workspace with two is a misconfiguration an operator repairs
+// while the reply waits, not a reason to refuse the rep's message here.
+func (r *Registry) ChannelSendCapable(ctx context.Context, provider string) (bool, error) {
+	refs, err := r.liveChannelCredentialRefs(ctx, provider)
+	if err != nil {
+		return false, err
+	}
+	return len(refs) > 0, nil
+}
+
 // liveChannelCredential reads the one live binding's vault ref, and refuses
 // rather than picking when there are two. It collects the matching refs instead
 // of taking the first row: a QueryRow would silently prefer whichever row the
 // planner returned, which is the same silent wrong-bot send the ambiguity error
 // exists to prevent.
 func (r *Registry) liveChannelCredential(ctx context.Context, provider string) (string, error) {
+	refs, err := r.liveChannelCredentialRefs(ctx, provider)
+	if err != nil {
+		return "", err
+	}
+	switch len(refs) {
+	case 0:
+		return "", ErrNoConnection
+	case 1:
+		return refs[0], nil
+	default:
+		return "", fmt.Errorf("capture: %d live %s connections: %w", len(refs), provider, ErrChannelConnectionAmbiguous)
+	}
+}
+
+// liveChannelCredentialRefs is the ONE spelling of what "live binding" means:
+// connected, un-archived, this workspace's (RLS binds that). The send resolve
+// and the pre-flight read the same predicate here rather than each carrying a
+// copy, so a binding one of them counts is a binding the other does too.
+func (r *Registry) liveChannelCredentialRefs(ctx context.Context, provider string) ([]string, error) {
 	var refs []string
 	err := database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		rows, err := tx.Query(ctx, `
@@ -99,14 +138,7 @@ func (r *Registry) liveChannelCredential(ctx context.Context, provider string) (
 		return err
 	})
 	if err != nil {
-		return "", fmt.Errorf("capture: resolving the sending channel connection: %w", err)
+		return nil, fmt.Errorf("capture: resolving the sending channel connection: %w", err)
 	}
-	switch len(refs) {
-	case 0:
-		return "", ErrNoConnection
-	case 1:
-		return refs[0], nil
-	default:
-		return "", fmt.Errorf("capture: %d live %s connections: %w", len(refs), provider, ErrChannelConnectionAmbiguous)
-	}
+	return refs, nil
 }

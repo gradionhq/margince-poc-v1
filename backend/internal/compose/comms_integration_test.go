@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
@@ -54,6 +55,13 @@ type recordingStager struct{ staged []activities.DeliveryRequest }
 func (s *recordingStager) StageTx(_ context.Context, _ pgx.Tx, in activities.DeliveryRequest) error {
 	s.staged = append(s.staged, in)
 	return nil
+}
+
+// StageChannelTx makes this stub the whole DeliveryMachinery seam. It records
+// nothing: these suites stage mail, and a channel delivery arriving here would be
+// a shape-branch defect rather than a case to absorb quietly.
+func (s *recordingStager) StageChannelTx(_ context.Context, _ pgx.Tx, in activities.ChannelDeliveryRequest) error {
+	return fmt.Errorf("recordingStager: a mail suite staged a channel delivery to %s", in.Recipient.Provider)
 }
 
 // assertStaged pins how many deliveries reached the machinery — the only

@@ -113,3 +113,44 @@ func (s *Store) SetChannelIdentityBlocked(ctx context.Context, tx pgx.Tx, ci con
 	}
 	return nil
 }
+
+// ReachableChannelIdentities returns every identity personID can currently be
+// REACHED at on provider — a live row with blocked_at IS NULL (design §6.6).
+//
+// It returns a list rather than one identity because a person may hold more than
+// one account on the same channel: the unique key is
+// (workspace, provider, channel_user_id), which binds an account to one person
+// and not a person to one account. Handing the caller the first row would reply
+// to whichever account the planner returned, so the choice is theirs to refuse.
+//
+// An EMPTY list is an answer, not a fault: a person who never messaged the
+// workspace's bot and one who blocked it are both simply unreachable, and the
+// caller owes the rep that sentence rather than an error. Only a failure to ASK
+// is an error.
+//
+// The username travels because a caller may show it; nothing routes on it, since
+// a handle can be released and re-claimed while the account id cannot.
+func ReachableChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonID, provider string) ([]connector.ChannelIdentity, error) {
+	rows, err := tx.Query(ctx, `
+		SELECT channel_user_id, coalesce(username, '')
+		  FROM person_channel_identity
+		 WHERE person_id = $1 AND provider = $2
+		   AND archived_at IS NULL AND blocked_at IS NULL
+		 ORDER BY created_at`, personID, provider)
+	if err != nil {
+		return nil, fmt.Errorf("people: reading reachable channel identities: %w", err)
+	}
+	defer rows.Close()
+	var out []connector.ChannelIdentity
+	for rows.Next() {
+		identity := connector.ChannelIdentity{Provider: provider}
+		if err := rows.Scan(&identity.ChannelUserID, &identity.Username); err != nil {
+			return nil, fmt.Errorf("people: reading reachable channel identities: %w", err)
+		}
+		out = append(out, identity)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("people: reading reachable channel identities: %w", err)
+	}
+	return out, nil
+}

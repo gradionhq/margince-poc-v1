@@ -1153,6 +1153,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/activities/{id}/send-message": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+         * @description The `send_message` MCP verb — the channel twin of `send_email`. Outbound + irreversible
+         *     → 🟡 confirm-first: an agent caller must supply an approval token; a human caller's own
+         *     action is the approval.
+         *
+         *     The `{id}` activity is the conversation being answered, and its `kind` names the channel
+         *     the reply transmits through (`telegram`). The RECIPIENT is not named by the caller: it is
+         *     the channel identity of the person that conversation is with, so a reply can only reach
+         *     the human who opened it. A person with no live channel identity, or one who blocked the
+         *     workspace's bot, is refused with 422 before anything is staged.
+         *
+         *     Consent gate is **default-deny per purpose** (A22/ADR-0011, data-model §3.4), exactly as
+         *     for mail: the send is suppressed (409, `code: consent_not_granted`) unless an active,
+         *     proven `granted` `person_consent` row exists for the *purpose* this send falls under
+         *     (passed as `consent_purpose`). A grant for a different purpose does not authorize the
+         *     send; `unknown` and `withdrawn` both block.
+         */
+        post: operations["sendMessage"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/availability": {
         parameters: {
             query?: never;
@@ -7044,6 +7081,22 @@ export interface components {
              * @description The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
              *     The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
              *     `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+             */
+            consent_purpose: string;
+        };
+        /**
+         * @description One channel reply. It carries no subject and no addressee list, and that absence is the
+         *     shape of the transport rather than an omission: a messaging channel has no subject line
+         *     and no Cc, and the recipient is resolved from the conversation being answered (see the
+         *     operation), never named by the caller.
+         */
+        SendMessageRequest: {
+            /** @description The (possibly edited) final message text that is sent. */
+            body: string;
+            /**
+             * @description The consent purpose this send falls under (e.g. `transactional`). The send is
+             *     suppressed (409 `consent_not_granted`) unless the recipient has an active `granted`
+             *     `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
              */
             consent_purpose: string;
         };
@@ -13289,6 +13342,81 @@ export interface operations {
                     "application/problem+json": components["schemas"]["Problem"];
                 };
             };
+            /** @description Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    sendMessage: {
+        parameters: {
+            query?: never;
+            header?: {
+                /**
+                 * @description Client-supplied key making a mutation safe to retry — an update exactly as much as a
+                 *     create (API-CC-6). **Scope:** the key is unique within
+                 *     `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+                 *     returns the original status + body. Reusing the same key with a *different* request body
+                 *     returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+                 *     **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+                 *     answer lost": without it the blind retry answers `409 version_skew`, because the first
+                 *     attempt already bumped the version.
+                 *     **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+                 *     retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+                 *     (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+                 *     what makes an operation replay-safe** — an operation that omits it ignores the header rather
+                 *     than half-honouring it, so read this contract, not the client, to know which calls are safe
+                 *     to retry blind.
+                 */
+                "Idempotency-Key"?: components["parameters"]["IdempotencyKey"];
+                /**
+                 * @description A signed, single-use approval token (see schema `ApprovalToken`) minted by
+                 *     POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+                 *     compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+                 *     principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+                 *     expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+                 *     match the operation being executed (`403 code: approval_token_invalid`). Required when an
+                 *     AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+                 */
+                "X-Approval-Token"?: components["parameters"]["ApprovalToken"];
+            };
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted for send (queued); the resulting outbound activity is logged. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Activity"];
+                };
+            };
+            /** @description Approval token missing for a 🟡 send, or RBAC denied. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            404: components["responses"]["NotFound"];
             /** @description Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed. */
             409: {
                 headers: {
