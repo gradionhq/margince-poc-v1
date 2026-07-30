@@ -160,7 +160,11 @@ func newMCPLimitersWithClock(now func() time.Time) mcpLimiters {
 func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !originAllowed(r.Header.Get("Origin"), allowedOrigin) {
-			http.Error(w, "this Origin may not reach the MCP transport", http.StatusForbidden)
+			httperr.Write(w, r, &httperr.DetailedError{
+				Status: http.StatusForbidden,
+				Code:   "origin_not_allowed",
+				Detail: "This Origin may not reach the MCP transport.",
+			})
 			return
 		}
 		ip := clientIP(r)

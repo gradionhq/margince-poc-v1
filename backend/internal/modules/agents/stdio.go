@@ -42,6 +42,16 @@ import (
 // a transport this server does not serve.
 var supportedProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
 
+// The JSON-RPC and MCP wire tokens both transports repeat. Named once so a
+// typo in one of them cannot make a handler answer a member no client reads.
+const (
+	jsonRPCVersion   = "2.0"
+	methodInitialize = "initialize"
+	// fieldName is the "name" member of both serverInfo and a tools/list
+	// entry — the same identifier in both, so it stays one spelling.
+	fieldName = "name"
+)
+
 // negotiateProtocolVersion answers the client's requested MCP revision when
 // this server satisfies it, and otherwise the newest revision this server
 // satisfies — never the client's unsupported one, which would silently
@@ -124,7 +134,7 @@ func (s *StdioServer) Serve(ctx context.Context, in io.Reader, out io.Writer) er
 
 		var req rpcRequest
 		if err := json.Unmarshal(line, &req); err != nil {
-			if err := enc.Encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}}); err != nil {
+			if err := enc.Encode(rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}}); err != nil {
 				return err
 			}
 			continue
@@ -142,10 +152,11 @@ func (s *StdioServer) Serve(ctx context.Context, in io.Reader, out io.Writer) er
 }
 
 func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
-	resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
+	resp := rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID}
 	switch req.Method {
-	case "initialize":
+	case methodInitialize:
 		var params struct {
+			//nolint:tagliatelle // protocolVersion is the MCP wire member, camelCase by the protocol
 			ProtocolVersion string `json:"protocolVersion"`
 		}
 		// Params is optional on the wire; only unmarshal when the client sent
@@ -162,7 +173,7 @@ func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
 			// listChanged: true claims the notification the GET SSE stream
 			// (a later phase) actually fires; nothing else is claimed.
 			"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}},
-			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
+			"serverInfo":   map[string]any{fieldName: s.name, "version": s.version},
 		}
 	case "ping":
 		resp.Result = map[string]any{}
@@ -204,7 +215,7 @@ func (s *StdioServer) toolList() []map[string]any {
 			desc += fmt.Sprintf(" Maps to %s.", spec.OpenAPIOp)
 		}
 		tool := map[string]any{
-			"name":        spec.Name,
+			fieldName:     spec.Name,
 			"description": desc,
 			"inputSchema": spec.InputSchema,
 		}

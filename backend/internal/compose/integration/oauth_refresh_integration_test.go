@@ -28,10 +28,13 @@ import (
 )
 
 // connect drives a full handshake for a connection that asked to stay
-// connected, and returns the two credentials the client is left holding.
-func (o *oauthEnv) connect(t *testing.T, scope string) (accessToken, refreshToken string) {
+// connected, and returns the two credentials the client is left holding. The
+// grant is read+write because that is the posture every renewal and
+// revocation case below reasons about: a connection with real authority, whose
+// death therefore matters.
+func (o *oauthEnv) connect(t *testing.T) (accessToken, refreshToken string) {
 	t.Helper()
-	code := o.authorize(t, url.Values{"scope": {scope + " offline_access"}})
+	code := o.authorize(t, url.Values{"scope": {"read write offline_access"}})
 	status, body := o.exchange(t, url.Values{"code": {code}})
 	if status != http.StatusOK {
 		t.Fatalf("code exchange → %d %v", status, body)
@@ -197,7 +200,7 @@ func (o *oauthEnv) accessTokenWorks(t *testing.T, accessToken string) bool {
 // leaked older access token cannot outlive the renewal that replaced it.
 func TestRefreshRotatesAndRevokesThePredecessorPassport(t *testing.T) {
 	o := setupOAuth(t)
-	firstAccess, firstRefresh := o.connect(t, "read write")
+	firstAccess, firstRefresh := o.connect(t)
 	if !o.accessTokenWorks(t, firstAccess) {
 		t.Fatal("the freshly issued access token has no authority")
 	}
@@ -253,7 +256,7 @@ func TestRefreshRotatesAndRevokesThePredecessorPassport(t *testing.T) {
 // resurrects a connection the human cannot see.
 func TestConcurrentRefreshesMintExactlyOneSuccessor(t *testing.T) {
 	o := setupOAuth(t)
-	_, refresh := o.connect(t, "read write")
+	_, refresh := o.connect(t)
 
 	const presentations = 8
 	results := o.presentInParallel(refresh, presentations)
@@ -308,7 +311,7 @@ func TestConcurrentRefreshesMintExactlyOneSuccessor(t *testing.T) {
 // failure there is.
 func TestReplayedRefreshInsideTheGraceWindowDoesNotRevokeTheChain(t *testing.T) {
 	o := setupOAuth(t)
-	_, firstRefresh := o.connect(t, "read write")
+	_, firstRefresh := o.connect(t)
 
 	status, body := o.renew(t, firstRefresh, nil)
 	if status != http.StatusOK {
@@ -343,7 +346,7 @@ func TestReplayedRefreshInsideTheGraceWindowDoesNotRevokeTheChain(t *testing.T) 
 // actually die — grant, every refresh row, every passport under it.
 func TestReplayedRefreshOutsideTheWindowRevokesEverything(t *testing.T) {
 	o := setupOAuth(t)
-	_, firstRefresh := o.connect(t, "read write")
+	_, firstRefresh := o.connect(t)
 
 	status, body := o.renew(t, firstRefresh, nil)
 	if status != http.StatusOK {
@@ -420,7 +423,7 @@ func TestRefreshOfAnAudienceBoundGrantAcceptsAnAbsentResource(t *testing.T) {
 // token — a client that asks wrongly must not be locked out by its own bug.
 func TestRefreshNarrowsScopesButNeverWidensThem(t *testing.T) {
 	o := setupOAuth(t)
-	_, refresh := o.connect(t, "read write")
+	_, refresh := o.connect(t)
 
 	o.refuseRenewal(t, refresh, url.Values{"scope": {"read write send"}})
 

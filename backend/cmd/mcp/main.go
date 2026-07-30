@@ -43,6 +43,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	// The composed extension set (ADR-0069): the generated module under
 	// build/composition/ in a composed build, the committed vanilla stub
 	// in a bare one — same import path either way.
@@ -115,33 +117,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 
 	auth := identity.NewService(pool)
 
-	// The overlay write-back path (create/update/archive tools on an
-	// overlay-mode workspace) needs the workspace's own vaulted HubSpot token,
-	// so wire the same FromEnv vault-backed resolver the api server uses onto
-	// this stdio surface's tool registry. Absent a keyvault config the resolver
-	// is nil and write-back degrades to a clean errNoWriteIncumbent (reads and
-	// non-SoR tools are unaffected).
-	vault, _, err := keyvault.FromEnv(pool)
+	registry, err := toolRegistry(pool, logger, *publicBaseURL)
 	if err != nil {
 		return err
 	}
-	// The tool surface stages a send exactly as the HTTP transport does — the
-	// governed send path is the same one, so a tool call that could accept a
-	// message but never queue it would be a hole the api does not have.
-	// Insert-only: cmd/worker transmits what any role stages.
-	//
-	// No mailbox pre-flight here: that advisory check reads the connect
-	// registry, which only the api role builds. The transmit-time authority
-	// gate still refuses a grant that cannot send.
-	sendInserter, err := jobs.NewInserter(pool, logger)
-	if err != nil {
-		return err
-	}
-	registry := compose.NewRegistryWithIncumbent(pool, compose.OverlayIncumbentResolver(pool, vault),
-		compose.SendPath{
-			PublicBaseURL: *publicBaseURL,
-			Delivery:      compose.NewDeliveryStager(pool, sendInserter),
-		})
 
 	// Bind the singleton organization before serving anything: an MCP
 	// process against a pre-bootstrap database is an operator error, not
@@ -158,7 +137,13 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	if *listen != "" {
 		return serveHosted(ctx, *listen, auth, registry, wsID, logger)
 	}
+	return serveStdio(ctx, auth, registry, wsID, logger, stdin, stdout)
+}
 
+// serveStdio is the A1 branch: one passport from the environment, bound per
+// call so a revocation lands on the very next one, and a boot-time check so a
+// dead token fails where an operator will see it.
+func serveStdio(ctx context.Context, auth *identity.Service, registry *agents.Registry, wsID ids.WorkspaceID, logger *slog.Logger, stdin io.Reader, stdout io.Writer) error {
 	token := os.Getenv("MARGINCE_PASSPORT_TOKEN")
 	if token == "" {
 		return errors.New("mcp: MARGINCE_PASSPORT_TOKEN is not set (mint one via POST /passports)")
@@ -184,6 +169,37 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	return agents.NewStdioServer(registry, bind, "margince-crm", "0.1.0").
 		WithLogger(logger).
 		Serve(ctx, stdin, stdout)
+}
+
+// toolRegistry composes this role's governed tool surface: the same registry
+// the api serves, over the same seams.
+//
+// The overlay write-back path (create/update/archive tools on an overlay-mode
+// workspace) needs the workspace's own vaulted HubSpot token, so it wires the
+// same FromEnv vault-backed resolver the api server uses. Absent a keyvault
+// config the resolver is nil and write-back degrades to a clean
+// errNoWriteIncumbent (reads and non-SoR tools are unaffected).
+//
+// A send is STAGED exactly as the HTTP transport stages it — the governed send
+// path is the same one, so a tool call that could accept a message but never
+// queue it would be a hole the api does not have. Insert-only: cmd/worker
+// transmits what any role stages. No mailbox pre-flight here, though: that
+// advisory check reads the connect registry, which only the api role builds,
+// and the transmit-time authority gate still refuses a grant that cannot send.
+func toolRegistry(pool *pgxpool.Pool, logger *slog.Logger, publicBaseURL string) (*agents.Registry, error) {
+	vault, _, err := keyvault.FromEnv(pool)
+	if err != nil {
+		return nil, err
+	}
+	sendInserter, err := jobs.NewInserter(pool, logger)
+	if err != nil {
+		return nil, err
+	}
+	return compose.NewRegistryWithIncumbent(pool, compose.OverlayIncumbentResolver(pool, vault),
+		compose.SendPath{
+			PublicBaseURL: publicBaseURL,
+			Delivery:      compose.NewDeliveryStager(pool, sendInserter),
+		}), nil
 }
 
 // logDeprecationWarnings prints cmd/mcp's Phase 1 sunset notice (DESIGN

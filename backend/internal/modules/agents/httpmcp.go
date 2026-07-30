@@ -112,8 +112,11 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) 
 		// rpcError, JSON-safe map[string]any results) — a marshal failure
 		// here is a programming error, not a client-caused condition to
 		// route through the JSON-RPC error member.
-		httperr.WriteJSON(w, http.StatusInternalServerError,
-			map[string]string{"error": "this server produced a response it cannot encode"})
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError,
+			Code:   "unencodable_response",
+			Detail: "This server produced a response it cannot encode.",
+		})
 		return
 	}
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
@@ -165,7 +168,11 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		// The GET stream is a later phase; every other verb is refused
 		// outright.
-		http.Error(w, "MCP is POST and DELETE only on this transport", http.StatusMethodNotAllowed)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusMethodNotAllowed,
+			Code:   "method_not_allowed",
+			Detail: "MCP is POST and DELETE only on this transport.",
+		})
 		return
 	}
 	ctx, err := h.authenticate(r)
@@ -181,26 +188,37 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The authenticated context rides ON the request from here down rather
+	// than beside it: one value to pass means no handler below can read the
+	// unauthenticated r.Context() by accident. authenticate derives ctx from
+	// r.Context(), but it does so behind an injected closure, which is why
+	// this needs saying to the linter as well as to the reader.
+	r = r.WithContext(ctx) //nolint:contextcheck // ctx is derived from r.Context() inside the injected authenticate closure
 	if r.Method == http.MethodDelete {
-		h.teardownSession(w, r, ctx)
+		h.teardownSession(w, r)
 		return
 	}
-	h.servePost(w, r, ctx)
+	h.servePost(w, r)
 }
 
 // servePost handles the one JSON-RPC exchange a POST carries: parse,
 // negotiate the protocol version, dispatch through the shared stdio
 // handler, and — on a successful initialize — mint and register the
 // session this connection now owns.
-func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
 	if err != nil {
-		http.Error(w, "reading body", http.StatusBadRequest)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusBadRequest,
+			Code:   "unreadable_body",
+			Detail: "This request's body could not be read to the end.",
+		})
 		return
 	}
 	var req rpcRequest
 	if err := json.Unmarshal(body, &req); err != nil {
-		writeRPCResponse(w, r, rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
+		writeRPCResponse(w, r, rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}})
 		return
 	}
 	// A present-and-unsupported MCP-Protocol-Version is refused with a
@@ -215,10 +233,14 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request, ctx c
 	// negotiation for that call happens through its own request body,
 	// not this header, and older clients omit the header entirely until
 	// they have a negotiated version to send.
-	if v := r.Header.Get("MCP-Protocol-Version"); req.Method != "initialize" && v != "" &&
+	if v := r.Header.Get("MCP-Protocol-Version"); req.Method != methodInitialize && v != "" &&
 		!slices.Contains(supportedProtocolVersions, v) {
-		http.Error(w, "unsupported MCP-Protocol-Version; this server supports: "+
-			strings.Join(supportedProtocolVersions, ", "), http.StatusBadRequest)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusBadRequest,
+			Code:   "unsupported_protocol_version",
+			Detail: "Unsupported MCP-Protocol-Version; this server supports: " +
+				strings.Join(supportedProtocolVersions, ", ") + ".",
+		})
 		return
 	}
 	if req.ID == nil {
@@ -233,16 +255,19 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request, ctx c
 	// chain lost Unwrap(); fail loudly rather than serve responses that
 	// die mid-write.
 	if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(mcpCallDeadline)); err != nil {
-		httperr.WriteJSON(w, http.StatusInternalServerError,
-			map[string]string{"error": "this server chain cannot extend the response deadline"})
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusInternalServerError,
+			Code:   "deadline_not_extendable",
+			Detail: "This server chain cannot extend the response deadline.",
+		})
 		return
 	}
 	// bind is a passthrough: this request's ctx IS the authenticated
 	// session, minted moments ago.
 	server := NewStdioServer(h.registry, func(context.Context) (context.Context, error) { return ctx, nil }, h.name, h.version)
 	resp := server.handle(ctx, req)
-	if req.Method == "initialize" && resp.Error == nil {
-		h.mintSession(w, ctx)
+	if req.Method == methodInitialize && resp.Error == nil {
+		h.mintSession(ctx, w)
 	}
 	writeRPCResponse(w, r, resp)
 }
@@ -254,7 +279,7 @@ func (h *httpMCPHandler) servePost(w http.ResponseWriter, r *http.Request, ctx c
 // call, which is fine — it just means every session-less human shares one
 // bucket in this registry, a case this transport (agent passports only)
 // does not reach in production.
-func (h *httpMCPHandler) mintSession(w http.ResponseWriter, ctx context.Context) {
+func (h *httpMCPHandler) mintSession(ctx context.Context, w http.ResponseWriter) {
 	actor, _ := principal.Actor(ctx)
 	sessionID := ids.NewV7().String()
 	h.sessions.register(actor.PassportID, sessionID, func() {})
@@ -266,15 +291,23 @@ func (h *httpMCPHandler) mintSession(w http.ResponseWriter, ctx context.Context)
 // a session id that does not exist under this exact passport — whether it
 // never existed or belongs to someone else — answers 404, identically, so
 // a probe cannot tell the two apart.
-func (h *httpMCPHandler) teardownSession(w http.ResponseWriter, r *http.Request, ctx context.Context) {
+func (h *httpMCPHandler) teardownSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
-		http.Error(w, "missing Mcp-Session-Id header", http.StatusBadRequest)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusBadRequest,
+			Code:   "missing_session_id",
+			Detail: "Closing a session needs the Mcp-Session-Id header initialize returned.",
+		})
 		return
 	}
-	actor, _ := principal.Actor(ctx)
+	actor, _ := principal.Actor(r.Context())
 	if !h.sessions.close(actor.PassportID, sessionID) {
-		http.Error(w, "no session open under this id for this passport", http.StatusNotFound)
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusNotFound,
+			Code:   "session_not_open",
+			Detail: "No session is open under this id for this passport.",
+		})
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

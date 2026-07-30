@@ -39,7 +39,7 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 	switch r.PostForm.Get("grant_type") {
 	case "authorization_code":
 		h.tokenFromAuthCode(w, r)
-	case "refresh_token":
+	case oauthRefreshToken:
 		h.tokenFromRefresh(w, r)
 	default:
 		oauthError(w, http.StatusBadRequest, "unsupported_grant_type",
@@ -89,10 +89,10 @@ func (h Handlers) tokenFromAuthCode(w http.ResponseWriter, r *http.Request) {
 // with no path back to a human.
 func (h Handlers) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
 	issued, refresh, err := h.svc.rotateRefreshToken(r.Context(), refreshRequest{
-		Token:             r.PostForm.Get("refresh_token"),
-		ClientID:          r.PostForm.Get("client_id"),
+		Token:             r.PostForm.Get(oauthRefreshToken),
+		ClientID:          r.PostForm.Get(oauthParamClientID),
 		Scopes:            strings.Fields(r.PostForm.Get("scope")),
-		Resource:          r.PostForm.Get("resource"),
+		Resource:          r.PostForm.Get(oauthParamResource),
 		CanonicalResource: h.mcpResource,
 	})
 	switch {
@@ -127,7 +127,7 @@ func writeTokenResponse(w http.ResponseWriter, issued IssuedPassport, refresh st
 	// that never asked for offline_access must not be handed a long-lived
 	// credential it never consented to store.
 	if refresh != "" {
-		response["refresh_token"] = refresh
+		response[oauthRefreshToken] = refresh
 		response["refresh_expires_in"] = int(refreshTokenTTL.Seconds())
 	}
 	httperr.WriteJSON(w, http.StatusOK, response)
@@ -226,10 +226,10 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 	if err != nil {
 		return redeemedCode{}, err
 	}
-	if r.PostForm.Get("client_id") != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
+	if r.PostForm.Get(oauthParamClientID) != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
 		return redeemedCode{}, errGrantMismatch
 	}
-	if !audienceMatches(r.PostForm.Get("resource"), h.mcpResource, out.Resource) {
+	if !audienceMatches(r.PostForm.Get(oauthParamResource), h.mcpResource, out.Resource) {
 		return redeemedCode{}, errAudienceMismatch
 	}
 	// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.

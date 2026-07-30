@@ -79,10 +79,10 @@ func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids
 	auditCtx := actorCtx(ctx, Identity{UserID: in.UserID, WorkspaceID: in.WorkspaceID})
 	if _, err := storekit.Audit(auditCtx, tx, "create", "oauth_grant", grantID, nil,
 		map[string]any{
-			"client_id":       in.ClientID,
-			"scopes":          in.Scopes,
-			"refresh_allowed": in.RefreshAllowed,
-			"resource":        in.Resource,
+			oauthParamClientID: in.ClientID,
+			"scopes":           in.Scopes,
+			"refresh_allowed":  in.RefreshAllowed,
+			oauthParamResource: in.Resource,
 		}); err != nil {
 		return ids.Nil, "", err
 	}
@@ -317,7 +317,7 @@ func (s *Service) revokeToken(ctx context.Context, in revokeTokenInput) error {
 // on it as authoritative).
 func resolveGrantID(ctx context.Context, tx pgx.Tx, in revokeTokenInput) (ids.UUID, error) {
 	hash := hashToken(in.Token)
-	if in.TokenTypeHint == "refresh_token" {
+	if in.TokenTypeHint == oauthRefreshToken {
 		if grantID, err := refreshGrantID(ctx, tx, hash); err != nil || grantID != ids.Nil {
 			return grantID, err
 		}

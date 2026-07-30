@@ -39,7 +39,7 @@ type connectedClient struct {
 func setupConnectedClient(t *testing.T) *connectedClient {
 	t.Helper()
 	o := setupOAuth(t)
-	access, refresh := o.connect(t, "read write")
+	access, refresh := o.connect(t)
 	return &connectedClient{oauthEnv: o, access: access, refresh: refresh}
 }
 
@@ -48,7 +48,7 @@ func setupConnectedClient(t *testing.T) *connectedClient {
 // answer that sends a client back to the human for consent.
 func (c *connectedClient) callMCP(t *testing.T) int {
 	t.Helper()
-	return c.post(t, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, c.access).StatusCode
+	return c.listTools(t, c.access).StatusCode
 }
 
 // refreshSucceeds reports whether the client can still mint itself a fresh
@@ -231,7 +231,7 @@ func TestALocallyMintedPassportIsUnaffectedByADeadConnector(t *testing.T) {
 	c.disableClient(t)
 	c.revokeGrant(t)
 
-	if code := c.post(t, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, minted.Token).StatusCode; code != http.StatusOK {
+	if code := c.listTools(t, minted.Token).StatusCode; code != http.StatusOK {
 		t.Fatalf("locally minted passport → %d, want 200: it answers to no grant", code)
 	}
 	if code := c.callMCP(t); code != http.StatusUnauthorized {

@@ -28,18 +28,18 @@ func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 		// it hands back a credential and ends the connection on its own
 		// initiative, not on a server-side hint.
 		"revocation_endpoint":      issuer + "/oauth/revoke",
-		"response_types_supported": []string{"code"},
+		"response_types_supported": []string{oauthResponseTypeCode},
 		// refresh_token is advertised because a client that cannot see it
 		// here will not present one: it asks for offline_access, stores the
 		// token it gets, and never renews with it.
-		"grant_types_supported":                 []string{"authorization_code", "refresh_token"},
+		"grant_types_supported":                 []string{"authorization_code", oauthRefreshToken},
 		"code_challenge_methods_supported":      []string{"S256"},
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		// offline_access is listed so Claude appends it when it wants a
 		// refresh token (§5.2) — it is a session-lifetime marker, never a
 		// passport scope, so the exchange records it as the grant's
 		// refresh_allowed and strips it from the scopes (oauth_token.go).
-		"scopes_supported": []string{"read", "draft", "write", "send", "enrich", scopeOfflineAccess},
+		"scopes_supported": oauthScopesSupported,
 	})
 }
 
@@ -51,7 +51,7 @@ func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 // including the path, so it can never be the bare request origin.
 func (h Handlers) ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	httperr.WriteJSON(w, http.StatusOK, map[string]any{
-		"resource":                 h.mcpResource,
+		oauthParamResource:         h.mcpResource,
 		"authorization_servers":    []string{requestIssuer(r)},
 		"bearer_methods_supported": []string{"header"},
 	})

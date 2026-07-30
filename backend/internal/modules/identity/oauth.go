@@ -135,7 +135,7 @@ type authorizeRequest struct {
 // response type, mandatory PKCE S256, scopes, known client, registered
 // redirect. No code exists until the human approves.
 func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeRequest, string, string) {
-	if q.Get("response_type") != "code" {
+	if q.Get("response_type") != oauthResponseTypeCode {
 		return authorizeRequest{}, "unsupported_response_type", "only response_type=code"
 	}
 	// S256 is mandatory (OAuth 2.1): no challenge and the downgrade to
@@ -148,12 +148,12 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 		return authorizeRequest{}, "invalid_scope", err.Error()
 	}
 	req := authorizeRequest{
-		ClientID:      q.Get("client_id"),
+		ClientID:      q.Get(oauthParamClientID),
 		RedirectURI:   q.Get("redirect_uri"),
 		Scopes:        scopes,
 		Offline:       offline,
 		CodeChallenge: q.Get("code_challenge"),
-		Resource:      q.Get("resource"),
+		Resource:      q.Get(oauthParamResource),
 		State:         q.Get("state"),
 	}
 	// RFC 8707: a present audience must name this installation's MCP
@@ -252,9 +252,9 @@ func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
 		formScope = strings.TrimSpace(formScope + " " + scopeOfflineAccess)
 	}
 	for name, value := range map[string]string{
-		"response_type": "code", "client_id": req.ClientID, "redirect_uri": req.RedirectURI,
+		"response_type": oauthResponseTypeCode, oauthParamClientID: req.ClientID, "redirect_uri": req.RedirectURI,
 		"scope": formScope, "code_challenge": req.CodeChallenge,
-		"code_challenge_method": "S256", "resource": req.Resource, "state": req.State,
+		"code_challenge_method": "S256", oauthParamResource: req.Resource, "state": req.State,
 		"consent": nonce,
 	} {
 		page.WriteString(`<input type="hidden" name="` + template.HTMLEscapeString(name) +
@@ -366,7 +366,7 @@ const scopeOfflineAccess = "offline_access"
 // mint) sees only the closed read|draft|write|send|enrich vocabulary.
 func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	if strings.TrimSpace(raw) == "" {
-		return []string{"read"}, false, nil
+		return []string{string(principal.ScopeRead)}, false, nil
 	}
 	for _, sc := range strings.Fields(raw) {
 		if sc == scopeOfflineAccess {
@@ -388,7 +388,7 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	// silently fails every later tool call, whatever future marker-style
 	// scope might someday reduce the parsed list to nothing.
 	if len(scopes) == 0 {
-		scopes = []string{"read"}
+		scopes = []string{string(principal.ScopeRead)}
 	}
 	return scopes, offline, nil
 }

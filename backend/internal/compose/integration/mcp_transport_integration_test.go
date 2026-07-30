@@ -11,12 +11,18 @@ package integration
 // gate on, the RFC 9728 discovery chain closes on one origin (the 401 names
 // an absolute metadata URL, that URL is served here, and it points back at
 // this issuer); with the gate off, every route in the group is simply absent.
+//
+// This file also carries the harness and the wire helpers the sibling
+// connector suites share: mcp_handshake_integration_test.go walks the whole
+// client bootstrap on one origin, and mcp_deadline_integration_test.go proves
+// a tool call outlives the server's own response deadline.
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"testing"
 
@@ -40,11 +46,22 @@ type connectorEnv struct {
 // serves all three.
 func setupConnector(t *testing.T) *connectorEnv {
 	t.Helper()
+	return setupConnectorWith(t)
+}
+
+// setupConnectorWith is setupConnector plus whatever else one test needs
+// wired. It is separate so setupConnector stays the plain deployment posture
+// — connector on, nothing else declared — which is what most of this suite
+// asserts against.
+func setupConnectorWith(t *testing.T, extra ...compose.Option) *connectorEnv {
+	t.Helper()
 	e := setupWithOriginOptions(t, func(origin string) []compose.Option {
 		// The advertised resource comes from configuration, exactly as
 		// --public-base-url supplies it in a deployment — never from the
 		// Host header, which an attacker controls.
-		return []compose.Option{compose.WithMCPConnector(), compose.WithMCPResource(origin + "/mcp")}
+		return append([]compose.Option{
+			compose.WithMCPConnector(), compose.WithMCPResource(origin + "/mcp"),
+		}, extra...)
 	})
 	e.slug = "mcp-connector" // slugify("MCP Connector")
 	bootstrapWorkspaceSession(t, e, "MCP Connector", "granter@fable.test", "Admin")
@@ -59,16 +76,17 @@ type httpResult struct {
 	Body       string
 }
 
-// post sends one raw payload. An empty bearer sends NO Authorization header
-// at all — the unauthenticated shape a client starts its discovery from,
-// which is not the same as sending an empty credential.
-func (e *env) post(t *testing.T, path, payload, bearer string) httpResult {
+// listTools is the plainest exchange on the transport and the one every
+// admission assertion needs: whether this credential gets in at all. An empty
+// bearer sends NO Authorization header — the unauthenticated shape a client
+// starts its discovery from, which is not the same as an empty credential.
+func (e *env) listTools(t *testing.T, bearer string) httpResult {
 	t.Helper()
 	headers := map[string]string{"Content-Type": "application/json"}
 	if bearer != "" {
 		headers["Authorization"] = "Bearer " + bearer
 	}
-	return e.raw(t, http.MethodPost, path, payload, headers)
+	return e.raw(t, http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, headers)
 }
 
 // getJSON dereferences a discovery document the way a client does and fails
@@ -121,7 +139,7 @@ func (e *env) raw(t *testing.T, method, path, payload string, headers map[string
 // that URL is served here, and it points at this same issuer.
 func TestMCPIsServedAtTheAPIOriginWithDiscovery(t *testing.T) {
 	env := setupConnector(t)
-	resp := env.post(t, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, "")
+	resp := env.listTools(t, "")
 	if resp.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("unauthenticated POST /mcp → %d, want 401", resp.StatusCode)
 	}
@@ -171,7 +189,7 @@ func TestMCPOnTheAPIServesTheAPIsOwnToolSurface(t *testing.T) {
 		t.Fatal("the REST agent surface reports no tools, so there is nothing to compare the transport against")
 	}
 
-	got := env.post(t, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, minted.Token)
+	got := env.listTools(t, minted.Token)
 	if got.StatusCode != http.StatusOK {
 		t.Fatalf("authenticated POST /mcp → %d %s", got.StatusCode, got.Body)
 	}
@@ -191,6 +209,8 @@ func TestMCPOnTheAPIServesTheAPIsOwnToolSurface(t *testing.T) {
 func TestConnectorGateOffRemovesEveryConnectorRoute(t *testing.T) {
 	e := setup(t) // the default deployment posture: the connector undeclared
 
+	// Every route the gate mounts, and nothing may be left out: an endpoint
+	// missing from this list is an endpoint nobody proved the gate covers.
 	probes := []struct {
 		method, path, payload string
 	}{
@@ -198,6 +218,7 @@ func TestConnectorGateOffRemovesEveryConnectorRoute(t *testing.T) {
 		{http.MethodGet, "/oauth/authorize?response_type=code&client_id=probe", ""},
 		{http.MethodPost, "/oauth/register", `{"client_name":"probe","redirect_uris":["https://client.example/cb"]}`},
 		{http.MethodPost, "/oauth/token", `grant_type=authorization_code`},
+		{http.MethodPost, "/oauth/revoke", `token=mgp_probe`},
 		{http.MethodGet, "/.well-known/oauth-authorization-server", ""},
 		{http.MethodGet, "/.well-known/oauth-protected-resource", ""},
 		{http.MethodGet, "/.well-known/oauth-protected-resource/mcp", ""},
@@ -209,11 +230,7 @@ func TestConnectorGateOffRemovesEveryConnectorRoute(t *testing.T) {
 			t.Fatalf("%s %s → %d, want 404: the gate must remove the route, not guard it",
 				p.method, p.path, got.StatusCode)
 		}
-		// Anything that varies across the group — a differing body, a
-		// content type, a lingering RFC 9728 pointer — identifies which
-		// route exists behind the gate.
-		fingerprint := fmt.Sprintf("body=%q content-type=%q www-authenticate=%q",
-			got.Body, got.Header.Get("Content-Type"), got.Header.Get("WWW-Authenticate"))
+		fingerprint := observableFingerprint(got)
 		if want == "" {
 			want, wantFrom = fingerprint, p.method+" "+p.path
 			continue
@@ -223,6 +240,123 @@ func TestConnectorGateOffRemovesEveryConnectorRoute(t *testing.T) {
 				p.method, p.path, fingerprint, wantFrom, want)
 		}
 	}
+}
+
+// observableFingerprint is everything a prober can learn from one response
+// apart from the clock: the status, the body, and EVERY header — not a chosen
+// few. A gate that leaked which route exists would do it through whichever
+// header a hand-picked list forgot (a lingering RFC 9728 pointer, a differing
+// content type, an Allow), so the list is the whole set minus Date, which
+// differs between any two requests for reasons that have nothing to do with
+// routing.
+func observableFingerprint(got httpResult) string {
+	parts := make([]string, 0, len(got.Header)+2)
+	parts = append(parts, fmt.Sprintf("status=%d", got.StatusCode), fmt.Sprintf("body=%q", got.Body))
+	for name, values := range got.Header {
+		if name == "Date" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%q", name, values))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, " ")
+}
+
+// dereferences it, not later as an unexplained refusal.
+func (e *connectorEnv) pathOn(t *testing.T, advertised string) string {
+	t.Helper()
+	if !strings.HasPrefix(advertised, e.origin+"/") {
+		t.Fatalf("advertised URL %q is not on %s: the handshake would have to leave this origin", advertised, e.origin)
+	}
+	return strings.TrimPrefix(advertised, e.origin)
+}
+
+// rpc drives one JSON-RPC exchange on /mcp the way a connected client does and
+// returns the result member. The negotiated revision is a parameter, not a
+// constant: it travels on every request after initialize, so a server that
+// answered a revision it then refuses would fail here.
+//
+//craft:ignore naked-any a JSON-RPC result is an open object by the protocol — asserting on one means reading it untyped
+func (e *connectorEnv) rpc(t *testing.T, bearer, protocolVersion, payload string) map[string]any {
+	t.Helper()
+	headers := map[string]string{"Content-Type": "application/json", "Authorization": "Bearer " + bearer}
+	if protocolVersion != "" {
+		headers["MCP-Protocol-Version"] = protocolVersion
+	}
+	got := e.raw(t, http.MethodPost, "/mcp", payload, headers)
+	if got.StatusCode != http.StatusOK {
+		t.Fatalf("POST /mcp %s → %d %s", payload, got.StatusCode, got.Body)
+	}
+	return rpcResult(t, got.Body)
+}
+
+// rpcResult decodes one JSON-RPC response and fails on an error member or a
+// body that does not decode WHOLE — a truncated response is exactly what the
+// write-deadline test hunts for, so it must never read as a pass.
+//
+//craft:ignore naked-any a JSON-RPC result is an open object by the protocol — asserting on one means reading it untyped
+func rpcResult(t *testing.T, body string) map[string]any {
+	t.Helper()
+	var envelope struct {
+		JSONRPC string         `json:"jsonrpc"`
+		Result  map[string]any `json:"result"`
+		Error   *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(body), &envelope); err != nil {
+		t.Fatalf("JSON-RPC response does not decode: %v (%s)", err, body)
+	}
+	if envelope.JSONRPC != "2.0" {
+		t.Fatalf(`jsonrpc = %q, want "2.0": %s`, envelope.JSONRPC, body)
+	}
+	if envelope.Error != nil {
+		t.Fatalf("JSON-RPC error %d: %s", envelope.Error.Code, envelope.Error.Message)
+	}
+	if envelope.Result == nil {
+		t.Fatalf("JSON-RPC response carries neither a result nor an error: %s", body)
+	}
+	return envelope.Result
+}
+
+// toolText reads the text a successful tools/call returned. A refused tool
+// answers 200 with isError set — the failure travels IN BAND — so a status
+// check alone cannot tell a call that ran from one that was denied.
+//
+//craft:ignore naked-any a tools/call result is an open object by the protocol — asserting on one means reading it untyped
+func toolText(t *testing.T, result map[string]any) string {
+	t.Helper()
+	if isError, _ := result["isError"].(bool); isError {
+		t.Fatalf("tools/call was refused: %v", result["content"])
+	}
+	content, ok := result["content"].([]any)
+	if !ok || len(content) == 0 {
+		t.Fatalf("tools/call result carries no content: %v", result)
+	}
+	first, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("tools/call content[0] is not an object: %v", content[0])
+	}
+	text, ok := first["text"].(string)
+	if !ok {
+		t.Fatalf("tools/call content[0] carries no text: %v", first)
+	}
+	return text
+}
+
+// stringField reads one required string member out of a discovery document.
+// An absent or empty value is a document a client cannot act on, so it fails
+// here rather than being carried forward as "".
+//
+//craft:ignore naked-any a discovery document is an open JSON object by RFC 8414/9728 — asserting on it means reading it untyped
+func stringField(t *testing.T, doc map[string]any, key string) string {
+	t.Helper()
+	value, ok := doc[key].(string)
+	if !ok || value == "" {
+		t.Fatalf("discovery document carries no %s: %v", key, doc)
+	}
+	return value
 }
 
 // resourceMetadataParam pulls the resource_metadata URL out of an RFC 9728

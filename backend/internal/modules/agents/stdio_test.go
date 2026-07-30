@@ -101,8 +101,10 @@ func TestCallScrubsBindFailures(t *testing.T) {
 func TestInitializeNegotiatesTheClientsProtocolRevision(t *testing.T) {
 	s := NewStdioServer(NewRegistry(nil, nil), passthroughBind, "margince-crm", "test")
 	for _, tc := range []struct{ name, requested, want string }{
-		{"echoes a supported revision", supportedProtocolVersions[len(supportedProtocolVersions)-1],
-			supportedProtocolVersions[len(supportedProtocolVersions)-1]},
+		{
+			"echoes a supported revision", supportedProtocolVersions[len(supportedProtocolVersions)-1],
+			supportedProtocolVersions[len(supportedProtocolVersions)-1],
+		},
 		{"newest when unsupported", "1999-01-01", supportedProtocolVersions[0]},
 		{"newest when absent", "", supportedProtocolVersions[0]},
 	} {
