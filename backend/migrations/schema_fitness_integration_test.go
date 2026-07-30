@@ -262,6 +262,7 @@ var rowScopedFKDecisions = map[string]string{
 	"activity_link.project_id":      "gated: auth.EnsureLinkTarget in LogActivity — the link target is probed by its wire entity_type, so project rides the same gate as its siblings",
 	"deal.project_id":               "gated: auth.EnsureLinkTarget in CreateDeal/UpdateDeal (H1) — the anchor project is client-supplied, so naming it is a read of it",
 	"lead.project_id":               "gated: auth.EnsureLinkTarget in CreateLead/UpdateLead (H1)",
+	"org_brief.organization_id":     "gated: the brief is written only after orgbrief.Service.Get runs the caller's own org360 Assemble, whose GetOrganizationTx does auth.Require + auth.EnsureVisible — an account the caller cannot read has no brief written for it, and the row is keyed on that same caller",
 	// Owned child rows: the row is an attribute of its visible parent,
 	// written only through the parent's own gated paths.
 	"activity_link.activity_id": "child row: written only inside LogActivity for the new activity",
@@ -283,7 +284,7 @@ var rowScopedFKDecisions = map[string]string{
 	"person_consent.lead_id":              "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20)",
 	"consent_event.lead_id":               "gated: auth.EnsureVisible on the lead subject in consent Record (E12.20); proof rows append only inside that path",
 	"consent_doi_token.person_id":         "child row: minted and consumed only inside RecordConsent's gated path",
-	"preference_token.person_id":          "server-derived: minted by the consent store from the send path's RLS-scoped email→person resolve; the public surface reads it as the token→tenant resolver before any principal exists",
+	"preference_token.person_id":          "gated: auth.EnsureVisible on the recipient in PreferenceTokenForEmail — the id is server-derived from the send path's RLS-scoped email→person resolve, and the minted token is a bearer credential over that person, so the mint carries the same row-scope probe the sibling read does; the public surface reads the row as the token→tenant resolver before any principal exists",
 	// Server-derived pointers: stamped from an operation's outcome,
 	// never accepted from the request body.
 	"lead.promoted_person_id":          "server-derived: stamped by PromoteLead",

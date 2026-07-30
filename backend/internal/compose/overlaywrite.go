@@ -78,14 +78,18 @@ var overlayRecordWriteTools = map[string]bool{
 }
 
 // overlayModeChecker resolves whether the request's workspace is in overlay
-// mode. It is the Dispatcher's own write-path resolver, kept as a one-method
-// interface so the guard is unit-testable without the full dispatch.
+// mode, kept as a one-method interface so a guard is unit-testable without the
+// full dispatch. Two guard classes take it: this file's write guard and the
+// native-only capability guards (nativeonlytools.go).
 //
-// It is deliberately the UNCACHED resolver (dispatcher.go's
-// isOverlayUncached), not the read path's cached one: this guard runs only on
-// mutating requests, and a mutation routed on a stale mode is the silent
-// divergence the guard exists to prevent — see isOverlayUncached's own doc
-// for what that costs and what it still cannot promise.
+// The method name is load-bearing, not decoration. Both classes need the
+// UNCACHED resolver — a mutation routed on a stale mode is silent divergence,
+// and a stale 'native' at a capability guard serves a well-formed empty native
+// result as an ANSWER — and naming the interface method isOverlayUncached is
+// what makes the cached read unable to satisfy it. A bare func type would let
+// either guard be wired to the cached resolver in one token, compiling and
+// passing. See isOverlayUncached's own doc for what the fresh read costs and
+// what it still cannot promise.
 type overlayModeChecker interface {
 	isOverlayUncached(ctx context.Context) (bool, error)
 }

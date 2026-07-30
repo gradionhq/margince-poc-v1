@@ -87,46 +87,84 @@ func (e *SharedUnsubscribeTokenError) Error() string {
 	return "a send that carries an unsubscribe link reaches one addressee at a time — re-issue it once per recipient, with no cc"
 }
 
+// redactedToken stands in for the recipient's preference token in the copy of
+// the message the workspace RECORDS. The token is a bearer credential over
+// that person's consent record — on the anonymous public edge it reads their
+// per-purpose state, withdraws, and grants, under a system principal that
+// short-circuits every RBAC gate — so it belongs on the mail and nowhere
+// else: not in the durable activity body, which any seat holding
+// activity:read serves back (the seeded read_only role reads every one of
+// them), and not in the 202 the API caller reads.
+//
+// The record keeps the footer's SHAPE, built by the same two functions from
+// this stand-in, so a reader still sees that the send carried a working
+// one-click link and which purpose it pointed at, and loses only the value
+// that would let them use it. It is path-safe on purpose: url.PathEscape
+// leaves it alone, so the recorded URL reads as a URL and can never be
+// mistaken for the pref_-prefixed credential it replaces.
+const redactedToken = "token-redacted"
+
+// sendDeliverability is what a send must carry for a mailbox provider to
+// accept it as bulk mail, in the three renderings that must not be confused
+// for one another.
+type sendDeliverability struct {
+	// listUnsubscribe is the RFC 8058 header value.
+	listUnsubscribe string
+	// transmitted is the body that goes on the wire. It carries the live
+	// token, because the recipient's one-click link IS that token.
+	transmitted string
+	// recorded is the body the timeline row keeps and every authenticated
+	// read of it serves: the same message with the capability redacted.
+	recorded string
+}
+
 // deliverability derives what a send must carry for a mailbox provider to
 // accept it as bulk mail: the RFC 8058 List-Unsubscribe header value and the
 // human-visible footer, both built from ONE token so they cannot diverge.
-// It returns the body to transmit, footer already applied.
+// It returns both bodies, footer already applied.
 //
 // ok is false when the address carries no unsubscribe surface — a locked
 // (transactional) purpose, or an address no person holds — in which case a
 // transactional message has nothing to unsubscribe from and an address the
-// consent gate would refuse discloses nothing.
+// consent gate would refuse discloses nothing. Those sends carry no token, so
+// both bodies are the one the caller wrote.
 //
 // recipients is the MERGED addressee list, every To and Cc address, because
 // the refusal above counts who RECEIVES the rendered message rather than how
 // they were addressed.
-func (s *Store) deliverability(ctx context.Context, body string, recipients []string, purposeKey string) (listUnsubscribe, outBody string, err error) {
+func (s *Store) deliverability(ctx context.Context, body string, recipients []string, purposeKey string) (sendDeliverability, error) {
+	untokenized := sendDeliverability{transmitted: body, recorded: body}
 	if s.unsubscribe == nil || len(recipients) == 0 {
-		return "", body, nil
+		return untokenized, nil
 	}
 	token, ok, err := s.unsubscribe.UnsubscribeToken(ctx, recipients[0], purposeKey)
 	if err != nil {
-		return "", "", err
+		return sendDeliverability{}, err
 	}
 	if !ok {
-		return "", body, nil
+		return untokenized, nil
 	}
 	// The refusal is tested HERE, after the linker has answered, because that
 	// answer is what says this purpose carries an unsubscribe surface at all —
 	// a multi-recipient transactional send reached the branch above and left
 	// already, carrying no token to leak.
 	if distinctAddresses(recipients) > 1 {
-		return "", "", &SharedUnsubscribeTokenError{}
+		return sendDeliverability{}, &SharedUnsubscribeTokenError{}
 	}
 	if s.publicBaseURL == "" {
 		// Fail loudly rather than derive the base from the request: the link
 		// carries the recipient's unsubscribe token, and a marketing send
 		// may not go out without a working, non-forgeable List-Unsubscribe
 		// URL (features/06 §1.2).
-		return "", "", fmt.Errorf("send: public base URL is not configured; a marketing send must carry a working List-Unsubscribe URL")
+		return sendDeliverability{}, fmt.Errorf("send: public base URL is not configured; a marketing send must carry a working List-Unsubscribe URL")
 	}
 	unsubURL := unsubscribeURL(s.publicBaseURL, token, purposeKey)
-	return listUnsubscribeHeader(unsubURL), appendUnsubscribeFooter(body, s.publicBaseURL, token, unsubURL), nil
+	return sendDeliverability{
+		listUnsubscribe: listUnsubscribeHeader(unsubURL),
+		transmitted:     appendUnsubscribeFooter(body, s.publicBaseURL, token, unsubURL),
+		recorded: appendUnsubscribeFooter(body, s.publicBaseURL, redactedToken,
+			unsubscribeURL(s.publicBaseURL, redactedToken, purposeKey)),
+	}, nil
 }
 
 // distinctAddresses counts who a rendered message actually reaches. Addresses

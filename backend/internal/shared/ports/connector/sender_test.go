@@ -6,6 +6,7 @@ package connector_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -46,12 +47,21 @@ func TestSenderDoesNotImplyConnector(t *testing.T) {
 // provider I/O, so the shape it accepts is part of the port, not of one
 // connector: unbracketed addr-spec, exactly one '@', both sides present, no
 // whitespace, angle brackets, or ASCII control character (those belong to the
-// wire rendering alone, or to nothing usable at all).
+// wire rendering alone, or to nothing usable at all), and short enough for a
+// header line to carry.
+//
+// The length bound is not cosmetic. The same predicate judges an identity READ
+// BACK out of a provider response, which is remote input measured in megabytes,
+// and whatever it accepts becomes a natural key and a thread key.
 func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
+	const suffix = "@margince.test"
 	for _, tc := range []struct {
 		id string
 		ok bool
 	}{
+		{strings.Repeat("a", 400) + suffix, true},              // long, still a header line
+		{strings.Repeat("a", 513-len(suffix)) + suffix, false}, // one octet past the bound
+		{strings.Repeat("a", 100_000) + suffix, false},         // a runaway read-back
 		{"abc@margince.test", true},
 		{"a.b+c@sub.margince.test", true},
 		{"", false},

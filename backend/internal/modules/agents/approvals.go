@@ -84,10 +84,11 @@ func withApprovalRedeemed(ctx context.Context) context.Context {
 //
 // Outside this package this is the ONLY way to obtain a released context: the
 // marker is proof that a human released exactly THIS call, so only the
-// redemption path may set it. There are two dispatch layers — the MCP registry and the REST agent gate — and both must mark what
-// they redeem, or the gate refuses the very write the approval was granted for;
-// making the marking a consequence of redeeming is what keeps that true without
-// trusting either caller to remember.
+// redemption path may set it. There are two dispatch layers — the MCP registry
+// and the REST agent gate — and both must mark what they redeem, or the gate
+// refuses the very write the approval was granted for; making the marking a
+// consequence of redeeming is what keeps that true without trusting either
+// caller to remember.
 func RedeemAndMark(ctx context.Context, approvals Approvals, approvalID ids.ApprovalID, tool, diffHash string,
 ) (marked context.Context, version int64, pinned bool, err error) {
 	version, pinned, err = approvals.Redeem(ctx, approvalID, tool, diffHash)

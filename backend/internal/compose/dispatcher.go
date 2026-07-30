@@ -129,14 +129,14 @@ func (d *Dispatcher) isOverlay(ctx context.Context) (bool, error) {
 //   - The native-only capability guards (nativeonlytools.go). For them a stale
 //     'native' is not a stale screen either: it serves a well-formed empty
 //     native result as an ANSWER, which is the defect those guards exist to
-//     remove. The cache is
+//     remove.
 //
-// per-process and Invalidate only reaches the process that committed the
-// flip, so a second api replica (or a worker) can still hold 'native' for
-// the rest of the TTL after a workspace connects. A mutation dispatched on
-// that stale answer commits to a native table no overlay read ever serves
-// and that never reaches the incumbent — silent divergence, not a stale
-// screen. So every mutation boundary pays one workspace-row read to be sure.
+// The cache is per-process and Invalidate only reaches the process that
+// committed the flip, so a second api replica (or a worker) can still hold
+// 'native' for the rest of the TTL after a workspace connects. A mutation
+// dispatched on that stale answer commits to a native table no overlay read
+// ever serves and that never reaches the incumbent — silent divergence, not
+// a stale screen. So both classes pay one workspace-row read to be sure.
 //
 // This narrows the window to the request's own duration; it does not erase
 // it, because the mode read and the mutation cannot share a transaction (on

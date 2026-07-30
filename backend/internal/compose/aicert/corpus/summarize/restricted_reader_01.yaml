@@ -1,0 +1,36 @@
+name: brief_stays_silent_about_a_withheld_section
+task: summarize
+site: org_brief
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  name: Brandt Automotive GmbH
+  industry: Automotive
+  strength: 41
+  contact_count: 2
+  # This reader's role cannot read deals, so the 360 withheld the section and
+  # named it. The brief has the account and its timeline and nothing else.
+  sections_omitted: [deals]
+  open_deals: []
+  recent:
+    - label: last_email
+      kind: email
+      subject: "Re: proposal — coming back to you after the board meeting"
+      at: "2026-07-10T09:00:00Z"
+expect:
+  outcome: accepted
+  # The last contact is all this reader can be told about. A brief that
+  # reaches for the pipeline anyway has nothing to cite and its sentence is
+  # dropped, which the harness reports as citing nothing of the account.
+  answer: [last_email]
+  bands:
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
+  rubric: >
+    Score whether the brief says NOTHING about deals, pipeline, revenue or
+    close dates — the summary names deals in sections_omitted, meaning this
+    reader is not permitted to see them, and a brief that infers "no open
+    deals" from their absence states a fact it was refused. Silence about a
+    withheld subject is the correct answer, not a gap. Also score whether
+    every sentence cites an id the summary supplied.

@@ -59,15 +59,37 @@ type PurposeChoice struct {
 	Locked bool
 }
 
+// preferenceTokenTTLDays is how long one preference link stays honoured
+// after the message that carried it (0144). Generous where its sibling
+// doiTokenTTL is short, because the two credentials answer opposite
+// questions: an unclicked confirmation is a refusal, while an unsubscribe
+// link a recipient reaches for weeks later must still work. The send path
+// slides it forward on every message, so anyone still receiving mail always
+// holds a live link.
+const preferenceTokenTTLDays = 30
+
+// preferenceTokenMaxAgeDays is the ceiling the slide cannot raise: past it
+// the send path retires the token and mints a fresh one, so a leaked copy is
+// bounded even for a recipient who receives mail forever. Without it the
+// slide alone would leave exactly the population at risk — an active bulk-mail
+// subscriber — holding one permanent credential, which is the defect 0144
+// exists to end. The residue is honest and bounded: a token retired at the
+// ceiling is revoked immediately, but one whose recipient stops receiving
+// mail just before it simply ages out, so the worst case is this ceiling plus
+// one TTL.
+const preferenceTokenMaxAgeDays = 180
+
 // ResolvePreferenceToken answers the token→tenant lookup the public
 // middleware binds the workspace from. preference_token is deliberately
-// outside RLS (it IS the resolver — 0048); an unknown or revoked token
-// reads as absent.
+// outside RLS (it IS the resolver — 0048); an unknown, revoked or expired
+// token reads as absent, all three identically, so the surface never becomes
+// an oracle for which of the three it was.
 func (s *Store) ResolvePreferenceToken(ctx context.Context, token string) (PreferenceRef, error) {
 	var ref PreferenceRef
 	err := database.WithInfraTx(ctx, s.pool, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx,
-			`SELECT workspace_id, person_id FROM preference_token WHERE token = $1 AND revoked_at IS NULL`,
+		err := tx.QueryRow(ctx, `
+			SELECT workspace_id, person_id FROM preference_token
+			 WHERE token = $1 AND revoked_at IS NULL AND expires_at > now()`,
 			token).Scan(&ref.WorkspaceID, &ref.PersonID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
@@ -84,7 +106,8 @@ func (s *Store) ResolvePreferenceToken(ctx context.Context, token string) (Prefe
 // preference token, minting one lazily on first use, so the send path can
 // build the List-Unsubscribe URL. An address no person carries yields no
 // token (found=false): the send would fail the consent gate anyway, so
-// nothing is disclosed. RLS scopes the email lookup to the workspace.
+// nothing is disclosed. RLS scopes the email lookup to the workspace, and
+// the row-scope probe below scopes it to the caller.
 func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (token string, found bool, err error) {
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return "", false, err
@@ -104,6 +127,30 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 		if lookup != nil {
 			return lookup
 		}
+		// The token this mints is a bearer credential over the recipient's
+		// consent record — it reads their per-purpose state, withdraws, and
+		// grants, all with no session. So the mint carries the SAME row-scope
+		// probe the sibling read applies (PublicPurposeStates): the object
+		// grant above says the caller may read people, this says they may read
+		// THIS one. Without it a row_scope=own seat obtains durable authority
+		// over a person who 404s to them on every authenticated surface.
+		//
+		// A row-scope miss refuses the send (404, existence-hiding) rather
+		// than falling through to found=false: that branch means "this address
+		// carries no unsubscribe surface", and answering it here would
+		// transmit marketing mail with no working List-Unsubscribe URL —
+		// trading a credential leak for an RFC 8058 violation.
+		//
+		// The STRICT twin, because this mint creates a capability rather than
+		// answering a read. Statements in a read-committed transaction each
+		// take a fresh snapshot, so an Art. 17 erasure committing between the
+		// lookup above and this probe would leave the plain EnsureVisible
+		// answering "yes, still yours" for the tombstone — its own doc names
+		// that case — and this path would then mint a NEW public credential
+		// for the subject whose old one the erasure just deleted.
+		if err := auth.EnsureVisibleLive(ctx, tx, "person", personID.UUID); err != nil {
+			return err
+		}
 		found = true
 		token, err = ensurePreferenceTokenTx(ctx, tx, personID)
 		return err
@@ -114,20 +161,44 @@ func (s *Store) PreferenceTokenForEmail(ctx context.Context, email string) (toke
 	return token, found, nil
 }
 
-// ensurePreferenceTokenTx returns the person's live token, minting one if
-// none exists. The partial unique index guarantees at most one live token
-// per person; a concurrent minter that wins the INSERT is read back rather
-// than duplicated.
+// ensurePreferenceTokenTx returns the token this message's unsubscribe link
+// will carry: the person's existing one when it is still honourable, a fresh
+// one when it is not. The partial unique index guarantees at most one live
+// token per person; a concurrent minter that wins the INSERT is read back
+// rather than duplicated.
+//
+// "Honourable" is the SAME test the public resolver applies, plus the age
+// ceiling, and the refresh is folded into it: the UPDATE returns a token only
+// when it matched, so a token past either bound cannot be handed back by
+// accident — it falls through to rotation. Reuse is deliberate (the
+// preference centre is revisitable, and one message's link must keep working
+// after the next one goes out); what 0144 ends is reuse without a bound.
 func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (string, error) {
 	var token string
 	err := tx.QueryRow(ctx, `
-		SELECT token FROM preference_token
-		WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-		  AND person_id = $1 AND revoked_at IS NULL`, personID).Scan(&token)
+		UPDATE preference_token
+		   SET expires_at = now() + make_interval(days => $2)
+		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND person_id = $1 AND revoked_at IS NULL
+		   AND expires_at > now()
+		   AND created_at > now() - make_interval(days => $3)
+		RETURNING token`, personID, preferenceTokenTTLDays, preferenceTokenMaxAgeDays).Scan(&token)
 	if err == nil {
 		return token, nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	// Nothing honourable left. Retire whatever still holds this person's slot
+	// in the partial unique index before minting — the INSERT would otherwise
+	// collide with an expired-but-unrevoked row, and a token the resolver has
+	// stopped honouring must stop existing rather than linger as a row that
+	// only looks live. This rotation is the production writer revoked_at was
+	// declared for in 0048 and never had.
+	if _, err := tx.Exec(ctx, `
+		UPDATE preference_token SET revoked_at = now()
+		 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+		   AND person_id = $1 AND revoked_at IS NULL`, personID); err != nil {
 		return "", err
 	}
 	fresh, err := newPreferenceToken()
@@ -135,16 +206,22 @@ func ensurePreferenceTokenTx(ctx context.Context, tx pgx.Tx, personID ids.Person
 		return "", err
 	}
 	err = tx.QueryRow(ctx, `
-		INSERT INTO preference_token (workspace_id, person_id, token)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2)
+		INSERT INTO preference_token (workspace_id, person_id, token, expires_at)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2,
+		        now() + make_interval(days => $3))
 		ON CONFLICT (workspace_id, person_id) WHERE revoked_at IS NULL DO NOTHING
-		RETURNING token`, personID, fresh).Scan(&token)
+		RETURNING token`, personID, fresh, preferenceTokenTTLDays).Scan(&token)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// A concurrent send minted it first — read the winner.
-		return token, tx.QueryRow(ctx, `
+		// A concurrent send won the INSERT — read the winner. Scanned into
+		// token and returned only after, so the caller receives the winning
+		// value rather than the zero one this scan is about to overwrite.
+		if err := tx.QueryRow(ctx, `
 			SELECT token FROM preference_token
-			WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
-			  AND person_id = $1 AND revoked_at IS NULL`, personID).Scan(&token)
+			 WHERE workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
+			   AND person_id = $1 AND revoked_at IS NULL`, personID).Scan(&token); err != nil {
+			return "", err
+		}
+		return token, nil
 	}
 	return token, err
 }
