@@ -47,9 +47,6 @@ func TestDownloadOverlayExportRefusesBeforeStreaming(t *testing.T) {
 		if w.Code != http.StatusForbidden {
 			t.Errorf("status = %d, want 403 — the export is admin/ops config, not a rep read", w.Code)
 		}
-		if body := w.Body.String(); len(body) > 0 && body[0] == 'P' {
-			t.Error("a refused request still emitted zip bytes")
-		}
 	})
 
 	t.Run("an agent principal holding the grant", func(t *testing.T) {

@@ -161,8 +161,12 @@ func TestFlipAddressOnlyBuildsAnAddressThatSaysSomething(t *testing.T) {
 		"postal_code": {full.PostalCode, "60311"},
 		"country":     {full.Country, "DE"},
 	} {
-		if pair.got == nil || *pair.got != pair.want {
-			t.Errorf("%s = %v, want %q", field, pair.got, pair.want)
+		got := "<nil>"
+		if pair.got != nil {
+			got = *pair.got
+		}
+		if got != pair.want {
+			t.Errorf("%s = %q, want %q — a transposed key ships the wrong value into every flipped row", field, got, pair.want)
 		}
 	}
 

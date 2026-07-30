@@ -48,7 +48,6 @@ package integration
 // for upstream reconciliation instead.
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -626,9 +625,12 @@ func TestOverlayExportDownload(t *testing.T) {
 			t.Errorf("bundle has no %s — an overlay-mode export must carry the mirror snapshot", member)
 		}
 	}
-	// The mirror member carries the seeded estate, not just a header.
-	if rows := bytes.Count(entries["overlay_mirror.csv"], []byte("\n")); rows < 8 {
-		t.Errorf("overlay_mirror.csv has %d line(s), want a header plus the 8 seeded rows", rows)
+	// The mirror member carries the whole seeded estate, not just a
+	// header — counted through the CSV reader, since a newline inside a
+	// quoted `fields` cell would inflate a line count and mask a
+	// dropped row.
+	if got := len(csvColumn(t, entries["overlay_mirror.csv"], "external_id")); got != 8 {
+		t.Errorf("overlay_mirror.csv has %d rows, want the 8 seeded mirror records", got)
 	}
 
 	// Exactly one audit row, and it satisfies the preflight's gate.
