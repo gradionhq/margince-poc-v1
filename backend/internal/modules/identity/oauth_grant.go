@@ -15,6 +15,8 @@ package identity
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -116,6 +118,10 @@ func oauthPassportLabel(clientID string) string { return "oauth:" + clientID }
 // by detection rather than by a human.
 const reuseRevokeReason = "refresh token reuse detected"
 
+// passportRevokedReason is what the audit row says when a human killed the
+// credential and the connection went with it, rather than the other way round.
+const passportRevokedReason = "the passport issued under the grant was revoked"
+
 // The LOCK ORDER for a connection's rows, obeyed by every path that touches
 // more than one of them: oauth_grant first, then oauth_refresh_token, then
 // passport. Rotation and revokeGrantTx both take them in that order, so a
@@ -124,6 +130,16 @@ const reuseRevokeReason = "refresh token reuse detected"
 // every concurrent presentation *and any racing revoke*, and a deadlock —
 // Postgres aborting one side with a 500 — is not serialization. A new path
 // that takes a refresh row before its grant re-opens exactly that hole.
+
+// lockGrant takes that connection-level lock: the FIRST lock any such path
+// acquires. It reads no columns on purpose — a grant's state is read
+// authoritatively after this, under the lock. pgx.ErrNoRows passes through so
+// each caller answers an absent grant in its own vocabulary.
+func lockGrant(ctx context.Context, tx pgx.Tx, grantID ids.UUID) error {
+	var locked ids.UUID
+	return tx.QueryRow(ctx,
+		`SELECT id FROM oauth_grant WHERE id = $1 FOR UPDATE`, grantID).Scan(&locked)
+}
 
 // revokeGrantTx ends a whole connection inside the caller's transaction: the
 // consent, every refresh token that could renew it, and every passport it
@@ -136,21 +152,37 @@ const reuseRevokeReason = "refresh token reuse detected"
 // whose action this was, and storekit refuses an unattributed write rather
 // than record an anonymous revocation.
 //
-// Idempotent — an already-revoked grant is a no-op, so a second revoke
-// arriving from another direction neither double-audits nor re-emits.
+// Idempotent — the revocation of an already-revoked grant is audited once and
+// re-emits nothing, because every write below is conditional on the row it
+// touches still being live.
 func (s *Service) revokeGrantTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID, reason string) error {
 	// Grant row FIRST, then the refresh rows, then the passports — the lock
 	// order stated above, which rotation also takes, so the two paths queue
-	// instead of deadlocking. The conditional UPDATE is at the same time the
-	// serialization point for a caller that does not already hold this lock:
-	// two simultaneous revokes cannot both see the grant live.
+	// instead of deadlocking. Taking it EXPLICITLY, rather than letting the
+	// conditional UPDATE below take it as a side effect, is what lets every
+	// caller inherit the order simply by entering here: the UPDATE locks
+	// nothing on a grant that is already revoked, and this function still
+	// walks the rows beneath it in that case.
+	if err := lockGrant(ctx, tx, grantID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			// The FK from passport (and from oauth_refresh_token) to oauth_grant
+			// is RESTRICT precisely so a live credential cannot outlive the
+			// consent record that authorized it. An absent grant with rows to
+			// revoke beneath it is therefore a broken invariant, not a caller
+			// mistake, and must not read as "revoked successfully".
+			return fmt.Errorf("identity: cannot revoke grant %s: the grant row is absent", grantID)
+		}
+		return err
+	}
+	// The conditional UPDATE is the serialization point for the AUDIT: two
+	// simultaneous revokes queue on the lock above and only the first sees the
+	// grant live, so one revocation is recorded once. The row walks below are
+	// idempotent on their own row state, so a second revoke arriving from
+	// another direction re-checks them and finds nothing left to do.
 	tag, err := tx.Exec(ctx,
 		`UPDATE oauth_grant SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, grantID)
 	if err != nil {
 		return err
-	}
-	if tag.RowsAffected() == 0 {
-		return nil
 	}
 	// A refresh row has no revoked_at of its own: consumed_at IS the spend
 	// marker, and a token whose grant is dead is refused on the liveness
@@ -163,6 +195,9 @@ func (s *Service) revokeGrantTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID
 	}
 	if err := revokeGrantPassportsTx(ctx, tx, grantID); err != nil {
 		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil // already revoked: the rows beneath it were re-checked, the fact is on record
 	}
 	// The reason is evidence ABOUT the revocation, not a field of the grant,
 	// so it rides evidence rather than the after image. The closed catalog
@@ -208,12 +243,7 @@ func revokeGrantPassportsTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID) er
 	// The audit + event rows are written after the walk, not inside it: the
 	// connection is busy while rows are being read.
 	for _, passportID := range revoked {
-		auditID, err := storekit.Audit(ctx, tx, "archive", "passport", passportID.UUID, nil, nil)
-		if err != nil {
-			return err
-		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, passportID.UUID,
-			passportRevokedPayload(passportID, by)); err != nil {
+		if err := auditPassportRevoked(ctx, tx, passportID, by); err != nil {
 			return err
 		}
 	}

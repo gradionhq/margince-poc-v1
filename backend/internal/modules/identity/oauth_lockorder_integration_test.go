@@ -15,6 +15,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 
@@ -118,32 +119,119 @@ func TestARevokeRacingARotationNeverDeadlocksOrLeavesACredentialLive(t *testing.
 		// Whatever the order, a revoked connection holds no live credential:
 		// if the rotation won, the cascade caught the passport and the
 		// successor it had just minted.
-		e.assertNothingLiveUnder(t, fixture.grantID, attempt)
+		e.assertNothingLiveUnder(t, fixture.grantID, fmt.Sprintf("attempt %d", attempt))
 	}
+}
+
+// The human's own kill switch is the second path into the cascade, and it
+// reaches it with a passport id rather than a grant id — so it is the path that
+// could take a passport lock before the grant's and invert the order. It races
+// the same way, and it must also refuse to become a no-op: a rotation that
+// replaces the named credential a moment earlier must not leave the connection
+// serving calls under the successor.
+func TestAPassportRevokeRacingARotationNeverDeadlocksOrSparesTheConnection(t *testing.T) {
+	e := setupRevocationEnv(t, "passport-revoke-lock-order")
+
+	const attempts = 12
+	for attempt := range attempts {
+		fixture := e.connectOAuth(t)
+		passportID := e.mintUnderGrant(t, fixture.grantID)
+
+		var (
+			wg          sync.WaitGroup
+			rotateErr   error
+			revokeErr   error
+			rotationCtx = e.wsCtx(e.admin)
+			revokeCtx   = e.wsCtx(e.admin)
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			_, _, rotateErr = e.svc.rotateRefreshToken(rotationCtx, refreshRequest{
+				Token: fixture.refresh, ClientID: fixture.clientID,
+			})
+		}()
+		go func() {
+			defer wg.Done()
+			revokeErr = e.svc.RevokePassport(revokeCtx, e.admin, passportID)
+		}()
+		wg.Wait()
+
+		if rotateErr != nil && !errors.Is(rotateErr, errRefreshRejected) {
+			t.Fatalf("attempt %d: rotation failed on the interleaving, not on the rule: %v", attempt, rotateErr)
+		}
+		if revokeErr != nil {
+			t.Fatalf("attempt %d: revoking the passport failed on the interleaving: %v", attempt, revokeErr)
+		}
+		// Whichever won, the human's revoke is the last word: nothing under the
+		// grant is usable, including a passport the rotation minted in between.
+		e.assertNothingLiveUnder(t, fixture.grantID, fmt.Sprintf("attempt %d", attempt))
+	}
+}
+
+// The same property the race above can only sample, proven deterministically:
+// the human aims at the passport their Settings screen listed, a rotation
+// replaced it in the meantime, and the connection must still die. Treating the
+// already-dead row as "nothing left to do" is what leaves the connector working
+// after a human deliberately cut it off — the successor credential is live and
+// the grant beneath it is untouched.
+func TestRevokingAPassportARotationAlreadyReplacedStillEndsTheConnection(t *testing.T) {
+	e := setupRevocationEnv(t, "passport-revoke-after-rotation")
+	fixture := e.connectOAuth(t)
+	replaced := e.mintUnderGrant(t, fixture.grantID)
+
+	if _, _, err := e.svc.rotateRefreshToken(e.wsCtx(e.admin), refreshRequest{
+		Token: fixture.refresh, ClientID: fixture.clientID,
+	}); err != nil {
+		t.Fatalf("rotating the connection: %v", err)
+	}
+
+	if err := e.svc.RevokePassport(e.wsCtx(e.admin), e.admin, replaced); err != nil {
+		t.Fatalf("revoking the replaced passport: %v", err)
+	}
+	e.assertNothingLiveUnder(t, fixture.grantID, "after revoking a replaced passport")
+}
+
+// mintUnderGrant issues the credential a code exchange would have minted
+// beneath the grant, so the cases above have a passport to revoke.
+func (e *revocationEnv) mintUnderGrant(t *testing.T, grantID ids.UUID) ids.PassportID {
+	t.Helper()
+	ctx := e.wsCtx(e.admin)
+	var issued IssuedPassport
+	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
+		label := oauthPassportLabel("lock order")
+		var err error
+		issued, err = mintPassport(ctx, tx, e.admin,
+			IssuePassportInput{Label: &label, Scopes: []string{"read"}}, &grantID)
+		return err
+	}); err != nil {
+		t.Fatalf("minting the passport under the grant: %v", err)
+	}
+	return issued.ID
 }
 
 // assertNothingLiveUnder is the end state a revoked connection must always
 // reach: the grant dead, no spendable refresh token, no usable passport.
-func (e *revocationEnv) assertNothingLiveUnder(t *testing.T, grantID ids.UUID, attempt int) {
+func (e *revocationEnv) assertNothingLiveUnder(t *testing.T, grantID ids.UUID, when string) {
 	t.Helper()
 	ctx := context.Background()
 	var revoked bool
 	if err := e.owner.QueryRow(ctx,
 		`SELECT revoked_at IS NOT NULL FROM oauth_grant WHERE id = $1`, grantID).Scan(&revoked); err != nil {
-		t.Fatalf("attempt %d: reading the grant: %v", attempt, err)
+		t.Fatalf("%s: reading the grant: %v", when, err)
 	}
 	if !revoked {
-		t.Fatalf("attempt %d: the grant survived its own revocation", attempt)
+		t.Fatalf("%s: the grant survived its own revocation", when)
 	}
 	var spendable, usable int
 	if err := e.owner.QueryRow(ctx, `
 		SELECT (SELECT count(*) FROM oauth_refresh_token WHERE grant_id = $1 AND consumed_at IS NULL),
 		       (SELECT count(*) FROM passport WHERE oauth_grant_id = $1 AND revoked_at IS NULL)`,
 		grantID).Scan(&spendable, &usable); err != nil {
-		t.Fatalf("attempt %d: reading the credentials under the grant: %v", attempt, err)
+		t.Fatalf("%s: reading the credentials under the grant: %v", when, err)
 	}
 	if spendable != 0 || usable != 0 {
-		t.Fatalf("attempt %d: revoked connection left %d spendable refresh token(s) and %d usable passport(s)",
-			attempt, spendable, usable)
+		t.Fatalf("%s: revoked connection left %d spendable refresh token(s) and %d usable passport(s)",
+			when, spendable, usable)
 	}
 }

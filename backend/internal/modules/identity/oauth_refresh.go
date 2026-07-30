@@ -109,7 +109,13 @@ func (s *Service) rotateRefreshToken(ctx context.Context, in refreshRequest) (Is
 		if err != nil {
 			return err
 		}
+		// The connection-level lock (oauth_grant.go), always before the refresh
+		// row below. A grant that vanished between the two reads leaves nothing
+		// to renew, which is a refusal like any other.
 		if err := lockGrant(ctx, tx, grantID); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return errRefreshRejected
+			}
 			return err
 		}
 		locked, err := lockPresentedRefreshToken(ctx, tx, tokenHash)
@@ -173,20 +179,6 @@ func grantOfPresentedToken(ctx context.Context, tx pgx.Tx, tokenHash string) (id
 		return ids.Nil, err
 	}
 	return grantID, nil
-}
-
-// lockGrant takes the connection-level lock, always before any refresh row.
-// It reads no columns on purpose: the authoritative read of the grant's state
-// is the joined SELECT that follows, under this lock. A grant that vanished
-// between the two reads leaves nothing to renew.
-func lockGrant(ctx context.Context, tx pgx.Tx, grantID ids.UUID) error {
-	var locked ids.UUID
-	err := tx.QueryRow(ctx,
-		`SELECT id FROM oauth_grant WHERE id = $1 FOR UPDATE`, grantID).Scan(&locked)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return errRefreshRejected
-	}
-	return err
 }
 
 // lockPresentedRefreshToken is the authoritative read: the presented token,
