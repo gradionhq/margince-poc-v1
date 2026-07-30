@@ -13,8 +13,10 @@ package imagenorm
 import (
 	"bytes"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"image"
+	"io"
 	"strings"
 
 	"github.com/srwiley/oksvg"
@@ -32,11 +34,12 @@ const svgRasterEdge = 512
 // are the only honest answer. The scan walks XML tokens rather than searching
 // for "<svg" as text, so an XML comment or a stray mention in a JSON blob
 // cannot pass for a document.
+//
+// It reads only as far as the first element, so its cost is set by where that
+// element sits and not by the document's size — a byte cap here would only
+// misreport a large vector as an undecodable raster.
 func looksLikeSVG(src []byte) bool {
-	// A vector document is small; anything past this is not one, and refusing
-	// to tokenize a megabyte of unknown bytes keeps the sniff cheap.
-	const sniffLimit = 1 << 20
-	if len(src) == 0 || len(src) > sniffLimit {
+	if len(src) == 0 {
 		return false
 	}
 	decoder := xml.NewDecoder(bytes.NewReader(src))
@@ -54,12 +57,21 @@ func looksLikeSVG(src []byte) bool {
 	}
 }
 
+// svgMaxElements bounds how much document the rasterizer is asked to draw. A
+// company's mark is tens of shapes; a file with tens of thousands is not a
+// logo, and refusing it keeps one hostile favicon from occupying a deep-read
+// worker for its whole timeout.
+const svgMaxElements = 20_000
+
 // rasterizeSVG draws a vector mark into pixels, fitting it inside an
 // svgRasterEdge square with its aspect preserved. A document oksvg cannot
 // parse — an exotic filter, a feature it owns no renderer for — is
 // ErrUnsupported like any other undecodable candidate, and the caller moves on
 // to the next one.
 func rasterizeSVG(src []byte) (image.Image, error) {
+	if err := refuseUnsafeSVG(src); err != nil {
+		return nil, err
+	}
 	icon, err := oksvg.ReadIconStream(bytes.NewReader(src), oksvg.WarnErrorMode)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnsupported, err)
@@ -87,4 +99,40 @@ func rasterizeSVG(src []byte) (image.Image, error) {
 	scanner := rasterx.NewScannerGV(target.Dx(), target.Dy(), canvas, target)
 	icon.Draw(rasterx.NewDasher(target.Dx(), target.Dy(), scanner), 1)
 	return canvas, nil
+}
+
+// refuseUnsafeSVG rejects the documents the renderer cannot be trusted with,
+// BEFORE it sees them.
+//
+// The renderer expands <use> by re-dispatching the referenced element through
+// the same handler table, with no depth limit and no self-reference check: the
+// 130 bytes
+//
+//	<defs><g id="a"><use href="#a"/></g></defs><use href="#a"/>
+//
+// exhaust the goroutine stack, and a stack overflow in Go is a FATAL error —
+// no recover, no job-timeout, the process dies. Nesting <use> instead of
+// recursing gets the same worker stuck exponentially. So <use> is refused
+// outright rather than analysed: a company's mark is flat shapes, references
+// buy a favicon nothing, and a rule with no graph to reason about has no
+// subtle case to get wrong. A refused document is simply an unusable
+// candidate — the chain moves on and the record keeps its monogram.
+func refuseUnsafeSVG(src []byte) error {
+	decoder := xml.NewDecoder(bytes.NewReader(src))
+	decoder.Strict = false
+	for elements := 0; ; elements++ {
+		token, err := decoder.Token()
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("%w: the SVG is not readable as XML: %w", ErrUnsupported, err)
+		}
+		if elements > svgMaxElements {
+			return fmt.Errorf("%w: the SVG carries more than %d elements", ErrUnsupported, svgMaxElements)
+		}
+		if start, ok := token.(xml.StartElement); ok && strings.EqualFold(start.Name.Local, "use") {
+			return fmt.Errorf("%w: the SVG references other elements with <use>", ErrUnsupported)
+		}
+	}
 }

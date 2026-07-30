@@ -34,26 +34,31 @@ const logoFieldName = "logo"
 // SetOrganizationLogo records a resolved company mark: the storage key its
 // normalized bytes live at, and the asset URL it came from. It reports whether
 // the row was written — false means a human's own logo holds the field, which
-// is a normal outcome and not an error.
+// is a normal outcome and not an error — and hands back the key the row named
+// BEFORE this write, so the caller can reclaim bytes nothing references any
+// more.
 //
-// The bytes must already be stored: this store is blob-free (the same division
-// the offer PDF's asset ref keeps), so a caller writes the object first and the
-// reference second. That order also means a crash between the two leaves an
-// unreferenced object at a key derived from the organization id — the next
-// resolve overwrites it, and erasure deletes it, because both derive the key
-// rather than reading it back.
-func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, objectKey, originURL string) (bool, error) {
+// The bytes must already be stored: this store is blob-free, the same division
+// the offer PDF's asset ref keeps, so a caller writes the object first and the
+// reference second.
+//
+// The key a caller passes must be unique to its own attempt, and the returned
+// one is how the superseded object gets collected. A key derived from the
+// organization alone would make two concurrent resolves write the SAME object:
+// each would overwrite the other's bytes while the row recorded whichever
+// transaction committed last, leaving the stored image and the origin URL
+// describing different pictures.
+func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, objectKey, originURL string) (written bool, supersededKey *string, err error) {
 	if err := auth.Require(ctx, "organization", principal.ActionUpdate); err != nil {
-		return false, err
+		return false, nil, err
 	}
 	if objectKey == "" || originURL == "" {
-		return false, errors.New("people: a resolved logo needs both its storage key and the URL it was resolved from")
+		return false, nil, errors.New("people: a resolved logo needs both its storage key and the URL it was resolved from")
 	}
 	by, err := storekit.CapturedBy(ctx)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	written := false
 	err = s.tx(ctx, func(tx pgx.Tx) error {
 		// The target is a KNOWN row, so row-scope is re-checked here: a leaked
 		// organization id buys nothing (existence-hiding 404).
@@ -66,8 +71,13 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 		// precedence rule would hold on every run except the one where it
 		// matters. Any writer of this organization takes the same lock, so the
 		// two serialize instead of racing.
-		if err := lockOrganization(ctx, tx, id); err != nil {
-			return err
+		var locked ids.UUID
+		err := tx.QueryRow(ctx, `SELECT id FROM organization WHERE id = $1 FOR UPDATE`, id).Scan(&locked)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return apperrors.ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("lock organization for the logo write: %w", err)
 		}
 		held, err := logoHeldByHuman(ctx, tx, id)
 		if err != nil {
@@ -76,44 +86,70 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 		if held {
 			return nil
 		}
-		tag, err := tx.Exec(ctx, `
+		// RETURNING the pre-write key: this transaction holds the row lock, so
+		// it is the one place that can hand back the object its own write
+		// supersedes. Reading it separately afterwards would name whatever the
+		// NEXT resolve had since put there.
+		var previous *string
+		err = tx.QueryRow(ctx, `
 			UPDATE organization SET logo_object_key = $2, logo_origin = $3
-			WHERE id = $1 AND archived_at IS NULL`,
-			id, objectKey, originURL)
-		if err != nil {
-			return fmt.Errorf("set organization logo: %w", err)
-		}
-		if tag.RowsAffected() == 0 {
+			WHERE id = $1 AND archived_at IS NULL
+			RETURNING (SELECT o.logo_object_key FROM organization o WHERE o.id = $1)`,
+			id, objectKey, originURL).Scan(&previous)
+		if errors.Is(err, pgx.ErrNoRows) {
 			// Visible above but not updatable here: the row was archived
 			// between the two statements. Nothing to record.
 			return apperrors.ErrNotFound
 		}
-		written = true
-		if err := storekit.StampFields(ctx, tx, "organization", id.UUID, companySourceSiteRead, by,
-			[]storekit.FieldStamp{{Field: logoFieldName, EvidenceRef: &originURL}}); err != nil {
-			return err
-		}
-		auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, nil, map[string]any{
-			auditKeySource: companySourceSiteRead, auditKeySourceURL: originURL,
-			auditKeyFields: map[string]any{logoFieldName: originURL},
-		})
 		if err != nil {
-			return fmt.Errorf("audit organization logo: %w", err)
+			return fmt.Errorf("set organization logo: %w", err)
 		}
-		if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationUpdated{
-			ChangedFields: map[string]any{
-				eventKeyDelta:  map[string]any{auditKeyFields: map[string]any{logoFieldName: originURL}},
-				auditKeySource: companySourceSiteRead, auditKeySourceURL: originURL,
-			},
-		}); err != nil {
-			return fmt.Errorf("emit organization.updated: %w", err)
-		}
-		return nil
+		written = true
+		supersededKey = supersededObject(previous, objectKey)
+		return recordLogoWrite(ctx, tx, id, originURL, by)
 	})
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
-	return written, nil
+	return written, supersededKey, nil
+}
+
+// supersededObject names the object this write orphaned, or nil when it
+// orphaned none — the organization had no logo, or the caller re-recorded the
+// key already on the row.
+func supersededObject(previous *string, objectKey string) *string {
+	if previous == nil || *previous == "" || *previous == objectKey {
+		return nil
+	}
+	return previous
+}
+
+// recordLogoWrite completes the logo write's shape: the field's provenance,
+// the audit row, and the organization.updated event that links both into the
+// trace. It runs inside the caller's transaction, so the mark and the record
+// of who set it commit together or not at all.
+func recordLogoWrite(ctx context.Context, tx pgx.Tx, id ids.OrganizationID, originURL, by string) error {
+	if err := storekit.StampFields(ctx, tx, "organization", id.UUID, companySourceSiteRead, by,
+		[]storekit.FieldStamp{{Field: logoFieldName, EvidenceRef: &originURL}}); err != nil {
+		return err
+	}
+	delta := map[string]any{logoFieldName: originURL}
+	auditID, err := storekit.Audit(ctx, tx, "update", "organization", id.UUID, nil, map[string]any{
+		auditKeySource: companySourceSiteRead, auditKeySourceURL: originURL,
+		auditKeyFields: delta,
+	})
+	if err != nil {
+		return fmt.Errorf("audit organization logo: %w", err)
+	}
+	if err := storekit.EmitEvent(ctx, tx, auditID, id.UUID, crmcontracts.PublicEventOrganizationUpdated{
+		ChangedFields: map[string]any{
+			eventKeyDelta:  map[string]any{auditKeyFields: delta},
+			auditKeySource: companySourceSiteRead, auditKeySourceURL: originURL,
+		},
+	}); err != nil {
+		return fmt.Errorf("emit organization.updated: %w", err)
+	}
+	return nil
 }
 
 // LogoHeldByHuman answers whether a person set this organization's logo, for a
@@ -138,19 +174,6 @@ func (s *Store) LogoHeldByHuman(ctx context.Context, id ids.OrganizationID) (boo
 		return err
 	})
 	return held, err
-}
-
-// lockOrganization takes the row lock every logo write serializes on.
-func lockOrganization(ctx context.Context, tx pgx.Tx, id ids.OrganizationID) error {
-	var locked ids.UUID
-	err := tx.QueryRow(ctx, `SELECT id FROM organization WHERE id = $1 FOR UPDATE`, id).Scan(&locked)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return apperrors.ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("lock organization: %w", err)
-	}
-	return nil
 }
 
 // logoHeldByHuman reports whether a person set this organization's logo. It

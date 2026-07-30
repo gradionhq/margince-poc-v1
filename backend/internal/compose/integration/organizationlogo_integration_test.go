@@ -57,11 +57,11 @@ func seedLoggedOrg(ctx context.Context, t *testing.T, e *Env, blob blobstore.Sto
 		t.Fatalf("seed org: %v", err)
 	}
 	orgID := ids.From[ids.OrganizationKind](ids.UUID(org.Id))
-	key := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](e.WS), "organization_logo", orgID.String())
+	key := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](e.WS), "organization_logo", orgID.String()+"/"+ids.NewV7().String())
 	if err := blob.Put(ctx, key, bytes.NewReader(logo), int64(len(logo)), imagenorm.ContentType); err != nil {
 		t.Fatalf("store the logo bytes: %v", err)
 	}
-	written, err := e.People.SetOrganizationLogo(ctx, orgID, key, "https://voltaq.test/touch.png")
+	written, _, err := e.People.SetOrganizationLogo(ctx, orgID, key, "https://voltaq.test/touch.png")
 	if err != nil {
 		t.Fatalf("SetOrganizationLogo: %v", err)
 	}

@@ -48,15 +48,23 @@ const (
 	// is a banner or a hero shot, which says nothing about the company at
 	// avatar size.
 	logoMaxAspect = 2.5
-	// logoMaxCandidates bounds how many assets one resolve will ask a site
-	// for. The chain is fetched serially and the deep-read queue is two
-	// workers wide, so a page declaring a thousand icon links would otherwise
-	// let one site hold a worker until its deadline. A site that has not shown
-	// its mark in the first few declarations is not hiding it in the
-	// thousandth, and everything past the bound is reported as dropped rather
-	// than silently ignored.
+	// logoMaxCandidates bounds how many assets one resolve will ask for. The
+	// chain is fetched serially and the deep-read queue is two workers wide, so
+	// a page declaring a thousand icon links would otherwise let one site hold
+	// a worker until its deadline. A site that has not shown its mark in the
+	// first few declarations is not hiding it in the thousandth, and everything
+	// past the bound is reported as dropped rather than silently ignored.
+	//
+	// With webread's per-asset cap this is also the lane's whole egress bound:
+	// at most eight fetches of 2 MiB. That spend is NOT counted against the
+	// crawl's own byte budget — the budget governs pages read, and this is the
+	// one declared asset per company that the read exists to find.
 	logoMaxCandidates = 8
 )
+
+// organizationLogoKind is the blobstore key's entity discriminator, the peer
+// of "attachment" (blobstore.WorkspaceKey).
+const organizationLogoKind = "organization_logo"
 
 // Outcomes the resolve records per candidate. They are the quality signal the
 // `worker siteread` report prints: WHY the obvious logo was passed over is the
@@ -64,8 +72,18 @@ const (
 const (
 	logoOutcomeChosen   = "chosen"
 	logoOutcomeFallback = "wide, kept only as a fallback"
-	logoOutcomeSkipped  = "skipped, a squarer candidate was already chosen"
+	logoOutcomeSkipped  = "also wide, and an earlier wide candidate is already the fallback"
 )
+
+// organizationLogoKey mints the key for ONE resolve attempt. It is
+// per-attempt, not per-organization, so two resolves of the same company can
+// never write the same object — an overwrite there would leave the stored
+// image and the row's recorded origin describing different pictures, and would
+// also write straight over a logo a person uploaded. The organization id stays
+// in the key so an object is still traceable to the record it belongs to.
+func organizationLogoKey(wsID ids.WorkspaceID, orgID ids.OrganizationID) string {
+	return blobstore.WorkspaceKey(wsID, organizationLogoKind, orgID.String()+"/"+ids.NewV7().String())
+}
 
 // declaredAssets is the visual identity one page declared in its <head>. The
 // crawl carries the seed page's set forward so the resolve reads it instead of
@@ -114,9 +132,6 @@ func resolveOrganizationLogo(ctx context.Context, fetch assetFetcher, seedURL st
 	attempts := make([]logoAttempt, 0, len(candidates)+1)
 	var fallback resolvedLogo
 	for _, candidate := range candidates {
-		if fallback.PNG != nil && candidate == fallback.SourceURL {
-			continue
-		}
 		logo, aspect, drop := fetchLogoCandidate(ctx, fetch, candidate)
 		switch {
 		case drop != "":
@@ -178,6 +193,21 @@ func fetchLogoCandidate(ctx context.Context, fetch assetFetcher, rawURL string) 
 // logoCandidates builds the ordered, deduplicated candidate chain from what
 // the seed page declared plus the well-known favicon path every site answers
 // whether it declares one or not.
+//
+// A candidate may live on ANOTHER host, and that is a deliberate departure
+// from the crawl's off-domain rule (sitecrawlwave.go, which refuses to follow
+// page content off the seed's site). It is a departure because a mark
+// routinely is CDN-hosted — afs.de serves its logo from CloudFront, stripe.com
+// from its asset host — and refusing those would leave exactly the companies
+// with the most deliberate branding wearing a monogram.
+//
+// What makes the departure narrow rather than an open relay: the fetch is a
+// GET of BYTES that are only ever decoded as an image, never read as content
+// and never followed; the target host's own robots.txt still governs it; the
+// SSRF dialer still refuses non-public addresses; and the chain is bounded to
+// logoMaxCandidates fetches of maxAssetBytes each, so one read's whole asset
+// egress is bounded whatever a page declares. Every candidate tried, off-host
+// ones included, is named in the report.
 func logoCandidates(seedURL string, declared declaredAssets) (candidates []string, dropped int) {
 	ordered := make([]string, 0, len(declared.icons)+2)
 	if declared.ogImage != "" {
@@ -262,10 +292,14 @@ func wellKnownFaviconURL(seedURL string) (string, bool) {
 // read. Every outcome is logged instead, and a company with no resolved logo
 // renders its deterministic monogram, which is a clean face rather than a gap.
 //
-// Bytes first, row second: a failure between the two leaves an unreferenced
-// object at a key derived from the organization id, which the next resolve
-// overwrites. The other order would point a row at bytes that are not there,
-// which is the one outcome a user would see.
+// Bytes first, row second: the other order would point a row at bytes that are
+// not there, which is the one outcome a user would see. Each attempt writes its
+// OWN key and the row write hands back the one it superseded, so the stored
+// image and the recorded origin always describe the same picture even when two
+// resolves of one company overlap — and a person's uploaded logo, which lives
+// at a key of its own, is never written over at all. What that costs is an
+// unreferenced object when a crash lands between the two steps; the reclaim
+// below collects the ordinary case.
 func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadArgs, claim people.SiteReadClaim, crawl siteCrawl) {
 	if w.blob == nil || claim.OrganizationID == nil {
 		// No object store to hold the bytes, or an unbound onboarding draft
@@ -273,12 +307,10 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 	orgID := ids.From[ids.OrganizationKind](*claim.OrganizationID)
-	// Ask BEFORE resolving anything. The stored object lives at a key derived
-	// from the organization id, so writing bytes is what actually replaces a
-	// person's own logo — the row guard alone would decline to change the row
-	// while the bytes underneath it had already been overwritten, which is the
-	// one outcome the precedence rule exists to prevent. Asking first also
-	// spares a fetch and a normalize nobody would use.
+	// Ask before resolving anything: a field a person holds is not going to be
+	// written, so fetching and normalizing a mark for it is work nobody uses.
+	// The write applies the rule again under the row lock — this is the cheap
+	// path, never the authority.
 	held, err := w.people.LogoHeldByHuman(ctx, orgID)
 	if err != nil {
 		w.log.WarnContext(ctx, "reading the organization's logo provenance failed",
@@ -299,23 +331,28 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 
-	key := blobstore.WorkspaceKey(ids.From[ids.WorkspaceKind](args.WorkspaceID), organizationLogoKind, orgID.String())
+	key := organizationLogoKey(ids.From[ids.WorkspaceKind](args.WorkspaceID), orgID)
 	if err := w.blob.Put(ctx, key, bytes.NewReader(logo.PNG), int64(len(logo.PNG)), imagenorm.ContentType); err != nil {
 		w.log.WarnContext(ctx, "storing the resolved logo failed",
 			"read", args.SiteReadID.String(), "source", logo.SourceURL, "err", err)
 		return
 	}
-	written, err := w.people.SetOrganizationLogo(ctx, orgID, key, logo.SourceURL)
+	written, superseded, err := w.people.SetOrganizationLogo(ctx, orgID, key, logo.SourceURL)
 	if err != nil {
+		// The bytes are stored and nothing references them. Reclaim what this
+		// attempt wrote rather than leaving it to accumulate.
+		w.reclaimLogoObject(ctx, args.SiteReadID, &key)
 		w.log.WarnContext(ctx, "recording the resolved logo failed",
 			"read", args.SiteReadID.String(), "source", logo.SourceURL, "err", err)
 		return
 	}
 	if !written {
+		w.reclaimLogoObject(ctx, args.SiteReadID, &key)
 		w.log.InfoContext(ctx, "resolved logo left unused: a person's own logo holds the field",
 			"read", args.SiteReadID.String(), "source", logo.SourceURL)
 		return
 	}
+	w.reclaimLogoObject(ctx, args.SiteReadID, superseded)
 	w.log.InfoContext(ctx, "site read resolved the organization logo",
 		"read", args.SiteReadID.String(), "source", logo.SourceURL,
 		"source_size", fmt.Sprintf("%dx%d", logo.SourceWidth, logo.SourceHeight),
@@ -336,11 +373,19 @@ func debugLogo(logo resolvedLogo, attempts []logoAttempt) DebugLogo {
 	return out
 }
 
-// organizationLogoKind is the blobstore key's entity discriminator, the peer
-// of "attachment" (blobstore.WorkspaceKey). One key per organization: a
-// re-resolve overwrites the previous mark rather than accumulating variants,
-// so there is never an orphan to collect.
-const organizationLogoKind = "organization_logo"
+// reclaimLogoObject deletes an object nothing references any more: the mark a
+// successful write superseded, or this attempt's own bytes when the write did
+// not happen. Best-effort like the rest of the lane — a failure here costs
+// storage, never correctness, so it is logged and the read carries on.
+func (w *siteDeepReadWorker) reclaimLogoObject(ctx context.Context, readID ids.UUID, key *string) {
+	if key == nil || *key == "" {
+		return
+	}
+	if err := w.blob.Delete(ctx, *key); err != nil {
+		w.log.WarnContext(ctx, "reclaiming a superseded logo object failed",
+			"read", readID.String(), "key", *key, "err", err)
+	}
+}
 
 // logoAttemptSummary renders the attempts as one log-friendly line, so a
 // resolve that produced no logo says which candidates it considered and why

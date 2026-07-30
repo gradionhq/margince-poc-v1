@@ -301,3 +301,38 @@ func TestICOFrameSelectionTakesTheLargestAndRefusesOneOutsideTheFile(t *testing.
 		}
 	}
 }
+
+func TestDecodeRefusesTheSVGShapesThatWouldTakeTheProcessDown(t *testing.T) {
+	// These are not hypothetical inputs. The renderer expands <use> through its
+	// own handler table with no depth limit, so a self-reference exhausts the
+	// goroutine stack — and a Go stack overflow is FATAL: no recover, no job
+	// timeout, the worker process dies. A crawl reaches /favicon.ico on every
+	// domain it reads, so these bytes are reachable from anyone who can get a
+	// domain read. Each must come back as an ordinary unusable candidate.
+	cases := map[string]string{
+		"a self-referencing use exhausts the stack": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">` +
+			`<defs><g id="a"><use href="#a"/></g></defs><use href="#a"/></svg>`,
+		"mutually-referencing uses do the same": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">` +
+			`<defs><g id="a"><use href="#b"/></g><g id="b"><use href="#a"/></g></defs><use href="#a"/></svg>`,
+		"nested uses expand exponentially instead": `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">` +
+			`<defs><g id="l0"><rect width="1" height="1"/></g>` +
+			`<g id="l1"><use href="#l0"/><use href="#l0"/></g>` +
+			`<g id="l2"><use href="#l1"/><use href="#l1"/></g></defs><use href="#l2"/></svg>`,
+	}
+	for name, svg := range cases {
+		t.Run(name, func(t *testing.T) {
+			// A failure here does not fail this test — it kills the test binary.
+			// That is exactly the production consequence being guarded against.
+			if _, err := Decode([]byte(svg)); !errors.Is(err, ErrUnsupported) {
+				t.Fatalf("the document must be refused before the renderer sees it, got %v", err)
+			}
+		})
+	}
+
+	// The guard must not cost the ordinary case: a flat mark still rasterizes.
+	flat := []byte(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">` +
+		`<circle cx="5" cy="5" r="5" fill="#ff6b00"/></svg>`)
+	if _, err := Decode(flat); err != nil {
+		t.Fatalf("a flat vector mark must still rasterize: %v", err)
+	}
+}
