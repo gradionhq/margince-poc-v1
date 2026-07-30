@@ -125,7 +125,7 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]row, storekit.Page,
 	if in.Limit <= 0 || in.Limit > inboxBatch {
 		in.Limit = 50
 	}
-	start, err := decodeStart(in.Cursor)
+	start, err := startOf(in.Cursor)
 	if err != nil {
 		return nil, storekit.Page{}, err
 	}
@@ -155,19 +155,32 @@ type keysetStart struct {
 // after is the resume point that follows one row.
 func after(a row) *keysetStart { return &keysetStart{createdAt: a.CreatedAt, id: a.ID} }
 
-// decodeStart reads the caller's page token. The token is client input, so one
-// that does not decode is a client fault: it travels as storekit's
-// MalformedCursorError and the transport answers the same 422 every other list
-// endpoint answers a bad cursor with.
-func decodeStart(token string) (*keysetStart, error) {
+// startOf is where this read begins: the caller's token, or the newest row
+// when they sent none.
+func startOf(token string) (*keysetStart, error) {
 	if token == "" {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no token is not a resume point: the scan starts at the newest row, which is what a nil start means throughout this file
 	}
-	c, err := storekit.DecodeCursor(token)
+	start, err := decodeStart(token)
 	if err != nil {
 		return nil, err
 	}
-	return &keysetStart{createdAt: c.CreatedAt, id: ids.From[ids.ApprovalKind](c.ID)}, nil
+	return &start, nil
+}
+
+// decodeStart reads ONE page token, which the caller has already established
+// is present — an absent token is not a resume point to decode, it is the
+// newest row, and the caller expresses that by not calling this.
+//
+// The token is client input, so one that does not decode is a client fault: it
+// travels as storekit's MalformedCursorError and the transport answers the same
+// 422 every other list endpoint answers a bad cursor with.
+func decodeStart(token string) (keysetStart, error) {
+	c, err := storekit.DecodeCursor(token)
+	if err != nil {
+		return keysetStart{}, err
+	}
+	return keysetStart{createdAt: c.CreatedAt, id: ids.From[ids.ApprovalKind](c.ID)}, nil
 }
 
 // scanInbox walks the whole table newest-first and filters each keyset batch

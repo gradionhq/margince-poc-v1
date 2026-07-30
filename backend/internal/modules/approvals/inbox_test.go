@@ -102,7 +102,7 @@ func newApprovalTable(count int) approvalTable {
 // display limit by capPage.
 func (all approvalTable) page(t *testing.T, in ListInput) ([]row, storekit.Page) {
 	t.Helper()
-	from, err := decodeStart(in.Cursor)
+	from, err := startOf(in.Cursor)
 	if err != nil {
 		t.Fatalf("the cursor a previous page handed back does not decode: %v", err)
 	}
@@ -184,7 +184,7 @@ func TestAShortPageReportsNoMoreAndNoCursor(t *testing.T) {
 // the transport turns into the same 422 every other list answers with — never
 // a panic and never a 500.
 func TestAMalformedCursorIsAClientFault(t *testing.T) {
-	from, err := decodeStart("not-a-page-token!!")
+	from, err := startOf("not-a-page-token!!")
 	if from != nil {
 		t.Errorf("a malformed cursor decoded to %+v", from)
 	}
