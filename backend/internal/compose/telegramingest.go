@@ -24,6 +24,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
+	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -37,16 +38,21 @@ import (
 // Postgres write path to provoke one.
 type telegramIngestWorker struct {
 	river.WorkerDefaults[TelegramIngestArgs]
-	pool *pgxpool.Pool
-	sink connector.Sink
-	log  *slog.Logger
+	pool   *pgxpool.Pool
+	sink   connector.Sink
+	people *people.Store
+	log    *slog.Logger
 }
 
 // newTelegramIngestWorker builds the worker over the SAME fully-guarded Sink
 // every other capture connector shares (newCaptureSink) — Telegram is one
-// more source into the one chokepoint, not a second one.
+// more source into the one chokepoint, not a second one. people is the SAME
+// module the Sink's channel ensurer resolves through (compose/capture.go's
+// peopleEnsurer) — composed here directly rather than through an interface
+// seam because this IS the composition layer people.Store already reaches
+// into for that ensurer.
 func newTelegramIngestWorker(pool *pgxpool.Pool, cfg CaptureConfig, log *slog.Logger) *telegramIngestWorker {
-	return &telegramIngestWorker{pool: pool, sink: newCaptureSink(pool, cfg), log: log}
+	return &telegramIngestWorker{pool: pool, sink: newCaptureSink(pool, cfg), people: people.NewStore(pool), log: log}
 }
 
 // Work re-establishes the workspace context from job.Args (never inherited
@@ -94,11 +100,24 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: building the normalize envelope: %w", err)
 	}
+
+	// A my_chat_member update is not a message (design §4.2 D9): classify it
+	// BEFORE Normalize ever runs, so it can never take the message path or
+	// mint an activity. Every other update kind falls through unchanged.
+	membership, isMembership, err := telegram.ParseMembership(raw)
+	if err != nil {
+		return fmt.Errorf("telegram_ingest: parsing membership: %w", err)
+	}
+	if isMembership {
+		return w.applyMembership(wsCtx, membership)
+	}
+
 	records, err := telegram.Normalize(ctx, raw)
 	if err != nil {
 		if errors.Is(err, connector.ErrSkip) {
-			// A deliberate exclusion (my_chat_member, any update kind this
-			// pass does not capture as a message) — counted, never a fault.
+			// A deliberate exclusion — an update kind neither the membership
+			// classification above nor Normalize itself parses as a message
+			// (an edited_message, say) — counted, never a fault.
 			return nil
 		}
 		return fmt.Errorf("telegram_ingest: normalizing: %w", err)
@@ -119,6 +138,42 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		if _, err := w.sink.Upsert(actorCtx, rec); err != nil {
 			return fmt.Errorf("telegram_ingest: capturing update %s: %w", rec.NaturalKey.SourceID, err)
 		}
+	}
+	return nil
+}
+
+// applyMembership carries out the reachability change a my_chat_member
+// update reports (design §4.2 D9): kicked sets blocked_at, member clears it.
+// Every other status a chat_member update can name — left, restricted,
+// administrator, creator — is a real value of the SAME Telegram field on a
+// GROUP chat's update; a private bot chat never sends the latter three, and
+// "left" changes nothing this system tracks (there is no reachability edge
+// crossed, and no prior message means no row to touch either way). None of
+// them are silently absorbed: an update this worker does not classify as
+// kicked/member is logged so a status Telegram adds later is visible instead
+// of quietly falling through.
+//
+// wsCtx already carries the workspace this job's args resolved — the same
+// context Work built the read transaction from — so SetChannelIdentityBlocked
+// runs under the SAME tenant, in its own transaction: there is no invariant
+// tying this write to the earlier read, unlike a captured record's atomic
+// write shape.
+func (w *telegramIngestWorker) applyMembership(wsCtx context.Context, m telegram.Membership) error {
+	var blocked bool
+	switch m.Status {
+	case telegram.StatusKicked:
+		blocked = true
+	case telegram.StatusMember:
+		blocked = false
+	default:
+		w.log.Warn("telegram_ingest: unhandled my_chat_member status", "status", m.Status)
+		return nil
+	}
+	err := database.WithWorkspaceTx(wsCtx, w.pool, func(tx pgx.Tx) error {
+		return w.people.SetChannelIdentityBlocked(wsCtx, tx, m.Identity, blocked)
+	})
+	if err != nil {
+		return fmt.Errorf("telegram_ingest: applying membership status %q: %w", m.Status, err)
 	}
 	return nil
 }

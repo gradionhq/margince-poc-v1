@@ -76,3 +76,40 @@ func ResolveOrCreateChannelIdentity(ctx context.Context, tx pgx.Tx, personID ids
 	}
 	return winner, nil
 }
+
+// SetChannelIdentityBlocked applies a my_chat_member reachability change
+// (design §4.2 D9): a block sets blocked_at, an unblock clears it. It NEVER
+// touches archived_at — archiving is the same trap this file's package
+// comment warns against for the bind path: the dedupe lane and the unique
+// index both read archived_at IS NULL, so archiving on block would fork a
+// returning customer into a second Person the moment their next message
+// misses the lane.
+//
+// The WHERE clause guards on the identity's CURRENT blocked state rather
+// than issuing an unconditional SET, which is what makes this idempotent:
+// Telegram redelivers my_chat_member, and a repeat delivery must touch zero
+// rows — not move blocked_at's timestamp forward, and not re-fire the
+// updated_at/version trigger for a state that did not change.
+//
+// A my_chat_member naming an identity nobody has bound yet (blocked before
+// ever messaging the bot) matches no row. That is not a fault: there is no
+// reachability state yet to correct.
+func (s *Store) SetChannelIdentityBlocked(ctx context.Context, tx pgx.Tx, ci connector.ChannelIdentity, blocked bool) error {
+	if ci.Provider == "" || ci.ChannelUserID == "" {
+		return errors.New("people: a channel identity needs both a provider and a channel user id")
+	}
+	query := `
+		UPDATE person_channel_identity SET blocked_at = now()
+		WHERE provider = $1 AND channel_user_id = $2
+		  AND archived_at IS NULL AND blocked_at IS NULL`
+	if !blocked {
+		query = `
+			UPDATE person_channel_identity SET blocked_at = NULL
+			WHERE provider = $1 AND channel_user_id = $2
+			  AND archived_at IS NULL AND blocked_at IS NOT NULL`
+	}
+	if _, err := tx.Exec(ctx, query, ci.Provider, ci.ChannelUserID); err != nil {
+		return fmt.Errorf("people: setting channel identity blocked=%t: %w", blocked, err)
+	}
+	return nil
+}

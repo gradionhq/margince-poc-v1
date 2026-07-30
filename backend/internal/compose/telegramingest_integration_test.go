@@ -70,6 +70,21 @@ const telegramIngestUpdateJSON = `{
 	}
 }`
 
+// telegramIngestKickedJSON is a my_chat_member update reporting that sender
+// 556 blocked the bot — the design §4.2 D9 reachability signal, never a
+// message.
+const telegramIngestKickedJSON = `{
+	"update_id": 200,
+	"my_chat_member": {
+		"chat": {"id": 1002},
+		"date": 1690000200,
+		"new_chat_member": {
+			"user": {"id": 556, "username": "blockeduser"},
+			"status": "kicked"
+		}
+	}
+}`
+
 // The job queue is not a request: ctx carries no ambient workspace, so the
 // worker must build its tenant context ENTIRELY from job.Args — a worker
 // that instead inherited (or defaulted) would either fail outright under
@@ -143,5 +158,54 @@ func TestIngestWorkerTreatsAUniqueViolationAsRetryable(t *testing.T) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "uq_person_channel_identity" {
 		t.Errorf("got %v, want the original constraint name preserved", err)
+	}
+}
+
+// TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity is the wiring
+// proof design §4.2 D9 depends on: a my_chat_member update reaches the SAME
+// worker path a message does, yet it must never produce an activity, and it
+// must land as the reachability change it actually is.
+func TestIngestWorkerAppliesMembershipWithoutCapturingAnActivity(t *testing.T) {
+	e := integration.Setup(t)
+	connID, _ := telegramIngestFixture(t, e)
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// A prior message already bound sender 556 to a person — the
+	// my_chat_member update below reports THAT account blocking the bot.
+	person := e.SeedPerson(t, "Blocks The Bot", nil)
+	e.WsExec(t, `
+		INSERT INTO person_channel_identity
+		  (workspace_id, person_id, provider, channel_user_id, username, source, captured_by)
+		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+		        $1, 'telegram', '556', 'blockeduser', 'telegram', 'connector:telegram')`,
+		person)
+
+	rawID := ids.NewV7()
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO raw_capture (id, workspace_id, source_system, source_id, payload)
+			VALUES ($1, $2, 'telegram', '200', $3)`,
+			rawID, e.WS, []byte(telegramIngestKickedJSON))
+		return err
+	}); err != nil {
+		t.Fatalf("seeding the raw membership update: %v", err)
+	}
+
+	worker := newTelegramIngestWorker(e.Pool, CaptureConfig{}, quiet)
+	err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+	})
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+
+	if n := e.WsCount(t, `SELECT count(*) FROM activity WHERE workspace_id = $1 AND source_system = 'telegram'`, e.WS); n != 0 {
+		t.Errorf("%d activity rows after a my_chat_member update, want 0 — it is a reachability signal, never a message", n)
+	}
+	if n := e.WsCount(t, `
+		SELECT count(*) FROM person_channel_identity
+		 WHERE channel_user_id = '556' AND archived_at IS NULL AND blocked_at IS NOT NULL`); n != 1 {
+		t.Errorf("%d channel identity rows carry blocked_at after a kicked status, want 1", n)
 	}
 }

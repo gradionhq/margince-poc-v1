@@ -89,9 +89,11 @@ type ingestEnvelope struct {
 }
 
 // Normalize maps one raw envelope (connector.go's BuildRawEnvelope) to the
-// activity record it captures. A my_chat_member (or any other non-message)
-// update is a deliberate exclusion — ErrSkip, never an error — because
-// Task 11 owns that signal and this pass has nothing to do with it yet.
+// activity record it captures. The ingest worker classifies a my_chat_member
+// update via ParseMembership and handles it directly (design §4.2 D9) before
+// Normalize ever sees it, so a nil Message reaching here means an update kind
+// neither function parses (an edited_message, say) — a deliberate exclusion,
+// ErrSkip, never an error.
 func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.NormalizedRecord, error) {
 	var env ingestEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
