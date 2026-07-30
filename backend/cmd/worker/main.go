@@ -303,6 +303,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		TimeScanInterval:  cfg.timeScanInterval,
 		GmailRegistry:     captureReg,
 		GmailWatch:        watchCfg,
+		// The Telegram ingest worker builds its Sink from this — the same
+		// suppression-list config every other capture path shares.
+		CaptureConfig: cfg.captureConfig,
 		// The classify + enrich passes run only where a model is
 		// configured; without one both are absent by omission.
 		ClassifyBrain:        modelPath.CaptureClassify,

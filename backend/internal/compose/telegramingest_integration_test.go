@@ -1,0 +1,147 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package compose
+
+// telegramIngestWorker over real migrated Postgres: the worker's own
+// contract is transactional (re-establishing tenant context from job args,
+// and never swallowing a Sink failure), neither of which a mock connection
+// can prove — a mock only proves the mock's own bookkeeping.
+
+import (
+	"context"
+	"errors"
+	"io"
+	"log/slog"
+	"testing"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/riverqueue/river"
+
+	"github.com/gradionhq/margince/backend/internal/compose/integration"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
+)
+
+// telegramIngestFixture seeds one connected channel_connection (bot "42")
+// and one raw_capture row holding a text message from chat 1001, message id
+// 7, sender 555 — the same numbers normalize_test.go's fixture uses, so a
+// captured activity's natural key is checkable against the identical
+// literal. Returns the ids the job args name.
+func telegramIngestFixture(t *testing.T, e *integration.Env) (connID, rawID ids.UUID) {
+	t.Helper()
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	connID, rawID = ids.NewV7(), ids.NewV7()
+	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO channel_connection
+				(id, workspace_id, provider, channel_id, channel_label, credential_ref, webhook_secret_ref, status, connected_by)
+			VALUES ($1, $2, 'telegram', '42', 'acme_bot', 'cred-ref', 'secret-ref', 'connected', $3)`,
+			connID, e.WS, e.Rep1); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `
+			INSERT INTO raw_capture (id, workspace_id, source_system, source_id, payload)
+			VALUES ($1, $2, 'telegram', '100', $3)`,
+			rawID, e.WS, []byte(telegramIngestUpdateJSON))
+		return err
+	})
+	if err != nil {
+		t.Fatalf("seeding the channel connection and raw capture: %v", err)
+	}
+	return connID, rawID
+}
+
+const telegramIngestUpdateJSON = `{
+	"update_id": 100,
+	"message": {
+		"message_id": 7,
+		"chat": {"id": 1001},
+		"from": {"id": 555, "username": "annlee", "first_name": "Ann", "last_name": "Lee"},
+		"date": 1690000000,
+		"text": "hello"
+	}
+}`
+
+// The job queue is not a request: ctx carries no ambient workspace, so the
+// worker must build its tenant context ENTIRELY from job.Args — a worker
+// that instead inherited (or defaulted) would either fail outright under
+// RLS or, worse, silently land the activity in the wrong tenant.
+func TestIngestWorkerReestablishesWorkspaceContextFromArgs(t *testing.T) {
+	e := integration.Setup(t)
+	connID, rawID := telegramIngestFixture(t, e)
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	worker := newTelegramIngestWorker(e.Pool, CaptureConfig{}, quiet)
+	// context.Background(): deliberately no principal.WithWorkspaceID here —
+	// proving the worker itself resolves the tenant from job.Args, not from
+	// whatever the caller happened to have bound.
+	err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+	})
+	if err != nil {
+		t.Fatalf("Work: %v", err)
+	}
+
+	// Read back under the SAME workspace the args named — if the worker had
+	// resolved the wrong tenant (or none), this activity would not be here.
+	ctx := principal.WithWorkspaceID(context.Background(), e.WS)
+	var sourceID string
+	err = database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx,
+			`SELECT source_id FROM activity WHERE workspace_id = $1 AND source_system = 'telegram'`, e.WS,
+		).Scan(&sourceID)
+	})
+	if err != nil {
+		t.Fatalf("reading back the captured activity: %v", err)
+	}
+	if sourceID != "42:1001:7" {
+		t.Errorf("activity.source_id = %q, want %q", sourceID, "42:1001:7")
+	}
+}
+
+// uniqueViolationSink is a connector.Sink stand-in whose Upsert always fails
+// with the exact SQLSTATE a real dedupe race would raise — proving the
+// worker's OWN contract (propagate, never swallow) without needing to
+// actually win a race against Postgres.
+type uniqueViolationSink struct{}
+
+func (uniqueViolationSink) Upsert(context.Context, connector.NormalizedRecord) (datasource.EntityRef, error) {
+	return datasource.EntityRef{}, &pgconn.PgError{Code: "23505", ConstraintName: "uq_person_channel_identity"}
+}
+
+// A unique violation during capture is retryable, never poison (design
+// §6.3): two concurrent first messages from one new sender both resolve to
+// no-match, and the partial unique index breaks the tie exactly as
+// uq_person_email_dedupe does for mail. The loser MUST redeliver so its lane
+// hits the winner — classifying it as poison (swallowing it, logging and
+// returning nil) would silently drop a customer's message.
+func TestIngestWorkerTreatsAUniqueViolationAsRetryable(t *testing.T) {
+	e := integration.Setup(t)
+	connID, rawID := telegramIngestFixture(t, e)
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	worker := &telegramIngestWorker{pool: e.Pool, sink: uniqueViolationSink{}, log: quiet}
+	err := worker.Work(context.Background(), &river.Job[TelegramIngestArgs]{
+		Args: TelegramIngestArgs{Workspace: e.WS.String(), ConnectionID: connID.String(), RawCaptureID: rawID.String()},
+	})
+	if err == nil {
+		t.Fatal("Work returned nil — a unique violation must propagate so River redelivers, not be swallowed")
+	}
+	if !storekit.IsUniqueViolation(err) {
+		t.Errorf("got %v, want an error still classifiable as a unique violation (the worker rewrapped rather than propagated it)", err)
+	}
+	// errors.Is confirms the SAME error rides the chain, not merely a
+	// same-shaped replacement the worker minted itself.
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) || pgErr.ConstraintName != "uq_person_channel_identity" {
+		t.Errorf("got %v, want the original constraint name preserved", err)
+	}
+}

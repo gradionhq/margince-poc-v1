@@ -5,10 +5,12 @@ package capture
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -47,4 +49,22 @@ func InsertRawCaptureTx(ctx context.Context, tx pgx.Tx, rec RawRecord) (ids.UUID
 		return ids.Nil, fmt.Errorf("capture: raw store: %w", err)
 	}
 	return id, nil
+}
+
+// GetRawCapturePayloadTx reads back one raw_capture row's verbatim payload —
+// the ingest worker's read half of InsertRawCaptureTx's write (design §6.3):
+// the webhook persists the update and enqueues a job naming this row's id in
+// one transaction, and the worker re-opens the row by that id once it runs.
+// Joins the caller's own transaction like InsertRawCaptureTx, so RLS resolves
+// under whatever workspace GUC the caller already set.
+func GetRawCapturePayloadTx(ctx context.Context, tx pgx.Tx, id ids.UUID) ([]byte, error) {
+	var payload []byte
+	err := tx.QueryRow(ctx, `SELECT payload FROM raw_capture WHERE id = $1`, id).Scan(&payload)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("capture: raw capture %s: %w", id, apperrors.ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("capture: reading raw capture payload: %w", err)
+	}
+	return payload, nil
 }
