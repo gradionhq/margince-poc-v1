@@ -6289,7 +6289,7 @@ export interface components {
         Organization360Suggestion: {
             /**
              * @description `no_reply` — an outbound message on a thread nobody answered.
-             *     `stalled_deal` — an open deal past the pipeline's stall window.
+             *     `stalled_deal` — an open deal idle past the 60-day stall window.
              *     `no_next_step` — an active account with no open task on it.
              * @enum {string}
              */
