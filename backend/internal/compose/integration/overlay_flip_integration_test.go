@@ -25,6 +25,23 @@ package integration
 //   - the emergency cutover is refused while the incumbent is reachable,
 //     requires the export, and returns the disclosed-lossy staleness +
 //     unverifiable-parity notice when it runs (OVA-AC-6 b).
+//
+// Use-case derivations this lane discharges:
+//   - E2E-UC-E18-04.preflight-fail / .confirm-gate / .honest-skips —
+//     the blocker matrix, the typed-phrase gate, disclosed skips.
+//   - E2E-UC-E18-05.access-lapsed-before-flip and
+//     E2E-UC-J-05.access-lapsed — the ordering hazard: revoked before
+//     the flip → not-ready with incumbent_unreachable, workspace stays
+//     on its last mirror, zero native rows, the direct importer refused
+//     by the same constant, the emergency cutover offered only on the
+//     explicit mode + typed phrase and returning the disclosure.
+//   - E2E-UC-J-05.happy hand-offs 1→3 — connect → hydrate → flip with
+//     counts/relationships preserved and reads served native after.
+//
+// UC-E18-05 F2 (disconnecting an UN-flipped overlay workspace) and F3
+// (teardown partial-failure recovery) are named spec gaps — "do not
+// invent behavior in the test" — so no case here asserts them; raised
+// for upstream reconciliation instead.
 
 import (
 	"context"
@@ -61,6 +78,7 @@ type flipEstate struct {
 	adminID ids.UUID
 	mirror  *overlay.MirrorStore
 	pool    *pgxpool.Pool
+	fakeInc *fake.Adapter
 	// adminCtx is a fully-granted admin principal bound to the workspace
 	// — the direct-seam context (mirror seeding, export writer, and the
 	// RLS-scoped assertion reads).
@@ -85,7 +103,7 @@ func flipAdminPerms() principal.Permissions {
 		RoleKeys: []string{"admin"},
 		Objects: map[string]principal.ObjectGrant{
 			"person": crud, "organization": crud, "deal": crud, "lead": crud,
-			"activity": crud, "relationship": crud, "pipeline": {Read: true},
+			"activity": crud, "relationship": crud, "pipeline": crud,
 			"overlay_connection": crud, "import_run": crud, "audit": {Read: true},
 		},
 		RowScope: principal.RowScopeAll,
@@ -205,7 +223,7 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		t.Fatalf("recording sweep success: %v", err)
 	}
 
-	return flipEstate{e: e, wsID: wsID, adminID: adminID, mirror: mirror, pool: pool, adminCtx: adminCtx}
+	return flipEstate{e: e, wsID: wsID, adminID: adminID, mirror: mirror, pool: pool, fakeInc: fakeInc, adminCtx: adminCtx}
 }
 
 // writePreflipExport produces the bundle (and its audit row — the
