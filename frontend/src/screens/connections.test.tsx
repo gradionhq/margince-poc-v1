@@ -460,6 +460,13 @@ describe("connections layout", () => {
 describe("company logos on the diagram", () => {
   // A55: a logo is the upgrade, the node is the floor. A company node must
   // read as a node whether or not its image ever paints.
+  //
+  // The diagram lives in the expanded view — a rail card shows the list — so
+  // each case opens it first.
+  const openDiagram = async () => {
+    (await screen.findByRole("button", { name: "See it larger" })).click();
+    await screen.findByRole("dialog", { name: "Connections" });
+  };
   const withLogo = () =>
     graph({
       nodes: [
@@ -477,6 +484,7 @@ describe("company logos on the diagram", () => {
   it("draws the mark clipped into the node and takes the neutral backing", async () => {
     stub(withLogo());
     const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    await openDiagram();
     await waitFor(() =>
       expect(container.querySelector("image.cx-node-logo")).toBeTruthy(),
     );
@@ -498,6 +506,7 @@ describe("company logos on the diagram", () => {
   it("falls back to the node's own colour when the logo fails to load", async () => {
     stub(withLogo());
     const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    await openDiagram();
     const image = await waitFor(() => {
       const found = container.querySelector("image.cx-node-logo");
       expect(found).toBeTruthy();
