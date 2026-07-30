@@ -65,7 +65,7 @@ func seedSiteReadStagings(t *testing.T, svc *approvals.Service, e *Env) siteRead
 
 // listIDs is the id set one inbox read returned, which is how these tests
 // state "exactly these and nothing else" without depending on order.
-func listIDs(t *testing.T, svc *approvals.Service, ctx context.Context, in approvals.ListInput) map[ids.ApprovalID]bool {
+func listIDs(ctx context.Context, t *testing.T, svc *approvals.Service, in approvals.ListInput) map[ids.ApprovalID]bool {
 	t.Helper()
 	rows, _, err := svc.List(ctx, in)
 	if err != nil {
@@ -87,7 +87,7 @@ func TestApprovalListFilteredToOneTarget(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 	orgType := "organization"
 
-	got := listIDs(t, svc, rep, approvals.ListInput{TargetType: &orgType, TargetID: &f.org})
+	got := listIDs(rep, t, svc, approvals.ListInput{TargetType: &orgType, TargetID: &f.org})
 	for _, want := range append([]ids.ApprovalID{f.deepread}, f.siteLeads...) {
 		if !got[want] {
 			t.Errorf("approval %s is missing — it is staged against the filtered account", want)
@@ -103,7 +103,7 @@ func TestApprovalListFilteredToOneTarget(t *testing.T) {
 	// The kind sub-filter narrows within the target — the parameter the
 	// contract declared and the server ignored until it was threaded through.
 	kind := "site_lead"
-	got = listIDs(t, svc, rep, approvals.ListInput{TargetType: &orgType, TargetID: &f.org, Kind: &kind})
+	got = listIDs(rep, t, svc, approvals.ListInput{TargetType: &orgType, TargetID: &f.org, Kind: &kind})
 	if len(got) != len(f.siteLeads) {
 		t.Fatalf("kind-filtered read returned %d approvals, want the %d site leads", len(got), len(f.siteLeads))
 	}
@@ -114,13 +114,13 @@ func TestApprovalListFilteredToOneTarget(t *testing.T) {
 	// And the status sub-filter: nothing here is decided, so a decided read
 	// is empty while the pending read is full.
 	decided := "approved"
-	if got := listIDs(t, svc, rep, approvals.ListInput{
+	if got := listIDs(rep, t, svc, approvals.ListInput{
 		TargetType: &orgType, TargetID: &f.org, Status: &decided,
 	}); len(got) != 0 {
 		t.Errorf("status=approved returned %d approvals, want none — every staging is still pending", len(got))
 	}
 	pending := "pending"
-	if got := listIDs(t, svc, rep, approvals.ListInput{
+	if got := listIDs(rep, t, svc, approvals.ListInput{
 		TargetType: &orgType, TargetID: &f.org, Status: &pending,
 	}); len(got) != len(f.siteLeads)+1 {
 		t.Errorf("status=pending returned %d approvals, want the account's %d", len(got), len(f.siteLeads)+1)
@@ -136,7 +136,7 @@ func TestApprovalListKindFilterNarrowsTheWholeInbox(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 
 	kind := "site_lead"
-	got := listIDs(t, svc, rep, approvals.ListInput{Kind: &kind})
+	got := listIDs(rep, t, svc, approvals.ListInput{Kind: &kind})
 	if len(got) != len(f.siteLeads) {
 		t.Fatalf("kind-filtered inbox returned %d approvals, want the %d site leads", len(got), len(f.siteLeads))
 	}
@@ -176,7 +176,7 @@ func TestApprovalListFilteredToAnOutOfScopeTargetIsEmpty(t *testing.T) {
 	// The positive control: the owning team sees it, so the empty answer above
 	// is the row scope and not a broken filter.
 	owner := e.As(e.Rep3, []ids.UUID{e.Team2}, siteReadPerms)
-	if got := listIDs(t, svc, owner, approvals.ListInput{TargetType: &orgType, TargetID: &theirs}); !got[staged] {
+	if got := listIDs(owner, t, svc, approvals.ListInput{TargetType: &orgType, TargetID: &theirs}); !got[staged] {
 		t.Errorf("the owning team's read is missing %s", staged)
 	}
 }
@@ -201,7 +201,7 @@ func TestApprovalListFilteredStillPrunesUndecidableKinds(t *testing.T) {
 		},
 		RowScope: principal.RowScopeTeam,
 	})
-	got := listIDs(t, svc, noLeads, approvals.ListInput{TargetType: &orgType, TargetID: &f.org})
+	got := listIDs(noLeads, t, svc, approvals.ListInput{TargetType: &orgType, TargetID: &f.org})
 	if !got[f.deepread] {
 		t.Error("the deep read is missing for a caller who holds organization.update")
 	}
@@ -213,7 +213,7 @@ func TestApprovalListFilteredStillPrunesUndecidableKinds(t *testing.T) {
 
 	// Naming the kind explicitly does not unlock it.
 	kind := "site_lead"
-	if got := listIDs(t, svc, noLeads, approvals.ListInput{
+	if got := listIDs(noLeads, t, svc, approvals.ListInput{
 		TargetType: &orgType, TargetID: &f.org, Kind: &kind,
 	}); len(got) != 0 {
 		t.Errorf("asking for site_lead by name returned %d approvals to a caller with no lead grant", len(got))

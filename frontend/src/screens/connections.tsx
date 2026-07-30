@@ -259,7 +259,10 @@ function relationKey(edge: GraphEdge, nodeId: string): RelationKey | null {
  * NodeList renders one group of connections, each row reachable by keyboard
  * through EntityRef's own link and naming how it attaches to the account.
  */
-function NodeList({ nodes, graph }: Readonly<{ nodes: readonly GraphNode[]; graph: Graph }>) {
+function NodeList({
+  nodes,
+  graph,
+}: Readonly<{ nodes: readonly GraphNode[]; graph: Graph }>) {
   const t = useT();
   if (nodes.length === 0) {
     return <p className="co-empty">{t("co.connections.empty")}</p>;

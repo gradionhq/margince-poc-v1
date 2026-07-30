@@ -35,7 +35,7 @@ func TestEveryDeclaredFilterReachesTheQuery(t *testing.T) {
 
 	q, args := approvalPageQuery(ListInput{
 		Status: &status, Kind: &kind, TargetType: &targetType, TargetID: &targetID,
-	}, nil, nil, PendingScanCap)
+	}, nil, nil)
 
 	for _, want := range []string{"status = $1", "kind = $2", "target_entity_type = $3", "target_entity_id = $4"} {
 		if !strings.Contains(q, want) {
@@ -57,7 +57,7 @@ func TestEveryDeclaredFilterReachesTheQuery(t *testing.T) {
 // to number its own binds after the filters — a builder that numbered them
 // first would page one filtered inbox with another's arguments.
 func TestTheCursorBindsAfterTheFilters(t *testing.T) {
-	q, args := approvalPageQuery(ListInput{}, nil, nil, inboxBatch)
+	q, args := approvalPageQuery(ListInput{}, nil, nil)
 	if strings.Contains(q, "WHERE") {
 		t.Errorf("an unfiltered read carries a WHERE clause:\n%s", q)
 	}
@@ -67,7 +67,7 @@ func TestTheCursorBindsAfterTheFilters(t *testing.T) {
 
 	kind := "deepread"
 	after := row{ID: ids.From[ids.ApprovalKind](ids.NewV7())}
-	q, args = approvalPageQuery(ListInput{Kind: &kind}, &after.CreatedAt, &after.ID, inboxBatch)
+	q, args = approvalPageQuery(ListInput{Kind: &kind}, &after.CreatedAt, &after.ID)
 	if !strings.Contains(q, "(created_at, id) < ($2, $3)") {
 		t.Errorf("the cursor did not bind after the filter:\n%s", q)
 	}

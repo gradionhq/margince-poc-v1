@@ -152,7 +152,7 @@ func scanInbox(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInp
 	var afterCreated *time.Time
 	var afterID *ids.ApprovalID
 	for {
-		q, args := approvalPageQuery(in, afterCreated, afterID, inboxBatch)
+		q, args := approvalPageQuery(in, afterCreated, afterID)
 		batch, err := collect(ctx, tx, q, args)
 		if err != nil {
 			return nil, false, err
@@ -193,7 +193,7 @@ func listForTarget(ctx context.Context, tx pgx.Tx, p principal.Principal, in Lis
 	if !visible {
 		return []row{}, false, nil
 	}
-	q, args := approvalPageQuery(in, nil, nil, PendingScanCap)
+	q, args := approvalPageQuery(in, nil, nil)
 	batch, err := collect(ctx, tx, q, args)
 	if err != nil {
 		return nil, false, err
@@ -244,14 +244,18 @@ func approvalWhere(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalI
 	return " WHERE " + strings.Join(terms, " AND ")
 }
 
-// approvalPageQuery is one newest-first page of the scan under those filters,
-// bounded by the caller's scan window.
-func approvalPageQuery(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalID, scan int) (string, []any) {
+// approvalPageQuery is one newest-first page of the scan under those filters.
+//
+// Every reader scans the same window: the inbox pages through it until the
+// display limit is met, and a target-scoped read takes one window as its cap
+// (PendingScanCap). One bound, so the two can never drift into disagreeing
+// about how deep "we looked" goes.
+func approvalPageQuery(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalID) (string, []any) {
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	where := approvalWhere(in, afterCreated, afterID, arg)
 	return fmt.Sprintf(`SELECT %s FROM approval%s ORDER BY created_at DESC, id DESC LIMIT %d`,
-		columns, where, scan), args
+		columns, where, inboxBatch), args
 }
 
 // appendDecidable filters one scanned batch through a visibility probe and
@@ -341,7 +345,7 @@ func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType st
 	pending := statusPending
 	q, args := approvalPageQuery(ListInput{
 		Status: &pending, TargetType: &targetType, TargetID: &targetID,
-	}, nil, nil, PendingScanCap)
+	}, nil, nil)
 	batch, err := collect(ctx, tx, q, args)
 	if err != nil {
 		return nil, err

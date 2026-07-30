@@ -47,7 +47,7 @@ var decisionGrants = map[string][]struct {
 	// Sending an offer releases the draft→sent transition (B-E03.19) —
 	// an offer write; deciding it needs the same grant the send itself
 	// requires.
-	"send_offer": {{"offer", principal.ActionUpdate}},
+	"send_offer": {{targetOffer, principal.ActionUpdate}},
 	// Accepting a cold-start read-back writes enrichment fields onto an
 	// organization; "enrich" is the same effect staged through the
 	// transport gate by an agent caller.
@@ -139,6 +139,15 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 // An unrecognized type must fail closed there too: auth.VisibleTo errors on a
 // table it does not row-scope, so the switch below — not the caller — is what
 // keeps a made-up target_entity_type from reaching it.
+// The target types this package names in more than one place. They are the
+// `target_entity_type` vocabulary the staged rows carry, and each is spoken by
+// both the decision-grant map and the visibility probe — one spelling, so a
+// typo in either cannot silently make a kind undecidable.
+const (
+	targetOffer   = "offer"
+	targetProduct = "product"
+)
+
 func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
 	if targetType == nil && targetID == nil {
 		return true, nil
@@ -149,44 +158,10 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 	switch *targetType {
 	case "person", "organization", "deal", "lead":
 		return auth.VisibleTo(ctx, tx, *targetType, *targetID)
-	case "offer":
-		// An offer carries no owner_id — it is visible exactly when its
-		// DEAL is (the same anchoring the deals store applies), so the
-		// approval surface discloses nothing the record itself would not.
-		var dealID ids.UUID
-		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, *targetID).Scan(&dealID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return false, nil
-		}
-		if err != nil {
-			return false, err
-		}
-		return auth.VisibleTo(ctx, tx, "deal", dealID)
-	case "product":
-		// Rate-card products are workspace-shared config (no row scope) —
-		// the decision-grant check above is the authority question, but a
-		// staging against a product that does not exist is still not
-		// decidable: existence is the floor every target type shares.
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`,
-			*targetID).Scan(&exists); err != nil {
-			return false, err
-		}
-		return exists, nil
-	case "custom_field":
-		// The field catalog is workspace-shared admin config with no row
-		// scope (the product posture): the decision-grant check above is
-		// the authority question, existence is the floor. No archived_at
-		// predicate — retire is a status flip that keeps the row live, and
-		// a staged edit against a retired field stays decidable.
-		var exists bool
-		if err := tx.QueryRow(ctx,
-			`SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
-			*targetID).Scan(&exists); err != nil {
-			return false, err
-		}
-		return exists, nil
+	case targetOffer, "signal", "activity":
+		return targetVisibleThroughParent(ctx, tx, *targetType, *targetID)
+	case targetProduct, "custom_field":
+		return targetExists(ctx, tx, *targetType, *targetID)
 	case "fx_rate", "ai_model_rate":
 		// Effective-dated price sheets are workspace-shared admin config
 		// with no row scope. A refresh proposal targets the workspace (a
@@ -198,32 +173,58 @@ func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID 
 		// context's sheet, not the claimed one).
 		wsID, ok := principal.WorkspaceID(ctx)
 		return ok && *targetID == wsID, nil
-	case "signal":
-		// A signal has no owner_id — it is visible when its SUBJECT entity
-		// is (the same scope the signals store applies), so a staged
-		// archive discloses nothing the record itself would not.
-		err := auth.EnsureSignalVisible(ctx, tx, *targetID)
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, apperrors.ErrNotFound):
-			return false, nil
-		default:
-			return false, err
-		}
-	case "activity":
-		err := auth.EnsureActivityVisible(ctx, tx, *targetID)
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, apperrors.ErrNotFound):
-			return false, nil
-		default:
-			return false, err
-		}
 	default:
 		return false, nil // unknown target type: fail closed
 	}
+}
+
+// targetVisibleThroughParent answers for the target kinds that carry no
+// owner_id of their own and are visible exactly when the record they hang off
+// is — the same anchoring each one's own store applies, so a staged action
+// discloses nothing the record itself would not.
+func targetVisibleThroughParent(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
+	if targetType == targetOffer {
+		var dealID ids.UUID
+		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, targetID).Scan(&dealID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		return auth.VisibleTo(ctx, tx, "deal", dealID)
+	}
+	ensure := auth.EnsureSignalVisible
+	if targetType == "activity" {
+		ensure = auth.EnsureActivityVisible
+	}
+	switch err := ensure(ctx, tx, targetID); {
+	case err == nil:
+		return true, nil
+	case errors.Is(err, apperrors.ErrNotFound):
+		return false, nil
+	default:
+		return false, err
+	}
+}
+
+// targetExists is the floor for workspace-shared admin config that carries no
+// row scope at all: the decision-grant check is the authority question, but a
+// staging against a record that does not exist is still not decidable.
+//
+// A retired custom field is deliberately still a target — retire is a status
+// flip that keeps the row live, and a staged edit against a retired field
+// stays decidable — so only the product read excludes archived rows.
+func targetExists(ctx context.Context, tx pgx.Tx, targetType string, targetID ids.UUID) (bool, error) {
+	query := `SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`
+	if targetType == targetProduct {
+		query = `SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`
+	}
+	var exists bool
+	if err := tx.QueryRow(ctx, query, targetID).Scan(&exists); err != nil {
+		return false, err
+	}
+	return exists, nil
 }
 
 func requireDecisionGrants(p principal.Principal, a row) error {
