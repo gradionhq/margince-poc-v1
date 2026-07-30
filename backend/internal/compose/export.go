@@ -204,18 +204,7 @@ func (w *ExportWriter) WriteBundle(ctx context.Context, dst io.Writer) (BundleSu
 			collected = append(collected, data)
 			summary.RowCounts[m.table] = len(data.rows)
 		}
-		// The single export audit entry (features/04 §5: who exported
-		// what, when) — in the same transaction as the reads it
-		// describes; the flip preflight's export-recency check reads it.
-		wsID, ok := principal.WorkspaceID(ctx)
-		if !ok {
-			return errors.New("compose: no workspace bound to export context")
-		}
-		_, err := storekit.Audit(ctx, tx, "export", "workspace", wsID, nil, map[string]any{
-			auditFieldFormat: exportFormat, "row_counts": summary.RowCounts, "omitted": summary.Omitted,
-			"canonical_data_resides_in": incumbent,
-		})
-		return err
+		return nil
 	})
 	if err != nil {
 		return BundleSummary{}, err
@@ -225,7 +214,32 @@ func (w *ExportWriter) WriteBundle(ctx context.Context, dst io.Writer) (BundleSu
 	if err := writeZip(dst, actor, wsID, incumbent, collected, summary); err != nil {
 		return BundleSummary{}, err
 	}
+
+	// The single export audit entry (features/04 §5: who exported what,
+	// when) — written only once the bundle itself is complete. Ordering
+	// matters beyond bookkeeping: the flip preflight treats this row as
+	// proof a pre-flip bundle exists, so auditing before the write would
+	// let an aborted download satisfy the gate and leave the
+	// reconstruction promise resting on an artifact nobody holds.
+	if err := auditExport(ctx, w.pool, incumbent, summary); err != nil {
+		return BundleSummary{}, err
+	}
 	return summary, nil
+}
+
+// auditExport records the completed bundle.
+func auditExport(ctx context.Context, pool *pgxpool.Pool, incumbent string, summary BundleSummary) error {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("compose: no workspace bound to export context")
+	}
+	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := storekit.Audit(ctx, tx, "export", "workspace", wsID, nil, map[string]any{
+			auditFieldFormat: exportFormat, "row_counts": summary.RowCounts, "omitted": summary.Omitted,
+			"canonical_data_resides_in": incumbent,
+		})
+		return err
+	})
 }
 
 // readMember runs one member's scoped read: it derives the real

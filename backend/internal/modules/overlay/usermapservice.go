@@ -346,7 +346,7 @@ func foldConnectionGone(err error) error {
 // write-back path's writePathError).
 func foldMirrorFrozen(err error) error {
 	if errors.Is(err, ErrMirrorFrozen) {
-		return fmt.Errorf("the mirror is frozen for a pending overlay→native flip; complete the flip or re-run its preflight to release it: %w", apperrors.ErrConflict)
+		return fmt.Errorf("the mirror is frozen for the overlay→native flip; it is released when the flip completes, or when a preflight finds the workspace not ready: %w", apperrors.ErrConflict)
 	}
 	return err
 }

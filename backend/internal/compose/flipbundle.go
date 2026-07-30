@@ -198,6 +198,9 @@ func reconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	if err != nil {
 		return migration.Report{}, err
 	}
+	// unresolvedOwnerEmails, not nil: this path never resolves an owner
+	// email (owners come from the bundle's own map), and a fail-loud
+	// placeholder beats a nil-interface panic if that stops being true.
 	writers := newFlipWriters(pool, overlay.NewMirrorStore(pool, unresolvedOwnerEmails{}), contents.incumbent).
 		forRun(run.ID, operator).
 		WithOwnerMap(owners)

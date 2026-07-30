@@ -50,7 +50,7 @@ func flipOperator(ctx context.Context) (*ids.UserID, error) {
 func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
-		return nil, errors.New("compose: flip execute called outside a workspace context")
+		return nil, errors.New("compose: the flip claim was taken outside a workspace context")
 	}
 	conn, err := f.pool.Acquire(ctx)
 	if err != nil {
@@ -91,8 +91,8 @@ func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
 const flipAdvisoryLockNamespace int64 = 0x464C4950 // "FLIP"
 
 // flipLockKey is the workspace's advisory-lock key — the ONE spelling,
-// shared by the claim and by the liveness probe Disconnect consults, so
-// the two can never key on different values.
+// shared by the claim and by the liveness probe, so the two can never
+// key on different values.
 func flipLockKey(ws ids.UUID) int64 {
 	// Masked to 63 bits before the signed conversion: the key only has
 	// to be stable and collision-resistant per workspace, and wrapping
@@ -101,14 +101,24 @@ func flipLockKey(ws ids.UUID) int64 {
 	return int64(binary.BigEndian.Uint64(ws[:8])&math.MaxInt64) ^ flipAdvisoryLockNamespace
 }
 
-// FlipImportProbe is the Disconnect predicate: is a flip import in
-// flight for this workspace right now? Derived from the flip's own
-// advisory lock (see migration.FlipImportLiveness for why not the run
-// status).
+// FlipImportProbe is the Disconnect predicate: is a flip IMPORT in
+// flight for this workspace right now?
+//
+// Two conditions, and both are needed. The advisory lock alone would
+// also be held by a preflight — whose parity dry-run runs for minutes
+// on a large estate — and refusing the credential-revoke path for a
+// readiness check is the latch this probe exists to avoid. A `running`
+// run row alone is not enough either: a cancelled request leaves one
+// behind forever (its failure write rides the same dead context). Held
+// lock AND a running run is true only while an import is really moving.
 func FlipImportProbe(ctx context.Context, tx pgx.Tx) (bool, error) {
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
 		return false, errors.New("compose: flip liveness probed outside a workspace context")
 	}
-	return migration.FlipImportLiveness(ctx, tx, flipLockKey(ws))
+	held, err := migration.FlipImportLiveness(ctx, tx, flipLockKey(ws))
+	if err != nil || !held {
+		return false, err
+	}
+	return migration.MirrorRunInFlight(ctx, tx)
 }

@@ -28,10 +28,16 @@ import (
 
 // activityLinks resolves the activity's own edges to already-imported
 // native targets (activities import last, so every endpoint exists).
-// An edge whose target never landed (skipped row) is dropped WITH the
-// engine's knowledge via Associate's disclosure path — here it simply
-// doesn't become a link.
-func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLinkInput {
+//
+// Resolution goes through lookup, NOT the in-memory cache: a resumed run
+// skips whole already-processed classes without re-reading them, so the
+// cache holds nothing for the endpoints an earlier attempt landed — and
+// reading it alone would silently strip every link on the resume path.
+// The engine-owned identity map remembers them across attempts.
+//
+// A target that genuinely never landed (a disclosed skip) yields no link
+// and is reported by Associate, which sees the same unresolved edge.
+func (w *flipWriters) activityLinks(ctx context.Context, activityExt string) ([]activities.ActivityLinkInput, error) {
 	var links []activities.ActivityLinkInput
 	for _, a := range w.assocs {
 		if a.FromType != flipObjectActivity || a.FromID != activityExt {
@@ -39,12 +45,16 @@ func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLin
 		}
 		switch a.ToType {
 		case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
-			if id, ok := w.nativeIDs[w.cacheKey(a.ToType, a.ToID)]; ok {
+			id, found, err := w.lookup(ctx, a.ToType, a.ToID)
+			if err != nil {
+				return nil, err
+			}
+			if found {
 				links = append(links, activities.ActivityLinkInput{EntityType: a.ToType, EntityID: id})
 			}
 		}
 	}
-	return links
+	return links, nil
 }
 
 // Associate applies one estate edge after the row phase. Activity edges
@@ -55,7 +65,7 @@ func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLin
 // the run report discloses it rather than counting it as applied.
 func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
 	if a.FromType == flipObjectActivity || a.ToType == flipObjectActivity {
-		return migration.AssocResult{Applied: true}, nil // applied at LogActivity insert time
+		return w.activityEdgeResult(ctx, a)
 	}
 	fromID, fromOK, err := w.lookup(ctx, a.FromType, a.FromID)
 	if err != nil {
@@ -99,4 +109,21 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 	default:
 		return migration.AssocResult{Reason: "unmodelled_edge_shape"}, nil
 	}
+}
+
+// activityEdgeResult reports an activity edge, which LogActivity already
+// applied at insert time (links are write-once with the row). It is
+// "applied" only if the target actually landed — otherwise it carries
+// the same unresolved-endpoint reason every other edge shape gives,
+// rather than a blanket claim the run report would count as real.
+func (w *flipWriters) activityEdgeResult(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
+	if a.FromType != flipObjectActivity {
+		return migration.AssocResult{Applied: true}, nil
+	}
+	if _, found, err := w.lookup(ctx, a.ToType, a.ToID); err != nil {
+		return migration.AssocResult{}, err
+	} else if !found {
+		return migration.AssocResult{Reason: "endpoint_not_imported"}, nil
+	}
+	return migration.AssocResult{Applied: true}, nil
 }

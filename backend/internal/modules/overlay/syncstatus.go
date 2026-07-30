@@ -158,12 +158,20 @@ func (s *Service) SyncStatus(ctx context.Context) ([]ObjectSyncStatus, error) {
 		}
 		rows.Close()
 
+		// The freeze is workspace-level: one read fills every entry.
+		var frozen bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM overlay_sync_state WHERE mirror_frozen_at IS NOT NULL)`,
+		).Scan(&frozen); err != nil {
+			return fmt.Errorf("overlay: reading the flip freeze for sync status: %w", err)
+		}
 		for i := range out {
 			complete, err := s.backfillCompleteFor(ctx, tx, out[i].Object)
 			if err != nil {
 				return err
 			}
 			out[i].BackfillComplete = complete
+			out[i].FrozenForFlip = frozen
 		}
 		return nil
 	})

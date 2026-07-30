@@ -148,6 +148,44 @@ func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
 	}
 }
 
+func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
+	ctxA, pool := testWorkspaceCtx(t, adminImportRunGrant())
+	s := NewRunStore(pool)
+	run, err := s.Create(ctxA, CreateRunInput{Connector: ConnectorMirror, SourceRef: "snap-a", Source: "overlay:flip"})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	native := ids.NewV7()
+	if err := s.RecordIdentity(ctxA, run.ID, "hubspot", "person", "p-1", native); err != nil {
+		t.Fatalf("RecordIdentity: %v", err)
+	}
+	// A resumed run replays its last page: re-recording the same tuple
+	// converges instead of failing.
+	if err := s.RecordIdentity(ctxA, run.ID, "hubspot", "person", "p-1", native); err != nil {
+		t.Fatalf("re-recording the same identity: %v", err)
+	}
+	got, found, err := s.LookupIdentity(ctxA, "hubspot", "person", "p-1")
+	if err != nil || !found || got != native {
+		t.Fatalf("LookupIdentity = (%v, %v, %v), want the recorded native id", got, found, err)
+	}
+	// The identity is namespaced by source system and object: a
+	// same-id record of another class is a different row.
+	if _, found, err := s.LookupIdentity(ctxA, "hubspot", "deal", "p-1"); err != nil || found {
+		t.Fatalf("a same-id DEAL resolved to the person's identity (found=%v, err=%v)", found, err)
+	}
+
+	// Another workspace neither sees that identity nor may reference the
+	// run: the composite FK rejects a cross-workspace run at the
+	// database, not merely through RLS visibility.
+	ctxB, _ := testWorkspaceCtx(t, adminImportRunGrant())
+	if _, found, err := s.LookupIdentity(ctxB, "hubspot", "person", "p-1"); err != nil || found {
+		t.Fatalf("workspace B resolved workspace A's identity (found=%v, err=%v)", found, err)
+	}
+	if err := s.RecordIdentity(ctxB, run.ID, "hubspot", "person", "p-9", ids.NewV7()); err == nil {
+		t.Fatal("recording an identity against ANOTHER workspace's run must be rejected by the database")
+	}
+}
+
 func TestRunStoreRefusesUngrantedRole(t *testing.T) {
 	ctx, pool := testWorkspaceCtx(t, map[string]principal.ObjectGrant{
 		importRunObject: {Read: false}, // a rep: no import_run grant at all

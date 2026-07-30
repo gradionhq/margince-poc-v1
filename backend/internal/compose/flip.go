@@ -148,6 +148,8 @@ func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.Ove
 	// The same claim the execute takes: a preflight that unseals while
 	// an import is mid-run would let the mirror drift under a positional
 	// cursor, silently dropping one estate row per concurrent insert.
+	// Holding it does NOT make this look like a running migration —
+	// FlipImportProbe requires a live run row too.
 	unlock, err := f.claimFlip(ctx)
 	if err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
@@ -259,12 +261,7 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	if err != nil {
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
-	released := false
-	defer func() {
-		if !released {
-			unlock()
-		}
-	}()
+	defer unlock()
 
 	v, err := f.verdict(ctx)
 	if err != nil {

@@ -88,7 +88,7 @@ func (s *Service) Disconnect(ctx context.Context) error {
 				return fmt.Errorf("overlay: checking for an in-progress flip before disconnect: %w", err)
 			}
 			if running {
-				return fmt.Errorf("overlay: a flip migration is running; let it finish (or fail) before disconnecting: %w", apperrors.ErrConflict)
+				return fmt.Errorf("overlay: a flip is in progress for this workspace; let it finish (or fail) before disconnecting: %w", apperrors.ErrConflict)
 			}
 		}
 		connRef, err := revokeConnection(ctx, tx)

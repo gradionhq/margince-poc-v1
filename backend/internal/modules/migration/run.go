@@ -169,6 +169,21 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 	return run, nil
 }
 
+// MirrorRunInFlight reports whether a mirror-connector run is recorded
+// as running. On its own it is NOT proof of liveness — a cancelled
+// request leaves the row behind — so it is read together with the
+// flip's advisory lock (compose's FlipImportProbe).
+func MirrorRunInFlight(ctx context.Context, tx pgx.Tx) (bool, error) {
+	var running bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM import_run WHERE connector = $1 AND status = $2)`,
+		ConnectorMirror, StatusRunning,
+	).Scan(&running); err != nil {
+		return false, fmt.Errorf("migration: checking for a running mirror import: %w", err)
+	}
+	return running, nil
+}
+
 // LookupIdentity resolves an external id to the native row a previous
 // (or the current) run landed for it. The engine-owned map is the ONLY
 // authority for "already imported": the rows' own source/source_system
@@ -176,6 +191,9 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 // would let a caller pre-plant a row under a source id and have the
 // import treat the real record as already landed.
 func (s *RunStore) LookupIdentity(ctx context.Context, sourceSystem, object, externalID string) (ids.UUID, bool, error) {
+	if err := auth.Require(ctx, importRunObject, principal.ActionRead); err != nil {
+		return ids.UUID{}, false, err
+	}
 	var id ids.UUID
 	found := false
 	err := s.tx(ctx, func(tx pgx.Tx) error {
@@ -202,6 +220,9 @@ func (s *RunStore) LookupIdentity(ctx context.Context, sourceSystem, object, ext
 // Idempotent: a resumed run replaying its last page re-asserts the same
 // pair rather than failing.
 func (s *RunStore) RecordIdentity(ctx context.Context, runID RunID, sourceSystem, object, externalID string, nativeID ids.UUID) error {
+	if err := auth.Require(ctx, importRunObject, principal.ActionCreate); err != nil {
+		return err
+	}
 	return s.tx(ctx, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO import_record_map (workspace_id, source_system, object, external_id, native_id, import_run_id)
@@ -232,10 +253,17 @@ func (s *RunStore) RecordIdentity(ctx context.Context, runID RunID, sourceSystem
 // module never invents the key itself.
 func FlipImportLiveness(ctx context.Context, tx pgx.Tx, lockKey int64) (bool, error) {
 	var held bool
+	// Scoped to THIS database and to the single-argument advisory form
+	// (objsubid = 1): pg_locks spans the whole cluster, and a
+	// two-argument lock splits classid/objid differently — without both
+	// filters an unrelated session on a sibling database holding the
+	// same number would make Disconnect refuse forever, which is the
+	// exact latch this probe exists to avoid.
 	if err := tx.QueryRow(ctx, `
 		SELECT EXISTS (
 			SELECT 1 FROM pg_locks
-			WHERE locktype = 'advisory' AND granted
+			WHERE locktype = 'advisory' AND granted AND objsubid = 1
+			  AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
 			  AND ((classid::bigint << 32) | objid::bigint) = $1)`,
 		lockKey,
 	).Scan(&held); err != nil {

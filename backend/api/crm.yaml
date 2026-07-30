@@ -8059,7 +8059,10 @@ paths:
         detaches write-back, and flips the workspace to native — an
         irreversible mode change gated by the typed confirmation phrase.
         Refused with 409 `overlay_flip_blocked` while the preflight is
-        unsatisfied. `mode: emergency` is the ADR-0071 last-known-mirror
+        unsatisfied. Human-only, like its preflight: the typed
+        confirmation phrase IS the human-intent control, and an agent
+        supplying it in staged arguments would collapse the confirm-first
+        gate to a single approval click on a one-way, estate-wide change. `mode: emergency` is the ADR-0071 last-known-mirror
         cutover: available ONLY while the incumbent is unreachable (never a
         silent substitute for a fresh-sync flip, in either direction) and its
         202 carries the disclosed-lossy staleness + unverifiable-parity notice.
