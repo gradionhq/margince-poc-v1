@@ -89,12 +89,15 @@ func (orgBriefCases) Prepare(fixture, expected json.RawMessage) (aitasks.Prepare
 	}
 	in, label, err := orgBriefInput(f)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("summarize/org_brief: %w", err)
 	}
 	if err := refuseUngroundableBrief(want, label); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("summarize/org_brief: %w", err)
 	}
-	return &orgBriefCase{in: in, orgID: ids.NewV7().String(), label: label, expected: want}, nil
+	return &orgBriefCase{
+		site: "summarize/org_brief", request: orgbrief.BriefRequest,
+		in: in, orgID: ids.NewV7().String(), label: label, expected: want,
+	}, nil
 }
 
 // orgBriefInput builds the production input, minting one id per labelled
@@ -139,12 +142,10 @@ func orgBriefInput(f orgBriefFixture) (orgbrief.Input, map[string]string, error)
 // stayed in the corpus.
 func refuseUnnameable(label, kind string, seen map[string]string) error {
 	if strings.TrimSpace(label) == "" {
-		return fmt.Errorf(
-			"summarize/org_brief: a fixture %s carries no label, so no expectation could name it", kind)
+		return fmt.Errorf("a fixture %s carries no label, so no expectation could name it", kind)
 	}
 	if _, taken := seen[label]; taken {
-		return fmt.Errorf(
-			"summarize/org_brief: the fixture labels two records %q, so an expectation naming it means neither", label)
+		return fmt.Errorf("the fixture labels two records %q, so an expectation naming it means neither", label)
 	}
 	return nil
 }
@@ -155,19 +156,25 @@ func refuseUnnameable(label, kind string, seen map[string]string) error {
 // measure nothing for as long as it stayed in the corpus.
 func refuseUngroundableBrief(want []string, label map[string]string) error {
 	if len(want) == 0 {
-		return errors.New("summarize/org_brief: the scenario expects no cited record, so no reply could disagree with it")
+		return errors.New("the scenario expects no cited record, so no reply could disagree with it")
 	}
 	for _, name := range want {
 		if _, ok := label[name]; !ok {
 			return fmt.Errorf(
-				"summarize/org_brief: the scenario expects %q, which the fixture does not supply, so the brief could never cite it",
-				name)
+				"the scenario expects %q, which the fixture does not supply, so the reply could never cite it", name)
 		}
 	}
 	return nil
 }
 
+// orgBriefCase certifies one piece of grounded prose about one account. Both
+// summarize sites — the standing brief and the prepared questions — run it:
+// they differ only in the request they send, and everything the case measures
+// (the production grounding filter, the labelled records the reply must cite)
+// is the same question asked of the same input.
 type orgBriefCase struct {
+	site     string
+	request  func(orgbrief.Input) model.Request
 	in       orgbrief.Input
 	orgID    string
 	label    map[string]string
@@ -177,11 +184,11 @@ type orgBriefCase struct {
 // Run issues the one request this site sends, through the production
 // writer's own request builder.
 func (c *orgBriefCase) Run(ctx context.Context, completer aitasks.Completer) (aitasks.Trace, error) {
-	req := orgbrief.BriefRequest(c.in)
+	req := c.request(c.in)
 	trace := aitasks.Trace{Requests: []model.Request{req}}
 	resp, err := completer.Complete(ctx, req)
 	if err != nil {
-		return trace, fmt.Errorf("summarize/org_brief: %w", err)
+		return trace, fmt.Errorf("%s: %w", c.site, err)
 	}
 	trace.Output = resp.Text
 	return trace, nil
@@ -198,7 +205,7 @@ func (c *orgBriefCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	if len(sentences) == 0 {
 		// Every sentence was dropped for citing nothing in the account: the
 		// model wrote about something else, which production shows as no
-		// brief at all.
+		// prose at all.
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeAbstained,
 			Detail: "no sentence cited a record of this account",
@@ -219,7 +226,7 @@ func (c *orgBriefCase) Evaluate(trace aitasks.Trace) aitasks.Outcome {
 	if len(missing) > 0 {
 		return aitasks.Outcome{
 			Result: aitasks.OutcomeWrongAnswer,
-			Detail: "the brief never cited: " + strings.Join(missing, ", "),
+			Detail: "never cited: " + strings.Join(missing, ", "),
 		}
 	}
 	return aitasks.Outcome{Result: aitasks.OutcomeAccepted}

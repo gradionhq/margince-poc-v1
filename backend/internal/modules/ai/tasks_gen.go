@@ -32,7 +32,7 @@ const (
 	TaskSiteExtract Task = "site_extract"
 	// TaskSiteFactExtract is the deep read's page-parallel fact lane: tiny snippet-id-cited records a fast cheap tier serves reliably — its latency IS the read time, so the fast tier leads. Its response schema varies in SHAPE per call with the page menu (ADR-0074).
 	TaskSiteFactExtract Task = "site_fact_extract"
-	// TaskSummarize is The standing account brief on the company view: what this account is, where it stands, what changed. Read-only over what the VIEWER can already see — the brief is assembled per viewer because visibility is per viewer, and it cites only records the reader could open themselves.
+	// TaskSummarize is Two sites on the company view, both grounded prose over what the VIEWER can already see, assembled per viewer because visibility is per viewer. org_brief — the standing account brief: what this account is, where it stands, what changed. org_ask — the prepared questions behind Ask Margince: the question is chosen from a fixed list rather than typed, because each one names the records its answer must be written from, which is what lets every sentence cite a record the reader could open themselves.
 	TaskSummarize Task = "summarize"
 	// TaskTranscript is Declared, not built (ADR-0074). Pasted transcript text is T2/untrusted per ai-operational-spec §1 when a site lands.
 	TaskTranscript Task = "transcript"
@@ -64,7 +64,7 @@ const (
 // TaskContractHash is the sha256 of api/ai-tasks.yaml at generation
 // time: a build fingerprint the cert runner can compare against a
 // freshly hashed contract file to catch a stale generated table.
-const TaskContractHash = "0898f0358e7bbfd6243e5a9a73f93900a2008fef8d6e3640f310de1197897eac"
+const TaskContractHash = "0039dc4008cd9b73a53a56c62fe8012035423af87a7ee44f58cbd90fcc4c9c04"
 
 // AllTasks returns every contract task, sorted — the completeness
 // check a certification run walks to prove it covers every routed
@@ -244,6 +244,7 @@ var taskSites = map[Task][]Site{
 	},
 	TaskSummarize: {
 		{Name: "org_brief", Kind: "one_shot"},
+		{Name: "org_ask", Kind: "one_shot"},
 	},
 	TaskVoiceBuild: {
 		{Name: "derive", Kind: "one_shot"},

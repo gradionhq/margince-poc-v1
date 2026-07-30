@@ -4,10 +4,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
 import {
+  AskCard,
   DealsCard,
   NextSteps,
   PeopleCard,
   SinceLastVisit,
+  SuggestionsCard,
   TagsCard,
 } from "./company360";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -38,6 +40,26 @@ const populated = {
     updated_at: "2026-06-01T08:00:00Z",
   },
   sections_omitted: [],
+  suggestions_dropped: 0,
+  // Two suggestions from two different rules, so the card shows what makes it
+  // useful: each row's own reason, and its own evidence.
+  suggestions: [
+    {
+      kind: "stalled_deal",
+      reason:
+        '"Fleet retrofit 2026" has had no activity long enough to count as stalled.',
+      fingerprint: "fp-1",
+      subject_type: "deal",
+      subject_id: "d-1",
+      evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+    },
+    {
+      kind: "no_reply",
+      reason: "You reached out 11 days ago and nobody has come back.",
+      fingerprint: "fp-2",
+      evidence: [{ entity_type: "activity", entity_id: "a-1" }],
+    },
+  ],
   people: {
     data: [
       {
@@ -163,6 +185,9 @@ const empty = {
     lost_count: 0,
   },
   next_steps: { data: [], page },
+  // Nothing to advise on a dormant account: the card renders nothing at all,
+  // which is the state this story exists to show.
+  suggestions: [],
   tags: [],
   list_memberships: [],
   since_last_visit: {
@@ -176,12 +201,34 @@ const empty = {
 function Cards({ view }: Readonly<{ view: View }>) {
   installFetchStub({
     "GET /signals": () => jsonResponse({ data: [], page }),
+    // The prepared questions answer from the account; the story serves the
+    // deterministic floor, which is what a deployment with no model lane shows.
+    "POST /organizations/o-1/ask": () =>
+      jsonResponse({
+        organization_id: "o-1",
+        question: "whats_open",
+        generated_at: "2026-07-13T09:00:00Z",
+        generated_by: "deterministic",
+        // The answer follows the account the story renders: an account with no
+        // deals must not answer with one, or the empty-state story shows a
+        // populated card.
+        sentences: view.deals?.data?.length
+          ? [
+              {
+                text: "2 open deal(s) worth about 57000 EUR.",
+                evidence: [{ entity_type: "deal", entity_id: "d-1" }],
+              },
+            ]
+          : [],
+      }),
   });
   return (
     <StoryProviders>
       <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
         <SinceLastVisit view={view} />
+        <SuggestionsCard orgId="o-1" view={view} />
         <NextSteps view={view} />
+        <AskCard orgId="o-1" enabled />
         <PeopleCard view={view} />
         <DealsCard view={view} />
         <TagsCard view={view} />

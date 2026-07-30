@@ -190,10 +190,11 @@ type Server struct {
 	// object class (dev/demo — WithOverlayBackfillLimit); 0 is uncapped.
 	overlayBackfillLimit int
 
-	// orgBriefSvc is the account-brief service; WithAccountBrief rebinds its
-	// model lane at boot, so the api role writes briefs with a model and
-	// every other role serves the same deterministic floor. (WithBrief is a
-	// different option — the Morning Brief's L2 ranker.)
+	// orgBriefSvc writes both of the company view's grounded-prose surfaces:
+	// the standing account brief and the prepared "Ask Margince" questions.
+	// WithAccountBrief rebinds its model lane at boot, so the api role writes
+	// with a model and every other role serves the same deterministic floor.
+	// (WithBrief is a different option — the Morning Brief's L2 ranker.)
 	orgBriefSvc *orgbrief.Service
 	// org360Svc is the composite read the brief is assembled from, held so
 	// WithAccountBrief can rebuild the brief service over the SAME gated

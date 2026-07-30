@@ -61,6 +61,24 @@ func (h Handlers) AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Req
 	httperr.WriteJSON(w, http.StatusOK, ack)
 }
 
+// DismissOrganizationSuggestion implements
+// POST /organizations/{id}/suggestions/dismiss.
+func (h Handlers) DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	if !h.nativeOnly(w, r) {
+		return
+	}
+	var req crmcontracts.DismissOrganizationSuggestionJSONRequestBody
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	if err := h.svc.DismissSuggestion(r.Context(),
+		ids.From[ids.OrganizationKind](ids.UUID(id)), req.Fingerprint); err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // nativeOnly refuses an overlay-mode workspace. The mirror holds the
 // incumbent's records, not our relationship edges, tags, approvals or
 // visit marks, so there is no honest 360 to assemble from it — the same

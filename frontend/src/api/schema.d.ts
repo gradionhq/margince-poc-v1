@@ -511,6 +511,85 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/suggestions/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss one next-step suggestion for the calling human.
+         * @description A dismissal is the rep saying "not this, not now" — per user, because advice one
+         *     rep has judged is not advice their colleague has seen.
+         *
+         *     It is keyed on the suggestion's EVIDENCE fingerprint, not on its kind, so the
+         *     same advice stays gone while the situation holds and re-arms by itself when the
+         *     evidence changes. A stalled deal that moves and stalls again is a new fact about
+         *     the account, and silencing it forever because someone once dismissed it would
+         *     make the surface less useful the longer it ran.
+         *
+         *     A row is stored ONLY for a fingerprint this account currently raises for this
+         *     caller. A fingerprint that matches nothing answers `204` without storing
+         *     anything — either the situation resolved between the render and the click, in
+         *     which case the suggestion is already gone, or it was never served, in which case
+         *     there is nothing to silence. So the stored set grows by one row per suggestion a
+         *     human actually dismissed, and no dismissal is ever dropped to make room.
+         *
+         *     Human-only: an agent has no opinion to record.
+         */
+        post: operations["dismissOrganizationSuggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask one of the prepared questions about this account.
+         * @description The company view's "Ask Margince". The question is chosen from a fixed list, not
+         *     typed: each prepared question names records the answer must be written from, so
+         *     every sentence can be cited and checked. Free-text questions need retrieval that
+         *     can prove what it did not find, which this endpoint does not have — a text box
+         *     that quietly answers from a subset would read exactly like one that searched
+         *     everything.
+         *
+         *     **Per viewer, like the brief.** The answer is written from the caller's own 360,
+         *     assembled inside the normal gates, so it can only describe records that caller
+         *     could open themselves and cites only those. Nothing is cached: a question is asked
+         *     and read once, and an answer that arrives is written from the account as it is now.
+         *
+         *     When no model lane is configured, or the workspace's AI budget is exhausted, the
+         *     answer degrades to a deterministic structured one rather than failing —
+         *     `generated_by` says which it is. Read-only: no record field changes, and nothing
+         *     is sent.
+         *
+         *     Human-only: an agent asking about an account has the records themselves.
+         */
+        post: operations["askAboutOrganization"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/view-ack": {
         parameters: {
             query?: never;
@@ -6064,15 +6143,47 @@ export interface components {
             organization_id: string;
             /** Format: date-time */
             generated_at: string;
-            /**
-             * @description `model` — written by the configured model lane. `deterministic` — the
-             *     structured fallback, used when no lane is configured or the AI budget is
-             *     exhausted. Never silently interchangeable: a reader deciding how much to
-             *     trust a sentence needs to know which wrote it.
-             * @enum {string}
-             */
-            generated_by: "model" | "deterministic";
+            generated_by: components["schemas"]["WrittenBy"];
             /** @description The brief itself, one claim per entry. */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description Which writer produced a piece of generated prose. `model` — the configured model
+         *     lane. `deterministic` — the structured fallback, used when no lane is configured
+         *     or the workspace's AI budget is exhausted. Never silently interchangeable: a
+         *     reader deciding how much to trust a sentence needs to know which wrote it.
+         * @enum {string}
+         */
+        WrittenBy: "model" | "deterministic";
+        /**
+         * @description The prepared questions. Fixed, because each one names the records its answer is
+         *     written from — which is what makes the answer citable.
+         *
+         *     `whats_open` — the open deals and the open tasks. Deliberately not approvals: an
+         *     approval is not a citable record type here, and an answer that named one could
+         *     not be checked the way every other sentence can.
+         *     `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+         *     `whats_changed` — what has moved on this account recently.
+         * @enum {string}
+         */
+        OrganizationQuestion: "whats_open" | "meeting_prep" | "whats_changed";
+        /**
+         * @description An answer to one prepared question, written from what the READER can see. Same
+         *     shape as the brief: every sentence carries the records it was written from, so
+         *     the reader can open the evidence rather than take the sentence on trust.
+         */
+        OrganizationAnswer: {
+            /** Format: uuid */
+            organization_id: string;
+            question: components["schemas"]["OrganizationQuestion"];
+            /** Format: date-time */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            /**
+             * @description The answer, one claim per entry. Empty when the caller's grants leave the
+             *     question nothing to answer from — an honest "nothing here I can show you"
+             *     rather than a sentence written around the gap.
+             */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
         OrganizationBriefSentence: {
@@ -6142,7 +6253,7 @@ export interface components {
             amount?: components["schemas"]["Money"];
             /** Format: date */
             expected_close_date?: string | null;
-            /** @description No linked activity inside the pipeline's stall window. */
+            /** @description No linked activity inside the 60-day stall window. */
             stalled: boolean;
         };
         /** @description The account's open deals plus the two lifetime figures the header needs. */
@@ -6167,6 +6278,40 @@ export interface components {
             linked_deal_id?: string | null;
             /** Format: uuid */
             linked_person_id?: string | null;
+        };
+        /**
+         * @description One deterministic next-step suggestion. It is derived, not decided: the rule
+         *     that fired, the records it fired on, and nothing the reader cannot check.
+         *
+         *     Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
+         *     it offers are the same governed endpoints the rep would have used anyway.
+         */
+        Organization360Suggestion: {
+            /**
+             * @description `no_reply` — an outbound message on a thread nobody answered.
+             *     `stalled_deal` — an open deal idle past the 60-day stall window.
+             *     `no_next_step` — an active account with no open task on it.
+             * @enum {string}
+             */
+            kind: "no_reply" | "stalled_deal" | "no_next_step";
+            /**
+             * @description Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
+             *     kind, the subject and the records it fired on. Dismissing a suggestion stores
+             *     this, so the same advice stays gone — and re-arms by itself when the evidence
+             *     changes, because the situation is then genuinely a new one.
+             *
+             *     Send it back unchanged to dismiss. The server recomputes the account's
+             *     suggestions to recognize it, so a value it cannot match stores nothing.
+             */
+            fingerprint: string;
+            /** @description The rule that fired, in the words the rep reads. Never a score. */
+            reason: string;
+            /** @enum {string|null} */
+            subject_type?: null | "deal" | "person" | "organization";
+            /** Format: uuid */
+            subject_id?: string | null;
+            /** @description The records the rule fired on — always ones this reader can open. */
+            evidence: components["schemas"]["OrganizationBriefEvidence"][];
         };
         /**
          * @description What changed on this account since the caller last acknowledged seeing it. Read-only:
@@ -6201,7 +6346,7 @@ export interface components {
             as_of: string;
             organization: components["schemas"]["Organization"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
@@ -6220,6 +6365,26 @@ export interface components {
                 page: components["schemas"]["PageInfo"];
             };
             since_last_visit?: components["schemas"]["Organization360SinceLastVisit"];
+            /**
+             * @description What this account looks like it needs next, computed from its own records —
+             *     no model involved. Each carries WHY, so a rep can disagree with the reason
+             *     rather than with a verdict.
+             */
+            suggestions?: components["schemas"]["Organization360Suggestion"][];
+            /**
+             * @description How many further suggestions this caller has that `suggestions` does not
+             *     list — the card offers at most a handful, because advice past that is a list
+             *     a rep learns to scroll past. Reported rather than dropped in silence: a
+             *     truncated list with no count reads as "that is everything".
+             *
+             *     Counted after this caller's own dismissals, so a suggestion they have already
+             *     judged is in neither the list nor this number.
+             *
+             *     Absent exactly when `suggestions` is — a section the caller's grants withheld
+             *     was never computed, and a `0` there would state "no further suggestions"
+             *     about an account this read never looked at.
+             */
+            suggestions_dropped?: number;
         };
         /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
@@ -11419,6 +11584,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    dismissOrganizationSuggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description The `fingerprint` from the suggestion being dismissed, unchanged — a
+                     *     sha256 digest in lowercase hex.
+                     *
+                     *     A value of the wrong SHAPE is a 422, so a client that mangled it can
+                     *     tell that from a hit. A well-formed value the account does not
+                     *     currently raise is a `204` that stores nothing; see this operation's
+                     *     description for why those two answers differ.
+                     */
+                    fingerprint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Dismissed, or nothing matched and nothing was stored. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    askAboutOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    question: components["schemas"]["OrganizationQuestion"];
+                };
+            };
+        };
+        responses: {
+            /** @description The answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationAnswer"];
                 };
             };
             401: components["responses"]["Unauthorized"];

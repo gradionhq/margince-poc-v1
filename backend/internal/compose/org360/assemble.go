@@ -37,6 +37,7 @@ const (
 	sectionApprovals       = crmcontracts.Organization360SectionsOmitted("pending_approvals")
 	sectionNextSteps       = crmcontracts.Organization360SectionsOmitted("next_steps")
 	sectionSinceLastVisit  = crmcontracts.Organization360SectionsOmitted("since_last_visit")
+	sectionSuggestions     = crmcontracts.Organization360SectionsOmitted("suggestions")
 )
 
 // Service assembles the 360 and maintains the visit baseline.
@@ -97,6 +98,11 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionListMemberships, a.readListMemberships},
 		{sectionApprovals, a.readPendingApprovals},
 		{sectionSinceLastVisit, a.readSinceLastVisit},
+		// Last because it is derived, not because it reads the sections above —
+		// the rules issue their own queries (suggestionreads.go), under the same
+		// grants and the same row scope, so they can see further back than a
+		// truncated section page without ever seeing wider.
+		{sectionSuggestions, a.readSuggestions},
 	}
 	for _, section := range each {
 		err := section.read()

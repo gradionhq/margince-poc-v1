@@ -69,6 +69,28 @@ func linkScope(ctx context.Context, alias string, arg func(any) int) (string, er
 	return clause, nil
 }
 
+// orgLinkedActivityExists is the ONE spelling of "this activity reaches the
+// account", for a query that aliases activity as a.
+//
+// A task or a message belongs to a company through any of three links — its own,
+// its deal's, or the contact it is about — and three readers need that walk: the
+// next-steps section here, and the two suggestion reads. Spelling it once is what
+// keeps them from drifting apart, the same reason openDealsWhere exists: a fourth
+// link added to the model reaches every reader, or none of them.
+//
+// orgPos is the bind position carrying the organization id; the caller registers
+// it once and every arm reads the same one.
+func orgLinkedActivityExists(orgPos int) string {
+	return fmt.Sprintf(`EXISTS (
+		    SELECT 1 FROM activity_link l
+		    LEFT JOIN deal d ON d.id = l.deal_id
+		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
+		      AND r.ended_at IS NULL AND r.archived_at IS NULL
+		    WHERE l.activity_id = a.id
+		      AND (l.organization_id = $%[1]d OR d.organization_id = $%[1]d OR r.organization_id = $%[1]d))`,
+		orgPos)
+}
+
 // nextStepsSection reads the account's open tasks in the order a rep works
 // them: overdue first, then dated, then undated. A task reaches the
 // account through any of its links — the task itself, its deal, or the
@@ -104,23 +126,17 @@ func nextStepsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT a.id, coalesce(a.subject, ''), a.due_at, a.assignee_id,
 		       (SELECT dl.deal_id FROM activity_link dl
-		         WHERE dl.activity_id = a.id AND dl.entity_type = 'deal' AND %[5]s
+		         WHERE dl.activity_id = a.id AND dl.entity_type = 'deal' AND %[3]s
 		         ORDER BY dl.id LIMIT 1),
 		       (SELECT pl.person_id FROM activity_link pl
-		         WHERE pl.activity_id = a.id AND pl.entity_type = 'person' AND %[6]s
+		         WHERE pl.activity_id = a.id AND pl.entity_type = 'person' AND %[4]s
 		         ORDER BY pl.id LIMIT 1)
 		FROM activity a
 		WHERE a.kind = 'task' AND NOT a.is_done AND a.archived_at IS NULL AND %[1]s
-		  AND EXISTS (
-		    SELECT 1 FROM activity_link l
-		    LEFT JOIN deal d ON d.id = l.deal_id
-		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
-		      AND r.ended_at IS NULL AND r.archived_at IS NULL
-		    WHERE l.activity_id = a.id
-		      AND (l.organization_id = $%[2]d OR d.organization_id = $%[3]d OR r.organization_id = $%[4]d))
+		  AND %[2]s
 		ORDER BY (a.due_at IS NULL), a.due_at, a.id
-		LIMIT %[7]d`,
-		activityScope, orgPos, orgPos, orgPos, linkVisible, personVisible, sectionLimit+1), args...)
+		LIMIT %[5]d`,
+		activityScope, orgLinkedActivityExists(orgPos), linkVisible, personVisible, sectionLimit+1), args...)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}
