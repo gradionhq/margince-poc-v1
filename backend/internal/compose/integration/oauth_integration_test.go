@@ -179,7 +179,8 @@ func closeBody(t *testing.T, resp *http.Response) {
 	}
 }
 
-// exchange drives POST /oauth/token and returns status + parsed body.
+// exchange drives POST /oauth/token for the authorization-code grant and
+// returns status + parsed body.
 func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any) {
 	t.Helper()
 	base := url.Values{
@@ -191,7 +192,15 @@ func (o *oauthEnv) exchange(t *testing.T, form url.Values) (int, map[string]any)
 	for k, vs := range form {
 		base[k] = vs
 	}
-	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/token", strings.NewReader(base.Encode()))
+	return o.postToken(t, base)
+}
+
+// postToken posts one form to the token endpoint — the single spelling of
+// that exchange, so the code grant and the refresh grant cannot drift apart
+// in how the suite drives them.
+func (o *oauthEnv) postToken(t *testing.T, form url.Values) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/token", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -36,10 +36,21 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		oauthError(w, http.StatusBadRequest, "invalid_request", "malformed form body")
 		return
 	}
-	if r.PostForm.Get("grant_type") != "authorization_code" {
-		oauthError(w, http.StatusBadRequest, "unsupported_grant_type", "only authorization_code")
-		return
+	switch r.PostForm.Get("grant_type") {
+	case "authorization_code":
+		h.tokenFromAuthCode(w, r)
+	case "refresh_token":
+		h.tokenFromRefresh(w, r)
+	default:
+		oauthError(w, http.StatusBadRequest, "unsupported_grant_type",
+			"only authorization_code and refresh_token")
 	}
+}
+
+// tokenFromAuthCode ends the handshake: the code the human's consent produced
+// becomes the first passport and, when the grant allows it, the first refresh
+// token.
+func (h Handlers) tokenFromAuthCode(w http.ResponseWriter, r *http.Request) {
 	code := r.PostForm.Get("code")
 	verifier := r.PostForm.Get("code_verifier")
 	if code == "" || verifier == "" {
@@ -65,6 +76,47 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	writeTokenResponse(w, issued, refresh)
+}
+
+// tokenFromRefresh renews a connection: the presented token is spent and its
+// successor issued, or the presentation is refused.
+//
+// EVERY refusal answers invalid_grant. Claude re-runs consent on that code
+// and on no other, so a more precise code — invalid_request for a malformed
+// presentation, invalid_scope for an over-wide one, a 403 for a revoked grant
+// — would leave the connector retrying a token that will never work again,
+// with no path back to a human.
+func (h Handlers) tokenFromRefresh(w http.ResponseWriter, r *http.Request) {
+	issued, refresh, err := h.svc.rotateRefreshToken(r.Context(), refreshRequest{
+		Token:             r.PostForm.Get("refresh_token"),
+		ClientID:          r.PostForm.Get("client_id"),
+		Scopes:            strings.Fields(r.PostForm.Get("scope")),
+		Resource:          r.PostForm.Get("resource"),
+		CanonicalResource: h.mcpResource,
+	})
+	switch {
+	case errors.Is(err, errRefreshScope):
+		oauthError(w, http.StatusBadRequest, "invalid_grant",
+			"the requested scope exceeds what this connection was granted")
+		return
+	// A refresh token cannot exist in a workspace that doesn't resolve, and
+	// the answer must not distinguish that from an unknown token.
+	case errors.Is(err, errRefreshRejected), errors.Is(err, database.ErrNoWorkspace):
+		oauthError(w, http.StatusBadRequest, "invalid_grant",
+			"the refresh token is unknown, expired, or already used")
+		return
+	case err != nil:
+		httperr.Write(w, r, err)
+		return
+	}
+	writeTokenResponse(w, issued, refresh)
+}
+
+// writeTokenResponse is the RFC 6749 §5.1 success body, spelled once: the
+// code exchange and every later rotation must hand a client the same shape,
+// or a connector that renews stops finding the fields it found at connect.
+func writeTokenResponse(w http.ResponseWriter, issued IssuedPassport, refresh string) {
 	response := map[string]any{
 		"access_token": issued.Token,
 		"token_type":   "Bearer",
@@ -126,7 +178,7 @@ func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issu
 
 		// The label names the client the consent was for; the grant is what
 		// actually binds the passport to it.
-		label := "oauth:" + redeemed.ClientID
+		label := oauthPassportLabel(redeemed.ClientID)
 		issued, err = mintPassport(r.Context(), tx,
 			Identity{UserID: redeemed.UserID, WorkspaceID: redeemed.WorkspaceID},
 			IssuePassportInput{Label: &label, Scopes: passportScopes}, &grantID)
@@ -177,20 +229,7 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 	if r.PostForm.Get("client_id") != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
 		return redeemedCode{}, errGrantMismatch
 	}
-	// RFC 8707: two independent rules, not one compound check. A
-	// presented resource must always name this installation's
-	// canonical endpoint — checked unconditionally, so a client that
-	// omitted resource at authorize (the accepted older-client path,
-	// stored NULL) cannot smuggle a foreign audience through at
-	// redemption by presenting it only here. Separately, a code that
-	// WAS bound to a resource at authorize requires the presented
-	// value to match that binding, so a stale grant cannot outlive a
-	// reconfigured resource.
-	presented := r.PostForm.Get("resource")
-	if presented != "" && presented != h.mcpResource {
-		return redeemedCode{}, errAudienceMismatch
-	}
-	if out.Resource != nil && presented != *out.Resource {
+	if !audienceMatches(r.PostForm.Get("resource"), h.mcpResource, out.Resource) {
 		return redeemedCode{}, errAudienceMismatch
 	}
 	// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.

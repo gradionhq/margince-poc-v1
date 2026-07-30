@@ -392,6 +392,28 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	return scopes, offline, nil
 }
 
+// audienceMatches is the RFC 8707 rule for a credential being redeemed or
+// renewed, spelled once: two independent checks, not one compound test.
+//
+// A PRESENTED resource must always name this installation's canonical
+// endpoint, checked unconditionally — so a client that omitted resource at
+// authorize (the accepted older-client path, stored NULL) cannot smuggle a
+// foreign audience through later by presenting it only at the token endpoint.
+// Separately, an authorization that WAS bound to a resource requires the
+// presented value to match that binding, so a stale grant cannot outlive a
+// reconfigured resource. Unbound therefore means "the canonical resource",
+// never "any resource".
+//
+// An unset canonical value (no --public-base-url) can never equal a presented
+// one, so this fails closed rather than treating "no canonical value" as
+// "matches everything".
+func audienceMatches(presented, canonical string, bound *string) bool {
+	if presented != "" && presented != canonical {
+		return false
+	}
+	return bound == nil || presented == *bound
+}
+
 // validRedirectURI admits https anywhere and plain http only on
 // loopback (native-app dev flows).
 func validRedirectURI(raw string) bool {

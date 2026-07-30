@@ -12,8 +12,31 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 )
+
+// A grant type a client cannot see is a grant type it will not use: without
+// refresh_token here, a connector asks for offline_access, stores the token
+// it is handed, and never presents it — the connection dies at the access
+// token's expiry with a live refresh credential in hand.
+func TestServerMetadataAdvertisesBothGrantTypes(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Handlers{}.OAuthServerMetadata(rec, httptest.NewRequest(http.MethodGet,
+		"https://crm.example.com/.well-known/oauth-authorization-server", nil))
+
+	var doc struct {
+		GrantTypes []string `json:"grant_types_supported"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"authorization_code", "refresh_token"} {
+		if !slices.Contains(doc.GrantTypes, want) {
+			t.Errorf("grant_types_supported = %v, want it to include %q", doc.GrantTypes, want)
+		}
+	}
+}
 
 func TestProtectedResourceMetadataNamesTheMCPURLNotTheOrigin(t *testing.T) {
 	h := Handlers{mcpResource: "https://crm.example.com/mcp"}
