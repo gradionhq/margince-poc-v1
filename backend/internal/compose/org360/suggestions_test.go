@@ -12,6 +12,7 @@ package org360
 // case these cannot state, that the reads look past the section page cap.
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -89,26 +90,35 @@ func TestStaleThreadStaysSilentWithoutADirection(t *testing.T) {
 	}
 }
 
-func idle(name string, stalled bool) openDeal {
-	return openDeal{ID: ids.NewV7(), Name: name, Stalled: stalled}
+func idle(name string) stalledDeal {
+	return stalledDeal{ID: ids.NewV7(), Name: name}
+}
+
+// livePipeline is one open deal the caller can see, with nothing stalled — the
+// aggregate shape openPipeline returns.
+func livePipeline(count int, digest string) pipeline {
+	return pipeline{OpenCount: count, OpenDigest: digest}
 }
 
 // TestStalledDealsRaiseOnePerDeal proves each stalled deal is its own
-// suggestion with its own subject, so dismissing one does not silence the
-// other, and a healthy deal alongside them raises nothing.
+// suggestion with its own subject, so dismissing one does not silence the other.
 func TestStalledDealsRaiseOnePerDeal(t *testing.T) {
-	stalledA, healthy, stalledB := idle("Renewal", true), idle("Pilot", false), idle("Expansion", true)
+	first, second := idle("Renewal"), idle("Expansion")
 
-	got := stalledDealSuggestions([]openDeal{stalledA, healthy, stalledB})
+	got := stalledDealSuggestions([]stalledDeal{first, second})
 	if len(got) != 2 {
 		t.Fatalf("got %d suggestions, want one per stalled deal", len(got))
 	}
 	if got[0].Fingerprint == got[1].Fingerprint {
 		t.Error("both stalled deals share a fingerprint — dismissing one would silence the other")
 	}
-	for _, suggestion := range got {
-		if suggestion.SubjectId == nil || *suggestion.SubjectId == openapi_types.UUID(healthy.ID) {
-			t.Errorf("subject = %v, want one of the stalled deals", suggestion.SubjectId)
+	for i, want := range []stalledDeal{first, second} {
+		if got[i].SubjectId == nil || *got[i].SubjectId != openapi_types.UUID(want.ID) {
+			t.Errorf("suggestion %d names subject %v, want the deal %v it fired on",
+				i, got[i].SubjectId, want.ID)
+		}
+		if !strings.Contains(got[i].Reason, want.Name) {
+			t.Errorf("reason %q never names the deal it is about", got[i].Reason)
 		}
 	}
 }
@@ -124,6 +134,19 @@ func noTasks() *crmcontracts.Organization360 {
 	}
 }
 
+// TestNoNextStepReportsTheAccountsOwnDealCount proves the reason states how
+// many deals the ACCOUNT has open, not how many rows this read carried. A count
+// bounded by its own read is one a rep cannot tell from a real one.
+func TestNoNextStepReportsTheAccountsOwnDealCount(t *testing.T) {
+	got := noNextStepSuggestion(testOrgID(t), noTasks(), livePipeline(42, "digest-a"))
+	if got == nil {
+		t.Fatal("no suggestion for an active account with nothing scheduled")
+	}
+	if !strings.Contains(got.Reason, "42") {
+		t.Errorf("reason %q does not report the 42 open deals", got.Reason)
+	}
+}
+
 // TestNoNextStepFiresOnlyOnAnActiveAccount pins the deliberate narrowness of
 // the rule. An open deal with no task is a gap worth naming; a dormant account
 // with no task is not, and a surface that says so would teach the rep to scroll
@@ -131,10 +154,10 @@ func noTasks() *crmcontracts.Organization360 {
 func TestNoNextStepFiresOnlyOnAnActiveAccount(t *testing.T) {
 	orgID := testOrgID(t)
 
-	if got := noNextStepSuggestion(orgID, noTasks(), []openDeal{idle("Renewal", false)}); got == nil {
+	if got := noNextStepSuggestion(orgID, noTasks(), livePipeline(1, "digest-a")); got == nil {
 		t.Error("no suggestion for an open deal with nothing scheduled")
 	}
-	if got := noNextStepSuggestion(orgID, noTasks(), nil); got != nil {
+	if got := noNextStepSuggestion(orgID, noTasks(), pipeline{}); got != nil {
 		t.Errorf("suggestion %+v on a dormant account — nothing there to advance", got)
 	}
 }
@@ -151,7 +174,7 @@ func TestNoNextStepStaysSilentWhenSomethingIsScheduled(t *testing.T) {
 			ActivityId: openapi_types.UUID(ids.NewV7()), Subject: "Call the CFO",
 		}}},
 	}
-	if got := noNextStepSuggestion(orgID, view, []openDeal{idle("Renewal", false)}); got != nil {
+	if got := noNextStepSuggestion(orgID, view, livePipeline(1, "digest-a")); got != nil {
 		t.Fatalf("suggestion %+v with a task already on the account", got)
 	}
 }
@@ -161,18 +184,22 @@ func TestNoNextStepStaysSilentWhenSomethingIsScheduled(t *testing.T) {
 func TestNoNextStepStaysSilentWithoutTheTaskSection(t *testing.T) {
 	orgID := testOrgID(t)
 	withheld := &crmcontracts.Organization360{}
-	if got := noNextStepSuggestion(orgID, withheld, []openDeal{idle("Renewal", false)}); got != nil {
+	if got := noNextStepSuggestion(orgID, withheld, livePipeline(1, "digest-a")); got != nil {
 		t.Fatalf("suggestion %+v with the next-steps section withheld", got)
 	}
 }
 
 // TestNoNextStepRidesEveryOpenDeal proves the fingerprint tracks WHICH deals
-// are open. A dismissal must not carry over to a different pipeline: closing
-// one deal and opening another is a new situation, and the advice re-arms.
+// are open, through the digest the read takes over all of them. A dismissal must
+// not carry over to a different pipeline: closing one deal and opening another
+// is a new situation, and the advice re-arms.
+//
+// The digest, not a fetched list, is what makes that true for a deal no card
+// listed — the case a fingerprint built from a page would miss.
 func TestNoNextStepRidesEveryOpenDeal(t *testing.T) {
 	orgID := testOrgID(t)
-	first := noNextStepSuggestion(orgID, noTasks(), []openDeal{idle("Renewal", false)})
-	second := noNextStepSuggestion(orgID, noTasks(), []openDeal{idle("Expansion", false)})
+	first := noNextStepSuggestion(orgID, noTasks(), livePipeline(1, "digest-a"))
+	second := noNextStepSuggestion(orgID, noTasks(), livePipeline(1, "digest-b"))
 	if first == nil || second == nil {
 		t.Fatal("both accounts should raise the suggestion")
 	}

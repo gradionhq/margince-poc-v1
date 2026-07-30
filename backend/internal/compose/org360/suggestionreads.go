@@ -17,6 +17,10 @@ package org360
 // So each rule reads exactly what it needs, under the SAME row-scope
 // predicates the sections use — the caller cannot see more this way, only
 // further back.
+//
+// Every count here is an aggregate over the whole visible set, never over a
+// fetched page. A count taken from transferred rows is bounded by its own read,
+// and a rep cannot tell a capped figure from a real one.
 
 import (
 	"context"
@@ -32,12 +36,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
-// suggestionScanCap bounds the open-deal scan. An account with more open deals
-// than this has a pipeline problem no card can advise on, and the deals beyond
-// it are counted into the dropped total rather than dropped in silence.
-const suggestionScanCap = 200
-
-// lastMessage is the newest two-way message on an account, as the no-reply
+// lastMessage is the newest two-way exchange on an account, as the no-reply
 // rule needs it: who spoke, when, and which activity to cite.
 type lastMessage struct {
 	ID        ids.UUID
@@ -96,56 +95,91 @@ func newestMessage(
 	return found, true, nil
 }
 
-// openDeal is one open deal as the suggestion rules read it.
-type openDeal struct {
-	ID      ids.UUID
-	Name    string
-	Stalled bool
+// stalledDeal is one stalled open deal as the suggestion rules cite it.
+type stalledDeal struct {
+	ID   ids.UUID
+	Name string
 }
 
-// visibleOpenDeals reads every open deal on the account the caller may see,
-// longest-idle first — so a capped scan keeps the deals most worth chasing
-// rather than the most recently created ones the deals card already shows.
+// pipeline is the account's open pipeline as the deal-shaped rules read it.
 //
-// The second return is how many rows past the scan cap exist; the caller
-// folds it into the dropped total.
-func visibleOpenDeals(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
-) ([]openDeal, int, error) {
+// The counts and the digest cover EVERY open deal the caller may see; Stalled
+// carries only the rows the card can show. That split is the point: the
+// no-next-step reason states how many deals are open, and its fingerprint has
+// to change when any of them does — including one no card listed.
+type pipeline struct {
+	// OpenCount is how many open deals the caller can see, exactly.
+	OpenCount int
+	// OpenDigest identifies WHICH ones, so a dismissal keyed on it re-arms the
+	// moment the set changes rather than only when the listed part does.
+	OpenDigest string
+	// StalledCount is how many of them are stalled, exactly.
+	StalledCount int
+	// Stalled is the longest-idle few, for the rows the card offers.
+	Stalled []stalledDeal
+}
+
+// openPipeline reads the account's open pipeline: the exact figures from an
+// aggregate, and the handful of stalled deals the card lists.
+//
+// Two statements rather than one, because they answer two different shapes —
+// one row of totals, and a bounded list. Both run in the caller's own
+// transaction over the same predicate, so they cannot disagree about what is
+// visible or about what counts as stalled.
+func openPipeline(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, listLimit int,
+) (pipeline, error) {
+	var out pipeline
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
+	nowPos := arg(now)
 	dealScope, err := scopeClause(ctx, "deal", "d", arg)
 	if err != nil {
-		return nil, 0, err
+		return pipeline{}, err
 	}
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until
-		FROM deal d
-		WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)
-		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id
-		LIMIT %d`, orgPos, dealScope, suggestionScanCap+1), args...)
+	// The stall predicate is the deals module's own, at THIS read's injected
+	// instant: the 360 pins its clock, and a clause on the database's now()
+	// would count against a different moment than the wire flag was stamped at.
+	// The bind is cast explicitly: an untyped parameter next to an interval
+	// leaves Postgres unable to resolve the subtraction at all.
+	stalled := deals.StalledClause("d", fmt.Sprintf("$%d::timestamptz", nowPos))
+	openRows := fmt.Sprintf(
+		`FROM deal d
+		 WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)`,
+		orgPos, dealScope)
+
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT count(*),
+		       coalesce(md5(string_agg(d.id::text, ',' ORDER BY d.id)), ''),
+		       count(*) FILTER (WHERE %s)
+		%s`, stalled, openRows), args...).
+		Scan(&out.OpenCount, &out.OpenDigest, &out.StalledCount)
 	if err != nil {
-		return nil, 0, fmt.Errorf("read the account's open deals: %w", err)
+		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
-	found, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (openDeal, error) {
-		var d openDeal
-		var status string
-		var createdAt time.Time
-		var lastActivityAt, waitUntil *time.Time
-		if err := row.Scan(&d.ID, &d.Name, &status, &createdAt, &lastActivityAt, &waitUntil); err != nil {
-			return d, err
-		}
-		d.Stalled = deals.IsStalled(status, createdAt, lastActivityAt, waitUntil, now)
-		return d, nil
+	if out.StalledCount == 0 {
+		return out, nil
+	}
+	// Longest idle first, so a bounded list keeps the deals most worth chasing
+	// rather than whichever the deals card happens to show at the top.
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT d.id, d.name
+		%s AND (%s)
+		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id
+		LIMIT %d`, openRows, stalled, listLimit), args...)
+	if err != nil {
+		return pipeline{}, fmt.Errorf("read the account's stalled deals: %w", err)
+	}
+	out.Stalled, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (stalledDeal, error) {
+		var d stalledDeal
+		err := row.Scan(&d.ID, &d.Name)
+		return d, err
 	})
 	if err != nil {
-		return nil, 0, err
+		return pipeline{}, err
 	}
-	if len(found) > suggestionScanCap {
-		return found[:suggestionScanCap], len(found) - suggestionScanCap, nil
-	}
-	return found, 0, nil
+	return out, nil
 }
 
 // openTasks reports whether the next-steps section reached this caller, and

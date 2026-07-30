@@ -88,11 +88,11 @@ func (a *assembly) readSuggestions() error {
 }
 
 // suggestionsFor runs every rule, drops what this caller has already judged,
-// and caps what is left — reporting how many rows the cap and the scan bound
-// took together.
+// and caps what is left — reporting exactly how many suggestions the account
+// has that the answer does not carry.
 func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, int, error) {
 	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
-	beyondScan := 0
+	unlisted := 0
 
 	// The timeline reached this caller, so the no-reply rule can run.
 	if a.out.Activities != nil {
@@ -107,12 +107,14 @@ func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, i
 	// the caller may not read deals at all, and advice about a pipeline they
 	// cannot see is advice they cannot take.
 	if a.out.Deals != nil {
-		open, past, err := visibleOpenDeals(a.ctx, a.tx, a.orgID, a.now)
+		open, err := openPipeline(a.ctx, a.tx, a.orgID, a.now, maxSuggestions)
 		if err != nil {
 			return nil, 0, err
 		}
-		beyondScan = past
-		found = append(found, stalledDealSuggestions(open)...)
+		// Stalled deals the read did not list are dropped rows, counted here so
+		// the total the caller sees is the account's, not this read's.
+		unlisted = open.StalledCount - len(open.Stalled)
+		found = append(found, stalledDealSuggestions(open.Stalled)...)
 		found = appendIf(found, noNextStepSuggestion(a.orgID, a.out, open))
 	}
 
@@ -121,9 +123,9 @@ func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, i
 		return nil, 0, err
 	}
 	if len(kept) > maxSuggestions {
-		return kept[:maxSuggestions], beyondScan + len(kept) - maxSuggestions, nil
+		return kept[:maxSuggestions], unlisted + len(kept) - maxSuggestions, nil
 	}
-	return kept, beyondScan, nil
+	return kept, unlisted, nil
 }
 
 // keepUndismissed removes the suggestions this caller has already judged. The
@@ -208,12 +210,9 @@ func staleThread(
 // stalledDealSuggestions raises one per stalled open deal. The stall flag is
 // the deals module's own (deals.IsStalled, against the pipeline's window),
 // never re-derived here from a date.
-func stalledDealSuggestions(open []openDeal) []crmcontracts.Organization360Suggestion {
-	out := make([]crmcontracts.Organization360Suggestion, 0)
-	for _, deal := range open {
-		if !deal.Stalled {
-			continue
-		}
+func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization360Suggestion {
+	out := make([]crmcontracts.Organization360Suggestion, 0, len(stalled))
+	for _, deal := range stalled {
 		evidence := []crmcontracts.OrganizationBriefEvidence{{
 			EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeDeal,
 			EntityId:   openapi_types.UUID(deal.ID),
@@ -240,27 +239,24 @@ func stalledDealSuggestions(open []openDeal) []crmcontracts.Organization360Sugge
 // noise the rep would learn to scroll past, which costs the whole surface its
 // credibility.
 func noNextStepSuggestion(
-	orgID ids.OrganizationID, view *crmcontracts.Organization360, open []openDeal,
+	orgID ids.OrganizationID, view *crmcontracts.Organization360, open pipeline,
 ) *crmcontracts.Organization360Suggestion {
 	present, scheduled := openTasks(view)
-	if !present || scheduled || len(open) == 0 {
+	if !present || scheduled || open.OpenCount == 0 {
 		return nil
 	}
 	evidence := []crmcontracts.OrganizationBriefEvidence{{
 		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeOrganization,
 		EntityId:   openapi_types.UUID(orgID.UUID),
 	}}
-	// Every open deal rides the fingerprint, in the read's stable order, so
-	// closing one or opening another re-raises this rather than leaving a
-	// dismissal in force over a pipeline the account no longer has.
-	dealIDs := make([]string, 0, len(open))
-	for _, deal := range open {
-		dealIDs = append(dealIDs, deal.ID.String())
-	}
+	// The digest over EVERY open deal rides the fingerprint, so closing one or
+	// opening another re-raises this rather than leaving a dismissal in force
+	// over a pipeline the account no longer has — including a change to a deal
+	// no card listed, which a fingerprint built from a fetched page would miss.
 	return &crmcontracts.Organization360Suggestion{
 		Kind:        suggestNoNextStep,
-		Reason:      fmt.Sprintf("%d open deal(s) here and no task saying what happens next.", len(open)),
-		Fingerprint: fingerprint(string(suggestNoNextStep), strings.Join(dealIDs, ","), evidence),
+		Reason:      fmt.Sprintf("%d open deal(s) here and no task saying what happens next.", open.OpenCount),
+		Fingerprint: fingerprint(string(suggestNoNextStep), open.OpenDigest, evidence),
 		Evidence:    evidence,
 	}
 }

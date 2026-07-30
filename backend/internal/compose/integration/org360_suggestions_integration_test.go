@@ -24,6 +24,7 @@ import (
 	"strings"
 	"testing"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -90,6 +91,120 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 	if !found {
 		t.Errorf("no no_reply suggestion with 30 newer notes on the account: %+v", *view.Suggestions)
 	}
+}
+
+// Every figure a suggestion states is the ACCOUNT's, never this read's.
+//
+// The card lists at most a handful of stalled deals. The count in the
+// no-next-step reason, the dropped total, and the digest the dismissal is keyed
+// on all have to cover the deals past that listing — a figure bounded by its own
+// read is one a rep cannot tell from a real one, and a fingerprint built from
+// the listed part would leave a dismissal in force after a deal it never saw
+// changed.
+func TestSuggestionCountsAreTheAccountsNotTheReads(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	// Eight open deals, every one idle long enough to be stalled — more than the
+	// card lists, so the listing is bounded while the figures must not be.
+	const openDeals = 8
+	for i := range openDeals {
+		deal := e.SeedDeal(t, fmt.Sprintf("Deal %d", i), pipelineID, stage, &e.Rep1)
+		e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = NULL
+			WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200))
+	}
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.Suggestions == nil {
+		t.Fatal("suggestions absent")
+	}
+	listed := len(*view.Suggestions)
+	if listed == 0 || listed >= openDeals {
+		t.Fatalf("listed %d suggestions for %d stalled deals, want a bounded handful", listed, openDeals)
+	}
+	// The dropped total plus the listed rows must account for every one of them.
+	// The no-next-step rule also fires here (nothing is scheduled), so the
+	// suggestion count is the stalled deals plus that one.
+	if listed+view.SuggestionsDropped != openDeals+1 {
+		t.Errorf("listed %d + dropped %d = %d, want the %d suggestions this account has",
+			listed, view.SuggestionsDropped, listed+view.SuggestionsDropped, openDeals+1)
+	}
+
+	// Stalled deals lead, so the advice the cap cuts is the no-next-step row —
+	// a rep with eight stuck deals needs them unstuck, not a note that nothing
+	// is scheduled.
+	for _, suggestion := range (*view.Suggestions)[:listed] {
+		if string(suggestion.Kind) != "stalled_deal" {
+			t.Errorf("suggestion %q was listed ahead of a stalled deal", suggestion.Kind)
+		}
+	}
+}
+
+// The no-next-step fingerprint covers every open deal, not the listed ones.
+//
+// Closing a deal the card never showed still changes the situation the rep
+// judged, so a dismissal has to re-arm. A fingerprint built from a fetched page
+// would stay in force over a pipeline the account no longer has.
+func TestNoNextStepFingerprintFollowsUnlistedDeals(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	// Two stalled deals — under the card's cap, so the no-next-step row is
+	// listed too — plus a healthy third the stalled listing never mentions.
+	var healthy ids.UUID
+	for i := range 3 {
+		deal := e.SeedDeal(t, fmt.Sprintf("Deal %d", i), pipelineID, stage, &e.Rep1)
+		idleSince := org360Clock.AddDate(0, 0, -200)
+		if i == 2 {
+			idleSince = org360Clock.AddDate(0, 0, -1)
+			healthy = deal
+		}
+		e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+			WHERE id = $1`, deal, org.UUID, idleSince)
+	}
+
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	before := fingerprintOfKind(t, *view.Suggestions, "no_next_step")
+
+	e.WsExec(t, `UPDATE deal SET status = 'lost', lost_reason = 'other', closed_at = $2 WHERE id = $1`,
+		healthy, org360Clock)
+
+	after, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("re-assemble: %v", err)
+	}
+	if got := fingerprintOfKind(t, *after.Suggestions, "no_next_step"); got == before {
+		t.Error("closing a deal the stalled listing never named left the no-next-step " +
+			"fingerprint unchanged — a dismissal would stay in force over a pipeline the account no longer has")
+	}
+}
+
+// fingerprintOfKind finds the one suggestion of a kind, failing loudly when the
+// scenario did not produce it — a test that silently found nothing would pass by
+// comparing two empty strings.
+func fingerprintOfKind(
+	t *testing.T, found []crmcontracts.Organization360Suggestion, kind string,
+) string {
+	t.Helper()
+	for _, suggestion := range found {
+		if string(suggestion.Kind) == kind {
+			return suggestion.Fingerprint
+		}
+	}
+	t.Fatalf("no %q suggestion among %+v", kind, found)
+	return ""
 }
 
 // A dismissal belongs to the rep who made it. One rep judging a suggestion
