@@ -1732,8 +1732,11 @@ export const en = {
   "auth.checking": "Checking your session…",
   "auth.pageTitle": "Sign in · Margince",
   "auth.loginTitle": "Sign in to Margince",
+  // Three short declaratives rather than one comma-joined sentence
+  // (VOICE-RULE-1): each clause is a separate fact about the installation, and
+  // a reader who stops after the first one has still read a true sentence.
   "auth.loginSub":
-    "Margince runs on your own server. Accounts are created by your administrator, and there is no self-signup.",
+    "Margince runs on your own server. Accounts come from your administrator. There is no self-signup.",
   "auth.coreDisclosure": "Margince · AI system",
   "auth.coreBoundary":
     "I can only use your context after Margince verifies that it's you.",
@@ -1764,7 +1767,10 @@ export const en = {
   "auth.coreProviderOpenAI": "OpenAI",
   "auth.coreProviderCompatible": "compatible provider",
   "auth.coreProviderVllm": "vLLM",
-  "auth.email": "Email address",
+  // The shortest label that still names the field (VOICE-RULE-1), pinned by the
+  // login spec §7.1/§7.2 (Amendment 4) and reconciling
+  // single-organization-auth-concept.md §12, which already drew "Email".
+  "auth.email": "Email",
   // A placeholder is an EXAMPLE, never an instruction and never the label
   // again. "Enter your email" in a placeholder is a label that disappears.
   "auth.emailPlaceholder": "you@company.com",
@@ -1777,6 +1783,12 @@ export const en = {
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
   "auth.orWithEmail": "or with email",
+  // Sits INSIDE a disabled provider button, so it becomes part of that button's
+  // accessible name rather than a description a non-focusable control never hands
+  // over. On the login screen this is preview-only copy — the capability carries
+  // no availability field, so the shipped surface never marks a provider (§3.3) —
+  // and it is in the catalog anyway, because a German reviewer has to be able to
+  // read it. The provider's own label beside it stays the SERVER's string.
   // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
   // keeps `workspace` internal and §7.3 removed it from authentication. And the
   // line states that ACCESS is restricted, never that data is safe, encrypted or
@@ -1807,14 +1819,17 @@ export const en = {
     "This Margince installation isn't ready to sign you in. An operator needs to complete or repair the setup.",
   "auth.forgotLink": "Forgot password?",
   "auth.forgotTitle": "Reset your password",
+  // Two sentences, sentence-cased, with no dash. VOICE-RULE-5 forbids an em or
+  // en dash anywhere in user-facing copy, and a lowercase opening mid-surface
+  // reads as a fragment rather than as a sentence. Same for auth.resetSub.
   "auth.forgotSub":
-    "enter your email — if it has an account, a reset link is on its way",
+    "Enter your email. If it has an account, a reset link is on its way.",
   "auth.sendResetLink": "Send reset link",
   "auth.forgotSentTitle": "Check your inbox",
   "auth.forgotSentBody":
     "If that address has an account, a reset link is on its way. It expires in one hour.",
   "auth.resetTitle": "Choose a new password",
-  "auth.resetSub": "your reset link checks out — set the new password below",
+  "auth.resetSub": "Your link is valid. Choose a new password.",
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",

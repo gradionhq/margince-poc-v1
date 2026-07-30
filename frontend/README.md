@@ -27,11 +27,17 @@ in `src/app/ui-preview.ts`; the naming prefix is the contract with the reader.
 
 | Var | What it draws |
 |---|---|
-| `VITE_UI_PREVIEW_OIDC=1` | The federated sign-in buttons on the login screen. |
+| `VITE_UI_PREVIEW_OIDC=1` | The federated sign-in buttons on the login screen, with the second provider marked *not yet available*. |
+| `VITE_UI_PREVIEW_RESET=1` | The "Forgot password?" link and the request card it opens. |
 
 ```sh
+pnpm dev:preview                    # both switches on — the demo entry point
+pnpm build:preview                  # the same, built
 VITE_UI_PREVIEW_OIDC=1 pnpm dev     # login screen, with the SSO block drawn
 ```
+
+**A preview build draws controls this installation cannot honour, so it must never
+be what ships** — `dev` and `build` stay unchanged and stay honest.
 
 `/auth/capabilities` serves `oidc_providers: []` because the OIDC flow has not
 shipped (§19), and `ProviderButtons` correctly renders nothing for an empty
@@ -44,8 +50,35 @@ labels are deliberately not in the i18n catalogs: `oidc_providers[].label` is
 server-owned copy that §11.5 says is never translated. A preview build logs a
 one-time `console.warn` saying exactly this.
 
-Unset, the switch reads `undefined` and nothing changes. Both positions are
-pinned by `src/app/ui-preview.test.ts` and the `federated sign-in` cases in
+The same switch marks the second of those two providers **not yet available** —
+`previewedUnavailableProviders()`, a set of keys `ProviderButtons` renders as a
+native `disabled` button plus an `.is-unavailable` class the stylesheet draws.
+The label is untouched, and that is the point: the marker must not splice words
+we wrote onto a label the installation wrote. So the state is carried visually
+and by `disabled`, and the trade is stated rather than hidden — a screen reader
+hears that the control is unavailable, but not why. It can only ever come from
+here:
+`oidc_providers[]` items are `{ key, label }` with no availability field, so no
+server can produce a marked provider, `ProviderButtons` receives an empty set in
+the product, and its shipped behaviour is unchanged. That matters because §3.3
+forbids a dead provider control by name (Google, Microsoft, SSO) and ADR-0076
+keeps §3.3 load-bearing — a marked button is legal here for the same reason a
+Storybook story is, and for no other.
+
+`VITE_UI_PREVIEW_RESET=1` draws the "Forgot password?" link. This flow is
+finished on both sides — `POST /auth/forgot-password` and
+`POST /auth/reset-password` in the contract, handlers in
+`backend/internal/modules/identity/reset.go`, and all four views on this screen —
+and `password_reset` is computed live as `h.resetMailer != nil`, so it reports
+`false` on the shipped `config/margince.yaml` only because that file has no
+`email:` block. The switch draws the link; it wires no mailer. The request form
+behind it is the real one, so submitting it against a mailer-less installation
+gets a `501 not_implemented` back and shows it as the form's failure note — the
+confirmation, the deep-link form and the spent-token refusal stay asserted in
+`src/screens/auth.test.tsx` rather than reachable here.
+
+Unset, each switch reads `undefined` and nothing changes. Both positions of both
+are pinned by `src/app/ui-preview.test.ts` and the `federated sign-in` cases in
 `src/screens/auth.test.tsx`; the e2e lane builds without any of them, so
 `offers no identity provider that does not work` still measures the real
 default.

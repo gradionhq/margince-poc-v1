@@ -44,6 +44,64 @@ export function uiPreviewOidcEnabled(): boolean {
   return isOn(import.meta.env.VITE_UI_PREVIEW_OIDC);
 }
 
+/**
+ * `VITE_UI_PREVIEW_RESET=1` — draw the "Forgot password?" link even though this
+ * installation reports the reset capability as off.
+ *
+ * Why it exists: unlike OIDC, this flow is finished on BOTH sides. The contract
+ * documents `POST /auth/forgot-password` and `POST /auth/reset-password`, the
+ * handlers are `backend/internal/modules/identity/reset.go`, and this screen
+ * already renders all four views behind the link — the request form, the neutral
+ * "check your inbox" confirmation, the emailed deep link's new-password form, and
+ * the spent-token refusal. What is missing is one operator setting.
+ * `AuthCapabilities.password_reset` is computed live as `h.resetMailer != nil`,
+ * and the shipped `config/margince.yaml` carries no `email:` block, so
+ * `Email.Enabled` is false, no mailer is wired, and the capability answers
+ * `false` on every local run. The link is right to be absent there — and a design
+ * review that only ever sees the local run never sees the link, or the card behind
+ * it, at all.
+ *
+ * What it does NOT do: it does not wire a mailer, and it does not fake one. What
+ * becomes reviewable is the link and the request card it opens — the real one,
+ * posting to the real endpoint. Against a mailer-less installation that post is
+ * answered `501 not_implemented` (`httperr.NotImplemented`; a status this path does
+ * not enumerate in `crm.yaml`) and the card shows it as its failure note, so the
+ * confirmation, the deep-link form and the spent-token refusal stay where they
+ * were — asserted in `screens/auth.test.tsx`, not on this screen. The switch draws
+ * the door and the door opens; the room behind it is the installation's to
+ * configure.
+ *
+ * Read at the call rather than at module load, for the same reason as the OIDC
+ * switch above.
+ */
+export function uiPreviewResetEnabled(): boolean {
+  return isOn(import.meta.env.VITE_UI_PREVIEW_RESET);
+}
+
+let warnedReset = false;
+
+/**
+ * The single override site for the reset link: what the server said in, what the
+ * screen draws out.
+ *
+ * A served `true` wins and is returned untouched — an installation that really
+ * has a mailer is the truth, and the preview only ever fills a genuine `false`.
+ */
+export function previewedPasswordReset(served: boolean): boolean {
+  if (served || !uiPreviewResetEnabled()) {
+    return served;
+  }
+  if (!warnedReset) {
+    warnedReset = true;
+    // Loud on purpose, once: a build that draws controls the installation cannot
+    // honour has to say so where anyone inspecting it will see it.
+    console.warn(
+      "[ui-preview] VITE_UI_PREVIEW_RESET is on: the forgot-password link is drawn for design review. This installation has no outbound mailer configured, so a submitted request is answered 501 by the server.",
+    );
+  }
+  return true;
+}
+
 type OidcProviders =
   components["schemas"]["AuthCapabilities"]["oidc_providers"];
 
@@ -97,4 +155,38 @@ export function previewedOidcProviders(served: OidcProviders): OidcProviders {
     );
   }
   return PREVIEW_OIDC_PROVIDERS;
+}
+
+const NO_UNAVAILABLE_PROVIDERS: ReadonlySet<string> = new Set();
+const PREVIEW_UNAVAILABLE_PROVIDERS: ReadonlySet<string> = new Set([
+  "microsoft",
+]);
+
+/**
+ * The provider keys the preview marks as **not yet available**, so a reviewer can
+ * see both halves of the design: a provider offered normally beside one the
+ * installation has not finished wiring.
+ *
+ * This can only ever come from the preview layer, and that is the load-bearing
+ * part rather than an implementation note. `AuthCapabilities.oidc_providers`
+ * items are typed `{ key, label }` and carry NO availability field — there is no
+ * wire shape a real server could use to say this, so a real server can never
+ * produce a marked provider. `ProviderButtons` therefore behaves identically in
+ * the product: it receives an empty set, and an empty set is the same component
+ * it was before this existed. Nothing about the shipped surface changes, which is
+ * why this needs no spec amendment.
+ *
+ * The spec position, plainly: §3.3 of the login spec ("honest functionality")
+ * forbids a disabled provider control, naming Google, Microsoft and SSO
+ * explicitly, and ADR-0076 keeps §3.3 load-bearing rather than relaxed — Decision
+ * 1's own prose bans a control whose behaviour does not exist. A marked button is
+ * exactly that control, so it is illegal on the PRODUCT surface and stays
+ * illegal. What makes this legal is what it is: a design-review fixture in the
+ * same class as a Storybook story, off unless a build-time var is set, never
+ * reachable by a user of a shipped build.
+ */
+export function previewedUnavailableProviders(): ReadonlySet<string> {
+  return uiPreviewOidcEnabled()
+    ? PREVIEW_UNAVAILABLE_PROVIDERS
+    : NO_UNAVAILABLE_PROVIDERS;
 }

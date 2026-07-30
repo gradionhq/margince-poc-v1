@@ -167,9 +167,29 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
+/* In-flight: momentary, and the control is coming back. Pale reads as "wait". */
 .auth-social:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+/* A provider the installation advertises but cannot currently complete
+   (preview-only — `app/ui-preview.ts`; the shipped surface never marks a
+   provider, §3.3). Deeper than the in-flight dim because this is a resting state
+   rather than a pause, with a weaker border so the box stops reading as a live
+   control. Ordered after `:disabled` deliberately: equal specificity, so this
+   one wins by position.
+
+   Uniform OPACITY rather than a swapped background or a grayscaled mark, and
+   both alternatives are worse for a reason worth keeping:
+     - a background swap inverts in dark. `--bgCard` sits LIGHTER than
+       `--bgElevated` there, so the dead button would become the prominent one.
+       Opacity recedes against whatever the theme put behind it.
+     - `filter: grayscale()` on the mark would recolour another company's logo,
+       and WDS-GATE-1's named exception exists precisely so the mark keeps that
+       company's own colours. Fading is not recolouring. */
+.auth-social.is-unavailable {
+  opacity: 0.4;
+  border-color: var(--borderSubtle);
 }
 /* Labels the path BELOW it. The rules are drawn on the element rather than as
    two spans so the text stays the only thing in the accessibility tree. */
@@ -634,6 +654,10 @@
    which is what hiding them would be. */
 .auth-limits {
   list-style: none;
+  /* The statement and the scope line are one thought; the limits are a second,
+     enumerated one. Without this the list crowds the paragraph above it and the
+     four rows read as its continuation rather than as a set. */
+  margin-top: var(--space-4);
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: var(--space-3) var(--space-4);
