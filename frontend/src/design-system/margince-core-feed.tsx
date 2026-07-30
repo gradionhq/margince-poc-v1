@@ -12,6 +12,8 @@
  *
  * Internal to the Core (WDS-CORE-1): callers get one component, not three.
  */
+import type { CSSProperties } from "react";
+
 /*
  * The artifact's HERO mote table, as FRACTIONS of --coreSize.
  *
@@ -50,27 +52,33 @@ const MOTES = [
  * glass rather than on its edge. One figure covers both Core sizes: the two px
  * values it replaces (74px of 230, 48px of 150) were the same 0.32 written twice.
  */
+
+// The mote element's style carries custom CSS-variable keys alongside the
+// standard properties, so the object literal needs those keys typed rather
+// than cast away.
+type CoreVars = CSSProperties & Record<`--${string}`, string | number>;
+
 export function CoreFeed({ endAt = 0.32 }: { endAt?: number }) {
   return (
     <div className="core-feed">
-      {MOTES.map((mote) => (
-        <i
-          key={`${mote.a}-${mote.dl}`}
-          style={
-            {
-              "--a": `${mote.a}deg`,
-              "--d": `calc(var(--coreSize) * var(--coreFeedReach) * ${mote.d})`,
-              "--t": `${mote.t}s`,
-              "--dl": `${mote.dl}s`,
-              "--s": `${mote.s}px`,
-              "--o": mote.o,
-              // Smaller than the orb's radius, so it vanishes inside the glass
-              // rather than on its edge.
-              "--e": `calc(var(--coreSize) * ${endAt})`,
-            } as React.CSSProperties
-          }
-        />
-      ))}
+      {MOTES.map((mote) => {
+        // `satisfies CoreVars` rejects this literal (TS2559: intersecting
+        // csstype's `Properties` with a custom-property Record leaves no
+        // properties in common for the fresh-literal check), so the object is
+        // typed via the declaration instead, which the same union accepts.
+        const vars: CoreVars = {
+          "--a": `${mote.a}deg`,
+          "--d": `calc(var(--coreSize) * var(--coreFeedReach) * ${mote.d})`,
+          "--t": `${mote.t}s`,
+          "--dl": `${mote.dl}s`,
+          "--s": `${mote.s}px`,
+          "--o": mote.o,
+          // Smaller than the orb's radius, so it vanishes inside the glass
+          // rather than on its edge.
+          "--e": `calc(var(--coreSize) * ${endAt})`,
+        };
+        return <i key={`${mote.a}-${mote.dl}`} style={vars} />;
+      })}
     </div>
   );
 }

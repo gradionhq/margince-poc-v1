@@ -86,13 +86,20 @@ const modeKeys: Record<AssistantProfile["inference_mode"], MessageKey> = {
  * The ceiling on the clamp exists so a short translation still types at a
  * readable pace instead of finishing before the eye arrives.
  */
-const TYPE_START_MS = 140;
-const TYPE_BUDGET_MS = 2000;
+export const TYPE_START_MS = 140;
+export const TYPE_BUDGET_MS = 2000;
 
-function typeSpeedFor(text: string): number {
+export function typeSpeedFor(text: string): number {
+  // The budget covers the WHOLE reveal, so the lead-in is spent before the
+  // first character and what is left is divided between the GAPS, of which
+  // there is one fewer than there are characters. Dividing the full budget by
+  // the full length overran it by the lead-in plus one interval, which is how
+  // the 2000 ms ceiling was missed on every string.
+  const gaps = Math.max(1, text.length - 1);
+  const perGap = Math.floor((TYPE_BUDGET_MS - TYPE_START_MS) / gaps);
   // Clamped at both ends: a very short statement should not crawl, and a very
   // long one should not become an unreadable flicker.
-  return Math.max(12, Math.min(42, Math.floor(TYPE_BUDGET_MS / text.length)));
+  return Math.max(12, Math.min(42, perGap));
 }
 
 export function AuthExperience({
@@ -280,6 +287,33 @@ function TypedStatement({ text }: Readonly<{ text: string }>) {
       </span>
     </p>
   );
+}
+
+/**
+ * The disclosure that survives the phone layout.
+ *
+ * Below 561px the surface is the task alone and `aside.auth-identity` is gone,
+ * which would otherwise take every word about the AI with it — the Core that
+ * remains is `aria-hidden` decoration (WDS-CORE-4), so a phone user, and every
+ * screen-reader user on one, would be told nothing at all. Decision 1 does not
+ * get to lapse at a breakpoint.
+ *
+ * The boundary statement is the one line that carries it: it is the limit the
+ * system states about itself in the first person, so it discloses the AI and
+ * bounds it in the same sentence.
+ *
+ * It sits in the task column rather than inside `.auth-card` so that ONE
+ * insertion covers login, forgot, reset, the outcome notices and the
+ * unavailable screen. The wide layout hides it in CSS, which keeps it out of
+ * the accessibility tree entirely there — the aside is already saying it, and
+ * saying it twice would be worse than not saying it here.
+ *
+ * Static, with no typewriter: the animated one belongs to the identity region,
+ * and two streams of the same sentence would be reading it twice.
+ */
+export function PhoneDisclosure() {
+  const t = useT();
+  return <p className="auth-phone-disclosure">{t("auth.coreBoundary")}</p>;
 }
 
 function RuntimePosture({ profile }: Readonly<{ profile: AssistantProfile }>) {

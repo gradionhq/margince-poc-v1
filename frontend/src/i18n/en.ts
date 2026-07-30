@@ -1787,12 +1787,6 @@ export const en = {
   // Labels the password path, not the provider buttons above it: where the
   // installation runs SSO, the form beneath this divider is the fallback door.
   "auth.orWithEmail": "or with email",
-  // Sits INSIDE a disabled provider button, so it becomes part of that button's
-  // accessible name rather than a description a non-focusable control never hands
-  // over. On the login screen this is preview-only copy — the capability carries
-  // no availability field, so the shipped surface never marks a provider (§3.3) —
-  // and it is in the catalog anyway, because a German reviewer has to be able to
-  // read it. The provider's own label beside it stays the SERVER's string.
   // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
   // keeps `workspace` internal and §7.3 removed it from authentication. And the
   // line states that ACCESS is restricted, never that data is safe, encrypted or

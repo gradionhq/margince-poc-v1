@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { MarginceCoreState } from "./margince-core";
 import { usePrefersReducedMotion } from "./motion";
 
@@ -148,6 +148,64 @@ function resolveTint(host: HTMLElement): [number, number, number] | null {
   ];
 }
 
+/**
+ * Compile and link the shader pair, or return null having released everything.
+ *
+ * Null is the ONLY failure signal, and every rung of the build reports through
+ * it: a driver that rejects the shader still hands back non-null objects, so
+ * without the explicit `COMPILE_STATUS` and `LINK_STATUS` reads the caller gets
+ * a program that draws nothing and cannot tell it apart from one that works.
+ * That is a blank sphere on the machines least able to report it.
+ *
+ * The shaders are deleted on the way out of BOTH paths. After a successful link
+ * the program holds its own reference, so dropping ours here is the release, not
+ * a leak — and it leaves the caller one object to clean up instead of three.
+ */
+function buildProgram(gl: WebGLRenderingContext): WebGLProgram | null {
+  const compile = (type: number, source: string) => {
+    const shader = gl.createShader(type);
+    if (!shader) {
+      return null;
+    }
+    gl.shaderSource(shader, source);
+    gl.compileShader(shader);
+    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+      gl.deleteShader(shader);
+      return null;
+    }
+    return shader;
+  };
+
+  const program = gl.createProgram();
+  const vs = compile(gl.VERTEX_SHADER, VERTEX_SHADER);
+  const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
+  const release = () => {
+    if (vs) {
+      gl.deleteShader(vs);
+    }
+    if (fs) {
+      gl.deleteShader(fs);
+    }
+  };
+  if (!program || !vs || !fs) {
+    release();
+    if (program) {
+      gl.deleteProgram(program);
+    }
+    return null;
+  }
+  gl.attachShader(program, vs);
+  gl.attachShader(program, fs);
+  gl.linkProgram(program);
+  const linked = gl.getProgramParameter(program, gl.LINK_STATUS);
+  release();
+  if (!linked) {
+    gl.deleteProgram(program);
+    return null;
+  }
+  return program;
+}
+
 export function CoreLiquid({
   state = "idle",
   className = "",
@@ -157,48 +215,49 @@ export function CoreLiquid({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const reduced = usePrefersReducedMotion();
+  // Bumped by `webglcontextrestored` to re-run the effect. A lost context
+  // invalidates every object built from it, so recovery is a rebuild from
+  // scratch rather than a resume, and re-running the setup IS that rebuild.
+  const [contextEpoch, setContextEpoch] = useState(0);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies(contextEpoch): the effect never reads it, which is the point. It is the rebuild trigger: a restored context invalidates every object built below, so `webglcontextrestored` bumps it to run this setup again. Dropping it strands the Core on the CSS fallback for the rest of the session.
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) {
       return;
     }
+    // WDS-CORE-3: the state still has to render, and it renders through the
+    // stylesheet — `.core-fluid.off` paints the per-state gradient. Setting a
+    // class rather than an inline background is what lets the fallback vary by
+    // state without this file knowing any colour.
+    //
+    // Every GPU exit takes this path, not just a missing context: a driver that
+    // rejects the shader hands back non-null objects and then draws nothing, so
+    // an unchecked compile is indistinguishable from a working Core until you
+    // look at an empty square.
+    const fallBackToCSS = () => canvas.classList.add("off");
+
     const gl = canvas.getContext("webgl", {
       alpha: true,
       antialias: true,
       premultipliedAlpha: true,
     });
     if (!gl) {
-      // No WebGL (or jsdom). WDS-CORE-3: the state still has to render, and it
-      // renders through the stylesheet — `.core-fluid.off` paints the per-state
-      // gradient. Setting a class rather than an inline background is what lets
-      // the fallback vary by state without this file knowing any colour.
-      canvas.classList.add("off");
+      // No WebGL, or jsdom.
+      fallBackToCSS();
       return;
     }
-    canvas.classList.remove("off");
 
-    const compile = (type: number, source: string) => {
-      const shader = gl.createShader(type);
-      if (!shader) {
-        return null;
-      }
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
-      return shader;
-    };
-
-    const program = gl.createProgram();
-    const vs = compile(gl.VERTEX_SHADER, VERTEX_SHADER);
-    const fs = compile(gl.FRAGMENT_SHADER, FRAGMENT_SHADER);
-    if (!program || !vs || !fs) {
+    const program = buildProgram(gl);
+    if (!program) {
+      fallBackToCSS();
       return;
     }
-    gl.attachShader(program, vs);
-    gl.attachShader(program, fs);
-    gl.linkProgram(program);
     // biome-ignore lint/correctness/useHookAtTopLevel: gl.useProgram is a WebGL call, not a React hook — the `use` prefix trips the heuristic
     gl.useProgram(program);
+    // Only now is there something to draw. Clearing the class earlier meant a
+    // rejected shader left the canvas transparent with the CSS state removed.
+    canvas.classList.remove("off");
 
     const buffer = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -282,14 +341,29 @@ export function CoreLiquid({
     };
     frame = requestAnimationFrame(render);
 
+    // The GPU can take the context away at any moment — a driver reset, a
+    // laptop switching graphics cards, too many live contexts on the page. The
+    // canvas keeps its last frame for a beat and then goes transparent, so
+    // without this the Core simply vanishes on a machine that was rendering it
+    // a second ago. `preventDefault` is what makes the loss recoverable at all:
+    // without it the browser never fires `webglcontextrestored`.
+    const onLost = (event: Event) => {
+      event.preventDefault();
+      cancelAnimationFrame(frame);
+      fallBackToCSS();
+    };
+    const onRestored = () => setContextEpoch((epoch) => epoch + 1);
+    canvas.addEventListener("webglcontextlost", onLost);
+    canvas.addEventListener("webglcontextrestored", onRestored);
+
     return () => {
       cancelAnimationFrame(frame);
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
       gl.deleteProgram(program);
-      gl.deleteShader(vs);
-      gl.deleteShader(fs);
       gl.deleteBuffer(buffer);
     };
-  }, [reduced, state]);
+  }, [reduced, state, contextEpoch]);
 
   return <canvas ref={ref} className={`core-fluid ${className}`.trim()} />;
 }

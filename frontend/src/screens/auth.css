@@ -38,7 +38,7 @@
   }
 }
 
-@keyframes authRise {
+@keyframes auth-rise {
   from {
     opacity: 0;
     transform: translateY(16px);
@@ -79,7 +79,7 @@
   display: flex;
   flex-direction: column;
   gap: 22px;
-  animation: authRise 0.8s 0.1s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: auth-rise 0.8s 0.1s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
 .auth-wordmark {
@@ -571,7 +571,7 @@
 .auth-scope,
 .auth-limits,
 .auth-identity-foot {
-  animation: authRise 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
+  animation: auth-rise 0.7s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 .auth-kicker {
   animation-delay: 0ms;
@@ -618,6 +618,13 @@
   letter-spacing: -0.025em;
   color: var(--textPrimary);
 }
+/* The phone's copy of the boundary statement (`PhoneDisclosure`), which only the
+   ≤560 block turns on. `display: none` rather than a visual hide, deliberately:
+   the identity region is stating the same sentence at this width, and a
+   screen reader must not meet it twice. */
+.auth-phone-disclosure {
+  display: none;
+}
 /* ZERO layout shift while typing. The ghost is the full sentence rendered
    invisibly, so the paragraph is already its final height on the first frame and
    the scope line below it never moves. `visibility: hidden` rather than
@@ -636,9 +643,9 @@
   margin-left: 3px;
   vertical-align: -0.08em;
   background: var(--accent);
-  animation: authCaret 1s steps(1) infinite;
+  animation: auth-caret 1s steps(1) infinite;
 }
-@keyframes authCaret {
+@keyframes auth-caret {
   0%,
   49% {
     opacity: 1;
@@ -879,19 +886,32 @@
   /*
    * PHONE ONLY: the surface is the task, one card, full height.
    *
-   * This drops the identity region below 560px, which reverses what Decision 1
-   * asks for and what the wide layout still does — the words that disclose the
-   * AI are gone on a phone, and the Core that remains is `aria-hidden`
-   * decoration, so nothing announces it. Above this breakpoint (tablet, 200%
-   * zoom, desktop) the region is untouched. Recorded as an open decision in
-   * STATUS.md; the e2e case that used to forbid exactly this now pins the split
-   * instead, so the boundary is enforced rather than merely intended.
+   * The identity region does not fit that and does not survive it, so what it
+   * was there to SAY is carried instead by `.auth-phone-disclosure` in the task
+   * column above. Disclosure is the obligation (Decision 1); the aside is only
+   * the wide layout's way of meeting it. Above this breakpoint (tablet, 200%
+   * zoom, desktop) the region is untouched, and there the phone line is the one
+   * that is off — exactly one of the two is ever in the accessibility tree.
+   * The e2e case pins the split in both directions.
    */
   .auth-surface {
     grid-template-rows: 1fr;
   }
   .auth-identity {
     display: none;
+  }
+  /* Set as body copy, not as the aside's display-size statement: here it leads
+     into the form rather than anchoring a region of its own, and at 32px it
+     would outweigh the h1 naming the task. */
+  .auth-phone-disclosure {
+    display: block;
+    margin: 0;
+    font-family: var(--f-body);
+    font-size: 14px;
+    line-height: 1.45;
+    color: var(--textSecondary);
+    /* Clear of the Core in the corner, which the wordmark row also allows for. */
+    padding-right: 84px;
   }
   .auth-task {
     /* The card is the whole screen, so the fill has to come from the row rather

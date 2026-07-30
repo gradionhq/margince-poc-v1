@@ -121,13 +121,13 @@
   inset: 0;
   display: grid;
   place-items: center;
-  animation: coreFloat 11s var(--coreEase) infinite;
+  animation: core-float 11s var(--coreEase) infinite;
 }
 /* Deliberately NOT on the beat: a slow drift sharing no factor with the breath
    keeps the two from locking into one pumping motion. */
-@keyframes coreFloat {
-  from,
-  to {
+@keyframes core-float {
+  0%,
+  100% {
     transform: translateY(-4px);
   }
   50% {
@@ -178,8 +178,8 @@
      each other, so the swell and the brightening drifted in and out of phase over
      a ~19s cycle — read as the Core stuttering rather than as two rhythms. */
   animation:
-    coreBreathe var(--coreBeat) var(--coreEase) infinite,
-    coreSheen var(--coreBeat) var(--coreEase) infinite;
+    core-breathe var(--coreBeat) var(--coreEase) infinite,
+    core-sheen var(--coreBeat) var(--coreEase) infinite;
 }
 /* Light pooling on the ground under the glass. Sized from --coreSize like the
    halo, so it tracks every breakpoint instead of the artifact's fixed 150×26px.
@@ -231,9 +231,9 @@
    checked itself on the way back, and settled with a visible stop. A single
    midpoint has no interior stop to hitch on, and the smaller amplitude is what
    turns a pulse into a breath. */
-@keyframes coreBreathe {
-  from,
-  to {
+@keyframes core-breathe {
+  0%,
+  100% {
     transform: scale(1);
   }
   50% {
@@ -241,9 +241,9 @@
   }
 }
 /* the Core answers: the glass brightens as light lands, on the same breath */
-@keyframes coreSheen {
-  from,
-  to {
+@keyframes core-sheen {
+  0%,
+  100% {
     filter: brightness(1) saturate(1);
   }
   50% {
@@ -311,13 +311,13 @@
     color-mix(in srgb, var(--coreLight) 5%, transparent) 55%,
     transparent 70%
   );
-  animation: coreFed var(--coreBeat) var(--coreEase) infinite;
+  animation: core-fed var(--coreBeat) var(--coreEase) infinite;
 }
 /* The halo is light leaving the sphere, so it swells WITH the sphere — on the
    beat, not at 0.7 of it, which put the brightest halo over a shrinking body. */
-@keyframes coreFed {
-  from,
-  to {
+@keyframes core-fed {
+  0%,
+  100% {
     opacity: 0.88;
     transform: scale(1);
   }
@@ -357,11 +357,11 @@
     transparent 100%
   );
   box-shadow: 0 0 10px 3px color-mix(in srgb, var(--coreLight) 22%, transparent);
-  animation: coreFeed var(--t) cubic-bezier(0.32, 0, 0.5, 1) var(--dl) infinite;
+  animation: core-feed var(--t) cubic-bezier(0.32, 0, 0.5, 1) var(--dl) infinite;
 }
 /* one long smooth spiral: transform is set only at the ends, so the path never
    changes direction mid-flight. Opacity does the arriving and the dissolving. */
-@keyframes coreFeed {
+@keyframes core-feed {
   0% {
     opacity: 0;
     transform: rotate(var(--a)) translateX(var(--d)) scale(0.7);

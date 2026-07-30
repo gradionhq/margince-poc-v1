@@ -25,7 +25,7 @@ import {
 } from "../design-system/provider-mark";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { AuthExperience, type AuthPhase } from "./auth-core";
+import { AuthExperience, type AuthPhase, PhoneDisclosure } from "./auth-core";
 import { problemMessage } from "./common";
 import "./auth.css";
 
@@ -142,6 +142,7 @@ export function AuthScreen({
       phase={view.kind === "login" ? authPhase : "quiet"}
     >
       <Wordmark alt={t("auth.title")} />
+      <PhoneDisclosure />
       {view.kind === "login" && (
         <>
           {notice && (
@@ -219,6 +220,7 @@ export function AvailabilityScreen({
   return (
     <AuthExperience phase="unavailable">
       <Wordmark alt={t("auth.title")} />
+      <PhoneDisclosure />
       <section className="auth-card" role="alert">
         <h1>
           {t(

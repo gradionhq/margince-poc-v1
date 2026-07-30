@@ -707,10 +707,24 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
         const submit = page.getByRole("button", { name: "Anmelden" });
         await submit.scrollIntoViewIfNeeded();
         await expect(submit).toBeVisible();
+        // Thrown rather than asserted-and-continued: an `if (box)` guard around
+        // the checks below would let a null box SKIP them, and a test that can
+        // no-op is the thing this one exists to stop being.
         const box = await submit.boundingBox();
-        expect(box).not.toBeNull();
+        if (!box) {
+          throw new Error("the submit button rendered no box");
+        }
+        const viewport = page.viewportSize();
+        if (!viewport) {
+          throw new Error("the page reported no viewport");
+        }
         // §6.5/§12: 44px is the target floor, not a rounded-up number.
-        expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44);
+        expect(Math.round(box.height)).toBeGreaterThanOrEqual(44);
+        // `toBeVisible()` passes for a CSS-visible element parked outside the
+        // viewport on a fixed, overflow-hidden surface, which is exactly the
+        // defect this test is named for. Pin containment directly.
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
       });
 
       // Where the region IS part of the surface, it shows all of itself: no
@@ -718,26 +732,33 @@ test.describe("ADR-0076: the unauthenticated surface", () => {
       // implementations dropped two of them with `display: none`). Count AND
       // rendered height, because a count alone passes on a hidden node.
       //
-      // Where it is NOT — the phone layout — the check is that the surface is
-      // whole rather than half-built: the region is absent by design, and what
-      // remains is one card with the Core in its header. A partly-rendered
-      // region, or limits present but invisible, would fail both branches.
+      // Where it is NOT — the phone layout — the region is absent by design and
+      // what remains is one card with the Core in its header. But the DISCLOSURE
+      // is not the region's to take with it: the Core is `aria-hidden`, so
+      // dropping the aside without the phone line leaves a phone user, and every
+      // screen-reader user on one, told nothing about the AI at all. Exactly one
+      // of the two statements is live at any width, so neither branch can pass
+      // by saying it twice.
       test("shows the identity region whole, or not at all", async ({
         page,
       }) => {
         await page.goto("/");
         const region = page.locator("aside.auth-identity");
         const limits = page.locator(".auth-limits li");
+        const phoneLine = page.locator(".auth-phone-disclosure");
         if (identity) {
           await expect(region).toBeVisible();
           await expect(limits).toHaveCount(4);
           for (let index = 0; index < 4; index += 1) {
             await expect(limits.nth(index)).toBeVisible();
           }
+          await expect(phoneLine).toBeHidden();
         } else {
           await expect(region).toBeHidden();
           await expect(page.locator("[data-core-state]")).toHaveCount(1);
           await expect(page.locator("main.auth-task")).toBeVisible();
+          await expect(phoneLine).toBeVisible();
+          await expect(phoneLine).not.toBeEmpty();
         }
       });
     });

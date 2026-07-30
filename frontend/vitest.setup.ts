@@ -1,3 +1,5 @@
+import { vi } from "vitest";
+
 // Node ≥23 ships its own global Web Storage: a `localStorage` getter that
 // yields undefined unless the process was started with --localstorage-file.
 // Because the key already exists on the Node global, vitest's populateGlobal
@@ -55,5 +57,5 @@ if (typeof window !== "undefined") {
 	// `if (!…)` guard therefore never fires, and every render of a screen carrying
 	// the Core prints a twelve-line jsdom stack to stderr — noise that trains a
 	// reader to ignore test output, which is where the next real error hides.
-	HTMLCanvasElement.prototype.getContext = (() => null) as never;
+	vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
 }

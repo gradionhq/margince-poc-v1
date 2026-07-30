@@ -547,18 +547,19 @@ this build repo.
   product/positioning commitment, `WDS-CORE-1/3/4` are engineering invariants, and
   the WCAG parts of `Decision 6` are obligations to cite rather than clauses to
   sign.
-- **The phone layout drops the identity region, reversing Decision 1 below
-  561px.** The login surface on a phone is now the task alone — one full-height
-  card, the Core in its header beside the wordmark — and `auth.css`'s ≤560 block
-  hides `aside.auth-identity` outright. Tablet, 200% zoom and desktop are
-  unchanged. Two consequences to settle with the decision: the words that disclose
-  the AI (the kicker, the boundary statement, the four limits) are absent on a
-  phone, and the Core that remains is `aria-hidden` decoration — so a phone user,
-  and every screen-reader user on one, gets no disclosure at all. The e2e case
-  that used to forbid this now pins the split in both directions ("shows the
-  identity region whole, or not at all"), so the boundary is enforced rather than
-  merely intended. Cheapest fix if the decision holds but the gap does not: keep
-  ONE line — the kicker, or the boundary statement — inside the card on phones.
+- **The phone layout drops the identity region but keeps the disclosure, which
+  is a partial Decision 1 below 561px.** The login surface on a phone is the task
+  alone — one full-height card, the Core in its header beside the wordmark — and
+  `auth.css`'s ≤560 block hides `aside.auth-identity`. Tablet, 200% zoom and
+  desktop are unchanged. What no longer travels with the aside is the DISCLOSURE:
+  `PhoneDisclosure` carries the boundary statement in the task column at that
+  width, so a phone user, and every screen-reader user on one, is still told what
+  the system is and what it will not do. Exactly one of the two statements is in
+  the accessibility tree at any width, and the e2e case pins both directions
+  ("shows the identity region whole, or not at all"). Still open, and it is a
+  product call rather than a defect: the kicker, the scope line and the four
+  limits are absent on a phone, so what a phone is owed beyond the one sentence
+  is the question Decision 1 has to answer.
 - **The company view's new surfaces are build-side, not yet in the spec.**
   `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`,
   `GET|POST /organizations/{id}/brief`, `POST /organizations/{id}/ask`,

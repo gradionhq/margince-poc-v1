@@ -78,13 +78,12 @@ export function useTypeStream(
       setDone(false);
       return;
     }
-    // `document.hidden` is checked at mount rather than subscribed to: a stream
-    // that started while visible should keep streaming if the user tabs away and
-    // back, and one that started hidden has already been resolved to its end
-    // state, so there is nothing for a visibilitychange listener to do.
-    if (reduced || document.hidden) {
+    const finish = () => {
       setShown(text);
       setDone(true);
+    };
+    if (reduced || document.hidden) {
+      finish();
       return;
     }
     setShown("");
@@ -101,7 +100,23 @@ export function useTypeStream(
       }
     };
     timer = setTimeout(tick, startDelay);
-    return () => clearTimeout(timer);
+    // Hiding the tab MID-STREAM resolves the same way as starting hidden. The
+    // throttle is what forces it: once the tab goes away the remaining
+    // characters arrive about one per second, so a viewer who tabs back after a
+    // minute finds the sentence still being typed at them. Reading the flag once
+    // at mount covered only the stream that started hidden and left that one
+    // stranded.
+    const onVisibility = () => {
+      if (document.hidden) {
+        clearTimeout(timer);
+        finish();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [text, speed, startDelay, enabled, reduced]);
 
   return { shown, done };
