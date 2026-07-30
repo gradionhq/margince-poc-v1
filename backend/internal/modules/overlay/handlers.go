@@ -11,6 +11,7 @@ package overlay
 // the same posture as every other declared-but-unimplemented surface.
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -23,17 +24,34 @@ import (
 // /overlay/*): the incumbent connection lifecycle, mirror sync health,
 // budget, reconcile, and the overlay→native flip. The admin user-map
 // and owners-directory verbs live next door in handlers_usermap.go, on
-// this same type. svc backs every verb except the flip pair (branch 2),
-// which stays an explicit 501 until it lands regardless of whether svc
-// is set — a partially-wired Handlers never silently succeeds on an op
-// it doesn't yet serve.
+// this same type. svc backs every verb except the flip pair, which is
+// served by the injected FlipRunner (the flip orchestrates across the
+// migration engine and the native stores, so its wiring is compose's) —
+// and stays an explicit 501 while unwired: a partially-wired Handlers
+// never silently succeeds on an op it doesn't yet serve.
 type Handlers struct {
-	svc *Service
+	svc  *Service
+	flip FlipRunner
+}
+
+// FlipRunner is the flip pair's domain seam: compose implements it over
+// this module's preflight primitives (flipstate.go) plus the migration
+// engine, and injects it here — the module keeps the transport, compose
+// keeps the cross-module orchestration.
+type FlipRunner interface {
+	Preflight(ctx context.Context) (crmcontracts.OverlayFlipPreflight, error)
+	Execute(ctx context.Context, req crmcontracts.OverlayFlipRequest) (crmcontracts.OverlayFlipAccepted, error)
 }
 
 // NewHandlers constructs Handlers over svc.
 func NewHandlers(svc *Service) Handlers {
 	return Handlers{svc: svc}
+}
+
+// WithFlipRunner returns Handlers additionally serving the flip pair.
+func (h Handlers) WithFlipRunner(flip FlipRunner) Handlers {
+	h.flip = flip
+	return h
 }
 
 // GetOverlayConnection returns the workspace's overlay incumbent
@@ -229,13 +247,36 @@ func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 }
 
 // PreflightOverlayFlip dry-runs the overlay→native flip's readiness
-// checks without executing it.
+// checks without executing it (B-E18.26; OVA-WIRE-7).
 func (h Handlers) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
-	httperr.NotImplemented(w, r, "preflightOverlayFlip")
+	if h.flip == nil {
+		httperr.NotImplemented(w, r, "preflightOverlayFlip")
+		return
+	}
+	verdict, err := h.flip.Preflight(r.Context())
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, verdict)
 }
 
 // ExecuteOverlayFlip executes the overlay→native flip, running the
-// migration.
+// migration synchronously behind the 202 (B-E18.27; OVA-WIRE-8 — the
+// DisconnectOverlay precedent: complete, not queued).
 func (h Handlers) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
-	httperr.NotImplemented(w, r, "executeOverlayFlip")
+	if h.flip == nil {
+		httperr.NotImplemented(w, r, "executeOverlayFlip")
+		return
+	}
+	var req crmcontracts.OverlayFlipRequest
+	if !httperr.Decode(w, r, &req) {
+		return
+	}
+	accepted, err := h.flip.Execute(r.Context(), req)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusAccepted, accepted)
 }

@@ -59,6 +59,9 @@ type FlipConflict struct {
 // FlipChecks is the preflight's raw readiness read — the compose
 // FlipRunner turns it into the wire verdict's blocking[] reasons.
 type FlipChecks struct {
+	// Incumbent names the workspace's connected incumbent — the import
+	// provenance stamp and the emergency disclosure both carry it.
+	Incumbent string
 	// ConnectionStatus is incumbent_connection.status: revoked/error is
 	// the OVA-AC-6(a) incumbent-unreachable block.
 	ConnectionStatus string
@@ -93,11 +96,12 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionRead); err != nil {
 		return FlipChecks{}, err
 	}
-	if err := s.requireOverlayMode(ctx); err != nil {
+	incumbent, err := s.resolveOverlayMode(ctx)
+	if err != nil {
 		return FlipChecks{}, err
 	}
-	var checks FlipChecks
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	checks := FlipChecks{Incumbent: incumbent}
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if err := tx.QueryRow(ctx, `SELECT status FROM incumbent_connection`).Scan(&checks.ConnectionStatus); err != nil {
 			if errors.Is(err, pgx.ErrNoRows) {
 				// Overlay mode with no connection row cannot arise through
