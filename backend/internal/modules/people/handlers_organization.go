@@ -108,14 +108,13 @@ func (h Handlers) GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id
 		httperr.Write(w, r, err)
 		return
 	}
-	contentType := imagenorm.ContentType
-	if obj.ContentType != "" {
-		contentType = obj.ContentType
-	}
-	// These bytes were normalized from a third-party website's asset. What is
-	// stored is always this server's own PNG re-encode, and these two headers
-	// hold that line at the response: the type cannot be sniffed into
-	// something active, and the document that renders can reach nothing.
+	// These bytes were normalized from a third-party website's asset, and three
+	// things keep that from mattering at the response. The media type is fixed
+	// rather than read back from the object's metadata — the contract declares
+	// this endpoint image/png and every stored object is this server's own PNG
+	// re-encode, so nothing a site influenced decides how its bytes are
+	// interpreted. Then the type cannot be sniffed into something active, and
+	// the document that renders can reach nothing.
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	// A logo changes only when a site read resolves a new one, while a company
@@ -124,7 +123,7 @@ func (h Handlers) GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id
 	w.Header().Set("Cache-Control", "private, max-age=300")
 	httperr.StreamObject(w, r, httperr.StreamedObject{
 		Body:        rc,
-		ContentType: contentType,
+		ContentType: imagenorm.ContentType,
 		Inline:      true,
 		Size:        obj.Size,
 	}, "organization logo "+id.String())

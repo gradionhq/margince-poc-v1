@@ -60,19 +60,23 @@ type IconRef struct {
 // against the page URL), http(s)-only, fragment-free, and deduplicated in
 // document order.
 func (f *Fetcher) FetchPage(ctx context.Context, rawURL string) (Page, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" {
+	if parsed, err := url.Parse(rawURL); err != nil || parsed.Host == "" {
 		return Page{}, fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
 	}
-	body, _, err := f.fetchDoc(ctx, rawURL, acceptHTML) // HTML only — the crawler needs HTML for the <a href> link harvest
+	// HTML only — the crawler needs HTML for the <a href> link harvest.
+	// `base` is where the body CAME from, not where it was asked for: a bare
+	// domain redirecting to its www host is the ordinary case, and resolving
+	// the page's own relative references against the pre-redirect origin would
+	// point every one of them at a host that never served this page.
+	body, _, base, err := f.fetchDoc(ctx, rawURL, acceptHTML)
 	if err != nil {
 		return Page{}, err
 	}
-	ogImage, icons := extractHeadAssets(body, parsed)
+	ogImage, icons := extractHeadAssets(body, base)
 	return Page{
 		URL:     rawURL,
 		Text:    StripTags(body),
-		Links:   extractLinks(body, parsed),
+		Links:   extractLinks(body, base),
 		Bytes:   len(body),
 		OGImage: ogImage,
 		Icons:   icons,

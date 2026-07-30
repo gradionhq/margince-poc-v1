@@ -218,3 +218,48 @@ func TestRobotsRulesMatchTheQuerySiteOperatorsWriteThemAgainst(t *testing.T) {
 		t.Fatalf("an unrelated query must stay allowed: %v", err)
 	}
 }
+
+func TestAPageResolvesItsOwnReferencesAgainstWhereItCameFrom(t *testing.T) {
+	// The ordinary case is a bare domain redirecting to its www host. A page's
+	// relative icon then belongs to the host that SERVED it — resolving against
+	// the host that was merely asked would name an asset on an origin that
+	// never had this page.
+	canonical := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<head><link rel="icon" href="/favicon.png">` +
+			`<meta property="og:image" content="share.png"></head><body><a href="/about">a</a></body>`))
+	}))
+	defer canonical.Close()
+
+	redirector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		http.Redirect(w, r, canonical.URL+"/", http.StatusMovedPermanently)
+	}))
+	defer redirector.Close()
+
+	page, err := newFetcher(redirector.Client().Transport).FetchPage(context.Background(), redirector.URL+"/")
+	if err != nil {
+		t.Fatalf("FetchPage across a redirect: %v", err)
+	}
+	if len(page.Icons) != 1 || page.Icons[0].URL != canonical.URL+"/favicon.png" {
+		t.Fatalf("icon = %+v, want it on the host that served the page (%s)", page.Icons, canonical.URL)
+	}
+	if page.OGImage != canonical.URL+"/share.png" {
+		t.Fatalf("og:image = %q, want it on %s", page.OGImage, canonical.URL)
+	}
+	if len(page.Links) != 1 || page.Links[0] != canonical.URL+"/about" {
+		t.Fatalf("links = %v, want them on the serving host", page.Links)
+	}
+	// URL stays what was ASKED for: it is the crawl's identity for the page,
+	// and the dedupe and skip bookkeeping key off it.
+	if page.URL != redirector.URL+"/" {
+		t.Fatalf("page.URL = %q, want the requested URL", page.URL)
+	}
+}

@@ -138,7 +138,7 @@ func newFetcher(transport http.RoundTripper) *Fetcher {
 // returned Doc carries the media type so callers can log which they got, and
 // the fetch refuses what the site's robots.txt disallows for this bot.
 func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
-	body, mediaType, err := f.fetchDoc(ctx, rawURL, acceptMarkdown)
+	body, mediaType, _, err := f.fetchDoc(ctx, rawURL, acceptMarkdown)
 	if err != nil {
 		return Doc{}, err
 	}
@@ -152,30 +152,36 @@ func (f *Fetcher) Fetch(ctx context.Context, rawURL string) (Doc, error) {
 }
 
 // fetchDoc is the shared page-fetch: URL parse, robots gate, capped GET with the
-// given Accept header, and a 200-or-error status policy. It returns the raw body
-// with its parsed media type. accept == "" sends no Accept header (robots and
-// sitemap lookups). Both single-page and crawler paths run through here, so the
-// SSRF guard, robots gate, and redirect cap are identical for both.
-func (f *Fetcher) fetchDoc(ctx context.Context, rawURL, accept string) (string, string, error) {
+// given Accept header, and a 200-or-error status policy. It returns the raw body,
+// its parsed media type, and the URL the body actually came from — which differs
+// from the requested one whenever the site redirected, and is what a relative
+// reference inside the body resolves against. accept == "" sends no Accept header
+// (robots and sitemap lookups). Both single-page and crawler paths run through
+// here, so the SSRF guard, robots gate, and redirect cap are identical for both.
+func (f *Fetcher) fetchDoc(ctx context.Context, rawURL, accept string) (body, mediaType string, final *url.URL, err error) {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Host == "" {
-		return "", "", fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
+		return "", "", nil, fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
 	}
 	allowed, err := f.pathAllowed(ctx, parsed)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	if !allowed {
-		return "", "", fmt.Errorf("%w: %s", ErrRobotsDisallowed, parsed.Path)
+		return "", "", nil, fmt.Errorf("%w: %s", ErrRobotsDisallowed, parsed.Path)
 	}
-	body, status, contentType, err := f.getRaw(ctx, rawURL, accept)
+	got, err := f.getBytes(ctx, rawURL, accept, maxFetchBytes)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
-	if status != http.StatusOK {
-		return "", "", fmt.Errorf("webread: page answered %d", status)
+	if got.status != http.StatusOK {
+		return "", "", nil, fmt.Errorf("webread: page answered %d", got.status)
 	}
-	return body, parseMediaType(contentType), nil
+	final = got.finalURL
+	if final == nil {
+		final = parsed
+	}
+	return string(got.body), parseMediaType(got.contentType), final, nil
 }
 
 // FetchAsset retrieves one binary asset a page declared — a logo, an icon, an
@@ -200,34 +206,45 @@ func (f *Fetcher) FetchAsset(ctx context.Context, rawURL string) ([]byte, string
 	}
 	// One byte over the cap is read deliberately, so exceeding it is
 	// detectable rather than indistinguishable from an exactly-cap-sized body.
-	body, status, contentType, err := f.getBytes(ctx, rawURL, acceptImage, maxAssetBytes+1)
+	got, err := f.getBytes(ctx, rawURL, acceptImage, maxAssetBytes+1)
 	if err != nil {
 		return nil, "", err
 	}
-	if status != http.StatusOK {
-		return nil, "", fmt.Errorf("webread: asset answered %d", status)
+	if got.status != http.StatusOK {
+		return nil, "", fmt.Errorf("webread: asset answered %d", got.status)
 	}
-	if len(body) > maxAssetBytes {
+	if len(got.body) > maxAssetBytes {
 		return nil, "", fmt.Errorf("webread: asset exceeds the %d-byte cap", maxAssetBytes)
 	}
-	return body, parseMediaType(contentType), nil
+	return got.body, parseMediaType(got.contentType), nil
 }
 
 // getRaw is the network-level capped GET for text: body, status, and declared
 // media type, no status policy. A non-empty accept sets the Accept header;
 // robots and sitemap lookups pass "" — they never negotiate markdown.
 func (f *Fetcher) getRaw(ctx context.Context, rawURL, accept string) (string, int, string, error) {
-	body, status, contentType, err := f.getBytes(ctx, rawURL, accept, maxFetchBytes)
-	return string(body), status, contentType, err
+	got, err := f.getBytes(ctx, rawURL, accept, maxFetchBytes)
+	return string(got.body), got.status, got.contentType, err
+}
+
+// fetched is one completed GET: the body, the status, the declared media type,
+// and the URL the response actually came from — which is NOT the requested one
+// when the site redirected. Relative references in a body resolve against
+// where it came from, so that URL has to travel with it.
+type fetched struct {
+	body        []byte
+	status      int
+	contentType string
+	finalURL    *url.URL
 }
 
 // getBytes is the shared capped GET. limit bounds the body read; a body over
 // the limit comes back truncated, so callers that cannot use a partial body
 // ask for limit+1 and check.
-func (f *Fetcher) getBytes(ctx context.Context, rawURL, accept string, limit int64) ([]byte, int, string, error) {
+func (f *Fetcher) getBytes(ctx context.Context, rawURL, accept string, limit int64) (fetched, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, 0, "", err
+		return fetched{}, err
 	}
 	req.Header.Set("User-Agent", UserAgent)
 	if accept != "" {
@@ -235,15 +252,20 @@ func (f *Fetcher) getBytes(ctx context.Context, rawURL, accept string, limit int
 	}
 	resp, err := f.client.Do(req)
 	if err != nil {
-		return nil, 0, "", err
+		return fetched{}, err
 	}
 	//craft:ignore swallowed-errors best-effort close: the capped read below may leave the body mid-stream, so a close error carries no signal for the fetch result
 	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
 	if err != nil {
-		return nil, 0, "", err
+		return fetched{}, err
 	}
-	return body, resp.StatusCode, resp.Header.Get("Content-Type"), nil
+	// resp.Request is the LAST request the client made, so its URL is where
+	// the body came from after every redirect hop.
+	return fetched{
+		body: body, status: resp.StatusCode,
+		contentType: resp.Header.Get("Content-Type"), finalURL: resp.Request.URL,
+	}, nil
 }
 
 // pathAllowed resolves the host's robots policy (cached per host) and asks it

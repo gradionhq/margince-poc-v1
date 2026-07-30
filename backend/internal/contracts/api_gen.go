@@ -10319,9 +10319,10 @@ type Organization struct {
 	LegalName      *string               `json:"legal_name,omitempty"`
 
 	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
-	// path for this record, cookie-authenticated and same-origin. Null when no logo
-	// resolved, which is the common case and never an error: a client renders the
-	// deterministic monogram then, so it never shows a broken image or an empty slot.
+	// path for this record, cookie-authenticated and same-origin. The key is ABSENT
+	// entirely (not null) when no logo resolved, which is the common case and never an
+	// error: a client renders the deterministic monogram then, so it never shows a
+	// broken image or an empty slot.
 	// The stored object key is deliberately not exposed; it names a bucket path, and a
 	// client's business is the endpoint that streams the bytes.
 	LogoUrl      *string             `json:"logo_url,omitempty"`
@@ -10780,7 +10781,7 @@ type OrganizationGraphNode struct {
 	Label string `json:"label"`
 
 	// LogoUrl The company node's resolved logo (A55), same value `Organization.logo_url` carries.
-	// Null on an organization with no resolved logo and on every person or deal node —
+	// Absent on an organization with no resolved logo and on every person or deal node —
 	// a client draws the node's monogram or its token-coloured circle instead.
 	LogoUrl *string `json:"logo_url,omitempty"`
 
