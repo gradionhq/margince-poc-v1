@@ -117,9 +117,9 @@ func (e *dedupeEnv) seedEmployedPerson(ctx context.Context, t *testing.T, name, 
 
 // dedupeInTx runs the resolver inside one workspace transaction, the way
 // every create-path caller will.
-func (e *dedupeEnv) dedupeInTx(ctx context.Context, t *testing.T, c PersonCandidate) PersonMatch {
+func (e *dedupeEnv) dedupeInTx(ctx context.Context, t *testing.T, c PersonCandidate) PersonResolution {
 	t.Helper()
-	var m PersonMatch
+	var m PersonResolution
 	err := e.store.tx(ctx, func(tx pgx.Tx) (err error) {
 		m, err = DedupePerson(ctx, tx, c)
 		return err

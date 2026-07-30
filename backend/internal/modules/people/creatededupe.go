@@ -28,7 +28,7 @@ import (
 // refused every claimed address in this same transaction, so the
 // chokepoint's remaining signal is the fuzzy tier. Every address on the
 // candidate counts, not just the primary.
-func manualDedupePerson(ctx context.Context, tx pgx.Tx, in CreatePersonInput) (PersonMatch, error) {
+func manualDedupePerson(ctx context.Context, tx pgx.Tx, in CreatePersonInput) (PersonResolution, error) {
 	emails := make([]string, 0, len(in.Emails))
 	for _, e := range in.Emails {
 		emails = append(emails, e.Email)
@@ -50,9 +50,9 @@ func manualDedupeOrganization(ctx context.Context, tx pgx.Tx, in CreateOrganizat
 	return DedupeOrganization(ctx, tx, OrganizationCandidate{DisplayName: in.DisplayName, Domains: domains})
 }
 
-// recordIfReview leaves the review trail when the match is a fuzzy hit;
+// recordIfReview leaves the review trail when the resolution is a fuzzy hit;
 // any other decision writes nothing.
-func (m PersonMatch) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.PersonID, createdName, source, by string) error {
+func (m PersonResolution) recordIfReview(ctx context.Context, tx pgx.Tx, createdID ids.PersonID, createdName, source, by string) error {
 	if m.Decision != DecisionFuzzyReview {
 		return nil
 	}
