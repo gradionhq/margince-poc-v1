@@ -67,6 +67,12 @@ extending the card.
   filled the budget and starved the others. The cap now lives in the query and
   picks distinct companies. Same trap waits for any group whose display unit is
   not its row unit.
+- **The graph read is proportional to the account, on purpose.** The caps bound
+  the rows returned and the per-contact §4 fold — the part that grows fast — but
+  an exact `dropped_count` needs a count over each group's whole membership, so
+  the count is one index range scan per account. That trade is stated in the
+  contract rather than assumed; if it ever needs to change, the response shape
+  changes with it (a floor plus a flag), not the count quietly.
 - **Every group total rides the same statement as its rows.** `WithWorkspaceTx`
   is Read Committed, so a total read in a second statement can be smaller than
   the rows the first one returned, and `dropped_count` then goes negative
