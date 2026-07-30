@@ -5,6 +5,8 @@
 # debris is excluded here.
 .git
 **/node_modules
+.pnpm-store
+scratchpad
 frontend/dist
 frontend/test-results
 frontend/playwright-report

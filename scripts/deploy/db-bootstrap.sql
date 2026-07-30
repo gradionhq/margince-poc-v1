@@ -37,6 +37,14 @@ SELECT format('CREATE ROLE margince_owner LOGIN PASSWORD %L', :'owner_pw')
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_owner')
 \gexec
 
+-- Normalize the security-critical attributes UNCONDITIONALLY. The NOT EXISTS
+-- guards above skip a role that already exists, so a pre-existing margince_app /
+-- margince_owner could otherwise retain SUPERUSER or BYPASSRLS and silently
+-- defeat FORCE RLS. These ALTERs are idempotent and cost nothing on a fresh role
+-- (CREATE ROLE already defaults to NOSUPERUSER NOBYPASSRLS).
+ALTER ROLE margince_app   NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;
+ALTER ROLE margince_owner NOSUPERUSER NOBYPASSRLS;
+
 -- The application database, owned by margince_owner. CREATE DATABASE cannot run
 -- inside a DO block or a transaction, so it is guarded with \gexec instead.
 SELECT 'CREATE DATABASE margince OWNER margince_owner'

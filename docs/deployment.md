@@ -45,8 +45,9 @@ Create the roles + database + extensions **once**, as a Postgres superuser
 a migration):
 
 ```bash
+# Pass the passwords RAW (not pre-quoted) — the script quotes/escapes them.
 psql "postgres://postgres:…@<host>:5432/postgres" \
-  -v owner_pw="'<OWNER_PW>'" -v app_pw="'<APP_PW>'" \
+  -v owner_pw="$OWNER_PW" -v app_pw="$APP_PW" \
   -f scripts/deploy/db-bootstrap.sql
 ```
 
@@ -82,6 +83,12 @@ path and set `MARGINCE_ADMIN_PASSWORD`. A missing config file just boots an
 existing installation. Likewise mount an `ai-routing.yaml`
 ([`config/ai-routing.example.yaml`](../config/ai-routing.example.yaml)) and point
 `MARGINCE_AI_ROUTING` at it to enable AI.
+
+Your `margince.yaml`'s `password_file` **must point to where the entrypoint writes
+`MARGINCE_ADMIN_PASSWORD`** — by default `secrets/admin-password` (i.e.
+`/app/secrets/admin-password`, the api's working dir is `/app`). Set that value in
+your config, or override the write path with `MARGINCE_ADMIN_PASSWORD_FILE` so the
+two agree. (The example config's default differs, so change it to match.)
 
 ## Routing
 
