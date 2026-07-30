@@ -15,9 +15,14 @@ CREATE TABLE import_record_map (
   object        text NOT NULL,          -- canonical object class
   external_id   text NOT NULL,          -- the source's own record id
   native_id     uuid NOT NULL,
-  import_run_id uuid NOT NULL REFERENCES import_run(id) ON DELETE RESTRICT,
+  import_run_id uuid NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (workspace_id, source_system, object, external_id)
+  PRIMARY KEY (workspace_id, source_system, object, external_id),
+  -- Composite FK, not a bare import_run_id: a tenant-local reference
+  -- carries workspace_id on both sides so a cross-workspace run is
+  -- rejected by the database (data-model tenancy integrity C4).
+  CONSTRAINT import_record_map_import_run_id_fkey FOREIGN KEY (workspace_id, import_run_id)
+    REFERENCES import_run (workspace_id, id) ON DELETE RESTRICT
 );
 CREATE INDEX idx_import_record_map_run ON import_record_map (workspace_id, import_run_id);
 

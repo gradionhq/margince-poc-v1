@@ -28,6 +28,10 @@ CREATE TABLE import_run (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX idx_import_run_ws ON import_run (workspace_id, status);
+-- The composite target a tenant-local FK must reference: a child row
+-- naming a run in ANOTHER workspace is rejected by the database, not
+-- merely hidden by RLS (data-model tenancy integrity C4).
+ALTER TABLE import_run ADD CONSTRAINT uq_import_run_workspace_id UNIQUE (workspace_id, id);
 
 ALTER TABLE import_run ENABLE ROW LEVEL SECURITY;
 ALTER TABLE import_run FORCE ROW LEVEL SECURITY;
