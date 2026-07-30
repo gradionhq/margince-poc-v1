@@ -13,6 +13,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -64,10 +65,23 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The redeemed scopes may still carry offline_access — it rides the
+	// authorization code's scopes column because that table has no
+	// dedicated marker column yet (oauth.go's oauthAuthorize). It requests
+	// session lifetime, not access, so it is stripped here, the one place
+	// every code exchange passes through: validScopes has no entry for it
+	// and IssuePassport would reject the whole exchange as an unknown
+	// scope otherwise. A future grant (Task 13) records this as
+	// oauth_grant.refresh_allowed instead of surfacing it as a scope.
+	passportScopes := scopes
+	if idx := slices.Index(scopes, scopeOfflineAccess); idx >= 0 {
+		passportScopes = slices.Delete(slices.Clone(scopes), idx, idx+1)
+	}
+
 	label := "oauth:" + r.PostForm.Get("client_id")
 	issued, err := h.svc.IssuePassport(principal.WithWorkspaceID(r.Context(), workspaceID.UUID),
 		Identity{UserID: userID, WorkspaceID: workspaceID},
-		IssuePassportInput{Label: &label, Scopes: scopes})
+		IssuePassportInput{Label: &label, Scopes: passportScopes})
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -76,7 +90,7 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		"access_token": issued.Token,
 		"token_type":   "Bearer",
 		"expires_in":   int(time.Until(issued.ExpiresAt).Seconds()),
-		"scope":        strings.Join(scopes, " "),
+		"scope":        strings.Join(passportScopes, " "),
 	})
 }
 

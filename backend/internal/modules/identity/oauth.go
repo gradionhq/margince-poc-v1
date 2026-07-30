@@ -124,6 +124,7 @@ type authorizeRequest struct {
 	ClientName    string
 	RedirectURI   string
 	Scopes        []string
+	Offline       bool
 	CodeChallenge string
 	Resource      string
 	State         string
@@ -141,7 +142,7 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 	if q.Get("code_challenge_method") != "S256" || len(q.Get("code_challenge")) < 43 {
 		return authorizeRequest{}, "invalid_request", "PKCE S256 code_challenge is required"
 	}
-	scopes, err := parseOAuthScopes(q.Get("scope"))
+	scopes, offline, err := parseOAuthScopes(q.Get("scope"))
 	if err != nil {
 		return authorizeRequest{}, "invalid_scope", err.Error()
 	}
@@ -149,6 +150,7 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 		ClientID:      q.Get("client_id"),
 		RedirectURI:   q.Get("redirect_uri"),
 		Scopes:        scopes,
+		Offline:       offline,
 		CodeChallenge: q.Get("code_challenge"),
 		Resource:      q.Get("resource"),
 		State:         q.Get("state"),
@@ -218,9 +220,17 @@ func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
 		page.WriteString("<li>" + template.HTMLEscapeString(scope) + "</li>")
 	}
 	page.WriteString(`</ul><form method="post" action="/oauth/authorize">`)
+	// The hidden "scope" field re-adds offline_access (never shown in the
+	// <ul> above, and never a passport scope) so the POST that follows
+	// re-derives the same Offline marker — without it, the round trip
+	// through this form would silently drop the client's refresh request.
+	formScope := strings.Join(req.Scopes, " ")
+	if req.Offline {
+		formScope = strings.TrimSpace(formScope + " " + scopeOfflineAccess)
+	}
 	for name, value := range map[string]string{
 		"response_type": "code", "client_id": req.ClientID, "redirect_uri": req.RedirectURI,
-		"scope": strings.Join(req.Scopes, " "), "code_challenge": req.CodeChallenge,
+		"scope": formScope, "code_challenge": req.CodeChallenge,
 		"code_challenge_method": "S256", "resource": req.Resource, "state": req.State,
 		"consent": nonce,
 	} {
@@ -272,13 +282,23 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
+	// oauth_authorization_code has no dedicated column for the refresh
+	// marker (that lands on oauth_grant.refresh_allowed once Task 13 mints
+	// one at the token exchange) — until then, offline_access rides in this
+	// existing, unconstrained scopes column so the marker survives to
+	// redemption instead of dying here. oauth_token.go strips it again
+	// before any scope reaches IssuePassport.
+	storedScopes := req.Scopes
+	if req.Offline {
+		storedScopes = append(append([]string{}, req.Scopes...), scopeOfflineAccess)
+	}
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(r.Context(), `
 			INSERT INTO oauth_authorization_code
 			  (workspace_id, code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
 			        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval)`,
-			hashOAuthCode(code), req.ClientID, id.UserID, req.Scopes, req.CodeChallenge,
+			hashOAuthCode(code), req.ClientID, id.UserID, storedScopes, req.CodeChallenge,
 			req.RedirectURI, req.Resource, authCodeTTL.String())
 		return err
 	})
@@ -310,17 +330,33 @@ func oauthError(w http.ResponseWriter, status int, code, description string) {
 	httperr.WriteJSON(w, status, map[string]string{"error": code, "error_description": description})
 }
 
-func parseOAuthScopes(raw string) ([]string, error) {
+// scopeOfflineAccess is the scope Claude appends to ask for a refresh
+// token (§5.2). It requests session lifetime, not access: parseOAuthScopes
+// accepts it but never returns it as a passport scope — validScopes has
+// no entry for it and would reject it as unknown if it ever reached
+// IssuePassport.
+const scopeOfflineAccess = "offline_access"
+
+// parseOAuthScopes splits and validates the space-delimited scope
+// parameter. offline reports whether the caller asked for offline_access;
+// the returned scopes never include it, so every downstream consumer that
+// treats scopes as passport authority (the consent list, IssuePassport)
+// sees only the closed read|draft|write|send|enrich vocabulary.
+func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	if strings.TrimSpace(raw) == "" {
-		return []string{"read"}, nil
+		return []string{"read"}, false, nil
 	}
-	scopes := strings.Fields(raw)
-	for _, sc := range scopes {
-		if !validScopes[principal.Scope(sc)] {
-			return nil, fmt.Errorf("scope %q is not one of read|draft|write|send|enrich", sc)
+	for _, sc := range strings.Fields(raw) {
+		if sc == scopeOfflineAccess {
+			offline = true
+			continue
 		}
+		if !validScopes[principal.Scope(sc)] {
+			return nil, false, fmt.Errorf("scope %q is not one of read|draft|write|send|enrich", sc)
+		}
+		scopes = append(scopes, sc)
 	}
-	return scopes, nil
+	return scopes, offline, nil
 }
 
 // validRedirectURI admits https anywhere and plain http only on
