@@ -23,11 +23,14 @@
 
 ## Landed arcs
 
-**The company-view rebuild, finished (#309, #313, #315, #317, #319, #322, #326).**
-Six PRs turned the organization record page into one composite read with a
-one-page view over it: the 360 itself, the evidence mark, the standing account
-brief, next-step suggestions with Ask Margince, and finally the connections card.
-A seventh was expected and turned out not to exist — the arc closed at six.
+**The company-view rebuild, finished — six feature PRs (#309, #313, #315, #317,
+#319, #322) plus one follow-up (#326).** They turned the organization record page
+into one composite read with a one-page view over it: the 360 itself, the evidence
+mark, the standing account brief, next-step suggestions with Ask Margince, and
+finally the connections card. #326 is not a seventh feature — it corrects a false
+cost claim in the connections card's contract that missed #322's squash by one
+push. A seventh FEATURE PR was expected and turned out not to exist; the arc
+closed at six.
 
 The connections card is `GET /organizations/{id}/graph` in
 `internal/compose/org360/graph*.go` plus `frontend/src/screens/connections.tsx`,
