@@ -114,6 +114,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer closeSchemaPool()
 
+	// Gate 1: the connector's whole route group — /mcp, the authorization
+	// server and both discovery documents — exists only when the deployment
+	// declared it. The boot check above already proved the canonical base URL
+	// those routes advertise.
+	if deployCfg.MCP.ConnectorEnabled {
+		opts = append(opts, compose.WithMCPConnector())
+	}
+
 	resetOpts, err := passwordResetOptions(deployCfg, cfg.publicBaseURL, stdout)
 	if err != nil {
 		return err

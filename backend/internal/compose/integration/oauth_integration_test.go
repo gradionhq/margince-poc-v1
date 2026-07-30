@@ -40,18 +40,21 @@ import (
 )
 
 type oauthEnv struct {
-	*env
+	*connectorEnv
 	clientID string
 	verifier string
 }
 
 const oauthRedirect = "https://client.example/cb"
 
+// setupOAuth arranges a registered public client on the connector harness.
+// The authorization server is part of the connector's gated route group
+// (mcp_transport_integration_test.go), so this suite runs with the gate ON:
+// an installation that never declared the connector serves no /oauth/ at all,
+// which is the property that suite asserts.
 func setupOAuth(t *testing.T) *oauthEnv {
 	t.Helper()
-	e := setup(t)
-	e.slug = "oauth-e2e"
-	bootstrapWorkspaceSession(t, e, "OAuth E2E", "granter@fable.test", "Admin")
+	e := setupConnector(t)
 
 	var registered struct {
 		ClientID string `json:"client_id"`
@@ -62,7 +65,7 @@ func setupOAuth(t *testing.T) *oauthEnv {
 		t.Fatalf("DCR → %d %+v", status, registered)
 	}
 	return &oauthEnv{
-		env: e, clientID: registered.ClientID,
+		connectorEnv: e, clientID: registered.ClientID,
 		verifier: strings.Repeat("night-verifier-", 4),
 	} // 60 chars, RFC 7636 range
 }
@@ -398,7 +401,7 @@ func TestHostedMCPTransportSharesTheGovernedSurface(t *testing.T) {
 		}
 		return principal.WithCorrelationID(principal.WithActor(ctx, agent.Principal()), ids.NewV7()), nil
 	}
-	hosted := httptest.NewServer(agents.NewHTTPHandler(registry, authenticate, "margince-crm", "test"))
+	hosted := httptest.NewServer(agents.NewHTTPHandler(registry, authenticate, agents.ResourceMetadataChallenge, "margince-crm", "test"))
 	t.Cleanup(hosted.Close)
 
 	rpc := func(bearer, payload string) (int, string) {

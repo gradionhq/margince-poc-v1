@@ -46,6 +46,19 @@ Operational endpoints (served next to `/v1`):
   2s, else 503 naming the unready dependency.
 - `/metrics` — Prometheus text format: `margince_outbox_unpublished`,
   `margince_relay_published_total`, `margince_pgxpool_conns{state=…}`.
+- `/mcp` plus `/oauth/*` and the RFC 8414/9728 discovery documents
+  (`/.well-known/oauth-authorization-server`,
+  `/.well-known/oauth-protected-resource` and its `/mcp` suffixed form) —
+  the remote MCP connector, mounted as ONE group only when the
+  deployment file sets `mcp.connector_enabled: true`. They share the api
+  origin because RFC 9728 discovery is a chain rooted at the resource
+  server's 401, which a split origin breaks. The gate also requires
+  `--public-base-url`: it is a boot error without one, because the
+  advertised resource is an audience decision and must never be derived
+  from the request `Host`. With the gate off — the default — none of
+  those routes exists and each answers 404, so an installation that has
+  not declared the connector exposes no client registration and no
+  token endpoint.
 
 ## cmd/worker — the background process role
 

@@ -68,17 +68,21 @@ func SecureHeaders(next http.Handler) http.Handler {
 // which must name an origin the client can dereference, not the internal
 // one the process is bound to.
 func RequestOrigin(r *http.Request) string {
+	const (
+		secure   = "https"
+		insecure = "http"
+	)
 	// Only the two legitimate values are honored; anything else in the
 	// forwarded header is attacker noise. Host itself must be sanitized
 	// by the fronting proxy — the metadata documents say so.
-	scheme := "https"
+	scheme := secure
 	switch r.Header.Get("X-Forwarded-Proto") {
-	case "https":
-	case "http":
-		scheme = "http"
+	case secure:
+	case insecure:
+		scheme = insecure
 	default:
 		if r.TLS == nil {
-			scheme = "http"
+			scheme = insecure
 		}
 	}
 	return scheme + "://" + r.Host

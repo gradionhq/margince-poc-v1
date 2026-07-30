@@ -56,6 +56,16 @@ func WithMCPResource(resource string) Option {
 	}
 }
 
+// WithMCPConnector turns the remote MCP connector on: the /mcp transport,
+// the OAuth authorization server and both discovery documents are mounted
+// together. Without it none of those routes exists — an installation that
+// never declared the connector serves no client registration and no
+// passport-minting token endpoint, so it needs no runtime guard for them.
+// cmd passes it from the deployment file's mcp.connector_enabled.
+func WithMCPConnector() Option {
+	return func(s *Server, _ *pgxpool.Pool) { s.mcpConnectorEnabled = true }
+}
+
 // WithBusReady adds the event-bus probe to /readyz. The api role passes
 // it when it runs the inline relay: a process that must ship events is
 // not ready while the bus is unreachable.

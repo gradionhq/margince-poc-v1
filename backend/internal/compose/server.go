@@ -101,6 +101,15 @@ type Server struct {
 	// endpoint.
 	overlayWebhook http.Handler
 
+	// mcpConnectorEnabled is the remote-connector deployment gate, set by
+	// WithMCPConnector from the deployment file. It governs the whole
+	// connector — the /mcp transport, the authorization server and both
+	// discovery documents — as ONE group: off means none of those routes
+	// exists, so an internet-facing installation cannot end up with open
+	// client registration and a passport-minting token endpoint it has no
+	// way to switch off.
+	mcpConnectorEnabled bool
+
 	// busReady is the /readyz bus probe, injected only by the process
 	// role that runs the inline relay — a split deployment's api answers
 	// ready on Postgres alone.
@@ -237,7 +246,7 @@ func New(pool *pgxpool.Pool, log *slog.Logger, opts ...Option) http.Handler {
 	srv.applySendPath(pool)
 
 	api := contractAPI(srv, pool, identitySvc)
-	mux := operationalMux(srv, pool, log, authH, api)
+	mux := operationalMux(srv, pool, log, api)
 
 	return httpserver.RecoverPanics(log, httpserver.LimitBodies(httpserver.SecureHeaders(mux)))
 }
@@ -441,21 +450,6 @@ func OverlayIncumbentResolver(pool *pgxpool.Pool, vault keyvault.Vault) func(con
 	}
 }
 
-// contractAPI mounts the generated contract router with the ADR-0055
-// admission layer, which rides INSIDE the router (it needs the matched
-// route pattern) and shares the MCP surface's tier table, approvals
-// staging, and live-authority gate — one gate, two transports.
-// readyzEmbedState builds /readyz's embed-status closure (Task 17) over
-// whatever embed lane this process role already wired via
-// WithEmbedReindex — the SAME store and embedder embedReindexHandlers'
-// status/preview/confirm read, so this reports through the one seam
-// rather than opening a second router/store pair. A role that never
-// wires an embed lane (no declared routing config, --ai-fake, or the
-// two self-gating nils WithEmbedReindex checks) leaves engine nil; that
-// is a legitimate "no embed lane to report on" shape, not a fault, so it
-// renders "unknown" exactly like a marker-read failure does — Readyz's
-// body never distinguishes the two, only ever "was this readable right
-// now or not."
 // signalStrength bridges people's §4 relationship-strength computation to
 // the slice the warm room consumes (signals.StrengthSource). It carries
 // only the score and its bucket across the seam — the full explainable

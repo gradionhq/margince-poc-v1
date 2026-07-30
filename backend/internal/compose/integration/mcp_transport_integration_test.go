@@ -1,0 +1,244 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+//go:build integration
+
+package integration
+
+// The remote MCP connector as a third-party client meets it: over the
+// COMPOSED mux, so what is asserted is the route set a real client reaches.
+// Two properties, and they are opposites of each other — with the deployment
+// gate on, the RFC 9728 discovery chain closes on one origin (the 401 names
+// an absolute metadata URL, that URL is served here, and it points back at
+// this issuer); with the gate off, every route in the group is simply absent.
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/compose"
+)
+
+// connectorEnv is the harness for the remote connector: the composed api
+// handler with the connector gate on, plus the origin it is reachable at.
+// The origin is a field rather than a constant because the discovery
+// documents carry ABSOLUTE URLs — an assertion about what a client
+// dereferences cannot hardcode a port the OS assigns.
+type connectorEnv struct {
+	*env
+	origin string
+}
+
+// setupConnector boots the harness with the connector enabled. It goes
+// through compose.New — the same mux cmd/api serves — because a hand-rolled
+// handler can pass while the real route set is broken: the 401's pointer,
+// the discovery documents and the transport only form a chain if one mux
+// serves all three.
+func setupConnector(t *testing.T) *connectorEnv {
+	t.Helper()
+	e := setupWithOriginOptions(t, func(origin string) []compose.Option {
+		// The advertised resource comes from configuration, exactly as
+		// --public-base-url supplies it in a deployment — never from the
+		// Host header, which an attacker controls.
+		return []compose.Option{compose.WithMCPConnector(), compose.WithMCPResource(origin + "/mcp")}
+	})
+	e.slug = "mcp-connector" // slugify("MCP Connector")
+	bootstrapWorkspaceSession(t, e, "MCP Connector", "granter@fable.test", "Admin")
+	return &connectorEnv{env: e, origin: e.ts.URL}
+}
+
+// httpResult is one exchange's outcome with the body already drained and
+// closed, so a caller asserts on it without owning the response lifecycle.
+type httpResult struct {
+	StatusCode int
+	Header     http.Header
+	Body       string
+}
+
+// post sends one raw payload. An empty bearer sends NO Authorization header
+// at all — the unauthenticated shape a client starts its discovery from,
+// which is not the same as sending an empty credential.
+func (e *env) post(t *testing.T, path, payload, bearer string) httpResult {
+	t.Helper()
+	headers := map[string]string{"Content-Type": "application/json"}
+	if bearer != "" {
+		headers["Authorization"] = "Bearer " + bearer
+	}
+	return e.raw(t, http.MethodPost, path, payload, headers)
+}
+
+// getJSON dereferences a discovery document the way a client does and fails
+// on anything but a 200 with a JSON object.
+//
+//craft:ignore naked-any a discovery document is an open JSON object by RFC 8414/9728 — asserting on it means reading it untyped
+func (e *env) getJSON(t *testing.T, path string) map[string]any {
+	t.Helper()
+	got := e.raw(t, http.MethodGet, path, "", nil)
+	if got.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s → %d %s", path, got.StatusCode, got.Body)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal([]byte(got.Body), &doc); err != nil {
+		t.Fatalf("GET %s: body is not a JSON object: %v (%s)", path, err, got.Body)
+	}
+	return doc
+}
+
+// raw issues one request against the harness origin and returns the whole
+// outcome. It never decodes: the connector suite asserts on status codes and
+// headers as often as on bodies, and a 404 has no JSON to decode.
+func (e *env) raw(t *testing.T, method, path, payload string, headers map[string]string) httpResult {
+	t.Helper()
+	var body io.Reader
+	if payload != "" {
+		body = strings.NewReader(payload)
+	}
+	req, err := http.NewRequest(method, e.ts.URL+path, body)
+	if err != nil {
+		t.Fatalf("building %s %s: %v", method, path, err)
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := e.client.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer closeBody(t, resp)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("%s %s: reading response: %v", method, path, err)
+	}
+	return httpResult{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: string(raw)}
+}
+
+// TestMCPIsServedAtTheAPIOriginWithDiscovery proves the whole client
+// bootstrap resolves on ONE origin: the 401 names an ABSOLUTE metadata URL,
+// that URL is served here, and it points at this same issuer.
+func TestMCPIsServedAtTheAPIOriginWithDiscovery(t *testing.T) {
+	env := setupConnector(t)
+	resp := env.post(t, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, "")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated POST /mcp → %d, want 401", resp.StatusCode)
+	}
+	challenge := resp.Header.Get("WWW-Authenticate")
+	metaURL := resourceMetadataParam(t, challenge)
+	if !strings.HasPrefix(metaURL, env.origin) {
+		t.Fatalf("resource_metadata = %q, want an absolute URL on %s", metaURL, env.origin)
+	}
+	doc := env.getJSON(t, strings.TrimPrefix(metaURL, env.origin))
+	if doc["resource"] != env.origin+"/mcp" {
+		t.Fatalf("resource = %v, want %s/mcp", doc["resource"], env.origin)
+	}
+	// The chain closes only if the authorization server it names is this
+	// origin too: a client that has to cross origins to reach the token
+	// endpoint is the split-origin failure the single mount exists to avoid.
+	servers, ok := doc["authorization_servers"].([]any)
+	if !ok || len(servers) != 1 || servers[0] != env.origin {
+		t.Fatalf("authorization_servers = %v, want [%s]", doc["authorization_servers"], env.origin)
+	}
+	asDoc := env.getJSON(t, "/.well-known/oauth-authorization-server")
+	if asDoc["issuer"] != env.origin || asDoc["token_endpoint"] != env.origin+"/oauth/token" {
+		t.Fatalf("authorization-server metadata = %v, want issuer+token endpoint on %s", asDoc, env.origin)
+	}
+}
+
+// TestMCPOnTheAPIServesTheAPIsOwnToolSurface proves the mount is composed over
+// the registry the api ALREADY built rather than a second one: a passport
+// minted through the session surface reaches the same governed tools the REST
+// agent surface reports, so the two transports cannot drift in capability.
+func TestMCPOnTheAPIServesTheAPIsOwnToolSurface(t *testing.T) {
+	env := setupConnector(t)
+
+	var minted struct {
+		Token string `json:"token"`
+	}
+	if status := env.call(t, "POST", "/v1/passports", anyMap{
+		"label": "connector client", "scopes": []string{"read"},
+	}, nil, &minted); status != http.StatusCreated {
+		t.Fatalf("issue passport → %d", status)
+	}
+
+	var rest agentToolListWire
+	if status := env.call(t, "GET", "/v1/agent-tools", nil, nil, &rest); status != http.StatusOK {
+		t.Fatalf("GET /v1/agent-tools → %d", status)
+	}
+	if len(rest.Data) == 0 {
+		t.Fatal("the REST agent surface reports no tools, so there is nothing to compare the transport against")
+	}
+
+	got := env.post(t, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, minted.Token)
+	if got.StatusCode != http.StatusOK {
+		t.Fatalf("authenticated POST /mcp → %d %s", got.StatusCode, got.Body)
+	}
+	for _, tool := range rest.Data {
+		if !strings.Contains(got.Body, `"`+tool.Name+`"`) {
+			t.Fatalf("tools/list omits %q, which /v1/agent-tools advertises: %s", tool.Name, got.Body)
+		}
+	}
+}
+
+// TestConnectorGateOffRemovesEveryConnectorRoute proves the deployment gate
+// removes the connector as ONE group, and that the removal is
+// indistinguishable route to route. Gating only the transport would leave
+// unauthenticated client registration and a passport-minting token endpoint
+// live with no off switch; answering the group with anything but the mux's
+// own 404 would tell a prober which gate is closed.
+func TestConnectorGateOffRemovesEveryConnectorRoute(t *testing.T) {
+	e := setup(t) // the default deployment posture: the connector undeclared
+
+	probes := []struct {
+		method, path, payload string
+	}{
+		{http.MethodPost, "/mcp", `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`},
+		{http.MethodGet, "/oauth/authorize?response_type=code&client_id=probe", ""},
+		{http.MethodPost, "/oauth/register", `{"client_name":"probe","redirect_uris":["https://client.example/cb"]}`},
+		{http.MethodPost, "/oauth/token", `grant_type=authorization_code`},
+		{http.MethodGet, "/.well-known/oauth-authorization-server", ""},
+		{http.MethodGet, "/.well-known/oauth-protected-resource", ""},
+		{http.MethodGet, "/.well-known/oauth-protected-resource/mcp", ""},
+	}
+	var want, wantFrom string
+	for _, p := range probes {
+		got := e.raw(t, p.method, p.path, p.payload, nil)
+		if got.StatusCode != http.StatusNotFound {
+			t.Fatalf("%s %s → %d, want 404: the gate must remove the route, not guard it",
+				p.method, p.path, got.StatusCode)
+		}
+		// Anything that varies across the group — a differing body, a
+		// content type, a lingering RFC 9728 pointer — identifies which
+		// route exists behind the gate.
+		fingerprint := fmt.Sprintf("body=%q content-type=%q www-authenticate=%q",
+			got.Body, got.Header.Get("Content-Type"), got.Header.Get("WWW-Authenticate"))
+		if want == "" {
+			want, wantFrom = fingerprint, p.method+" "+p.path
+			continue
+		}
+		if fingerprint != want {
+			t.Fatalf("%s %s answers %s but %s answers %s: the 404s must be indistinguishable",
+				p.method, p.path, fingerprint, wantFrom, want)
+		}
+	}
+}
+
+// resourceMetadataParam pulls the resource_metadata URL out of an RFC 9728
+// WWW-Authenticate challenge. A client cannot start discovery without it, so
+// a challenge that omits it fails here rather than later as a mystery.
+func resourceMetadataParam(t *testing.T, challenge string) string {
+	t.Helper()
+	const key = `resource_metadata="`
+	start := strings.Index(challenge, key)
+	if start < 0 {
+		t.Fatalf("challenge %q carries no resource_metadata parameter", challenge)
+	}
+	rest := challenge[start+len(key):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		t.Fatalf("challenge %q has an unterminated resource_metadata value", challenge)
+	}
+	return rest[:end]
+}

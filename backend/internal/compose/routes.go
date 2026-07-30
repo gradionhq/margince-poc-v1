@@ -6,9 +6,10 @@ package compose
 // The HTTP mux assembly: contractAPI builds the generated /v1 surface with
 // its admission/idempotency/overlay-guard middleware stack, and
 // operationalMux mounts that surface next to the operational edges (health
-// probes, metrics, the anonymous public paths, the A2 authorization server,
-// and the provider push webhooks). server.go owns the Server inventory and
-// its wiring options; this file owns how those handlers become one mux.
+// probes, metrics, the anonymous public paths, the gated remote MCP
+// connector, and the provider push webhooks). server.go owns the Server
+// inventory and its wiring options; this file owns how those handlers
+// become one mux.
 
 import (
 	"context"
@@ -79,13 +80,19 @@ func replayProbes(approvalsSvc *approvals.Service) map[string]replayProbe {
 }
 
 // operationalMux mounts the contract surface next to the operational
-// edges: health probes, metrics, the anonymous public paths, and the A2
-// authorization server.
-func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, api http.Handler) *http.ServeMux {
-	// The session middleware (authH.Middleware) fronts BOTH /v1 and the /oauth/
-	// authorization server (/oauth/authorize requires a live session); the
-	// health probes, metrics, discovery documents, and the provider push
-	// webhooks are unauthenticated by design (each webhook verifies itself).
+// edges: health probes, metrics, the anonymous public paths, and — when the
+// deployment declares it — the remote MCP connector.
+func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, api http.Handler) *http.ServeMux {
+	// The identity handler set is read off the assembled Server, never taken
+	// as a separate parameter: identity.Handlers is a value type whose With*
+	// options return a copy, so a second reference to the pre-option set
+	// would serve the AS and the discovery documents from stale config while
+	// /v1 served the configured one — silently, since both compile.
+	authH := srv.authHandlers
+	// The session middleware (authH.Middleware) fronts BOTH /v1 and the
+	// /oauth/ authorization server; the health probes, metrics, discovery
+	// documents, and the provider push webhooks are unauthenticated by
+	// design (each webhook verifies itself).
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", httpserver.Healthz)
 	mux.HandleFunc("/readyz", httpserver.Readyz(srv.aiStateOrDefault(), srv.readyzEmbedState(), srv.readinessChecks(pool.Ping)...))
@@ -114,16 +121,31 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, authH auth
 	// thing that identifies which booking page was hit, and buy nothing.
 	mux.Handle("/v1/", httpserver.Correlate(
 		httpserver.AccessLog(log, authH.Middleware(publicEdge), publicPreferencesPrefix)))
-	// The A2 authorization server (ADR-0013): AS endpoints live outside
-	// the generated resource surface but behind the same workspace and
-	// session middleware; the discovery documents are static.
-	mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
-	mux.HandleFunc("/.well-known/oauth-authorization-server", authH.OAuthServerMetadata)
-	mux.HandleFunc("/.well-known/oauth-protected-resource", authH.ProtectedResourceMetadata)
-	// Claude probes the path-suffixed form FIRST when a 401 carries no
-	// resource_metadata pointer, so serve it too rather than relying on
-	// the pointer alone.
-	mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", authH.ProtectedResourceMetadata)
+	// The remote MCP connector, mounted as ONE group behind the deployment
+	// gate: the A2 transport, the A2 authorization server (ADR-0013) and
+	// both discovery documents. They belong together because RFC 9728
+	// discovery is a chain rooted at the resource server's 401 — a client
+	// that reaches /mcp must reach the metadata and the token endpoint on
+	// this same origin — and because gating only the transport would leave
+	// unauthenticated client registration and a passport-minting token
+	// endpoint live with no way to switch them off. A nil handler IS the
+	// gate signal: with the connector off none of these routes is
+	// registered, so the mux's own 404 answers all of them identically and
+	// nothing tells a prober which gate is closed.
+	if mcp := srv.mcpHandler(pool, log); mcp != nil {
+		mux.Handle("/mcp", httpserver.Correlate(httpserver.AccessLog(log, mcp)))
+		// The AS endpoints live outside the generated resource surface but
+		// behind the same workspace and session middleware
+		// (/oauth/authorize requires a live session); the discovery
+		// documents are static.
+		mux.Handle("/oauth/", httpserver.Correlate(httpserver.AccessLog(log, authH.Middleware(authH.OAuthRouter()))))
+		mux.HandleFunc("/.well-known/oauth-authorization-server", authH.OAuthServerMetadata)
+		mux.HandleFunc("/.well-known/oauth-protected-resource", authH.ProtectedResourceMetadata)
+		// Claude probes the path-suffixed form FIRST when a 401 carries no
+		// resource_metadata pointer, so serve it too rather than relying on
+		// the pointer alone.
+		mux.HandleFunc("/.well-known/oauth-protected-resource/mcp", authH.ProtectedResourceMetadata)
+	}
 	// Provider push webhooks: unauthenticated by nature (the provider is the
 	// caller), each verified by its own mechanism inside the handler; mounted
 	// only when configured — the route is absent otherwise.

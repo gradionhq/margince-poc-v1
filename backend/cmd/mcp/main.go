@@ -223,7 +223,11 @@ func serveHosted(ctx context.Context, addr string, auth *identity.Service, regis
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
-	mux.Handle("/mcp", agents.NewHTTPHandler(registry, authenticate, "margince-crm", "0.1.0"))
+	// The challenge points at THIS process's origin, which serves no
+	// discovery documents — the split origin is exactly why the api's own
+	// /mcp mount supersedes this transport; a proxy that fronts both is the
+	// only way a client's RFC 9728 lookup resolves here.
+	mux.Handle("/mcp", agents.NewHTTPHandler(registry, authenticate, agents.ResourceMetadataChallenge, "margince-crm", "0.1.0"))
 
 	server := &http.Server{
 		Addr: addr,

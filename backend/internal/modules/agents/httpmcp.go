@@ -14,18 +14,35 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"time"
+
+	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 )
 
-// wwwAuthenticateChallenge is the static RFC 9728 WWW-Authenticate challenge
-// returned on a 401 — a protocol discovery hint (the "Bearer" scheme name plus
-// the resource-metadata path), not a credential or token.
-const wwwAuthenticateChallenge = `Bearer resource_metadata="/.well-known/oauth-protected-resource"` // NOSONAR: RFC 9728 challenge, not a secret
+// mcpCallDeadline bounds one JSON-RPC exchange's response write. A dynamic
+// tool call can block on a model call, which modules/ai budgets at 120s per
+// request, so the deadline must outlast that budget with headroom or the
+// slowest legitimate call dies mid-response.
+const mcpCallDeadline = 150 * time.Second
+
+// ResourceMetadataChallenge builds the RFC 9728 WWW-Authenticate challenge a
+// 401 on this transport carries: the "Bearer" scheme name plus a pointer at
+// the protected-resource document. The pointer is ABSOLUTE on the request's
+// own origin because a client dereferences it as given — a bare path only
+// resolves for a client that already knows where it is talking to, which is
+// the one thing discovery exists to tell it.
+func ResourceMetadataChallenge(r *http.Request) string {
+	return `Bearer resource_metadata="` + httpserver.RequestOrigin(r) + `/.well-known/oauth-protected-resource"` // NOSONAR: RFC 9728 challenge, not a secret
+}
 
 // NewHTTPHandler serves MCP over HTTP. authenticate runs PER REQUEST —
 // each exchange re-derives the passport and the granting human's live
 // authority, so revocation binds between any two calls exactly as the
-// A1 loop guarantees.
-func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), name, version string) http.Handler {
+// A1 loop guarantees. challenge builds the 401's RFC 9728 pointer from
+// the request, so the origin (and the scopes a deployment asks for) is the
+// mounting server's decision rather than a constant frozen in here.
+func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "MCP is POST-only on this transport", http.StatusMethodNotAllowed)
@@ -35,7 +52,7 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		if err != nil {
 			// RFC 9728: the 401 names where the client can discover the
 			// authorization server.
-			w.Header().Set("WWW-Authenticate", wwwAuthenticateChallenge)
+			w.Header().Set("WWW-Authenticate", challenge(r))
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			//craft:ignore swallowed-errors a failed write of the 401 body means the client hung up — there is no channel left to report on
@@ -58,6 +75,17 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		if req.ID == nil {
 			// A notification gets no response by JSON-RPC rule.
 			w.WriteHeader(http.StatusAccepted)
+			return
+		}
+		// A dynamic tool call can block on a model call, which modules/ai
+		// budgets at 120s per request; the api's server-wide WriteTimeout is
+		// 30s. Extend the deadline for THIS route only — raising the server's
+		// would weaken every other endpoint. An error here means the handler
+		// chain lost Unwrap(); fail loudly rather than serve responses that
+		// die mid-write.
+		if err := http.NewResponseController(w).SetWriteDeadline(time.Now().Add(mcpCallDeadline)); err != nil {
+			httperr.WriteJSON(w, http.StatusInternalServerError,
+				map[string]string{"error": "this server chain cannot extend the response deadline"})
 			return
 		}
 		// bind is a passthrough: this request's ctx IS the authenticated
