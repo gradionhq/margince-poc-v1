@@ -75,11 +75,10 @@ func (o *oauthEnv) challenge() string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// authorize drives the consent flow: GET renders the approval form (a
-// GET must never mint a code — OAuth CSRF), the nonce-bound POST is
-// the consent, and the redirect carries the code.
-func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
-	t.Helper()
+// authorizeQuery is the baseline authorize request, overridable per field
+// by the caller — the one place the query parameters are assembled, so
+// authorize and authorizeRaw can never drift against each other.
+func (o *oauthEnv) authorizeQuery(extra url.Values) url.Values {
 	q := url.Values{
 		"response_type":         {"code"},
 		"client_id":             {o.clientID},
@@ -92,6 +91,36 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	for k, vs := range extra {
 		q[k] = vs
 	}
+	return q
+}
+
+// authorizeRaw issues one GET /oauth/authorize and returns the status and
+// body verbatim, for a caller asserting on a refusal — authorize's fatal
+// "want 200" check would abort the test before the assertion runs.
+func (o *oauthEnv) authorizeRaw(t *testing.T, extra url.Values) (int, string) {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+o.authorizeQuery(extra).Encode(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := o.client.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeBody(t, resp)
+	return resp.StatusCode, string(body)
+}
+
+// authorize drives the consent flow: GET renders the approval form (a
+// GET must never mint a code — OAuth CSRF), the nonce-bound POST is
+// the consent, and the redirect carries the code.
+func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
+	t.Helper()
+	q := o.authorizeQuery(extra)
 	req, err := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
 	if err != nil {
 		t.Fatal(err)
@@ -305,10 +334,32 @@ func TestOAuthRefusesDowngradesAndPrivilegedClients(t *testing.T) {
 		}
 	}
 
-	// RFC 8707: a code bound to one resource refuses another audience.
-	code := o.authorize(t, url.Values{"resource": {"https://mcp.margince.example"}})
+	// RFC 8707: a code bound to the canonical resource refuses another
+	// audience at redemption — authorize only ever accepts the
+	// canonical value itself (TestAuthorizeRefusesAForeignResourceBeforeMintingACode
+	// covers the foreign-audience refusal at authorize).
+	code := o.authorize(t, url.Values{"resource": {o.origin + "/mcp"}})
 	if status, body := o.exchange(t, url.Values{"code": {code}, "resource": {"https://other.example"}}); status != http.StatusBadRequest || body["error"] != "invalid_target" {
 		t.Fatalf("audience mismatch → %d %v, want invalid_target", status, body)
+	}
+}
+
+// TestAuthorizeRefusesAForeignResourceBeforeMintingACode proves the RFC 8707
+// audience is validated against the configured canonical resource before any
+// code exists — a refused audience must mint nothing.
+func TestAuthorizeRefusesAForeignResourceBeforeMintingACode(t *testing.T) {
+	o := setupOAuth(t)
+	status, body := o.authorizeRaw(t, url.Values{"resource": {"https://attacker.example/mcp"}})
+	if status != http.StatusBadRequest || !strings.Contains(body, "invalid_target") {
+		t.Fatalf("authorize with a foreign resource → %d %s, want 400 invalid_target", status, body)
+	}
+	var codes int
+	if err := o.owner.QueryRow(context.Background(),
+		`SELECT count(*) FROM oauth_authorization_code`).Scan(&codes); err != nil {
+		t.Fatal(err)
+	}
+	if codes != 0 {
+		t.Fatalf("codes = %d, want 0: a refused audience must mint nothing", codes)
 	}
 }
 

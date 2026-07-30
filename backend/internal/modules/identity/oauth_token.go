@@ -124,8 +124,11 @@ func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID
 			return errGrantMismatch
 		}
 		// RFC 8707: a code bound to a resource mints tokens for that
-		// resource only.
-		if resource != nil && r.PostForm.Get("resource") != *resource {
+		// resource only, and only for this installation's canonical
+		// endpoint — checked against both the stored grant and the
+		// live configuration, not a self-compare, so a stale grant
+		// cannot outlive a reconfigured resource.
+		if resource != nil && (r.PostForm.Get("resource") != *resource || r.PostForm.Get("resource") != h.mcpResource) {
 			return errAudienceMismatch
 		}
 		// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.

@@ -155,6 +155,20 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 		Resource:      q.Get("resource"),
 		State:         q.Get("state"),
 	}
+	// RFC 8707: a present audience must name this installation's MCP
+	// endpoint, checked before any code exists — a refused audience must
+	// mint nothing. Absent resource stays accepted (older clients omit
+	// it) and is stored NULL below. An unset h.mcpResource (no
+	// --public-base-url configured) can never equal a present resource,
+	// so this fails closed rather than treating "no canonical value" as
+	// "matches everything" — unreachable through the mounted routes
+	// today (the api refuses to boot the connector gate without
+	// --public-base-url, and /oauth/* is only mounted when that gate is
+	// on), but the comparison must hold on its own regardless of how it
+	// is reached.
+	if req.Resource != "" && req.Resource != h.mcpResource {
+		return authorizeRequest{}, "invalid_target", "the requested resource is not this installation's MCP endpoint"
+	}
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
 		var uris []string
 		err := tx.QueryRow(r.Context(),
