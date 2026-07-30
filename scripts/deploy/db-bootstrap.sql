@@ -2,11 +2,11 @@
 -- BEFORE the first api deploy, then never again. For example:
 --
 --   psql "postgres://postgres:…@<host>:5432/postgres" \
---     -v owner_pw="'…'" -v app_pw="'…'" -f scripts/deploy/db-bootstrap.sql
+--     -v owner_pw="$OWNER_PW" -v app_pw="$APP_PW" -f scripts/deploy/db-bootstrap.sql
 --
--- Pass the two role passwords as psql variables so they never land in this
--- committed file; they MUST match the passwords embedded in the app's
--- MARGINCE_OWNER_DSN / MARGINCE_DSN.
+-- Pass the two role passwords RAW (not pre-quoted) as psql variables so they
+-- never land in this committed file — `:'…'` + `%L` quote and escape them. They
+-- MUST match the passwords embedded in the app's MARGINCE_OWNER_DSN / MARGINCE_DSN.
 --
 -- Why two non-superuser roles: margince enforces tenant isolation with
 -- FORCE ROW LEVEL SECURITY, which a superuser (and only a superuser) bypasses.
@@ -20,21 +20,22 @@
 
 \set ON_ERROR_STOP on
 
+-- The two roles. psql does NOT interpolate `:'var'` inside a dollar-quoted
+-- DO $$…$$ body, so the guarded CREATE ROLE is built in a plain SELECT (where
+-- interpolation DOES happen) and run with \gexec. `format(… %L …)` safely quotes
+-- the password; the WHERE NOT EXISTS makes each idempotent (an existing role
+-- yields no row, so \gexec runs nothing). Neither role is a superuser or granted
+-- BYPASSRLS — FORCE RLS must bind them.
+
 -- The runtime app role (mirrors scripts/db-init.sql for local dev).
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_app') THEN
-        EXECUTE format('CREATE ROLE margince_app LOGIN PASSWORD %L', :'app_pw');
-    END IF;
-END $$;
+SELECT format('CREATE ROLE margince_app LOGIN PASSWORD %L', :'app_pw')
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_app')
+\gexec
 
 -- The owner role that runs migrations and owns every object.
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_owner') THEN
-        EXECUTE format('CREATE ROLE margince_owner LOGIN PASSWORD %L', :'owner_pw');
-    END IF;
-END $$;
+SELECT format('CREATE ROLE margince_owner LOGIN PASSWORD %L', :'owner_pw')
+WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_owner')
+\gexec
 
 -- The application database, owned by margince_owner. CREATE DATABASE cannot run
 -- inside a DO block or a transaction, so it is guarded with \gexec instead.

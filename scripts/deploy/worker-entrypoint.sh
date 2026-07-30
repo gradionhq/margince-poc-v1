@@ -9,10 +9,14 @@
 # migrated.
 set -eu
 
-# Optional convenience: source an env file if one is mounted at /.env.
+# Optional convenience: source an env file if one is mounted at /.env. `set -a`
+# auto-exports every var so the exec'd binary inherits them (a bare `KEY=value`
+# line otherwise sets only a shell var, not the child's environment).
 if [ -f /.env ]; then
+    set -a
     # shellcheck disable=SC1091
     . /.env
+    set +a
 fi
 
 : "${MARGINCE_DSN:?MARGINCE_DSN is required (app role DSN, via the --dsn env fallback)}"

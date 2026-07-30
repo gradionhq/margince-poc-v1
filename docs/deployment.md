@@ -12,7 +12,8 @@ secrets, platform manifests) is yours to own — keep those in your own infra re
 | `Dockerfile.api` | `cmd/api` (HTTP) + bundled `cmd/migrate`; applies migrations at boot |
 | `Dockerfile.worker` | `cmd/worker` — outbox relay, retention, Surface-B AI (no HTTP) |
 | `Dockerfile.web` | the Vite SPA behind nginx-unprivileged |
-| `scripts/deploy/api-entrypoint.sh`, `worker-entrypoint.sh` | migrate-as-owner → serve-as-app |
+| `scripts/deploy/api-entrypoint.sh` | migrate as owner, then serve the API as app |
+| `scripts/deploy/worker-entrypoint.sh` | start the worker as app (no owner credential) |
 | `scripts/deploy/db-bootstrap.sql` | one-time DB role + database + extension setup |
 | `frontend/nginx.conf` | SPA static serving (listens on 8080, non-root) |
 
@@ -27,9 +28,10 @@ docker build -f Dockerfile.web    -t margince-web:local .
 
 ## The two-role database model (required — read this first)
 
-Margince enforces tenant isolation with `FORCE ROW LEVEL SECURITY`, which **only a
-superuser bypasses**. The app must therefore never connect as a superuser. Two
-non-superuser roles are required:
+Margince enforces tenant isolation with `FORCE ROW LEVEL SECURITY`. It stops the
+table **owner** from bypassing RLS, but superusers and any role with the
+`BYPASSRLS` attribute still bypass it. So **both** runtime roles must be neither a
+superuser nor granted `BYPASSRLS`. Two such roles are required:
 
 - **`margince_owner`** — owns the database + tables, runs migrations (DDL) and the
   custom-fields runtime-DDL pool.
@@ -85,7 +87,7 @@ existing installation. Likewise mount an `ai-routing.yaml`
 
 The api owns `/v1`, `/healthz`, `/readyz`, `/metrics`; the web image serves the
 SPA on `/` (port 8080). The SPA calls the API **same-origin** at
-`location.origin + /v1`, so put a reverse proxy / ingress in front that routes
+`location.origin + "/v1"`, so put a reverse proxy / ingress in front that routes
 those API paths to the api service and everything else to the web service, both
 under one host. There is no build-time API base — the same web image works for
 any domain.

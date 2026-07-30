@@ -12,10 +12,15 @@
 set -eu
 
 # Optional convenience: source an env file if one is mounted at /.env. The
-# primary path is real environment variables set by the orchestrator.
+# primary path is real environment variables set by the orchestrator. `set -a`
+# auto-exports every var the file defines so the exec'd binary actually inherits
+# them (a bare `KEY=value` line otherwise sets only a shell var, not the child's
+# environment).
 if [ -f /.env ]; then
+    set -a
     # shellcheck disable=SC1091
     . /.env
+    set +a
 fi
 
 : "${MARGINCE_OWNER_DSN:?MARGINCE_OWNER_DSN is required (owner role DSN for migrations + custom-fields DDL)}"
