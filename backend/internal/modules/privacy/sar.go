@@ -199,8 +199,14 @@ func sarSections(pkg *SARPackage) []sarSection {
 		// this from the erasure cascade, which must refuse the equivalent
 		// reach: a disclosure to an admin-mediated export is recoverable, and
 		// destroying another subject's evidence is not.
+		//
+		// It spans BOTH shapes the row admits (comms_outbound_shape, 0149): a
+		// channel delivery leaves subject/recipients/cc null and names its
+		// addressee in channel_user_id, so a mail-only projection would hand a
+		// channel-only subject a message with no addressee — withholding the
+		// account id the row holds about them.
 		{&pkg.SentMessages, `SELECT o.subject, o.body, o.recipients, o.cc, o.consent_purpose,
-		      o.status, o.sent_at, o.created_at
+		      o.provider, o.channel_user_id, o.status, o.sent_at, o.created_at
 		   FROM comms_outbound o
 		   WHERE o.activity_id IN (SELECT l.activity_id FROM activity_link l WHERE l.person_id = $1)
 		      OR EXISTS (
