@@ -15,8 +15,6 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-
 	"github.com/gradionhq/margince/backend/internal/modules/agents"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -39,7 +37,13 @@ var errMissingBearer = errors.New("missing bearer token")
 // composed. It returns nil when the deployment gate is off — the caller then
 // mounts no route, so turning the connector off removes the surface rather
 // than guarding it.
-func (s *Server) mcpHandler(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
+//
+// auth is PASSED IN, never constructed here: identity.Service is stateful —
+// it caches the resolved singleton workspace in an atomic pointer and judges
+// its time windows against an injectable clock — so a second instance would
+// hold a second cache and, worse, its own time.Now, silently escaping a clock
+// a test injected on the process's real service.
+func (s *Server) mcpHandler(auth *identity.Service, log *slog.Logger) http.Handler {
 	if !s.mcpConnectorEnabled {
 		return nil
 	}
@@ -47,7 +51,7 @@ func (s *Server) mcpHandler(pool *pgxpool.Pool, log *slog.Logger) http.Handler {
 	// came up, and how much of it: a mount that silently serves nothing is
 	// indistinguishable from a mount that never happened.
 	log.Info("mcp: hosted connector transport mounted", "path", "/mcp", "tools", len(s.toolRegistry.Specs()))
-	return agents.NewHTTPHandler(s.toolRegistry, mcpAuthenticate(identity.NewService(pool)),
+	return agents.NewHTTPHandler(s.toolRegistry, mcpAuthenticate(auth),
 		agents.ResourceMetadataChallenge, mcpServerName, mcpServerVersion)
 }
 

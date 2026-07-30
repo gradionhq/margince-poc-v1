@@ -82,7 +82,7 @@ func replayProbes(approvalsSvc *approvals.Service) map[string]replayProbe {
 // operationalMux mounts the contract surface next to the operational
 // edges: health probes, metrics, the anonymous public paths, and — when the
 // deployment declares it — the remote MCP connector.
-func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, api http.Handler) *http.ServeMux {
+func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySvc *identity.Service, api http.Handler) *http.ServeMux {
 	// The identity handler set is read off the assembled Server, never taken
 	// as a separate parameter: identity.Handlers is a value type whose With*
 	// options return a copy, so a second reference to the pre-option set
@@ -132,7 +132,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, api http.H
 	// gate signal: with the connector off none of these routes is
 	// registered, so the mux's own 404 answers all of them identically and
 	// nothing tells a prober which gate is closed.
-	if mcp := srv.mcpHandler(pool, log); mcp != nil {
+	if mcp := srv.mcpHandler(identitySvc, log); mcp != nil {
 		mux.Handle("/mcp", httpserver.Correlate(httpserver.AccessLog(log, mcp)))
 		// The AS endpoints live outside the generated resource surface but
 		// behind the same workspace and session middleware
