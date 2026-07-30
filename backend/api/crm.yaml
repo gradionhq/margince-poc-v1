@@ -7686,11 +7686,12 @@ paths:
   #       Overlay→SoR flip preflight gate (B-E18.26, V1-WOW): force-fresh sync +
   #       conflict reconciliation + honest-scope export check → {ready,
   #       blocking[], unresolved_conflicts[]}. Human-only: a green
-  #       preflight FREEZES the mirror (see the execute below). 409
-  #       `overlay_flip_blocked` is returned by the execute op below when
-  #       this is not satisfied.
+  #       preflight FREEZES the mirror and seals the snapshot the execute
+  #       imports. 409 `overlay_flip_blocked` is returned by the execute
+  #       op below when this is not satisfied.
   #   POST   /overlay/flip
-  #       Execute Overlay→SoR flip (B-E18.27; AC-OV-9/10): reuse the features/04
+  #       Execute Overlay→SoR flip (B-E18.27; AC-OV-9/10): import the
+  #       frozen snapshot the preflight sealed, reusing the features/04
   #       §5 importer, preserve record counts/relationships, carry over OUR
   #       augmentation (context/embeddings/audit/capture/mappings), re-tag
   #       incumbent-derived nodes T2→T1, detach write-back, flip
