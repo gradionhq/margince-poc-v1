@@ -263,3 +263,23 @@ func TestAPageResolvesItsOwnReferencesAgainstWhereItCameFrom(t *testing.T) {
 		t.Fatalf("page.URL = %q, want the requested URL", page.URL)
 	}
 }
+
+func TestOnlyTheHeadDeclaresTheVisualIdentity(t *testing.T) {
+	base, err := url.Parse("https://acme.example/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A page carrying user-generated content is exactly where body markup an
+	// attacker wrote shows up. The head's declaration is the site's; the
+	// body's is anybody's.
+	og, icons := extractHeadAssets(
+		`<html><head><link rel="icon" href="/real.png"></head>`+
+			`<body><link rel="icon" href="/injected.png">`+
+			`<meta property="og:image" content="/injected-share.png"></body></html>`, base)
+	if og != "" {
+		t.Fatalf("og:image = %q, want nothing — it was declared in the body", og)
+	}
+	if len(icons) != 1 || icons[0].URL != "https://acme.example/real.png" {
+		t.Fatalf("icons = %+v, want only the head's declaration", icons)
+	}
+}

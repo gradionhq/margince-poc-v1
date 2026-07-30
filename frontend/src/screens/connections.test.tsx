@@ -433,8 +433,15 @@ describe("company logos on the diagram", () => {
     const image = container.querySelector("image.cx-node-logo");
     expect(image?.getAttribute("href")).toBe(`/v1/organizations/${ROOT}/logo`);
     // Clipped to its own node, never to a shared path — a shared clip would
-    // cut every logo to one node's position.
-    expect(image?.getAttribute("clip-path")).toBe(`url(#cx-clip-${ROOT})`);
+    // cut every logo to one node's position — and scoped per diagram, because
+    // the card and its modal are both mounted while the modal is open.
+    const clip = image?.getAttribute("clip-path") ?? "";
+    expect(clip).toMatch(/^url\(#.+\)$/);
+    expect(clip).toContain(ROOT);
+    const clipId = clip.slice("url(#".length, -1);
+    // Matched by attribute rather than by id selector: React's useId emits
+    // colons, which a CSS id selector would read as a pseudo-class.
+    expect(container.querySelector(`clipPath[id="${clipId}"]`)).toBeTruthy();
     expect(container.querySelectorAll("circle.cx-node-marked")).toHaveLength(1);
   });
 

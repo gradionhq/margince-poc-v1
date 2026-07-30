@@ -71,8 +71,13 @@ func (s *Store) SetOrganizationLogo(ctx context.Context, id ids.OrganizationID, 
 		// precedence rule would hold on every run except the one where it
 		// matters. Any writer of this organization takes the same lock, so the
 		// two serialize instead of racing.
+		// Live rows only, matching every other mutation and OrganizationLogoKey:
+		// a lock that admitted tombstones would let an archived organization
+		// reach the human-precedence return and answer "no change" where the
+		// rest of the module answers not-found.
 		var locked ids.UUID
-		err := tx.QueryRow(ctx, `SELECT id FROM organization WHERE id = $1 FOR UPDATE`, id).Scan(&locked)
+		err := tx.QueryRow(ctx,
+			`SELECT id FROM organization WHERE id = $1 AND archived_at IS NULL FOR UPDATE`, id).Scan(&locked)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return apperrors.ErrNotFound
 		}

@@ -92,12 +92,20 @@ func extractHeadAssets(rawHTML string, base *url.URL) (ogImage string, icons []I
 	tokenizer := html.NewTokenizer(strings.NewReader(rawHTML))
 	seen := map[string]bool{}
 	for {
-		if tokenizer.Next() == html.ErrorToken {
+		tokenType := tokenizer.Next()
+		if tokenType == html.ErrorToken {
 			// io.EOF or a malformed tail: the parseable prefix has been
 			// harvested, which is all a best-effort discovery aid owes.
 			return ogImage, icons
 		}
 		name, hasAttr := tokenizer.TagName()
+		// The harvest stops at </head>. A site declares its identity in the
+		// head; a <link rel="icon"> further down the body is markup anything
+		// that can put content on the page could have written, and a page
+		// carrying user-generated content is exactly where that happens.
+		if tokenType == html.EndTagToken && string(name) == "head" {
+			return ogImage, icons
+		}
 		if !hasAttr {
 			continue
 		}

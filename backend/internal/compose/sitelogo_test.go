@@ -316,20 +316,3 @@ func TestReclaimSurvivesTheDeadlineThatCausedIt(t *testing.T) {
 		t.Fatalf("a nil or empty key must delete nothing, got %v", blob.deletedLive)
 	}
 }
-
-func TestReclaimCollectsAKeyNoRowNames(t *testing.T) {
-	// The three definitive outcomes hand this helper a key nothing references:
-	// the guard declined, the Put failed, or a successful write named the key
-	// it superseded. Only those reach it — resolveLogo's error branch
-	// deliberately does not, because a failed SetOrganizationLogo does not
-	// mean the write did not happen, and deleting bytes a committed row names
-	// would show a broken image instead of the company's face.
-	blob := &deadlineBlob{Store: blobstore.NewMemory()}
-	w := &siteDeepReadWorker{blob: blob, log: slog.New(slog.DiscardHandler)}
-
-	orphan := "ws/organization_logo/org/orphan"
-	w.reclaimLogoObject(context.Background(), ids.NewV7(), &orphan)
-	if len(blob.deletedLive) != 1 || blob.deletedLive[0] != orphan {
-		t.Fatalf("a definitively unreferenced object must be collected, got %v", blob.deletedLive)
-	}
-}

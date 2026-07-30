@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
@@ -130,6 +130,11 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
   // an ordinary node, which is the same floor the list's monogram gives it —
   // never a pale empty disc where a company should be.
   const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  // The card and its expanded modal are BOTH mounted while the modal is open,
+  // so a clip id built from the node id alone would exist twice in one
+  // document and `url(#…)` would resolve to whichever came first. Scoping the
+  // ids per diagram keeps each one's clips its own.
+  const clipScope = useId();
   return (
     <svg
       className="cx-diagram"
@@ -173,7 +178,7 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
                 {/* One clip per node: a clipPath is defined in the diagram's
                     own coordinates, so a shared one would clip every logo to
                     a single node's position. */}
-                <clipPath id={`cx-clip-${p.node.id}`}>
+                <clipPath id={`${clipScope}-${p.node.id}`}>
                   <circle cx={p.x} cy={p.y} r={r - 1} />
                 </clipPath>
                 {/* The circle underneath keeps its fill and its ring, so a
@@ -182,7 +187,7 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
                 <image
                   className="cx-node-logo"
                   href={p.node.logo_url}
-                  clipPath={`url(#cx-clip-${p.node.id})`}
+                  clipPath={`url(#${clipScope}-${p.node.id})`}
                   x={p.x - r + 2}
                   y={p.y - r + 2}
                   width={(r - 2) * 2}
