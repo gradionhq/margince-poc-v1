@@ -20,6 +20,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -30,8 +31,18 @@ import (
 
 const subjectEmail = "selma.subject@example.test"
 
+// seededPreferenceToken names the preference-center token seedSubject mints
+// for a subject. It is a fixture stand-in, not a realistic credential: the
+// real thing is 256 bits of crypto/rand behind a pref_ prefix. Derived from
+// the person id because the column is UNIQUE and a suite may seed more than
+// one subject.
+func seededPreferenceToken(personID ids.UUID) string {
+	return "pref_stands-in-for-a-token-" + personID.String()
+}
+
 // seedSubject plants a person with an email, a linked activity, a raw
-// capture payload mentioning them, and one embedding row.
+// capture payload mentioning them, one embedding row, and the
+// preference-center token a marketing send would have minted for them.
 func seedSubject(t *testing.T, e *Env) ids.UUID {
 	t.Helper()
 	personID := ids.NewV7()
@@ -57,6 +68,12 @@ func seedSubject(t *testing.T, e *Env) ids.UUID {
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 			 VALUES (`+wsClause+`, $1, 'person', $2)`, activityID, personID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO preference_token (workspace_id, person_id, token, expires_at)
+			 VALUES (`+wsClause+`, $1, $2, now() + interval '30 days')`,
+			personID, seededPreferenceToken(personID)); err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx,
@@ -96,6 +113,7 @@ func assertSubjectErased(t *testing.T, e *Env, personID ids.UUID) {
 			{"person_email rows", `SELECT count(*) FROM person_email WHERE person_id = $1`, 0},
 			{"embeddings", `SELECT count(*) FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, 0},
 			{"search hits for the name", `SELECT count(*) FROM person WHERE id = $1 AND search_tsv @@ plainto_tsquery('simple', 'Selma')`, 0},
+			{"preference-center tokens", `SELECT count(*) FROM preference_token WHERE person_id = $1`, 0},
 			{"suppression entries", `SELECT count(*) FROM erasure_suppression WHERE kind = 'email'`, 1},
 			{"erase tombstones", `SELECT count(*) FROM audit_log WHERE action = 'erase' AND entity_id = $1`, 1},
 		}
@@ -200,6 +218,40 @@ func TestErasureRemovesPIIEverywhereAndSticksViaSuppression(t *testing.T) {
 	}
 	if err := privacy.NewEraser(e.Pool).ErasePerson(admin, held, "test"); !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("erasing a held subject → %v, want ErrConflict", err)
+	}
+}
+
+// The token resolve is the SOLE authorization decision on the anonymous
+// preference edge, so the erasure that certifies a subject gone has to end
+// there too: an archived or forwarded List-Unsubscribe URL must stop
+// answering. Otherwise the erased subject keeps a live surface that reads
+// their surviving consent state and writes fresh person_consent,
+// consent_event, audit and outbox rows against them — through the very
+// capability the erasure destroyed the record of.
+func TestErasureRetiresTheSubjectsPreferenceToken(t *testing.T) {
+	e := Setup(t)
+	personID := seedSubject(t, e)
+	token := seededPreferenceToken(personID)
+	store := consent.NewStore(e.Pool)
+
+	// The fixture is live first, so the assertion below measures the erasure
+	// and not a token that never worked.
+	ref, err := store.ResolvePreferenceToken(context.Background(), token)
+	if err != nil {
+		t.Fatalf("the seeded token does not resolve before erasure: %v", err)
+	}
+	if ref.PersonID.UUID != personID {
+		t.Fatalf("the token resolves to person %s, want the seeded subject %s", ref.PersonID.UUID, personID)
+	}
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), personID, "art-17"); err != nil {
+		t.Fatal(err)
+	}
+
+	// ABSENT, not merely refused: the same answer an unknown token reads as,
+	// so the edge never becomes a "this subject was erased" oracle.
+	if _, err := store.ResolvePreferenceToken(context.Background(), token); !errors.Is(err, apperrors.ErrNotFound) {
+		t.Fatalf("the erased subject's token still resolves → %v, want ErrNotFound", err)
 	}
 }
 

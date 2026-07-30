@@ -50,9 +50,17 @@ func TestSendEmailDerivesUnsubscribeHeadersForAMarketingPurpose(t *testing.T) {
 		!strings.HasSuffix(staged.Body, testBaseURL+"/v1/public/preferences/"+testUnsubscribeTok) {
 		t.Fatalf("staged body carries no manage-preferences link:\n%s", staged.Body)
 	}
-	// The timeline records what actually went out, footer included.
-	if sent.Body == nil || !strings.Contains(*sent.Body, wantURL) {
-		t.Fatalf("logged activity body does not match the transmitted body: %v", sent.Body)
+	// The timeline records that the send carried a one-click link, and which
+	// purpose it pointed at — with the token segment redacted. The token is a
+	// bearer credential over the recipient's consent record and the activity
+	// row is served back to any seat holding activity:read, so the record and
+	// the transmission deliberately differ by exactly that one segment.
+	recordedURL := testBaseURL + "/v1/public/preferences/" + redactedToken + "/unsubscribe?purpose=marketing_email"
+	if sent.Body == nil || !strings.Contains(*sent.Body, recordedURL) {
+		t.Fatalf("logged activity body lost the unsubscribe footer: %v", sent.Body)
+	}
+	if strings.Contains(*sent.Body, testUnsubscribeTok) {
+		t.Fatalf("logged activity body carries the live preference token:\n%s", *sent.Body)
 	}
 }
 
@@ -99,6 +107,52 @@ func TestSendEmailRefusesAMultiAddresseeSendThatCarriesAnUnsubscribeToken(t *tes
 	}
 	if !strings.Contains(refusal.Error(), "once per recipient") {
 		t.Fatalf("refusal %q does not tell the user what to do about it", refusal.Error())
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Fatal("a refused send still staged a delivery or logged an activity")
+	}
+}
+
+// A marketing send may not go out without a working, non-forgeable
+// List-Unsubscribe URL, so an installation that never configured its public
+// base URL fails LOUDLY here rather than deriving the base from the request.
+// That fallback is what the refusal exists to prevent: the link carries the
+// recipient's preference token, so an attacker who controls Host or
+// X-Forwarded-Proto at send time could point the tokenized link at their own
+// domain and harvest the credential from the recipient's click.
+func TestSendEmailRefusesAMarketingSendWithNoConfiguredPublicBaseURL(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	// The store as an installation that wired the linker but never set the
+	// base URL — deliberately NOT e.store(), which configures one.
+	store := NewStore(e.pool).WithUnsubscribe(stubUnsubscribeLinker{token: testUnsubscribeTok, ok: true})
+
+	_, err := store.SendEmail(
+		e.as(principal.RowScopeAll), anchor, soloSendInput("marketing_email"), stubConsentGate{}, stager)
+	if err == nil || !strings.Contains(err.Error(), "public base URL is not configured") {
+		t.Fatalf("marketing send with no public base URL → %v, want a refusal naming the missing configuration", err)
+	}
+	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
+		t.Fatal("a refused send still staged a delivery or logged an activity")
+	}
+}
+
+// A linker that fails refuses the send rather than falling through to a
+// message with no unsubscribe surface. The two outcomes are NOT
+// interchangeable: ok=false means "this address carries none", while an error
+// means the answer is unknown — and sending bulk mail on an unknown answer is
+// the RFC 8058 violation the linker exists to prevent.
+func TestSendEmailRefusesWhenTheUnsubscribeLinkerFails(t *testing.T) {
+	e := setupSend(t)
+	anchor := e.seedAnchor(t, "", "")
+	stager := &recordingStager{}
+	linkerDown := errors.New("preference store unreachable")
+
+	_, err := e.store(stubUnsubscribeLinker{err: linkerDown}).SendEmail(
+		e.as(principal.RowScopeAll), anchor, soloSendInput("marketing_email"), stubConsentGate{}, stager)
+	if !errors.Is(err, linkerDown) {
+		t.Fatalf("send with a failing unsubscribe linker → %v, want the linker's own error", err)
 	}
 	if len(stager.staged) != 0 || e.outboundCount(t) != 0 {
 		t.Fatal("a refused send still staged a delivery or logged an activity")
