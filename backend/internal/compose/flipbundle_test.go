@@ -171,6 +171,11 @@ func TestBundleRowsPageAndRunOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parseBundle: %v", err)
 	}
+	// limit truncates: a source that ignored it would break the engine's
+	// positional checkpoint without failing any other assertion here.
+	if capped, err := contents.source.Rows(t.Context(), "person", 0, 1); err != nil || len(capped) != 1 || capped[0].ExternalID != "p-1" {
+		t.Fatalf("limited page = %+v (err %v), want exactly p-1", capped, err)
+	}
 	page, err := contents.source.Rows(t.Context(), "person", 1, 10)
 	if err != nil || len(page) != 1 || page[0].ExternalID != "p-2" {
 		t.Fatalf("offset page = %+v (err %v), want just p-2", page, err)

@@ -60,13 +60,9 @@ func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
 	// own namespace constant: the same workspace always maps to the same
 	// lock, distinct workspaces effectively never collide, and the
 	// namespace keeps the flip clear of any other advisory-lock user.
-	// (The single-argument bigint form — the two-argument one takes
-	// int4s, which a workspace-derived key overflows.)
-	// Masked to 63 bits before the signed conversion: the lock key only
-	// has to be stable and collision-resistant per workspace, and
-	// wrapping into the negative range would be an overflow the linter
-	// is right to refuse.
-	key := int64(binary.BigEndian.Uint64(ws[:8])&math.MaxInt64) ^ flipAdvisoryLockNamespace
+	// The single-argument bigint form: the two-argument one takes int4s,
+	// which a workspace-derived key overflows.
+	key := flipLockKey(ws)
 	var claimed bool
 	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&claimed); err != nil {
 		conn.Release()

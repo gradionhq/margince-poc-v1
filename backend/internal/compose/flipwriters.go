@@ -15,10 +15,13 @@ package compose
 // identical values through a second audit row.
 //
 // Fidelity gaps are DISCLOSED, never silent (IEM-FORM-2's "record every
-// discarded edge"): an owner with no mirror_user_map row imports
-// ownerless, a deal whose raw stage identity doesn't resolve lands on
-// the default pipeline's first open stage — each with a disclosure line
-// in the run report. OVA-MAP-6 leaves stage materialization open
+// discarded edge"): a row whose incumbent owner has no mirror_user_map
+// entry — or which names no owner at all — is imported under the flip
+// operator rather than left ownerless (an ownerless native row is
+// workspace-shared, while the mirror row was hidden from every seat),
+// and a deal whose raw stage identity doesn't resolve lands on the
+// default pipeline's first open stage — each with a disclosure line in
+// the run report. OVA-MAP-6 leaves stage materialization open
 // upstream; this fallback is the disclosed spec-fill.
 
 import (
@@ -36,6 +39,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // flipWriters implements migration.Writers for the overlay→native flip.
@@ -116,14 +120,20 @@ func (w *flipWriters) provenance(object, ext string) string {
 
 // importSourceSystem namespaces the source_system the flip writes on the
 // two objects whose stores key their own idempotent replay on
-// (source_system, source_id) — both client-writable on the create wire.
-// Without the namespace a caller could pre-plant a row under a guessed
-// incumbent id and have the store hand it back as an existing row, so
-// the estate record never lands. "mirror:" is unreachable from the wire
-// mapping, which passes the caller's value through verbatim.
+// (source_system, source_id). The prefix is REFUSED on the client-facing
+// create paths (people.CreateLead / activities.LogActivity reject a
+// reserved source system), so a caller cannot pre-plant a row under a
+// guessed incumbent id and have the store hand it back as already
+// existing. The engine-owned identity map remains the authority for
+// "already imported"; this keeps the stores' own replay from being
+// steerable in the first place.
 func (w *flipWriters) importSourceSystem() string {
-	return "mirror:" + w.incumbent
+	return provenance.ReservedSourceSystemPrefix + w.incumbent
 }
+
+// skipReasonNaturalKeyTaken marks an estate row the flip could not land
+// because something else already holds its natural key.
+const skipReasonNaturalKeyTaken = "natural_key_already_taken"
 
 func (w *flipWriters) cacheKey(object, ext string) string { return object + "/" + ext }
 
@@ -236,15 +246,6 @@ func (w *flipWriters) resolveOwner(ctx context.Context, row migration.Row, objec
 	return &owner, "", nil
 }
 
-// ownerOrOperator applies the same posture to a row that names no
-// incumbent owner at all.
-func (w *flipWriters) ownerOrOperator(owner *ids.UserID) *ids.UserID {
-	if owner != nil {
-		return owner
-	}
-	return w.operator
-}
-
 func flipAddress(fields map[string]any) *crmcontracts.Address {
 	raw, ok := fields["address"].(map[string]any)
 	if !ok || len(raw) == 0 {
@@ -279,7 +280,7 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 	in := people.CreateOrganizationInput{
 		DisplayName: name,
 		Industry:    fieldStringPtr(row.Fields, "industry"),
-		OwnerID:     w.ownerOrOperator(owner),
+		OwnerID:     owner,
 		Address:     flipAddress(row.Fields),
 		Source:      w.provenance(flipObjectOrganization, row.ExternalID),
 	}
@@ -311,7 +312,7 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		FirstName: fieldStringPtr(row.Fields, "first_name"),
 		LastName:  fieldStringPtr(row.Fields, "last_name"),
 		Title:     fieldStringPtr(row.Fields, "title"),
-		OwnerID:   w.ownerOrOperator(owner),
+		OwnerID:   owner,
 		Address:   flipAddress(row.Fields),
 		Source:    w.provenance(flipObjectPerson, row.ExternalID),
 	}
@@ -347,7 +348,7 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 		Email:        fieldStringPtr(row.Fields, "email"),
 		CompanyName:  fieldStringPtr(row.Fields, "company_name"),
 		Status:       "new",
-		OwnerID:      w.ownerOrOperator(owner),
+		OwnerID:      owner,
 		SourceSystem: &sourceSystem,
 		SourceID:     &ext,
 		Source:       w.provenance(flipObjectLead, ext),
@@ -356,15 +357,16 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating lead %s: %w", ext, err)
 	}
-	if err := w.remember(ctx, flipObjectLead, ext, ids.UUID(lead.Id)); err != nil {
-		return migration.EnsureResult{}, err
-	}
 	if !created {
 		// The identity map did not know this row, yet the store replayed
-		// an existing one under the flip's own namespaced key. That is
-		// not a clean "already landed" — it is disclosed, never counted
-		// as converged.
-		return migration.EnsureResult{Skipped: true, SkipReason: "natural_key_already_taken"}, nil
+		// an existing one under the flip's namespaced key. It is NOT
+		// adopted into the map: recording a row this run did not create
+		// would make the next attempt resolve it as already-imported and
+		// converge silently, turning a one-shot disclosure into none.
+		return migration.EnsureResult{Skipped: true, SkipReason: skipReasonNaturalKeyTaken}, nil
+	}
+	if err := w.remember(ctx, flipObjectLead, ext, ids.UUID(lead.Id)); err != nil {
+		return migration.EnsureResult{}, err
 	}
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
@@ -390,7 +392,7 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 		Currency:   fieldStringPtr(row.Fields, "currency"),
 		PipelineID: placement.pipeline,
 		StageID:    placement.birthStage,
-		OwnerID:    w.ownerOrOperator(owner),
+		OwnerID:    owner,
 		Source:     w.provenance(flipObjectDeal, row.ExternalID),
 	}
 	if minor, ok := fieldInt64(row.Fields, "amount_minor"); ok {
@@ -458,13 +460,13 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: logging activity %s: %w", ext, err)
 	}
+	if !created {
+		// See ensureLead: not adopted into the identity map, and
+		// disclosed rather than treated as converged.
+		return migration.EnsureResult{Skipped: true, SkipReason: skipReasonNaturalKeyTaken}, nil
+	}
 	if err := w.remember(ctx, flipObjectActivity, ext, ids.UUID(activity.Id)); err != nil {
 		return migration.EnsureResult{}, err
-	}
-	if !created {
-		// See ensureLead: a store replay the identity map never recorded
-		// is disclosed, not silently treated as converged.
-		return migration.EnsureResult{Skipped: true, SkipReason: "natural_key_already_taken"}, nil
 	}
 	return migration.EnsureResult{Created: true}, nil
 }

@@ -16,6 +16,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // RequiredFieldError maps to 422 on both surfaces.
@@ -165,7 +166,26 @@ func organizationUpdateInput(req crmcontracts.UpdateOrganizationRequest, ifVersi
 	}
 	return in
 }
-func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
+
+// ReservedSourceSystemError refuses a client write into the importer's
+// source-system namespace. Maps to 422.
+type ReservedSourceSystemError struct{ Value string }
+
+func (e *ReservedSourceSystemError) Error() string {
+	return "source_system " + e.Value + " is reserved for imports"
+}
+
+// leadCreateInput maps the create wire onto the store input, refusing a
+// client write into the importer's source-system namespace: the lead
+// store keys its idempotent replay on (source_system, source_id), so a
+// caller able to spell the reserved prefix could pre-plant a row under
+// an incumbent record id and have a later import hand it back as
+// already existing — suppressing the real record. The importer writes
+// that namespace from inside the process, never through this mapper.
+func leadCreateInput(req crmcontracts.CreateLeadRequest) (CreateLeadInput, error) {
+	if req.SourceSystem != nil && provenance.ReservedSourceSystem(*req.SourceSystem) {
+		return CreateLeadInput{}, &ReservedSourceSystemError{Value: *req.SourceSystem}
+	}
 	in := CreateLeadInput{
 		FullName:        req.FullName,
 		Title:           req.Title,
@@ -186,7 +206,7 @@ func leadCreateInput(req crmcontracts.CreateLeadRequest) CreateLeadInput {
 	if req.Status != nil {
 		in.Status = string(*req.Status)
 	}
-	return in
+	return in, nil
 }
 
 // LeadUpdateRequest is the contract's UpdateLeadRequest plus the

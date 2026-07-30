@@ -26,6 +26,12 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// The reasons a disclosed (non-applied) edge carries in the run report.
+const (
+	reasonEndpointNotImported = "endpoint_not_imported"
+	reasonUnmodelledEdge      = "unmodelled_edge_shape"
+)
+
 // activityLinks resolves the activity's own edges to already-imported
 // native targets (activities import last, so every endpoint exists).
 //
@@ -43,15 +49,15 @@ func (w *flipWriters) activityLinks(ctx context.Context, activityExt string) ([]
 		if a.FromType != flipObjectActivity || a.FromID != activityExt {
 			continue
 		}
-		switch a.ToType {
-		case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
-			id, found, err := w.lookup(ctx, a.ToType, a.ToID)
-			if err != nil {
-				return nil, err
-			}
-			if found {
-				links = append(links, activities.ActivityLinkInput{EntityType: a.ToType, EntityID: id})
-			}
+		if !activityLinkable(a.ToType) {
+			continue
+		}
+		id, found, err := w.lookup(ctx, a.ToType, a.ToID)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			links = append(links, activities.ActivityLinkInput{EntityType: a.ToType, EntityID: id})
 		}
 	}
 	return links, nil
@@ -76,7 +82,7 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 		return migration.AssocResult{}, err
 	}
 	if !fromOK || !toOK {
-		return migration.AssocResult{Reason: "endpoint_not_imported"}, nil
+		return migration.AssocResult{Reason: reasonEndpointNotImported}, nil
 	}
 	switch {
 	case a.FromType == flipObjectDeal && a.ToType == flipObjectOrganization:
@@ -107,7 +113,7 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 		}
 		return migration.AssocResult{Applied: true}, nil
 	default:
-		return migration.AssocResult{Reason: "unmodelled_edge_shape"}, nil
+		return migration.AssocResult{Reason: reasonUnmodelledEdge}, nil
 	}
 }
 
@@ -117,13 +123,34 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 // the same unresolved-endpoint reason every other edge shape gives,
 // rather than a blanket claim the run report would count as real.
 func (w *flipWriters) activityEdgeResult(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
+	// Normalize the orientation — the adapter emits activity-targeting
+	// edges too (X → activity), and a link is the same fact either way.
+	target, targetID := a.ToType, a.ToID
 	if a.FromType != flipObjectActivity {
-		return migration.AssocResult{Applied: true}, nil
+		target, targetID = a.FromType, a.FromID
 	}
-	if _, found, err := w.lookup(ctx, a.ToType, a.ToID); err != nil {
+	// activity_link models person/organization/deal only. A lead edge,
+	// which the incumbent does produce, has no native link to become —
+	// reported as unmodelled rather than counted as applied.
+	if !activityLinkable(target) {
+		return migration.AssocResult{Reason: reasonUnmodelledEdge}, nil
+	}
+	if _, found, err := w.lookup(ctx, target, targetID); err != nil {
 		return migration.AssocResult{}, err
 	} else if !found {
-		return migration.AssocResult{Reason: "endpoint_not_imported"}, nil
+		return migration.AssocResult{Reason: reasonEndpointNotImported}, nil
 	}
 	return migration.AssocResult{Applied: true}, nil
+}
+
+// activityLinkable names the entity types activity_link can carry — the
+// SAME set activityLinks materializes, so a reported "applied" always
+// corresponds to a link that actually exists.
+func activityLinkable(entityType string) bool {
+	switch entityType {
+	case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
+		return true
+	default:
+		return false
+	}
 }
