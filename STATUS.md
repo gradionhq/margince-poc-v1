@@ -24,6 +24,37 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-07-30
+
+**The company-view rebuild is 5 of 7 PRs in.** #309 (composite read), #313
+(one-page view), #315 (evidence mark) and #317 (account brief) are merged. **#319
+(next-step suggestions + Ask Margince) is feature-complete with auto-merge armed**
+— all local gates green with `main` merged, the branch's one review round done and
+its four bot threads resolved. If it has not landed, the only likely cause is
+another `main` push putting it BEHIND again: merge `origin/main`, confirm no
+migration-number collision (mine is `0145_suggestion_dismissal`), push, and
+auto-merge takes it.
+
+**Next: PR 6 — the connections card (graph level 1).** Plan at
+`~/.claude/plans/mutable-coalescing-sutherland.md`. Scope: a compose-level
+`GET /organizations/{id}/graph` returning `{nodes[], edges[]}` — contacts by
+employment (strength-weighted), open deals with their stakeholder edges,
+partner/parent orgs, the active signal's intro path. One hop, RBAC-pruned the way
+the roll-up walk is, deterministic node selection, and `dropped_count` rather than
+a silent cap. Frontend: a collapsed ego view in the right rail (hand-rolled SVG,
+fixed radial layout) with a keyboard-navigable node list as the real fallback, an
+expandable `Modal size="wide"`, and nodes routing through `EntityRef`. It replaces
+`RecordContextPanel` on this screen; graph level 2 is deferred. **Start it in a
+fresh context** — this session ran long.
+
+**Two things worth knowing before touching the suggestion code.** The stall
+episode's monotonicity constraint is written at `stalledDeal.episode()` in
+`internal/compose/org360/suggestionreads.go`, with both rejected shapes and why
+each fails; changing what re-arms a dismissal means reading that first. And the
+open questions this arc deliberately did not answer alone are the STATUS bullets
+below — which deal edits count as "working" it, the O(N) suggestion read, the
+uncapped `/ask` model call, and the `org_ask` corpus gap.
+
 ## Pick up here
 
 Open work, roughly in priority order.
