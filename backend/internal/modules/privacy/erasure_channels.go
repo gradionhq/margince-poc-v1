@@ -51,6 +51,21 @@ func personChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.Person
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[channelIdentity])
 }
 
+// channelIdentityLockKeys renders the subject's accounts as the lock keys the
+// ingest side takes on the very same accounts. It is a translation and not a
+// second spelling of the identity: storekit owns the key, both callers hand it
+// the same pair, so an erasure and a delivery cannot end up on different keys
+// and silently stop excluding each other.
+func channelIdentityLockKeys(identities []channelIdentity) []storekit.ChannelIdentityKey {
+	keys := make([]storekit.ChannelIdentityKey, 0, len(identities))
+	for _, identity := range identities {
+		keys = append(keys, storekit.ChannelIdentityKey{
+			Provider: identity.Provider, ChannelUserID: identity.ChannelUserID,
+		})
+	}
+	return keys
+}
+
 // eraseChannelIdentities removes the subject's channel identities and suppresses
 // them, returning how many were suppressed for the erasure tombstone's counts.
 // identities is the caller's OWN pre-erasure read (personChannelIdentities) —

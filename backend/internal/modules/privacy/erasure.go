@@ -113,6 +113,14 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// Taken before the first statement that purges or suppresses by
+		// channel identity, and held until the commit: an inbound message
+		// from one of these accounts must land entirely before this erasure
+		// or entirely after it, never inside it — storekit.LockChannelIdentities
+		// states what landing inside it costs.
+		if err := storekit.LockChannelIdentities(ctx, tx, channelIdentityLockKeys(identities)); err != nil {
+			return err
+		}
 		// Refused BEFORE the first destructive statement: everything below
 		// this line suppresses and purges by IDENTIFIER, and a rival record
 		// holding the same identifier would be left named, reachable, and

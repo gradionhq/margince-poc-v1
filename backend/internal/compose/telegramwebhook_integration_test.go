@@ -112,10 +112,15 @@ func connectTestTelegramBot(t *testing.T, e *integration.Env, vault keyvault.Vau
 	return conn, api.sentSecret
 }
 
-// telegramUpdateBody renders a minimal, decodable Telegram update carrying
-// just the field the handler actually reads.
+// telegramUpdateBody renders the smallest update this webhook will persist: a
+// private-chat message from a named sender. Chat type and sender id are as
+// load-bearing as update_id here — the handler refuses to store an update it
+// cannot classify as one this connector captures, because a stored update with
+// no captured subject is one no erasure could ever reach.
 func telegramUpdateBody(updateID int64) []byte {
-	return []byte(fmt.Sprintf(`{"update_id":%d,"message":{"message_id":1,"text":"hi"}}`, updateID))
+	return []byte(fmt.Sprintf(
+		`{"update_id":%d,"message":{"message_id":1,"chat":{"id":770001,"type":"private"},`+
+			`"from":{"id":770001,"username":"minimal"},"date":1785000000,"text":"hi"}}`, updateID))
 }
 
 func postTelegramWebhook(t *testing.T, srv *httptest.Server, connID ids.UUID, secret string, body []byte) *http.Response {
