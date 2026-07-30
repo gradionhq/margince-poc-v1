@@ -149,11 +149,17 @@ func rawCaptureCount(t *testing.T, e *integration.Env, sourceID string) int {
 		`SELECT count(*) FROM raw_capture WHERE source_system = 'telegram' AND source_id = $1`, sourceID)
 }
 
-func riverJobCount(t *testing.T, e *integration.Env, kind string) int {
+// riverJobCount counts the jobs THIS delivery enqueued, scoped by the
+// connection its args name. river_job is not workspace-scoped and sibling
+// suites in this binary enqueue the same kind into the same database, so an
+// unscoped count would measure the package's history rather than this
+// test's behaviour.
+func riverJobCount(t *testing.T, e *integration.Env, kind, connectionID string) int {
 	t.Helper()
 	var n int
 	if err := e.Pool.QueryRow(context.Background(),
-		`SELECT count(*) FROM river_job WHERE kind = $1`, kind).Scan(&n); err != nil {
+		`SELECT count(*) FROM river_job WHERE kind = $1 AND args->>'connection_id' = $2`,
+		kind, connectionID).Scan(&n); err != nil {
 		t.Fatalf("counting river_job rows: %v", err)
 	}
 	return n
@@ -251,7 +257,7 @@ func TestRedeliveredUpdateYieldsOneRawRowAndOneJob(t *testing.T) {
 	if n := rawCaptureCount(t, e, fmt.Sprintf("%d", updateID)); n != 1 {
 		t.Fatalf("raw_capture rows for a redelivered update_id = %d, want 1", n)
 	}
-	if n := riverJobCount(t, e, "telegram_ingest"); n != 1 {
+	if n := riverJobCount(t, e, "telegram_ingest", conn.ID.String()); n != 1 {
 		t.Fatalf("river_job rows for the redelivered update = %d, want 1 — river's ByArgs dedupe must have skipped the second insert", n)
 	}
 }
