@@ -22,16 +22,11 @@ package compose
 // are B-E11.10b; this ticket is the writer they drive.
 
 import (
-	"archive/zip"
 	"context"
-	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -40,13 +35,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // exportFormat is the bundle's self-describing version tag; a recipient
 // (and the round-trip re-importer, B-E11.12) keys off it.
 const exportFormat = "margince-export/1"
+
+// auditFieldFormat names the bundle format in the export audit row.
+const auditFieldFormat = "format"
 
 // scopeMode selects the row-visibility rule a member applies — one per
 // distinct scope shape already in use by the module read paths, reused
@@ -128,9 +125,9 @@ var exportMembers = []exportMember{
 // the bundle keeps its "never a row their lists would hide" contract;
 // the user map is admin-gated like its own surface.
 var overlayExportMembers = []exportMember{
-	{table: "overlay_mirror", scope: scopeMirror, objectGate: "overlay_connection", orderBy: "t.object_class, t.external_id"},
-	{table: "overlay_association", scope: scopeMirrorAssoc, objectGate: "overlay_connection", orderBy: "t.from_type, t.from_id, t.to_type, t.to_id, t.type_id"},
-	{table: "mirror_user_map", scope: scopeWorkspace, objectGate: "overlay_connection", updateGate: true, orderBy: "t.app_user_id, t.incumbent"},
+	{table: "overlay_mirror", scope: scopeMirror, objectGate: string(recordTypeOverlayConnection), orderBy: "t.object_class, t.external_id"},
+	{table: "overlay_association", scope: scopeMirrorAssoc, objectGate: string(recordTypeOverlayConnection), orderBy: "t.from_type, t.from_id, t.to_type, t.to_id, t.type_id"},
+	{table: "mirror_user_map", scope: scopeWorkspace, objectGate: string(recordTypeOverlayConnection), updateGate: true, orderBy: "t.app_user_id, t.incumbent"},
 }
 
 // ExportWriter assembles the open-format bundle for the caller's
@@ -215,7 +212,7 @@ func (w *ExportWriter) WriteBundle(ctx context.Context, dst io.Writer) (BundleSu
 			return errors.New("compose: no workspace bound to export context")
 		}
 		_, err := storekit.Audit(ctx, tx, "export", "workspace", wsID, nil, map[string]any{
-			"format": exportFormat, "row_counts": summary.RowCounts, "omitted": summary.Omitted,
+			auditFieldFormat: exportFormat, "row_counts": summary.RowCounts, "omitted": summary.Omitted,
 			"canonical_data_resides_in": incumbent,
 		})
 		return err
@@ -314,192 +311,4 @@ func exportableColumns(ctx context.Context, tx pgx.Tx, table string) ([]string, 
 		return nil, fmt.Errorf("export: table %q has no exportable columns", table)
 	}
 	return columns, nil
-}
-
-// writeZip packs the collected members into the bundle: a CSV per object,
-// the relational JSON dump, the files manifest, and the bundle manifest.
-func writeZip(dst io.Writer, actor principal.Principal, wsID ids.UUID, incumbent string, members []memberData, summary BundleSummary) error {
-	zw := zip.NewWriter(dst)
-
-	dump := make(map[string]any, len(members))
-	var filesManifest []map[string]any
-	generatedAt := time.Now().UTC()
-
-	manifest := bundleManifest{
-		Format:         exportFormat,
-		WorkspaceID:    wsID.String(),
-		GeneratedAt:    generatedAt,
-		GeneratedBy:    actor.ID,
-		OmittedObjects: summary.Omitted,
-		Note: "Row-scoped to the exporting principal; open formats only (CSV per object + a relational JSON dump). " +
-			"File bytes are referenced by storage_key, not embedded — see files-manifest.json.",
-	}
-	if incumbent != "" {
-		// The honest-scope manifest (AC-OV-9): in overlay mode, canonical
-		// data resides in the incumbent — this bundle is our augmentation
-		// plus the mirror snapshot, and P7 is partial until the flip.
-		manifest.CanonicalDataResidesIn = incumbent
-	}
-
-	for _, m := range members {
-		if err := writeCSV(zw, m); err != nil {
-			return err
-		}
-		dump[m.table] = rowsAsMaps(m)
-		manifest.Members = append(manifest.Members, manifestMember{
-			Object: m.table, File: m.table + ".csv", Rows: len(m.rows),
-		})
-		if m.table == "attachment" {
-			filesManifest = rowsAsMaps(m)
-		}
-	}
-
-	if err := writeJSON(zw, "data.json", relationalDump{
-		Format: exportFormat, GeneratedAt: generatedAt, Objects: dump,
-	}); err != nil {
-		return err
-	}
-	if err := writeJSON(zw, "files-manifest.json", filesManifestDoc{
-		Note: "Every attachment with its integrity checksum. File bytes live in the object store under storage_key; " +
-			"the blob substrate (B-EP02.27) is not yet wired in this build, so bytes are referenced here, not bundled.",
-		Files: filesManifest,
-	}); err != nil {
-		return err
-	}
-	if err := writeJSON(zw, "manifest.json", manifest); err != nil {
-		return err
-	}
-
-	return zw.Close()
-}
-
-// writeCSV writes one member as a CSV entry: the derived column list is
-// the header, each driver value rendered as a flat cell.
-func writeCSV(zw *zip.Writer, m memberData) error {
-	f, err := zw.Create(m.table + ".csv")
-	if err != nil {
-		return err
-	}
-	cw := csv.NewWriter(f)
-	if err := cw.Write(m.columns); err != nil {
-		return err
-	}
-	record := make([]string, len(m.columns))
-	for _, row := range m.rows {
-		for i := range m.columns {
-			record[i] = csvCell(row[i])
-		}
-		if err := cw.Write(record); err != nil {
-			return err
-		}
-	}
-	cw.Flush()
-	return cw.Error()
-}
-
-// writeJSON marshals v into a ZIP entry as indented JSON.
-//
-//craft:ignore naked-any the bundle documents are heterogeneous JSON shapes assembled for handover, not a single typed record
-func writeJSON(zw *zip.Writer, name string, v any) error {
-	f, err := zw.Create(name)
-	if err != nil {
-		return err
-	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
-}
-
-// rowsAsMaps shapes a member's rows as column→value maps for the JSON
-// dump, re-embedding jsonb bytes as raw JSON (never base64) and uuids as
-// their canonical strings.
-func rowsAsMaps(m memberData) []map[string]any {
-	out := make([]map[string]any, 0, len(m.rows))
-	for _, row := range m.rows {
-		rec := make(map[string]any, len(m.columns))
-		for i, col := range m.columns {
-			rec[col] = jsonValue(row[i])
-		}
-		out = append(out, rec)
-	}
-	return out
-}
-
-// jsonValue normalizes a driver value for the JSON dump.
-//
-//craft:ignore naked-any a driver row value spans every SQL type the exported tables carry; the switch narrows each
-func jsonValue(v any) any {
-	switch t := v.(type) {
-	case nil:
-		return nil
-	case [16]byte:
-		return ids.UUID(t).String()
-	case []byte:
-		// jsonb columns arrive as raw bytes; embed them as JSON so the
-		// dump nests the object instead of base64-encoding it.
-		return json.RawMessage(t)
-	default:
-		return v
-	}
-}
-
-// csvCell renders a driver value as a single CSV field.
-//
-//craft:ignore naked-any a driver row value spans every SQL type the exported tables carry; the switch narrows each
-func csvCell(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case [16]byte:
-		return ids.UUID(t).String()
-	case []byte:
-		return string(t)
-	case string:
-		return t
-	case time.Time:
-		return t.UTC().Format(time.RFC3339Nano)
-	case bool:
-		return strconv.FormatBool(t)
-	default:
-		return fmt.Sprint(t)
-	}
-}
-
-// bundleManifest describes the bundle: format, provenance, the members
-// present, and any objects the caller's grants excluded.
-type bundleManifest struct {
-	Format      string    `json:"format"`
-	WorkspaceID string    `json:"workspace_id,omitempty"`
-	GeneratedAt time.Time `json:"generated_at"`
-	GeneratedBy string    `json:"generated_by"`
-	// CanonicalDataResidesIn is the AC-OV-9 honest-scope disclosure: set
-	// (to the incumbent's name) only while the workspace runs in overlay
-	// mode, where this bundle is augmentation + mirror snapshot and the
-	// canonical estate still lives in the incumbent.
-	CanonicalDataResidesIn string           `json:"canonical_data_resides_in,omitempty"`
-	Members                []manifestMember `json:"members"`
-	OmittedObjects         []string         `json:"omitted_objects,omitempty"`
-	Note                   string           `json:"note"`
-}
-
-type manifestMember struct {
-	Object string `json:"object"`
-	File   string `json:"file"`
-	Rows   int    `json:"rows"`
-}
-
-// relationalDump is the single JSON view of every exported object.
-//
-//craft:ignore naked-any Objects maps each table name to its exported rows, whose columns are schema-derived at runtime
-type relationalDump struct {
-	Format      string         `json:"format"`
-	GeneratedAt time.Time      `json:"generated_at"`
-	Objects     map[string]any `json:"objects"`
-}
-
-// filesManifestDoc is the files manifest: every attachment plus a note on
-// where the bytes live.
-type filesManifestDoc struct {
-	Note  string           `json:"note"`
-	Files []map[string]any `json:"files"`
 }

@@ -25,6 +25,9 @@ import (
 // admin/ops-only on every verb (identity/internal/policy).
 const importRunObject = "import_run"
 
+// auditFieldStatus names the run status in an import_run audit row.
+const auditFieldStatus = "status"
+
 // RunID names an import_run row.
 type RunID = ids.UUID
 
@@ -95,7 +98,7 @@ func (s *RunStore) Create(ctx context.Context, in CreateRunInput) (Run, error) {
 			return fmt.Errorf("creating import run: %w", err)
 		}
 		_, err := storekit.Audit(ctx, tx, "create", importRunObject, run.ID, nil, map[string]any{
-			"connector": run.Connector, "status": run.Status, "source_ref": run.SourceRef,
+			"connector": run.Connector, auditFieldStatus: run.Status, "source_ref": run.SourceRef,
 		})
 		return err
 	})
@@ -238,7 +241,7 @@ func (s *RunStore) Resume(ctx context.Context, id RunID) error {
 		if tag.RowsAffected() == 0 {
 			return fmt.Errorf("import run %s is not failed, nothing to resume: %w", id, apperrors.ErrConflict)
 		}
-		_, err = storekit.Audit(ctx, tx, "update", importRunObject, id, map[string]any{"status": StatusFailed}, map[string]any{"status": StatusRunning})
+		_, err = storekit.Audit(ctx, tx, "update", importRunObject, id, map[string]any{auditFieldStatus: StatusFailed}, map[string]any{auditFieldStatus: StatusRunning})
 		return err
 	})
 }
@@ -259,7 +262,7 @@ func (s *RunStore) transition(ctx context.Context, id RunID, to string, extra fu
 				return fmt.Errorf("recording import run %s payload: %w", to, err)
 			}
 		}
-		_, err = storekit.Audit(ctx, tx, "update", importRunObject, id, map[string]any{"status": StatusRunning}, map[string]any{"status": to})
+		_, err = storekit.Audit(ctx, tx, "update", importRunObject, id, map[string]any{auditFieldStatus: StatusRunning}, map[string]any{auditFieldStatus: to})
 		return err
 	})
 }

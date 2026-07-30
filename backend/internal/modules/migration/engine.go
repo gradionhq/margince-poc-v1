@@ -238,58 +238,13 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 	done := run.Checkpoint // rows already processed across the ordered objects
 	seen := 0              // global index of the row about to be processed
 	for _, object := range src.Objects() {
-		or := ObjectReport{Object: object, MirrorCount: counts[object]}
-		total := counts[object]
-		// Skip whole already-processed prefixes without re-reading them —
-		// a resumed run's report counts this attempt's work only; the
-		// converged end state is what the parity assertions read.
-		if done >= seen+total {
-			seen += total
-			rep.Objects = append(rep.Objects, or)
-			continue
-		}
-		localOffset := max(done-seen, 0)
-		seen += localOffset
-		for offset := localOffset; ; {
-			rows, err := src.Rows(ctx, object, offset, pageSize)
-			if err != nil {
-				return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: reading %s rows at %d: %w", object, offset, err))
-			}
-			if len(rows) == 0 {
-				break
-			}
-			for _, row := range rows {
-				res, err := e.ensureRow(ctx, object, row)
-				if err != nil {
-					return Report{}, e.fail(ctx, runID, err)
-				}
-				switch {
-				case res.Skipped:
-					or.Skipped = append(or.Skipped, SkippedRow{ExternalID: row.ExternalID, Reason: res.SkipReason})
-				case res.Unchanged:
-					or.Unchanged++
-				case res.Created:
-					or.Created++
-					rep.Imported++
-				default:
-					or.Updated++
-					rep.Imported++
-				}
-				if res.Disclosure != "" {
-					or.Disclosures = append(or.Disclosures, res.Disclosure)
-				}
-				seen++
-				done = seen
-				if err := e.runs.advanceCheckpoint(ctx, runID, done); err != nil {
-					return Report{}, e.fail(ctx, runID, err)
-				}
-			}
-			offset += len(rows)
-			if len(rows) < pageSize {
-				break
-			}
+		or, advanced, err := e.importObject(ctx, runID, src, object, counts[object], done, seen)
+		if err != nil {
+			return Report{}, err
 		}
 		rep.Objects = append(rep.Objects, or)
+		rep.Imported += int64(or.Created + or.Updated)
+		seen, done = advanced, advanced
 	}
 
 	assocs, err := src.Associations(ctx)
@@ -316,6 +271,61 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 		return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: recording completion: %w", err))
 	}
 	return rep, nil
+}
+
+// importObject runs one object class's rows, resuming past the prefix
+// an earlier attempt already landed. It returns the class's disposition
+// and the new global cursor — the checkpoint advances after every row,
+// so a kill mid-class resumes from the next one.
+func (e *Engine) importObject(ctx context.Context, runID RunID, src Source, object string, total, done, seen int) (ObjectReport, int, error) {
+	or := ObjectReport{Object: object, MirrorCount: total}
+	// A whole already-processed class is skipped without re-reading it.
+	if done >= seen+total {
+		return or, seen + total, nil
+	}
+	localOffset := max(done-seen, 0)
+	cursor := seen + localOffset
+	for offset := localOffset; ; {
+		rows, err := src.Rows(ctx, object, offset, pageSize)
+		if err != nil {
+			return ObjectReport{}, 0, e.fail(ctx, runID, fmt.Errorf("migration run: reading %s rows at %d: %w", object, offset, err))
+		}
+		if len(rows) == 0 {
+			return or, cursor, nil
+		}
+		for _, row := range rows {
+			res, err := e.ensureRow(ctx, object, row)
+			if err != nil {
+				return ObjectReport{}, 0, e.fail(ctx, runID, err)
+			}
+			or.record(row.ExternalID, res)
+			cursor++
+			if err := e.runs.advanceCheckpoint(ctx, runID, cursor); err != nil {
+				return ObjectReport{}, 0, e.fail(ctx, runID, err)
+			}
+		}
+		offset += len(rows)
+		if len(rows) < pageSize {
+			return or, cursor, nil
+		}
+	}
+}
+
+// record folds one row's outcome into the class's disposition.
+func (or *ObjectReport) record(externalID string, res EnsureResult) {
+	switch {
+	case res.Skipped:
+		or.Skipped = append(or.Skipped, SkippedRow{ExternalID: externalID, Reason: res.SkipReason})
+	case res.Unchanged:
+		or.Unchanged++
+	case res.Created:
+		or.Created++
+	default:
+		or.Updated++
+	}
+	if res.Disclosure != "" {
+		or.Disclosures = append(or.Disclosures, res.Disclosure)
+	}
 }
 
 func (e *Engine) ensureRow(ctx context.Context, object string, row Row) (EnsureResult, error) {

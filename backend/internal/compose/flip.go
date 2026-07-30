@@ -33,6 +33,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"strings"
 	"time"
 
@@ -239,31 +240,8 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
 
-	switch mode {
-	case crmcontracts.OverlayFlipRequestModeFreshSync:
-		if len(v.blocking) > 0 {
-			if err := f.svc.UnsealFlipSnapshot(ctx); err != nil {
-				return crmcontracts.OverlayFlipAccepted{}, err
-			}
-			return crmcontracts.OverlayFlipAccepted{}, flipBlocked(v.blocking)
-		}
-	case crmcontracts.OverlayFlipRequestModeEmergency:
-		// Never a substitute: the emergency path is refused while a
-		// fresh-sync flip is possible (OVA-AC-6 b).
-		if migration.GuardIncumbentSource(v.checks.ConnectionStatus) == nil {
-			return crmcontracts.OverlayFlipAccepted{}, fmt.Errorf(
-				"the incumbent is reachable — run the fresh-sync flip; the emergency cutover is only for a lost incumbent: %w", apperrors.ErrOverlayFlipBlocked)
-		}
-		if v.checks.MirrorRows == 0 {
-			return crmcontracts.OverlayFlipAccepted{}, fmt.Errorf(
-				"no mirror snapshot exists to cut over from: %w", apperrors.ErrOverlayFlipBlocked)
-		}
-		if blockingContains(v.blocking, crmcontracts.ExportMissing) {
-			// Reversibility-as-reconstruction needs the pre-flip export
-			// even on the lossy path — the mirror is static, so the
-			// export is still producible before cutting over.
-			return crmcontracts.OverlayFlipAccepted{}, flipBlocked([]crmcontracts.OverlayFlipPreflightBlocking{crmcontracts.ExportMissing})
-		}
+	if err := f.admitMode(ctx, mode, v); err != nil {
+		return crmcontracts.OverlayFlipAccepted{}, err
 	}
 
 	// One flip at a time per workspace. Without this, two overlapping
@@ -321,19 +299,41 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 		RecordsImported: &imported,
 	}
 	if mode == crmcontracts.OverlayFlipRequestModeEmergency {
-		out.EmergencyDisclosure = &struct {
-			LastSyncedAt             *time.Time `json:"last_synced_at"`
-			StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
-			UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
-		}{UnverifiableParityNotice: flipUnverifiableParityNotice}
-		if !v.checks.LastSyncedAt.IsZero() {
-			last := v.checks.LastSyncedAt
-			staleness := int64(time.Since(last) / time.Second)
-			out.EmergencyDisclosure.LastSyncedAt = &last
-			out.EmergencyDisclosure.StalenessSeconds = &staleness
-		}
+		out.EmergencyDisclosure = emergencyDisclosure(v.checks.LastSyncedAt)
 	}
 	return out, nil
+}
+
+// admitMode is the per-mode gate: fresh_sync requires every readiness
+// check (and unseals when one fails, so a refused execute leaves a
+// healthy overlay), emergency requires the opposite — an unreachable
+// incumbent — plus a mirror to cut over from and the pre-flip export
+// that keeps the rebuild promise real even on the lossy path.
+func (f *flipRunner) admitMode(ctx context.Context, mode crmcontracts.OverlayFlipRequestMode, v flipVerdict) error {
+	if mode == crmcontracts.OverlayFlipRequestModeFreshSync {
+		if len(v.blocking) == 0 {
+			return nil
+		}
+		if err := f.svc.UnsealFlipSnapshot(ctx); err != nil {
+			return err
+		}
+		return flipBlocked(v.blocking)
+	}
+	// Never a substitute: the emergency path is refused while a
+	// fresh-sync flip is possible (OVA-AC-6 b).
+	if migration.GuardIncumbentSource(v.checks.ConnectionStatus) == nil {
+		return fmt.Errorf("the incumbent is reachable — run the fresh-sync flip; the emergency cutover is only for a lost incumbent: %w", apperrors.ErrOverlayFlipBlocked)
+	}
+	if v.checks.MirrorRows == 0 {
+		return fmt.Errorf("no mirror snapshot exists to cut over from: %w", apperrors.ErrOverlayFlipBlocked)
+	}
+	if blockingContains(v.blocking, crmcontracts.ExportMissing) {
+		// Reversibility-as-reconstruction needs the pre-flip export even
+		// on the lossy path — the mirror is static, so the export is
+		// still producible before cutting over.
+		return flipBlocked([]crmcontracts.OverlayFlipPreflightBlocking{crmcontracts.ExportMissing})
+	}
+	return nil
 }
 
 // claimFlip takes a workspace-scoped advisory lock for the duration of
@@ -356,7 +356,11 @@ func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
 	// namespace keeps the flip clear of any other advisory-lock user.
 	// (The single-argument bigint form — the two-argument one takes
 	// int4s, which a workspace-derived key overflows.)
-	key := int64(binary.BigEndian.Uint64(ws[:8])) ^ flipAdvisoryLockNamespace
+	// Masked to 63 bits before the signed conversion: the lock key only
+	// has to be stable and collision-resistant per workspace, and
+	// wrapping into the negative range would be an overflow the linter
+	// is right to refuse.
+	key := int64(binary.BigEndian.Uint64(ws[:8])&math.MaxInt64) ^ flipAdvisoryLockNamespace
 	var claimed bool
 	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&claimed); err != nil {
 		conn.Release()
@@ -421,6 +425,27 @@ func blockingContains(blocking []crmcontracts.OverlayFlipPreflightBlocking, want
 		}
 	}
 	return false
+}
+
+// emergencyDisclosure is the 202's disclosed-lossy block: what the
+// operator is accepting when they cut over from a stale mirror.
+func emergencyDisclosure(lastSynced time.Time) *struct {
+	LastSyncedAt             *time.Time `json:"last_synced_at"`
+	StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+	UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+} {
+	out := &struct {
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	}{UnverifiableParityNotice: flipUnverifiableParityNotice}
+	if !lastSynced.IsZero() {
+		last := lastSynced
+		staleness := int64(time.Since(last) / time.Second)
+		out.LastSyncedAt = &last
+		out.StalenessSeconds = &staleness
+	}
+	return out
 }
 
 // wireEmergency builds the preflight's emergency block (OVA-AC-6 b):

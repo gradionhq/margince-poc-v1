@@ -25,7 +25,7 @@ import (
 // primitive requires. It seeds directly (owner connection) rather than
 // through Connect: these tests exercise the flip state machine, not the
 // OAuth/vault path.
-func seedOverlayWorkspace(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func seedOverlayWorkspace(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
@@ -44,7 +44,7 @@ func seedOverlayWorkspace(t *testing.T, ctx context.Context, pool *pgxpool.Pool)
 	}
 }
 
-func setConnectionStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, status string) {
+func setConnectionStatus(ctx context.Context, t *testing.T, pool *pgxpool.Pool, status string) {
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `UPDATE incumbent_connection SET status = $1`, status)
@@ -55,13 +55,16 @@ func setConnectionStatus(t *testing.T, ctx context.Context, pool *pgxpool.Pool, 
 	}
 }
 
-func seedMirrorRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, class, ext, syncState string) {
+// seedMirrorPerson seeds one mirrored person row in the given sync
+// state — person is the class these flip-state tests exercise; the
+// cross-class estate lives in the compose flip lane.
+func seedMirrorPerson(ctx context.Context, t *testing.T, pool *pgxpool.Pool, ext, syncState string) {
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
 			INSERT INTO overlay_mirror (workspace_id, object_class, external_id, fields, updated_at_baseline, sync_state)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, '{"full_name":"Fixture Row"}'::jsonb, now(), $3)`,
-			class, ext, syncState)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, 'person', $1, '{"full_name":"Fixture Row"}'::jsonb, now(), $2)`,
+			ext, syncState)
 		return err
 	})
 	if err != nil {
@@ -69,7 +72,7 @@ func seedMirrorRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, class,
 	}
 }
 
-func recordSweepSuccess(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
+func recordSweepSuccess(ctx context.Context, t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
@@ -83,7 +86,7 @@ func recordSweepSuccess(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 	}
 }
 
-func markBackfillDone(t *testing.T, ctx context.Context, pool *pgxpool.Pool, incumbentClass string) {
+func markBackfillDone(ctx context.Context, t *testing.T, pool *pgxpool.Pool, incumbentClass string) {
 	t.Helper()
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(ctx, `
@@ -116,13 +119,13 @@ func flipService(pool *pgxpool.Pool) *Service {
 
 func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
-	seedOverlayWorkspace(t, ctx, pool)
+	seedOverlayWorkspace(ctx, t, pool)
 	svc := flipService(pool)
 
 	// Fresh overlay, one converged person row.
-	seedMirrorRow(t, ctx, pool, "person", "p-1", "fresh")
-	recordSweepSuccess(t, ctx, pool)
-	markBackfillDone(t, ctx, pool, IncumbentClassContacts)
+	seedMirrorPerson(ctx, t, pool, "p-1", "fresh")
+	recordSweepSuccess(ctx, t, pool)
+	markBackfillDone(ctx, t, pool, IncumbentClassContacts)
 
 	checks, err := svc.FlipChecks(ctx)
 	if err != nil {
@@ -136,8 +139,8 @@ func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
 	}
 
 	// A stale row breaks force-fresh; a pending_sync row is counted.
-	seedMirrorRow(t, ctx, pool, "person", "p-stale", "stale")
-	seedMirrorRow(t, ctx, pool, "person", "p-dirty", "pending_sync")
+	seedMirrorPerson(ctx, t, pool, "p-stale", "stale")
+	seedMirrorPerson(ctx, t, pool, "p-dirty", "pending_sync")
 	checks, err = svc.FlipChecks(ctx)
 	if err != nil {
 		t.Fatalf("FlipChecks: %v", err)
@@ -147,7 +150,7 @@ func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
 	}
 
 	// A revoked connection reports as such (OVA-AC-6 a's trigger state).
-	setConnectionStatus(t, ctx, pool, "revoked")
+	setConnectionStatus(ctx, t, pool, "revoked")
 	checks, err = svc.FlipChecks(ctx)
 	if err != nil {
 		t.Fatalf("FlipChecks: %v", err)
@@ -159,11 +162,11 @@ func TestFlipChecksReportUnreachableStaleAndPending(t *testing.T) {
 
 func TestFlipChecksRequireBackfillConvergence(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
-	seedOverlayWorkspace(t, ctx, pool)
+	seedOverlayWorkspace(ctx, t, pool)
 	svc := flipService(pool)
 
-	seedMirrorRow(t, ctx, pool, "person", "p-1", "fresh")
-	recordSweepSuccess(t, ctx, pool)
+	seedMirrorPerson(ctx, t, pool, "p-1", "fresh")
+	recordSweepSuccess(ctx, t, pool)
 	// No backfill cursor at all → not converged, not force-fresh.
 	checks, err := svc.FlipChecks(ctx)
 	if err != nil {
@@ -176,7 +179,7 @@ func TestFlipChecksRequireBackfillConvergence(t *testing.T) {
 
 func TestSealUnsealLifecycleAndFreezeFence(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
-	seedOverlayWorkspace(t, ctx, pool)
+	seedOverlayWorkspace(ctx, t, pool)
 	svc := flipService(pool)
 	ms := NewMirrorStore(pool, nil)
 
@@ -231,7 +234,7 @@ func TestSealUnsealLifecycleAndFreezeFence(t *testing.T) {
 
 func TestCompleteFlipFlipsModeOnceAndKeepsConnection(t *testing.T) {
 	ctx, pool, ws := testWorkspaceCtx(t)
-	seedOverlayWorkspace(t, ctx, pool)
+	seedOverlayWorkspace(ctx, t, pool)
 	svc := flipService(pool)
 	var flipped []ids.UUID
 	svc = svc.WithModeFlipObserver(func(id ids.UUID) { flipped = append(flipped, id) })
@@ -286,7 +289,7 @@ func TestCompleteFlipFlipsModeOnceAndKeepsConnection(t *testing.T) {
 
 func TestDisconnectRefusesARunningImportButNeverALatchedFreeze(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
-	seedOverlayWorkspace(t, ctx, pool)
+	seedOverlayWorkspace(ctx, t, pool)
 	svc := flipService(pool)
 
 	// A RUNNING flip import is the one thing disconnect refuses: tearing

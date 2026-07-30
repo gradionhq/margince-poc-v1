@@ -119,10 +119,10 @@ func (w *flipWriters) lookup(ctx context.Context, object, ext string) (ids.UUID,
 	// archived_at-free natural key to fall back on — their unique index
 	// spans archived rows too, so the two arms must agree.)
 	switch object {
-	case "person", "organization", "deal":
+	case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
 		query = fmt.Sprintf(`SELECT id FROM %s WHERE source = $1`, object)
 		args = []any{w.provenance(object, ext)}
-	case "lead", "activity":
+	case flipObjectLead, flipObjectActivity:
 		query = fmt.Sprintf(`SELECT id FROM %s WHERE source_system = $1 AND source_id = $2`, object)
 		args = []any{w.incumbent, ext}
 	default:
@@ -165,15 +165,15 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 		return migration.EnsureResult{Unchanged: true}, nil
 	}
 	switch object {
-	case "organization":
+	case flipObjectOrganization:
 		return w.ensureOrganization(ctx, row)
-	case "person":
+	case flipObjectPerson:
 		return w.ensurePerson(ctx, row)
-	case "lead":
+	case flipObjectLead:
 		return w.ensureLead(ctx, row)
-	case "deal":
+	case flipObjectDeal:
 		return w.ensureDeal(ctx, row)
-	case "activity":
+	case flipObjectActivity:
 		return w.ensureActivity(ctx, row)
 	default:
 		return migration.EnsureResult{}, fmt.Errorf("flip import: %q is not an importable object", object)
@@ -229,7 +229,7 @@ func flipAddress(fields map[string]any) *crmcontracts.Address {
 }
 
 func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	owner, disclosure, err := w.resolveOwner(ctx, row, "organization")
+	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectOrganization)
 	if err != nil {
 		return migration.EnsureResult{}, err
 	}
@@ -242,7 +242,7 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 		Industry:    fieldStringPtr(row.Fields, "industry"),
 		OwnerID:     owner,
 		Address:     flipAddress(row.Fields),
-		Source:      w.provenance("organization", row.ExternalID),
+		Source:      w.provenance(flipObjectOrganization, row.ExternalID),
 	}
 	if band := crmcontracts.OrganizationSizeBand(fieldString(row.Fields, "size_band")); band.Valid() {
 		s := string(band)
@@ -252,12 +252,12 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating organization %s: %w", row.ExternalID, err)
 	}
-	w.remember("organization", row.ExternalID, ids.UUID(org.Id))
+	w.remember(flipObjectOrganization, row.ExternalID, ids.UUID(org.Id))
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
 
 func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	owner, disclosure, err := w.resolveOwner(ctx, row, "person")
+	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectPerson)
 	if err != nil {
 		return migration.EnsureResult{}, err
 	}
@@ -272,7 +272,7 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		Title:     fieldStringPtr(row.Fields, "title"),
 		OwnerID:   owner,
 		Address:   flipAddress(row.Fields),
-		Source:    w.provenance("person", row.ExternalID),
+		Source:    w.provenance(flipObjectPerson, row.ExternalID),
 	}
 	if email := strings.TrimSpace(fieldString(row.Fields, "person_email.email")); email != "" {
 		in.Emails = []people.PersonEmailInput{{Email: email, EmailType: "work", IsPrimary: true}}
@@ -288,12 +288,12 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		}
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating person %s: %w", row.ExternalID, err)
 	}
-	w.remember("person", row.ExternalID, ids.UUID(person.Id))
+	w.remember(flipObjectPerson, row.ExternalID, ids.UUID(person.Id))
 	return migration.EnsureResult{Created: true, Disclosure: disclosure}, nil
 }
 
 func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	owner, disclosure, err := w.resolveOwner(ctx, row, "lead")
+	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectLead)
 	if err != nil {
 		return migration.EnsureResult{}, err
 	}
@@ -306,18 +306,18 @@ func (w *flipWriters) ensureLead(ctx context.Context, row migration.Row) (migrat
 		OwnerID:      owner,
 		SourceSystem: &w.incumbent,
 		SourceID:     &ext,
-		Source:       w.provenance("lead", ext),
+		Source:       w.provenance(flipObjectLead, ext),
 	}
 	lead, created, err := w.people.CreateLead(ctx, in)
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating lead %s: %w", ext, err)
 	}
-	w.remember("lead", ext, ids.UUID(lead.Id))
+	w.remember(flipObjectLead, ext, ids.UUID(lead.Id))
 	return migration.EnsureResult{Created: created, Disclosure: disclosure}, nil
 }
 
 func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migration.EnsureResult, error) {
-	owner, disclosure, err := w.resolveOwner(ctx, row, "deal")
+	owner, disclosure, err := w.resolveOwner(ctx, row, flipObjectDeal)
 	if err != nil {
 		return migration.EnsureResult{}, err
 	}
@@ -338,7 +338,7 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 		PipelineID: placement.pipeline,
 		StageID:    placement.birthStage,
 		OwnerID:    owner,
-		Source:     w.provenance("deal", row.ExternalID),
+		Source:     w.provenance(flipObjectDeal, row.ExternalID),
 	}
 	if minor, ok := fieldInt64(row.Fields, "amount_minor"); ok {
 		in.AmountMinor = &minor
@@ -351,7 +351,7 @@ func (w *flipWriters) ensureDeal(ctx context.Context, row migration.Row) (migrat
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating deal %s: %w", row.ExternalID, err)
 	}
 	dealID := ids.From[ids.DealKind](ids.UUID(deal.Id))
-	w.remember("deal", row.ExternalID, ids.UUID(deal.Id))
+	w.remember(flipObjectDeal, row.ExternalID, ids.UUID(deal.Id))
 
 	// A closed estate deal is born open (the store's open-birth-stage
 	// rule), then advanced to the terminal stage — the same won/lost path
@@ -385,7 +385,7 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 		Direction:    fieldStringPtr(row.Fields, "direction"),
 		SourceSystem: &w.incumbent,
 		SourceID:     &ext,
-		Source:       w.provenance("activity", ext),
+		Source:       w.provenance(flipObjectActivity, ext),
 		Links:        w.activityLinks(ext),
 	}
 	if occurred, ok := overlayTime(row.Fields, "occurred_at"); ok {
@@ -398,7 +398,7 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: logging activity %s: %w", ext, err)
 	}
-	w.remember("activity", ext, ids.UUID(activity.Id))
+	w.remember(flipObjectActivity, ext, ids.UUID(activity.Id))
 	return migration.EnsureResult{Created: created}, nil
 }
 
@@ -410,11 +410,11 @@ func (w *flipWriters) ensureActivity(ctx context.Context, row migration.Row) (mi
 func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLinkInput {
 	var links []activities.ActivityLinkInput
 	for _, a := range w.assocs {
-		if a.FromType != "activity" || a.FromID != activityExt {
+		if a.FromType != flipObjectActivity || a.FromID != activityExt {
 			continue
 		}
 		switch a.ToType {
-		case "person", "organization", "deal":
+		case flipObjectPerson, flipObjectOrganization, flipObjectDeal:
 			if id, ok := w.nativeIDs[w.cacheKey(a.ToType, a.ToID)]; ok {
 				links = append(links, activities.ActivityLinkInput{EntityType: a.ToType, EntityID: id})
 			}
@@ -430,7 +430,7 @@ func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLin
 // mirror actually holds. Every non-applied edge returns its reason, so
 // the run report discloses it rather than counting it as applied.
 func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
-	if a.FromType == "activity" || a.ToType == "activity" {
+	if a.FromType == flipObjectActivity || a.ToType == flipObjectActivity {
 		return migration.AssocResult{Applied: true}, nil // applied at LogActivity insert time
 	}
 	fromID, fromOK, err := w.lookup(ctx, a.FromType, a.FromID)
@@ -445,13 +445,13 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 		return migration.AssocResult{Reason: "endpoint_not_imported"}, nil
 	}
 	switch {
-	case a.FromType == "deal" && a.ToType == "organization":
+	case a.FromType == flipObjectDeal && a.ToType == flipObjectOrganization:
 		orgID := ids.From[ids.OrganizationKind](toID)
 		if _, err := w.deals.UpdateDeal(ctx, ids.From[ids.DealKind](fromID), deals.UpdateDealInput{OrganizationID: &orgID}); err != nil {
 			return migration.AssocResult{}, fmt.Errorf("flip import: linking deal %s to organization %s: %w", a.FromID, a.ToID, err)
 		}
 		return migration.AssocResult{Applied: true}, nil
-	case a.FromType == "person" && a.ToType == "organization":
+	case a.FromType == flipObjectPerson && a.ToType == flipObjectOrganization:
 		personID := ids.From[ids.PersonKind](fromID)
 		orgID := ids.From[ids.OrganizationKind](toID)
 		_, err := w.people.CreateRelationship(ctx, people.CreateRelationshipInput{
@@ -475,134 +475,4 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migrati
 	default:
 		return migration.AssocResult{Reason: "unmodelled_edge_shape"}, nil
 	}
-}
-
-// flipStageCatalog resolves incumbent stage identities onto the native
-// stage catalog: an exact (normalized) name match wins; HubSpot's
-// canonical closedwon/closedlost keys land on the default pipeline's
-// won/lost stages; anything else falls back to the default pipeline's
-// first open stage, disclosed.
-type flipStageCatalog struct {
-	pipeline   ids.PipelineID // the default pipeline
-	firstOpen  ids.StageID    // the default pipeline's first open stage
-	openIn     map[ids.PipelineID]ids.StageID
-	byName     map[string]flipStage
-	bySemantic map[string]flipStage
-}
-
-type flipStage struct {
-	id       ids.StageID
-	pipeline ids.PipelineID
-	semantic string
-}
-
-type flipPlacement struct {
-	pipeline       ids.PipelineID
-	birthStage     ids.StageID
-	closedStage    *ids.StageID
-	closedSemantic string
-	matched        bool
-}
-
-func (c *flipStageCatalog) place(rawStage string) flipPlacement {
-	norm := normalizeStageKey(rawStage)
-	if st, ok := c.byName[norm]; ok {
-		if st.semantic == "open" {
-			return flipPlacement{pipeline: st.pipeline, birthStage: st.id, matched: true}
-		}
-		// A closed match is born on its own pipeline's first open stage
-		// (transient — the advance below moves it out immediately); a
-		// pipeline with no open stage cannot birth a deal at all, so the
-		// whole placement falls back to the default pipeline.
-		if birth, ok := c.openIn[st.pipeline]; ok {
-			closed := st.id
-			return flipPlacement{pipeline: st.pipeline, birthStage: birth, closedStage: &closed, closedSemantic: st.semantic, matched: true}
-		}
-	}
-	if norm == "closedwon" || norm == "closedlost" {
-		semantic := "won"
-		if norm == "closedlost" {
-			semantic = "lost"
-		}
-		if st, ok := c.bySemantic[semantic]; ok {
-			closed := st.id
-			return flipPlacement{pipeline: st.pipeline, birthStage: c.firstOpen, closedStage: &closed, closedSemantic: semantic, matched: true}
-		}
-	}
-	return flipPlacement{pipeline: c.pipeline, birthStage: c.firstOpen}
-}
-
-func (c *flipStageCatalog) disclosure(rawStage, dealExt string) string {
-	if c == nil {
-		return ""
-	}
-	if p := c.place(rawStage); !p.matched {
-		if strings.TrimSpace(rawStage) == "" {
-			return fmt.Sprintf("deal %s: no incumbent stage identity; placed on the default pipeline's first open stage", dealExt)
-		}
-		return fmt.Sprintf("deal %s: incumbent stage %q has no native match; placed on the default pipeline's first open stage", dealExt, rawStage)
-	}
-	return ""
-}
-
-func normalizeStageKey(s string) string {
-	return strings.ToLower(strings.NewReplacer(" ", "", "-", "", "_", "").Replace(strings.TrimSpace(s)))
-}
-
-func (w *flipWriters) stageCatalog(ctx context.Context) (*flipStageCatalog, error) {
-	if w.stages != nil {
-		return w.stages, nil
-	}
-	cat := &flipStageCatalog{
-		openIn: map[ids.PipelineID]ids.StageID{},
-		byName: map[string]flipStage{}, bySemantic: map[string]flipStage{},
-	}
-	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT s.id, s.pipeline_id, s.name, s.semantic, p.is_default
-			FROM stage s JOIN pipeline p ON p.id = s.pipeline_id AND p.workspace_id = s.workspace_id
-			WHERE s.archived_at IS NULL AND p.archived_at IS NULL
-			ORDER BY p.is_default DESC, s.position`)
-		if err != nil {
-			return fmt.Errorf("flip import: reading the native stage catalog: %w", err)
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var st flipStage
-			var name, semantic string
-			var isDefault bool
-			if err := rows.Scan(&st.id, &st.pipeline, &name, &semantic, &isDefault); err != nil {
-				return fmt.Errorf("flip import: scanning a native stage: %w", err)
-			}
-			st.semantic = semantic
-			if _, taken := cat.byName[normalizeStageKey(name)]; !taken {
-				cat.byName[normalizeStageKey(name)] = st
-			}
-			if semantic == "open" {
-				if _, taken := cat.openIn[st.pipeline]; !taken {
-					cat.openIn[st.pipeline] = st.id
-				}
-			}
-			if isDefault {
-				if cat.pipeline == (ids.PipelineID{}) {
-					cat.pipeline = st.pipeline
-				}
-				if semantic == "open" && cat.firstOpen == (ids.StageID{}) {
-					cat.firstOpen = st.id
-				}
-				if _, taken := cat.bySemantic[semantic]; !taken && semantic != "open" {
-					cat.bySemantic[semantic] = st
-				}
-			}
-		}
-		return rows.Err()
-	})
-	if err != nil {
-		return nil, err
-	}
-	if cat.pipeline == (ids.PipelineID{}) || cat.firstOpen == (ids.StageID{}) {
-		return nil, errors.New("flip import: the workspace has no default pipeline with an open stage; seed the workspace before flipping")
-	}
-	w.stages = cat
-	return cat, nil
 }

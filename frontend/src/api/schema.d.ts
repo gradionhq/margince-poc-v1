@@ -4845,6 +4845,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/overlay/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the workspace export bundle — the flip's pre-flip export producer.
+         * @description Streams the open-format margince-export/1 bundle (CSV per object + relational JSON + manifests). In overlay mode it carries the mirror snapshot under the caller's mirror-visibility deny-join and the honest-scope manifest (AC-OV-9), and writing it records the export audit entry the flip preflight's export-recency check reads (B-E18.26). Admin/ops only (the overlay_connection UPDATE grant): this is the cutover operator's surface. Spec-fill note: the general export-run lifecycle (IEM-WIRE-1/2) is the import-export-migration chapter's own unminted contract extension — this op is the overlay lifecycle's bundle producer until that lands, raised upstream.
+         */
+        get: operations["downloadOverlayExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overlay/flip:preflight": {
         parameters: {
             query?: never;
@@ -4854,7 +4874,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Dry-run the read-mode→overlay flip's readiness checks without executing it. */
+        /**
+         * Dry-run the overlay→native flip's readiness checks without executing it.
+         * @description The B-E18.26 gate (OVA-WIRE-7): reports whether the flip can run — incumbent reachable, force-fresh sync complete, `pending_sync` writes drained, conflicts cleared, pre-flip export available — and, when every check is green, seals the frozen mirror snapshot the flip will import and previews the parity dry-run (counts per object, skips with reasons, zero rows written). Any blocker unseals the snapshot again (UC-E18-04 F1): a failed preflight is a no-op return to a healthy overlay. When the incumbent is unreachable (`revoked`/`error`), `blocking` carries `incumbent_unreachable` and the `emergency` block discloses the last-known-mirror cutover option (OVA-AC-6 a/b).
+         */
         post: operations["preflightOverlayFlip"];
         delete?: never;
         options?: never;
@@ -4871,7 +4894,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Execute the read-mode→overlay flip, queuing the migration. */
+        /**
+         * Execute the overlay→native flip, running the migration.
+         * @description The B-E18.27 cutover (OVA-WIRE-8): freezes the mirror, imports the frozen snapshot through the migration engine with counts and relationships preserved (AC-OV-10), carries our augmentation over, detaches write-back, and flips the workspace to native — an irreversible mode change gated by the typed confirmation phrase. Refused with 409 `overlay_flip_blocked` while the preflight is unsatisfied. `mode: emergency` is the ADR-0071 last-known-mirror cutover: available ONLY while the incumbent is unreachable (never a silent substitute for a fresh-sync flip, in either direction) and its 202 carries the disclosed-lossy staleness + unverifiable-parity notice.
+         */
         post: operations["executeOverlayFlip"];
         delete?: never;
         options?: never;
@@ -5722,6 +5748,80 @@ export interface components {
          * @enum {string}
          */
         OverlayBudgetBand: "ok" | "warn" | "shed";
+        /** @description The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[], unresolved_conflicts[]}` plus the sealed snapshot and parity preview when ready, and the emergency-cutover disclosure when the incumbent is unreachable (ADR-0071 / OVA-AC-6). */
+        OverlayFlipPreflight: {
+            ready: boolean;
+            /** @description Why the flip cannot run, empty when ready. `incumbent_unreachable` is the OVA-AC-6(a) honest block — the connection is revoked/error, so the force-fresh sync cannot pass; the workspace stays in overlay on its last mirror. */
+            blocking: ("incumbent_unreachable" | "force_fresh_incomplete" | "pending_sync_draining" | "unresolved_conflicts" | "export_missing")[];
+            /** @description Open incumbent-wins conflicts awaiting acceptance; each blocks the flip. Empty in this build: branch 1 reconciliation resolves incumbent-wins at ingest and persists no conflict queue, so the producer arrives with write-back (branch 2). The field is required by OVA-WIRE-7's response shape. */
+            unresolved_conflicts: components["schemas"]["OverlayFlipUnresolvedConflict"][];
+            snapshot?: components["schemas"]["OverlayFlipSnapshot"];
+            /** @description The parity dry-run against the sealed snapshot — writes zero CRM rows; skipped rows are disclosed with reasons, never silently dropped (AC-mode-flip-7). */
+            parity?: components["schemas"]["OverlayFlipParityEntry"][] | null;
+            /** @description Present only while the incumbent is unreachable: the ADR-0071 emergency cutover from the last-known mirror, disclosed-lossy — never offered while a fresh-sync flip is possible. */
+            emergency?: {
+                available: boolean;
+                /** Format: date-time */
+                last_synced_at: string | null;
+                /** Format: int64 */
+                staleness_seconds?: number;
+                unverifiable_parity_notice: string;
+            } | null;
+        };
+        /** @description The sealed frozen-mirror snapshot the flip imports. */
+        OverlayFlipSnapshot: {
+            id: string;
+            /** Format: date-time */
+            frozen_at: string;
+        };
+        /** @description One open incumbent-wins conflict blocking the flip. */
+        OverlayFlipUnresolvedConflict: {
+            object_class: string;
+            external_id: string;
+            property?: string;
+        };
+        /** @description One object class's parity preview row (AC-mode-flip-7). */
+        OverlayFlipParityEntry: {
+            object: string;
+            mirror_count: number;
+            will_create: number;
+            will_update: number;
+            skipped?: components["schemas"]["OverlayFlipParitySkip"][];
+        };
+        /** @description One row the importer cannot carry, disclosed with its reason (never silently dropped). */
+        OverlayFlipParitySkip: {
+            external_id: string;
+            reason: string;
+        };
+        OverlayFlipRequest: {
+            /**
+             * @description `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+             * @default fresh_sync
+             * @enum {string}
+             */
+            mode: "fresh_sync" | "emergency";
+            /** @description Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5). */
+            confirmation_phrase: string;
+        };
+        OverlayFlipAccepted: {
+            /**
+             * Format: uuid
+             * @description The migration run (`import_run`) this flip executed.
+             */
+            run_id: string;
+            /** @enum {string} */
+            mode: "fresh_sync" | "emergency";
+            /** Format: int64 */
+            records_imported?: number;
+            /** @description Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent. */
+            emergency_disclosure?: {
+                /** Format: date-time */
+                last_synced_at: string | null;
+                /** Format: int64 */
+                staleness_seconds?: number;
+                unverifiable_parity_notice: string;
+            } | null;
+        };
         OverlayUserMapEntry: {
             /** Format: uuid */
             user_id: string;
@@ -20956,6 +21056,28 @@ export interface operations {
             };
         };
     };
+    downloadOverlayExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle as a downloadable ZIP attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+        };
+    };
     preflightOverlayFlip: {
         parameters: {
             query?: never;
@@ -20970,8 +21092,12 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["OverlayFlipPreflight"];
+                };
             };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
         };
     };
     executeOverlayFlip: {
@@ -20981,15 +21107,26 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OverlayFlipRequest"];
+            };
+        };
         responses: {
-            /** @description Migration queued */
+            /** @description Migration run complete (synchronous behind 202, the teardown precedent). */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["OverlayFlipAccepted"];
+                };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listOverlayUserMap: {

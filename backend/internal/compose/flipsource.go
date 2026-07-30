@@ -15,10 +15,22 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 )
 
+// The estate's object classes, named once so the source, the writers,
+// and the stage catalog cannot drift on a string literal.
+const (
+	flipObjectOrganization = "organization"
+	flipObjectPerson       = "person"
+	flipObjectLead         = "lead"
+	flipObjectDeal         = "deal"
+	flipObjectActivity     = "activity"
+)
+
 // flipImportOrder is the canonical import order: parents before
 // dependents (organizations before the persons and deals that reference
 // them; activities last so every link target already exists).
-var flipImportOrder = []string{"organization", "person", "lead", "deal", "activity"}
+var flipImportOrder = []string{
+	flipObjectOrganization, flipObjectPerson, flipObjectLead, flipObjectDeal, flipObjectActivity,
+}
 
 type mirrorFlipSource struct {
 	ms *overlay.MirrorStore
