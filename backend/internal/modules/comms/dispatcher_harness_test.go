@@ -77,23 +77,23 @@ func (f *fakeStore) RecordDeferral(_ context.Context, _ ids.UUID, r string) erro
 
 type fakeSender struct {
 	calls int
-	seen  connector.OutboundMessage
+	seen  connector.EmailMessage
 	err   error
 }
 
-func (f *fakeSender) Send(_ context.Context, _ connector.Auth, m connector.OutboundMessage) (connector.SendReceipt, error) {
+func (f *fakeSender) SendEmail(_ context.Context, _ connector.Auth, m connector.EmailMessage) (connector.SendReceipt, error) {
 	f.calls++
 	f.seen = m
 	return connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "stamped@mail.gmail.com"}, f.err
 }
 
 type fakeResolver struct {
-	sender  connector.Sender
+	sender  connector.EmailSender
 	granted []string
 	err     error
 }
 
-func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
+func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return f.sender, connector.Auth("cred"), f.granted, f.err
 }
 

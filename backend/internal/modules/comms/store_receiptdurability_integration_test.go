@@ -87,7 +87,7 @@ func (unreportableFault) Error() string { panic("the reconcile fault cannot desc
 // worker shutting down between them, arrive here identically.
 type cancellingSender struct{ cancel context.CancelFunc }
 
-func (s cancellingSender) Send(context.Context, connector.Auth, connector.OutboundMessage) (connector.SendReceipt, error) {
+func (s cancellingSender) SendEmail(context.Context, connector.Auth, connector.EmailMessage) (connector.SendReceipt, error) {
 	s.cancel()
 	return connector.SendReceipt{ProviderMessageID: "gmsg-cancelled", RFC822MessageID: stampedIdentity}, nil
 }

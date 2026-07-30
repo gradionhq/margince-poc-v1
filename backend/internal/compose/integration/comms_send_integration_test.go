@@ -56,13 +56,13 @@ import (
 // connector, so everything the message passes through after this point is
 // production code.
 type stubMailbox struct {
-	sender connector.Sender
+	sender connector.EmailSender
 	auth   connector.Auth
 }
 
 var _ comms.ConnectionResolver = stubMailbox{}
 
-func (m stubMailbox) Resolve(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
+func (m stubMailbox) Resolve(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return m.sender, m.auth, []string{gmailSendScope}, nil
 }
 

@@ -201,7 +201,7 @@ func (w *commsSendWorker) Work(ctx context.Context, job *river.Job[SendEmailArgs
 // whose mis-reading permanently destroys mail, so it must be provable without
 // a database. *capture.Registry is the only implementation the product ships.
 type mailboxSenders interface {
-	SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error)
+	SenderFor(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error)
 }
 
 var _ mailboxSenders = (*capture.Registry)(nil)
@@ -219,8 +219,8 @@ type commsResolver struct{ registry mailboxSenders }
 
 var _ comms.ConnectionResolver = commsResolver{}
 
-//nolint:ireturn // implements comms.ConnectionResolver, whose contract returns the optional connector.Sender seam
-func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.Sender, connector.Auth, []string, error) {
+//nolint:ireturn // implements comms.ConnectionResolver, whose contract returns the optional connector.EmailSender seam
+func (r commsResolver) Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error) {
 	sender, auth, granted, err := r.registry.SenderFor(ctx, userID, provider)
 	switch {
 	case errors.Is(err, capture.ErrNoConnection):

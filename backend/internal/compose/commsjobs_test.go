@@ -249,12 +249,12 @@ func TestSendEmailJobDeclaresAUsableLadder(t *testing.T) {
 // stubSenders and stubGrants are the capture boundary — a database — and the
 // only thing faked in the two suites below.
 type stubSenders struct {
-	sender  connector.Sender
+	sender  connector.EmailSender
 	granted []string
 	err     error
 }
 
-func (s stubSenders) SenderFor(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
+func (s stubSenders) SenderFor(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return s.sender, connector.Auth("cred"), s.granted, s.err
 }
 
@@ -323,7 +323,7 @@ func TestCommsResolverPassesAResolvedMailboxThrough(t *testing.T) {
 
 type stubSender struct{}
 
-func (stubSender) Send(context.Context, connector.Auth, connector.OutboundMessage) (connector.SendReceipt, error) {
+func (stubSender) SendEmail(context.Context, connector.Auth, connector.EmailMessage) (connector.SendReceipt, error) {
 	return connector.SendReceipt{}, nil
 }
 

@@ -12,21 +12,21 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-type stubSender struct{ got connector.OutboundMessage }
+type stubEmailSender struct{ got connector.EmailMessage }
 
-func (s *stubSender) Send(_ context.Context, _ connector.Auth, msg connector.OutboundMessage) (connector.SendReceipt, error) {
+func (s *stubEmailSender) SendEmail(_ context.Context, _ connector.Auth, msg connector.EmailMessage) (connector.SendReceipt, error) {
 	s.got = msg
 	return connector.SendReceipt{ProviderMessageID: "m1"}, nil
 }
 
-func TestSenderIsSatisfiedIndependentlyOfConnector(t *testing.T) {
-	var s connector.Sender = &stubSender{}
-	got, err := s.Send(context.Background(), connector.Auth("cred"), connector.OutboundMessage{
+func TestEmailSenderIsSatisfiedIndependentlyOfConnector(t *testing.T) {
+	var s connector.EmailSender = &stubEmailSender{}
+	got, err := s.SendEmail(context.Background(), connector.Auth("cred"), connector.EmailMessage{
 		To: []string{"buyer@example.com"}, Subject: "Re: pricing",
 		Body: "As discussed.", MessageID: "abc@margince.test",
 	})
 	if err != nil {
-		t.Fatalf("Send: %v", err)
+		t.Fatalf("SendEmail: %v", err)
 	}
 	if got.ProviderMessageID != "m1" {
 		t.Errorf("receipt = %+v, want m1", got)
@@ -35,10 +35,10 @@ func TestSenderIsSatisfiedIndependentlyOfConnector(t *testing.T) {
 
 // A send-capable provider and a capture-capable provider are independent
 // capabilities; the seam must not force one to imply the other.
-func TestSenderDoesNotImplyConnector(t *testing.T) {
-	var s connector.Sender = &stubSender{}
+func TestEmailSenderDoesNotImplyConnector(t *testing.T) {
+	var s connector.EmailSender = &stubEmailSender{}
 	if _, ok := s.(connector.Connector); ok {
-		t.Error("stubSender satisfies Connector; the Sender seam must stand alone")
+		t.Error("stubEmailSender satisfies Connector; the EmailSender seam must stand alone")
 	}
 }
 
@@ -53,7 +53,7 @@ func TestSenderDoesNotImplyConnector(t *testing.T) {
 // The length bound is not cosmetic. The same predicate judges an identity READ
 // BACK out of a provider response, which is remote input measured in megabytes,
 // and whatever it accepts becomes a natural key and a thread key.
-func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
+func TestEmailMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
 	const suffix = "@margince.test"
 	for _, tc := range []struct {
 		id string
@@ -77,7 +77,7 @@ func TestOutboundMessageValidateAcceptsOnlyASearchableIdentity(t *testing.T) {
 		{"abc@margince.test\x7f", false}, // DEL
 		{"ab\x0bc@margince.test", false}, // vertical tab, mid local-part rather than trailing
 	} {
-		err := connector.OutboundMessage{MessageID: tc.id}.Validate()
+		err := connector.EmailMessage{MessageID: tc.id}.Validate()
 		if tc.ok && err != nil {
 			t.Errorf("Validate(%q) = %v, want accepted", tc.id, err)
 		}

@@ -346,30 +346,30 @@ func BackfillProgressFrom(ctx context.Context) BackfillReporter {
 	return BackfillReporter{to: p}
 }
 
-// Sender is the OPTIONAL outbound seam a connector implements when its provider
-// can transmit a message as the connected user. Type-asserted like Watcher and
-// Backfiller, so the frozen Connector interface is unchanged and a capture-only
-// provider simply does not implement it.
+// EmailSender is the OPTIONAL outbound seam a connector implements when its
+// provider can transmit a message as the connected user. Type-asserted like
+// Watcher and Backfiller, so the frozen Connector interface is unchanged and a
+// capture-only provider simply does not implement it.
 //
-// Send MUST be idempotent on msg.MessageID. Job delivery is at-least-once, so a
-// provider that retransmits on a retry mails the recipient twice; a connector
-// whose provider can look up a prior send by RFC822 Message-ID must do so
-// whenever msg.Attempt > 0 and return the existing receipt instead.
+// SendEmail MUST be idempotent on msg.MessageID. Job delivery is at-least-once,
+// so a provider that retransmits on a retry mails the recipient twice; a
+// connector whose provider can look up a prior send by RFC822 Message-ID must
+// do so whenever msg.Attempt > 0 and return the existing receipt instead.
 //
 // That obligation has a precondition, and an implementation MUST refuse a
-// message that fails it (OutboundMessage.Validate) before any provider I/O: an
+// message that fails it (EmailMessage.Validate) before any provider I/O: an
 // identity the prior-send lookup cannot search for makes the idempotency
 // guarantee unkeepable, and transmitting anyway is the double-send this seam
 // exists to prevent.
-type Sender interface {
-	Send(ctx context.Context, auth Auth, msg OutboundMessage) (SendReceipt, error)
+type EmailSender interface {
+	SendEmail(ctx context.Context, auth Auth, msg EmailMessage) (SendReceipt, error)
 }
 
-// OutboundMessage is one message to transmit, in provider-NEUTRAL form. The
+// EmailMessage is one message to transmit, in provider-NEUTRAL form. The
 // connector owns the wire encoding — Gmail takes base64url RFC822, Graph takes
 // JSON — so no caller ever builds MIME. It is the mirror of Normalize, which
 // owns decoding on the way in.
-type OutboundMessage struct {
+type EmailMessage struct {
 	To      []string
 	Cc      []string
 	Subject string
@@ -456,7 +456,7 @@ func ValidMessageID(id string) bool {
 // Validate refuses a message no provider should be handed. It is the sender
 // boundary's own precondition — checked before any provider I/O, so a message
 // that cannot be retried safely is never transmitted a first time.
-func (m OutboundMessage) Validate() error {
+func (m EmailMessage) Validate() error {
 	if !ValidMessageID(m.MessageID) {
 		return ErrInvalidMessageID
 	}

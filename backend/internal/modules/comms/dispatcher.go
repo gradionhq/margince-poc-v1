@@ -271,13 +271,13 @@ func (d *Dispatcher) pace(ctx context.Context, del Delivery) (Outcome, time.Dura
 }
 
 // transmit hands the message to the provider and records what came back.
-func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connector.Sender, auth connector.Auth) (Outcome, time.Duration, error) {
+func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connector.EmailSender, auth connector.Auth) (Outcome, time.Duration, error) {
 	// Every staged field travels: a retry must rebuild an identical message,
 	// and a field dropped here is a header silently missing from real mail.
 	// Attempt counts the transmissions BEFORE this one — Load already counted
 	// this attempt — so a first transmission arrives as 0 and the connector's
 	// prior-send lookup runs only on a real retry.
-	receipt, err := sender.Send(ctx, auth, connector.OutboundMessage{
+	receipt, err := sender.SendEmail(ctx, auth, connector.EmailMessage{
 		To: del.Recipients, Cc: del.Cc,
 		Subject: del.Subject, Body: del.Body,
 		MessageID:           del.MessageID,
