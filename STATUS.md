@@ -109,6 +109,20 @@ Open work, roughly in priority order.
   implementation plugs into once approvals can describe a non-authoritative
   target.
 
+- **A backfill's counterparty count is at-most-once, not exactly-once.**
+  `capture.pageProgress.counted` bumps `capture_backfill.people_created` /
+  `organizations_created` once per created row, in its own transaction. The row
+  itself is created in the resolver's transaction, so a failed counter write
+  loses that creation's count permanently — capture is idempotent, so no replay
+  re-offers the row to be counted — and **nothing caps the total loss**: a
+  database fault spanning a page loses one count for every creation inside it.
+  It never double-counts, so the columns are a floor on what the run created,
+  never an overcount. Closing it takes a ledger keyed on the created row's id,
+  idempotent under retry, with the counts derived from it instead of
+  accumulated; that also moves CAP-PARAM-2 off its single-row read, so it is a
+  decision and not a cleanup. The figure drives the activation view and the cost
+  estimator's yield ratios.
+
 - **Recorded idempotency bodies survive Art. 17 erasure.**
   `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
   `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that

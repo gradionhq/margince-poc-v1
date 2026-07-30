@@ -40,17 +40,22 @@ var (
 	// Judged over the whole statement instead, a WHERE clause that merely
 	// COMPARES the tally to zero scored as a reset that wrote nothing.
 	setClauseRe = regexp.MustCompile(`(?is)\bset\b(.*?)(?:\bwhere\b|\breturning\b|$)`)
+	// A write that ASSIGNS status is one that ends or moves a page: the run
+	// starts running, finishes, errors, or is cancelled. Those are the writes
+	// the mirror belongs to. A write that only bumps a counter — the
+	// per-creation counterparty count — ends no page and owns no mirror.
+	assignsStatusRe = regexp.MustCompile(`(?is)\bstatus\s*=`)
 )
 
-// inflightColumns is the whole transient tally. Every column is checked, not
-// just the first: a statement that zeroes inflight_scanned and forgets
-// inflight_captured leaves the status read adding a captured count no page
-// owns any more, which is the same double-report the reset exists to prevent
-// — and it is exactly the kind of half-edit a copy of a neighbouring
-// statement produces.
+// inflightColumns is the whole transient tally — the MESSAGE counts only; a
+// counterparty creation is counted straight into the committed columns and has
+// no mirror. Every column is checked, not just the first: a statement that
+// zeroes inflight_scanned and forgets inflight_captured leaves the status read
+// adding a captured count no page owns any more, which is the same
+// double-report the reset exists to prevent, and it is exactly the half-edit a
+// copy of a neighbouring statement produces.
 var inflightColumns = []string{
 	"inflight_scanned", "inflight_captured", "inflight_skipped",
-	"inflight_people", "inflight_organizations",
 }
 
 // The two values a statement may assign the tally: the one live writer sets
@@ -102,9 +107,24 @@ func TestEveryBackfillRunWriteSettlesTheInFlightTally(t *testing.T) {
 	}
 	// Consts first, across every file: the shared reset fragment is declared in
 	// one file and concatenated into statements written in others.
+	// Repeat until the map stops growing — a real fixed point, with no
+	// iteration budget. A fragment can be assembled from another fragment, and
+	// each pass resolves one more link of such a chain, so the passes needed
+	// track the chain's DEPTH. Bounding the loop by the file count instead
+	// happened to be enough only because this package has more files than any
+	// chain has links: one file holding a two-link chain would have exhausted
+	// the budget early and left the outer fragment unresolved, which reads as a
+	// correct write clearing nothing. Termination is not at risk: consts only
+	// grows, and it is bounded by the number of const declarations in the tree.
 	consts := map[string]string{}
-	for _, file := range files {
-		collectStringConsts(file, consts)
+	for {
+		before := len(consts)
+		for _, file := range files {
+			collectStringConsts(file, consts)
+		}
+		if len(consts) == before {
+			break
+		}
 	}
 	var writers int
 	for _, file := range files {
@@ -134,7 +154,7 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 		default:
 			return true
 		}
-		sql, ok := sqlOf(consts, expr)
+		sql, ok := sqlOf(consts, expr, blankIdents)
 		if !ok {
 			return true
 		}
@@ -142,12 +162,14 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 		// not separate statements, so stop here rather than re-judging each.
 		updates := updateRunRe.MatchString(sql) ||
 			(insertRunRe.MatchString(sql) && doUpdateRe.MatchString(sql))
+		clause := setClauseRe.FindStringSubmatch(sql)
+		endsAPage := clause != nil && assignsStatusRe.MatchString(clause[1])
 		switch {
-		case !updates:
+		case !updates || !endsAPage:
 		case matchesEveryColumn(sql, fromParameter):
 			writers++
 		case !matchesEveryColumn(sql, toZero):
-			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — end the statement with resetInflightProgress, or the status read counts that page's work twice:\n%s",
+			t.Errorf("%s writes an existing capture_backfill row without settling the whole running-page tally (%s) — a write that assigns status ends or moves a page, so it must end with resetInflightProgress, or the status read keeps counting that page's messages:\n%s",
 				fset.Position(expr.Pos()), strings.Join(inflightColumns, ", "), sql)
 		}
 		return false
@@ -157,7 +179,10 @@ func auditRunWrites(t *testing.T, fset *token.FileSet, file *ast.File, consts ma
 
 // collectStringConsts adds one file's string constants to consts, so a
 // statement assembled from a shared fragment resolves to what the database
-// actually receives.
+// actually receives. A const may be built FROM another const, so it resolves
+// through sqlOf and the caller repeats until the map stops growing — a
+// fragment that resolved to nothing would make every statement using it look
+// like it settles no tally.
 func collectStringConsts(file *ast.File, consts map[string]string) {
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
@@ -169,20 +194,40 @@ func collectStringConsts(file *ast.File, consts map[string]string) {
 			if !ok || len(value.Names) != 1 || len(value.Values) != 1 {
 				continue
 			}
-			if lit, ok := value.Values[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
-				if text, err := strconv.Unquote(lit.Value); err == nil {
-					consts[value.Names[0].Name] = text
-				}
+			name := value.Names[0].Name
+			if _, done := consts[name]; done {
+				continue
+			}
+			// STRICT: a const assembled from a const not yet collected is left
+			// for the next pass, not cached with a placeholder standing in for
+			// its missing half. Caching it would freeze the placeholder — the
+			// loop that exists to resolve exactly this case could never correct
+			// it, and every statement built from that fragment would be judged
+			// as if the fragment said nothing.
+			if text, ok := sqlOf(consts, value.Values[0], strictIdents); ok {
+				consts[name] = text
 			}
 		}
 	}
 }
 
-// sqlOf reconstructs a string expression's value. A part it cannot resolve —
-// a local variable holding a CASE arm, say — becomes a space: the statement
-// keeps its shape, and the fragments this test judges are consts it can read.
-// ok is false for anything that is not a string expression at all.
-func sqlOf(consts map[string]string, expr ast.Expr) (string, bool) {
+// identMode says what an unresolvable identifier means to the caller.
+type identMode bool
+
+const (
+	// strictIdents refuses the whole expression — used while collecting consts,
+	// where an unknown name means "not resolvable YET".
+	strictIdents identMode = true
+	// blankIdents substitutes a space — used while judging a statement, where an
+	// unknown name is a local variable holding a CASE arm and it is the
+	// statement's shape that matters.
+	blankIdents identMode = false
+)
+
+// sqlOf reconstructs a string expression's value. ok is false for anything that
+// is not a string expression at all, and — under strictIdents — for anything
+// carrying a name it cannot resolve.
+func sqlOf(consts map[string]string, expr ast.Expr, idents identMode) (string, bool) {
 	switch node := expr.(type) {
 	case *ast.BasicLit:
 		if node.Kind != token.STRING {
@@ -194,13 +239,16 @@ func sqlOf(consts map[string]string, expr ast.Expr) (string, bool) {
 		if text, known := consts[node.Name]; known {
 			return text, true
 		}
+		if idents == strictIdents {
+			return "", false
+		}
 		return " ", true
 	case *ast.BinaryExpr:
 		if node.Op != token.ADD {
 			return "", false
 		}
-		left, leftOK := sqlOf(consts, node.X)
-		right, rightOK := sqlOf(consts, node.Y)
+		left, leftOK := sqlOf(consts, node.X, idents)
+		right, rightOK := sqlOf(consts, node.Y, idents)
 		if !leftOK || !rightOK {
 			return "", false
 		}
