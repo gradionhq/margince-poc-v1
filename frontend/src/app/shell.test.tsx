@@ -32,9 +32,11 @@ function memoryStorage(): Storage {
   };
 }
 
-// B-EP09.4 acceptance: the canonical 9-item rail in order (AC-shell-1), at
-// most one active item tracking the route (AC-shell-2), badges only from live
-// counts, the contextual top bar, and the documented rail-less exceptions.
+// B-EP09.4 acceptance: the canonical 10-item nav in order (AC-shell-1b — A72
+// promoted Automations to primary nav), at most one active item tracking the
+// route (AC-shell-2), badges only on the attention screens and only from live
+// counts (AC-shell-1e), 44x44 collapsed targets with a dismissible tooltip
+// (AC-shell-1c/1d), the contextual top bar, and the rail-less exceptions.
 
 afterEach(() => {
   cleanup();
@@ -53,30 +55,40 @@ const render = (ui: ReactNode) => {
   );
 };
 
+// The route id never changes with a label: `deals` presents as Pipeline and
+// `inbox` as Approvals, which names a governance surface rather than a mailbox.
 const CANONICAL_ORDER = [
   "Home",
   "Contacts",
   "Companies",
   "Leads",
-  "Deals",
+  "Pipeline",
   "Tasks",
-  "Inbox",
+  "Approvals",
   "Reports",
-  "Ask AI",
+  "Automations",
+  "Ask Margince",
 ];
 
 describe("WorkspaceRail (AC-shell-1/2)", () => {
-  it("renders the canonical 9 items in order, logomark → home, avatar → settings", () => {
+  it("renders the canonical 10 items in order, logomark → home", () => {
     render(<WorkspaceRail route={{ screen: "deals" }} />);
     const rail = screen.getByRole("navigation");
     const links = within(rail).getAllByRole("link");
     expect(links[0].getAttribute("aria-label")).toBe("Margince");
     expect(links[0].getAttribute("href")).toBe("#/home");
     const navLabels = links
-      .slice(1, 10)
+      .slice(1)
       .map((link) => link.getAttribute("aria-label"));
     expect(navLabels).toEqual(CANONICAL_ORDER);
-    expect(links[10].getAttribute("href")).toBe("#/settings");
+  });
+
+  it("groups the items under Records / Work / Intelligence when expanded", () => {
+    render(<WorkspaceRail route={{ screen: "home" }} />);
+    const headings = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(headings).toEqual(["Records", "Work", "Intelligence"]);
   });
 
   it("marks exactly one item active, matching the route", () => {
@@ -85,7 +97,7 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
       .getAllByRole("link")
       .filter((link) => link.getAttribute("aria-current") === "page");
     expect(active).toHaveLength(1);
-    expect(active[0].getAttribute("aria-label")).toBe("Deals");
+    expect(active[0].getAttribute("aria-label")).toBe("Pipeline");
   });
 
   it("marks nothing active on a non-rail screen", () => {
@@ -107,9 +119,97 @@ describe("WorkspaceRail (AC-shell-1/2)", () => {
     expect(badges).toHaveLength(1);
     expect(badges[0].textContent).toBe("4");
   });
+
+  // AC-shell-1e: a badge counts only what wants attention. Pipeline and Leads
+  // carry no badge even when a count is supplied — this bites if BADGE_SCREENS
+  // is dropped and every screen starts rendering ambient totals again.
+  it("ignores counts for screens that are not attention surfaces", () => {
+    const { container } = render(
+      <WorkspaceRail
+        route={{ screen: "home" }}
+        counts={{ deals: 13, leads: 7, contacts: 248 }}
+      />,
+    );
+    expect(container.querySelectorAll(".count")).toHaveLength(0);
+  });
+
+  // AC-shell-1c/1d: collapsed items are icon-only, so the label must reach a
+  // screen reader via aria-label in BOTH states, and the visible tooltip must
+  // appear on keyboard focus (not hover alone) and be dismissible with Escape.
+  it("keeps the accessible name when collapsed and shows a dismissible tooltip on focus", async () => {
+    render(<WorkspaceRail route={{ screen: "home" }} collapsed />);
+    const pipeline = screen.getByRole("link", { name: "Pipeline" });
+    expect(screen.queryByRole("tooltip")).toBeNull();
+
+    pipeline.focus();
+    const tip = await screen.findByRole("tooltip");
+    expect(tip.textContent).toBe("Pipeline");
+
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("tooltip")).toBeNull();
+    // Escape dismisses the tooltip without moving focus (WCAG 1.4.13).
+    expect(document.activeElement).toBe(pipeline);
+  });
+
+  // WCAG 1.4.13 also requires the tooltip be HOVERABLE: reaching for it must not
+  // dismiss it. The tooltip is a descendant of the row it belongs to, so moving
+  // the pointer onto it never fires the row's mouseleave. As a sibling it would
+  // vanish under the cursor, and no assertion on its text would notice.
+  it("nests the collapsed tooltip inside its own row so hovering it cannot dismiss it", async () => {
+    render(<WorkspaceRail route={{ screen: "home" }} collapsed />);
+    const pipeline = screen.getByRole("link", { name: "Pipeline" });
+
+    await userEvent.hover(pipeline);
+    const tip = await screen.findByRole("tooltip");
+    expect(pipeline.contains(tip)).toBe(true);
+
+    await userEvent.hover(tip);
+    expect(screen.queryByRole("tooltip")).not.toBeNull();
+  });
+
+  // On a phone the four bar tabs are the only rows rendered, so a route living
+  // in the More sheet has nothing to carry the current-destination state. More
+  // carries it instead, or the bar shows no active tab at all.
+  it("marks More as the active tab for a destination the phone bar hides", () => {
+    const sheeted = render(<WorkspaceRail route={{ screen: "reports" }} />);
+    const more = sheeted.container.querySelector(".railmore.active");
+    expect(more).not.toBeNull();
+    // Announced, not merely tinted: the hidden route's own link is out of the
+    // accessibility tree at phone width, so More has to report the current page.
+    expect(more?.getAttribute("aria-current")).toBe("page");
+    cleanup();
+
+    const onBar = render(<WorkspaceRail route={{ screen: "contacts" }} />);
+    const inactive = onBar.container.querySelector(".railmore");
+    expect(inactive?.className).not.toContain("active");
+    expect(inactive?.getAttribute("aria-current")).toBeNull();
+  });
+
+  // Open, the sheet renders the real row for that route, which carries
+  // aria-current itself. Two elements claiming the current page is worse than
+  // the visual-only state this replaced.
+  it("hands the current-page claim back to the real row once the sheet is open", async () => {
+    const { container } = render(
+      <WorkspaceRail route={{ screen: "reports" }} />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(
+      container.querySelector(".railmore")?.getAttribute("aria-current"),
+    ).toBeNull();
+    expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(1);
+  });
+
+  it("renders the collapse control with the state it will move to", () => {
+    const onToggle = vi.fn();
+    render(<WorkspaceRail route={{ screen: "home" }} onToggle={onToggle} />);
+    const toggle = screen.getByRole("button", { name: "Collapse sidebar" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    toggle.click();
+    expect(onToggle).toHaveBeenCalled();
+  });
 });
 
-describe("WorkspaceRail sign-out (AS-1)", () => {
+describe("Sign-out (AS-1)", () => {
   it("posts /auth/logout and clears the query cache on click", async () => {
     let loggedOut = false;
     vi.stubGlobal(
@@ -136,11 +236,15 @@ describe("WorkspaceRail sign-out (AS-1)", () => {
     rtlRender(
       <QueryClientProvider client={client}>
         <LocaleProvider initial="en">
-          <WorkspaceRail route={{ screen: "deals" }} />
+          {/* Sign-out lives in the top bar beside the account link; the
+              sidebar foot carries the agent panel. */}
+          <TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />
         </LocaleProvider>
       </QueryClientProvider>,
     );
     expect(client.getQueryData(["me"])).toBeTruthy();
+    // Sign-out lives inside the account menu, so it takes opening first.
+    await userEvent.click(screen.getByRole("button", { name: "Account" }));
     await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
     // POST fired AND the whole cache was cleared — the ["me"] entry is gone,
     // so the auth gate re-probes → 401 → login. This assertion bites: it fails
@@ -199,11 +303,12 @@ describe("WorkspaceRail sign-out (AS-1)", () => {
       </QueryClientProvider>,
     );
 
-    // Authenticated: the rail (and its sign-out control) is on screen.
-    const signOut = await screen.findByRole("button", { name: "Sign out" });
+    // Authenticated: the chrome (and its account menu) is on screen.
+    const account = await screen.findByRole("button", { name: "Account" });
     expect(meCalls).toBe(1);
 
-    await userEvent.click(signOut);
+    await userEvent.click(account);
+    await userEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
     // The gate must re-probe /v1/me (not just drop the cache entry) and,
     // seeing 401, render the auth (signup/login) screen — the rail must be
@@ -219,9 +324,17 @@ describe("WorkspaceRail sign-out (AS-1)", () => {
 describe("TopBar (§2b contextual truth)", () => {
   it("shows the screen title and no actions that were not provided", () => {
     render(<TopBar route={{ screen: "deals" }} onOpenSearch={() => {}} />);
-    expect(screen.getByText("Deals")).toBeTruthy();
-    // exactly the three always-true controls: search, locale, theme
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    expect(screen.getByText("Pipeline")).toBeTruthy();
+    // exactly the four always-true controls: search, locale, theme, sign out
+    expect(screen.getAllByRole("button")).toHaveLength(4);
+  });
+
+  // AC-shell-1k: every authenticated route resolves to real copy. This bites on
+  // a new off-rail route landing in the router without a title key — the old
+  // fallback rendered the raw screen slug.
+  it("resolves a title for off-rail routes instead of the raw slug", () => {
+    render(<TopBar route={{ screen: "dedupe" }} onOpenSearch={() => {}} />);
+    expect(screen.getByText("Duplicates")).toBeTruthy();
   });
 
   it("opens search from the searchbar affordance (AC-shell-7 seam)", () => {

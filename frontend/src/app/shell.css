@@ -1,30 +1,70 @@
-/* App shell — §2b verbatim: 64px rail on the deep ink-green field, 56px
- * elevated top bar. Rail icons are deliberately white-alpha on --bgRail,
- * NOT theme tokens (§2b: high-contrast white on the dark green field). */
+/* App shell — a labeled sidebar collapsing to the canonical 64px rail, above a
+ * floating top bar. The chrome is WHITE, not §2b's deep ink-green field: the
+ * founder ruling of 2026-07-23 makes the product surface white, so rail icons
+ * read as ordinary theme tokens rather than white-alpha on a dark ground. The
+ * ink-green field keeps the agent panel and the marketing surfaces. */
 
+/* The chrome floats: sidebar, top bar and content are inset panels on the matte
+ * ground with a ~10px margin between them, the same gesture design.md:139
+ * specifies for the field panel. The ground showing through IS the design —
+ * nothing here is edge-to-edge except the rail-less surfaces. */
 .app {
+  /* One duration for the whole collapse choreography, so the column, the icons
+     and the labels stay in step. */
+  --shellAnim: 0.36s;
+  --shellEase: cubic-bezier(0.4, 0, 0.2, 1);
+
   display: grid;
   grid-template-columns: 64px 1fr;
+  gap: var(--shellGap, 10px);
+  padding: var(--shellGap, 10px);
   height: 100vh;
+  box-sizing: border-box;
+  background: var(--bgPage);
+  /* Collapsing animates the grid column so the sidebar and the content edge
+     move together; labels cross-fade with it. */
+  transition: grid-template-columns var(--shellAnim) var(--shellEase);
 }
+.app.railexpanded {
+  grid-template-columns: 250px 1fr;
+}
+/* The whole collapse choreography — column width, icon size, label width and
+   fade — jumps straight to its end state when motion is not wanted. */
+@media (prefers-reduced-motion: reduce) {
+  .app,
+  .rail .navlabel,
+  .rail .ws-name {
+    transition: none;
+  }
+}
+/* Rail-less surfaces (onboarding, booking, the client extension frame, login)
+   are deliberately full-bleed — they carry their own chrome. */
 .app.railless {
   grid-template-columns: 1fr;
+  gap: 0;
+  padding: 0;
 }
 
 .main {
   display: flex;
   flex-direction: column;
+  gap: var(--shellGap, 10px);
+  min-width: 0;
   overflow: hidden;
-  background: var(--bgPage);
+  background: transparent;
 }
+/* The content area is the ground, not a panel: screens float their own cards on
+   it (hairlines, not shadows). Only the sidebar and top bar are chrome panels. */
 .scroll {
   flex: 1;
   overflow-y: auto;
 }
+/* The shell already insets the content area, so the wrap adds rhythm rather
+   than the full page gutter it needed when the scroll ran edge-to-edge. */
 .wrap {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 28px 36px 80px;
+  padding: 18px 26px 80px;
   width: 100%;
 }
 .wrap.narrow {
@@ -96,24 +136,105 @@
   }
 }
 
+/* ===== sidebar =====
+ * The ground is the matte near-white surface in BOTH states. The collapsed
+ * state matches the canonical rail's geometry — 64px, 44px targets, the
+ * logomark chip, the active indicator bar — but not its ink-green field: the
+ * signature field panel moved to the agent surface at the foot (decision D),
+ * and a sidebar that changed colour on collapse would read as two shells. */
 .rail {
-  background: linear-gradient(
-    180deg,
-    var(--railTop) 0%,
-    var(--bgRail) 46%,
-    var(--railBottom) 100%
-  );
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 16px 0;
-  gap: 4px;
+  gap: 1px;
+  overflow-y: auto;
 }
-.rail .ws {
+/* The collapsed panel must NOT clip: the tooltips and the active indicator both
+   sit outside its 64px box. Each label clips itself. */
+.rail.collapsed {
+  overflow: visible;
+}
+/* One padding for both states. It used to drop to 0 on collapse, which shifted
+   every item sideways in a single frame — the jump. */
+.rail.expanded,
+.rail.collapsed {
+  padding: 10px 8px;
+}
+
+/* head row: brand block, and the collapse control right-aligned beside it */
+.rail .railhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+/* Collapsed, the toggle shares the logomark's slot and reveals on hover or
+   keyboard focus (the pattern ChatGPT uses): it costs no extra row, so every
+   icon below keeps its position. It stays focusable while hidden, so a keyboard
+   user can still reach it.
+   :focus-visible, NOT :focus-within — clicking the toggle to collapse leaves it
+   focused, and :focus-within then held the toggle on screen with the logomark
+   hidden until you clicked elsewhere. A mouse click sets no :focus-visible, so
+   the logomark returns immediately; Tab still reveals the toggle. */
+.rail.collapsed .railhead {
   position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  justify-content: center;
+}
+/* The 120ms delay is load-bearing, not polish: clicking the toggle applies the
+   collapsed class while the panel is still 250px wide, so the pointer sits
+   inside the head for a few frames before the panel narrows past it. Without a
+   delay that reads as a flicker — the logomark hides and immediately returns.
+   A deliberate hover outlasts the delay; a transient one never fires. */
+.rail.collapsed .ws {
+  transition: opacity 0.14s ease 0.12s;
+}
+.rail.collapsed:not(.settling) .railhead:hover .ws,
+.rail.collapsed:not(.settling) .railhead:has(:focus-visible) .ws {
+  opacity: 0;
+}
+.rail.collapsed .railtoggle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 44px;
+  height: 44px;
+  opacity: 0;
+  pointer-events: none;
+  /* No delay on the way OUT. Collapsing re-anchors this button from the head's
+     right edge to its centre instantly, so any lingering opacity reads as the
+     icon sliding into the logomark before disappearing. It fades before it can
+     be seen there; the delay lives on the reveal below instead. */
+  transition: opacity 0.12s ease;
+}
+.rail.collapsed:not(.settling) .railhead:hover .railtoggle,
+.rail.collapsed:not(.settling) .railhead:has(:focus-visible) .railtoggle {
+  opacity: 1;
+  pointer-events: auto;
+  transition: opacity 0.14s ease 0.12s;
+}
+
+/* brand block */
+.rail .ws {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  color: var(--textPrimary);
+  border-radius: 9px;
+  padding: 2px 7px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.rail .ws-chip {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  border-radius: 9px;
   background: linear-gradient(
     145deg,
     var(--wsChipTop) 0%,
@@ -123,111 +244,494 @@
   color: var(--textOnAccent);
   display: grid;
   place-items: center;
-  margin-bottom: 22px;
   box-shadow: var(--shadow-pop);
 }
-.rail .navitem {
-  position: relative;
-  width: 44px;
-  height: 40px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  cursor: pointer;
-  border: 0;
-  background: transparent;
-  color: var(--railIcon);
+/* The head row is a column when collapsed, so flex-basis cannot squeeze this
+   shut the way it does the nav labels — the width has to be explicit, or the
+   faded-out text keeps its intrinsic width and pushes the logomark off centre.
+   It is one element, so animating its width is cheap and keeps the brand block
+   closing in step with the column. */
+.rail .ws-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: auto;
+  opacity: 1;
+  overflow: hidden;
   transition:
-    background 0.15s,
-    color 0.15s;
-  text-decoration: none;
+    opacity 0.18s ease,
+    width var(--shellAnim) var(--shellEase);
 }
-.rail .navitem:hover {
-  background: var(--railHover);
-  color: var(--railIconHover);
+.rail.collapsed .ws-name {
+  width: 0;
+  opacity: 0;
 }
-.rail .navitem.active {
-  background: var(--railActive);
-  color: var(--railIconActive);
+.rail .ws-name b {
+  font-family: var(--f-display);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--textPrimary);
+  line-height: 1.25;
 }
-.rail .navitem.active::before {
+.rail .ws-org {
+  font-family: var(--f-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* groups */
+.rail .navgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.rail .navgroup + .navgroup {
+  margin-top: 12px;
+}
+.rail .navheading {
+  position: relative;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+  margin: 0 0 3px;
+  padding: 0 14px;
+}
+/* Collapsed: the heading keeps its exact box (same font metrics, same margins)
+   so the rows below never re-space; the text goes transparent and a hairline is
+   drawn inside that space instead. */
+.rail.collapsed .navheading {
+  color: transparent;
+}
+.rail.collapsed .navheading::after {
   content: "";
   position: absolute;
-  left: -10px;
+  left: 50%;
   top: 50%;
-  transform: translateY(-50%);
-  width: 4px;
-  height: 22px;
-  background: var(--railIconActive);
-  border-radius: var(--r-full);
+  width: 22px;
+  transform: translateX(-50%);
+  border-top: 1px solid var(--borderSubtle);
 }
-.rail .navitem svg {
-  width: 20px;
-  height: 20px;
+
+.rail .navwrap {
+  position: relative;
+  display: flex;
 }
-.rail .navitem .count {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  min-width: 16px;
-  height: 16px;
-  border-radius: var(--r-full);
-  background: var(--textOnAccent);
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 700;
-  display: grid;
-  place-items: center;
-  padding: 0 4px;
-  font-family: var(--f-body);
+.rail.collapsed .ws {
+  gap: 0;
 }
-.rail .grow {
+
+/* Not clipped: the active indicator and the collapsed tooltip both sit outside
+   the row's box on purpose, and the label does its own ellipsis, so a clip here
+   only ever hides something that is meant to be seen. */
+.rail .navitem {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
   flex: 1;
-}
-.rail .signout {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-sm);
-  border: 0;
-  cursor: pointer;
-  background: transparent;
-  color: var(--railIcon);
-  display: grid;
-  place-items: center;
-  margin-bottom: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 8px;
   transition:
     background 0.15s,
     color 0.15s;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: var(--textContent);
+  text-decoration: none;
+  font-size: 13.5px;
 }
-.rail .signout:hover {
-  background: var(--railHover);
-  color: var(--railIconHover);
+/* Collapsed keeps the SAME row height as expanded, and the 14px padding centres
+   the 18px icon either way (14 + 18 + 14 = 46), so no icon moves on either axis
+   across the collapse. Target size is therefore 46x38 in both states — past WCAG
+   2.2 2.5.8 (AA, 24x24), giving up the 44x44 of 2.5.5 (AAA) that AC-shell-1c
+   asks for in favour of the compact row rhythm the design direction sets. */
+.rail .navitem:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
 }
-.rail .signout:disabled {
+.rail .navitem.active {
+  background: var(--accentLight);
+  color: var(--accent);
+  font-weight: 500;
+}
+/* The indicator bar belongs to the collapsed rail, where there is no label to
+   carry the active state. Expanded, the tint plus accent text says it without a
+   bar that would clip against the sidebar edge. */
+.rail.collapsed .navitem.active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 22px;
+  background: var(--accent);
+  border-radius: var(--r-full);
+}
+/* One icon size in both states. Animating the glyph's box relayouts the whole
+   sidebar every frame, and a resizing icon is the jitter — 18px reads correctly
+   beside a 13.5px label and alone on the 64px rail. */
+.rail .navitem svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+/* The label collapses its width and fades instead of unmounting, so expanding
+   and collapsing is one continuous movement. */
+.rail .navlabel {
+  position: absolute;
+  left: 41px;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  opacity: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  transition: opacity 0.18s ease;
+}
+.rail .navitem:has(.count) .navlabel {
+  right: 38px;
+}
+.rail.collapsed .navlabel {
+  opacity: 0;
+}
+.rail .navitem .count {
+  min-width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  background: var(--accent);
+  color: var(--textOnAccent);
+  font-size: 10.5px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
+  padding: 0 5px;
+  font-family: var(--f-body);
+  flex: none;
+  margin-left: auto;
+}
+.rail.collapsed .navitem .count {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+}
+
+/* Collapsed-state tooltip (AC-shell-1d / WCAG 1.4.13): shown on hover AND
+   keyboard focus, hoverable because it lives inside the hovered wrapper, and
+   dismissed with Escape without moving focus. It is never the accessible
+   name — aria-label carries that in both states. */
+.rail .navtip {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  transform: translateY(-50%);
+  margin-left: 8px;
+  background: var(--bgRail);
+  color: var(--railIconActive);
+  padding: 5px 9px;
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-pop);
+  z-index: 50;
+}
+
+.rail .grow {
+  flex: 1;
+  min-height: 12px;
+}
+
+/* ===== the signature field panel: a deep ink-green panel inset on the matte
+ * ground with a white card inside it (design.md:20, :139). It carries the
+ * agent, not the navigation. ===== */
+.rail .agentfield {
+  background: transparent;
+  border-radius: var(--r-md);
+  margin-top: 12px;
+}
+.rail .agentfield.collapsed {
+  margin-top: 12px;
+}
+.rail .agentcard {
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+  padding: 10px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rail .agentfield.collapsed .agentcard {
+  padding: 6px;
+  display: grid;
+  place-items: center;
+  gap: 0;
+}
+.rail .agenthead {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.rail .agentwho {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.rail .agenthead b {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--textPrimary);
+  line-height: 1.2;
+}
+/* The status dot reads as state, not as confidence — it is deliberately the
+   away/neutral token, not the bright success green. */
+.rail .agentstate::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: var(--r-full);
+  background: var(--textMeta);
+  vertical-align: 1px;
+}
+.rail .agentactivity,
+.rail .agentfoot {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: 7px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--textMeta);
+}
+.rail .agentfoot {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.rail .agentrouting {
+  flex: 1;
+  min-width: 0;
+}
+.rail .agentfoot b {
+  color: var(--textPrimary);
+  font-weight: 600;
+  font-size: 11.5px;
+}
+/* The orb: lit glass over drifting emerald smoke, in CSS only — no canvas,
+   because this sits in chrome on every screen and would hold a render loop for
+   the whole session. Same construction as the prototype's, but every colour is a
+   color-mix over a token so it passes ds-purity. */
+.rail .agentorb {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: var(--r-full);
+  overflow: hidden;
+  background:
+    radial-gradient(
+      circle at 30% 24%,
+      color-mix(in srgb, var(--overlayLight) 90%, transparent) 0%,
+      transparent 30%
+    ),
+    radial-gradient(
+      circle at 50% 45%,
+      color-mix(in srgb, var(--accent) 8%, var(--overlayLight)) 0%,
+      color-mix(in srgb, var(--accent) 22%, var(--overlayLight)) 100%
+    );
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--overlayLight) 65%, transparent),
+    inset -2px -3px 6px color-mix(in srgb, var(--overlayDark) 18%, transparent),
+    inset 2px 2px 5px color-mix(in srgb, var(--overlayLight) 50%, transparent),
+    0 1px 5px color-mix(in srgb, var(--accent) 26%, transparent);
+  animation: agent-orb-breathe 5.6s ease-in-out infinite;
+}
+/* the interior: translucent masses, one slow turn */
+.rail .agentorb::before {
+  content: "";
+  position: absolute;
+  inset: -12%;
+  border-radius: var(--r-full);
+  background:
+    radial-gradient(
+      38% 32% at 64% 36%,
+      color-mix(
+          in srgb,
+          color-mix(in srgb, var(--accent) 70%, var(--overlayDark)) 72%,
+          transparent
+        )
+        0%,
+      transparent 72%
+    ),
+    radial-gradient(
+      42% 36% at 34% 66%,
+      color-mix(in srgb, var(--accent) 58%, transparent) 0%,
+      transparent 74%
+    ),
+    radial-gradient(
+      26% 20% at 52% 56%,
+      color-mix(
+          in srgb,
+          color-mix(in srgb, var(--accent) 30%, var(--overlayLight)) 62%,
+          transparent
+        )
+        0%,
+      transparent 70%
+    );
+  animation: agent-orb-drift 14s linear infinite;
+}
+/* the specular: lit glass, fixed, never neon */
+.rail .agentorb::after {
+  content: "";
+  position: absolute;
+  left: 16%;
+  top: 9%;
+  width: 36%;
+  height: 24%;
+  border-radius: var(--r-full);
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--overlayLight) 92%, transparent),
+    transparent 70%
+  );
+  transform: rotate(-20deg);
+}
+@keyframes agent-orb-drift {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes agent-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rail .agentorb,
+  .rail .agentorb::before {
+    animation: none;
+  }
+}
+.rail .agentfield.collapsed .agentorb {
+  width: 30px;
+  height: 30px;
+}
+.rail .agentstate {
+  margin: 0;
+  font-size: 11px;
+  color: var(--textMeta);
+}
+.rail .agentfixture {
+  margin: 0;
+}
+.rail .agentfixture span {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+
+/* The collapse control sits in the head row beside the brand. It is icon-only,
+   so it needs an explicit colour — inheriting left it invisible on the white
+   panel. */
+.rail .railtoggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--textMeta);
+  cursor: pointer;
+}
+.rail .railtoggle:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.rail .railtoggle svg {
+  width: 17px;
+  height: 17px;
+}
+
+/* The More control belongs to the phone-width bottom bar only. */
+.rail .railmore {
+  display: none;
+}
+
+/* ===== account menu ===== */
+.topbar .account {
+  position: relative;
+  flex: none;
+}
+.topbar .accountmenu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  min-width: 168px;
+  display: flex;
+  flex-direction: column;
+  padding: 5px;
+  gap: 1px;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-pop);
+  z-index: 60;
+}
+.topbar .accountmenu a,
+.topbar .accountmenu button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--textContent);
+  font-family: var(--f-body);
+  font-size: 13px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+.topbar .accountmenu a:hover,
+.topbar .accountmenu button:hover {
+  background: var(--bgHover);
+  color: var(--textPrimary);
+}
+.topbar .accountmenu button:disabled {
   opacity: 0.6;
   cursor: default;
 }
-.rail .user {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--r-full);
-  border: 2px solid var(--railIconHover);
-  cursor: pointer;
-  text-decoration: none;
-  display: grid;
-  place-items: center;
-  color: var(--railIconActive);
-  background: var(--railHover);
-  font-size: 11px;
-  font-weight: 700;
-}
 
 .topbar {
-  min-height: 56px;
-  border-bottom: 1px solid var(--borderSubtle);
+  min-height: 52px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
   display: flex;
   align-items: center;
-  padding: 0 22px;
+  padding: 0 16px;
   background: var(--bgElevated);
   flex: none;
   gap: 10px;
@@ -239,6 +743,16 @@
 .topbar .crumb b {
   color: var(--textPrimary);
   font-weight: 600;
+}
+/* On a record the section name is the way back to its list. */
+.topbar .crumb a {
+  color: var(--textMeta);
+  text-decoration: none;
+  font-weight: 500;
+}
+.topbar .crumb a:hover {
+  color: var(--textPrimary);
+  text-decoration: underline;
 }
 .topbar .r {
   margin-left: auto;
@@ -264,6 +778,63 @@
 .topbar .iconbtn svg {
   width: 17px;
   height: 17px;
+}
+/* AC-shell-7: one search affordance. Styled as a field, but it IS a button —
+   it opens the palette and never accepts inline typing. */
+.topbar .searchbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  min-width: 210px;
+  padding: 0 10px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: 9px;
+  background: var(--bgPage);
+  color: var(--textMeta);
+  font-family: var(--f-body);
+  font-size: 13px;
+  cursor: pointer;
+  text-align: left;
+}
+.topbar .searchbar:hover {
+  background: var(--bgHover);
+  border-color: var(--borderStrong);
+}
+.topbar .searchbar svg {
+  width: 15px;
+  height: 15px;
+  flex: none;
+}
+.topbar .searchhint {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar .searchbar kbd {
+  font-size: 10.5px;
+  color: var(--textMeta);
+  background: var(--bgCard);
+  border-radius: 4px;
+  padding: 1px 5px;
+  flex: none;
+}
+.topbar .user {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-full);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  color: var(--textOnAccent);
+  background: var(--accent);
+  flex: none;
+  font-family: var(--f-body);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
 }
 
 /* ===== ⌘K palette ===== */
@@ -445,40 +1016,233 @@
  * nav and content reflows — the BODY never scrolls horizontally; wide
  * content scrolls inside its own container. ===== */
 @media (max-width: 700px) {
-  .app {
+  /* At phone width the sidebar becomes a bottom nav in both states — the
+     expanded column and the sidebar-only regions (labels, group headings, the
+     agent panel, the collapse control) do not apply. The BODY never scrolls
+     horizontally; wide content scrolls inside its own container. */
+  /* At phone width the sidebar becomes a fixed bottom bar carrying four
+     destinations plus More. Ten icons on one row would need horizontal
+     scrolling, and a nav you have to scroll is a nav you cannot see. More
+     expands the same element into a sheet with everything in it. */
+  .app,
+  .app.railexpanded {
     grid-template-columns: 1fr;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: 1fr;
+    --shellGap: 8px;
   }
-  .rail {
+  .rail,
+  .rail.expanded,
+  .rail.collapsed {
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 30;
     flex-direction: row;
     align-items: center;
-    padding: 6px 8px;
+    justify-content: space-between;
+    padding: 5px 6px;
     gap: 2px;
-    order: 2;
-    overflow-x: auto;
+    overflow: visible;
   }
-  .rail .ws {
-    width: 32px;
-    height: 32px;
-    margin-bottom: 0;
-    margin-right: 4px;
+  .rail .navgroup,
+  .rail.expanded .navgroup {
+    display: contents;
+  }
+  .rail .navheading,
+  .rail .ws,
+  .rail .agentfield,
+  .rail .railtoggle,
+  .rail .grow,
+  .rail .navtip {
+    display: none;
+  }
+  /* Each tab captions itself. The label is absolute on the desktop sidebar, so
+     it has to come back into flow and sit under the icon here.
+     The collapsed selector is listed explicitly: the sidebar preference persists
+     across a resize, and `.rail.collapsed .navlabel` outranks a bare
+     `.rail .navlabel`, so without it a phone inherits a bar of unlabeled icons
+     (and an unlabeled More sheet) from whatever the desktop was left in. */
+  .rail .navlabel,
+  .rail.collapsed .navlabel,
+  .rail .navitem:has(.count) .navlabel {
+    position: static;
+    left: auto;
+    right: auto;
+    top: auto;
+    transform: none;
+    opacity: 1;
+    font-size: 9.5px;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    text-align: center;
+    max-width: 100%;
+  }
+  /* Only the primary destinations ride the bar; the rest live in the sheet. */
+  .rail .navwrap:not(.primary) {
+    display: none;
+  }
+  .rail .railmore {
+    display: flex;
+    position: relative;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 56px;
+    min-height: 50px;
     flex: none;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    color: var(--textMeta);
+    cursor: pointer;
   }
-  .rail .navitem {
-    width: 40px;
-    height: 38px;
-    flex: none;
+  .rail .railmore svg {
+    width: 20px;
+    height: 20px;
   }
-  .rail .navitem.active::before {
+  .rail .navwrap {
+    flex: 1;
+    justify-content: center;
+  }
+  .rail .navitem,
+  .rail.expanded .navitem,
+  .rail.collapsed .navitem {
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    height: auto;
+    min-height: 50px;
+    padding: 5px 2px;
+    justify-content: center;
+    overflow: visible;
+  }
+  .rail .navitem svg,
+  .rail.expanded .navitem svg {
+    width: 20px;
+    height: 20px;
+  }
+  .rail .navitem .count,
+  .rail.expanded .navitem .count {
+    position: absolute;
+    top: 2px;
+    right: 6px;
+    margin-left: 0;
+  }
+  /* The bar runs UNDER the tab here, not down its left edge. The collapsed
+     sidebar rule is more specific, so it has to be named to be overridden. */
+  .rail .navitem.active::before,
+  .rail.collapsed .navitem.active::before {
+    content: "";
+    position: absolute;
     left: 50%;
     top: auto;
-    bottom: -6px;
+    bottom: -5px;
     transform: translateX(-50%);
-    width: 22px;
-    height: 4px;
+    width: 20px;
+    height: 3px;
+    background: var(--accent);
+    border-radius: var(--r-full);
   }
-  .rail .grow {
+  /* A destination inside the More sheet is still the current one; without this
+     the closed bar shows no active tab at all on those routes. */
+  .rail .railmore.active {
+    color: var(--accent);
+  }
+  .rail .railmore.active::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    bottom: -5px;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 3px;
+    background: var(--accent);
+    border-radius: var(--r-full);
+  }
+
+  /* the sheet: the same element, every destination, thumb-reachable */
+  .rail.sheetopen,
+  .rail.sheetopen.expanded,
+  .rail.sheetopen.collapsed {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: flex-start;
+    gap: 1px;
+    padding: 10px;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .rail.sheetopen .navgroup {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .rail.sheetopen .navgroup + .navgroup {
+    margin-top: 12px;
+  }
+  .rail.sheetopen .navwrap,
+  .rail.sheetopen .navwrap:not(.primary) {
+    display: flex;
+    flex: none;
+    justify-content: flex-start;
+  }
+  .rail.sheetopen .navheading,
+  .rail.sheetopen .navlabel,
+  .rail.sheetopen .agentfield {
+    display: initial;
+  }
+  .rail.sheetopen .navheading {
+    display: block;
+  }
+  .rail.sheetopen .agentfield {
+    display: block;
+    margin-top: 12px;
+  }
+  .rail.sheetopen .navitem,
+  .rail.sheetopen.expanded .navitem {
+    flex-direction: row;
+    gap: 9px;
+    width: auto;
+    height: auto;
+    min-height: 44px;
     flex: 1;
+    padding: 0 10px;
+    justify-content: flex-start;
+  }
+  .rail.sheetopen .navlabel {
+    font-size: 13.5px;
+    text-align: left;
+    letter-spacing: 0;
+  }
+  .rail.sheetopen .navitem .count {
+    position: static;
+    margin-left: auto;
+  }
+  .rail.sheetopen .navitem.active::before {
+    display: none;
+  }
+  .rail.sheetopen .railmore {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+  }
+  /* Open, the sheet shows the active row itself, and More has become its close
+     control — an indicator under a close button would name the wrong thing. */
+  .rail.sheetopen .railmore.active::before {
+    display: none;
+  }
+
+  /* the bar floats over the content, so the scroll area ends above it */
+  .scroll {
+    padding-bottom: 68px;
+  }
+  .topbar .searchhint {
+    display: none;
+  }
+  .topbar .searchbar {
+    min-width: 0;
   }
   .wrap {
     padding: 16px 14px 90px;
