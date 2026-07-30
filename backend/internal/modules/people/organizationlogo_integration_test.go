@@ -170,9 +170,14 @@ func TestSetOrganizationLogoHandsBackTheObjectItSuperseded(t *testing.T) {
 	// one referenced by nothing. The write is the only place still holding
 	// the pre-write key, so it is the only place that can name it for the
 	// caller to reclaim — a later read would name whatever came after.
+	//
+	// Both writes run as an AGENT, which is what a deep read is: the worker
+	// re-stamps its principal as agent:deepread before applying anything. A
+	// human-stamped first write would correctly lock the field against the
+	// second, which is the precedence rule, not this behaviour.
 	e := setupDedupe(t)
-	ctx := e.as()
-	orgID := seedLogoOrg(ctx, t, e, "Erneut GmbH", "erneut.test")
+	ctx := e.asAgent()
+	orgID := seedLogoOrg(e.as(), t, e, "Erneut GmbH", "erneut.test")
 
 	first := e.ws.String() + "/organization_logo/" + orgID.String() + "/" + ids.NewV7().String()
 	if _, _, err := e.store.SetOrganizationLogo(ctx, orgID, first, "https://erneut.test/a.png"); err != nil {
