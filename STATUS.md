@@ -27,12 +27,15 @@ The merge gate (`make check`), the real-Postgres integration lane
 ## Session pickup — 2026-07-30
 
 **The company-view rebuild is 6 of 7 PRs in.** #309 (composite read), #313
-(one-page view), #315 (evidence mark), #317 (account brief) and #319 (next-step
-suggestions + Ask Margince) are merged. **PR 6, the connections card, is on
-`feat/company-connections-graph`** — `GET /organizations/{id}/graph` in
+(one-page view), #315 (evidence mark), #317 (account brief), #319 (next-step
+suggestions + Ask Margince) and #322 (the connections card) are merged. **PR 7
+is the last one in the arc.**
+
+The connections card is `GET /organizations/{id}/graph` in
 `internal/compose/org360/graph*.go` plus `frontend/src/screens/connections.tsx`,
-wired into the company rail between the people and deals cards. `make check` and
-the graph's nine integration tests are green; `craft static` reports nothing.
+wired into the company rail between the people and deals cards. Its four review
+passes are worth reading before you extend it — the three decisions and three
+rules below all came out of them.
 
 **One class of bug the review round found, worth remembering.** The graph's
 person reads were gated by the ORDER its group list ran in: `readSeats` and
@@ -67,15 +70,24 @@ extending the card.
   filled the budget and starved the others. The cap now lives in the query and
   picks distinct companies. Same trap waits for any group whose display unit is
   not its row unit.
+- **The graph read is proportional to the account, on purpose.** The caps bound
+  the rows returned and the per-contact §4 fold — the part that grows fast — but
+  an exact `dropped_count` needs a count over each group's whole membership, so
+  the count is one index range scan per account. That trade is stated in the
+  contract rather than assumed; if it ever needs to change, the response shape
+  changes with it (a floor plus a flag), not the count quietly. The contract said
+  the opposite for two commits — #326 fixes that — because the correction went
+  into a Go comment while the published description kept the promise. A gap
+  documented where the reader cannot see it is not documented.
 - **Every group total rides the same statement as its rows.** `WithWorkspaceTx`
   is Read Committed, so a total read in a second statement can be smaller than
   the rows the first one returned, and `dropped_count` then goes negative
   against the contract's own `minimum: 0`. If you add a capped group, count it
   with `count(*) OVER ()` or a CTE, never with a follow-up `SELECT count(*)`.
 
-**PR 7 is the last one, and graph level 2 is still deferred.** The card does not
-replace `RecordContextPanel` (that panel is on the deal, person and lead screens,
-never on the company view — the scope line assumed otherwise).
+**Graph level 2 is still deferred.** The card does not replace
+`RecordContextPanel` (that panel is on the deal, person and lead screens, never
+on the company view — PR 6's scope line assumed otherwise).
 
 **Two things worth knowing before touching the suggestion code.** The stall
 episode's monotonicity constraint is written at `stalledDeal.episode()` in
