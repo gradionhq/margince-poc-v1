@@ -19,9 +19,11 @@ package integration
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
@@ -162,15 +164,15 @@ func TestApprovalListFilteredToAnOutOfScopeTargetIsEmpty(t *testing.T) {
 	// Rep1 holds organization.update — the deepread decision grant — but sits
 	// in the other team, so the row scope hides the account itself.
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
-	rows, hasMore, err := svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &theirs})
+	rows, page, err := svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &theirs})
 	if err != nil {
 		t.Fatalf("list filtered to an out-of-scope target → %v, want an empty list", err)
 	}
 	if len(rows) != 0 {
 		t.Errorf("returned %d approvals for an account outside the caller's row scope", len(rows))
 	}
-	if hasMore {
-		t.Error("has_more is true for an empty answer — a client would page for rows that do not exist")
+	if page.HasMore || page.NextCursor != "" {
+		t.Errorf("page = %+v for an empty answer — a client would page for rows that do not exist", page)
 	}
 
 	// The positive control: the owning team sees it, so the empty answer above
@@ -233,25 +235,104 @@ func TestApprovalListFilteredReportsHasMore(t *testing.T) {
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
 	orgType := "organization"
 
-	rows, hasMore, err := svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &org, Limit: 2})
+	rows, page, err := svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &org, Limit: 2})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(rows) != 2 {
 		t.Errorf("returned %d approvals, want the requested 2", len(rows))
 	}
-	if !hasMore {
+	if !page.HasMore {
 		t.Error("has_more is false with three staged approvals left unreturned")
 	}
+	if page.NextCursor == "" {
+		t.Error("has_more is true with no next_cursor — the client cannot reach the rest")
+	}
 
-	rows, hasMore, err = svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &org, Limit: 50})
+	rows, page, err = svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &org, Limit: 50})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
 	if len(rows) != 5 {
 		t.Errorf("returned %d approvals, want all 5", len(rows))
 	}
-	if hasMore {
-		t.Error("has_more is true when every staged approval was returned")
+	if page.HasMore || page.NextCursor != "" {
+		t.Errorf("page = %+v when every staged approval was returned", page)
+	}
+}
+
+// Paging a record's inbox, against real rows: each page continues where the
+// last one stopped, and the walk sees every staged approval exactly once. A
+// server that ignored the cursor would answer the same first page forever.
+func TestApprovalListPagesForwardWithTheCursor(t *testing.T) {
+	e := Setup(t)
+	svc := approvals.NewService(e.Pool)
+	org := e.SeedOrg(t, "Acme", &e.Rep1)
+	const staged = 5
+	for range staged {
+		stageFor(t, svc, e, "site_lead", "organization", org)
+	}
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
+	orgType := "organization"
+
+	seen := map[ids.ApprovalID]bool{}
+	var order []ids.ApprovalID
+	in := approvals.ListInput{TargetType: &orgType, TargetID: &org, Limit: 2}
+	for range staged + 1 {
+		rows, page, err := svc.List(rep, in)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, a := range rows {
+			if seen[a.ID] {
+				t.Errorf("approval %s came back on two pages", a.ID)
+			}
+			seen[a.ID] = true
+			order = append(order, a.ID)
+		}
+		if !page.HasMore {
+			if page.NextCursor != "" {
+				t.Errorf("the final page handed back the cursor %q", page.NextCursor)
+			}
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("has_more is true with no next_cursor — the walk cannot continue")
+		}
+		in.Cursor = page.NextCursor
+	}
+	if len(order) != staged {
+		t.Fatalf("the walk returned %d approvals over %d staged — a page boundary dropped or repeated one",
+			len(order), staged)
+	}
+
+	// The same rows the unpaged read gives, in the same order: paging narrows
+	// the window, it does not reorder the queue.
+	whole, _, err := svc.List(rep, approvals.ListInput{TargetType: &orgType, TargetID: &org, Limit: 50})
+	if err != nil {
+		t.Fatalf("unpaged list: %v", err)
+	}
+	if len(whole) != len(order) {
+		t.Fatalf("the unpaged read returned %d approvals, the walk %d", len(whole), len(order))
+	}
+	for i, a := range whole {
+		if order[i] != a.ID {
+			t.Errorf("row %d of the walk is %s, want %s", i, order[i], a.ID)
+		}
+	}
+}
+
+// A cursor is client input: a token that is not one is the caller's fault, and
+// it reaches the transport as storekit's malformed-cursor fault rather than as
+// a panic or a 500.
+func TestApprovalListRefusesAMalformedCursor(t *testing.T) {
+	e := Setup(t)
+	svc := approvals.NewService(e.Pool)
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, siteReadPerms)
+
+	_, _, err := svc.List(rep, approvals.ListInput{Cursor: "not-a-page-token!!"})
+	var malformed *storekit.MalformedCursorError
+	if !errors.As(err, &malformed) {
+		t.Fatalf("list with a malformed cursor → %v, want storekit's malformed-cursor fault", err)
 	}
 }

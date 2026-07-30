@@ -166,14 +166,15 @@ func (g *graphAssembly) relatedEdge(row graphRelatedOrg) (ids.UUID, ids.UUID, cr
 // placeOurSide draws our side of the account: the member who owns it, and the
 // colleagues with recorded contact with the contacts the card is showing.
 //
-// An interaction edge whose contact the card did not draw is skipped, the same
-// no-dangling-edge rule placeDeals applies to a stakeholder seat on a dropped
-// deal. A colleague left with no surviving edge is not placed at all — a lone
-// user node floating beside the account states nothing.
+// No edge here can dangle: readInContactWith is given the contacts already
+// PLACED (drawnContactIDs), so every person an edge points at is a node before
+// this runs — the same already-drawn rule placeDeals applies to a stakeholder
+// seat on a dropped deal.
 //
-// The drop count runs over the colleagues WITH CONTACT only. The owner is never
-// capped, so counting them in the total would let one drawn owner push
-// dropped_count below the contract's `minimum: 0`.
+// The drop count runs over the colleagues WITH CONTACT only, and it is exact
+// because the read chose its capped users over that same placed-contact set.
+// The owner is never capped, so counting them in the total would let one drawn
+// owner push dropped_count below the contract's `minimum: 0`.
 func (g *graphAssembly) placeOurSide() {
 	if g.accountOwner != nil {
 		g.addUserNode(*g.accountOwner)
@@ -182,9 +183,6 @@ func (g *graphAssembly) placeOurSide() {
 	}
 	drawn := map[ids.UUID]bool{}
 	for _, edge := range g.ourSide {
-		if _, contactDrawn := g.nodeIndex[edge.personID]; !contactDrawn {
-			continue
-		}
 		drawn[edge.user.userID] = true
 		g.addUserNode(edge.user)
 		g.addEdge(edge.user.userID, edge.personID,

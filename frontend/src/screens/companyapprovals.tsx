@@ -1,9 +1,10 @@
 import { useId } from "react";
 import type { components } from "../api/schema";
-import { navigate } from "../app/router";
-import { Button, EmptyState, Modal } from "../design-system/atoms";
+import { Button, EmptyState, Modal, Skeleton } from "../design-system/atoms";
 import { useT } from "../i18n";
+import { approvalKindLabel } from "./approvalkind";
 import { ApprovalRow, useApprovalTokenSink } from "./inbox";
+import { useTargetApprovals } from "./inbox.queries";
 
 // What is waiting on a decision FOR THIS ACCOUNT, where the account is being
 // read. The count alone ("27 decisions waiting") told a reader that something
@@ -74,19 +75,29 @@ export function CompanyApprovalsPanel({
   const t = useT();
   const titleId = useId();
   const sink = useApprovalTokenSink();
-  const approvals = pendingApprovals(view);
+  // The panel reads the account's OWN queue rather than the capped page the
+  // 360 carries for the chip count, so deciding through it cannot strand the
+  // remainder behind a workspace-wide inbox the reader never asked for. The
+  // 360's rows paint immediately while that read is in flight.
+  const query = useTargetApprovals("organization", orgId);
+  const approvals = query.data?.data ?? pendingApprovals(view);
   const groups = groupByKind(approvals);
   // A decision changes what the page says is waiting, so the composite read
-  // this panel was filled from has to be re-read alongside the approvals list.
+  // behind the chip is re-read alongside the approvals list.
   const extraInvalidateKeys = [["organization360", orgId]];
-  const hasMore = view?.pending_approvals?.page?.has_more ?? false;
   return (
     <Modal open onClose={onClose} labelledBy={titleId} size="wide">
       <h2 id={titleId} className="t-h2 modal-title">
         {t("co.decisions.title")}
       </h2>
       {sink.decidedNote}
-      {groups.length === 0 && (
+      {query.isPending && approvals.length === 0 && (
+        <Skeleton width="100%" height={64} />
+      )}
+      {query.isError && (
+        <p className="co-restricted">{t("co.section.unavailable")}</p>
+      )}
+      {!query.isPending && groups.length === 0 && (
         <EmptyState>{t("co.decisions.empty")}</EmptyState>
       )}
       {groups.map((group) => (
@@ -94,7 +105,7 @@ export function CompanyApprovalsPanel({
           <h3 className="co-part-label">
             {t("co.decisions.group", {
               count: group.approvals.length,
-              kind: group.kind,
+              kind: approvalKindLabel(group.kind, t),
             })}
           </h3>
           {group.approvals.map((approval) => (
@@ -108,22 +119,6 @@ export function CompanyApprovalsPanel({
           ))}
         </section>
       ))}
-      {/* The 360 caps its own section, so the panel says plainly when it is
-          not showing everything rather than letting a decided-through list
-          read as an empty queue. */}
-      {hasMore && (
-        <p className="form-actions">
-          <Button
-            small
-            onClick={() => {
-              onClose();
-              navigate({ screen: "inbox" });
-            }}
-          >
-            {t("co.decisions.more")}
-          </Button>
-        </p>
-      )}
       {sink.tokenModal}
     </Modal>
   );

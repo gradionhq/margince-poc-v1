@@ -116,10 +116,13 @@ export function LogActivityForm({
             <option value="task">{t("log.kindTask")}</option>
           </select>
         </div>
-        {/* Only a task carries a due date, but the field keeps its space in
-            both states: mounting it on the kind switch moved every control
-            below it down while the writer was reading them. */}
-        <div className="field" hidden={draft.kind !== "task"}>
+        {/* Only a task carries a due date, but the field stays in place for a
+            note — disabled, not hidden. Mounting it on the kind switch moved
+            every control below it down while the writer was reading them, and
+            `hidden` would do the same thing by another name (it is
+            display:none). Disabled keeps the row's height AND shows the reader
+            that the field exists and why it is not theirs to fill yet. */}
+        <div className="field">
           <label className="t-label" htmlFor={`${formId}-due`}>
             {t("log.dueAt")}
           </label>

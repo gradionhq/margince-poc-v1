@@ -50,6 +50,12 @@
   fill: var(--textPrimary);
 }
 
+/* Our side. A user is not a record at the account, and drawn in the root's
+   own fill it read as a second centre. */
+.cx-node-user {
+  fill: var(--aiText);
+}
+
 /* The route in is the one node a rep is looking for, so it carries a ring
    rather than a different fill: the fill still has to say "this is a person". */
 .cx-node-intro {
@@ -93,7 +99,10 @@
   max-width: 320px;
 }
 
-.cx-expanded .cx-nodes {
+/* One flex child holds BOTH connection groups, so they stack under each other
+   beside the diagram rather than becoming two more columns that squeeze the
+   account-side list. */
+.cx-expanded-list {
   flex: 1 1 auto;
   min-width: 0;
 }

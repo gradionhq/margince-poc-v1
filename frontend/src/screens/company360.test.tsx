@@ -610,7 +610,11 @@ describe("company view — what is waiting on a decision", () => {
       name: "Review 2 waiting",
     });
     open.click();
-    await waitFor(() => expect(screen.getByText("2 × site_lead")).toBeTruthy());
+    await waitFor(() =>
+      expect(
+        screen.getByText("2 × Add a person found on the site"),
+      ).toBeTruthy(),
+    );
   });
 
   it("says nothing is waiting rather than offering an empty queue", async () => {

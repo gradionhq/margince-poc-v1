@@ -11,14 +11,17 @@ package approvals
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -35,7 +38,7 @@ func TestEveryDeclaredFilterReachesTheQuery(t *testing.T) {
 
 	q, args := approvalPageQuery(ListInput{
 		Status: &status, Kind: &kind, TargetType: &targetType, TargetID: &targetID,
-	}, nil, nil)
+	}, nil)
 
 	for _, want := range []string{"status = $1", "kind = $2", "target_entity_type = $3", "target_entity_id = $4"} {
 		if !strings.Contains(q, want) {
@@ -57,7 +60,7 @@ func TestEveryDeclaredFilterReachesTheQuery(t *testing.T) {
 // to number its own binds after the filters — a builder that numbered them
 // first would page one filtered inbox with another's arguments.
 func TestTheCursorBindsAfterTheFilters(t *testing.T) {
-	q, args := approvalPageQuery(ListInput{}, nil, nil)
+	q, args := approvalPageQuery(ListInput{}, nil)
 	if strings.Contains(q, "WHERE") {
 		t.Errorf("an unfiltered read carries a WHERE clause:\n%s", q)
 	}
@@ -66,14 +69,138 @@ func TestTheCursorBindsAfterTheFilters(t *testing.T) {
 	}
 
 	kind := "deepread"
-	after := row{ID: ids.From[ids.ApprovalKind](ids.NewV7())}
-	q, args = approvalPageQuery(ListInput{Kind: &kind}, &after.CreatedAt, &after.ID)
+	q, args = approvalPageQuery(ListInput{Kind: &kind}, after(row{ID: ids.From[ids.ApprovalKind](ids.NewV7())}))
 	if !strings.Contains(q, "(created_at, id) < ($2, $3)") {
 		t.Errorf("the cursor did not bind after the filter:\n%s", q)
 	}
 	if len(args) != 3 || args[0] != kind {
 		t.Errorf("bound %v, want the filter first and the cursor after it", args)
 	}
+}
+
+// approvalTable stands in for the ordered scan the query performs — the staged
+// rows newest-first by (created_at, id). Only the DATABASE is stood in for:
+// decodeStart, capPage and the token itself are the real ones, so what the walk
+// below proves is the paging contract this module defines rather than a mock's
+// idea of it.
+type approvalTable []row
+
+// newApprovalTable is count rows, newest first, one minute apart.
+func newApprovalTable(count int) approvalTable {
+	newest := time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC)
+	all := make(approvalTable, 0, count)
+	for i := range count {
+		all = append(all, row{
+			ID:        ids.From[ids.ApprovalKind](ids.NewV7()),
+			CreatedAt: newest.Add(time.Duration(-i) * time.Minute),
+		})
+	}
+	return all
+}
+
+// page answers one request: the rows after the caller's cursor, cut to the
+// display limit by capPage.
+func (all approvalTable) page(t *testing.T, in ListInput) ([]row, storekit.Page) {
+	t.Helper()
+	from, err := decodeStart(in.Cursor)
+	if err != nil {
+		t.Fatalf("the cursor a previous page handed back does not decode: %v", err)
+	}
+	var scanned []row
+	for _, a := range all {
+		if from == nil || a.CreatedAt.Before(from.createdAt) ||
+			(a.CreatedAt.Equal(from.createdAt) && a.ID.String() < from.id.String()) {
+			scanned = append(scanned, a)
+		}
+	}
+	return capPage(scanned, in.Limit, nil)
+}
+
+// The whole point of next_cursor: a client told there is more can fetch it, and
+// walking the pages sees every staged row exactly once. Before the cursor was
+// threaded through, every request restarted at the newest row — has_more said
+// "there is more" and nothing the client could send would reach it.
+func TestPagingTheInboxSeesEveryRowExactlyOnce(t *testing.T) {
+	const rows, limit = 5, 2
+	all := newApprovalTable(rows)
+
+	var seen []ids.ApprovalID
+	in := ListInput{Limit: limit}
+	for range rows + 1 {
+		got, page := all.page(t, in)
+		if len(got) > limit {
+			t.Fatalf("a page returned %d rows, want at most the requested %d", len(got), limit)
+		}
+		seen = append(seen, idsOf(got)...)
+		if !page.HasMore {
+			if page.NextCursor != "" {
+				t.Errorf("a final page still handed back the cursor %q", page.NextCursor)
+			}
+			if len(got) == limit {
+				t.Error("the last page was full; the walk did not end on a short page")
+			}
+			break
+		}
+		if page.NextCursor == "" {
+			t.Fatal("has_more is true with no next_cursor — the client has no way to ask for the rest")
+		}
+		last := got[len(got)-1]
+		if want := storekit.EncodeCursor(last.CreatedAt, last.ID.UUID); page.NextCursor != want {
+			t.Fatalf("next_cursor is %q, want the token of the last returned row %q", page.NextCursor, want)
+		}
+		in.Cursor = page.NextCursor
+	}
+
+	want := idsOf(all)
+	if len(seen) != len(want) {
+		t.Fatalf("the walk returned %d rows over %d staged approvals — a boundary duplicated or dropped one",
+			len(seen), len(want))
+	}
+	for i := range want {
+		if seen[i] != want[i] {
+			t.Errorf("row %d of the walk is %s, want %s", i, seen[i], want[i])
+		}
+	}
+}
+
+// A page that is not full is the whole answer: no has_more, and no token, so a
+// client stops rather than asking for a page that does not exist.
+func TestAShortPageReportsNoMoreAndNoCursor(t *testing.T) {
+	all := newApprovalTable(3)
+	got, page := all.page(t, ListInput{Limit: 50})
+	if len(got) != len(all) {
+		t.Fatalf("returned %d rows, want all %d", len(got), len(all))
+	}
+	if page.HasMore {
+		t.Error("has_more is true when every row was returned")
+	}
+	if page.NextCursor != "" {
+		t.Errorf("next_cursor is %q on a complete answer", page.NextCursor)
+	}
+}
+
+// A cursor is client input, so one that is not a page token is the caller's
+// fault. It has to travel as storekit's malformed-cursor fault, which is what
+// the transport turns into the same 422 every other list answers with — never
+// a panic and never a 500.
+func TestAMalformedCursorIsAClientFault(t *testing.T) {
+	from, err := decodeStart("not-a-page-token!!")
+	if from != nil {
+		t.Errorf("a malformed cursor decoded to %+v", from)
+	}
+	var malformed *storekit.MalformedCursorError
+	if !errors.As(err, &malformed) {
+		t.Fatalf("decoding a malformed cursor gave %v, want storekit's malformed-cursor fault", err)
+	}
+}
+
+// idsOf is the id order one slice of rows carries.
+func idsOf(rows []row) []ids.ApprovalID {
+	out := make([]ids.ApprovalID, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, a.ID)
+	}
+	return out
 }
 
 // Half a target reference filters nothing a client could have meant: a type
@@ -129,9 +256,10 @@ func TestTheWholeTargetPairAndKindBind(t *testing.T) {
 	kind := "site_lead"
 	status := crmcontracts.ListApprovalsParamsStatusPending
 	limit := 25
+	cursor := storekit.EncodeCursor(time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC), ids.NewV7())
 
 	in, invalid := listInput(crmcontracts.ListApprovalsParams{
-		Status: &status, Kind: &kind, Limit: &limit,
+		Status: &status, Kind: &kind, Limit: &limit, Cursor: &cursor,
 		TargetEntityType: &targetType, TargetEntityId: (*openapi_types.UUID)(&targetID),
 	})
 	if invalid != nil {
@@ -151,6 +279,9 @@ func TestTheWholeTargetPairAndKindBind(t *testing.T) {
 	}
 	if in.Limit != limit {
 		t.Errorf("limit = %d, want %d", in.Limit, limit)
+	}
+	if in.Cursor != cursor {
+		t.Errorf("cursor = %q, want the token the client sent %q", in.Cursor, cursor)
 	}
 
 	// Neither half supplied is the unfiltered inbox, not a validation error.

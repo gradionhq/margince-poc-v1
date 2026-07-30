@@ -14,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/signals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
@@ -200,20 +201,41 @@ func (g *graphAssembly) readOurSide() error {
 	if err := g.readAccountOwner(); err != nil {
 		return err
 	}
-	return g.readInContactWith(g.employedPersonIDs())
+	return g.readInContactWith(g.drawnContactIDs())
 }
 
-// employedPersonIDs is the contacts the interaction read correlates against —
-// the employees readEmployment brought back. Correlating on already-selected
-// rows is what keeps the graph one hop: an interaction with someone who does
-// not work at this account is not a connection INTO it.
-func (g *graphAssembly) employedPersonIDs() []ids.UUID {
-	out := make([]ids.UUID, len(g.employees))
-	for i, edge := range g.employees {
-		out[i] = edge.personID.UUID
+// drawnContactIDs is the contacts the card has already PLACED — the set the
+// interaction read correlates against, and therefore the set its user cap is
+// chosen over.
+//
+// Correlating on already-placed rows is what keeps the graph one hop: an
+// interaction with someone who does not work at this account is not a
+// connection INTO it. It is also what keeps our_side and its dropped_count
+// describing the people the card actually shows. Correlating against the
+// contacts merely READ would let a colleague whose only contact the contact cap
+// dropped take a user slot, be discarded again at placement for having no
+// surviving edge, and push a colleague of a displayed contact out of the graph.
+func (g *graphAssembly) drawnContactIDs() []ids.UUID {
+	var out []ids.UUID
+	for _, node := range g.out.Nodes {
+		if node.Kind == crmcontracts.OrganizationGraphNodeKindPerson {
+			out = append(out, ids.UUID(node.Id))
+		}
 	}
 	return out
 }
+
+// liveMemberWhere is the ONE spelling of "someone who still works here", for a
+// query that aliases app_user as u. It is the same pair the roster (GET /users)
+// lists by, so this card can never name a colleague the roster has already
+// dropped.
+//
+// Both halves matter, and neither implies the other: a suspended or deactivated
+// account keeps archived_at NULL, and owner_id and captured_by both survive the
+// day someone leaves. Every user node the graph draws renders this predicate —
+// the card exists to tell a rep who to ask for an intro, and a former colleague
+// is not an answer to that question.
+const liveMemberWhere = `u.status = 'active' AND u.archived_at IS NULL`
 
 // readAccountOwner reads the live workspace member the account is assigned to.
 // It needs no row-scope clause of its own: the caller has already read the
@@ -221,15 +243,14 @@ func (g *graphAssembly) employedPersonIDs() []ids.UUID {
 // readable by any authenticated member, so naming the owner discloses nothing
 // the account page does not.
 //
-// A deactivated or removed member is left out rather than drawn as a dangling
-// name — owner_id survives the archive, and a card naming someone who no longer
-// works here would send a rep to ask them for an intro.
+// An owner who no longer works here leaves the account simply unowned: the
+// group keeps its other edges and only the owns edge is missing.
 func (g *graphAssembly) readAccountOwner() error {
 	var owner graphUser
 	err := g.tx.QueryRow(g.ctx, `
 		SELECT u.id, u.display_name
 		FROM organization o
-		JOIN app_user u ON u.id = o.owner_id AND u.archived_at IS NULL
+		JOIN app_user u ON u.id = o.owner_id AND `+liveMemberWhere+`
 		WHERE o.id = $1`, g.orgID).Scan(&owner.userID, &owner.displayName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil // an unassigned account, or an owner who has left
@@ -249,7 +270,8 @@ func (g *graphAssembly) readAccountOwner() error {
 // would claim a relationship nobody has had. For the same reason the colleague
 // is the activity's AUTHOR (captured_by), not its assignee, and the match is
 // against the `human:<uuid>` provenance stamp alone, so a connector-captured or
-// agent-captured row contributes no edge to anyone.
+// agent-captured row contributes no edge to anyone. The author also has to
+// still work here (liveMemberWhere): captured_by outlives the person.
 //
 // The activity row-scope clause applies: an edge derived from an activity the
 // caller cannot read would disclose the fact of contact, which is the same
@@ -280,7 +302,7 @@ func (g *graphAssembly) readInContactWith(contactIDs []ids.UUID) error {
 			FROM activity a
 			JOIN activity_link l ON l.activity_id = a.id
 			                    AND l.entity_type = 'person' AND l.person_id = ANY($%[1]d)
-			JOIN app_user u ON a.captured_by = 'human:' || u.id::text AND u.archived_at IS NULL
+			JOIN app_user u ON a.captured_by = 'human:' || u.id::text AND `+liveMemberWhere+`
 			WHERE a.archived_at IS NULL AND a.kind IN ('email','call','meeting') AND (%[2]s)
 		), colleagues AS (
 			SELECT user_id, max(occurred_at) AS last_touch FROM touch GROUP BY user_id

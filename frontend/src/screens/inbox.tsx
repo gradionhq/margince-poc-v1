@@ -31,6 +31,7 @@ import {
 import { formatDateTime } from "../format/format";
 import { formatCountdown, useNow } from "../format/now";
 import { useLocale, useT } from "../i18n";
+import { approvalKindLabel } from "./approvalkind";
 import {
   isAlreadyDecided,
   isVersionSkew,
@@ -564,7 +565,7 @@ export function ApprovalRow({
           <AutonomyDot tier={approvalDotTier(approval.kind, tierMap)} />
         )}
         {/* kind is meta, not the headline — the human reads the summary first */}
-        <span className="t-small">{approval.kind}</span>
+        <span className="t-small">{approvalKindLabel(approval.kind, t)}</span>
         <OriginatingToolChip kind={approval.kind} />
         <ProvenanceTag provenance={provenanceOf(approval.proposed_by)} />
         {level && <ConfidenceMeter level={level} />}

@@ -19,6 +19,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -95,6 +96,9 @@ type ListInput struct {
 	TargetType *string
 	TargetID   *ids.UUID
 	Limit      int
+	// Cursor continues a previous page: the opaque keyset token that page
+	// reported as next_cursor. Empty starts at the newest row.
+	Cursor string
 }
 
 // targeted reports whether the read is scoped to one record.
@@ -108,32 +112,62 @@ func (in ListInput) targeted() bool { return in.TargetType != nil && in.TargetID
 // a workspace-wide side channel that leaks proposed_change, target ids,
 // and diffs to any low-privilege user (C3/ADR-0036).
 //
-// The bool is has_more: whether rows the caller could decide were left
-// unreturned. A record page can carry dozens of stagings — one deep site read
-// stages a proposal per person it found — so a client that filtered to one
-// record has to be able to tell a full page from a complete answer.
-func (s *Service) List(ctx context.Context, in ListInput) ([]row, bool, error) {
+// The Page is has_more and the token to continue with. A record page can carry
+// dozens of stagings — one deep site read stages a proposal per person it found
+// — so a client that filtered to one record has to be able to tell a full page
+// from a complete answer, AND to ask for the rest. has_more without a cursor
+// would only tell them rows are missing.
+func (s *Service) List(ctx context.Context, in ListInput) ([]row, storekit.Page, error) {
 	if err := humanOnly(ctx); err != nil {
-		return nil, false, err
+		return nil, storekit.Page{}, err
 	}
 	p, _ := principal.Actor(ctx)
 	if in.Limit <= 0 || in.Limit > inboxBatch {
 		in.Limit = 50
 	}
+	start, err := decodeStart(in.Cursor)
+	if err != nil {
+		return nil, storekit.Page{}, err
+	}
 	var out []row
-	var more bool
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+	var page storekit.Page
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
 		if in.targeted() {
-			out, more, err = listForTarget(ctx, tx, p, in)
+			out, page, err = listForTarget(ctx, tx, p, in, start)
 			return err
 		}
-		out, more, err = scanInbox(ctx, tx, p, in)
+		out, page, err = scanInbox(ctx, tx, p, in, start)
 		return err
 	})
 	if err != nil {
-		return nil, false, err
+		return nil, storekit.Page{}, err
 	}
-	return out, more, nil
+	return out, page, nil
+}
+
+// keysetStart is where a scan resumes: the (created_at, id) of the last row the
+// caller has already been shown. Nil starts at the newest row.
+type keysetStart struct {
+	createdAt time.Time
+	id        ids.ApprovalID
+}
+
+// after is the resume point that follows one row.
+func after(a row) *keysetStart { return &keysetStart{createdAt: a.CreatedAt, id: a.ID} }
+
+// decodeStart reads the caller's page token. The token is client input, so one
+// that does not decode is a client fault: it travels as storekit's
+// MalformedCursorError and the transport answers the same 422 every other list
+// endpoint answers a bad cursor with.
+func decodeStart(token string) (*keysetStart, error) {
+	if token == "" {
+		return nil, nil
+	}
+	c, err := storekit.DecodeCursor(token)
+	if err != nil {
+		return nil, err
+	}
+	return &keysetStart{createdAt: c.CreatedAt, id: ids.From[ids.ApprovalKind](c.ID)}, nil
 }
 
 // scanInbox walks the whole table newest-first and filters each keyset batch
@@ -146,29 +180,32 @@ func (s *Service) List(ctx context.Context, in ListInput) ([]row, bool, error) {
 //
 // It fills one row PAST the display limit so has_more is a fact rather than a
 // guess; that row is then dropped, and its existence is what the flag reports.
-func scanInbox(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInput) ([]row, bool, error) {
+//
+// start is the caller's cursor: the scan begins after the last row the previous
+// page returned, so the batches walk forward through the table instead of
+// re-filtering the newest rows on every request.
+func scanInbox(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInput, start *keysetStart) ([]row, storekit.Page, error) {
 	decide := func(a row) (bool, error) { return decidable(ctx, tx, p, a) }
 	var out []row
-	var afterCreated *time.Time
-	var afterID *ids.ApprovalID
+	from := start
 	for {
-		q, args := approvalPageQuery(in, afterCreated, afterID)
+		q, args := approvalPageQuery(in, from)
 		batch, err := collect(ctx, tx, q, args)
 		if err != nil {
-			return nil, false, err
+			return nil, storekit.Page{}, err
 		}
 		var full bool
 		out, full, err = appendDecidable(batch, out, in.Limit+1, decide)
 		if err != nil {
-			return nil, false, err
+			return nil, storekit.Page{}, err
 		}
 		if full || len(batch) < inboxBatch {
 			break // a row past the display limit is in hand, or the table is exhausted
 		}
-		last := batch[len(batch)-1]
-		afterCreated, afterID = &last.CreatedAt, &last.ID
+		from = after(batch[len(batch)-1])
 	}
-	return capPage(out, in.Limit, false)
+	rows, page := capPage(out, in.Limit, nil)
+	return rows, page, nil
 }
 
 // listForTarget answers the inbox scoped to ONE record.
@@ -185,35 +222,56 @@ func scanInbox(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInp
 // The scan is bounded at PendingScanCap, so a full scan is also a reason to
 // report has_more: past the cap this read cannot tell a client it has seen
 // everything, and claiming otherwise is the lie the flag exists to prevent.
-func listForTarget(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInput) ([]row, bool, error) {
+func listForTarget(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInput, start *keysetStart) ([]row, storekit.Page, error) {
 	visible, err := targetVisible(ctx, tx, in.TargetType, in.TargetID)
 	if err != nil {
-		return nil, false, err
+		return nil, storekit.Page{}, err
 	}
 	if !visible {
-		return []row{}, false, nil
+		return []row{}, storekit.Page{}, nil
 	}
-	q, args := approvalPageQuery(in, nil, nil)
+	q, args := approvalPageQuery(in, start)
 	batch, err := collect(ctx, tx, q, args)
 	if err != nil {
-		return nil, false, err
+		return nil, storekit.Page{}, err
+	}
+	var scanned *row
+	if len(batch) == PendingScanCap {
+		scanned = &batch[len(batch)-1]
 	}
 	granted := func(a row) (bool, error) { return requireDecisionGrants(p, a) == nil, nil }
 	out, _, err := appendDecidable(batch, nil, in.Limit+1, granted)
 	if err != nil {
-		return nil, false, err
+		return nil, storekit.Page{}, err
 	}
-	return capPage(out, in.Limit, len(batch) == PendingScanCap)
+	rows, page := capPage(out, in.Limit, scanned)
+	return rows, page, nil
 }
 
-// capPage cuts a filled-one-past result back to the display limit and reports
-// has_more. beyondScan is the other reason there may be more: a read whose
-// scan hit its own cap has not seen the whole backlog either.
-func capPage(out []row, limit int, beyondScan bool) ([]row, bool, error) {
+// capPage cuts a filled-one-past result back to the display limit and derives
+// the page from ONE resume point, so has_more and next_cursor can never
+// disagree about whether there is a next page.
+//
+// scanned is the other reason there may be more: a read whose scan hit its own
+// cap has not seen the whole backlog either. It carries the row that scan
+// stopped on rather than a flag, because a page that returned nothing decidable
+// still has to hand back a token — otherwise a caller is told there is more and
+// given no way to reach it.
+func capPage(out []row, limit int, scanned *row) ([]row, storekit.Page) {
 	if len(out) > limit {
-		return out[:limit], true, nil
+		out = out[:limit]
+		return out, pageAfter(out[limit-1])
 	}
-	return out, beyondScan, nil
+	if scanned != nil {
+		return out, pageAfter(*scanned)
+	}
+	return out, storekit.Page{}
+}
+
+// pageAfter is the page a caller continues with: has_more, and the keyset token
+// the next request resumes from.
+func pageAfter(last row) storekit.Page {
+	return storekit.Page{HasMore: true, NextCursor: storekit.EncodeCursor(last.CreatedAt, last.ID.UUID)}
 }
 
 // approvalWhere is the ONE spelling of "which staged rows this read wants":
@@ -221,7 +279,7 @@ func capPage(out []row, limit int, beyondScan bool) ([]row, bool, error) {
 // scan is paging. Every read of the approval table renders its predicate here,
 // so a filter added to the surface reaches the inbox, the target-scoped list
 // and the record page together instead of drifting between copies.
-func approvalWhere(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalID, arg func(any) int) string {
+func approvalWhere(in ListInput, from *keysetStart, arg func(any) int) string {
 	var terms []string
 	if in.Status != nil {
 		terms = append(terms, fmt.Sprintf("status = $%d", arg(*in.Status)))
@@ -235,8 +293,8 @@ func approvalWhere(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalI
 	if in.TargetID != nil {
 		terms = append(terms, fmt.Sprintf("target_entity_id = $%d", arg(*in.TargetID)))
 	}
-	if afterCreated != nil {
-		terms = append(terms, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(*afterCreated), arg(*afterID)))
+	if from != nil {
+		terms = append(terms, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(from.createdAt), arg(from.id)))
 	}
 	if len(terms) == 0 {
 		return ""
@@ -250,10 +308,10 @@ func approvalWhere(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalI
 // display limit is met, and a target-scoped read takes one window as its cap
 // (PendingScanCap). One bound, so the two can never drift into disagreeing
 // about how deep "we looked" goes.
-func approvalPageQuery(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalID) (string, []any) {
+func approvalPageQuery(in ListInput, from *keysetStart) (string, []any) {
 	args := []any{}
 	arg := func(v any) int { args = append(args, v); return len(args) }
-	where := approvalWhere(in, afterCreated, afterID, arg)
+	where := approvalWhere(in, from, arg)
 	return fmt.Sprintf(`SELECT %s FROM approval%s ORDER BY created_at DESC, id DESC LIMIT %d`,
 		columns, where, inboxBatch), args
 }
@@ -345,7 +403,7 @@ func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType st
 	pending := statusPending
 	q, args := approvalPageQuery(ListInput{
 		Status: &pending, TargetType: &targetType, TargetID: &targetID,
-	}, nil, nil)
+	}, nil)
 	batch, err := collect(ctx, tx, q, args)
 	if err != nil {
 		return nil, err

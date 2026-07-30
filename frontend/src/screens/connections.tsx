@@ -370,10 +370,16 @@ function ConnectionsBody({ graph }: Readonly<{ graph: Graph }>) {
           <NodeList nodes={ourSide} graph={graph} />
         </section>
       )}
-      <section className="co-part" aria-label={t("co.connections.theirSide")}>
-        <h3 className="co-part-label">{t("co.connections.theirSide")}</h3>
-        <NodeList nodes={theirSide} graph={graph} />
-      </section>
+      {/* Absent when our side already said something and the account side has
+          nothing: "Lars owns this account" followed by "no connections" reads
+          as the card contradicting itself. A wholly empty graph keeps the
+          group, because there the empty state IS the answer. */}
+      {(theirSide.length > 0 || ourSide.length === 0) && (
+        <section className="co-part" aria-label={t("co.connections.theirSide")}>
+          <h3 className="co-part-label">{t("co.connections.theirSide")}</h3>
+          <NodeList nodes={theirSide} graph={graph} />
+        </section>
+      )}
       <Withheld groups={graph.groups_omitted} />
       {graph.dropped_count > 0 && (
         <p className="co-row-meta">
@@ -424,7 +430,11 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
             </h2>
             <div className="cx-expanded">
               <EgoDiagram graph={readable} />
-              <ConnectionsBody graph={readable} />
+              {/* One flex child, so the two groups stack inside it instead of
+                  becoming two more columns beside the diagram. */}
+              <div className="cx-expanded-list">
+                <ConnectionsBody graph={readable} />
+              </div>
             </div>
             <p className="cx-actions">
               <Button small onClick={() => setExpanded(false)}>

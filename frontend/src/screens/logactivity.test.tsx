@@ -192,10 +192,14 @@ describe("log activity from a 360", () => {
   it("keeps the due-date input's space for a note and enables it for a task", async () => {
     stubApi({ "POST /activities": createdActivity });
     render(<LogActivity entityType="organization" entityId="o1" />);
-    // The field stays MOUNTED for a note, disabled and hidden. Mounting it on
-    // the kind switch moved every control below it down mid-form.
+    // The field stays in place for a note, disabled rather than hidden.
+    // Mounting it on the kind switch moved every control below it down
+    // mid-form.
     const due = screen.getByLabelText("Due date", { selector: "input" });
     expect(due.hasAttribute("disabled")).toBe(true);
+    // Reserved means VISIBLE-but-disabled. `hidden` is display:none, which
+    // collapses the row and reintroduces the reflow this test exists to stop.
+    expect(due.closest("div")?.hasAttribute("hidden")).toBe(false);
     await userEvent.selectOptions(screen.getByLabelText("Type"), "task");
     expect(
       screen

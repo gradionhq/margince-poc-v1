@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -36,7 +37,7 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 		httperr.Write(w, r, invalid)
 		return
 	}
-	rows, hasMore, err := h.svc.List(r.Context(), in)
+	rows, page, err := h.svc.List(r.Context(), in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -47,8 +48,18 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 	}
 	writeJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
 		Data: data,
-		Page: crmcontracts.PageInfo{HasMore: hasMore},
+		Page: pageInfo(page),
 	})
+}
+
+// pageInfo puts the store's page on the wire. next_cursor is omitted rather
+// than sent empty: an empty token is not a page a caller could ask for.
+func pageInfo(p storekit.Page) crmcontracts.PageInfo {
+	info := crmcontracts.PageInfo{HasMore: p.HasMore}
+	if p.NextCursor != "" {
+		info.NextCursor = &p.NextCursor
+	}
+	return info
 }
 
 // listInput binds the inbox query parameters, or answers the one validation
@@ -63,6 +74,9 @@ func listInput(params crmcontracts.ListApprovalsParams) (ListInput, *httperr.Det
 	}
 	if params.Limit != nil {
 		in.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		in.Cursor = *params.Cursor
 	}
 	if (params.TargetEntityType == nil) != (params.TargetEntityId == nil) {
 		return ListInput{}, httperr.Validation("target_entity_type", "requires_pair",

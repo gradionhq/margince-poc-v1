@@ -280,6 +280,177 @@ func TestOrganizationGraphDrawsNoContactEdgeForAnOutOfScopeContact(t *testing.T)
 	assertNoDanglingEdge(t, graph)
 }
 
+// setMemberStatus moves one member's app_user.status, which is how these tests
+// state "this colleague no longer works here" against a real row.
+func setMemberStatus(t *testing.T, owner *pgx.Conn, user ids.UUID, status string) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE app_user SET status = $2 WHERE id = $1`, user, status); err != nil {
+		t.Fatalf("setting member %s to %s: %v", user, status, err)
+	}
+}
+
+// A colleague who no longer works here is no answer to "who can introduce me",
+// and both halves of our side have to agree about that: owner_id and
+// captured_by each survive the day someone's account is closed, so the owns
+// edge and the in_contact_with edges must both drop the same person.
+//
+// The account is simply left unowned. Nothing else about the group changes — a
+// live teammate's contact edge is still drawn.
+func TestOrganizationGraphDrawsNoColleagueWhoNoLongerWorksHere(t *testing.T) {
+	for _, status := range []string{"deactivated", "suspended"} {
+		t.Run(status, func(t *testing.T) {
+			e := Setup(t)
+			owner := OwnerConn(t)
+			svc := org360Service(e)
+
+			// Rep2 owns the account AND wrote to its contact, so one person is
+			// both would-be edges; Rep1, in the same team, is the caller.
+			org := e.SeedOrg(t, "Acme", &e.Rep2)
+			contact := e.SeedPerson(t, "Dana Buyer", &e.Rep1)
+			employ(t, e, contact, org, "cto")
+			seedTouch(t, owner, e.WS, "email", humanStamp(e.Rep2), contact)
+			teammate := seedMember(t, owner, e.WS, "Live Teammate")
+			seedTouch(t, owner, e.WS, "email", humanStamp(teammate), contact)
+			setMemberStatus(t, owner, e.Rep2, status)
+
+			graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
+				ids.From[ids.OrganizationKind](org))
+			if err != nil {
+				t.Fatalf("graph: %v", err)
+			}
+			users := graphUserNodes(graph)
+			if _, drawn := users[e.Rep2]; drawn {
+				t.Errorf("a %s member is on the card; a rep would ask them for an intro", status)
+			}
+			if edges := graphEdgeKinds(graph); edges[crmcontracts.OrganizationGraphEdgeKindOwns] != 0 {
+				t.Errorf("%d owns edges drawn for a %s owner — the account is simply unowned",
+					edges[crmcontracts.OrganizationGraphEdgeKindOwns], status)
+			}
+			// The rest of the group survives: losing the owner blanks neither
+			// the group nor anyone else's edges.
+			if _, drawn := users[teammate]; !drawn {
+				t.Error("the live teammate who wrote to the contact went missing with the owner")
+			}
+			if got := graphEdgeTargets(graph, crmcontracts.OrganizationGraphEdgeKindInContactWith); got[teammate] != contact {
+				t.Errorf("the live teammate's in_contact_with edge points at %v, want the contact %v",
+					got[teammate], contact)
+			}
+			if len(users) != 1 {
+				t.Errorf("drew user nodes %v, want the live teammate alone", users)
+			}
+			if slices.Contains(graph.GroupsOmitted, "our_side") {
+				t.Errorf("groups_omitted = %v — a departed owner is not a withheld group", graph.GroupsOmitted)
+			}
+			if graph.DroppedCount != 0 {
+				t.Errorf("dropped_count = %d, want 0 — a member who no longer works here is not a colleague the cap left out",
+					graph.DroppedCount)
+			}
+			assertNoDanglingEdge(t, graph)
+		})
+	}
+}
+
+// graphContactCapSeed is how many contacts the card draws. It mirrors org360's
+// unexported graphContactCap; the test below asserts the drawn count, so a
+// changed cap fails here loudly rather than quietly weakening the case.
+const graphContactCapSeed = 15
+
+// The user cap is applied against the contacts the card actually DRAWS, not
+// against every contact the read scanned.
+//
+// Twelve colleagues here are in touch with contacts the contact cap drops. Run
+// against the scanned set they would fill the ten-user allowance, be discarded
+// again at placement for having no contact to point at, and leave the card
+// showing nobody on our side — while `our_side` and its dropped_count described
+// people the graph does not contain.
+func TestOrganizationGraphCapsColleaguesAgainstTheContactsItDraws(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+	svc := org360Service(e)
+
+	// An unassigned account, so no owner edge pads the user nodes.
+	org := e.SeedOrg(t, "Acme", nil)
+
+	// The colleagues of the contacts the cap will drop are seeded FIRST: every
+	// interaction shares one timestamp, so the user cap's tie-break is the user
+	// id, and these are the ids it reaches for first.
+	const undrawn = 12
+	outsiders := make([]ids.UUID, 0, undrawn)
+	for i := range undrawn {
+		contact := e.SeedPerson(t, fmt.Sprintf("Undrawn %02d", i), &e.Rep1)
+		employ(t, e, contact, org, "assistant")
+		colleague := seedMember(t, owner, e.WS, fmt.Sprintf("Outsider %02d", i))
+		outsiders = append(outsiders, colleague)
+		seedTouch(t, owner, e.WS, "email", humanStamp(colleague), contact)
+	}
+
+	// Two colleagues wrote repeatedly to the contacts the card draws. The
+	// higher interaction count is what lifts those contacts' §4 score above the
+	// ones above, which is what puts them inside the contact cap.
+	insiderA := seedMember(t, owner, e.WS, "Insider A")
+	insiderB := seedMember(t, owner, e.WS, "Insider B")
+	var drawnContacts []ids.UUID
+	for i := range graphContactCapSeed {
+		contact := e.SeedPerson(t, fmt.Sprintf("Drawn %02d", i), &e.Rep1)
+		employ(t, e, contact, org, "cto")
+		drawnContacts = append(drawnContacts, contact)
+		for range 3 {
+			seedTouch(t, owner, e.WS, "email", humanStamp(insiderA), contact)
+			seedTouch(t, owner, e.WS, "email", humanStamp(insiderB), contact)
+		}
+	}
+
+	graph, err := svc.Graph(e.As(e.Rep1, []ids.UUID{e.Team1}, graphRepPerms),
+		ids.From[ids.OrganizationKind](org))
+	if err != nil {
+		t.Fatalf("graph: %v", err)
+	}
+
+	drawn := map[ids.UUID]bool{}
+	for _, node := range graph.Nodes {
+		if node.Kind == crmcontracts.OrganizationGraphNodeKindPerson {
+			drawn[ids.UUID(node.Id)] = true
+		}
+	}
+	if len(drawn) != graphContactCapSeed {
+		t.Fatalf("the card drew %d contacts, want the cap's %d — the fixture no longer straddles the cap",
+			len(drawn), graphContactCapSeed)
+	}
+	for _, contact := range drawnContacts {
+		if !drawn[contact] {
+			t.Errorf("contact %s was written to six times and still went undrawn", contact)
+		}
+	}
+
+	users := graphUserNodes(graph)
+	for _, colleague := range outsiders {
+		if _, placed := users[colleague]; placed {
+			t.Errorf("colleague %s is drawn, but their only contact is not on the card", colleague)
+		}
+	}
+	for name, insider := range map[string]ids.UUID{"Insider A": insiderA, "Insider B": insiderB} {
+		if _, placed := users[insider]; !placed {
+			t.Errorf("%s is missing; a colleague of a DRAWN contact lost their slot to one of a dropped contact", name)
+		}
+	}
+	if len(users) != 2 {
+		t.Errorf("drew user nodes %v, want the two colleagues of the drawn contacts", users)
+	}
+
+	// The only records this graph left out are the contacts the contact cap
+	// dropped. Nobody on our side was dropped: the cap chose over the drawn
+	// contacts, so every colleague it chose is on the card.
+	if graph.DroppedCount != undrawn {
+		t.Errorf("dropped_count = %d, want the %d contacts the cap cut — our_side left nobody out",
+			graph.DroppedCount, undrawn)
+	}
+	if graph.DroppedCount < 0 {
+		t.Error("dropped_count is negative; the contract declares a minimum of 0")
+	}
+	assertNoDanglingEdge(t, graph)
+}
+
 // The cap counts USERS, because that is what it means: twelve colleagues who
 // have each written to the account must not be bounded by rows, and the
 // remainder has to be reported. dropped_count comes off the same statement as

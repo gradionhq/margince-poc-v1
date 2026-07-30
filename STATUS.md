@@ -61,6 +61,21 @@ each fails; changing what re-arms a dismissal means reading that first.
 
 Open work, roughly in priority order.
 
+### Developer experience
+
+- **`make seed-dev` ignores `DEV_SLUG` and seeds the SHARED stack.** `make dev
+  DEV_SLUG=x` exists so two worktrees can run at once, and every neighbouring
+  target (`dev-fresh`, `dev-stop`, `dev-logs`, `mcp-inspector`) honours the
+  slug. `seed-dev` does not: `scripts/seed-dev.sh` defaults to
+  `API_BASE=http://localhost:8080` and `backend/Makefile`'s `seed-dev-db` uses
+  `DB_NAME`, which defaults to `margince`. So seeding an isolated stack writes
+  the demo records into whatever stack is on :8080 and into the shared
+  database, silently and successfully. This has already happened once to a
+  parallel session. The fix is to derive both from the slug the way the dev
+  script does, and to fail loudly when the named API is not the slug's own.
+  Workaround until then: `API_BASE=http://localhost:<slug api port>
+  ./scripts/seed-dev.sh` and `make -C backend seed-dev-db DB_NAME=margince_dev_<slug>`.
+
 ### Correctness and security
 
 - **The capture privacy boundary is written and never read.** `people/ensure.go`

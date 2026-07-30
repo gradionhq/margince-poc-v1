@@ -4,6 +4,7 @@ import {
   type InputHTMLAttributes,
   type ReactNode,
   useEffect,
+  useRef,
 } from "react";
 import "./atoms.css";
 
@@ -200,6 +201,7 @@ export function Modal({
   size?: "default" | "wide";
   children: ReactNode;
 }>) {
+  const dialog = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) {
       return;
@@ -207,11 +209,57 @@ export function Modal({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !dialog.current) {
+        return;
+      }
+      // Keep Tab inside the dialog. `aria-modal` tells a screen reader the
+      // rest of the page is inert; it does nothing for the Tab key, so
+      // without this a keyboard reader walks straight out of the dialog into
+      // the page behind it and can operate a surface the dialog is covering.
+      const stops = focusableWithin(dialog.current);
+      if (stops.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      const active = document.activeElement;
+      if (
+        event.shiftKey &&
+        (active === first || !dialog.current.contains(active))
+      ) {
+        event.preventDefault();
+        last.focus();
+        return;
+      }
+      if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
     globalThis.addEventListener("keydown", onKey);
     return () => globalThis.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Focus moves in when the dialog opens and returns to whatever opened it
+  // when it closes — otherwise a keyboard reader who dismisses a dialog
+  // resumes tabbing from the top of the document, having lost their place.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const opener = document.activeElement;
+    const stops = dialog.current ? focusableWithin(dialog.current) : [];
+    (stops[0] ?? dialog.current)?.focus();
+    return () => {
+      if (opener instanceof HTMLElement) {
+        opener.focus();
+      }
+    };
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -233,10 +281,27 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         className={size === "wide" ? "modal modal-wide" : "modal"}
+        ref={dialog}
+        // Focusable so a dialog whose body is pure text still receives focus
+        // when it opens, rather than leaving it on the page behind.
+        tabIndex={-1}
       >
         {children}
       </div>
     </div>
+  );
+}
+
+// The tab stops inside a container, in document order. Disabled controls and
+// anything explicitly removed from the tab order are not stops; a negative
+// tabindex (the dialog's own) is reachable by script but not by Tab, so it is
+// deliberately excluded here.
+const FOCUSABLE =
+  'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
+function focusableWithin(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1,
   );
 }
 

@@ -6469,8 +6469,10 @@ export interface components {
              * @description `organization`, `person` and `deal` are the account's own records.
              *     `user` is a member of THIS workspace — someone on our side who is connected to the
              *     account. A user node carries its display name as the `label` and nothing else:
-             *     `detail`, `strength`, `strength_bucket` and `intro_path` are all null, because §4
-             *     measures our relationship with the account's people, not with each other.
+             *     `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+             *     because §4 measures our relationship with the account's people, not with each
+             *     other. `intro_path` is a plain boolean and is never sent as null on any node —
+             *     a client reads its absence as "not on the warm-intro path".
              * @enum {string}
              */
             kind: "organization" | "person" | "deal" | "user";

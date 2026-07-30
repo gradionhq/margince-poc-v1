@@ -208,13 +208,14 @@ type ourSideEdge struct {
 	personID ids.UUID
 }
 
-// build reads every group, scores the people once, then places the nodes.
+// build reads the account's own groups, scores the people once, places them,
+// and only then reads our side of the account against the contacts it placed.
 //
-// Every read happens before any placement, and every gate is asked inside the
-// read it belongs to — so the order of the slice below decides only which
-// group is NAMED first in groups_omitted, never what a caller is allowed to
-// see. The related organizations are read here too, outside the group loop,
-// because they have no grant of their own to be refused for.
+// Every gate is asked inside the read it belongs to, so the order below decides
+// which group is NAMED first in groups_omitted and which rows our side is
+// correlated against — never what a caller is allowed to see. The related
+// organizations are read outside the group loop, because they have no grant of
+// their own to be refused for.
 func (g *graphAssembly) build() error {
 	for _, group := range []struct {
 		name crmcontracts.OrganizationGraphGroupsOmitted
@@ -222,10 +223,6 @@ func (g *graphAssembly) build() error {
 	}{
 		{graphGroupContacts, g.readEmployment},
 		{graphGroupDeals, g.readOpenDeals},
-		// Our side reads AFTER the contacts: its interaction edges are
-		// correlated against the contacts already selected, the same
-		// already-selected rule readSeats applies to the deals.
-		{graphGroupOurSide, g.readOurSide},
 		{graphGroupIntroPath, g.readRouteIn},
 	} {
 		if err := g.group(group.name, group.read); err != nil {
@@ -242,9 +239,15 @@ func (g *graphAssembly) build() error {
 	g.placeContacts()
 	g.placeDeals()
 	g.placeRelated(related)
-	// Placed last of the node groups: an in_contact_with edge may only point at
-	// a contact the card actually drew, so every contact node has to exist
-	// before this runs.
+	// Our side reads LAST, after the contact nodes exist. Its user cap picks
+	// distinct colleagues in SQL, so the set it picks over has to be final: run
+	// against the contacts merely READ, the cap could spend a slot on a
+	// colleague whose only contact the contact cap then dropped, and
+	// placeOurSide would discard them again — leaving our_side and its
+	// dropped_count describing people the graph does not show.
+	if err := g.group(graphGroupOurSide, g.readOurSide); err != nil {
+		return err
+	}
 	g.placeOurSide()
 	g.markIntroPath()
 	return nil

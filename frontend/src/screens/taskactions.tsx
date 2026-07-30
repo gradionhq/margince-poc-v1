@@ -43,10 +43,14 @@ export function useTaskUpdate(invalidateKeys: readonly QueryKey[]) {
         throw new Error(problemMessage(error, t));
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
       for (const queryKey of invalidateKeys) {
         queryClient.invalidateQueries({ queryKey });
       }
+      // The task's own detail read too, always: a modal open on the task that
+      // was just completed would otherwise keep showing the old due date and
+      // offering the verbs that no longer apply.
+      queryClient.invalidateQueries({ queryKey: ["activity", input.id] });
     },
   });
 }

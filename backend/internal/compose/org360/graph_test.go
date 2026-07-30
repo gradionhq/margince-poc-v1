@@ -531,32 +531,49 @@ func TestTheAccountOwnerWhoAlsoWroteIsOneNode(t *testing.T) {
 	}
 }
 
-// TestContactWithADroppedContactDrawsNoUserEdge is the no-dangling-edge rule
-// applied to our side: the contact cap removed the person node, so the edge
-// that pointed at them goes too — and the colleague it named, having nothing
-// left to connect to, is not placed as a node standing on its own.
-func TestContactWithADroppedContactDrawsNoUserEdge(t *testing.T) {
+// TestTheInteractionReadCorrelatesOnlyAgainstDrawnContacts: the contact set
+// handed to readInContactWith is the one the card PLACED, never the wider one
+// it read. That is what makes the user cap mean what it says — a colleague
+// whose only contact the contact cap dropped must not take a user slot from a
+// colleague of a contact the card is showing — and it is why no
+// in_contact_with edge can dangle.
+//
+// A stakeholder on a drawn deal is a placed contact too: the card shows them,
+// so contact with them is a real way in.
+func TestTheInteractionReadCorrelatesOnlyAgainstDrawnContacts(t *testing.T) {
 	g, _ := newGraph(t)
+	kept := make([]ids.PersonID, 0, graphContactCap)
 	for i := range graphContactCap {
-		g.employee(t, "Kept", 100-i)
+		kept = append(kept, g.employee(t, "Kept", 100-i))
 	}
 	droppedContact := g.employee(t, "Dropped", 1)
-	colleague := g.colleague("Ada Rep", droppedContact.UUID)
+	deal := g.openDeal("Renewal", nil)
+	stakeholder := ids.From[ids.PersonKind](ids.NewV7())
+	g.seats = append(g.seats, graphSeat{
+		dealID: deal,
+		person: graphPersonEdge{personID: stakeholder, fullName: "Sam Sponsor"},
+	})
 
 	g.placeContacts()
-	g.placeOurSide()
+	g.placeDeals()
 
-	if _, drawn := g.nodeIndex[colleague.userID]; drawn {
-		t.Error("a colleague whose only contact the cap dropped was placed as a node")
+	correlated := map[ids.UUID]bool{}
+	for _, personID := range g.drawnContactIDs() {
+		correlated[personID] = true
 	}
-	for _, edge := range g.out.Edges {
-		if edge.Kind == crmcontracts.OrganizationGraphEdgeKindInContactWith {
-			t.Errorf("in_contact_with edge %v -> %v survived its contact being dropped", edge.From, edge.To)
+	if correlated[droppedContact.UUID] {
+		t.Error("a contact the cap dropped is still correlated against; its colleagues would spend the user cap")
+	}
+	for _, contact := range kept {
+		if !correlated[contact.UUID] {
+			t.Errorf("drawn contact %s is not correlated against; a colleague of theirs would go undrawn", contact)
 		}
 	}
-	// One contact the cap cut, and one colleague left with nothing to point at.
-	if g.out.DroppedCount != 2 {
-		t.Errorf("dropped_count is %d, want 2", g.out.DroppedCount)
+	if !correlated[stakeholder.UUID] {
+		t.Errorf("stakeholder %s on a drawn deal is not correlated against", stakeholder)
+	}
+	if len(correlated) != len(kept)+1 {
+		t.Errorf("correlated against %d contacts, want the %d the card drew", len(correlated), len(kept)+1)
 	}
 }
 
