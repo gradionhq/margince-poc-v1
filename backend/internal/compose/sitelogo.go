@@ -63,9 +63,9 @@ const (
 	logoMaxCandidates = 8
 )
 
-// logoLaneBudget bounds the fetching half of the resolve. It is counted into
-// the deep read's job timeout (deepread.go), so the lane can never spend the
-// allowance that exists to close the dossier.
+// logoLaneBudget bounds the whole lane — fetch, object write, row write. It is
+// counted into the deep read's job timeout (deepread.go), so the lane can never
+// spend the allowance that exists to close the dossier.
 const logoLaneBudget = 20 * time.Second
 
 // logoReclaimBudget bounds one detached delete of an unreferenced object.
@@ -335,23 +335,25 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 		return
 	}
 
-	// The deadline covers the FETCHING and nothing else. Eight candidates
-	// against an unresponsive host would otherwise spend eight fetch timeouts
-	// here — time the job budget reserves for CLOSING the dossier, so a slow
-	// logo could get the read cancelled before finish() records its outcome
-	// and leave it running forever, squatting the organization's one in-flight
-	// slot. A logo is never worth that: past the deadline the resolve stops
-	// and the record keeps its monogram.
+	// ONE deadline over the whole lane — the fetching, the object write and the
+	// row write alike. Every one of them can block on something this process
+	// does not control: eight fetch timeouts against a dead host, an object
+	// store that stopped answering, a row lock another transaction is holding.
+	// The time they would spend is the time the job budget reserves for CLOSING
+	// the dossier, and a read cancelled before finish() records its outcome
+	// stays running forever, squatting the organization's one in-flight slot.
+	// A logo is never worth that: past the deadline the lane stops and the
+	// record keeps its monogram. logoLaneBudget is counted into Timeout, so
+	// this spend is declared rather than borrowed.
 	//
-	// It deliberately does NOT cover the writes below. A deadline that expired
-	// between storing the bytes and recording the row would fail the row write
-	// AND the cleanup that answers it, stranding an object at a key no row
-	// ever named — unreferenced, and unreachable by anything that could
-	// collect it. The writes are two fast local calls; they run on the job's
-	// own context.
-	resolveCtx, cancelResolve := context.WithTimeout(ctx, logoLaneBudget)
-	logo, attempts := resolveOrganizationLogo(resolveCtx, w.fetch, claim.SeedURL, crawl.SeedAssets)
-	cancelResolve()
+	// Bounding the writes is only safe because the reclaim below is DETACHED:
+	// a deadline landing between the two writes still gets its object
+	// collected, instead of stranding one at a per-attempt key no row ever
+	// named — which nothing else could find to collect later.
+	ctx, cancel := context.WithTimeout(ctx, logoLaneBudget)
+	defer cancel()
+
+	logo, attempts := resolveOrganizationLogo(ctx, w.fetch, claim.SeedURL, crawl.SeedAssets)
 	if logo.PNG == nil {
 		w.log.InfoContext(ctx, "site read resolved no logo",
 			"read", args.SiteReadID.String(), "seed", claim.SeedURL,
@@ -361,17 +363,23 @@ func (w *siteDeepReadWorker) resolveLogo(ctx context.Context, args SiteDeepReadA
 
 	key := organizationLogoKey(ids.From[ids.WorkspaceKind](args.WorkspaceID), orgID)
 	if err := w.blob.Put(ctx, key, bytes.NewReader(logo.PNG), int64(len(logo.PNG)), imagenorm.ContentType); err != nil {
+		// A failed Put can still have left a partial object, and no row names
+		// this key, so collecting it is unambiguously safe.
+		w.reclaimLogoObject(ctx, args.SiteReadID, &key)
 		w.log.WarnContext(ctx, "storing the resolved logo failed",
 			"read", args.SiteReadID.String(), "source", logo.SourceURL, "err", err)
 		return
 	}
 	written, superseded, err := w.people.SetOrganizationLogo(ctx, orgID, key, logo.SourceURL)
 	if err != nil {
-		// The bytes are stored and nothing references them. Reclaim what this
-		// attempt wrote rather than leaving it to accumulate.
-		w.reclaimLogoObject(ctx, args.SiteReadID, &key)
-		w.log.WarnContext(ctx, "recording the resolved logo failed",
-			"read", args.SiteReadID.String(), "source", logo.SourceURL, "err", err)
+		// Deliberately NOT reclaimed. An error here does not mean the write
+		// did not happen: a transaction can commit and still fail the caller
+		// on the way back — a cancelled context, a dropped connection. If it
+		// did commit, the row names these bytes, and deleting them would show
+		// a broken image. An orphan costs storage; that costs the user their
+		// company's face, so the ambiguous case keeps the bytes.
+		w.log.WarnContext(ctx, "recording the resolved logo failed; its bytes are left in place because the write's outcome is unknown",
+			"read", args.SiteReadID.String(), "source", logo.SourceURL, "key", key, "err", err)
 		return
 	}
 	if !written {

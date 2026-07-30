@@ -316,3 +316,24 @@ func TestReclaimSurvivesTheDeadlineThatCausedIt(t *testing.T) {
 		t.Fatalf("a nil or empty key must delete nothing, got %v", blob.deletedLive)
 	}
 }
+
+func TestAnAmbiguousRowWriteKeepsItsBytes(t *testing.T) {
+	// A failing SetOrganizationLogo does NOT mean the write did not happen: a
+	// transaction can commit and still fail the caller on the way back. If it
+	// did commit, the row names these bytes — deleting them would show a
+	// broken image where a company's face should be. An orphan costs storage;
+	// that costs the user the thing this whole lane exists to give them.
+	//
+	// The rule lives in resolveLogo's error branch, and this pins the reclaim
+	// helper's half of it: only definitive outcomes reach it.
+	blob := &deadlineBlob{Store: blobstore.NewMemory()}
+	w := &siteDeepReadWorker{blob: blob, log: slog.New(slog.DiscardHandler)}
+
+	// A key the caller knows nothing references — the guard-declined and
+	// failed-Put cases — is collected.
+	orphan := "ws/organization_logo/org/orphan"
+	w.reclaimLogoObject(context.Background(), ids.NewV7(), &orphan)
+	if len(blob.deletedLive) != 1 || blob.deletedLive[0] != orphan {
+		t.Fatalf("a definitively unreferenced object must be collected, got %v", blob.deletedLive)
+	}
+}
