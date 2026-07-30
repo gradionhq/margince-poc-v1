@@ -41,9 +41,37 @@ func memberScope(ctx context.Context, m exportMember, alias string, arg func(any
 		return "", nil
 	case scopePersonChild:
 		return personChildExportScope(ctx, alias, arg)
+	case scopeMirror:
+		return mirrorExportScope(ctx, alias+".object_class", alias+".external_id", arg)
+	case scopeMirrorAssoc:
+		from, err := mirrorExportScope(ctx, alias+".from_type", alias+".from_id", arg)
+		if err != nil {
+			return "", err
+		}
+		to, err := mirrorExportScope(ctx, alias+".to_type", alias+".to_id", arg)
+		if err != nil {
+			return "", err
+		}
+		return from + " AND " + to, nil
 	default:
 		return "", fmt.Errorf("export: unknown scope mode %d for %q", m.scope, m.table)
 	}
+}
+
+// mirrorExportScope is the mirror_visibility deny-join as an export
+// predicate (ADR-0044: can_see=false or no entry hides the row —
+// fail-closed, so an unmapped exporter gets zero mirror rows, the same
+// answer their overlay lists give).
+func mirrorExportScope(ctx context.Context, classCol, idCol string, arg func(any) int) (string, error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return "", errors.New("compose: no actor bound to export context")
+	}
+	return fmt.Sprintf(
+		`EXISTS (SELECT 1 FROM mirror_visibility mv
+		 WHERE mv.object_class = %s AND mv.external_id = %s
+		   AND mv.mirror_user_id = $%d AND mv.can_see)`,
+		classCol, idCol, arg(actor.UserID)), nil
 }
 
 // personChildExportScope scopes a person child row by its parent
