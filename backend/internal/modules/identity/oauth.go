@@ -38,6 +38,17 @@ import (
 // generous for a redirect round-trip.
 const authCodeTTL = 5 * time.Minute
 
+// liveClientPredicate is the ONE spelling of "this client is still a client",
+// and every statement that reads oauth_client carries it — issuance (the
+// consent form, the consent POST, the code exchange) as much as authentication
+// (the passport liveness rule in passport.go). Disable and soft-delete are the
+// operator's off switch; a switch that only stops calls, while consent and
+// issuance carry on beneath it, spends a human's approval on a client an admin
+// already killed and accumulates credentials under it. The client table is
+// aliased c in each of those statements so this is one string rather than four
+// that can rot apart.
+const liveClientPredicate = `c.disabled_at IS NULL AND c.deleted_at IS NULL`
+
 // OAuthRouter serves the authorization-server endpoints. Mounted
 // behind the same workspace/session middleware as /v1: register, token
 // and revoke are public (the workspace still binds via slug/subdomain);
@@ -172,8 +183,13 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 	}
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
 		var uris []string
+		// A disabled or deleted client reads as UNKNOWN, deliberately: the same
+		// answer an unregistered client_id gets, so the refusal tells an
+		// attacker nothing about whether a client exists and has been switched
+		// off.
 		err := tx.QueryRow(r.Context(),
-			`SELECT client_name, redirect_uris FROM oauth_client WHERE client_id = $1`,
+			`SELECT c.client_name, c.redirect_uris FROM oauth_client c
+			  WHERE c.client_id = $1 AND `+liveClientPredicate,
 			req.ClientID).Scan(&req.ClientName, &uris)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return errUnknownClient

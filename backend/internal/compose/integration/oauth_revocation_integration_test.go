@@ -95,17 +95,20 @@ func (c *connectedClient) revokeGrant(t *testing.T) {
 	c.cut(t, `UPDATE oauth_grant SET revoked_at = now() WHERE revoked_at IS NULL`)
 }
 
-func (c *connectedClient) disableClient(t *testing.T) {
+// The client-lifecycle cuts hang off the ENV rather than off a connected
+// client: they are also what a client must not be able to consent or redeem
+// under, and that case has no connection yet.
+func (o *oauthEnv) disableClient(t *testing.T) {
 	t.Helper()
-	c.cut(t, `UPDATE oauth_client SET disabled_at = now() WHERE client_id = $1`, c.clientID)
+	o.cut(t, `UPDATE oauth_client SET disabled_at = now() WHERE client_id = $1`, o.clientID)
 }
 
 // Client delete is a SOFT delete: a hard row delete cannot express "revoke
 // every credential under this client first" atomically, and the RESTRICT on
 // passport → oauth_grant refuses it while any credential still points there.
-func (c *connectedClient) deleteClient(t *testing.T) {
+func (o *oauthEnv) deleteClient(t *testing.T) {
 	t.Helper()
-	c.cut(t, `UPDATE oauth_client SET deleted_at = now() WHERE client_id = $1`, c.clientID)
+	o.cut(t, `UPDATE oauth_client SET deleted_at = now() WHERE client_id = $1`, o.clientID)
 }
 
 // sessionlessClient is a client with NO cookie jar, which is the only honest
@@ -144,9 +147,11 @@ func (o *oauthEnv) revoke(t *testing.T, token, tokenTypeHint string) int {
 // cut applies one store-level revocation and insists it hit exactly one row: a
 // statement that matched nothing would leave the connection alive and make
 // every assertion after it vacuous.
-func (c *connectedClient) cut(t *testing.T, statement string, args ...any) {
+//
+//craft:ignore naked-any pgx query arguments are untyped by the driver's own signature
+func (o *oauthEnv) cut(t *testing.T, statement string, args ...any) {
 	t.Helper()
-	tag, err := c.owner.Exec(context.Background(), statement, args...)
+	tag, err := o.owner.Exec(context.Background(), statement, args...)
 	if err != nil {
 		t.Fatalf("cutting the connection off with %s: %v", statement, err)
 	}
@@ -221,6 +226,50 @@ func TestRevokingAConnectorsPassportRevokesTheGrantBeneathIt(t *testing.T) {
 		`SELECT count(*) FROM event_outbox WHERE envelope->>'type' = 'passport.revoked'`)
 	assertOwnerCount(t, c.oauthEnv, 1,
 		`SELECT count(*) FROM audit_log WHERE entity_type = 'oauth_grant' AND action = 'archive'`)
+}
+
+// An operator's off switch has to stop a connection being RE-MADE, not only
+// stop it being used. Both halves of issuance read the client — the consent
+// screen and the code exchange — so a killed client that still completes
+// consent spends a human's approval on a connector an admin already switched
+// off, and mints a grant, a refresh chain and a passport beneath it that every
+// later call then refuses for reasons the human cannot see.
+func TestAKilledClientCanNeitherWinConsentNorRedeemACode(t *testing.T) {
+	for name, kill := range map[string]func(t *testing.T, o *oauthEnv){
+		"disabled": func(t *testing.T, o *oauthEnv) { o.disableClient(t) },
+		"deleted":  func(t *testing.T, o *oauthEnv) { o.deleteClient(t) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Run("consent is refused, as an unknown client", func(t *testing.T) {
+				o := setupOAuth(t)
+				kill(t, o)
+
+				// Refused as UNKNOWN on purpose: a distinct "this client is
+				// disabled" code would confirm to an attacker that the client
+				// exists.
+				status, body := o.authorizeRaw(t, nil)
+				if status != http.StatusBadRequest || !strings.Contains(body, "invalid_client") {
+					t.Fatalf("authorize under a %s client → %d %s, want 400 invalid_client", name, status, body)
+				}
+				assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
+			})
+
+			t.Run("a code minted a moment earlier no longer redeems", func(t *testing.T) {
+				o := setupOAuth(t)
+				code := o.authorize(t, nil)
+				kill(t, o)
+
+				status, body := o.exchange(t, url.Values{"code": {code}})
+				if status != http.StatusBadRequest || body["error"] != "invalid_grant" {
+					t.Fatalf("exchange under a %s client → %d %v, want 400 invalid_grant", name, status, body)
+				}
+				// Nothing durable came into being under the killed client.
+				assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+				assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_refresh_token`)
+				assertOwnerCount(t, o, 0, `SELECT count(*) FROM passport`)
+			})
+		})
+	}
 }
 
 // The liveness rule is scoped to OAuth-issued credentials. A locally minted

@@ -33,9 +33,17 @@ type connectFixture struct {
 	refresh  string
 }
 
-// connectOAuth mints a connection through the module's own issuance path, so
-// the fixture is the same shape the code exchange commits.
+// connectOAuth mints a connection the admin consented to.
 func (e *revocationEnv) connectOAuth(t *testing.T) connectFixture {
+	t.Helper()
+	return e.connectOAuthFor(t, e.admin)
+}
+
+// connectOAuthFor mints a connection through the module's own issuance path, so
+// the fixture is the same shape the code exchange commits. The consenting human
+// is a parameter because what ends a connection includes what ends THEIR
+// access, and an admin is the one human deactivation refuses to touch.
+func (e *revocationEnv) connectOAuthFor(t *testing.T, consenter Identity) connectFixture {
 	t.Helper()
 	// The full id, not a prefix: consecutive v7 ids share their leading bytes
 	// within a millisecond, and every attempt in this suite registers its own
@@ -44,17 +52,17 @@ func (e *revocationEnv) connectOAuth(t *testing.T) connectFixture {
 	if _, err := e.owner.Exec(context.Background(), `
 		INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
 		VALUES ($1, $2, 'lock order', ARRAY['https://client.example/cb'])`,
-		e.admin.WorkspaceID, clientID); err != nil {
+		consenter.WorkspaceID, clientID); err != nil {
 		t.Fatalf("registering the client: %v", err)
 	}
 
 	var out connectFixture
 	out.clientID = clientID
-	ctx := e.wsCtx(e.admin)
+	ctx := e.wsCtx(consenter)
 	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
 		var err error
 		out.grantID, out.refresh, err = issueGrant(ctx, tx, issueGrantInput{
-			WorkspaceID: e.admin.WorkspaceID, UserID: e.admin.UserID, ClientID: clientID,
+			WorkspaceID: consenter.WorkspaceID, UserID: consenter.UserID, ClientID: clientID,
 			Scopes: []string{"read"}, RefreshAllowed: true,
 		})
 		return err
@@ -193,15 +201,22 @@ func TestRevokingAPassportARotationAlreadyReplacedStillEndsTheConnection(t *test
 }
 
 // mintUnderGrant issues the credential a code exchange would have minted
-// beneath the grant, so the cases above have a passport to revoke.
+// beneath the admin's grant, so the cases above have a passport to revoke.
 func (e *revocationEnv) mintUnderGrant(t *testing.T, grantID ids.UUID) ids.PassportID {
 	t.Helper()
-	ctx := e.wsCtx(e.admin)
+	return e.mintUnderGrantFor(t, grantID, e.admin)
+}
+
+// mintUnderGrantFor is mintUnderGrant for a connection some other human
+// consented to.
+func (e *revocationEnv) mintUnderGrantFor(t *testing.T, grantID ids.UUID, consenter Identity) ids.PassportID {
+	t.Helper()
+	ctx := e.wsCtx(consenter)
 	var issued IssuedPassport
 	if err := database.WithWorkspaceTx(ctx, e.svc.pool, func(tx pgx.Tx) error {
 		label := oauthPassportLabel("lock order")
 		var err error
-		issued, err = mintPassport(ctx, tx, e.admin,
+		issued, err = mintPassport(ctx, tx, consenter,
 			IssuePassportInput{Label: &label, Scopes: []string{"read"}}, &grantID)
 		return err
 	}); err != nil {

@@ -81,6 +81,11 @@ type lockedGrant struct {
 
 	clientDisabledAt *time.Time
 	clientDeletedAt  *time.Time
+
+	// The granting human's own liveness. A renewal borrows their authority,
+	// so a connection may not renew itself past the access it is borrowing.
+	userStatus     string
+	userArchivedAt *time.Time
 }
 
 // identity is the human whose authority the renewed passport borrows — the
@@ -182,24 +187,33 @@ func grantOfPresentedToken(ctx context.Context, tx pgx.Tx, tokenHash string) (id
 }
 
 // lockPresentedRefreshToken is the authoritative read: the presented token,
-// the consent above it and the client it was approved for, all under lock. The
-// grant's lock is already held (lockGrant), so the only lock this statement
-// adds is the refresh row's — which is what keeps the order above intact.
+// the consent above it, the client it was approved for and the human whose
+// authority it borrows, all under lock. The grant's lock is already held
+// (lockGrant), so the only lock this statement adds is the refresh row's —
+// which is what keeps the order above intact.
+//
+// app_user is read but deliberately NOT locked (FOR UPDATE OF names only r and
+// g): DeactivateUser locks app_user before it reaches the grant, so taking a
+// user lock here — after the grant — would invert that order and deadlock the
+// two paths against each other. An MVCC read is enough, because a deactivation
+// that commits after this snapshot queues on the grant lock and then cascades
+// over whatever this rotation just minted.
 func lockPresentedRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string) (lockedGrant, error) {
 	var l lockedGrant
 	err := tx.QueryRow(ctx, `
 		SELECT r.id, r.consumed_at, r.expires_at, r.replaced_by, r.workspace_id,
 		       g.id, g.user_id, g.client_id, g.scopes, g.resource, g.revoked_at, g.refresh_allowed,
-		       c.disabled_at, c.deleted_at
+		       c.disabled_at, c.deleted_at, u.status, u.archived_at
 		  FROM oauth_refresh_token r
 		  JOIN oauth_grant  g ON (g.workspace_id, g.id)        = (r.workspace_id, r.grant_id)
 		  JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)
+		  JOIN app_user     u ON (u.workspace_id, u.id)        = (g.workspace_id, g.user_id)
 		 WHERE r.workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid
 		   AND r.token_hash = $1
 		   FOR UPDATE OF r, g`,
 		tokenHash).Scan(&l.tokenID, &l.consumedAt, &l.expiresAt, &l.replacedBy, &l.workspaceID,
 		&l.grantID, &l.userID, &l.clientID, &l.scopes, &l.resource, &l.grantRevokedAt, &l.refreshAllowed,
-		&l.clientDisabledAt, &l.clientDeletedAt)
+		&l.clientDisabledAt, &l.clientDeletedAt, &l.userStatus, &l.userArchivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return lockedGrant{}, errRefreshRejected
 	}
@@ -217,9 +231,18 @@ func lockPresentedRefreshToken(ctx context.Context, tx pgx.Tx, tokenHash string)
 // refusal for every token under it and is never re-read as theft. now is the
 // service clock, which is why the grace-window transition is provable without
 // waiting for it.
+//
+// The granting human's own status is part of that liveness, and it is the
+// fail-closed backstop for a kill path nobody remembered to extend: a renewal
+// borrows their authority, so a human who is no longer active must not be able
+// to have a connector keep renewing on their behalf — which is what slid the
+// 90-day window forward indefinitely and handed back full authority the moment
+// they were reactivated. agentLivenessPredicate makes the same argument for
+// authentication (passport.go).
 func presentationVerdict(ctx context.Context, tx pgx.Tx, l lockedGrant, in refreshRequest, now time.Time) error {
 	switch {
 	case l.grantRevokedAt != nil, l.clientDisabledAt != nil, l.clientDeletedAt != nil,
+		l.userStatus != userStatusActive, l.userArchivedAt != nil,
 		!l.refreshAllowed, l.clientID != in.ClientID, !now.Before(l.expiresAt):
 		return errRefreshRejected
 	}

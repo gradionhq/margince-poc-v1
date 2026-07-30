@@ -123,6 +123,10 @@ const reuseRevokeReason = "refresh token reuse detected"
 // credential and the connection went with it, rather than the other way round.
 const passportRevokedReason = "the passport issued under the grant was revoked"
 
+// deactivatedUserRevokeReason is what the audit row says when the connection
+// died because the human whose authority it borrows lost their own access.
+const deactivatedUserRevokeReason = "the human who consented was deactivated"
+
 // The LOCK ORDER for a connection's rows, obeyed by every path that touches
 // more than one of them: oauth_grant first, then oauth_refresh_token, then
 // passport. Rotation and revokeGrantTx both take them in that order, so a
@@ -209,6 +213,38 @@ func (s *Service) revokeGrantTx(ctx context.Context, tx pgx.Tx, grantID ids.UUID
 	_, err = storekit.AuditWithEvidence(ctx, tx, "archive", "oauth_grant", grantID, nil, nil,
 		map[string]any{"reason": reason})
 	return err
+}
+
+// revokeGrantsOfUserTx ends every connection one human consented to, through
+// the ONE cascade, inside the caller's transaction. It is what a path that ends
+// a HUMAN's access calls: revoking their passports alone is not enough,
+// because the grant beneath one can mint a replacement on the connector's next
+// renewal and each renewal slides the refresh window forward, so a connection
+// nobody is watching outlives the access it borrows.
+//
+// It enumerates the GRANTS, not the passports beneath them: a grant whose
+// passports are all already revoked still has a spendable refresh chain, so
+// "this human holds no live passport" is not "this human has no live
+// connection". Ordering by id makes the lock sequence deterministic when a
+// human consented more than once.
+func (s *Service) revokeGrantsOfUserTx(ctx context.Context, tx pgx.Tx, userID ids.UserID, reason string) error {
+	rows, err := tx.Query(ctx,
+		`SELECT id FROM oauth_grant WHERE user_id = $1 AND revoked_at IS NULL ORDER BY id`, userID)
+	if err != nil {
+		return err
+	}
+	// Collected before the first write: the cascade below runs statements on
+	// this same connection, which an open row set would be reading from.
+	grantIDs, err := pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
+	if err != nil {
+		return err
+	}
+	for _, grantID := range grantIDs {
+		if err := s.revokeGrantTx(ctx, tx, grantID, reason); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // revokeGrantPassportsTx kills every live passport under a grant and puts

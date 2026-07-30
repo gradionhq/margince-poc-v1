@@ -214,10 +214,17 @@ func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier str
 		challenge   string
 		redirectURI string
 	)
+	// The client is joined for its lifecycle alone: a code minted seconds
+	// before an admin disabled the client must not still redeem into a grant,
+	// a refresh chain and a passport under it. A dead client makes the row
+	// vanish, so the answer is the same invalid_grant a spent code gets — the
+	// endpoint stays silent about which of the two it was.
 	err := tx.QueryRow(r.Context(), `
-		SELECT user_id, workspace_id, scopes, code_challenge, client_id, redirect_uri, resource
-		FROM oauth_authorization_code
-		WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()`,
+		SELECT a.user_id, a.workspace_id, a.scopes, a.code_challenge, a.client_id, a.redirect_uri, a.resource
+		FROM oauth_authorization_code a
+		JOIN oauth_client c ON (c.workspace_id, c.client_id) = (a.workspace_id, a.client_id)
+		WHERE a.code_hash = $1 AND a.consumed_at IS NULL AND a.expires_at > now()
+		  AND `+liveClientPredicate,
 		hashOAuthCode(code)).
 		Scan(&out.UserID, &out.WorkspaceID, &out.Scopes, &challenge, &out.ClientID, &redirectURI, &out.Resource)
 	if errors.Is(err, pgx.ErrNoRows) {

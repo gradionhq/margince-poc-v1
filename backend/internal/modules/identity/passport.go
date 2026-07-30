@@ -322,11 +322,14 @@ const agentLivenessJoins = `
 	LEFT JOIN oauth_client c ON (c.workspace_id, c.client_id) = (g.workspace_id, g.client_id)`
 
 // A locally minted passport (oauth_grant_id IS NULL) answers to no grant and
-// is unaffected — the A1 path must keep working exactly as it did.
+// is unaffected — the A1 path must keep working exactly as it did. The client
+// half is liveClientPredicate (oauth.go), the same string the issuance path
+// carries, so "still a client" cannot mean one thing at consent and another at
+// authentication.
 const agentLivenessPredicate = `
 	AND (p.oauth_grant_id IS NULL
 	     OR (g.revoked_at IS NULL AND c.client_id IS NOT NULL
-	         AND c.disabled_at IS NULL AND c.deleted_at IS NULL))`
+	         AND ` + liveClientPredicate + `))`
 
 // The two entry points differ in NOTHING but which column identifies the
 // passport — the presented token's hash on the wire path, the row id on the
