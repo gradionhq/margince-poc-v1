@@ -75,6 +75,7 @@ components:
   agents:      { in: [internal/modules/agents, internal/modules/agents/**] }
   automation:  { in: internal/modules/automation }
   overlay:     { in: [internal/modules/overlay, internal/modules/overlay/**] }
+  migration:   { in: internal/modules/migration }
   webhooks:    { in: internal/modules/webhooks }
   comms:       { in: internal/modules/comms }
   compose:     { in: [internal/compose, internal/compose/**] }
@@ -154,6 +155,12 @@ deps:
   overlay:
     mayDependOn: [overlay, contracts, platform]
     canUse: [pgx, oapi]
+  # The importer engine (import-export-migration): sources and native
+  # writers are injected seams (compose), so the module itself sees only
+  # the platform — never the record modules it feeds.
+  migration:
+    mayDependOn: [platform]
+    canUse: [pgx]
   webhooks:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]
