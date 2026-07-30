@@ -348,3 +348,134 @@ func TestBackfillYieldsSurviveATransientFault(t *testing.T) {
 		t.Fatalf("after the retry = %d people / %d organizations, want 2/1 — counted once, by the attempt that minted them", status.People, status.Organizations)
 	}
 }
+
+// yieldFixture is the two-message fixture both edge cases below use: one
+// free-mail sender (a person, no company) and one attested own-send (a person
+// AND their company), so a correct credit is exactly 2 people / 1 organization.
+func yieldFixture() [][]byte {
+	return [][]byte{
+		email("alice@gmail.com", "Alice Example", captureOwner, "y1@gmail.com", ""),
+		email(captureOwner, "", "dave@globex.example", "y3@myco.example", ""),
+	}
+}
+
+func TestBackfillYieldsSurviveACancelUnderTheRunningPage(t *testing.T) {
+	// The user stops the import while the page is still walking. Every write
+	// that carries the run's STATE is fenced on the live statuses, so after the
+	// cancel none of them match — and the page's counterparties, which exist
+	// and which no replay will offer again, were credited by nobody.
+	e := setupSearch(t)
+	seedCaptureRole(t, e)
+	prov := &mailPageConnector{raws: yieldFixture(), sent: map[string]bool{"y3@myco.example": true}}
+	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{}).
+		WithProgressPacing(0)
+	registry.Register(prov)
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 2, enqueueNothing)
+	if err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+
+	cancelled := false
+	prov.afterMessage = func() {
+		if cancelled {
+			return
+		}
+		cancelled = true
+		if _, err := registry.CancelBackfill(grantCtx, "gmail", rep); err != nil {
+			t.Fatalf("CancelBackfill mid-page: %v", err)
+		}
+	}
+
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	if _, _, _, err := registry.RunBackfillStep(wsCtx, run.ID); err != nil {
+		t.Fatalf("the cancelled page's step: %v", err)
+	}
+
+	status, people, orgs := readRunAndYields(t, e, run.ID)
+	if status != "cancelled" {
+		t.Fatalf("status = %s, want cancelled", status)
+	}
+	if people != 2 || orgs != 1 {
+		t.Fatalf("after a mid-page cancel people_created=%d organizations_created=%d, want 2/1 — the rows exist and no retry will offer them again", people, orgs)
+	}
+}
+
+func TestBackfillYieldsAreCreditedOnceAtTheRetryCeiling(t *testing.T) {
+	// A page that fails transiently AT the ceiling runs two writes: the
+	// failure ladder and the terminal one. When both credited the yields, the
+	// run reported twice the people it actually created.
+	e := setupSearch(t)
+	seedCaptureRole(t, e)
+	prov := &mailPageConnector{
+		raws: yieldFixture(),
+		sent: map[string]bool{"y3@myco.example": true},
+		// Fail after both counterparties exist, so a double credit is visible.
+		failAfterMessages: 2,
+	}
+	registry := compose.NewCaptureRegistry(e.Pool, newTestKeyvault(t, e), compose.CaptureConfig{}).
+		WithProgressPacing(0)
+	registry.Register(prov)
+
+	grantCtx := e.humanWithScopes(e.Rep1, []principal.Scope{principal.ScopeRead})
+	if _, err := registry.Connect(grantCtx, "gmail", connector.Auth("refresh")); err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	rep := ids.From[ids.UserKind](e.Rep1)
+	run, err := registry.StartBackfill(grantCtx, "gmail", rep, 6, 2, enqueueNothing)
+	if err != nil {
+		t.Fatalf("StartBackfill: %v", err)
+	}
+	// Sit the run ON the ceiling, so this page's fault is the one that ends it.
+	seedBackfillFailuresAtCeiling(t, e, run.ID)
+
+	wsCtx := principal.WithWorkspaceID(context.Background(), e.WS)
+	done, _, retryAfter, err := registry.RunBackfillStep(wsCtx, run.ID)
+	if err == nil {
+		t.Fatal("the page must surface its fault")
+	}
+	if !done || retryAfter != 0 {
+		t.Fatalf("at the ceiling the run ends rather than retrying (done=%v retryAfter=%v)", done, retryAfter)
+	}
+	status, people, orgs := readRunAndYields(t, e, run.ID)
+	if status != "error" {
+		t.Fatalf("status = %s, want error — the ceiling ends the run", status)
+	}
+	if people != 2 || orgs != 1 {
+		t.Fatalf("at the ceiling people_created=%d organizations_created=%d, want 2/1 counted ONCE", people, orgs)
+	}
+}
+
+// readRunAndYields reads the run's state and its committed yield columns.
+func readRunAndYields(t *testing.T, e *searchEnv, id ids.UUID) (status string, people, organizations int) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(e.Admin(), `
+			SELECT status, people_created, organizations_created FROM capture_backfill WHERE id = $1`, id).
+			Scan(&status, &people, &organizations)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return status, people, organizations
+}
+
+// seedBackfillFailuresAtCeiling puts the run one fault below
+// backfillMaxConsecutiveFailures (10), so the next fault is the one that both
+// climbs the ladder and ends the run — the interleaving that double-credited.
+func seedBackfillFailuresAtCeiling(t *testing.T, e *searchEnv, id ids.UUID) {
+	t.Helper()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(e.Admin(), `
+			UPDATE capture_backfill SET consecutive_failures = 9 WHERE id = $1`, id)
+		return execErr
+	})
+	if err != nil {
+		t.Fatalf("seed the failure ladder: %v", err)
+	}
+}

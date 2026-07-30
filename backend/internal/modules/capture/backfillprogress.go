@@ -236,3 +236,37 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 // and never as the first one.
 const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
 	    inflight_people = 0, inflight_organizations = 0`
+
+// creditPageYields moves ONE page's counterparty creations into the run's
+// committed columns and clears the mirror it was displaying them through.
+//
+// Deliberately unguarded by status and by generation, unlike every other write
+// here. Those fences protect the run's STATE and its message counts — things a
+// retry restates. These counts are not that: they are people and organizations
+// that exist, and capture's idempotency means a replayed message never reaches
+// the resolver again, so this run will never be offered them a second time.
+// Refusing the credit because the run was cancelled, or because the connection
+// was rebound, would not undo the rows — it would only lose the count of them.
+//
+// Called exactly once per page, from the one place that knows a page just
+// ended, which is what makes it safe to have no guard: there is no second
+// caller to double-credit. Detached, because the commonest way a page ends is
+// its context expiring, and this write must outlive that.
+func (r *Registry) creditPageYields(ctx context.Context, backfillID ids.UUID, page *pageProgress) error {
+	people, organizations := page.totals()
+	if people == 0 && organizations == 0 {
+		// Nothing minted — and nothing to clear, since a page that created no
+		// counterparty never wrote a yield to the mirror.
+		return nil
+	}
+	creditCtx, cancel := detachedWrite(ctx)
+	defer cancel()
+	return database.WithWorkspaceTx(creditCtx, r.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(creditCtx, `
+			UPDATE capture_backfill
+			SET people_created = people_created + $2,
+			    organizations_created = organizations_created + $3`+resetInflightProgress+`
+			WHERE id = $1`, backfillID, people, organizations)
+		return err
+	})
+}
