@@ -146,6 +146,66 @@ func TestSuggestionCountsAreTheAccountsNotTheReads(t *testing.T) {
 	}
 }
 
+// Dismissing a listed suggestion must reveal the next one, not shrink the card.
+//
+// The display cap is applied AFTER dismissals are filtered out. Capping first
+// spends a slot on a row the rep has already dealt with, so a rep who judges
+// five suggestions on a busy account ends up with an empty card and stalled
+// deals they were never shown.
+func TestDismissingASuggestionRevealsTheNextOne(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	pipelineID, stage, _ := DealFixture(t, e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	// Seven stalled deals, more than the card lists.
+	for i := range 7 {
+		deal := e.SeedDeal(t, fmt.Sprintf("Deal %d", i), pipelineID, stage, &e.Rep1)
+		e.WsExec(t, `UPDATE deal SET organization_id = $2, created_at = $3, last_activity_at = $3
+			WHERE id = $1`, deal, org.UUID, org360Clock.AddDate(0, 0, -200-i))
+	}
+
+	before, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	listed := stalledFingerprints(*before.Suggestions)
+	if len(listed) < 2 {
+		t.Fatalf("only %d stalled suggestions listed, want the card's full complement", len(listed))
+	}
+	if err := svc.DismissSuggestion(rep, org, listed[0]); err != nil {
+		t.Fatalf("dismiss: %v", err)
+	}
+
+	after, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("re-assemble: %v", err)
+	}
+	remaining := stalledFingerprints(*after.Suggestions)
+	if len(remaining) != len(listed) {
+		t.Errorf("stalled suggestions went from %d to %d after one dismissal — "+
+			"the cap was applied before the filter, so judging a row cost a slot",
+			len(listed), len(remaining))
+	}
+	for _, fingerprint := range remaining {
+		if fingerprint == listed[0] {
+			t.Error("the dismissed suggestion is still listed")
+		}
+	}
+}
+
+// stalledFingerprints is the stalled-deal rows of one answer, in order.
+func stalledFingerprints(found []crmcontracts.Organization360Suggestion) []string {
+	out := make([]string, 0, len(found))
+	for _, suggestion := range found {
+		if string(suggestion.Kind) == "stalled_deal" {
+			out = append(out, suggestion.Fingerprint)
+		}
+	}
+	return out
+}
+
 // The no-next-step fingerprint covers every open deal, not the listed ones.
 //
 // Closing a deal the card never showed still changes the situation the rep

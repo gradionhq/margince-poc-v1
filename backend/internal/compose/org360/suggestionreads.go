@@ -18,14 +18,17 @@ package org360
 // predicates the sections use — the caller cannot see more this way, only
 // further back.
 //
-// Every count here is an aggregate over the whole visible set, never over a
-// fetched page. A count taken from transferred rows is bounded by its own read,
-// and a rep cannot tell a capped figure from a real one.
+// Every figure they state covers the whole visible set, and comes from ONE read
+// of it. A count bounded by its own fetch is one a rep cannot tell from a real
+// one, and two reads of the same pipeline can disagree — the 360's as_of
+// promises one instant, so the rules take one snapshot.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -54,6 +57,13 @@ type lastMessage struct {
 // opposite reason: it is something we wrote to ourselves, nobody owes a reply
 // to it, and letting one count would silence the rule every time a rep left
 // themselves a reminder.
+//
+// Reachability is the any-link walk — a direct link, a deal of this account, or
+// an employment relationship — the same one nextStepsSection uses. It is wider
+// than the timeline SECTION's direct-link match, so the cited message can be one
+// the rendered timeline does not list. Every candidate still passes the activity
+// row scope, so the reader can open it; they may have to open it from the
+// citation rather than find it on the page.
 func newestMessage(
 	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
 ) (lastMessage, bool, error) {
@@ -103,82 +113,93 @@ type stalledDeal struct {
 
 // pipeline is the account's open pipeline as the deal-shaped rules read it.
 //
-// The counts and the digest cover EVERY open deal the caller may see; Stalled
-// carries only the rows the card can show. That split is the point: the
-// no-next-step reason states how many deals are open, and its fingerprint has
-// to change when any of them does — including one no card listed.
+// Every field is derived from ONE read of the whole visible open set, so the
+// count, the digest and the stalled list cannot disagree with each other. Two
+// statements would take two Read Committed snapshots, and a deal closing between
+// them would leave the card reporting a pipeline that never existed at any
+// instant — the 360's as_of promises the opposite.
 type pipeline struct {
-	// OpenCount is how many open deals the caller can see, exactly.
+	// OpenCount is how many open deals the caller can see.
 	OpenCount int
 	// OpenDigest identifies WHICH ones, so a dismissal keyed on it re-arms the
-	// moment the set changes rather than only when the listed part does.
+	// moment the set changes — including a change to a deal no card listed.
 	OpenDigest string
-	// StalledCount is how many of them are stalled, exactly.
-	StalledCount int
-	// Stalled is the longest-idle few, for the rows the card offers.
+	// Stalled is every stalled one, longest idle first. The display cap is
+	// applied by the rule that lists them, AFTER dismissals are filtered out, so
+	// dismissing one suggestion reveals the next rather than shrinking the card.
 	Stalled []stalledDeal
 }
 
-// openPipeline reads the account's open pipeline: the exact figures from an
-// aggregate, and the handful of stalled deals the card lists.
+// openPipeline reads every open deal on the account the caller may see, in one
+// statement, and folds the figures the rules need out of it.
 //
-// Two statements rather than one, because they answer two different shapes —
-// one row of totals, and a bounded list. Both run in the caller's own
-// transaction over the same predicate, so they cannot disagree about what is
-// visible or about what counts as stalled.
+// It is deliberately unbounded. A bound would put the card's own read inside
+// every number it reports: a count capped at the fetch is one a rep cannot tell
+// from a real one, a digest over a fetched page leaves a dismissal in force when
+// a deal outside it changes, and a stalled list cut before dismissals are
+// applied shrinks by one each time the rep judges a row. The rows are three
+// small columns of one account's open pipeline, reached through the
+// organization_id index.
+//
+// The stall flag is folded with deals.IsStalled — the same predicate that stamps
+// the wire flag, at this read's injected instant. Filtering it in SQL would be a
+// second spelling of §8.1 next to a query, and the one that drifted would be
+// this one.
 func openPipeline(
-	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, listLimit int,
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
 ) (pipeline, error) {
-	var out pipeline
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
-	nowPos := arg(now)
 	dealScope, err := scopeClause(ctx, "deal", "d", arg)
 	if err != nil {
 		return pipeline{}, err
 	}
-	// The stall predicate is the deals module's own, at THIS read's injected
-	// instant: the 360 pins its clock, and a clause on the database's now()
-	// would count against a different moment than the wire flag was stamped at.
-	// The bind is cast explicitly: an untyped parameter next to an interval
-	// leaves Postgres unable to resolve the subtraction at all.
-	stalled := deals.StalledClause("d", fmt.Sprintf("$%d::timestamptz", nowPos))
-	openRows := fmt.Sprintf(
-		`FROM deal d
-		 WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)`,
-		orgPos, dealScope)
-
-	err = tx.QueryRow(ctx, fmt.Sprintf(`
-		SELECT count(*),
-		       coalesce(md5(string_agg(d.id::text, ',' ORDER BY d.id)), ''),
-		       count(*) FILTER (WHERE %s)
-		%s`, stalled, openRows), args...).
-		Scan(&out.OpenCount, &out.OpenDigest, &out.StalledCount)
+	// The same predicate the deals section lists by, so a rule can never advise
+	// on a deal the card would refuse to show. Ordered longest idle first, which
+	// is the order the stalled rows are offered in, and by id so a digest over
+	// the same set is stable across reads.
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until
+		FROM deal d
+		WHERE d.organization_id = $%d AND d.status = 'open' AND d.archived_at IS NULL AND (%s)
+		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`, orgPos, dealScope), args...)
 	if err != nil {
 		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
-	if out.StalledCount == 0 {
-		return out, nil
+	type openRow struct {
+		id      ids.UUID
+		name    string
+		stalled bool
 	}
-	// Longest idle first, so a bounded list keeps the deals most worth chasing
-	// rather than whichever the deals card happens to show at the top.
-	rows, err := tx.Query(ctx, fmt.Sprintf(`
-		SELECT d.id, d.name
-		%s AND (%s)
-		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id
-		LIMIT %d`, openRows, stalled, listLimit), args...)
-	if err != nil {
-		return pipeline{}, fmt.Errorf("read the account's stalled deals: %w", err)
-	}
-	out.Stalled, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (stalledDeal, error) {
-		var d stalledDeal
-		err := row.Scan(&d.ID, &d.Name)
-		return d, err
+	open, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (openRow, error) {
+		var r openRow
+		var status string
+		var createdAt time.Time
+		var lastActivityAt, waitUntil *time.Time
+		if err := row.Scan(&r.id, &r.name, &status, &createdAt, &lastActivityAt, &waitUntil); err != nil {
+			return r, err
+		}
+		r.stalled = deals.IsStalled(status, createdAt, lastActivityAt, waitUntil, now)
+		return r, nil
 	})
 	if err != nil {
 		return pipeline{}, err
 	}
+
+	out := pipeline{OpenCount: len(open), Stalled: make([]stalledDeal, 0, len(open))}
+	sorted := make([]string, 0, len(open))
+	for _, deal := range open {
+		sorted = append(sorted, deal.id.String())
+		if deal.stalled {
+			out.Stalled = append(out.Stalled, stalledDeal{ID: deal.id, Name: deal.name})
+		}
+	}
+	// Sorted by id rather than by the read's order, so the digest depends on
+	// WHICH deals are open and on nothing else — a deal whose last activity moves
+	// must not read as a changed pipeline.
+	slices.Sort(sorted)
+	out.OpenDigest = strings.Join(sorted, ",")
 	return out, nil
 }
 

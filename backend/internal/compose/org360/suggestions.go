@@ -88,11 +88,10 @@ func (a *assembly) readSuggestions() error {
 }
 
 // suggestionsFor runs every rule, drops what this caller has already judged,
-// and caps what is left — reporting exactly how many suggestions the account
-// has that the answer does not carry.
+// and caps what is left — reporting exactly how many of THEIR undismissed
+// suggestions the answer does not carry.
 func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, int, error) {
 	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
-	unlisted := 0
 
 	// The timeline reached this caller, so the no-reply rule can run.
 	if a.out.Activities != nil {
@@ -107,25 +106,25 @@ func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, i
 	// the caller may not read deals at all, and advice about a pipeline they
 	// cannot see is advice they cannot take.
 	if a.out.Deals != nil {
-		open, err := openPipeline(a.ctx, a.tx, a.orgID, a.now, maxSuggestions)
+		open, err := openPipeline(a.ctx, a.tx, a.orgID, a.now)
 		if err != nil {
 			return nil, 0, err
 		}
-		// Stalled deals the read did not list are dropped rows, counted here so
-		// the total the caller sees is the account's, not this read's.
-		unlisted = open.StalledCount - len(open.Stalled)
 		found = append(found, stalledDealSuggestions(open.Stalled)...)
 		found = appendIf(found, noNextStepSuggestion(a.orgID, a.out, open))
 	}
 
+	// Dismissals are applied BEFORE the cap, so judging one row reveals the next
+	// instead of shrinking the card. Capping first would spend a slot on a
+	// suggestion the rep has already dealt with.
 	kept, err := a.keepUndismissed(found)
 	if err != nil {
 		return nil, 0, err
 	}
 	if len(kept) > maxSuggestions {
-		return kept[:maxSuggestions], unlisted + len(kept) - maxSuggestions, nil
+		return kept[:maxSuggestions], len(kept) - maxSuggestions, nil
 	}
-	return kept, unlisted, nil
+	return kept, 0, nil
 }
 
 // keepUndismissed removes the suggestions this caller has already judged. The
