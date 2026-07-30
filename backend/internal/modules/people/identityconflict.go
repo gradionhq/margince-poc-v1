@@ -32,13 +32,7 @@ const fieldMatchedLane = "matched_lane"
 // different KINDS of identifying key each independently resolving to a
 // different existing person — a disagreement between established bindings,
 // not a similarity judgment.
-const (
-	evidenceSignalExactConflict = "exact_conflict"
-	// evidenceSignalCollide marks a field whose values differ between the
-	// created record and the incumbent it matched — the disagreement itself
-	// is the evidence a reviewer reads.
-	evidenceSignalCollide = "collide"
-)
+const evidenceSignalExactConflict = "exact_conflict"
 
 // identityConflictConfidence is the standing convention design §7.3 leaves
 // open, settled here against dedupe_candidate's actual shape (DH-DDL-1):

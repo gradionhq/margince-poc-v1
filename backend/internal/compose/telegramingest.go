@@ -204,8 +204,8 @@ func telegramChannelPrincipal() principal.Principal {
 		Permissions: principal.Permissions{
 			RoleKeys: []string{"channel"},
 			Objects: map[string]principal.ObjectGrant{
-				counterpartyTargetType: {Create: true},
-				tablePerson:            {Create: true},
+				tableActivity: {Create: true},
+				tablePerson:   {Create: true},
 			},
 			RowScope: principal.RowScopeAll,
 		},

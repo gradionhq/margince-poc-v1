@@ -32,17 +32,23 @@ import (
 
 // The repeated storage vocabulary of this engine, named once.
 const (
-	evidenceFieldKey   = "field"
-	evidenceLeftKey    = "left_value"
-	evidenceRightKey   = "right_value"
-	evidenceScoreKey   = "score"
-	evidenceSignalKey  = "signal"
-	entityPerson       = "person"
-	entityOrganization = "organization"
-	fieldFullName      = "full_name"
-	fieldDisplayName   = "display_name"
-	fieldEmail         = "email"
-	emailTypeWork      = "work"
+	evidenceFieldKey  = "field"
+	evidenceLeftKey   = "left_value"
+	evidenceRightKey  = "right_value"
+	evidenceScoreKey  = "score"
+	evidenceSignalKey = "signal"
+	// The fuzzy tier's signal vocabulary. These three strings are the
+	// contract's DedupeCandidate.evidence[].signal values (crm.yaml) and the
+	// queue renderer selects on them, so they are pinned by the wire, not
+	// ours to rename.
+	evidenceSignalCollide  = "collide"
+	evidenceSignalOneSided = "one_sided"
+	entityPerson           = "person"
+	entityOrganization     = "organization"
+	fieldFullName          = "full_name"
+	fieldDisplayName       = "display_name"
+	fieldEmail             = "email"
+	emailTypeWork          = "work"
 )
 
 // ErrCounterpartySuppressed marks an erased address (A13): deletion sticks,
@@ -183,7 +189,7 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 		}
 		evidence := []map[string]any{
 			{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: evidenceSignalCollide, evidenceScoreKey: match.Confidence},
-			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: "one_sided"},
+			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: evidenceSignalOneSided},
 		}
 		recorded, err := recordDedupeCandidate(ctx, tx, entityPerson, id.UUID, match.PersonID.UUID, match.Confidence,
 			evidence, in.Source, in.CapturedBy)

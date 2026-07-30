@@ -237,7 +237,7 @@ func (s *Store) recordChannelDedupeCandidate(ctx context.Context, tx pgx.Tx, in 
 	}
 	evidence := []map[string]any{
 		{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: evidenceSignalCollide, evidenceScoreKey: match.Confidence},
-		{evidenceFieldKey: fieldChannelIdentity, evidenceLeftKey: channelIdentityKey(in.Identity), evidenceRightKey: nil, evidenceSignalKey: "one_sided"},
+		{evidenceFieldKey: fieldChannelIdentity, evidenceLeftKey: channelIdentityKey(in.Identity), evidenceRightKey: nil, evidenceSignalKey: evidenceSignalOneSided},
 	}
 	return recordDedupeCandidate(ctx, tx, entityPerson, id.UUID, match.PersonID.UUID, match.Confidence,
 		evidence, in.Source, in.CapturedBy)

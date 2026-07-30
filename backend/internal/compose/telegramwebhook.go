@@ -201,8 +201,11 @@ func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(c
 		}
 
 		wsCtx := principal.WithWorkspaceID(ctx, conn.WorkspaceID)
+		// Both callees take wsCtx, not the request ctx: the GUC rides on tx
+		// today, so either would work, but a callee that later reads the
+		// workspace from context would silently see none.
 		err = database.WithWorkspaceTx(wsCtx, pool, func(tx pgx.Tx) error {
-			rawID, err := capture.InsertRawCaptureTx(ctx, tx, capture.RawRecord{
+			rawID, err := capture.InsertRawCaptureTx(wsCtx, tx, capture.RawRecord{
 				SourceSystem: "telegram",
 				SourceID:     fmt.Sprintf("%d", update.UpdateID),
 				Payload:      body,
@@ -210,7 +213,7 @@ func handleTelegramWebhook(pool *pgxpool.Pool, inserter telegramEnqueuer) func(c
 			if err != nil {
 				return err
 			}
-			return inserter.EnqueueTx(ctx, tx, TelegramIngestArgs{
+			return inserter.EnqueueTx(wsCtx, tx, TelegramIngestArgs{
 				Workspace:    conn.WorkspaceID.String(),
 				ConnectionID: id.String(),
 				RawCaptureID: rawID.String(),
