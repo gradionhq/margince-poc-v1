@@ -112,28 +112,29 @@ type stalledDeal struct {
 	// IdleSince is the instant the stall is measured from — the deal's last
 	// activity, or its creation if it has none.
 	IdleSince time.Time
-	// WaitUntil is the deferral that was suppressing the stall, if any. It is nil
-	// once the deferral has passed, which is what makes an expired wait a
-	// different episode from the one before it.
-	WaitUntil *time.Time
 }
 
-// episode identifies the STALL, not the deal.
+// episode identifies the STALL, not the deal, and it only ever moves FORWARD.
 //
-// It carries every input deals.IsStalled read besides the clock: when the deal
-// went idle, and whether a deferral was suppressing it. Both have to be in the
-// fingerprint, or a dismissal outlives the situation it judged.
+// That second property is the whole constraint, and it is what rules out the two
+// shapes tried before it:
 //
-// The deal id alone silenced the deal forever. Adding only IdleSince still missed
-// the deferral: a deal the customer asked us to hold goes un-stalled while the
-// wait runs and stalls again from the SAME idle instant when it expires — which
-// is a fresh reason to chase, not the one the rep already declined.
+//   - The deal id alone never moves, so one dismissal silenced that deal for good.
+//   - The deal id plus wait_until moves, but not monotonically: a deferral that is
+//     set, expires and is then CLEARED returns the deal to a shape the rep already
+//     dismissed, and that old dismissal comes back to life. A rep who saw the
+//     advice again in between, and left it, would silently lose it.
+//
+// last_activity_at is monotone by construction — activities.LogActivity advances it
+// with greatest(), never lowers it — so an episode keyed on it can only be new. A
+// deferral is deliberately NOT in here: while it runs the deal is not stalled at
+// all, so no advice is due for the dismissal to affect, and when it ends the deal
+// is in exactly the state the rep declined with nothing worked in between.
+//
+// The rule that leaves, stated once: "not now" silences this deal until it is next
+// worked.
 func (d stalledDeal) episode() string {
-	waited := "none"
-	if d.WaitUntil != nil {
-		waited = d.WaitUntil.UTC().Format(time.RFC3339Nano)
-	}
-	return d.ID.String() + "@" + d.IdleSince.UTC().Format(time.RFC3339Nano) + "/wait:" + waited
+	return d.ID.String() + "@" + d.IdleSince.UTC().Format(time.RFC3339Nano)
 }
 
 // pipeline is the account's open pipeline as the deal-shaped rules read it.
@@ -197,7 +198,6 @@ func openPipeline(
 		name      string
 		stalled   bool
 		idleSince time.Time
-		waitUntil *time.Time
 	}
 	open, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (openRow, error) {
 		var r openRow
@@ -214,7 +214,6 @@ func openPipeline(
 		if lastActivityAt != nil {
 			r.idleSince = *lastActivityAt
 		}
-		r.waitUntil = waitUntil
 		return r, nil
 	})
 	if err != nil {
@@ -227,8 +226,7 @@ func openPipeline(
 		sorted = append(sorted, deal.id.String())
 		if deal.stalled {
 			out.Stalled = append(out.Stalled, stalledDeal{
-				ID: deal.id, Name: deal.name,
-				IdleSince: deal.idleSince, WaitUntil: deal.waitUntil,
+				ID: deal.id, Name: deal.name, IdleSince: deal.idleSince,
 			})
 		}
 	}

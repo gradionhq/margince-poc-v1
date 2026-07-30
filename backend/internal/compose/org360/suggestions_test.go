@@ -103,52 +103,45 @@ func liveAccount(openCount int, digest string) suggestionInputs {
 	}
 }
 
-// TestStalledDealFingerprintIdentifiesTheStallEpisode is the re-arm half of the
-// dismissal contract, for the one kind whose subject never changes.
+// TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked is the re-arm half of
+// the dismissal contract, for the one kind whose subject never changes.
 //
-// The fingerprint has to move with every input the stall rule read, or a dismissal
-// outlives the situation it judged. Each case below is a different episode on the
-// SAME deal, so a fingerprint over the deal id — or over the idle instant alone —
-// silences it for good.
-func TestStalledDealFingerprintIdentifiesTheStallEpisode(t *testing.T) {
-	deferral := suggestNow.AddDate(0, 0, -5)
+// Two properties, and the second is the one that took three attempts. The
+// fingerprint must MOVE when the deal is worked and stalls again, or a single
+// dismissal silences that deal for good. And it must move only FORWARD — a shape
+// the rep has already dismissed must never recur, or that old dismissal comes back
+// to life and silences advice they were shown again in between.
+func TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked(t *testing.T) {
 	first := idle("Renewal")
-
-	episodes := map[string]stalledDeal{
-		// Worked, then quiet again: the idle instant moved.
-		"worked and stalled again": {
-			ID: first.ID, Name: first.Name, IdleSince: suggestNow.AddDate(0, 0, -70),
-		},
-		// The customer asked us to hold, which suppressed the stall while the wait
-		// ran. The wait has now passed, so this is a fresh reason to chase from the
-		// same idle instant — not the one the rep already declined.
-		"a deferral that has since expired": {
-			ID: first.ID, Name: first.Name, IdleSince: first.IdleSince, WaitUntil: &deferral,
-		},
-	}
+	worked := stalledDeal{ID: first.ID, Name: first.Name, IdleSince: suggestNow.AddDate(0, 0, -70)}
 
 	before := stalledDealSuggestions([]stalledDeal{first})
-	if len(before) != 1 {
-		t.Fatalf("got %d suggestions, want one", len(before))
+	after := stalledDealSuggestions([]stalledDeal{worked})
+	if len(before) != 1 || len(after) != 1 {
+		t.Fatalf("got %d and %d suggestions, want one each", len(before), len(after))
 	}
-	for name, episode := range episodes {
-		t.Run(name, func(t *testing.T) {
-			after := stalledDealSuggestions([]stalledDeal{episode})
-			if len(after) != 1 {
-				t.Fatalf("got %d suggestions, want one", len(after))
-			}
-			if after[0].Fingerprint == before[0].Fingerprint {
-				t.Error("this episode reuses the previous one's fingerprint — " +
-					"one dismissal would silence the deal for good")
-			}
-		})
+	if after[0].Fingerprint == before[0].Fingerprint {
+		t.Error("a deal worked and stalled again reuses the earlier fingerprint — " +
+			"one dismissal would silence it for good")
 	}
 
-	// And the same episode keeps its fingerprint, or the dismissal would not hold
-	// for as long as the situation does.
-	repeat := stalledDealSuggestions([]stalledDeal{first})
-	if repeat[0].Fingerprint != before[0].Fingerprint {
+	// The same stall keeps its fingerprint, or the dismissal would not hold for as
+	// long as the situation does.
+	if repeat := stalledDealSuggestions([]stalledDeal{first}); repeat[0].Fingerprint != before[0].Fingerprint {
 		t.Error("the same stall hashed differently between reads — a dismissal would not hold")
+	}
+
+	// Monotonicity: every episode this deal has ever produced must be distinct, so
+	// walking its activity forward can never land back on a dismissed shape.
+	seen := map[string]bool{}
+	idleAt := first.IdleSince
+	for range 5 {
+		episode := stalledDeal{ID: first.ID, Name: first.Name, IdleSince: idleAt}.episode()
+		if seen[episode] {
+			t.Fatalf("episode %q recurred — a dismissal made against it would resurrect", episode)
+		}
+		seen[episode] = true
+		idleAt = idleAt.AddDate(0, 0, 61)
 	}
 }
 

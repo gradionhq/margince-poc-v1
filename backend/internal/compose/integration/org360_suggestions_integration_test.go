@@ -323,13 +323,15 @@ func TestADismissedStallReturnsWhenTheDealStallsAgain(t *testing.T) {
 	}
 }
 
-// An expired deferral raises new advice, end to end.
+// A deferral cannot resurrect a dismissal, however it is moved.
 //
-// "The customer asked us to wait" suppresses the stall while the wait runs. When it
-// passes, the deal is stalled again from the same idle instant — a fresh reason to
-// chase, not the one the rep already declined. The fingerprint carries the deferral
-// for exactly this case, and only a real read proves the two halves agree.
-func TestAnExpiredDeferralRaisesNewStallAdvice(t *testing.T) {
+// "The customer asked us to wait" suppresses the stall while the wait runs, so no
+// advice is due for a dismissal to affect. What must never happen is the wait being
+// set, expiring and then CLEARED, walking the deal back to a shape the rep already
+// dismissed — the earlier fingerprint would come back to life and silence advice
+// they may have been shown again in between. The fingerprint carries only the idle
+// instant, which activities advance with greatest() and nothing lowers.
+func TestADeferralNeverResurrectsADismissal(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)
 	pipelineID, stage, _ := DealFixture(t, e)
@@ -343,29 +345,58 @@ func TestAnExpiredDeferralRaisesNewStallAdvice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	first := stalledFingerprints(*view.Suggestions)
-	if len(first) != 1 {
-		t.Fatalf("got %d stalled suggestions, want the one seeded deal", len(first))
+	dismissed := stalledFingerprints(*view.Suggestions)
+	if len(dismissed) != 1 {
+		t.Fatalf("got %d stalled suggestions, want the one seeded deal", len(dismissed))
 	}
-	if err := svc.DismissSuggestion(rep, org, first[0]); err != nil {
+	if err := svc.DismissSuggestion(rep, org, dismissed[0]); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
 
-	// A deferral is recorded and later passes. The idle instant never moved.
+	// A live deferral: the deal is not stalled, so nothing is advised either way.
 	e.WsExec(t, `UPDATE deal SET wait_until = $2 WHERE id = $1`,
-		deal, org360Clock.AddDate(0, 0, -5))
-
-	again, err := svc.Assemble(rep, org)
+		deal, org360Clock.AddDate(0, 0, 30))
+	held, err := svc.Assemble(rep, org)
 	if err != nil {
-		t.Fatalf("assemble after the deferral expired: %v", err)
+		t.Fatalf("assemble while deferred: %v", err)
 	}
-	second := stalledFingerprints(*again.Suggestions)
-	if len(second) != 1 {
-		t.Fatalf("the expired deferral raised %d suggestions, want 1 — the earlier "+
-			"dismissal silenced this deal across a wait it never saw", len(second))
+	if left := stalledFingerprints(*held.Suggestions); len(left) != 0 {
+		t.Errorf("%d stalled suggestions while the deal is deferred", len(left))
 	}
-	if second[0] == first[0] {
-		t.Error("the post-deferral stall reuses the pre-deferral fingerprint")
+
+	// The deferral expires, and is then cleared. Neither may hand back advice the
+	// rep dismissed, and neither may lose a dismissal they still hold.
+	for _, step := range []struct {
+		name string
+		wait any
+	}{
+		{"the deferral expires", org360Clock.AddDate(0, 0, -5)},
+		{"the deferral is cleared", nil},
+	} {
+		e.WsExec(t, `UPDATE deal SET wait_until = $2 WHERE id = $1`, deal, step.wait)
+		again, err := svc.Assemble(rep, org)
+		if err != nil {
+			t.Fatalf("assemble after %s: %v", step.name, err)
+		}
+		if left := stalledFingerprints(*again.Suggestions); len(left) != 0 {
+			t.Errorf("after %s the card offers %d stalled suggestions, want the rep's "+
+				"dismissal to still hold — nothing was worked on this deal", step.name, len(left))
+		}
+	}
+
+	// Working the deal is what ends the silence.
+	e.WsExec(t, `UPDATE deal SET last_activity_at = $2 WHERE id = $1`,
+		deal, org360Clock.AddDate(0, 0, -90))
+	worked, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble after the deal was worked: %v", err)
+	}
+	fresh := stalledFingerprints(*worked.Suggestions)
+	if len(fresh) != 1 {
+		t.Fatalf("the new stall raised %d suggestions, want 1", len(fresh))
+	}
+	if fresh[0] == dismissed[0] {
+		t.Error("the new stall reuses the dismissed fingerprint")
 	}
 }
 
