@@ -85,6 +85,13 @@ function stubApi(connections: CaptureConnection[], opts: StubOpts = {}) {
         }
         return jsonResponse({ data: connections });
       }
+      // Every ConnectorsCard mount now also reads the Telegram channel
+      // panel's own list — these tests exercise the mail-connector rows
+      // only, so an empty roster is the honest default rather than a
+      // fixture every one of them would otherwise have to repeat.
+      if (path.endsWith("/channel-connections") && request.method === "GET") {
+        return jsonResponse({ data: [] });
+      }
       if (path.endsWith("/connect") && request.method === "POST") {
         const c = opts.connect ?? {
           authorize_url: "https://accounts.google/x",

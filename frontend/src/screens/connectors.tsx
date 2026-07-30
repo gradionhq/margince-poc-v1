@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Mail, Plug, RefreshCw, X } from "lucide-react";
+import { Mail, Plug, RefreshCw, Send, X } from "lucide-react";
 import { useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
@@ -24,6 +24,7 @@ import {
   statusTone,
 } from "./connector-status";
 import { ImapConnectForm } from "./imap-connect-form";
+import { TelegramConnectForm } from "./telegram-connect-form";
 
 // The connected-inboxes card (RC-8): the Settings surface the onboarding copy
 // has always promised ("disconnect in one click", "manage in Settings"). It
@@ -190,6 +191,158 @@ function ConnectorAddPanel({
           })}
         </p>
       )}
+    </>
+  );
+}
+
+type ChannelConnection = components["schemas"]["ChannelConnection"];
+
+type ChannelConnectionsResult = {
+  // GET /channel-connections answers 503 when this deployment serves no
+  // messaging channels, or hasn't set its own public address (§5) — a
+  // calm, documented feature-off state, mirroring the mail card's 501
+  // not_implemented treatment above rather than an error card.
+  notConfigured: boolean;
+  data: ChannelConnection[];
+};
+
+function useChannelConnections() {
+  return useQuery({
+    queryKey: ["channel-connections"],
+    queryFn: async (): Promise<ChannelConnectionsResult> => {
+      const { data, error, response } = await api.GET("/channel-connections");
+      if (
+        response.status === 503 &&
+        (problemCode(error) === "channel_connections_not_configured" ||
+          problemCode(error) === "channel_public_base_url_unset")
+      ) {
+        return { notConfigured: true, data: [] };
+      }
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+      return { notConfigured: false, data: data.data };
+    },
+  });
+}
+
+// The Telegram connector panel (Task 17, design §9.1/§9.2): one bot
+// connects for the WHOLE workspace, so this renders at most a single row —
+// never a per-user roster the way the mail providers do. Editing goes
+// through the SAME TelegramConnectForm modal PATCH targets in place of a
+// disconnect-reconnect cycle (§9.2), so this panel only ever mounts one
+// form instance, driven by which state (connecting vs. editing) is active.
+function TelegramConnectorPanel() {
+  const t = useT();
+  const qc = useQueryClient();
+  const query = useChannelConnections();
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [editingConnection, setEditingConnection] =
+    useState<ChannelConnection | null>(null);
+  const [disconnecting, setDisconnecting] = useState<ChannelConnection | null>(
+    null,
+  );
+
+  const disconnect = useMutation({
+    mutationFn: async (connection: ChannelConnection) => {
+      const { error } = await api.DELETE("/channel-connections/{id}", {
+        params: { path: { id: connection.id } },
+      });
+      if (error) {
+        throw new Error(problemMessage(error));
+      }
+    },
+    onSuccess: () => {
+      setDisconnecting(null);
+      void qc.invalidateQueries({ queryKey: ["channel-connections"] });
+    },
+  });
+
+  if (query.isPending) {
+    return <p className="t-small">{t("connectors.loading")}</p>;
+  }
+  if (query.isError) {
+    return (
+      <p className="t-small" style={{ color: "var(--danger)" }}>
+        {query.error instanceof Error
+          ? query.error.message
+          : t("connectors.loadFailed")}
+      </p>
+    );
+  }
+  if (query.data.notConfigured) {
+    return (
+      <EmptyState>
+        <p>{t("connectors.telegramNotConfigured")}</p>
+      </EmptyState>
+    );
+  }
+
+  const connection = query.data.data[0] ?? null;
+  const closeForms = () => {
+    setConnectOpen(false);
+    setEditingConnection(null);
+  };
+
+  return (
+    <>
+      {!connection && (
+        <Button small onClick={() => setConnectOpen(true)}>
+          <Send aria-hidden /> {t("connectors.telegramConnectCta")}
+        </Button>
+      )}
+      {connection && (
+        <ul className="connectors-list">
+          <li className="connector-row">
+            <span className="connector-id">
+              <Send aria-hidden />
+              <span>
+                <strong>{t("connectors.provTelegram")}</strong>
+                <span className="t-small connector-account">
+                  @{connection.channelLabel}
+                </span>
+              </span>
+            </span>
+            <span className="connector-actions">
+              <Badge tone={statusTone(connection.status)}>
+                {t(statusLabel(connection.status))}
+              </Badge>
+              <Button small onClick={() => setEditingConnection(connection)}>
+                <RefreshCw aria-hidden /> {t("connectors.telegramEditToken")}
+              </Button>
+              <Button
+                small
+                variant="ghost"
+                onClick={() => setDisconnecting(connection)}
+              >
+                {t("connectors.disconnect")}
+              </Button>
+            </span>
+          </li>
+        </ul>
+      )}
+      <TelegramConnectForm
+        open={connectOpen || editingConnection !== null}
+        connection={editingConnection ?? undefined}
+        onClose={closeForms}
+        onConnected={closeForms}
+      />
+      <ConfirmModal
+        open={disconnecting !== null}
+        onClose={() => setDisconnecting(null)}
+        title={t("connectors.telegramDisconnectTitle")}
+        confirmLabel={t("connectors.disconnect")}
+        confirmVariant="danger"
+        pending={disconnect.isPending}
+        error={disconnect.isError ? disconnect.error.message : null}
+        onConfirm={() => {
+          if (disconnecting) {
+            disconnect.mutate(disconnecting);
+          }
+        }}
+      >
+        <p className="t-small">{t("connectors.telegramDisconnectBody")}</p>
+      </ConfirmModal>
     </>
   );
 }
@@ -458,6 +611,13 @@ export function ConnectorsCard() {
         onClose={() => setImapConnectOpen(false)}
         onConnected={() => setImapConnectOpen(false)}
       />
+      <div className="connector-add">
+        <SectionHeader
+          title={t("connectors.telegramTitle")}
+          sub={t("connectors.telegramSub")}
+        />
+        <TelegramConnectorPanel />
+      </div>
     </Card>
   );
 }

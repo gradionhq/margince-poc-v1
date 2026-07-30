@@ -11,8 +11,16 @@ import type { MessageKey } from "../i18n/en";
 // surfaces stay on one definition rather than two copies drifting apart.
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
+type ChannelConnection = components["schemas"]["ChannelConnection"];
 
-export type ConnectorStatus = CaptureConnection["status"];
+// The mail providers (CaptureConnection) and the messaging-channel bot
+// (ChannelConnection) publish two different wire enums, but they share one
+// status vocabulary from here on — `pending` is the one state only the
+// channel side can reach (a bot whose row exists but whose webhook
+// registration hasn't landed yet; see the Telegram connect form).
+export type ConnectorStatus =
+  | CaptureConnection["status"]
+  | ChannelConnection["status"];
 
 // The one scope that grants sending today. The server pre-flights a send
 // against this same string (comms.SendScopeFor), so the badge below and the
@@ -40,16 +48,20 @@ export function missingSendGrant(
   );
 }
 
-/** Each of the four contract statuses gets its own Badge tone. Collapsing
- *  reauth_required and error into the same tone is what made a dead mailbox
- *  and a merely-stale one indistinguishable at a glance. `disconnected` gets
- *  no tone (the shipped card's neutral, undecorated row). */
+/** Each contract status gets its own Badge tone. Collapsing reauth_required
+ *  and error into the same tone is what made a dead mailbox and a merely-
+ *  stale one indistinguishable at a glance. `disconnected` gets no tone (the
+ *  shipped card's neutral, undecorated row). `pending` reads as `warn`, the
+ *  same "needs a look" tone as reauth_required — it is NOT `success`: a row
+ *  whose webhook registration hasn't landed yet must never look like a live
+ *  channel nobody has messaged yet (§9.1). */
 export function statusTone(
   status: ConnectorStatus,
 ): "success" | "warn" | "danger" | undefined {
   switch (status) {
     case "connected":
       return "success";
+    case "pending":
     case "reauth_required":
       return "warn";
     case "error":
@@ -64,6 +76,8 @@ export function statusLabel(status: ConnectorStatus): MessageKey {
   switch (status) {
     case "connected":
       return "connectors.statusConnected";
+    case "pending":
+      return "connectors.statusPending";
     case "reauth_required":
       return "connectors.statusReauth";
     case "error":

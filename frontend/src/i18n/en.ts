@@ -1409,6 +1409,7 @@ export const en = {
   "connectors.provGraph": "Microsoft",
   "connectors.provImap": "IMAP mailbox",
   "connectors.statusConnected": "Capturing",
+  "connectors.statusPending": "Pending — registered but not yet confirmed live",
   "connectors.statusReauth": "Needs reconnect",
   "connectors.statusError": "Sync error",
   "connectors.statusDisconnected": "Disconnected",
@@ -1486,6 +1487,31 @@ export const en = {
   "connectors.imapLoginRejected":
     "The mailbox rejected these credentials. Check host, email and app password.",
   "connectors.imapUnreachable": "The mail server could not be reached.",
+
+  // The Telegram connector panel (Task 17, design §9.1-§9.2): one bot
+  // connects for the whole workspace — no OAuth handshake, a BotFather
+  // token submitted through the same inline-form shape the IMAP connector
+  // uses. Unlike the mail providers, the connection stays editable in
+  // place: replacing the token goes through PATCH, never a disconnect.
+  "connectors.provTelegram": "Telegram",
+  "connectors.telegramTitle": "Telegram bot",
+  "connectors.telegramSub":
+    "One bot receives and sends messages for the whole workspace.",
+  "connectors.telegramNotConfigured":
+    "Messaging channels aren't configured in this deployment.",
+  "connectors.telegramConnectCta": "Connect a Telegram bot",
+  "connectors.telegramEditToken": "Replace token",
+  "connectors.telegramDisconnectTitle": "Disconnect this bot?",
+  "connectors.telegramDisconnectBody":
+    "This revokes the bot's webhook and deletes the stored token. Capture and sending stop immediately; everything already captured stays in your CRM.",
+  "connectors.telegramModalTitle": "Connect a Telegram bot",
+  "connectors.telegramEditTitle": "Replace the bot token",
+  "connectors.telegramBotToken": "Bot token",
+  "connectors.telegramBotTokenHint":
+    "Paste the token BotFather gave you when you created the bot. We seal it in the credential vault and never show it again.",
+  "connectors.telegramSubmitCta": "Connect",
+  "connectors.telegramReplaceCta": "Replace token",
+  "connectors.telegramConnectedAs": "Connected as @{username}.",
 
   // Personal-mail exclusions (RC-2, Task 8): a reachable UI for a privacy
   // control that already had live mail syncing and no button — human-only,
