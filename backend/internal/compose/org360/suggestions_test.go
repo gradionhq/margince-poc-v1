@@ -12,6 +12,7 @@ package org360
 // case these cannot state, that the reads look past the section page cap.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -70,12 +71,33 @@ func TestStaleThreadStaysSilentWhenTheyAnsweredLast(t *testing.T) {
 	}
 }
 
-// TestStaleThreadStaysSilentInsideTheReplyWindow proves the wait is a real
-// threshold, not a formality: a normal reply time must not fire it.
-func TestStaleThreadStaysSilentInsideTheReplyWindow(t *testing.T) {
+// TestStaleThreadFiresAtTheReplyWindowAndNotBefore pins the threshold, in the two
+// ways it can be wrong.
+//
+// The VALUE is pinned literally, because it is product-visible: a rep is told how
+// long they have been waiting, and how long is long enough is a judgment someone
+// made. Asserting only against the constant would let it move from a week to four
+// days with every test still green, which is the same as not asserting it.
+//
+// The BOUNDARY is pinned separately, because the comparison can be off by one
+// while the value is right.
+func TestStaleThreadFiresAtTheReplyWindowAndNotBefore(t *testing.T) {
 	orgID := testOrgID(t)
-	if got := staleThread(orgID, suggestNow, sentAgo(2, crmcontracts.ActivityDirectionOutbound)); got != nil {
-		t.Fatalf("suggestion %+v for a message sent 2 days ago", got)
+	if noReplyDays != 7 {
+		t.Errorf("the reply window is %d days, not a week — if that is intended, say so "+
+			"here and in the reason a rep reads", noReplyDays)
+	}
+	if got := staleThread(orgID, suggestNow, sentAgo(noReplyDays-1, crmcontracts.ActivityDirectionOutbound)); got != nil {
+		t.Errorf("suggestion %+v one day inside the reply window", got)
+	}
+	got := staleThread(orgID, suggestNow, sentAgo(noReplyDays, crmcontracts.ActivityDirectionOutbound))
+	if got == nil {
+		t.Fatalf("no suggestion at exactly %d days, the window's own edge", noReplyDays)
+	}
+	// The rep reads the number, so it has to be the real one — an off-by-one here
+	// is a false statement about their account.
+	if !strings.Contains(got.Reason, fmt.Sprintf("%d days", noReplyDays)) {
+		t.Errorf("reason %q does not name the %d days actually waited", got.Reason, noReplyDays)
 	}
 }
 
@@ -106,9 +128,9 @@ func liveAccount(openCount int, digest string) suggestionInputs {
 // TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked is the re-arm half of
 // the dismissal contract, for the one kind whose subject never changes.
 //
-// Two properties, and the second is the one that took three attempts. The
-// fingerprint must MOVE when the deal is worked and stalls again, or a single
-// dismissal silences that deal for good. And it must move only FORWARD — a shape
+// Two properties. The fingerprint must MOVE when the deal is worked and stalls
+// again, or a single dismissal silences that deal for good. And it must move only
+// FORWARD — a shape
 // the rep has already dismissed must never recur, or that old dismissal comes back
 // to life and silences advice they were shown again in between.
 func TestStalledDealFingerprintOnlyMovesWhenTheDealIsWorked(t *testing.T) {

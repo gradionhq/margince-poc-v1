@@ -103,10 +103,14 @@ func TestWhatsOpenAnswersThePipelineNotTheHistory(t *testing.T) {
 	}
 }
 
-// TestWhatsChangedWalksTheTimelineNewestFirst proves the question reads the
-// timeline in the order a rep catches up, and stops at a readable number of
-// entries rather than replaying the account.
-func TestWhatsChangedWalksTheTimelineNewestFirst(t *testing.T) {
+// TestWhatsChangedTakesTheLeadingEntriesInOrder proves the question follows the
+// timeline it was handed and stops at a readable number, rather than replaying the
+// account.
+//
+// It asserts input ORDER, which is what changedAnswer decides. That the input is
+// newest-first is the 360's property, carried through foldRecent unchanged — this
+// cannot see it, so it does not claim to.
+func TestWhatsChangedTakesTheLeadingEntriesInOrder(t *testing.T) {
 	in := askInput()
 	answered := deterministicAnswer(crmcontracts.WhatsChanged, askOrgID, in)
 	if len(answered) != 3 {
@@ -129,8 +133,14 @@ func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 	if answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, bare); len(answered) != 0 {
 		t.Errorf("answer %+v for an account with nothing open", answered)
 	}
-	if answered := deterministicAnswer(crmcontracts.WhatsChanged, askOrgID, bare); len(answered) != 0 {
-		t.Errorf("answer %+v for an account with an empty timeline", answered)
+	// A single entry reaches both the loop body and the mostRecent bound, so this
+	// gates changedAnswer rather than the emptiness of a nil slice.
+	one := Input{Name: "Quiet GmbH", Recent: []ActIn{
+		{ID: "018f0000-0000-7000-8000-0000000000b1", Kind: "call", At: "2026-07-01T09:00:00Z"},
+	}}
+	answered := deterministicAnswer(crmcontracts.WhatsChanged, askOrgID, one)
+	if len(answered) != 1 || answered[0].Evidence[0].EntityID != one.Recent[0].ID {
+		t.Errorf("answer %+v for a one-entry timeline, want the one entry cited", answered)
 	}
 	// meeting_prep is different by design: the account itself is always
 	// something to prep from, and it cites the organization.
@@ -149,11 +159,10 @@ func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 // names into the payload — a model handed an account with no deals and no note of
 // why is free to remark on the empty pipeline it infers.
 //
-// Two framings I tried first were not tests. That a nil section yields no records
-// is Go's own semantics, and nothing about omission handling could break it. And
-// two readers cannot share a cached brief whatever the fingerprint says, because
-// org_brief is keyed (workspace, user, organization) — that leak is closed by the
-// primary key, not by this.
+// The instruction is what this gates, because it is the part that can break. The
+// records of a withheld section are absent from the input whatever this package
+// does — the 360 hands it a nil section — and no reader can be served another's
+// brief whatever it says, because org_brief is keyed per user.
 func TestTheWriterIsToldWhichSubjectsToStayOffOf(t *testing.T) {
 	restricted := crmcontracts.Organization360{
 		Organization:    crmcontracts.Organization{DisplayName: "Nordwind AG"},

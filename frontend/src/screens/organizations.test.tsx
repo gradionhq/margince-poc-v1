@@ -1518,6 +1518,24 @@ describe("CompanyScreen — next-step suggestions", () => {
     );
   });
 
+  it("stays silent about what it left out when there is nothing left out", async () => {
+    // Zero is the ordinary case, so the "N more" line must not render on it —
+    // otherwise every card carries "0 more not shown here."
+    stubFetch(companyBackstop, {
+      org360: {
+        ...org360,
+        suggestions: [stalledSuggestion],
+        suggestions_dropped: 0,
+      },
+    });
+    render(<CompanyScreen id="o-1" />);
+
+    await waitFor(() =>
+      expect(screen.getByText(stalledSuggestion.reason)).toBeTruthy(),
+    );
+    expect(screen.queryByText(/more not shown here/)).toBeNull();
+  });
+
   it("stays silent about what it left out when the count is absent", async () => {
     // Absent means the section was never computed. A "0 more" line would state a
     // fact about an account this read did not look at.

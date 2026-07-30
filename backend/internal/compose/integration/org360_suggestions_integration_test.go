@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
@@ -62,14 +63,17 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
 	seedUnansweredOutbound(t, e, org.UUID)
 
-	// Thirty notes, every one NEWER than the unanswered email, so the newest 25
-	// timeline entries the section carries are all notes.
+	// Thirty notes packed into the hours before the read, every one newer than the
+	// email seeded three weeks back — so the email falls past the section's cap.
+	// Spacing them by DAYS would not: the email is only three weeks old, so the
+	// older notes would sort behind it and it would sit inside the page after all.
 	for i := range 30 {
 		note := ids.NewV7()
 		if _, err := owner.Exec(context.Background(), `INSERT INTO activity
 			(id, workspace_id, kind, subject, occurred_at, created_at, source, captured_by)
 			VALUES ($1, $2, 'note', $3, $4, $4, 'manual', 'human:x')`,
-			note, e.WS, fmt.Sprintf("note %d", i), org360Clock.AddDate(0, 0, -i)); err != nil {
+			note, e.WS, fmt.Sprintf("note %d", i),
+			org360Clock.Add(-time.Duration(i)*time.Hour)); err != nil {
 			t.Fatalf("seeding note %d: %v", i, err)
 		}
 		e.WsExec(t, `INSERT INTO activity_link (workspace_id, activity_id, entity_type, organization_id)
@@ -83,6 +87,21 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 	if view.Suggestions == nil {
 		t.Fatal("suggestions absent")
 	}
+
+	// The premise, asserted rather than assumed: the timeline section this caller
+	// was served does NOT contain the email. Without this the fixture could drift
+	// into putting it inside the page, and the test below would pass over a rule
+	// that read the section — the defect it exists to catch.
+	if view.Activities == nil || !view.Activities.Page.HasMore {
+		t.Fatalf("the timeline section is not truncated, so nothing here is past its cap")
+	}
+	for _, activity := range view.Activities.Data {
+		if activity.Kind == "email" {
+			t.Fatal("the email is inside the section page, so a rule reading the section " +
+				"would find it too and this test would prove nothing")
+		}
+	}
+
 	found := false
 	for _, suggestion := range *view.Suggestions {
 		if suggestion.Kind == "no_reply" {
@@ -90,7 +109,7 @@ func TestSuggestionsLookPastTheSectionPageCap(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("no no_reply suggestion with 30 newer notes on the account: %+v", *view.Suggestions)
+		t.Errorf("no no_reply suggestion for an email past the section cap: %+v", *view.Suggestions)
 	}
 }
 
@@ -673,7 +692,8 @@ func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
 	if err != nil {
 		t.Fatalf("assemble: %v", err)
 	}
-	if err := svc.DismissSuggestion(rep, org, (*first.Suggestions)[0].Fingerprint); err != nil {
+	dismissedFingerprint := (*first.Suggestions)[0].Fingerprint
+	if err := svc.DismissSuggestion(rep, org, dismissedFingerprint); err != nil {
 		t.Fatalf("dismiss: %v", err)
 	}
 
@@ -687,6 +707,14 @@ func TestSuggestionDismissalReArmsWhenTheEvidenceChanges(t *testing.T) {
 	}
 	if again.Suggestions == nil || len(*again.Suggestions) == 0 {
 		t.Fatal("a newer unanswered message raised nothing — the dismissal buried the rule, not the situation")
+	}
+	// The fingerprint has to be a DIFFERENT one. Asserting only that something
+	// fired would keep passing if this fixture ever gained a deal and the
+	// suggestion came from another rule entirely.
+	for _, suggestion := range *again.Suggestions {
+		if suggestion.Fingerprint == dismissedFingerprint {
+			t.Error("the re-armed suggestion carries the dismissed fingerprint")
+		}
 	}
 }
 
