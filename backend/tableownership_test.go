@@ -185,6 +185,9 @@ var tableOwners = map[string]string{
 	// The company view's per-user visit baseline: view state, not a record
 	// fact, so it is written without an audit row — the saved-view ruling.
 	"user_record_view": "internal/compose/org360",
+	// The rep's own "not this, not now" on a suggestion: per user, keyed on
+	// the evidence it fired on. Same ruling — view state, no audit row.
+	"suggestion_dismissal": "internal/compose/org360",
 	// The account brief's per-user cache: derived content, regenerable at
 	// any time, readable by nobody but its own user. Same ruling.
 	"org_brief": "internal/compose/orgbrief",

@@ -210,7 +210,8 @@ func (s *Service) dealStageMoves(ctx context.Context, tx pgx.Tx, orgID ids.Organ
 func actingUser(ctx context.Context) (ids.UserID, error) {
 	p, ok := principal.Actor(ctx)
 	if !ok || p.UserID == (ids.UUID{}) {
-		return ids.UserID{}, fmt.Errorf("the visit baseline is per-user and this call carries no user: %w",
+		return ids.UserID{}, fmt.Errorf(
+			"the visit baseline and suggestion dismissals are both per-user, and this call carries no user: %w",
 			apperrors.ErrPermissionDenied)
 	}
 	return ids.From[ids.UserKind](p.UserID), nil

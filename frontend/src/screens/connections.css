@@ -1,0 +1,109 @@
+/* The connections card. Two renderings of one payload: a decorative ego
+   diagram, and the node list that is the real content. Every colour is a
+   token, so the diagram follows the theme the rest of the page follows. */
+
+.cx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cx-diagram {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  height: auto;
+  margin: 4px auto 0;
+}
+
+/* An edge is a hairline: it says two records are joined, and it must never
+   compete with the nodes it joins for attention. */
+.cx-edge {
+  stroke: var(--borderSubtle);
+  stroke-width: 1;
+}
+
+/* A stakeholder edge is the one that does NOT start at the account, so it is
+   dashed — a solid line from a deal to a person would read as another spoke. */
+.cx-edge-deal_stakeholder {
+  stroke-dasharray: 2 2;
+}
+
+.cx-node {
+  stroke: var(--bgCard);
+  stroke-width: 1.5;
+}
+
+.cx-node-organization {
+  fill: var(--textMeta);
+}
+
+.cx-node-person {
+  fill: var(--accent);
+}
+
+.cx-node-deal {
+  fill: var(--success);
+}
+
+.cx-node-root {
+  fill: var(--textPrimary);
+}
+
+/* The route in is the one node a rep is looking for, so it carries a ring
+   rather than a different fill: the fill still has to say "this is a person". */
+.cx-node-intro {
+  stroke: var(--accent);
+  stroke-width: 3;
+}
+
+.cx-nodes {
+  margin-top: 4px;
+}
+
+.cx-node-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+/* How a node attaches to the account. Set apart from the record's own detail
+   (a title, a stage) because the two answer different questions. */
+.cx-relation {
+  color: var(--textMeta);
+}
+
+.cx-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Expanded, the diagram and the list sit side by side: the modal is wide, and
+   stacking them there would put the list below the fold for no reason. */
+.cx-expanded {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.cx-expanded .cx-diagram {
+  flex: 0 0 320px;
+  max-width: 320px;
+}
+
+.cx-expanded .cx-nodes {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .cx-expanded {
+    flex-direction: column;
+  }
+
+  .cx-expanded .cx-diagram {
+    flex: 0 0 auto;
+  }
+}

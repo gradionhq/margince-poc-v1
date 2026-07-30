@@ -460,6 +460,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
+         * @description The company view's connections card: who and what this account is attached to,
+         *     as an explicit node/edge set the client draws rather than a picture the server
+         *     renders.
+         *
+         *     **One hop, and only one.** Every node is reached by a single edge from the
+         *     account — an employment, a deal it owns, a stakeholder seat on one of those
+         *     deals, the `parent_org_id` link up or down, or a partner edge. A contact's other
+         *     employers, a deal's other accounts and a partner's own partners are NOT walked:
+         *     a second hop is a different read with a different cost, and a card that
+         *     sometimes went two hops would have no honest cap.
+         *
+         *     **Authorization is per group**, the same posture `GET /organizations/{id}/360`
+         *     takes for its sections. Reading the organization itself is mandatory. Contacts
+         *     need the person grant, deals need the deal grant, and the intro path needs the
+         *     signal grant; a group the caller may not read is left out of `nodes`/`edges` and
+         *     named in `groups_omitted`, so the card can say "hidden from you" instead of
+         *     drawing a company with no contacts. Within a group every row carries that
+         *     object's row scope, so this card can never out-see the endpoint that owns the
+         *     record — a stakeholder edge needs BOTH the deal and the person to be visible,
+         *     because an edge names two records.
+         *
+         *     **Node selection is deterministic and capped, and the cap is reported.** Each
+         *     group has a fixed order — contacts by relationship strength then id, deals by
+         *     amount then id, organizations by name then id — so two reads of an unchanged
+         *     account return the same nodes. `dropped_count` says how many nodes the caps left
+         *     out, counted over each group's whole membership — a truncated graph with no count
+         *     reads as the whole neighbourhood, and a count taken from a bounded read would
+         *     understate it. Stakeholder contacts have no cap of their own — they are bounded by
+         *     the deals already selected — so they are the one node kind that number does not
+         *     speak for.
+         *
+         *     How each group picks its slice, because the three differ in ways a client can
+         *     see. Deals are ordered and limited in the database, so their slice is exactly the
+         *     top N. Organizations are limited by COMPANY rather than by row, so a company
+         *     attached several ways — a parent that is also a reseller — cannot fill the
+         *     allowance and leave the others out; a relationship recorded twice is one edge, not
+         *     two. Contacts are the one group ordered by something the database does not know
+         *     yet (a relationship strength computed after the read), so an account with more
+         *     than 500 contacts contributes the strongest of the first 500 by id rather than of
+         *     all of them — no real account is near that, and an installation that reaches it
+         *     should read the contact list from `GET /people` rather than from a card.
+         *
+         *     `dropped_count` is the true remainder in every case, including past that 500.
+         *     Keeping it true costs a count over each group's whole membership, so this read is
+         *     proportional to the account it describes and not to the caps; the caps bound the
+         *     rows returned and the per-contact work done on them, which is what grows fast.
+         *
+         *     Native system-of-record only: a workspace reading from an incumbent mirror gets
+         *     `422 unsupported_in_overlay_mode`, the same refusal the 360 gives, because the
+         *     mirror holds none of these edges.
+         */
+        get: operations["getOrganizationGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/brief": {
         parameters: {
             query?: never;
@@ -505,6 +577,85 @@ export interface paths {
          *     writes only the cached brief: no record field changes, and nothing is sent.
          */
         post: operations["regenerateOrganizationBrief"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/suggestions/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Dismiss one next-step suggestion for the calling human.
+         * @description A dismissal is the rep saying "not this, not now" — per user, because advice one
+         *     rep has judged is not advice their colleague has seen.
+         *
+         *     It is keyed on the suggestion's EVIDENCE fingerprint, not on its kind, so the
+         *     same advice stays gone while the situation holds and re-arms by itself when the
+         *     evidence changes. A stalled deal that moves and stalls again is a new fact about
+         *     the account, and silencing it forever because someone once dismissed it would
+         *     make the surface less useful the longer it ran.
+         *
+         *     A row is stored ONLY for a fingerprint this account currently raises for this
+         *     caller. A fingerprint that matches nothing answers `204` without storing
+         *     anything — either the situation resolved between the render and the click, in
+         *     which case the suggestion is already gone, or it was never served, in which case
+         *     there is nothing to silence. So the stored set grows by one row per suggestion a
+         *     human actually dismissed, and no dismissal is ever dropped to make room.
+         *
+         *     Human-only: an agent has no opinion to record.
+         */
+        post: operations["dismissOrganizationSuggestion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/organizations/{id}/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask one of the prepared questions about this account.
+         * @description The company view's "Ask Margince". The question is chosen from a fixed list, not
+         *     typed: each prepared question names records the answer must be written from, so
+         *     every sentence can be cited and checked. Free-text questions need retrieval that
+         *     can prove what it did not find, which this endpoint does not have — a text box
+         *     that quietly answers from a subset would read exactly like one that searched
+         *     everything.
+         *
+         *     **Per viewer, like the brief.** The answer is written from the caller's own 360,
+         *     assembled inside the normal gates, so it can only describe records that caller
+         *     could open themselves and cites only those. Nothing is cached: a question is asked
+         *     and read once, and an answer that arrives is written from the account as it is now.
+         *
+         *     When no model lane is configured, or the workspace's AI budget is exhausted, the
+         *     answer degrades to a deterministic structured one rather than failing —
+         *     `generated_by` says which it is. Read-only: no record field changes, and nothing
+         *     is sent.
+         *
+         *     Human-only: an agent asking about an account has the records themselves.
+         */
+        post: operations["askAboutOrganization"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6064,15 +6215,47 @@ export interface components {
             organization_id: string;
             /** Format: date-time */
             generated_at: string;
-            /**
-             * @description `model` — written by the configured model lane. `deterministic` — the
-             *     structured fallback, used when no lane is configured or the AI budget is
-             *     exhausted. Never silently interchangeable: a reader deciding how much to
-             *     trust a sentence needs to know which wrote it.
-             * @enum {string}
-             */
-            generated_by: "model" | "deterministic";
+            generated_by: components["schemas"]["WrittenBy"];
             /** @description The brief itself, one claim per entry. */
+            sentences: components["schemas"]["OrganizationBriefSentence"][];
+        };
+        /**
+         * @description Which writer produced a piece of generated prose. `model` — the configured model
+         *     lane. `deterministic` — the structured fallback, used when no lane is configured
+         *     or the workspace's AI budget is exhausted. Never silently interchangeable: a
+         *     reader deciding how much to trust a sentence needs to know which wrote it.
+         * @enum {string}
+         */
+        WrittenBy: "model" | "deterministic";
+        /**
+         * @description The prepared questions. Fixed, because each one names the records its answer is
+         *     written from — which is what makes the answer citable.
+         *
+         *     `whats_open` — the open deals and the open tasks. Deliberately not approvals: an
+         *     approval is not a citable record type here, and an answer that named one could
+         *     not be checked the way every other sentence can.
+         *     `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+         *     `whats_changed` — what has moved on this account recently.
+         * @enum {string}
+         */
+        OrganizationQuestion: "whats_open" | "meeting_prep" | "whats_changed";
+        /**
+         * @description An answer to one prepared question, written from what the READER can see. Same
+         *     shape as the brief: every sentence carries the records it was written from, so
+         *     the reader can open the evidence rather than take the sentence on trust.
+         */
+        OrganizationAnswer: {
+            /** Format: uuid */
+            organization_id: string;
+            question: components["schemas"]["OrganizationQuestion"];
+            /** Format: date-time */
+            generated_at: string;
+            generated_by: components["schemas"]["WrittenBy"];
+            /**
+             * @description The answer, one claim per entry. Empty when the caller's grants leave the
+             *     question nothing to answer from — an honest "nothing here I can show you"
+             *     rather than a sentence written around the gap.
+             */
             sentences: components["schemas"]["OrganizationBriefSentence"][];
         };
         OrganizationBriefSentence: {
@@ -6142,7 +6325,7 @@ export interface components {
             amount?: components["schemas"]["Money"];
             /** Format: date */
             expected_close_date?: string | null;
-            /** @description No linked activity inside the pipeline's stall window. */
+            /** @description No linked activity inside the 60-day stall window. */
             stalled: boolean;
         };
         /** @description The account's open deals plus the two lifetime figures the header needs. */
@@ -6167,6 +6350,40 @@ export interface components {
             linked_deal_id?: string | null;
             /** Format: uuid */
             linked_person_id?: string | null;
+        };
+        /**
+         * @description One deterministic next-step suggestion. It is derived, not decided: the rule
+         *     that fired, the records it fired on, and nothing the reader cannot check.
+         *
+         *     Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
+         *     it offers are the same governed endpoints the rep would have used anyway.
+         */
+        Organization360Suggestion: {
+            /**
+             * @description `no_reply` — an outbound message on a thread nobody answered.
+             *     `stalled_deal` — an open deal idle past the 60-day stall window.
+             *     `no_next_step` — an active account with no open task on it.
+             * @enum {string}
+             */
+            kind: "no_reply" | "stalled_deal" | "no_next_step";
+            /**
+             * @description Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
+             *     kind, the subject and the records it fired on. Dismissing a suggestion stores
+             *     this, so the same advice stays gone — and re-arms by itself when the evidence
+             *     changes, because the situation is then genuinely a new one.
+             *
+             *     Send it back unchanged to dismiss. The server recomputes the account's
+             *     suggestions to recognize it, so a value it cannot match stores nothing.
+             */
+            fingerprint: string;
+            /** @description The rule that fired, in the words the rep reads. Never a score. */
+            reason: string;
+            /** @enum {string|null} */
+            subject_type?: null | "deal" | "person" | "organization";
+            /** Format: uuid */
+            subject_id?: string | null;
+            /** @description The records the rule fired on — always ones this reader can open. */
+            evidence: components["schemas"]["OrganizationBriefEvidence"][];
         };
         /**
          * @description What changed on this account since the caller last acknowledged seeing it. Read-only:
@@ -6201,7 +6418,7 @@ export interface components {
             as_of: string;
             organization: components["schemas"]["Organization"];
             /** @description The sections withheld for lack of a grant — so a client can say "you can't see this" instead of "there is none". */
-            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit")[];
+            sections_omitted: ("people" | "deals" | "strength" | "activities" | "tags" | "list_memberships" | "pending_approvals" | "next_steps" | "since_last_visit" | "suggestions")[];
             people?: {
                 data: components["schemas"]["Organization360Contact"][];
                 page: components["schemas"]["PageInfo"];
@@ -6220,6 +6437,150 @@ export interface components {
                 page: components["schemas"]["PageInfo"];
             };
             since_last_visit?: components["schemas"]["Organization360SinceLastVisit"];
+            /**
+             * @description What this account looks like it needs next, computed from its own records —
+             *     no model involved. Each carries WHY, so a rep can disagree with the reason
+             *     rather than with a verdict.
+             */
+            suggestions?: components["schemas"]["Organization360Suggestion"][];
+            /**
+             * @description How many further suggestions this caller has that `suggestions` does not
+             *     list — the card offers at most a handful, because advice past that is a list
+             *     a rep learns to scroll past. Reported rather than dropped in silence: a
+             *     truncated list with no count reads as "that is everything".
+             *
+             *     Counted after this caller's own dismissals, so a suggestion they have already
+             *     judged is in neither the list nor this number.
+             *
+             *     Absent exactly when `suggestions` is — a section the caller's grants withheld
+             *     was never computed, and a `0` there would state "no further suggestions"
+             *     about an account this read never looked at.
+             */
+            suggestions_dropped?: number;
+        };
+        /**
+         * @description One record in the account's one-hop neighbourhood. `id` is the record's own id,
+         *     so a client routes to it with the same route it uses everywhere else.
+         */
+        OrganizationGraphNode: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "organization" | "person" | "deal";
+            /** @description The record's display name — the organization's, the person's full name, the deal's name. */
+            label: string;
+            /**
+             * @description This node is the account the graph is centred on. Exactly one node carries
+             *     `true`. Always present, because "is this the centre" is a fact about every
+             *     node and a client that had to read absence as false would branch on it.
+             */
+            root: boolean;
+            /**
+             * @description One short line of context the node cannot be read without: a contact's title,
+             *     or a deal's stage name. Null when the record has none on file, and always null
+             *     on an organization — how a related company is attached is the EDGE's kind, and
+             *     saying it twice would let the two disagree.
+             */
+            detail?: string | null;
+            /**
+             * @description The person's §4 relationship strength, for weighting the node. Null for an
+             *     organization or a deal, which have no relationship of their own, and for a
+             *     contact whose strength this caller's person scope did not resolve.
+             */
+            strength?: number | null;
+            /**
+             * @description The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
+             * @enum {string|null}
+             */
+            strength_bucket?: null | "dormant" | "weak" | "warm" | "strong";
+            /**
+             * @description This contact is the route in the active signal's warm-intro path proposes.
+             *     At most one node carries it, and only when `intro_path` at the top level is
+             *     present. Absent on every other node — there is nothing to say about them.
+             */
+            intro_path?: boolean;
+        };
+        /**
+         * @description One edge, from the record that owns it to the record it points at. Both ends are
+         *     always nodes in the same payload — an edge naming a record the caller may not
+         *     read is dropped with its group, never returned dangling.
+         */
+        OrganizationGraphEdge: {
+            /** Format: uuid */
+            from: string;
+            /** Format: uuid */
+            to: string;
+            /**
+             * @description `employment` — the account employs the person.
+             *     `has_deal` — the deal belongs to the account.
+             *     `deal_stakeholder` — the person holds a stakeholder seat on the deal.
+             *     `parent_of` — `from` is the parent organization of `to` (the account's parent
+             *     points at it; the account points at each child).
+             *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
+             *     the organization that records the edge to its counterparty.
+             * @enum {string}
+             */
+            kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with";
+            /**
+             * @description The edge's role where it has one — an employment title, a stakeholder role
+             *     (champion, economic_buyer, …). Null on the edges that carry none.
+             */
+            role?: string | null;
+        };
+        /**
+         * @description The warm-intro route the account's most recent open signal proposes: which signal,
+         *     and which contact is the way in. The contact is ranked exactly as
+         *     `GET /signals/{id}/intro-path` ranks it — strongest live relationship first — so
+         *     the card and the warm room can never name different people.
+         *
+         *     Absent when the caller lacks the signal or person grant (then `groups_omitted` says
+         *     so), when the account has no open resolved signal, when it has one and no live
+         *     contact this caller can read — a cold account has no warm path, and inventing one
+         *     would be a claim — or when the route-in contact is not one of this graph's nodes,
+         *     which happens when their only seat is on a deal the card did not draw. The card
+         *     never names a DIFFERENT person than the warm room: it either shows that contact or
+         *     says nothing.
+         */
+        OrganizationGraphIntroPath: {
+            /** Format: uuid */
+            signal_id: string;
+            /**
+             * Format: uuid
+             * @description The route-in contact. Always present in `nodes`, carrying `intro_path: true`.
+             */
+            contact_id: string;
+        };
+        /** @description The account's one-hop connection graph, as nodes and edges the client lays out. */
+        OrganizationGraph: {
+            /**
+             * Format: date-time
+             * @description The instant the assembling transaction read. Every group is consistent to this moment under Read Committed.
+             */
+            as_of: string;
+            /**
+             * Format: uuid
+             * @description The account the graph is centred on — the node carrying `root: true`.
+             */
+            root_id: string;
+            nodes: components["schemas"]["OrganizationGraphNode"][];
+            edges: components["schemas"]["OrganizationGraphEdge"][];
+            /**
+             * @description How many nodes the per-group caps left out, summed across the groups that were
+             *     read. Zero means the graph is the whole one-hop neighbourhood this caller can
+             *     see; anything else means the card is showing a deterministic top slice.
+             */
+            dropped_count: number;
+            /**
+             * @description The groups withheld for lack of a grant — so a client can say "you can't see
+             *     this" instead of "there is none". `contacts` withheld also withholds
+             *     `deal_stakeholder` edges and the intro path, because both name a person.
+             *
+             *     The parent, child and partner organizations are not a group here: they need no
+             *     grant beyond the organization read this whole endpoint already demands, so they
+             *     are row-scope pruned like every other node and can never be withheld wholesale.
+             */
+            groups_omitted: ("contacts" | "deals" | "intro_path")[];
+            intro_path?: components["schemas"]["OrganizationGraphIntroPath"];
         };
         /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
@@ -11373,6 +11734,33 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    getOrganizationGraph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's one-hop connection graph. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationGraph"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     getOrganizationBrief: {
         parameters: {
             query?: never;
@@ -11419,6 +11807,79 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OrganizationBrief"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    dismissOrganizationSuggestion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /**
+                     * @description The `fingerprint` from the suggestion being dismissed, unchanged — a
+                     *     sha256 digest in lowercase hex.
+                     *
+                     *     A value of the wrong SHAPE is a 422, so a client that mangled it can
+                     *     tell that from a hit. A well-formed value the account does not
+                     *     currently raise is a `204` that stores nothing; see this operation's
+                     *     description for why those two answers differ.
+                     */
+                    fingerprint: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Dismissed, or nothing matched and nothing was stored. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    askAboutOrganization: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    question: components["schemas"]["OrganizationQuestion"];
+                };
+            };
+        };
+        responses: {
+            /** @description The answer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationAnswer"];
                 };
             };
             401: components["responses"]["Unauthorized"];

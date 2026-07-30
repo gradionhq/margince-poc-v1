@@ -76,10 +76,10 @@ func briefSystemFor(fence promptfence.Fence) string {
 // Write produces the brief. lane may be nil, which is not an error state:
 // it is the deployment saying this role runs no model, and the
 // deterministic floor is the answer.
-func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sentence, string, error) {
+func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sentence, crmcontracts.WrittenBy, error) {
 	deterministic := Deterministic(orgID, in)
 	if lane == nil {
-		return deterministic, string(crmcontracts.Deterministic), nil
+		return deterministic, crmcontracts.Deterministic, nil
 	}
 	written, err := writeWithModel(ctx, lane, orgID, in)
 	if err != nil {
@@ -88,9 +88,9 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 		// not take the card down with it: the reader gets the floor, and
 		// generated_by tells them which of the two they are reading.
 		//nolint:nilerr // on_budget_exhausted: degrade — the fallback IS the answer, and generated_by reports it
-		return deterministic, string(crmcontracts.Deterministic), nil
+		return deterministic, crmcontracts.Deterministic, nil
 	}
-	return written, string(crmcontracts.Model), nil
+	return written, crmcontracts.Model, nil
 }
 
 // BriefRequest builds the one request this site sends. Exported because the
@@ -103,18 +103,32 @@ func Write(ctx context.Context, lane Completer, orgID string, in Input) ([]Sente
 // writer has never seen, so no subject line can close the span and be read
 // as instruction.
 func BriefRequest(in Input) model.Request {
+	return groundedRequest(briefSystemFor, in)
+}
+
+// groundedRequest is the one request shape both of this package's sites send:
+// the assembled account fenced with a nonce minted for THIS call, and a system
+// prompt that names that same nonce as the data boundary. systemFor receives
+// the fence so the two can never disagree — a request whose prompt named a
+// different boundary than the one wrapping the data would fence nothing.
+func groundedRequest(systemFor func(promptfence.Fence) string, in Input) model.Request {
 	fence := promptfence.New()
-	// A summary that cannot be encoded is a programming error, not a runtime
-	// one: Input is our own struct of scalars and slices. An empty prompt
-	// still reaches the model fenced, and the grounding filter refuses the
-	// reply that comes back.
-	encoded, _ := json.Marshal(in) //nolint:errchkjson // Input is a plain struct of scalars; marshal cannot fail
 	return model.Request{
-		System:         briefSystemFor(fence),
-		Messages:       []model.Message{{Role: "user", Content: fence.Wrap(string(encoded))}},
+		System:         systemFor(fence),
+		Messages:       []model.Message{{Role: "user", Content: fence.Wrap(encodeInput(in))}},
 		MaxTokens:      ai.ReasoningOutputMaxTokens,
 		SecretStripper: ai.NewSecretStripper(),
 	}
+}
+
+// encodeInput renders the assembled account as the JSON the prompts read.
+//
+// A summary that cannot be encoded is a programming error, not a runtime one:
+// Input is our own struct of scalars and slices. An empty prompt still reaches
+// the model fenced, and the grounding filter refuses the reply that comes back.
+func encodeInput(in Input) string {
+	encoded, _ := json.Marshal(in) //nolint:errchkjson // Input is a plain struct of scalars; marshal cannot fail
+	return string(encoded)
 }
 
 // ParseBrief reads a model reply into grounded sentences. Exported for the

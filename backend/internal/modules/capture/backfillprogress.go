@@ -31,11 +31,9 @@ import (
 // deltas, so a flush that never lands is corrected by the next one instead of
 // leaving the row permanently short.
 type pageTally struct {
-	scanned       int
-	captured      int
-	skipped       int
-	people        int
-	organizations int
+	scanned  int
+	captured int
+	skipped  int
 }
 
 // advance folds a connector's report in and reports whether the tally moved. A
@@ -115,49 +113,86 @@ func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.tally.advance(scanned, captured, skipped) {
-		c.persist(ctx)
+		c.persist(ctx, paced)
 	}
 }
 
-// counted folds one ensure's outcome into the page's yield. An ensure that
-// resolved onto records that already exist moves no counter and writes
-// nothing — on a widen re-import that is nearly every message.
+// counted records ONE counterparty creation on the run, immediately, in the
+// committed columns.
 //
-// It flushes rather than leaving the yield for the connector's next report,
-// because the seam does not oblige a connector to report AFTER capturing a
-// message. Both flushes write the whole tally, so whichever wins the pacing
-// window carries the other's numbers too.
+// Per creation and not per page, because a page's total is a batch and a batch
+// is something to lose. Whatever writes it can fail, and nothing can rebuild it
+// afterwards: capture is idempotent, so a replayed message never reaches the
+// resolver again and no retry re-offers these rows to anybody. Counting each row
+// as it appears leaves no batch anywhere to be dropped, double-credited, or
+// fenced off.
+//
+// What this guarantees, exactly, and what it does not:
+//
+//   - It never DOUBLE-counts. A row is created once, and this runs on that
+//     single outcome; nothing retries the write, so nothing can apply it twice.
+//   - It is not exactly-once. The row is created in the resolver's transaction
+//     and counted in this one, so a failed write loses the count of the creation
+//     it was about, permanently — capture's idempotency means no replay re-offers
+//     that row to anyone.
+//   - The loss is per failure, and NOTHING caps the total. A database fault
+//     spanning a page loses one count for every creation inside it. Calling it
+//     "one row" would be true only of a single blip.
+//
+// So the committed columns are a floor on what the run created, never an
+// overcount. Closing the gap takes a ledger keyed on the created row's id,
+// idempotent under retry, with the counts derived from it rather than
+// accumulated; the number feeds a progress display and the cost estimator's
+// ratios. Recorded as open work in STATUS.md rather than papered over here.
+//
+// Unfenced on the run's liveness and on the connection's generation. The row
+// exists; a cancelled run and a rebound connection do not un-create it, and
+// refusing the count would only misreport it.
+//
+// Detached, because a creation that lands as the job's context expires must
+// still be counted, and that context is the commonest thing to die here.
 func (c *pageProgress) counted(ctx context.Context, outcome EnsureOutcome) {
 	if c == nil {
 		return
 	}
-	if !outcome.PersonCreated && !outcome.OrganizationCreated {
-		return
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	people, organizations := 0, 0
 	if outcome.PersonCreated {
-		c.tally.people++
+		people = 1
 	}
 	if outcome.OrganizationCreated {
-		c.tally.organizations++
+		organizations = 1
 	}
-	c.persist(ctx)
+	if people == 0 && organizations == 0 {
+		// Resolved onto rows that already existed — on a widen re-import that is
+		// nearly every message.
+		return
+	}
+	countCtx, cancel := detachedWrite(ctx)
+	defer cancel()
+	err := database.WithWorkspaceTx(countCtx, c.registry.pool, func(tx pgx.Tx) error {
+		_, execErr := tx.Exec(countCtx, `
+			UPDATE capture_backfill
+			SET people_created = people_created + $2, organizations_created = organizations_created + $3
+			WHERE id = $1`, c.backfillID, people, organizations)
+		return execErr
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "capture: a counterparty this backfill created was not counted on the run — its reported reach is one row short",
+			"backfill_id", c.backfillID, "err", err)
+	}
 }
 
-// totals reads the page's yield, for the commit that folds it into the run's
-// own counter columns.
-func (c *pageProgress) totals() (people, organizations int) {
-	if c == nil {
-		return 0, 0
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.tally.people, c.tally.organizations
-}
+// flushPacing says whether a write may be dropped for being too soon. Only the
+// message tally is written this way, and the next report restates it.
+type flushPacing bool
 
-// persist writes the current tally to the run row, at most once per the
-// registry's progressPacing. Caller holds the lock.
+const (
+	paced   flushPacing = true
+	unpaced flushPacing = false
+)
+
+// persist writes the current tally to the run row, honouring the registry's
+// progressPacing when the caller allows it. Caller holds the lock.
 //
 // A failure is logged and dropped rather than returned, and that is the
 // deliberate call: this write exists so a screen can move, and failing a
@@ -165,9 +200,9 @@ func (c *pageProgress) totals() (people, organizations int) {
 // did not land would trade the product for the indicator. The next message
 // restates the absolute tally, and the page's own commit reconciles
 // regardless, so a lost flush costs one frame of animation and nothing else.
-func (c *pageProgress) persist(ctx context.Context) {
+func (c *pageProgress) persist(ctx context.Context, pacing flushPacing) {
 	now := c.registry.now()
-	if !c.lastFlush.IsZero() && now.Sub(c.lastFlush) < c.registry.progressPacing {
+	if pacing == paced && !c.lastFlush.IsZero() && now.Sub(c.lastFlush) < c.registry.progressPacing {
 		return
 	}
 	c.lastFlush = now
@@ -203,23 +238,19 @@ func (r *Registry) flushBackfillProgress(ctx context.Context, backfillID ids.UUI
 		_, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET inflight_scanned = $2, inflight_captured = $3, inflight_skipped = $4,
-			    inflight_people = $5, inflight_organizations = $6,
 			    status = CASE WHEN status = 'queued' THEN 'running' ELSE status END
 			WHERE id = $1 AND status IN ('queued','running')
 			  AND EXISTS (SELECT 1 FROM capture_connection c
-			              WHERE c.id = capture_backfill.connection_id AND c.generation = $7)`,
-			backfillID, t.scanned, t.captured, t.skipped, t.people, t.organizations, generation)
+			              WHERE c.id = capture_backfill.connection_id AND c.generation = $5)`,
+			backfillID, t.scanned, t.captured, t.skipped, generation)
 		return err
 	})
 }
 
-// resetInflightProgress is the SQL fragment every write that ends a page
-// carries. A page's live tally belongs to the page: once it commits, faults,
-// fails, or is cancelled, what it walked is either in the committed columns or
-// about to be walked again by a retry — either way the transient copy must go,
-// or the status read would count it twice.
+// resetInflightProgress is what the page COMMIT carries: the commit folds the
+// page's work into the committed columns from the connector's own result and
+// the collector's totals, so the transient copy has done its job and goes.
 //
 // It BEGINS with a comma, so it splices in after an existing SET assignment
 // and never as the first one.
-const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0,
-	    inflight_people = 0, inflight_organizations = 0`
+const resetInflightProgress = `, inflight_scanned = 0, inflight_captured = 0, inflight_skipped = 0`

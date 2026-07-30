@@ -17,6 +17,11 @@ export type Command = {
   id: string;
   label: string;
   subtitle?: string;
+  // Extra terms the row answers to but does not display. A nav label is a
+  // presentation choice and the domain vocabulary outlives it: Pipeline is still
+  // the place deals live, Approvals is still the inbox, and someone typing the
+  // older word must not be told the screen does not exist.
+  keywords?: readonly string[];
   type: "screen" | "action" | "record";
   route: Route;
 };
@@ -27,6 +32,10 @@ export function useBuiltinCommands(): Command[] {
     const screens: Command[] = NAV.map((item) => ({
       id: `screen:${item.screen}`,
       label: t(item.labelKey),
+      // The route id is the screen's stable English name and doubles as its
+      // alias, so a relabeled destination stays findable under both words in
+      // both locales without a hand-kept synonym list.
+      keywords: [item.screen],
       type: "screen",
       route: { screen: item.screen },
     }));
@@ -140,7 +149,10 @@ export function CommandPalette({
     return commands.filter(
       (command) =>
         command.label.toLowerCase().includes(needle) ||
-        (command.subtitle ?? "").toLowerCase().includes(needle),
+        (command.subtitle ?? "").toLowerCase().includes(needle) ||
+        (command.keywords ?? []).some((word) =>
+          word.toLowerCase().includes(needle),
+        ),
     );
   }, [commands, query]);
 
@@ -271,6 +283,15 @@ export function CommandPalette({
 }
 
 // Global ⌘K / Ctrl+K binding (AC-shell-3).
+// The palette answers to Meta+K and Ctrl+K both, but an affordance may only
+// advertise one, and it has to be the one the reader's keyboard has: a Windows
+// user told to press ⌘K is being told to press a key that is not there. Pure in
+// its argument so the call site passes `navigator.platform` and this stays
+// testable without stubbing the platform.
+export function paletteHotkeyLabel(platform: string): string {
+  return /mac|iphone|ipad|ipod/i.test(platform) ? "⌘K" : "Ctrl K";
+}
+
 export function usePaletteHotkey(toggle: () => void) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

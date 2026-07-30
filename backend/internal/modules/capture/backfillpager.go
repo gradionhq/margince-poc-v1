@@ -99,17 +99,17 @@ func (r *Registry) RunBackfillStep(ctx context.Context, backfillID ids.UUID) (do
 		return true, false, 0, errors.Join(err, r.failBackfill(ctx, backfillID, err))
 	}
 
-	// The page's live tally: the connector reports what it has walked and the
-	// Sink counts the counterparties it mints, both into this collector, which
-	// persists them to the run's inflight_* columns as the page runs. The
-	// commit below folds the yields into the run's own counter columns and
-	// clears the transient copy.
-	pageCtx, progress := withPageProgress(runCtx, r, backfillID, generation)
-	res, err := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
-	if err != nil {
-		return r.recordPageFault(ctx, backfillID, err)
+	// The page's live message tally, mirrored into the run's inflight_* columns
+	// as the page walks so the activation view moves per message. The
+	// counterparties the Sink mints are NOT part of this: each one is counted
+	// onto the run as it is created, so no page-end write can lose or repeat a
+	// batch of them.
+	pageCtx, _ := withPageProgress(runCtx, r, backfillID, generation)
+	res, pageErr := bf.BackfillPage(pageCtx, auth, after, pageToken, r.sink)
+	if pageErr != nil {
+		return r.recordPageFault(ctx, backfillID, pageErr)
 	}
-	done, completed, err = r.commitBackfillPage(ctx, backfillID, generation, res, progress)
+	done, completed, err = r.commitBackfillPage(ctx, backfillID, generation, res)
 	return done, completed, 0, err
 }
 
@@ -219,9 +219,8 @@ func backfillRetryDelay(failures int, cause error) time.Duration {
 // undercount rather than an estimate: a sender the tier gate deferred is
 // resolved by the verdict engine long after this page, and the person it may
 // eventually mint is nobody's page to claim.
-func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, generation int, res connector.BackfillPageResult, progress *pageProgress) (done, completed bool, err error) {
+func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, generation int, res connector.BackfillPageResult) (done, completed bool, err error) {
 	finishing := res.NextToken == ""
-	peopleCreated, orgsCreated := progress.totals()
 	var rowsAffected int64
 	err = database.WithWorkspaceTx(ctx, r.pool, func(tx pgx.Tx) error {
 		var cur []byte
@@ -239,13 +238,12 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 		tag, err := tx.Exec(ctx, `
 			UPDATE capture_backfill
 			SET cursor = $2, scanned = scanned + $3, captured = captured + $4, skipped = skipped + $5,
-			    people_created = people_created + $6, organizations_created = organizations_created + $7,
 			    consecutive_failures = 0`+resetInflightProgress+`,
 			    status = `+statusExpr+terminal+`
 			WHERE id = $1 AND status IN ('queued','running')
 			  AND EXISTS (SELECT 1 FROM capture_connection c
-			              WHERE c.id = capture_backfill.connection_id AND c.generation = $8)`,
-			backfillID, cur, res.Scanned, res.Captured, res.Skipped, peopleCreated, orgsCreated, generation)
+			              WHERE c.id = capture_backfill.connection_id AND c.generation = $6)`,
+			backfillID, cur, res.Scanned, res.Captured, res.Skipped, generation)
 		if err != nil {
 			return err
 		}
@@ -259,7 +257,8 @@ func (r *Registry) commitBackfillPage(ctx context.Context, backfillID ids.UUID, 
 		// uq_capture_backfill_live would hold a run nothing can ever finish,
 		// answering 409 to every later start for the connection. Cancelled is
 		// what happened — the import stopped, and what it already captured is
-		// kept.
+		// kept, counterparty yields included: they exist, and a replay never
+		// offers them to the resolver again.
 		_, err = tx.Exec(ctx, `
 			UPDATE capture_backfill SET status = 'cancelled', completed_at = now()`+resetInflightProgress+`
 			WHERE id = $1 AND status IN ('queued','running')`, backfillID)

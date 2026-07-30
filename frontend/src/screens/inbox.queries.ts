@@ -39,10 +39,17 @@ async function fetchAllApprovals(status: ApprovalStatus): Promise<Approval[]> {
   return all;
 }
 
+// Refetching on focus overrides the app-wide default (main.tsx turns it off)
+// because approvals go stale on their own: the server computes expiry lazily at
+// read time, so a row that ages out while the tab sits in the background is
+// still counted as waiting by the rail badge until something asks again. Coming
+// back to the tab is exactly the moment the count has to be true, and it costs
+// one small request rather than a background poll.
 export function useApprovals(status: ApprovalStatus, enabled = true) {
   return useQuery({
     queryKey: ["approvals", status],
     enabled,
+    refetchOnWindowFocus: true,
     queryFn: async (): Promise<ApprovalPage> => ({
       data: await fetchAllApprovals(status),
     }),

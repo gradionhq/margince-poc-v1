@@ -46,9 +46,10 @@ type ModelPath struct {
 	SiteFactExtract completer    // the deep read's page-parallel fact lane (fast tier)
 	RateExtract     completer    // the model-cost refresh pricing-page extraction lane
 	BriefRanking    completer    // the Morning-Brief L2 re-order (B-E05.2)
-	// Summarize is the standing account brief on the company view. It
-	// degrades to a deterministic floor, so a role without this lane still
-	// serves a brief — just not a written one.
+	// Summarize serves both of the company view's grounded-prose sites: the
+	// standing account brief and the prepared "Ask Margince" questions. Both
+	// degrade to a deterministic floor, so a role without this lane still
+	// answers — just not in written prose.
 	Summarize  completer
 	DraftReply completer // activity-anchored email reply drafting
 	OfferDraft completer // the offer regenerate-from-signal drafting call

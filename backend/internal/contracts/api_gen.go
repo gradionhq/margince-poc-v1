@@ -3628,6 +3628,7 @@ const (
 	Organization360SectionsOmittedPeople           Organization360SectionsOmitted = "people"
 	Organization360SectionsOmittedSinceLastVisit   Organization360SectionsOmitted = "since_last_visit"
 	Organization360SectionsOmittedStrength         Organization360SectionsOmitted = "strength"
+	Organization360SectionsOmittedSuggestions      Organization360SectionsOmitted = "suggestions"
 	Organization360SectionsOmittedTags             Organization360SectionsOmitted = "tags"
 )
 
@@ -3649,6 +3650,8 @@ func (e Organization360SectionsOmitted) Valid() bool {
 	case Organization360SectionsOmittedSinceLastVisit:
 		return true
 	case Organization360SectionsOmittedStrength:
+		return true
+	case Organization360SectionsOmittedSuggestions:
 		return true
 	case Organization360SectionsOmittedTags:
 		return true
@@ -3699,18 +3702,45 @@ func (e Organization360DealStatus) Valid() bool {
 	}
 }
 
-// Defines values for OrganizationBriefGeneratedBy.
+// Defines values for Organization360SuggestionKind.
 const (
-	Deterministic OrganizationBriefGeneratedBy = "deterministic"
-	Model         OrganizationBriefGeneratedBy = "model"
+	Organization360SuggestionKindNoNextStep  Organization360SuggestionKind = "no_next_step"
+	Organization360SuggestionKindNoReply     Organization360SuggestionKind = "no_reply"
+	Organization360SuggestionKindStalledDeal Organization360SuggestionKind = "stalled_deal"
 )
 
-// Valid indicates whether the value is a known member of the OrganizationBriefGeneratedBy enum.
-func (e OrganizationBriefGeneratedBy) Valid() bool {
+// Valid indicates whether the value is a known member of the Organization360SuggestionKind enum.
+func (e Organization360SuggestionKind) Valid() bool {
 	switch e {
-	case Deterministic:
+	case Organization360SuggestionKindNoNextStep:
 		return true
-	case Model:
+	case Organization360SuggestionKindNoReply:
+		return true
+	case Organization360SuggestionKindStalledDeal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for Organization360SuggestionSubjectType.
+const (
+	Organization360SuggestionSubjectTypeDeal         Organization360SuggestionSubjectType = "deal"
+	Organization360SuggestionSubjectTypeLessThannil  Organization360SuggestionSubjectType = "<nil>"
+	Organization360SuggestionSubjectTypeOrganization Organization360SuggestionSubjectType = "organization"
+	Organization360SuggestionSubjectTypePerson       Organization360SuggestionSubjectType = "person"
+)
+
+// Valid indicates whether the value is a known member of the Organization360SuggestionSubjectType enum.
+func (e Organization360SuggestionSubjectType) Valid() bool {
+	switch e {
+	case Organization360SuggestionSubjectTypeDeal:
+		return true
+	case Organization360SuggestionSubjectTypeLessThannil:
+		return true
+	case Organization360SuggestionSubjectTypeOrganization:
+		return true
+	case Organization360SuggestionSubjectTypePerson:
 		return true
 	default:
 		return false
@@ -3852,6 +3882,108 @@ func (e OrganizationFactSource) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationGraphGroupsOmitted.
+const (
+	OrganizationGraphGroupsOmittedContacts  OrganizationGraphGroupsOmitted = "contacts"
+	OrganizationGraphGroupsOmittedDeals     OrganizationGraphGroupsOmitted = "deals"
+	OrganizationGraphGroupsOmittedIntroPath OrganizationGraphGroupsOmitted = "intro_path"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphGroupsOmitted enum.
+func (e OrganizationGraphGroupsOmitted) Valid() bool {
+	switch e {
+	case OrganizationGraphGroupsOmittedContacts:
+		return true
+	case OrganizationGraphGroupsOmittedDeals:
+		return true
+	case OrganizationGraphGroupsOmittedIntroPath:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationGraphEdgeKind.
+const (
+	OrganizationGraphEdgeKindCoSellWith      OrganizationGraphEdgeKind = "co_sell_with"
+	OrganizationGraphEdgeKindDealStakeholder OrganizationGraphEdgeKind = "deal_stakeholder"
+	OrganizationGraphEdgeKindEmployment      OrganizationGraphEdgeKind = "employment"
+	OrganizationGraphEdgeKindHasDeal         OrganizationGraphEdgeKind = "has_deal"
+	OrganizationGraphEdgeKindParentOf        OrganizationGraphEdgeKind = "parent_of"
+	OrganizationGraphEdgeKindPartnerOf       OrganizationGraphEdgeKind = "partner_of"
+	OrganizationGraphEdgeKindReferredBy      OrganizationGraphEdgeKind = "referred_by"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphEdgeKind enum.
+func (e OrganizationGraphEdgeKind) Valid() bool {
+	switch e {
+	case OrganizationGraphEdgeKindCoSellWith:
+		return true
+	case OrganizationGraphEdgeKindDealStakeholder:
+		return true
+	case OrganizationGraphEdgeKindEmployment:
+		return true
+	case OrganizationGraphEdgeKindHasDeal:
+		return true
+	case OrganizationGraphEdgeKindParentOf:
+		return true
+	case OrganizationGraphEdgeKindPartnerOf:
+		return true
+	case OrganizationGraphEdgeKindReferredBy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationGraphNodeKind.
+const (
+	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
+	OrganizationGraphNodeKindOrganization OrganizationGraphNodeKind = "organization"
+	OrganizationGraphNodeKindPerson       OrganizationGraphNodeKind = "person"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphNodeKind enum.
+func (e OrganizationGraphNodeKind) Valid() bool {
+	switch e {
+	case OrganizationGraphNodeKindDeal:
+		return true
+	case OrganizationGraphNodeKindOrganization:
+		return true
+	case OrganizationGraphNodeKindPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationGraphNodeStrengthBucket.
+const (
+	OrganizationGraphNodeStrengthBucketDormant     OrganizationGraphNodeStrengthBucket = "dormant"
+	OrganizationGraphNodeStrengthBucketLessThannil OrganizationGraphNodeStrengthBucket = "<nil>"
+	OrganizationGraphNodeStrengthBucketStrong      OrganizationGraphNodeStrengthBucket = "strong"
+	OrganizationGraphNodeStrengthBucketWarm        OrganizationGraphNodeStrengthBucket = "warm"
+	OrganizationGraphNodeStrengthBucketWeak        OrganizationGraphNodeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphNodeStrengthBucket enum.
+func (e OrganizationGraphNodeStrengthBucket) Valid() bool {
+	switch e {
+	case OrganizationGraphNodeStrengthBucketDormant:
+		return true
+	case OrganizationGraphNodeStrengthBucketLessThannil:
+		return true
+	case OrganizationGraphNodeStrengthBucketStrong:
+		return true
+	case OrganizationGraphNodeStrengthBucketWarm:
+		return true
+	case OrganizationGraphNodeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationHierarchyRollupScope.
 const (
 	OrganizationHierarchyRollupScopeSelf OrganizationHierarchyRollupScope = "self"
@@ -3864,6 +3996,27 @@ func (e OrganizationHierarchyRollupScope) Valid() bool {
 	case OrganizationHierarchyRollupScopeSelf:
 		return true
 	case OrganizationHierarchyRollupScopeTree:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationQuestion.
+const (
+	MeetingPrep  OrganizationQuestion = "meeting_prep"
+	WhatsChanged OrganizationQuestion = "whats_changed"
+	WhatsOpen    OrganizationQuestion = "whats_open"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationQuestion enum.
+func (e OrganizationQuestion) Valid() bool {
+	switch e {
+	case MeetingPrep:
+		return true
+	case WhatsChanged:
+		return true
+	case WhatsOpen:
 		return true
 	default:
 		return false
@@ -5687,16 +5840,16 @@ func (e VoiceBuildStatusCode) Valid() bool {
 
 // Defines values for VoiceCorpusPreviewRequestFormat.
 const (
-	VoiceCorpusPreviewRequestFormatText       VoiceCorpusPreviewRequestFormat = "text"
-	VoiceCorpusPreviewRequestFormatTranscript VoiceCorpusPreviewRequestFormat = "transcript"
+	Text       VoiceCorpusPreviewRequestFormat = "text"
+	Transcript VoiceCorpusPreviewRequestFormat = "transcript"
 )
 
 // Valid indicates whether the value is a known member of the VoiceCorpusPreviewRequestFormat enum.
 func (e VoiceCorpusPreviewRequestFormat) Valid() bool {
 	switch e {
-	case VoiceCorpusPreviewRequestFormatText:
+	case Text:
 		return true
-	case VoiceCorpusPreviewRequestFormatTranscript:
+	case Transcript:
 		return true
 	default:
 		return false
@@ -6114,6 +6267,24 @@ func (e WebhookSubscriptionState) Valid() bool {
 	}
 }
 
+// Defines values for WrittenBy.
+const (
+	Deterministic WrittenBy = "deterministic"
+	Model         WrittenBy = "model"
+)
+
+// Valid indicates whether the value is a known member of the WrittenBy enum.
+func (e WrittenBy) Valid() bool {
+	switch e {
+	case Deterministic:
+		return true
+	case Model:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for CaptureProvider.
 const (
 	Gcal  CaptureProvider = "gcal"
@@ -6404,16 +6575,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	Active  ListCustomFieldsParamsStatus = "active"
-	Retired ListCustomFieldsParamsStatus = "retired"
+	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
+	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case Active:
+	case ListCustomFieldsParamsStatusActive:
 		return true
-	case Retired:
+	case ListCustomFieldsParamsStatusRetired:
 		return true
 	default:
 		return false
@@ -6869,28 +7040,28 @@ func (e ListRecordGrantsParamsSubjectType) Valid() bool {
 
 // Defines values for ListRelationshipsParamsKind.
 const (
-	ListRelationshipsParamsKindCoSellWith         ListRelationshipsParamsKind = "co_sell_with"
-	ListRelationshipsParamsKindDealStakeholder    ListRelationshipsParamsKind = "deal_stakeholder"
-	ListRelationshipsParamsKindEmployment         ListRelationshipsParamsKind = "employment"
-	ListRelationshipsParamsKindPartnerOf          ListRelationshipsParamsKind = "partner_of"
-	ListRelationshipsParamsKindProjectStakeholder ListRelationshipsParamsKind = "project_stakeholder"
-	ListRelationshipsParamsKindReferredBy         ListRelationshipsParamsKind = "referred_by"
+	CoSellWith         ListRelationshipsParamsKind = "co_sell_with"
+	DealStakeholder    ListRelationshipsParamsKind = "deal_stakeholder"
+	Employment         ListRelationshipsParamsKind = "employment"
+	PartnerOf          ListRelationshipsParamsKind = "partner_of"
+	ProjectStakeholder ListRelationshipsParamsKind = "project_stakeholder"
+	ReferredBy         ListRelationshipsParamsKind = "referred_by"
 )
 
 // Valid indicates whether the value is a known member of the ListRelationshipsParamsKind enum.
 func (e ListRelationshipsParamsKind) Valid() bool {
 	switch e {
-	case ListRelationshipsParamsKindCoSellWith:
+	case CoSellWith:
 		return true
-	case ListRelationshipsParamsKindDealStakeholder:
+	case DealStakeholder:
 		return true
-	case ListRelationshipsParamsKindEmployment:
+	case Employment:
 		return true
-	case ListRelationshipsParamsKindPartnerOf:
+	case PartnerOf:
 		return true
-	case ListRelationshipsParamsKindProjectStakeholder:
+	case ProjectStakeholder:
 		return true
-	case ListRelationshipsParamsKindReferredBy:
+	case ReferredBy:
 		return true
 	default:
 		return false
@@ -7007,31 +7178,31 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 
 // Defines values for ListSavedViewsParamsResource.
 const (
-	ListSavedViewsParamsResourceActivities    ListSavedViewsParamsResource = "activities"
-	ListSavedViewsParamsResourceDeals         ListSavedViewsParamsResource = "deals"
-	ListSavedViewsParamsResourceLeads         ListSavedViewsParamsResource = "leads"
-	ListSavedViewsParamsResourceOrganizations ListSavedViewsParamsResource = "organizations"
-	ListSavedViewsParamsResourcePartners      ListSavedViewsParamsResource = "partners"
-	ListSavedViewsParamsResourcePeople        ListSavedViewsParamsResource = "people"
-	ListSavedViewsParamsResourceProjects      ListSavedViewsParamsResource = "projects"
+	Activities    ListSavedViewsParamsResource = "activities"
+	Deals         ListSavedViewsParamsResource = "deals"
+	Leads         ListSavedViewsParamsResource = "leads"
+	Organizations ListSavedViewsParamsResource = "organizations"
+	Partners      ListSavedViewsParamsResource = "partners"
+	People        ListSavedViewsParamsResource = "people"
+	Projects      ListSavedViewsParamsResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
 func (e ListSavedViewsParamsResource) Valid() bool {
 	switch e {
-	case ListSavedViewsParamsResourceActivities:
+	case Activities:
 		return true
-	case ListSavedViewsParamsResourceDeals:
+	case Deals:
 		return true
-	case ListSavedViewsParamsResourceLeads:
+	case Leads:
 		return true
-	case ListSavedViewsParamsResourceOrganizations:
+	case Organizations:
 		return true
-	case ListSavedViewsParamsResourcePartners:
+	case Partners:
 		return true
-	case ListSavedViewsParamsResourcePeople:
+	case People:
 		return true
-	case ListSavedViewsParamsResourceProjects:
+	case Projects:
 		return true
 	default:
 		return false
@@ -10222,7 +10393,25 @@ type Organization360 struct {
 	// schema from the person-facing `RelationshipStrength` because those two extra
 	// facts are meaningless on a person.
 	Strength *OrganizationStrength `json:"strength,omitempty"`
-	Tags     *[]Tag                `json:"tags,omitempty"`
+
+	// Suggestions What this account looks like it needs next, computed from its own records —
+	// no model involved. Each carries WHY, so a rep can disagree with the reason
+	// rather than with a verdict.
+	Suggestions *[]Organization360Suggestion `json:"suggestions,omitempty"`
+
+	// SuggestionsDropped How many further suggestions this caller has that `suggestions` does not
+	// list — the card offers at most a handful, because advice past that is a list
+	// a rep learns to scroll past. Reported rather than dropped in silence: a
+	// truncated list with no count reads as "that is everything".
+	//
+	// Counted after this caller's own dismissals, so a suggestion they have already
+	// judged is in neither the list nor this number.
+	//
+	// Absent exactly when `suggestions` is — a section the caller's grants withheld
+	// was never computed, and a `0` there would state "no further suggestions"
+	// about an account this read never looked at.
+	SuggestionsDropped *int   `json:"suggestions_dropped,omitempty"`
+	Tags               *[]Tag `json:"tags,omitempty"`
 }
 
 // Organization360SectionsOmitted defines model for Organization360.SectionsOmitted.
@@ -10262,7 +10451,7 @@ type Organization360Deal struct {
 	StageId           *openapi_types.UUID `json:"stage_id,omitempty"`
 	StageName         *string             `json:"stage_name,omitempty"`
 
-	// Stalled No linked activity inside the pipeline's stall window.
+	// Stalled No linked activity inside the 60-day stall window.
 	Stalled bool `json:"stalled"`
 
 	// Status Always `open` in the 360's `deals.data` — closed deals are reported by
@@ -10322,28 +10511,88 @@ type Organization360SinceLastVisit struct {
 	PendingProposals *int `json:"pending_proposals,omitempty"`
 }
 
+// Organization360Suggestion One deterministic next-step suggestion. It is derived, not decided: the rule
+// that fired, the records it fired on, and nothing the reader cannot check.
+//
+// Every suggestion is a READ. Nothing is staged, nothing is sent, and the actions
+// it offers are the same governed endpoints the rep would have used anyway.
+type Organization360Suggestion struct {
+	// Evidence The records the rule fired on — always ones this reader can open.
+	Evidence []OrganizationBriefEvidence `json:"evidence"`
+
+	// Fingerprint Identifies this suggestion by its EVIDENCE, not by its kind: a hash over the
+	// kind, the subject and the records it fired on. Dismissing a suggestion stores
+	// this, so the same advice stays gone — and re-arms by itself when the evidence
+	// changes, because the situation is then genuinely a new one.
+	//
+	// Send it back unchanged to dismiss. The server recomputes the account's
+	// suggestions to recognize it, so a value it cannot match stores nothing.
+	Fingerprint string `json:"fingerprint"`
+
+	// Kind `no_reply` — an outbound message on a thread nobody answered.
+	// `stalled_deal` — an open deal idle past the 60-day stall window.
+	// `no_next_step` — an active account with no open task on it.
+	Kind Organization360SuggestionKind `json:"kind"`
+
+	// Reason The rule that fired, in the words the rep reads. Never a score.
+	Reason      string                                `json:"reason"`
+	SubjectId   *openapi_types.UUID                   `json:"subject_id,omitempty"`
+	SubjectType *Organization360SuggestionSubjectType `json:"subject_type,omitempty"`
+}
+
+// Organization360SuggestionKind `no_reply` — an outbound message on a thread nobody answered.
+// `stalled_deal` — an open deal idle past the 60-day stall window.
+// `no_next_step` — an active account with no open task on it.
+type Organization360SuggestionKind string
+
+// Organization360SuggestionSubjectType defines model for Organization360Suggestion.SubjectType.
+type Organization360SuggestionSubjectType string
+
+// OrganizationAnswer An answer to one prepared question, written from what the READER can see. Same
+// shape as the brief: every sentence carries the records it was written from, so
+// the reader can open the evidence rather than take the sentence on trust.
+type OrganizationAnswer struct {
+	GeneratedAt time.Time `json:"generated_at"`
+
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy    WrittenBy          `json:"generated_by"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
+
+	// Question The prepared questions. Fixed, because each one names the records its answer is
+	// written from — which is what makes the answer citable.
+	//
+	// `whats_open` — the open deals and the open tasks. Deliberately not approvals: an
+	// approval is not a citable record type here, and an answer that named one could
+	// not be checked the way every other sentence can.
+	// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+	// `whats_changed` — what has moved on this account recently.
+	Question OrganizationQuestion `json:"question"`
+
+	// Sentences The answer, one claim per entry. Empty when the caller's grants leave the
+	// question nothing to answer from — an honest "nothing here I can show you"
+	// rather than a sentence written around the gap.
+	Sentences []OrganizationBriefSentence `json:"sentences"`
+}
+
 // OrganizationBrief A written brief over one account, assembled from what the READER can see.
 // Every sentence carries the records it was written from, so the reader can open
 // the evidence rather than take the sentence on trust.
 type OrganizationBrief struct {
 	GeneratedAt time.Time `json:"generated_at"`
 
-	// GeneratedBy `model` — written by the configured model lane. `deterministic` — the
-	// structured fallback, used when no lane is configured or the AI budget is
-	// exhausted. Never silently interchangeable: a reader deciding how much to
-	// trust a sentence needs to know which wrote it.
-	GeneratedBy    OrganizationBriefGeneratedBy `json:"generated_by"`
-	OrganizationId openapi_types.UUID           `json:"organization_id"`
+	// GeneratedBy Which writer produced a piece of generated prose. `model` — the configured model
+	// lane. `deterministic` — the structured fallback, used when no lane is configured
+	// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+	// reader deciding how much to trust a sentence needs to know which wrote it.
+	GeneratedBy    WrittenBy          `json:"generated_by"`
+	OrganizationId openapi_types.UUID `json:"organization_id"`
 
 	// Sentences The brief itself, one claim per entry.
 	Sentences []OrganizationBriefSentence `json:"sentences"`
 }
-
-// OrganizationBriefGeneratedBy `model` — written by the configured model lane. `deterministic` — the
-// structured fallback, used when no lane is configured or the AI budget is
-// exhausted. Never silently interchangeable: a reader deciding how much to
-// trust a sentence needs to know which wrote it.
-type OrganizationBriefGeneratedBy string
 
 // OrganizationBriefEvidence One record a brief sentence was written from.
 type OrganizationBriefEvidence struct {
@@ -10413,6 +10662,135 @@ type OrganizationFactListResponse struct {
 	Data []OrganizationFact `json:"data"`
 }
 
+// OrganizationGraph The account's one-hop connection graph, as nodes and edges the client lays out.
+type OrganizationGraph struct {
+	// AsOf The instant the assembling transaction read. Every group is consistent to this moment under Read Committed.
+	AsOf time.Time `json:"as_of"`
+
+	// DroppedCount How many nodes the per-group caps left out, summed across the groups that were
+	// read. Zero means the graph is the whole one-hop neighbourhood this caller can
+	// see; anything else means the card is showing a deterministic top slice.
+	DroppedCount int                     `json:"dropped_count"`
+	Edges        []OrganizationGraphEdge `json:"edges"`
+
+	// GroupsOmitted The groups withheld for lack of a grant — so a client can say "you can't see
+	// this" instead of "there is none". `contacts` withheld also withholds
+	// `deal_stakeholder` edges and the intro path, because both name a person.
+	//
+	// The parent, child and partner organizations are not a group here: they need no
+	// grant beyond the organization read this whole endpoint already demands, so they
+	// are row-scope pruned like every other node and can never be withheld wholesale.
+	GroupsOmitted []OrganizationGraphGroupsOmitted `json:"groups_omitted"`
+
+	// IntroPath The warm-intro route the account's most recent open signal proposes: which signal,
+	// and which contact is the way in. The contact is ranked exactly as
+	// `GET /signals/{id}/intro-path` ranks it — strongest live relationship first — so
+	// the card and the warm room can never name different people.
+	//
+	// Absent when the caller lacks the signal or person grant (then `groups_omitted` says
+	// so), when the account has no open resolved signal, when it has one and no live
+	// contact this caller can read — a cold account has no warm path, and inventing one
+	// would be a claim — or when the route-in contact is not one of this graph's nodes,
+	// which happens when their only seat is on a deal the card did not draw. The card
+	// never names a DIFFERENT person than the warm room: it either shows that contact or
+	// says nothing.
+	IntroPath *OrganizationGraphIntroPath `json:"intro_path,omitempty"`
+	Nodes     []OrganizationGraphNode     `json:"nodes"`
+
+	// RootId The account the graph is centred on — the node carrying `root: true`.
+	RootId openapi_types.UUID `json:"root_id"`
+}
+
+// OrganizationGraphGroupsOmitted defines model for OrganizationGraph.GroupsOmitted.
+type OrganizationGraphGroupsOmitted string
+
+// OrganizationGraphEdge One edge, from the record that owns it to the record it points at. Both ends are
+// always nodes in the same payload — an edge naming a record the caller may not
+// read is dropped with its group, never returned dangling.
+type OrganizationGraphEdge struct {
+	From openapi_types.UUID `json:"from"`
+
+	// Kind `employment` — the account employs the person.
+	// `has_deal` — the deal belongs to the account.
+	// `deal_stakeholder` — the person holds a stakeholder seat on the deal.
+	// `parent_of` — `from` is the parent organization of `to` (the account's parent
+	// points at it; the account points at each child).
+	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
+	// the organization that records the edge to its counterparty.
+	Kind OrganizationGraphEdgeKind `json:"kind"`
+
+	// Role The edge's role where it has one — an employment title, a stakeholder role
+	// (champion, economic_buyer, …). Null on the edges that carry none.
+	Role *string            `json:"role,omitempty"`
+	To   openapi_types.UUID `json:"to"`
+}
+
+// OrganizationGraphEdgeKind `employment` — the account employs the person.
+// `has_deal` — the deal belongs to the account.
+// `deal_stakeholder` — the person holds a stakeholder seat on the deal.
+// `parent_of` — `from` is the parent organization of `to` (the account's parent
+// points at it; the account points at each child).
+// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
+// the organization that records the edge to its counterparty.
+type OrganizationGraphEdgeKind string
+
+// OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
+// and which contact is the way in. The contact is ranked exactly as
+// `GET /signals/{id}/intro-path` ranks it — strongest live relationship first — so
+// the card and the warm room can never name different people.
+//
+// Absent when the caller lacks the signal or person grant (then `groups_omitted` says
+// so), when the account has no open resolved signal, when it has one and no live
+// contact this caller can read — a cold account has no warm path, and inventing one
+// would be a claim — or when the route-in contact is not one of this graph's nodes,
+// which happens when their only seat is on a deal the card did not draw. The card
+// never names a DIFFERENT person than the warm room: it either shows that contact or
+// says nothing.
+type OrganizationGraphIntroPath struct {
+	// ContactId The route-in contact. Always present in `nodes`, carrying `intro_path: true`.
+	ContactId openapi_types.UUID `json:"contact_id"`
+	SignalId  openapi_types.UUID `json:"signal_id"`
+}
+
+// OrganizationGraphNode One record in the account's one-hop neighbourhood. `id` is the record's own id,
+// so a client routes to it with the same route it uses everywhere else.
+type OrganizationGraphNode struct {
+	// Detail One short line of context the node cannot be read without: a contact's title,
+	// or a deal's stage name. Null when the record has none on file, and always null
+	// on an organization — how a related company is attached is the EDGE's kind, and
+	// saying it twice would let the two disagree.
+	Detail *string            `json:"detail,omitempty"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// IntroPath This contact is the route in the active signal's warm-intro path proposes.
+	// At most one node carries it, and only when `intro_path` at the top level is
+	// present. Absent on every other node — there is nothing to say about them.
+	IntroPath *bool                     `json:"intro_path,omitempty"`
+	Kind      OrganizationGraphNodeKind `json:"kind"`
+
+	// Label The record's display name — the organization's, the person's full name, the deal's name.
+	Label string `json:"label"`
+
+	// Root This node is the account the graph is centred on. Exactly one node carries
+	// `true`. Always present, because "is this the centre" is a fact about every
+	// node and a client that had to read absence as false would branch on it.
+	Root bool `json:"root"`
+
+	// Strength The person's §4 relationship strength, for weighting the node. Null for an
+	// organization or a deal, which have no relationship of their own, and for a
+	// contact whose strength this caller's person scope did not resolve.
+	Strength *int `json:"strength,omitempty"`
+
+	// StrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
+	StrengthBucket *OrganizationGraphNodeStrengthBucket `json:"strength_bucket,omitempty"`
+}
+
+// OrganizationGraphNodeKind defines model for OrganizationGraphNode.Kind.
+type OrganizationGraphNodeKind string
+
+// OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
+type OrganizationGraphNodeStrengthBucket string
+
 // OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
 // never client-summed. Money is base-currency converted — never a raw
 // cross-currency sum.
@@ -10451,6 +10829,16 @@ type OrganizationListResponse struct {
 type OrganizationProfileFieldListResponse struct {
 	Data []CompanyProfileField `json:"data"`
 }
+
+// OrganizationQuestion The prepared questions. Fixed, because each one names the records its answer is
+// written from — which is what makes the answer citable.
+//
+// `whats_open` — the open deals and the open tasks. Deliberately not approvals: an
+// approval is not a citable record type here, and an answer that named one could
+// not be checked the way every other sentence can.
+// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+// `whats_changed` — what has moved on this account recently.
+type OrganizationQuestion string
 
 // OrganizationStrength defines model for OrganizationStrength.
 type OrganizationStrength struct {
@@ -12497,6 +12885,12 @@ type WebhookSubscriptionListResponse struct {
 	Page            PageInfo `json:"page"`
 }
 
+// WrittenBy Which writer produced a piece of generated prose. `model` — the configured model
+// lane. `deterministic` — the structured fallback, used when no lane is configured
+// or the workspace's AI budget is exhausted. Never silently interchangeable: a
+// reader deciding how much to trust a sentence needs to know which wrote it.
+type WrittenBy string
+
 // AiWritten defines model for AiWritten.
 type AiWritten = bool
 
@@ -13995,6 +14389,19 @@ type UpdateOrganizationParams struct {
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
 }
 
+// AskAboutOrganizationJSONBody defines parameters for AskAboutOrganization.
+type AskAboutOrganizationJSONBody struct {
+	// Question The prepared questions. Fixed, because each one names the records its answer is
+	// written from — which is what makes the answer citable.
+	//
+	// `whats_open` — the open deals and the open tasks. Deliberately not approvals: an
+	// approval is not a citable record type here, and an answer that named one could
+	// not be checked the way every other sentence can.
+	// `meeting_prep` — who to talk to, where the pipeline stands, what is unanswered.
+	// `whats_changed` — what has moved on this account recently.
+	Question OrganizationQuestion `json:"question"`
+}
+
 // GetOrganizationHierarchyRollupParams defines parameters for GetOrganizationHierarchyRollup.
 type GetOrganizationHierarchyRollupParams struct {
 	// Scope tree (default): aggregate the whole subtree. self: the root's own figures alone.
@@ -14053,6 +14460,18 @@ type UpsertPartnerParams struct {
 	// re-apply, retry. Omitting it is last-write-wins (discouraged for agent/automated writers).
 	// Accepted on every native (SoR-mode) mutating endpoint that returns a versioned entity.
 	IfMatch *IfMatch `json:"If-Match,omitempty"`
+}
+
+// DismissOrganizationSuggestionJSONBody defines parameters for DismissOrganizationSuggestion.
+type DismissOrganizationSuggestionJSONBody struct {
+	// Fingerprint The `fingerprint` from the suggestion being dismissed, unchanged — a
+	// sha256 digest in lowercase hex.
+	//
+	// A value of the wrong SHAPE is a 422, so a client that mangled it can
+	// tell that from a hit. A well-formed value the account does not
+	// currently raise is a `204` that stores nothing; see this operation's
+	// description for why those two answers differ.
+	Fingerprint string `json:"fingerprint"`
 }
 
 // ListOverlayUserMapParams defines parameters for ListOverlayUserMap.
@@ -15588,6 +16007,9 @@ type CreateOrganizationJSONRequestBody = CreateOrganizationRequest
 // UpdateOrganizationJSONRequestBody defines body for UpdateOrganization for application/json ContentType.
 type UpdateOrganizationJSONRequestBody = UpdateOrganizationRequest
 
+// AskAboutOrganizationJSONRequestBody defines body for AskAboutOrganization for application/json ContentType.
+type AskAboutOrganizationJSONRequestBody AskAboutOrganizationJSONBody
+
 // DeepReadCompanyJSONRequestBody defines body for DeepReadCompany for application/json ContentType.
 type DeepReadCompanyJSONRequestBody = EnrichCompanyRequest
 
@@ -15599,6 +16021,9 @@ type MergeOrganizationJSONRequestBody MergeOrganizationJSONBody
 
 // UpsertPartnerJSONRequestBody defines body for UpsertPartner for application/json ContentType.
 type UpsertPartnerJSONRequestBody = UpsertPartnerRequest
+
+// DismissOrganizationSuggestionJSONRequestBody defines body for DismissOrganizationSuggestion for application/json ContentType.
+type DismissOrganizationSuggestionJSONRequestBody DismissOrganizationSuggestionJSONBody
 
 // ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
 type ConnectOverlayJSONRequestBody = OverlayConnectRequest
@@ -21767,6 +22192,9 @@ type ServerInterface interface {
 	// The whole company record page in one round trip — profile, contacts, deals, timeline, tags, approvals, next steps.
 	// (GET /organizations/{id}/360)
 	GetOrganization360(w http.ResponseWriter, r *http.Request, id Id)
+	// Ask one of the prepared questions about this account.
+	// (POST /organizations/{id}/ask)
+	AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id)
 	// The standing account brief — what this account is, where it stands, and what changed.
 	// (GET /organizations/{id}/brief)
 	GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id)
@@ -21782,6 +22210,9 @@ type ServerInterface interface {
 	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 	// (GET /organizations/{id}/facts)
 	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
+	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
+	// (GET /organizations/{id}/graph)
+	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
@@ -21803,6 +22234,9 @@ type ServerInterface interface {
 	// Relationship strength for an organization (max over current employees).
 	// (GET /organizations/{id}/strength)
 	GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id)
+	// Dismiss one next-step suggestion for the calling human.
+	// (POST /organizations/{id}/suggestions/dismiss)
+	DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request, id Id)
 	// Record that the calling human has now seen this organization — the baseline `since_last_visit` counts from.
 	// (POST /organizations/{id}/view-ack)
 	AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request, id Id)
@@ -23042,6 +23476,12 @@ func (_ Unimplemented) GetOrganization360(w http.ResponseWriter, r *http.Request
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Ask one of the prepared questions about this account.
+// (POST /organizations/{id}/ask)
+func (_ Unimplemented) AskAboutOrganization(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The standing account brief — what this account is, where it stands, and what changed.
 // (GET /organizations/{id}/brief)
 func (_ Unimplemented) GetOrganizationBrief(w http.ResponseWriter, r *http.Request, id Id) {
@@ -23069,6 +23509,12 @@ func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id 
 // The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 // (GET /organizations/{id}/facts)
 func (_ Unimplemented) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
+// (GET /organizations/{id}/graph)
+func (_ Unimplemented) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -23111,6 +23557,12 @@ func (_ Unimplemented) GetSiteRead(w http.ResponseWriter, r *http.Request, id Id
 // Relationship strength for an organization (max over current employees).
 // (GET /organizations/{id}/strength)
 func (_ Unimplemented) GetOrganizationStrength(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Dismiss one next-step suggestion for the calling human.
+// (POST /organizations/{id}/suggestions/dismiss)
+func (_ Unimplemented) DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30473,6 +30925,38 @@ func (siw *ServerInterfaceWrapper) GetOrganization360(w http.ResponseWriter, r *
 	handler.ServeHTTP(w, r)
 }
 
+// AskAboutOrganization operation middleware
+func (siw *ServerInterfaceWrapper) AskAboutOrganization(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AskAboutOrganization(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationBrief operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationBrief(w http.ResponseWriter, r *http.Request) {
 
@@ -30630,6 +31114,40 @@ func (siw *ServerInterfaceWrapper) ListOrganizationFacts(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListOrganizationFacts(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetOrganizationGraph operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationGraph(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationGraph(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -30979,6 +31497,38 @@ func (siw *ServerInterfaceWrapper) GetOrganizationStrength(w http.ResponseWriter
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetOrganizationStrength(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DismissOrganizationSuggestion operation middleware
+func (siw *ServerInterfaceWrapper) DismissOrganizationSuggestion(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DismissOrganizationSuggestion(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -37768,6 +38318,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/organizations/{id}/360", wrapper.GetOrganization360)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/ask", wrapper.AskAboutOrganization)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/brief", wrapper.GetOrganizationBrief)
 	})
 	r.Group(func(r chi.Router) {
@@ -37781,6 +38334,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/facts", wrapper.ListOrganizationFacts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)
@@ -37802,6 +38358,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/strength", wrapper.GetOrganizationStrength)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/organizations/{id}/suggestions/dismiss", wrapper.DismissOrganizationSuggestion)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/view-ack", wrapper.AcknowledgeOrganizationView)

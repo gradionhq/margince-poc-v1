@@ -51,6 +51,16 @@ numbers appear here when releases start.
   the caller may not read is omitted and named in `sections_omitted`,
   never returned empty. `POST /organizations/{id}/view-ack` is the
   explicit, human-only, monotonic visit baseline those counts run against.
+- **Company connections**: `GET /organizations/{id}/graph` serves the
+  account's one-hop neighbourhood as nodes and edges the client lays out —
+  its contacts by employment (weighted by §4 strength), its open deals and
+  the stakeholder seats on them, its parent, children and partner
+  companies, and which contact the active signal's warm-intro path routes
+  through. Authorization is per group, the same posture the 360 takes for
+  its sections; node selection is deterministic and `dropped_count` says
+  what the caps left out. The rail's connections card draws it as an ego
+  diagram over a keyboard-reachable node list, and the diagram is
+  decorative — everything it shows is in the list.
 
 ### Changed
 
