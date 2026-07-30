@@ -1684,6 +1684,68 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/channel-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the workspace's messaging-channel connections. */
+        get: operations["listChannelConnections"];
+        put?: never;
+        /**
+         * Connect a messaging-channel bot for the whole workspace.
+         * @description Validates the bot token with the provider, refuses a bot already delivering to another
+         *     installation, seals the token plus a freshly minted webhook secret, writes the connection
+         *     as `pending`, registers the provider webhook against it, and flips it to `connected`.
+         *     The row exists before the webhook is registered because the registered URL carries the
+         *     connection id.
+         *
+         *     A `502` means the provider could not be reached: the `pending` row is retained
+         *     deliberately so the connect can be retried against the id already registered, or removed.
+         */
+        post: operations["connectChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/channel-connections/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect a messaging channel (revokes the webhook and the credential).
+         * @description Revokes the provider webhook, archives the connection as `disconnected`, and destroys
+         *     both sealed secrets. Already-captured activities are retained — disconnecting stops
+         *     capture, it does not erase history.
+         */
+        delete: operations["disconnectChannel"];
+        options?: never;
+        head?: never;
+        /**
+         * Replace a channel connection's bot token in place.
+         * @description Re-runs the full connect sequence against the new token — including the
+         *     already-registered-elsewhere preflight — and passes back through `pending` on the way to
+         *     `connected`, so the row never claims to be live while its registration is mid-flight.
+         *     The connection row survives, so captured history and every channel identity binding
+         *     survive the rotation; provider user ids are global, so identities keep resolving even
+         *     when the new token belongs to a different bot.
+         */
+        patch: operations["replaceChannelToken"];
+        trace?: never;
+    };
     "/webhook-subscriptions": {
         parameters: {
             query?: never;
@@ -5477,6 +5539,41 @@ export interface components {
         };
         CaptureExclusionRuleListResponse: {
             data: components["schemas"]["CaptureExclusionRule"][];
+        };
+        /** @description One workspace-level messaging-channel binding. Neither the bot token nor the webhook secret ever appears in this shape — both live sealed in the vault. */
+        ChannelConnection: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            provider: "telegram";
+            /** @description The provider's own id for the bot — the key the binding is unique on. */
+            channelId: string;
+            /** @description The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing. */
+            channelLabel: string;
+            /**
+             * @description `pending` means the row exists but the provider webhook is not registered yet — it is NOT live, and must not be rendered as connected, or a half-registration reads exactly like a healthy channel nobody is messaging.
+             * @enum {string}
+             */
+            status: "pending" | "connected" | "disconnected" | "error" | "reauth_required";
+            /** Format: int64 */
+            version: number;
+            /** Format: date-time */
+            createdAt?: string;
+            /** Format: date-time */
+            updatedAt?: string;
+        };
+        ChannelConnectionListResponse: {
+            data: components["schemas"]["ChannelConnection"][];
+        };
+        ConnectChannelRequest: {
+            /** @enum {string} */
+            provider: "telegram";
+            /** @description The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back. */
+            botToken: string;
+        };
+        ReplaceChannelTokenRequest: {
+            /** @description The replacement BotFather token. Sealed into the vault on arrival and never echoed back. */
+            botToken: string;
         };
         /** @description The workspace's overlay incumbent connection (HubSpot). The credential itself is never in this shape — it lives sealed in the vault. */
         OverlayConnection: {
@@ -14553,6 +14650,184 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listChannelConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Channel connections. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelConnectionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            /** @description This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    connectChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConnectChannelRequest"];
+            };
+        };
+        responses: {
+            /** @description The connected channel. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelConnection"];
+                };
+            };
+            /** @description The bot token was rejected by the provider (`code: channel_token_rejected`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description The provider could not be reached (`code: channel_provider_unreachable`); the `pending` connection is retained for retry. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    disconnectChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Disconnected. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            /** @description This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
+    replaceChannelToken: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReplaceChannelTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description The reconnected channel. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ChannelConnection"];
+                };
+            };
+            /** @description The bot token was rejected by the provider (`code: channel_token_rejected`). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description The provider could not be reached (`code: channel_provider_unreachable`); the `pending` connection is retained for retry. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+            /** @description This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
         };
     };
     listWebhookSubscriptions: {

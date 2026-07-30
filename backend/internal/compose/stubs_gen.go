@@ -236,6 +236,22 @@ func (stubs) UpdateCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request)
 	httperr.NotImplemented(w, r, "UpdateCaptureSettings")
 }
 
+func (stubs) ListChannelConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListChannelConnections")
+}
+
+func (stubs) ConnectChannel(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ConnectChannel")
+}
+
+func (stubs) DisconnectChannel(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DisconnectChannel")
+}
+
+func (stubs) ReplaceChannelToken(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReplaceChannelToken")
+}
+
 func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ColdStartReadback")
 }

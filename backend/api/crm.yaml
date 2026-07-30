@@ -3051,6 +3051,151 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ------------------------ /channel-connections ----------------------------
+  # Workspace-level messaging-channel bindings (telegram-oa design §5, §9.1/§9.2).
+  # Unlike /connectors/* — one human's grant over their OWN mailbox — a channel
+  # connection is an admin binding a bot on behalf of the whole workspace, so
+  # create/update/delete are admin/ops-only (the `channel_connection` RBAC
+  # object) while every role may read the status. Human-only throughout: the bot
+  # token grants read of every message the bot receives, and it is never echoed
+  # back — it lives sealed in the vault from the moment it arrives. A connection
+  # reads `pending` between the row being written and the provider webhook being
+  # registered; `pending` is NOT live, and the UI must render it as such rather
+  # than as connected.
+  /channel-connections:
+    get:
+      tags: [Connectors]
+      operationId: listChannelConnections
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the workspace's messaging-channel connections.
+      responses:
+        '200':
+          description: Channel connections.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnectionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '503':
+          description: 'This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      tags: [Connectors]
+      operationId: connectChannel
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Connect a messaging-channel bot for the whole workspace.
+      description: |
+        Validates the bot token with the provider, refuses a bot already delivering to another
+        installation, seals the token plus a freshly minted webhook secret, writes the connection
+        as `pending`, registers the provider webhook against it, and flips it to `connected`.
+        The row exists before the webhook is registered because the registered URL carries the
+        connection id.
+
+        A `502` means the provider could not be reached: the `pending` row is retained
+        deliberately so the connect can be retried against the id already registered, or removed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConnectChannelRequest' }
+      responses:
+        '201':
+          description: The connected channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnection' }
+        '400':
+          description: 'The bot token was rejected by the provider (`code: channel_token_rejected`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502':
+          description: 'The provider could not be reached (`code: channel_provider_unreachable`); the `pending` connection is retained for retry.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /channel-connections/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Connectors]
+      operationId: replaceChannelToken
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Replace a channel connection's bot token in place.
+      description: |
+        Re-runs the full connect sequence against the new token — including the
+        already-registered-elsewhere preflight — and passes back through `pending` on the way to
+        `connected`, so the row never claims to be live while its registration is mid-flight.
+        The connection row survives, so captured history and every channel identity binding
+        survive the rotation; provider user ids are global, so identities keep resolving even
+        when the new token belongs to a different bot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplaceChannelTokenRequest' }
+      responses:
+        '200':
+          description: The reconnected channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnection' }
+        '400':
+          description: 'The bot token was rejected by the provider (`code: channel_token_rejected`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502':
+          description: 'The provider could not be reached (`code: channel_provider_unreachable`); the `pending` connection is retained for retry.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [Connectors]
+      operationId: disconnectChannel
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Disconnect a messaging channel (revokes the webhook and the credential).
+      description: |
+        Revokes the provider webhook, archives the connection as `disconnected`, and destroys
+        both sealed secrets. Already-captured activities are retained — disconnecting stops
+        capture, it does not erase history.
+      responses:
+        '204': { description: Disconnected. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 'This deployment serves no messaging channels, or does not know its own public address (`code: channel_connections_not_configured` / `channel_public_base_url_unset`) — so it refuses rather than register a bot against an address it guessed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   # ----------------------- /webhook-subscriptions ---------------------------
   # Outbound webhook subscriptions (E10/S-E10.6, A51): a first-party outbound
   # surface — signed, retried delivery of published domain events to a
@@ -8897,6 +9042,55 @@ components:
       required: [data]
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/CaptureExclusionRule' } }
+
+    # ---- channel connections (telegram-oa design §4.1, §5) ----
+    ChannelConnection:
+      type: object
+      description: >-
+        One workspace-level messaging-channel binding. Neither the bot token nor the webhook
+        secret ever appears in this shape — both live sealed in the vault.
+      required: [id, provider, channelId, channelLabel, status, version]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [telegram] }
+        channelId:
+          type: string
+          description: The provider's own id for the bot — the key the binding is unique on.
+        channelLabel:
+          type: string
+          description: The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing.
+        status:
+          type: string
+          enum: [pending, connected, disconnected, error, reauth_required]
+          description: >-
+            `pending` means the row exists but the provider webhook is not registered yet — it is
+            NOT live, and must not be rendered as connected, or a half-registration reads exactly
+            like a healthy channel nobody is messaging.
+        version: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ChannelConnectionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ChannelConnection' } }
+    ConnectChannelRequest:
+      type: object
+      required: [provider, botToken]
+      properties:
+        provider: { type: string, enum: [telegram] }
+        botToken:
+          type: string
+          minLength: 1
+          description: The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
+    ReplaceChannelTokenRequest:
+      type: object
+      required: [botToken]
+      properties:
+        botToken:
+          type: string
+          minLength: 1
+          description: The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
 
     # ---- overlay (HubSpot mirror; design.md §11) ----
     OverlayConnection:

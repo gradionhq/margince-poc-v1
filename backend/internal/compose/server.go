@@ -77,6 +77,7 @@ type Server struct {
 	backfillHandlers
 	captureExclusionHandlers
 	captureSettingsHandlers
+	channelHandlers
 	filteredExportHandlers
 	orgRollupHandlers
 	strengthHandlers

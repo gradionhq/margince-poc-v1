@@ -111,6 +111,11 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		if s.sorDispatch != nil {
 			s.sorDispatch.SetOverlayIncumbentResolver(s.resolveOverlayIncumbent(pool))
 		}
+		// The channel connect path needs the same custodian: it seals the bot
+		// token and the webhook secret it mints, and destroys both on
+		// disconnect. A role that declared no public origin composed no channel
+		// transport, and this leaves it that way (channelconnect.go).
+		s.channelHandlers = s.WithVault(vault)
 	}
 }
 

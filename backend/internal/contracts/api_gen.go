@@ -1101,6 +1101,48 @@ func (e ChangeUserRoleRequestRole) Valid() bool {
 	}
 }
 
+// Defines values for ChannelConnectionProvider.
+const (
+	ChannelConnectionProviderTelegram ChannelConnectionProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the ChannelConnectionProvider enum.
+func (e ChannelConnectionProvider) Valid() bool {
+	switch e {
+	case ChannelConnectionProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelConnectionStatus.
+const (
+	ChannelConnectionStatusConnected      ChannelConnectionStatus = "connected"
+	ChannelConnectionStatusDisconnected   ChannelConnectionStatus = "disconnected"
+	ChannelConnectionStatusError          ChannelConnectionStatus = "error"
+	ChannelConnectionStatusPending        ChannelConnectionStatus = "pending"
+	ChannelConnectionStatusReauthRequired ChannelConnectionStatus = "reauth_required"
+)
+
+// Valid indicates whether the value is a known member of the ChannelConnectionStatus enum.
+func (e ChannelConnectionStatus) Valid() bool {
+	switch e {
+	case ChannelConnectionStatusConnected:
+		return true
+	case ChannelConnectionStatusDisconnected:
+		return true
+	case ChannelConnectionStatusError:
+		return true
+	case ChannelConnectionStatusPending:
+		return true
+	case ChannelConnectionStatusReauthRequired:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	ColdStartFieldFieldBuyingCenter      ColdStartFieldField = "buying_center"
@@ -1863,6 +1905,21 @@ func (e ComputedFieldKind) Valid() bool {
 	case ComputedFieldKindDurationMonths:
 		return true
 	case ComputedFieldKindPercent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectChannelRequestProvider.
+const (
+	ConnectChannelRequestProviderTelegram ConnectChannelRequestProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the ConnectChannelRequestProvider enum.
+func (e ConnectChannelRequestProvider) Valid() bool {
+	switch e {
+	case ConnectChannelRequestProviderTelegram:
 		return true
 	default:
 		return false
@@ -6983,22 +7040,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -8007,6 +8064,34 @@ type ChangeUserRoleRequest struct {
 // ChangeUserRoleRequestRole defines model for ChangeUserRoleRequest.Role.
 type ChangeUserRoleRequestRole string
 
+// ChannelConnection One workspace-level messaging-channel binding. Neither the bot token nor the webhook secret ever appears in this shape — both live sealed in the vault.
+type ChannelConnection struct {
+	// ChannelId The provider's own id for the bot — the key the binding is unique on.
+	ChannelId string `json:"channelId"`
+
+	// ChannelLabel The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing.
+	ChannelLabel string                    `json:"channelLabel"`
+	CreatedAt    *time.Time                `json:"createdAt,omitempty"`
+	Id           openapi_types.UUID        `json:"id"`
+	Provider     ChannelConnectionProvider `json:"provider"`
+
+	// Status `pending` means the row exists but the provider webhook is not registered yet — it is NOT live, and must not be rendered as connected, or a half-registration reads exactly like a healthy channel nobody is messaging.
+	Status    ChannelConnectionStatus `json:"status"`
+	UpdatedAt *time.Time              `json:"updatedAt,omitempty"`
+	Version   int64                   `json:"version"`
+}
+
+// ChannelConnectionProvider defines model for ChannelConnection.Provider.
+type ChannelConnectionProvider string
+
+// ChannelConnectionStatus `pending` means the row exists but the provider webhook is not registered yet — it is NOT live, and must not be rendered as connected, or a half-registration reads exactly like a healthy channel nobody is messaging.
+type ChannelConnectionStatus string
+
+// ChannelConnectionListResponse defines model for ChannelConnectionListResponse.
+type ChannelConnectionListResponse struct {
+	Data []ChannelConnection `json:"data"`
+}
+
 // ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
 // omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
 // ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
@@ -8468,6 +8553,16 @@ type ConfirmCompanySiteReadRequest struct {
 	Resolutions      *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
 	SelectedFactKeys []string                     `json:"selected_fact_keys"`
 }
+
+// ConnectChannelRequest defines model for ConnectChannelRequest.
+type ConnectChannelRequest struct {
+	// BotToken The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
+	BotToken string                        `json:"botToken"`
+	Provider ConnectChannelRequestProvider `json:"provider"`
+}
+
+// ConnectChannelRequestProvider defines model for ConnectChannelRequest.Provider.
+type ConnectChannelRequestProvider string
 
 // ConnectConnectorRequest Connect a capture source. Providers differ in kind, not in path: an OAuth provider
 // (gmail, gcal, graph) needs no body and answers with `authorize_url`; a credential
@@ -11292,6 +11387,12 @@ type RelationshipStrengthBucket string
 // RenameCustomFieldRequest Merge-PATCH; `label` only — `column_name`, `object`, and `type` are absent from this request schema entirely (immutable, not just ignored if sent).
 type RenameCustomFieldRequest struct {
 	Label *string `json:"label,omitempty"`
+}
+
+// ReplaceChannelTokenRequest defines model for ReplaceChannelTokenRequest.
+type ReplaceChannelTokenRequest struct {
+	// BotToken The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
+	BotToken string `json:"botToken"`
 }
 
 // ReportDerivation The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
@@ -15473,6 +15574,12 @@ type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
 
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
+
+// ConnectChannelJSONRequestBody defines body for ConnectChannel for application/json ContentType.
+type ConnectChannelJSONRequestBody = ConnectChannelRequest
+
+// ReplaceChannelTokenJSONRequestBody defines body for ReplaceChannelToken for application/json ContentType.
+type ReplaceChannelTokenJSONRequestBody = ReplaceChannelTokenRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
@@ -21497,6 +21604,18 @@ type ServerInterface interface {
 	// Update the workspace's capture settings (admin/ops).
 	// (PATCH /capture/settings)
 	UpdateCaptureSettings(w http.ResponseWriter, r *http.Request)
+	// List the workspace's messaging-channel connections.
+	// (GET /channel-connections)
+	ListChannelConnections(w http.ResponseWriter, r *http.Request)
+	// Connect a messaging-channel bot for the whole workspace.
+	// (POST /channel-connections)
+	ConnectChannel(w http.ResponseWriter, r *http.Request)
+	// Disconnect a messaging channel (revokes the webhook and the credential).
+	// (DELETE /channel-connections/{id})
+	DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id)
+	// Replace a channel connection's bot token in place.
+	// (PATCH /channel-connections/{id})
+	ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -22499,6 +22618,30 @@ func (_ Unimplemented) GetCaptureSettings(w http.ResponseWriter, r *http.Request
 // Update the workspace's capture settings (admin/ops).
 // (PATCH /capture/settings)
 func (_ Unimplemented) UpdateCaptureSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the workspace's messaging-channel connections.
+// (GET /channel-connections)
+func (_ Unimplemented) ListChannelConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Connect a messaging-channel bot for the whole workspace.
+// (POST /channel-connections)
+func (_ Unimplemented) ConnectChannel(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Disconnect a messaging channel (revokes the webhook and the credential).
+// (DELETE /channel-connections/{id})
+func (_ Unimplemented) DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace a channel connection's bot token in place.
+// (PATCH /channel-connections/{id})
+func (_ Unimplemented) ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -26051,6 +26194,110 @@ func (siw *ServerInterfaceWrapper) UpdateCaptureSettings(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCaptureSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChannelConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListChannelConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChannelConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectChannel operation middleware
+func (siw *ServerInterfaceWrapper) ConnectChannel(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectChannel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectChannel operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectChannel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceChannelToken operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceChannelToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceChannelToken(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -37496,6 +37743,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/capture/settings", wrapper.UpdateCaptureSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/channel-connections", wrapper.ListChannelConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/channel-connections", wrapper.ConnectChannel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/channel-connections/{id}", wrapper.DisconnectChannel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/channel-connections/{id}", wrapper.ReplaceChannelToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

@@ -29,7 +29,7 @@ stdio protocol channel). Log lines carry the per-request
 | `--webhook-key` | `MARGINCE_WEBHOOK_KEY` | — | base64 32-byte key sealing outbound-webhook signing secrets at rest; unset = the mutating `/webhook-subscriptions` paths (create/rotate, replay) answer 503, never an unsigned fallback; the read surface still lists |
 | `--ai-routing` | `MARGINCE_AI_ROUTING` | — | path to `ai-routing.yaml`; enables the cold-start read-back, per-org enrichment, the Morning-Brief L2 re-order, and AI-drafted offer regeneration |
 | `--ai-fake` | — | `false` | offline fake model (dev/test only); drives the same AI surfaces as `--ai-routing` |
-| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — and for the Gmail/Graph OAuth callback |
+| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required to send marketing mail — a send refuses rather than derive the token-bearing link from the request Host — for the Gmail/Graph OAuth callback, and (unless `--api-base-url` overrides it) as the origin a messaging-channel webhook is registered against |
 | — (env-only) | `MARGINCE_OVERLAY_BACKFILL_LIMIT` | `0` (uncapped) | same knob `cmd/worker` reads (below) — `cmd/api` also boots on it (an invalid value is a boot error here too) so the on-connect/Connect-time seeding path sees the same cap the periodic sweep does |
 
 With `--inline-relay` (the default) an unreachable Redis fails the boot:
@@ -128,7 +128,7 @@ runs the background sync.
 | `--graph-client-id` / `--graph-client-secret` | `MARGINCE_GRAPH_CLIENT_ID` / `…_SECRET` | api + worker | the Microsoft (Entra) app; same enablement shape for `/connectors/graph/*` |
 | `--graph-tenant` | `MARGINCE_GRAPH_TENANT` | api + worker | Microsoft identity tenant (default `common` — any organization) |
 | `--connector-state-key` | `MARGINCE_CONNECTOR_STATE_KEY` | api | HMAC key (≥32 bytes) signing the OAuth connect `state`; required for both connect flows |
-| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev) |
+| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the callback `redirect_uri` **and** for the messaging-channel webhook URL `POST /channel-connections` registers with the provider; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev). With neither set, connecting a channel refuses (`503 channel_public_base_url_unset`) rather than derive the address from the request Host — a bot registered against an unreachable URL reads `connected` and then falls silent |
 | `--gmail-sync-interval` | — | worker | Gmail incremental-sync poll interval (default `2m`) |
 | `--gmail-pubsub-topic` | `MARGINCE_GMAIL_PUBSUB_TOPIC` | worker | Gmail Pub/Sub topic (`projects/<p>/topics/<t>`); enables the push-watch register+renew job (empty = poll only) |
 | `--gmail-watch-interval` / `--gmail-watch-renew-within` | — | worker | push-watch maintenance scan (`6h`) / renew this far ahead of the 7-day expiry (`48h`) |
