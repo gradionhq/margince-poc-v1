@@ -24,7 +24,11 @@ package integration
 //     mode_not_overlay (AC-OV-10; AC-mode-flip-6);
 //   - the emergency cutover is refused while the incumbent is reachable,
 //     requires the export, and returns the disclosed-lossy staleness +
-//     unverifiable-parity notice when it runs (OVA-AC-6 b).
+//     unverifiable-parity notice when it runs (OVA-AC-6 b);
+//   - the pre-flip export's own endpoint streams a bundle carrying the
+//     mirror snapshot and the honest-scope manifest (AC-OV-9), audits it
+//     only once complete, and an aborted stream leaves the flip's
+//     export_missing gate shut.
 //
 // Use-case derivations this lane discharges:
 //   - E2E-UC-E18-04.preflight-fail / .confirm-gate / .honest-skips —
@@ -44,7 +48,6 @@ package integration
 // for upstream reconciliation instead.
 
 import (
-	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -605,27 +608,27 @@ func TestOverlayExportDownload(t *testing.T) {
 		t.Errorf("Content-Disposition = %q, want an attachment", resp.Header.Get("Content-Disposition"))
 	}
 
-	// A real archive, carrying the overlay-mode manifest disclosure the
-	// flip's honest-scope gate is about (AC-OV-9).
-	zr, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
-	if err != nil {
-		t.Fatalf("the downloaded bundle is not a zip: %v", err)
-	}
+	// A real archive carrying BOTH halves of AC-OV-9: the mirror
+	// snapshot members, and the manifest line disclosing that canonical
+	// data still resides in the incumbent.
+	entries := bundleEntries(t, body)
 	var manifest struct {
 		CanonicalDataResidesIn string `json:"canonical_data_resides_in"`
 	}
-	mf, err := zr.Open("manifest.json")
-	if err != nil {
-		t.Fatalf("bundle has no manifest: %v", err)
-	}
-	if err := json.NewDecoder(mf).Decode(&manifest); err != nil {
+	if err := json.Unmarshal(entries["manifest.json"], &manifest); err != nil {
 		t.Fatalf("decoding the manifest: %v", err)
-	}
-	if err := mf.Close(); err != nil {
-		t.Fatalf("closing the manifest: %v", err)
 	}
 	if manifest.CanonicalDataResidesIn != "hubspot" {
 		t.Errorf("manifest discloses %q, want the incumbent — P7 is partial until the flip", manifest.CanonicalDataResidesIn)
+	}
+	for _, member := range []string{"overlay_mirror.csv", "overlay_association.csv", "mirror_user_map.csv"} {
+		if len(entries[member]) == 0 {
+			t.Errorf("bundle has no %s — an overlay-mode export must carry the mirror snapshot", member)
+		}
+	}
+	// The mirror member carries the seeded estate, not just a header.
+	if rows := bytes.Count(entries["overlay_mirror.csv"], []byte("\n")); rows < 8 {
+		t.Errorf("overlay_mirror.csv has %d line(s), want a header plus the 8 seeded rows", rows)
 	}
 
 	// Exactly one audit row, and it satisfies the preflight's gate.
@@ -639,4 +642,57 @@ func TestOverlayExportDownload(t *testing.T) {
 	if hasBlocking(verdict, "export_missing") {
 		t.Error("a completed export must clear the export_missing gate")
 	}
+}
+
+// The export audit row is what the flip's export_missing gate reads, so
+// it must mean "a complete bundle exists" — not "an export was
+// attempted". A stream that dies partway must leave the gate shut;
+// asserting only the happy path would pass just as well with the audit
+// written BEFORE the bundle, which is the ordering this pins.
+func TestAbortedExportDoesNotSatisfyTheFlipGate(t *testing.T) {
+	f := setupFlipEstate(t)
+
+	auditRows := func() int {
+		t.Helper()
+		var n int
+		f.inWorkspaceTx(t, func(tx pgx.Tx) error {
+			return tx.QueryRow(f.adminCtx,
+				`SELECT count(*) FROM audit_log WHERE entity_type = 'workspace' AND action = 'export'`).Scan(&n)
+		})
+		return n
+	}
+
+	// A writer that dies after the first bytes, the way a client that
+	// disconnects mid-download does.
+	failing := &failAfterWriter{limit: 64}
+	if _, err := compose.NewExportWriter(f.pool).WriteBundle(f.adminCtx, failing); err == nil {
+		t.Fatal("a bundle whose destination fails must surface the error, not report success")
+	}
+	if got := auditRows(); got != 0 {
+		t.Fatalf("aborted export wrote %d audit row(s); the flip's export gate would clear with no bundle behind it", got)
+	}
+
+	// And the preflight still blocks on it.
+	var verdict crmcontracts.OverlayFlipPreflight
+	if code := f.e.call(t, "POST", "/v1/overlay/flip:preflight", anyMap{}, nil, &verdict); code != http.StatusOK {
+		t.Fatalf("preflight = %d", code)
+	}
+	if !hasBlocking(verdict, "export_missing") {
+		t.Error("an aborted export must leave export_missing blocking")
+	}
+}
+
+// failAfterWriter accepts limit bytes and then fails, standing in for a
+// client that disconnects mid-download.
+type failAfterWriter struct {
+	limit   int
+	written int
+}
+
+func (w *failAfterWriter) Write(p []byte) (int, error) {
+	w.written += len(p)
+	if w.written > w.limit {
+		return 0, errors.New("client went away mid-stream")
+	}
+	return len(p), nil
 }

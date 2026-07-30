@@ -86,7 +86,7 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 		"createStage": true, "updateStage": true,
 		"issuePassport": true, "revokePassport": true,
 		"issueDoubleOptIn": true,
-		// The two overlay entries below are pinned because the contract
+		// The overlay entries below are pinned because the contract
 		// annotation alone is a line someone can re-add: without them a
 		// revert restores an agent-reachable op with every other gate,
 		// arch and drift test still green.

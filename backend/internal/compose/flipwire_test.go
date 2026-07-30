@@ -3,11 +3,12 @@
 
 package compose
 
-// The flip's wire-shaping and operator resolution, unit-tested: these
-// decide what an operator is TOLD about a cutover — the disclosed-lossy
-// notice, whether the emergency path is offered at all, and who inherits
-// records the incumbent left unowned. Getting them wrong is a silent
-// misrepresentation rather than a failure.
+// The flip's wire-shaping, operator resolution, and field mapping,
+// unit-tested: these decide what an operator is TOLD about a cutover —
+// the disclosed-lossy notice, whether the emergency path is offered at
+// all, who inherits records the incumbent left unowned — and which
+// native column each incumbent value lands in. Getting them wrong is a
+// silent misrepresentation rather than a failure.
 
 import (
 	"context"
@@ -146,12 +147,22 @@ func TestFlipAddressOnlyBuildsAnAddressThatSaysSomething(t *testing.T) {
 	if full == nil {
 		t.Fatal("a populated incumbent address must map to a native Address")
 	}
-	for field, got := range map[string]*string{
-		"line1": full.Line1, "city": full.City, "region": full.Region,
-		"postal_code": full.PostalCode, "country": full.Country,
+	// VALUES, not presence: this function's whole job is renaming the
+	// incumbent's keys onto the native ones (address→Line1, state→Region,
+	// zip→PostalCode), so a presence-only check would pass a
+	// transposition that ships a wrong postcode into every flipped row.
+	for field, pair := range map[string]struct {
+		got  *string
+		want string
+	}{
+		"line1":       {full.Line1, "12 Main St"},
+		"city":        {full.City, "Frankfurt"},
+		"region":      {full.Region, "HE"},
+		"postal_code": {full.PostalCode, "60311"},
+		"country":     {full.Country, "DE"},
 	} {
-		if got == nil || *got == "" {
-			t.Errorf("%s did not carry through: %+v", field, full)
+		if pair.got == nil || *pair.got != pair.want {
+			t.Errorf("%s = %v, want %q", field, pair.got, pair.want)
 		}
 	}
 
