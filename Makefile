@@ -3,7 +3,7 @@
 # The frontend lane is separate (`make frontend-check`) — it needs node+pnpm,
 # which not every backend machine has; CI runs both.
 
-.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot mcp-inspector frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks
+.PHONY: help install ai-routing-local dev-fresh check check-backend check-q check-go check-fe build test test-v test-cover test-integration e2e-ai e2e-ai-report test-db-up test-it test-integration-serial bench-perf lint arch-lint vet gen gen-types gen-types-check drift composition check-composition test-extensions db-up db-init db-wait migrate migrate-up migrate-down run psql redis-cli tidy dev dev-stop dev-logs clean tools tools-go infra-up infra-down infra-logs infra-reset seed-dev seed-dev-db seed-reset verify-boot mcp-inspector frontend-check frontend-e2e fe-install fe-typecheck fe-lint fe-build fe-preview fe-format fe-test ds-purity font-lock icon-lint fitness-jurisdiction storybook fe-uat craft-static craft-residue check-craft-doc check-image-pins contract-breaking-check test-lanes go-file-length rls-store-path no-jurisdiction pkg-freeze hooks sbom sbom-sign sbom-check
 
 # Bare `make` lists every command instead of running the first target.
 .DEFAULT_GOAL := help
@@ -305,3 +305,58 @@ pkg-freeze:
 hooks:
 	git config core.hooksPath .githooks
 	@echo "installed: core.hooksPath=.githooks (pre-push runs craft static on changed backend files)"
+
+# --- SBOM (software bill of materials, issue #331) ---
+# Repo-wide (backend + frontend + extensions), so it lives at the root, not
+# delegated to backend/. syft / grant / cosign run through digest-pinned Docker
+# images so the toolchain has zero host dependencies and a registry tag re-push
+# cannot swap the tools that read the repo and hold a signing identity. Tags are
+# comments — bump tag and digest together. Override SYFT/GRANT/COSIGN to use
+# host binaries (e.g. `make sbom SYFT=syft GRANT=grant`).
+SBOM_DIR     := sboms
+SYFT_IMAGE   ?= anchore/syft@sha256:1288ea4c8b38767b4e620c1e312c8cb26b6e887a99b4f07ab6cd19fc6f225026 # v1.50.0
+GRANT_IMAGE  ?= anchore/grant@sha256:172463611795f43b77302cdfbd7b3f81295492a7330e0820cfe41c3674920237 # v0.6.8
+COSIGN_IMAGE ?= gcr.io/projectsigstore/cosign@sha256:c77247c92f4dfea851c70555738226498393e34e2f9ca83cb959e51c230e4ad7 # v2.4.3
+DOCKER_SBOM  := docker run --rm -v "$(CURDIR)":/src -w /src
+SYFT         ?= $(DOCKER_SBOM) $(SYFT_IMAGE)
+GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
+# cosign's image runs as uid 65532, which cannot create files in the invoking
+# user's sboms/ dir through the bind mount — run it as root (syft's image does).
+# The OIDC env vars are ambient in CI (id-token: write).
+COSIGN       ?= $(DOCKER_SBOM) -u 0 -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
+# Scan a clean export of committed HEAD, so host state (node_modules, .env, IDE
+# files) never leaks into the SBOM and .gitignore stays the single authority.
+SBOM_SRC     := .tmp/sbom-src
+# Release tag when HEAD is exactly on one, else dev-<short-revision>. The dev-
+# prefix marks an unreleased build at a glance; --exact-match avoids git
+# describe's nearest-tag "-N-g<sha>" form leaking a non-release tag (e.g.
+# archive/*) into the version.
+SBOM_VERSION ?= $(shell git describe --tags --exact-match 2>/dev/null || echo "dev-$$(git rev-parse --short HEAD 2>/dev/null || echo unknown)")
+SBOM_FILES   := $(SBOM_DIR)/margince.cdx.json $(SBOM_DIR)/margince.spdx221.json $(SBOM_DIR)/margince.spdx300.json
+
+## sbom — generate the source-tree SBOMs (CycloneDX + SPDX 2.2.1 + SPDX 3.0)
+## from a clean export of HEAD, license-enriched. Signing is separate: make sbom-sign (CI).
+sbom:
+	@mkdir -p $(SBOM_DIR)
+	@set -e; src=$(SBOM_SRC); \
+	  rm -rf "$$src"; mkdir -p "$$src"; \
+	  trap 'rm -rf "$$src"' EXIT; \
+	  git archive HEAD | tar -x -C "$$src"; \
+	  $(SYFT) scan dir:"$$src" -c .syft.yaml --source-version "$(SBOM_VERSION)" \
+	    -o cyclonedx-json=$(SBOM_DIR)/margince.cdx.json \
+	    -o spdx-json@2.2=$(SBOM_DIR)/margince.spdx221.json \
+	    -o spdx-json@3.0=$(SBOM_DIR)/margince.spdx300.json
+	@echo "wrote $(SBOM_FILES)"
+
+## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
+sbom-sign:
+	@for f in $(SBOM_FILES); do \
+	  echo "signing $$f"; \
+	  $(COSIGN) sign-blob --yes --bundle "$$f.cosign.bundle" "$$f" || exit 1; \
+	done
+	@echo "signed: $(addsuffix .cosign.bundle,$(SBOM_FILES))"
+
+## sbom-check — license gate: grant fails if any bundled dependency uses a non-allowed license (.grant.yaml).
+sbom-check:
+	@test -f $(SBOM_DIR)/margince.cdx.json || { echo "FAIL: no SBOM found — run 'make sbom' first"; exit 1; }
+	@$(GRANT) check $(SBOM_DIR)/margince.cdx.json -c .grant.yaml
