@@ -18,13 +18,40 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"slices"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
-// protocolVersion is the MCP revision this server implements.
-const protocolVersion = "2025-03-26"
+// supportedProtocolVersions are the MCP revisions this server satisfies,
+// NEWEST FIRST. initialize echoes the client's requested revision when we
+// support it and otherwise answers with the newest — a stale list silently
+// downgrades every modern client, so this is verified against the spec when
+// it changes.
+//
+// The list stops at 2025-11-25 on purpose: 2026-07-28 and later are a
+// different era — the spec's own terminology names them "modern" — with no
+// initialize handshake at all (the protocol version travels per-request in
+// the _meta key io.modelcontextprotocol/protocolVersion, server/discover is
+// mandatory, and a version mismatch answers UnsupportedProtocolVersionError
+// -32022). This server is "legacy": it establishes a session via initialize,
+// full stop. Prepending a modern revision here would advertise a handshake
+// this server does not honor; modern-era support is a named follow-up.
+// 2024-11-05 is excluded too — it predates Streamable HTTP (HTTP+SSE only),
+// a transport this server does not serve.
+var supportedProtocolVersions = []string{"2025-11-25", "2025-06-18", "2025-03-26"}
+
+// negotiateProtocolVersion answers the client's requested MCP revision when
+// this server satisfies it, and otherwise the newest revision this server
+// satisfies — never the client's unsupported one, which would silently
+// promise a handshake we cannot honor.
+func negotiateProtocolVersion(requested string) string {
+	if slices.Contains(supportedProtocolVersions, requested) {
+		return requested
+	}
+	return supportedProtocolVersions[0]
+}
 
 // Binder authenticates one tool call: it returns a context carrying the
 // workspace, the agent Principal and a fresh correlation scope. It runs
@@ -118,8 +145,20 @@ func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
 	resp := rpcResponse{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
+		var params struct {
+			ProtocolVersion string `json:"protocolVersion"`
+		}
+		// Params is optional on the wire; only unmarshal when the client sent
+		// some, so an omitted field (not malformed JSON) falls through to the
+		// negotiator's absent-value default rather than an error.
+		if len(req.Params) > 0 {
+			if err := json.Unmarshal(req.Params, &params); err != nil {
+				resp.Error = &rpcError{Code: -32602, Message: "invalid params: " + err.Error()}
+				return resp
+			}
+		}
 		resp.Result = map[string]any{
-			"protocolVersion": protocolVersion,
+			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
 		}

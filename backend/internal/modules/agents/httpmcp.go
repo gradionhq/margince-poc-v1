@@ -14,6 +14,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
@@ -75,6 +77,24 @@ func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (contex
 		if err := json.Unmarshal(body, &req); err != nil {
 			//craft:ignore swallowed-errors a failed write of the parse-error response means the client hung up — there is no channel left to report on
 			_ = json.NewEncoder(w).Encode(rpcResponse{JSONRPC: "2.0", Error: &rpcError{Code: -32700, Message: "parse error"}})
+			return
+		}
+		// A present-and-unsupported MCP-Protocol-Version is refused with a
+		// plain 400 whose body is prose, NEVER a modern-era -32022
+		// UnsupportedProtocolVersionError: the spec has a dual-era client
+		// identify a legacy server by seeing a 4xx without a recognized
+		// modern error body, and only then fall back to initialize. A -32022
+		// body would read as a modern server rejecting a mismatched version,
+		// so the client would retry with a modern (handshake-free,
+		// _meta-carrying) request this server can never serve — turning a
+		// working fallback into a hard failure. initialize itself is exempt:
+		// negotiation for that call happens through its own request body,
+		// not this header, and older clients omit the header entirely until
+		// they have a negotiated version to send.
+		if v := r.Header.Get("MCP-Protocol-Version"); req.Method != "initialize" && v != "" &&
+			!slices.Contains(supportedProtocolVersions, v) {
+			http.Error(w, "unsupported MCP-Protocol-Version; this server supports: "+
+				strings.Join(supportedProtocolVersions, ", "), http.StatusBadRequest)
 			return
 		}
 		if req.ID == nil {

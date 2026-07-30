@@ -6,6 +6,7 @@ package agents
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +15,13 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
+
+// passthroughBind is a Binder that returns its input context unchanged — the
+// negotiation tests below exercise handle() directly and have no session to
+// authenticate.
+func passthroughBind(ctx context.Context) (context.Context, error) {
+	return ctx, nil
+}
 
 // The tool client sits outside the trust boundary: an error the sentinel
 // taxonomy does not know (driver text, hosts, wrap chains) surfaces as a
@@ -87,5 +95,33 @@ func TestCallScrubsBindFailures(t *testing.T) {
 	}
 	if !strings.Contains(logBuf.String(), "connection refused") {
 		t.Error("the real bind failure was not logged server-side")
+	}
+}
+
+func TestInitializeNegotiatesTheClientsProtocolRevision(t *testing.T) {
+	s := NewStdioServer(NewRegistry(nil, nil), passthroughBind, "margince-crm", "test")
+	for _, tc := range []struct{ name, requested, want string }{
+		{"echoes a supported revision", supportedProtocolVersions[len(supportedProtocolVersions)-1],
+			supportedProtocolVersions[len(supportedProtocolVersions)-1]},
+		{"newest when unsupported", "1999-01-01", supportedProtocolVersions[0]},
+		{"newest when absent", "", supportedProtocolVersions[0]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			params := `{}`
+			if tc.requested != "" {
+				params = fmt.Sprintf(`{"protocolVersion":%q}`, tc.requested)
+			}
+			resp := s.handle(context.Background(), rpcRequest{
+				JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "initialize",
+				Params: json.RawMessage(params),
+			})
+			result, ok := resp.Result.(map[string]any)
+			if !ok {
+				t.Fatalf("result = %#v", resp.Result)
+			}
+			if result["protocolVersion"] != tc.want {
+				t.Fatalf("protocolVersion = %v, want %v", result["protocolVersion"], tc.want)
+			}
+		})
 	}
 }
