@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
@@ -238,7 +239,10 @@ func attachPersonChildren(ctx context.Context, tx pgx.Tx, people []crmcontracts.
 	if err := attachPersonPhones(ctx, tx, idx, personIDs); err != nil {
 		return err
 	}
-	return attachPersonSocial(ctx, tx, idx, personIDs)
+	if err := attachPersonSocial(ctx, tx, idx, personIDs); err != nil {
+		return err
+	}
+	return attachPersonReachability(ctx, tx, idx, personIDs)
 }
 
 func attachPersonEmails(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUID]*crmcontracts.Person, personIDs []ids.UUID) error {
@@ -316,4 +320,46 @@ func attachPersonSocial(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UU
 		(*p.Social)[platform] = handle
 	}
 	return socialRows.Err()
+}
+
+// attachPersonReachability loads the reachability projection (design §6.6):
+// {provider, reachable, since}, never the raw channel_user_id — an opaque
+// third-party account identifier belongs in a governed read, not this broad
+// one. A blocked identity is still a live row (archived_at IS NULL), so it
+// still appears here, with reachable=false — the record must keep showing
+// that a conversation exists even when a reply cannot currently be delivered.
+func attachPersonReachability(ctx context.Context, tx pgx.Tx, idx map[openapi_types.UUID]*crmcontracts.Person, personIDs []ids.UUID) error {
+	rows, err := tx.Query(ctx,
+		`SELECT person_id, provider, blocked_at, created_at
+		 FROM person_channel_identity WHERE person_id = ANY($1) AND archived_at IS NULL
+		 ORDER BY provider, created_at`, personIDs)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var personID ids.UUID
+		var provider string
+		var blockedAt, createdAt time.Time
+		var blockedAtPtr *time.Time
+		if err := rows.Scan(&personID, &provider, &blockedAtPtr, &createdAt); err != nil {
+			return err
+		}
+		since := createdAt
+		if blockedAtPtr != nil {
+			blockedAt = *blockedAtPtr
+			since = blockedAt
+		}
+		r := crmcontracts.PersonReachability{
+			Provider:  crmcontracts.PersonReachabilityProvider(provider),
+			Reachable: blockedAtPtr == nil,
+			Since:     since,
+		}
+		p := idx[openapi_types.UUID(personID)]
+		if p.Reachability == nil {
+			p.Reachability = &[]crmcontracts.PersonReachability{}
+		}
+		*p.Reachability = append(*p.Reachability, r)
+	}
+	return rows.Err()
 }

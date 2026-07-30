@@ -4266,6 +4266,21 @@ func (e PersonPhonePhoneType) Valid() bool {
 	}
 }
 
+// Defines values for PersonReachabilityProvider.
+const (
+	PersonReachabilityProviderTelegram PersonReachabilityProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the PersonReachabilityProvider enum.
+func (e PersonReachabilityProvider) Valid() bool {
+	switch e {
+	case PersonReachabilityProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PreferenceCenterPurposesState.
 const (
 	PreferenceCenterPurposesStateGranted   PreferenceCenterPurposesState = "granted"
@@ -6221,31 +6236,31 @@ func (e CapturedByKind) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	Call     ListActivitiesParamsKind = "call"
-	Email    ListActivitiesParamsKind = "email"
-	Meeting  ListActivitiesParamsKind = "meeting"
-	Note     ListActivitiesParamsKind = "note"
-	Task     ListActivitiesParamsKind = "task"
-	Telegram ListActivitiesParamsKind = "telegram"
-	Whatsapp ListActivitiesParamsKind = "whatsapp"
+	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
+	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
+	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
+	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
+	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
+	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
+	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case Call:
+	case ListActivitiesParamsKindCall:
 		return true
-	case Email:
+	case ListActivitiesParamsKindEmail:
 		return true
-	case Meeting:
+	case ListActivitiesParamsKindMeeting:
 		return true
-	case Note:
+	case ListActivitiesParamsKindNote:
 		return true
-	case Task:
+	case ListActivitiesParamsKindTask:
 		return true
-	case Telegram:
+	case ListActivitiesParamsKindTelegram:
 		return true
-	case Whatsapp:
+	case ListActivitiesParamsKindWhatsapp:
 		return true
 	default:
 		return false
@@ -10829,6 +10844,13 @@ type Person struct {
 	Phones       *[]PersonPhone          `json:"phones,omitempty"`
 	Raw          *map[string]interface{} `json:"raw,omitempty"`
 
+	// Reachability Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+	// Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+	// third-party identifier) stays out of this broad read; a governed surface owns it.
+	// A blocked identity still appears here, with `reachable: false`, so the record keeps
+	// showing that a conversation exists even when a reply cannot currently be delivered.
+	Reachability *[]PersonReachability `json:"reachability,omitempty"`
+
 	// Social { linkedin, twitter, github, ... }
 	Social *map[string]interface{} `json:"social,omitempty"`
 	Source string                  `json:"source"`
@@ -10916,6 +10938,19 @@ type PersonPhone struct {
 
 // PersonPhonePhoneType defines model for PersonPhone.PhoneType.
 type PersonPhonePhoneType string
+
+// PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
+// `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+type PersonReachability struct {
+	Provider  PersonReachabilityProvider `json:"provider"`
+	Reachable bool                       `json:"reachable"`
+
+	// Since When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+	Since time.Time `json:"since"`
+}
+
+// PersonReachabilityProvider defines model for PersonReachability.Provider.
+type PersonReachabilityProvider string
 
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {
@@ -19191,6 +19226,14 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "raw")
 	}
 
+	if raw, found := object["reachability"]; found {
+		err = json.Unmarshal(raw, &a.Reachability)
+		if err != nil {
+			return fmt.Errorf("error reading 'reachability': %w", err)
+		}
+		delete(object, "reachability")
+	}
+
 	if raw, found := object["social"]; found {
 		err = json.Unmarshal(raw, &a.Social)
 		if err != nil {
@@ -19360,6 +19403,13 @@ func (a Person) MarshalJSON() ([]byte, error) {
 		object["raw"], err = json.Marshal(a.Raw)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'raw': %w", err)
+		}
+	}
+
+	if a.Reachability != nil {
+		object["reachability"], err = json.Marshal(a.Reachability)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'reachability': %w", err)
 		}
 	}
 

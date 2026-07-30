@@ -9349,6 +9349,20 @@ components:
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
 
+    PersonReachability:
+      type: object
+      description: |
+        Whether a reply on this channel can currently be delivered (design §6.6) — a live
+        `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+      required: [provider, reachable, since]
+      properties:
+        provider: { type: string, enum: [telegram] }
+        reachable: { type: boolean }
+        since:
+          type: string
+          format: date-time
+          description: When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+
     RelationshipStrength:
       type: object
       description: |
@@ -9401,6 +9415,16 @@ components:
         phones:
           type: array
           items: { $ref: '#/components/schemas/PersonPhone' }
+        reachability:
+          type: array
+          readOnly: true
+          description: |
+            Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+            Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+            third-party identifier) stays out of this broad read; a governed surface owns it.
+            A blocked identity still appears here, with `reachable: false`, so the record keeps
+            showing that a conversation exists even when a reply cannot currently be delivered.
+          items: { $ref: '#/components/schemas/PersonReachability' }
         consent:
           type: array
           readOnly: true

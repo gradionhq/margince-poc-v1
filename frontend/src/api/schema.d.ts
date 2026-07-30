@@ -5819,6 +5819,20 @@ export interface components {
             archived_at?: string | null;
         };
         /**
+         * @description Whether a reply on this channel can currently be delivered (design §6.6) — a live
+         *     `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+         */
+        PersonReachability: {
+            /** @enum {string} */
+            provider: "telegram";
+            reachable: boolean;
+            /**
+             * Format: date-time
+             * @description When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+             */
+            since: string;
+        };
+        /**
          * @description Deterministic relationship-strength (features/07 §4) — a transparent function over captured
          *     interaction features (recency, frequency, direction, reciprocity), NOT a trained model. A fixed
          *     interaction set + fixed clock yields a stable value (P6/P12). The `factors` decompose the score and
@@ -5877,6 +5891,14 @@ export interface components {
             address?: components["schemas"]["Address"];
             emails?: components["schemas"]["PersonEmail"][];
             phones?: components["schemas"]["PersonPhone"][];
+            /**
+             * @description Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+             *     Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+             *     third-party identifier) stays out of this broad read; a governed surface owns it.
+             *     A blocked identity still appears here, with `reachable: false`, so the record keeps
+             *     showing that a conversation exists even when a reply cannot currently be delivered.
+             */
+            readonly reachability?: components["schemas"]["PersonReachability"][];
             /**
              * @description Per-purpose consent summary (A22/ADR-0011). Read-only derived view of the `person_consent`
              *     rows; one entry per purpose the workspace tracks. The single flat `consent_state` flag was
