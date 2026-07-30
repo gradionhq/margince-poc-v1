@@ -107,11 +107,17 @@ func TestEveryBackfillRunWriteSettlesTheInFlightTally(t *testing.T) {
 	}
 	// Consts first, across every file: the shared reset fragment is declared in
 	// one file and concatenated into statements written in others.
-	// Repeat until the map stops growing: a fragment can be assembled from
-	// another fragment declared in a different file, and one pass would leave
-	// the outer one unresolved.
+	// Repeat until the map stops growing — a real fixed point, with no
+	// iteration budget. A fragment can be assembled from another fragment, and
+	// each pass resolves one more link of such a chain, so the passes needed
+	// track the chain's DEPTH. Bounding the loop by the file count instead
+	// happened to be enough only because this package has more files than any
+	// chain has links: one file holding a two-link chain would have exhausted
+	// the budget early and left the outer fragment unresolved, which reads as a
+	// correct write clearing nothing. Termination is not at risk: consts only
+	// grows, and it is bounded by the number of const declarations in the tree.
 	consts := map[string]string{}
-	for range files {
+	for {
 		before := len(consts)
 		for _, file := range files {
 			collectStringConsts(file, consts)
