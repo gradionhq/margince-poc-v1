@@ -269,9 +269,16 @@ func (h Handlers) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 		httperr.NotImplemented(w, r, "executeOverlayFlip")
 		return
 	}
+	// The body is optional at the contract (an absent one is not a
+	// breaking change on a previously body-less op) but a flip without
+	// the typed phrase is refused all the same: an empty body decodes to
+	// the zero request, which the runner rejects with the same 422 the
+	// phrase gate answers.
 	var req crmcontracts.OverlayFlipRequest
-	if !httperr.Decode(w, r, &req) {
-		return
+	if r.ContentLength != 0 {
+		if !httperr.Decode(w, r, &req) {
+			return
+		}
 	}
 	accepted, err := h.flip.Execute(r.Context(), req)
 	if err != nil {

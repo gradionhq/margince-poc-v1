@@ -166,6 +166,23 @@ func (s *RunStore) Latest(ctx context.Context, connector string) (Run, error) {
 	return run, nil
 }
 
+// FlipImportRunning answers, inside the caller's transaction, whether a
+// mirror-connector run (the overlay→native flip's import) is mid-run.
+// The overlay module's Disconnect consults it through an injected probe
+// so tearing the mirror down cannot race a running import — a read, not
+// a mutation, so it carries no RBAC gate of its own beyond the
+// transaction the caller already authorized.
+func FlipImportRunning(ctx context.Context, tx pgx.Tx) (bool, error) {
+	var running bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM import_run WHERE connector = $1 AND status = $2)`,
+		ConnectorMirror, StatusRunning,
+	).Scan(&running); err != nil {
+		return false, fmt.Errorf("migration: checking for a running flip import: %w", err)
+	}
+	return running, nil
+}
+
 // advanceCheckpoint moves the resume cursor forward — called after every
 // upsert (IEM-FORM-1), so a killed run restarts from the last landed row,
 // never from zero and never past it.

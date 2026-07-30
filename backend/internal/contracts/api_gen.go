@@ -11039,6 +11039,21 @@ type OverlayFlipAccepted struct {
 // OverlayFlipAcceptedMode defines model for OverlayFlipAccepted.Mode.
 type OverlayFlipAcceptedMode string
 
+// OverlayFlipParityEntry One object class's parity preview row (AC-mode-flip-7).
+type OverlayFlipParityEntry struct {
+	MirrorCount int                      `json:"mirror_count"`
+	Object      string                   `json:"object"`
+	Skipped     *[]OverlayFlipParitySkip `json:"skipped,omitempty"`
+	WillCreate  int                      `json:"will_create"`
+	WillUpdate  int                      `json:"will_update"`
+}
+
+// OverlayFlipParitySkip One row the importer cannot carry, disclosed with its reason (never silently dropped).
+type OverlayFlipParitySkip struct {
+	ExternalId string `json:"external_id"`
+	Reason     string `json:"reason"`
+}
+
 // OverlayFlipPreflight The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[], unresolved_conflicts[]}` plus the sealed snapshot and parity preview when ready, and the emergency-cutover disclosure when the incumbent is unreachable (ADR-0071 / OVA-AC-6).
 type OverlayFlipPreflight struct {
 	// Blocking Why the flip cannot run, empty when ready. `incumbent_unreachable` is the OVA-AC-6(a) honest block — the connection is revoked/error, so the force-fresh sync cannot pass; the workspace stays in overlay on its last mirror.
@@ -11053,30 +11068,14 @@ type OverlayFlipPreflight struct {
 	} `json:"emergency,omitempty"`
 
 	// Parity The parity dry-run against the sealed snapshot — writes zero CRM rows; skipped rows are disclosed with reasons, never silently dropped (AC-mode-flip-7).
-	Parity *[]struct {
-		MirrorCount int    `json:"mirror_count"`
-		Object      string `json:"object"`
-		Skipped     *[]struct {
-			ExternalId string `json:"external_id"`
-			Reason     string `json:"reason"`
-		} `json:"skipped,omitempty"`
-		WillCreate int `json:"will_create"`
-		WillUpdate int `json:"will_update"`
-	} `json:"parity,omitempty"`
-	Ready bool `json:"ready"`
+	Parity *[]OverlayFlipParityEntry `json:"parity,omitempty"`
+	Ready  bool                      `json:"ready"`
 
-	// Snapshot The frozen mirror snapshot the flip will import; sealed only while every check is green, unsealed again by any blocker.
-	Snapshot *struct {
-		FrozenAt time.Time `json:"frozen_at"`
-		Id       string    `json:"id"`
-	} `json:"snapshot,omitempty"`
+	// Snapshot The sealed frozen-mirror snapshot the flip imports.
+	Snapshot *OverlayFlipSnapshot `json:"snapshot,omitempty"`
 
-	// UnresolvedConflicts Open incumbent-wins conflicts awaiting acceptance; each blocks the flip.
-	UnresolvedConflicts []struct {
-		ExternalId  string  `json:"external_id"`
-		ObjectClass string  `json:"object_class"`
-		Property    *string `json:"property,omitempty"`
-	} `json:"unresolved_conflicts"`
+	// UnresolvedConflicts Open incumbent-wins conflicts awaiting acceptance; each blocks the flip. Empty in this build: branch 1 reconciliation resolves incumbent-wins at ingest and persists no conflict queue, so the producer arrives with write-back (branch 2). The field is required by OVA-WIRE-7's response shape.
+	UnresolvedConflicts []OverlayFlipUnresolvedConflict `json:"unresolved_conflicts"`
 }
 
 // OverlayFlipPreflightBlocking defines model for OverlayFlipPreflight.Blocking.
@@ -11093,6 +11092,19 @@ type OverlayFlipRequest struct {
 
 // OverlayFlipRequestMode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
 type OverlayFlipRequestMode string
+
+// OverlayFlipSnapshot The sealed frozen-mirror snapshot the flip imports.
+type OverlayFlipSnapshot struct {
+	FrozenAt time.Time `json:"frozen_at"`
+	Id       string    `json:"id"`
+}
+
+// OverlayFlipUnresolvedConflict One open incumbent-wins conflict blocking the flip.
+type OverlayFlipUnresolvedConflict struct {
+	ExternalId  string  `json:"external_id"`
+	ObjectClass string  `json:"object_class"`
+	Property    *string `json:"property,omitempty"`
+}
 
 // OverlayOwner defines model for OverlayOwner.
 type OverlayOwner struct {
@@ -22423,6 +22435,9 @@ type ServerInterface interface {
 	// Connect the workspace's overlay incumbent (HubSpot).
 	// (POST /overlay/connection)
 	ConnectOverlay(w http.ResponseWriter, r *http.Request)
+	// Download the workspace export bundle — the flip's pre-flip export producer.
+	// (GET /overlay/export)
+	DownloadOverlayExport(w http.ResponseWriter, r *http.Request)
 	// Execute the overlay→native flip, running the migration.
 	// (POST /overlay/flip)
 	ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request)
@@ -23770,6 +23785,12 @@ func (_ Unimplemented) GetOverlayConnection(w http.ResponseWriter, r *http.Reque
 // Connect the workspace's overlay incumbent (HubSpot).
 // (POST /overlay/connection)
 func (_ Unimplemented) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Download the workspace export bundle — the flip's pre-flip export producer.
+// (GET /overlay/export)
+func (_ Unimplemented) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31869,6 +31890,26 @@ func (siw *ServerInterfaceWrapper) ConnectOverlay(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadOverlayExport operation middleware
+func (siw *ServerInterfaceWrapper) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadOverlayExport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ExecuteOverlayFlip operation middleware
 func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 
@@ -31895,8 +31936,6 @@ func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *
 func (siw *ServerInterfaceWrapper) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -38588,6 +38627,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/connection", wrapper.ConnectOverlay)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/export", wrapper.DownloadOverlayExport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/flip", wrapper.ExecuteOverlayFlip)

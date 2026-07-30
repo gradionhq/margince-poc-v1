@@ -7997,10 +7997,39 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayBudget' } } } }
 
+  /overlay/export:
+    get:
+      tags: [Overlay]
+      operationId: downloadOverlayExport
+      security: [ { cookieAuth: [] } ]   # human session only — bulk egress, same posture as createFilteredExport
+      x-agent-access: human-only
+      summary: Download the workspace export bundle — the flip's pre-flip export producer.
+      description: >-
+        Streams the open-format margince-export/1 bundle (CSV per object +
+        relational JSON + manifests). In overlay mode it carries the mirror
+        snapshot under the caller's mirror-visibility deny-join and the
+        honest-scope manifest (AC-OV-9), and writing it records the export
+        audit entry the flip preflight's export-recency check reads
+        (B-E18.26). Admin/ops only (the overlay_connection UPDATE grant):
+        this is the cutover operator's surface. Spec-fill note: the general
+        export-run lifecycle (IEM-WIRE-1/2) is the import-export-migration
+        chapter's own unminted contract extension — this op is the overlay
+        lifecycle's bundle producer until that lands, raised upstream.
+      responses:
+        '200':
+          description: The bundle as a downloadable ZIP attachment.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+
   /overlay/flip:preflight:
     post:
       tags: [Overlay]
       operationId: preflightOverlayFlip
+      security: [ { cookieAuth: [] } ]   # human session only — a green preflight FREEZES the mirror (x-agent-access: human-only)
+      x-agent-access: human-only
       summary: Dry-run the overlay→native flip's readiness checks without executing it.
       description: >-
         The B-E18.26 gate (OVA-WIRE-7): reports whether the flip can run —
@@ -8013,10 +8042,6 @@ paths:
         the incumbent is unreachable (`revoked`/`error`), `blocking` carries
         `incumbent_unreachable` and the `emergency` block discloses the
         last-known-mirror cutover option (OVA-AC-6 a/b).
-      x-mcp-tool:
-        verb: preflight_overlay_flip
-        record_type: overlay_connection
-        tier: auto_execute
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayFlipPreflight' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
@@ -8041,8 +8066,11 @@ paths:
         verb: execute_overlay_flip
         record_type: overlay_connection
         tier: confirmation_required
+      # Not `required`: an absent body carries no confirmation phrase, so
+      # it lands on the same 422 the typed-phrase gate answers — the
+      # refusal a confirm-first op owes, without turning the previously
+      # body-less operation into a breaking contract change.
       requestBody:
-        required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/OverlayFlipRequest' }
@@ -9239,43 +9267,23 @@ components:
             enum: [incumbent_unreachable, force_fresh_incomplete, pending_sync_draining, unresolved_conflicts, export_missing]
         unresolved_conflicts:
           type: array
-          description: Open incumbent-wins conflicts awaiting acceptance; each blocks the flip.
-          items:
-            type: object
-            required: [object_class, external_id]
-            properties:
-              object_class: { type: string }
-              external_id: { type: string }
-              property: { type: string }
-        snapshot:
-          type: [object, 'null']
-          description: The frozen mirror snapshot the flip will import; sealed only while every check is green, unsealed again by any blocker.
-          required: [id, frozen_at]
-          properties:
-            id: { type: string }
-            frozen_at: { type: string, format: date-time }
+          description: >-
+            Open incumbent-wins conflicts awaiting acceptance; each blocks the
+            flip. Empty in this build: branch 1 reconciliation resolves
+            incumbent-wins at ingest and persists no conflict queue, so the
+            producer arrives with write-back (branch 2). The field is required
+            by OVA-WIRE-7's response shape.
+          items: { $ref: '#/components/schemas/OverlayFlipUnresolvedConflict' }
+        # Absent (not null) while unsealed: the snapshot exists only for a
+        # green preflight, and any blocker unseals it again.
+        snapshot: { $ref: '#/components/schemas/OverlayFlipSnapshot' }
         parity:
           type: [array, 'null']
           description: >-
             The parity dry-run against the sealed snapshot — writes zero CRM
             rows; skipped rows are disclosed with reasons, never silently
             dropped (AC-mode-flip-7).
-          items:
-            type: object
-            required: [object, mirror_count, will_create, will_update]
-            properties:
-              object: { type: string }
-              mirror_count: { type: integer }
-              will_create: { type: integer }
-              will_update: { type: integer }
-              skipped:
-                type: array
-                items:
-                  type: object
-                  required: [external_id, reason]
-                  properties:
-                    external_id: { type: string }
-                    reason: { type: string }
+          items: { $ref: '#/components/schemas/OverlayFlipParityEntry' }
         emergency:
           type: [object, 'null']
           description: >-
@@ -9288,6 +9296,40 @@ components:
             last_synced_at: { type: [string, 'null'], format: date-time }
             staleness_seconds: { type: integer, format: int64 }
             unverifiable_parity_notice: { type: string }
+    OverlayFlipSnapshot:
+      type: object
+      description: The sealed frozen-mirror snapshot the flip imports.
+      required: [id, frozen_at]
+      properties:
+        id: { type: string }
+        frozen_at: { type: string, format: date-time }
+    OverlayFlipUnresolvedConflict:
+      type: object
+      description: One open incumbent-wins conflict blocking the flip.
+      required: [object_class, external_id]
+      properties:
+        object_class: { type: string }
+        external_id: { type: string }
+        property: { type: string }
+    OverlayFlipParityEntry:
+      type: object
+      description: One object class's parity preview row (AC-mode-flip-7).
+      required: [object, mirror_count, will_create, will_update]
+      properties:
+        object: { type: string }
+        mirror_count: { type: integer }
+        will_create: { type: integer }
+        will_update: { type: integer }
+        skipped:
+          type: array
+          items: { $ref: '#/components/schemas/OverlayFlipParitySkip' }
+    OverlayFlipParitySkip:
+      type: object
+      description: One row the importer cannot carry, disclosed with its reason (never silently dropped).
+      required: [external_id, reason]
+      properties:
+        external_id: { type: string }
+        reason: { type: string }
     OverlayFlipRequest:
       type: object
       required: [confirmation_phrase]

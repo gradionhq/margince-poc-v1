@@ -61,6 +61,17 @@ type flipWriters struct {
 	assocs []migration.Assoc
 	// stages is the native stage catalog, loaded lazily on the first deal.
 	stages *flipStageCatalog
+	// ownerOverride resolves an incumbent owner id WITHOUT the live
+	// mirror_user_map — the reconstruction path's map comes out of the
+	// bundle, because a clean instance has no mirror rows to read.
+	ownerOverride map[string]ids.UUID
+}
+
+// WithOwnerMap resolves owners from an explicit incumbent-user → app-user
+// map instead of the live mirror_user_map (reconstruction, flipbundle.go).
+func (w *flipWriters) WithOwnerMap(m map[string]ids.UUID) *flipWriters {
+	w.ownerOverride = m
+	return w
 }
 
 func newFlipWriters(pool *pgxpool.Pool, ms *overlay.MirrorStore, incumbent string) *flipWriters {
@@ -102,9 +113,14 @@ func (w *flipWriters) lookup(ctx context.Context, object, ext string) (ids.UUID,
 	}
 	var query string
 	var args []any
+	// No archived_at filter on either arm: an archived row still holds
+	// the provenance key, so re-importing over it would mint a duplicate
+	// rather than recognise what already landed. (lead/activity have no
+	// archived_at-free natural key to fall back on — their unique index
+	// spans archived rows too, so the two arms must agree.)
 	switch object {
 	case "person", "organization", "deal":
-		query = fmt.Sprintf(`SELECT id FROM %s WHERE source = $1 AND archived_at IS NULL`, object)
+		query = fmt.Sprintf(`SELECT id FROM %s WHERE source = $1`, object)
 		args = []any{w.provenance(object, ext)}
 	case "lead", "activity":
 		query = fmt.Sprintf(`SELECT id FROM %s WHERE source_system = $1 AND source_id = $2`, object)
@@ -143,7 +159,10 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 	if _, found, err := w.lookup(ctx, object, row.ExternalID); err != nil {
 		return migration.EnsureResult{}, err
 	} else if found {
-		return migration.EnsureResult{Created: false}, nil // frozen source: already landed, identical by construction
+		// The flip's source is a FROZEN snapshot, so an already-landed
+		// row cannot differ from what is stored: nothing to rewrite, and
+		// the report says so rather than claiming an update.
+		return migration.EnsureResult{Unchanged: true}, nil
 	}
 	switch object {
 	case "organization":
@@ -169,9 +188,16 @@ func (w *flipWriters) resolveOwner(ctx context.Context, row migration.Row, objec
 	if raw == "" {
 		return nil, "", nil
 	}
-	id, found, err := w.ms.ResolveMirrorOwner(ctx, raw)
-	if err != nil {
-		return nil, "", err
+	var id ids.UUID
+	var found bool
+	if w.ownerOverride != nil {
+		id, found = w.ownerOverride[raw]
+	} else {
+		var err error
+		id, found, err = w.ms.ResolveMirrorOwner(ctx, raw)
+		if err != nil {
+			return nil, "", err
+		}
 	}
 	if !found {
 		return nil, fmt.Sprintf("%s %s: incumbent owner %s has no user mapping; imported ownerless", object, row.ExternalID, raw), nil
@@ -401,30 +427,30 @@ func (w *flipWriters) activityLinks(activityExt string) []activities.ActivityLin
 // were already applied at insert time (see activityLinks); person→org
 // edges become employment relationship rows; deal→org edges set the
 // deal's organization FK — IEM-FORM-2's detangling, on the edges the
-// mirror actually holds.
-func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) error {
+// mirror actually holds. Every non-applied edge returns its reason, so
+// the run report discloses it rather than counting it as applied.
+func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) (migration.AssocResult, error) {
 	if a.FromType == "activity" || a.ToType == "activity" {
-		return nil // applied at LogActivity insert time
+		return migration.AssocResult{Applied: true}, nil // applied at LogActivity insert time
 	}
 	fromID, fromOK, err := w.lookup(ctx, a.FromType, a.FromID)
 	if err != nil {
-		return err
+		return migration.AssocResult{}, err
 	}
 	toID, toOK, err := w.lookup(ctx, a.ToType, a.ToID)
 	if err != nil {
-		return err
+		return migration.AssocResult{}, err
 	}
 	if !fromOK || !toOK {
-		return nil // an endpoint was disclosed-skipped; the edge has nothing to join
+		return migration.AssocResult{Reason: "endpoint_not_imported"}, nil
 	}
 	switch {
 	case a.FromType == "deal" && a.ToType == "organization":
 		orgID := ids.From[ids.OrganizationKind](toID)
-		_, err := w.deals.UpdateDeal(ctx, ids.From[ids.DealKind](fromID), deals.UpdateDealInput{OrganizationID: &orgID})
-		if err != nil && !errors.Is(err, apperrors.ErrConflict) {
-			return fmt.Errorf("flip import: linking deal %s to organization %s: %w", a.FromID, a.ToID, err)
+		if _, err := w.deals.UpdateDeal(ctx, ids.From[ids.DealKind](fromID), deals.UpdateDealInput{OrganizationID: &orgID}); err != nil {
+			return migration.AssocResult{}, fmt.Errorf("flip import: linking deal %s to organization %s: %w", a.FromID, a.ToID, err)
 		}
-		return nil
+		return migration.AssocResult{Applied: true}, nil
 	case a.FromType == "person" && a.ToType == "organization":
 		personID := ids.From[ids.PersonKind](fromID)
 		orgID := ids.From[ids.OrganizationKind](toID)
@@ -435,15 +461,19 @@ func (w *flipWriters) Associate(ctx context.Context, a migration.Assoc) error {
 			IsCurrentPrimary: strings.EqualFold(a.Label, "primary"),
 			Source:           w.provenance("relationship", a.FromID+"→"+a.ToID),
 		})
-		if err != nil && !errors.Is(err, apperrors.ErrConflict) {
-			return fmt.Errorf("flip import: creating employment %s→%s: %w", a.FromID, a.ToID, err)
+		if err != nil {
+			// The employment edge is unique per (person, organization):
+			// a resumed run replaying its association phase re-offers an
+			// edge that already landed, which is convergence, not a
+			// failure — every other error still stops the run.
+			if errors.Is(err, apperrors.ErrConflict) {
+				return migration.AssocResult{Applied: true}, nil
+			}
+			return migration.AssocResult{}, fmt.Errorf("flip import: creating employment %s→%s: %w", a.FromID, a.ToID, err)
 		}
-		return nil
+		return migration.AssocResult{Applied: true}, nil
 	default:
-		// An edge shape the native model has no target for is left in the
-		// run's association count but not materialized — the same honest
-		// posture as the wire layer's relationships read.
-		return nil
+		return migration.AssocResult{Reason: "unmodelled_edge_shape"}, nil
 	}
 }
 

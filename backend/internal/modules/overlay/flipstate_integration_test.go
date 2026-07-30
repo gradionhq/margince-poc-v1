@@ -284,27 +284,29 @@ func TestCompleteFlipFlipsModeOnceAndKeepsConnection(t *testing.T) {
 	}
 }
 
-func TestDisconnectRefusesMidFlipButRetiresAfterFlip(t *testing.T) {
+func TestDisconnectRefusesARunningImportButNeverALatchedFreeze(t *testing.T) {
 	ctx, pool, _ := testWorkspaceCtx(t)
 	seedOverlayWorkspace(t, ctx, pool)
 	svc := flipService(pool)
 
-	// Sealed + still overlay = a flip in progress: disconnect refuses.
+	// A RUNNING flip import is the one thing disconnect refuses: tearing
+	// the mirror down mid-import would migrate a vanishing estate.
+	importRunning := true
+	svc = svc.WithFlipImportProbe(func(context.Context, pgx.Tx) (bool, error) { return importRunning, nil })
 	if _, err := svc.SealFlipSnapshot(ctx); err != nil {
 		t.Fatalf("SealFlipSnapshot: %v", err)
 	}
 	if err := svc.Disconnect(ctx); !errors.Is(err, apperrors.ErrConflict) {
-		t.Fatalf("mid-flip Disconnect err = %v, want ErrConflict", err)
+		t.Fatalf("Disconnect during a running import err = %v, want ErrConflict", err)
 	}
 
-	// After the flip completes (mode native, seal retained), disconnect
-	// is the retirement path and passes — the mirror tears down while
-	// the workspace stays native.
-	if err := svc.CompleteFlip(ctx, ids.NewV7(), "fresh_sync"); err != nil {
-		t.Fatalf("CompleteFlip: %v", err)
-	}
+	// A sealed-but-IDLE workspace must still disconnect. Disconnect is
+	// the only path that revokes the incumbent credential and purges the
+	// mirrored PII, so a freeze can never latch it shut — an operator who
+	// preflights and then thinks better of the cutover is not trapped.
+	importRunning = false
 	if err := svc.Disconnect(ctx); err != nil {
-		t.Fatalf("post-flip Disconnect (retirement): %v", err)
+		t.Fatalf("Disconnect on a sealed-but-idle workspace: %v — the freeze must never latch the escape hatch", err)
 	}
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 		var connStatus, mode string

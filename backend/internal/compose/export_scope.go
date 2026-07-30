@@ -52,6 +52,11 @@ func memberScope(ctx context.Context, m exportMember, alias string, arg func(any
 		if err != nil {
 			return "", err
 		}
+		if from == "" || to == "" {
+			// An unbounded actor scopes neither endpoint; there is no
+			// predicate to conjoin (and " AND " alone is a syntax error).
+			return "", nil
+		}
 		return from + " AND " + to, nil
 	default:
 		return "", fmt.Errorf("export: unknown scope mode %d for %q", m.scope, m.table)
@@ -60,12 +65,22 @@ func memberScope(ctx context.Context, m exportMember, alias string, arg func(any
 
 // mirrorExportScope is the mirror_visibility deny-join as an export
 // predicate (ADR-0044: can_see=false or no entry hides the row —
-// fail-closed, so an unmapped exporter gets zero mirror rows, the same
-// answer their overlay lists give).
+// fail-closed, so an unmapped row-scoped exporter gets zero mirror
+// rows, the same answer their overlay lists give).
+//
+// An unbounded actor (admin/ops, row_scope=all) reads the WHOLE estate,
+// exactly as every other scope in this file treats them. That is
+// load-bearing for the pre-flip export: the flip migrates the whole
+// estate, so a bundle scoped to one operator's owner-projection would
+// reconstruct only their slice — the OVA-AC-6(d) reversibility promise
+// would be nominal.
 func mirrorExportScope(ctx context.Context, classCol, idCol string, arg func(any) int) (string, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		return "", errors.New("compose: no actor bound to export context")
+	}
+	if auth.Unbounded(actor) {
+		return "", nil
 	}
 	return fmt.Sprintf(
 		`EXISTS (SELECT 1 FROM mirror_visibility mv

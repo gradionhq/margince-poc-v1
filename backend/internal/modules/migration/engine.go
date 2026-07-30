@@ -11,16 +11,15 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
-// Connector names the engine's source kinds — the import_run.connector
-// CHECK mirrors this set. Only mirror and bundle have engine callers
-// today; the three migrate-in connectors are reserved for their own
-// tickets (UC-E11-03).
+// The engine's source kinds, as stored in import_run.connector. The
+// migrate-in connectors (csv/hubspot/salesforce) are in the column's
+// CHECK — the DDL is the chapter's pinned arrival shape — but they get
+// their Go constants when their connectors land (UC-E11-03), not before.
 const (
-	ConnectorMirror     = "mirror"
-	ConnectorBundle     = "bundle"
-	ConnectorHubSpot    = "hubspot"
-	ConnectorSalesforce = "salesforce"
-	ConnectorCSV        = "csv"
+	// ConnectorMirror is the overlay→native flip: the frozen mirror snapshot.
+	ConnectorMirror = "mirror"
+	// ConnectorBundle is reconstruction from a pre-flip export bundle.
+	ConnectorBundle = "bundle"
 )
 
 // pageSize bounds one Source.Rows read: large enough to amortize the
@@ -62,13 +61,28 @@ type Source interface {
 // disclosures are never silent — both land in the run report
 // (AC-mode-flip-7: skipped rows carry reasons).
 type EnsureResult struct {
-	Created    bool
+	Created bool
+	// Unchanged marks a row that already landed under this provenance
+	// and was NOT rewritten — a resumed run replaying its last page, or
+	// a re-run over the same frozen source. It is neither a create nor
+	// an update: counting it as either would inflate the disposition
+	// table with work that never happened.
+	Unchanged  bool
 	Skipped    bool
 	SkipReason string
 	// Disclosure names a lossy-but-disclosed mapping decision (e.g. a
 	// deal materialized onto the default pipeline because the source
 	// stage identity did not resolve).
 	Disclosure string
+}
+
+// AssocResult reports what one Writers.Associate did — an edge whose
+// endpoint never landed, or whose shape the native model has no target
+// for, is DISCLOSED here rather than vanishing into a bare nil.
+type AssocResult struct {
+	Applied bool
+	// Reason explains a non-applied edge; empty when Applied.
+	Reason string
 }
 
 // Writers is the native-record seam: compose implements it over the
@@ -79,7 +93,7 @@ type EnsureResult struct {
 type Writers interface {
 	Exists(ctx context.Context, object, externalID string) (bool, error)
 	Ensure(ctx context.Context, object string, row Row) (EnsureResult, error)
-	Associate(ctx context.Context, a Assoc) error
+	Associate(ctx context.Context, a Assoc) (AssocResult, error)
 }
 
 // SkippedRow is one disclosed skip in the run report.
@@ -95,23 +109,36 @@ const skipReasonEmptyPayload = "empty_payload"
 
 // ObjectReport is one object class's slice of the run/dry-run report.
 type ObjectReport struct {
-	Object      string       `json:"object"`
-	MirrorCount int          `json:"mirror_count"`
-	WillCreate  int          `json:"will_create"`
-	WillUpdate  int          `json:"will_update"`
-	Created     int          `json:"created"`
-	Updated     int          `json:"updated"`
+	Object      string `json:"object"`
+	MirrorCount int    `json:"mirror_count"`
+	WillCreate  int    `json:"will_create"`
+	WillUpdate  int    `json:"will_update"`
+	Created     int    `json:"created"`
+	Updated     int    `json:"updated"`
+	// Unchanged counts rows already landed under their provenance that
+	// this attempt did not rewrite (a resumed run's replayed page).
+	Unchanged   int          `json:"unchanged,omitempty"`
 	Skipped     []SkippedRow `json:"skipped,omitempty"`
 	Disclosures []string     `json:"disclosures,omitempty"`
 }
 
 // Report is the run (or dry-run) outcome: per-object dispositions plus
-// the association total. The disposition table is the honest-disclosure
+// the association tally. The disposition table is the honest-disclosure
 // surface — nothing is dropped without a line here.
 type Report struct {
-	Objects      []ObjectReport `json:"objects"`
-	Associations int            `json:"associations"`
-	Imported     int64          `json:"imported"`
+	Objects []ObjectReport `json:"objects"`
+	// Associations counts edges APPLIED, not edges read; AssociationsSkipped
+	// carries the rest with their reasons.
+	Associations        int            `json:"associations"`
+	AssociationsSkipped []SkippedAssoc `json:"associations_skipped,omitempty"`
+	Imported            int64          `json:"imported"`
+}
+
+// SkippedAssoc is one edge the import did not materialize, disclosed.
+type SkippedAssoc struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Reason string `json:"reason"`
 }
 
 // runRecords is what the loop needs from the run store — an interface so
@@ -180,6 +207,9 @@ func (e *Engine) DryRun(ctx context.Context, src Source) (Report, error) {
 	if err != nil {
 		return Report{}, fmt.Errorf("migration dry-run: reading associations: %w", err)
 	}
+	// The dry-run writes nothing, so it cannot resolve endpoints: this is
+	// the count of edges the source OFFERS, and the run's own report is
+	// what says how many were applied.
 	rep.Associations = len(assocs)
 	return rep, nil
 }
@@ -236,6 +266,8 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 				switch {
 				case res.Skipped:
 					or.Skipped = append(or.Skipped, SkippedRow{ExternalID: row.ExternalID, Reason: res.SkipReason})
+				case res.Unchanged:
+					or.Unchanged++
 				case res.Created:
 					or.Created++
 					rep.Imported++
@@ -265,14 +297,23 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 		return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: reading associations: %w", err))
 	}
 	for _, a := range assocs {
-		if err := e.w.Associate(ctx, a); err != nil {
+		res, err := e.w.Associate(ctx, a)
+		if err != nil {
 			return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: applying association %s/%s→%s/%s: %w", a.FromType, a.FromID, a.ToType, a.ToID, err))
 		}
+		if res.Applied {
+			rep.Associations++
+			continue
+		}
+		rep.AssociationsSkipped = append(rep.AssociationsSkipped, SkippedAssoc{
+			From:   a.FromType + "/" + a.FromID,
+			To:     a.ToType + "/" + a.ToID,
+			Reason: res.Reason,
+		})
 	}
-	rep.Associations = len(assocs)
 
 	if err := e.runs.complete(ctx, runID, rep); err != nil {
-		return Report{}, err
+		return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: recording completion: %w", err))
 	}
 	return rep, nil
 }

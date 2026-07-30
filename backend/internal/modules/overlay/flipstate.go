@@ -45,17 +45,6 @@ import (
 // is deliberate state, not a failure to back off from.
 var ErrMirrorFrozen = errors.New("overlay: the mirror is frozen for the overlay→native flip")
 
-// FlipConflict is one open incumbent-wins conflict blocking the flip.
-// Branch 1 write-back auto-resolves incumbent-wins at ingest (reconcile
-// emits mirror.conflict as a notification), so no persistent conflict
-// row exists to report yet — the shape is here so the preflight wire
-// contract is stable when branch 2's conflict queue lands.
-type FlipConflict struct {
-	ObjectClass string
-	ExternalID  string
-	Property    string
-}
-
 // FlipChecks is the preflight's raw readiness read — the compose
 // FlipRunner turns it into the wire verdict's blocking[] reasons.
 type FlipChecks struct {
@@ -71,9 +60,6 @@ type FlipChecks struct {
 	// PendingSyncCount: rows with un-drained local writes — the flip
 	// waits until they drain (AC-mode-flip-4).
 	PendingSyncCount int
-	// Conflicts: open incumbent-wins conflicts (empty in branch 1 — see
-	// FlipConflict).
-	Conflicts []FlipConflict
 	// LastSyncedAt is the mirror's freshest watermark (zero on an empty
 	// mirror) — the emergency cutover's staleness disclosure and the
 	// export-recency check both read it.
@@ -186,23 +172,59 @@ func (s *Service) SealFlipSnapshot(ctx context.Context) (FlipSnapshot, error) {
 		return FlipSnapshot{}, err
 	}
 	var snap FlipSnapshot
+	// The id is human-readable AND unique: two seals inside the same
+	// second would otherwise mint the identical string, and the flip's
+	// resume path keys a checkpoint on it — a stale checkpoint matched
+	// against a DIFFERENT freeze would skip rows it never imported.
+	candidate := "snap-" + time.Now().UTC().Format("2006-01-02T15:04:05Z") + "-" + ids.NewV7().String()
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
+		if err := tx.QueryRow(ctx, `
 			INSERT INTO overlay_sync_state (workspace_id, next_sweep_at, flip_snapshot_id, mirror_frozen_at, updated_at)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(),
-			        'snap-' || to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), now(), now())
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, now(), $1, now(), now())
 			ON CONFLICT (workspace_id) DO UPDATE SET
 			  flip_snapshot_id = COALESCE(overlay_sync_state.flip_snapshot_id, EXCLUDED.flip_snapshot_id),
 			  mirror_frozen_at = COALESCE(overlay_sync_state.mirror_frozen_at, EXCLUDED.mirror_frozen_at),
 			  updated_at = now()
 			RETURNING flip_snapshot_id, mirror_frozen_at`,
-		).Scan(&snap.ID, &snap.FrozenAt)
+			candidate,
+		).Scan(&snap.ID, &snap.FrozenAt); err != nil {
+			return err
+		}
+		// The id came back as ours only when THIS call did the sealing;
+		// an already-sealed workspace keeps its own and audits nothing.
+		if snap.ID != candidate {
+			return nil
+		}
+		return auditFreeze(ctx, tx, nil, map[string]any{
+			auditFieldFlipSnapshot: snap.ID, auditFieldMirrorFrozen: snap.FrozenAt,
+		})
 	})
 	if err != nil {
 		return FlipSnapshot{}, fmt.Errorf("overlay: sealing the flip snapshot: %w", err)
 	}
 	snap.Sealed = true
 	return snap, nil
+}
+
+// Audit field keys for the freeze/unfreeze records.
+const (
+	auditFieldFlipSnapshot = "flip_snapshot_id"
+	auditFieldMirrorFrozen = "mirror_frozen_at"
+)
+
+// auditFreeze records a freeze/unfreeze against the connection: halting
+// incumbent sync is a governance-relevant act, so who latched (and who
+// released) the workspace is on the record, like every other lifecycle
+// write in this module.
+func auditFreeze(ctx context.Context, tx pgx.Tx, before, after map[string]any) error {
+	var connID ids.UUID
+	if err := tx.QueryRow(ctx, `SELECT id FROM incumbent_connection`).Scan(&connID); err != nil {
+		return fmt.Errorf("overlay: resolving the connection to audit the mirror freeze: %w", err)
+	}
+	if _, err := storekit.Audit(ctx, tx, "update", "incumbent_connection", connID, before, after); err != nil {
+		return fmt.Errorf("overlay: auditing the mirror freeze: %w", err)
+	}
+	return nil
 }
 
 // UnsealFlipSnapshot is the UC-E18-04 F1 unfreeze: any preflight blocker
@@ -217,11 +239,32 @@ func (s *Service) UnsealFlipSnapshot(ctx context.Context) error {
 		return err
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `
-			UPDATE overlay_sync_state SET flip_snapshot_id = NULL, mirror_frozen_at = NULL, updated_at = now()`); err != nil {
+		// RETURNING the OLD values: the SET list has already replaced
+		// them in the returned row, so the prior state is read from the
+		// pre-update snapshot the CTE holds.
+		var priorID string
+		var priorFrozen time.Time
+		err := tx.QueryRow(ctx, `
+			WITH prior AS (
+			  SELECT workspace_id, flip_snapshot_id, mirror_frozen_at FROM overlay_sync_state
+			  WHERE mirror_frozen_at IS NOT NULL
+			), cleared AS (
+			  UPDATE overlay_sync_state s
+			  SET flip_snapshot_id = NULL, mirror_frozen_at = NULL, updated_at = now()
+			  FROM prior WHERE s.workspace_id = prior.workspace_id
+			  RETURNING s.workspace_id
+			)
+			SELECT prior.flip_snapshot_id, prior.mirror_frozen_at FROM prior JOIN cleared USING (workspace_id)`,
+		).Scan(&priorID, &priorFrozen)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil // not sealed: a no-op, nothing to audit
+		}
+		if err != nil {
 			return fmt.Errorf("overlay: unsealing the flip snapshot: %w", err)
 		}
-		return nil
+		return auditFreeze(ctx, tx,
+			map[string]any{auditFieldFlipSnapshot: priorID, auditFieldMirrorFrozen: priorFrozen},
+			map[string]any{auditFieldFlipSnapshot: nil, auditFieldMirrorFrozen: nil})
 	})
 }
 

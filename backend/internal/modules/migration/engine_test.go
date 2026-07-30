@@ -66,9 +66,12 @@ func (w *fakeWriters) Ensure(_ context.Context, object string, row Row) (EnsureR
 	return EnsureResult{Created: created}, nil
 }
 
-func (w *fakeWriters) Associate(_ context.Context, a Assoc) error {
+func (w *fakeWriters) Associate(_ context.Context, a Assoc) (AssocResult, error) {
+	if a.ToType == "nowhere" {
+		return AssocResult{Reason: "endpoint_not_imported"}, nil
+	}
 	w.assocs = append(w.assocs, a)
-	return nil
+	return AssocResult{Applied: true}, nil
 }
 
 // fakeRuns is the in-memory run record — the loop's checkpoint/resume
@@ -113,7 +116,12 @@ func twoObjectSource() *fakeSource {
 				{ExternalID: "p-3", Fields: map[string]any{"full_name": "Riya Patel"}},
 			},
 		},
-		assocs: []Assoc{{FromType: "person", FromID: "p-1", ToType: "organization", ToID: "org-1", Category: "employment"}},
+		assocs: []Assoc{
+			{FromType: "person", FromID: "p-1", ToType: "organization", ToID: "org-1", Category: "employment"},
+			// An edge whose target never landed: disclosed, never counted
+			// as applied.
+			{FromType: "person", FromID: "p-1", ToType: "nowhere", ToID: "x-1", Category: "employment"},
+		},
 	}
 }
 
@@ -144,8 +152,8 @@ func TestDryRunClassifiesWithoutWriting(t *testing.T) {
 	if len(person.Skipped) != 1 || person.Skipped[0].Reason != "empty_payload" || person.Skipped[0].ExternalID != "p-2" {
 		t.Errorf("person skips = %+v, want p-2 skipped as empty_payload", person.Skipped)
 	}
-	if rep.Associations != 1 {
-		t.Errorf("associations = %d, want 1", rep.Associations)
+	if rep.Associations != 2 {
+		t.Errorf("dry-run associations = %d, want 2 (edges OFFERED — the dry-run resolves no endpoints)", rep.Associations)
 	}
 }
 
@@ -173,6 +181,12 @@ func TestRunImportsInOrderWithSkipsDisclosed(t *testing.T) {
 	}
 	if len(w.assocs) != 1 {
 		t.Errorf("assocs applied = %d, want 1", len(w.assocs))
+	}
+	if rep.Associations != 1 {
+		t.Errorf("report associations = %d, want 1 APPLIED (not the 2 offered)", rep.Associations)
+	}
+	if len(rep.AssociationsSkipped) != 1 || rep.AssociationsSkipped[0].Reason != "endpoint_not_imported" {
+		t.Errorf("skipped assocs = %+v, want the unresolvable edge disclosed", rep.AssociationsSkipped)
 	}
 	if runs.run.Status != StatusComplete || runs.run.Report == nil {
 		t.Errorf("run = %+v, want complete with report", runs.run)

@@ -29,6 +29,7 @@ package compose
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -86,7 +87,9 @@ func (f *flipRunner) verdict(ctx context.Context) (flipVerdict, error) {
 		return flipVerdict{}, err
 	}
 	v := flipVerdict{checks: checks}
-	if checks.ConnectionStatus != "active" {
+	// The same guard the direct importer runs (one constant, one rule):
+	// a live-read import cannot pass with the connection revoked/error.
+	if err := migration.GuardIncumbentSource(checks.ConnectionStatus); err != nil {
 		v.blocking = append(v.blocking, crmcontracts.IncumbentUnreachable)
 	}
 	if !checks.ForceFreshDone {
@@ -94,9 +97,6 @@ func (f *flipRunner) verdict(ctx context.Context) (flipVerdict, error) {
 	}
 	if checks.PendingSyncCount > 0 {
 		v.blocking = append(v.blocking, crmcontracts.PendingSyncDraining)
-	}
-	if len(checks.Conflicts) > 0 {
-		v.blocking = append(v.blocking, crmcontracts.UnresolvedConflicts)
 	}
 	exported, err := f.exportSince(ctx, checks.LastSyncedAt)
 	if err != nil {
@@ -132,13 +132,30 @@ func (f *flipRunner) exportSince(ctx context.Context, since time.Time) (bool, er
 // Preflight is OVA-WIRE-7: {ready, blocking[], unresolved_conflicts[]}
 // plus the sealed snapshot and parity preview when green, the emergency
 // disclosure when the incumbent is unreachable. Gated by the
-// overlay_connection UPDATE grant — a green preflight SEALS the mirror
-// (a state change), and the mode-flip screen is owner-gated (UC-E18-04
-// E3), so read-only roles are refused here, not at the button.
-func (f *flipRunner) Preflight(ctx context.Context) (crmcontracts.OverlayFlipPreflight, error) {
+// overlay_connection UPDATE grant and human-only at the transport (a
+// green preflight SEALS the mirror — a durable state change that halts
+// incumbent sync — and the mode-flip screen is owner-gated, UC-E18-04
+// E3), so neither a read-only role nor an agent passport reaches it.
+//
+// The seal is all-or-nothing: it survives ONLY a fully green verdict
+// whose parity preview also succeeded. Every other exit — a blocker, a
+// dry-run failure, a mid-flight error — unseals, so a preflight can
+// never strand the workspace frozen (UC-E18-04 F1's no-op return to a
+// healthy overlay).
+func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.OverlayFlipPreflight, err error) {
 	if err := auth.Require(ctx, "overlay_connection", principal.ActionUpdate); err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
 	}
+	sealed := false
+	defer func() {
+		if sealed {
+			return
+		}
+		if unsealErr := f.svc.UnsealFlipSnapshot(ctx); unsealErr != nil && err == nil {
+			verdictOut, err = crmcontracts.OverlayFlipPreflight{}, unsealErr
+		}
+	}()
+
 	v, err := f.verdict(ctx)
 	if err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
@@ -146,14 +163,9 @@ func (f *flipRunner) Preflight(ctx context.Context) (crmcontracts.OverlayFlipPre
 	out := crmcontracts.OverlayFlipPreflight{
 		Ready:               len(v.blocking) == 0,
 		Blocking:            v.blocking,
-		UnresolvedConflicts: wireFlipConflicts(v.checks.Conflicts),
+		UnresolvedConflicts: []crmcontracts.OverlayFlipUnresolvedConflict{},
 	}
 	if !out.Ready {
-		// Any blocker unseals: a failed preflight is a no-op return to a
-		// healthy overlay (UC-E18-04 F1) — mirror writable, sweeps resume.
-		if err := f.svc.UnsealFlipSnapshot(ctx); err != nil {
-			return crmcontracts.OverlayFlipPreflight{}, err
-		}
 		if blockingContains(v.blocking, crmcontracts.IncumbentUnreachable) {
 			out.Emergency = wireEmergency(v.checks)
 		}
@@ -164,78 +176,41 @@ func (f *flipRunner) Preflight(ctx context.Context) (crmcontracts.OverlayFlipPre
 	if err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
 	}
-	out.Snapshot = &struct {
-		FrozenAt time.Time `json:"frozen_at"`
-		Id       string    `json:"id"`
-	}{FrozenAt: snap.FrozenAt, Id: snap.ID}
+	out.Snapshot = &crmcontracts.OverlayFlipSnapshot{FrozenAt: snap.FrozenAt, Id: snap.ID}
 
-	parity, err := f.parityPreview(ctx)
+	parity, err := f.parityPreview(ctx, v.checks.Incumbent)
 	if err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
 	}
-	out.Parity = parity
+	out.Parity = &parity
+	sealed = true
 	return out, nil
 }
 
 // parityPreview runs the migration engine's zero-write dry-run over the
 // sealed mirror (AC-mode-flip-7): counts per object, skips with reasons.
-func (f *flipRunner) parityPreview(ctx context.Context) (*[]struct {
-	MirrorCount int    `json:"mirror_count"`
-	Object      string `json:"object"`
-	Skipped     *[]struct {
-		ExternalId string `json:"external_id"`
-		Reason     string `json:"reason"`
-	} `json:"skipped,omitempty"`
-	WillCreate int `json:"will_create"`
-	WillUpdate int `json:"will_update"`
-}, error) {
-	checks, err := f.svc.FlipChecks(ctx)
-	if err != nil {
-		return nil, err
-	}
-	writers := newFlipWriters(f.pool, f.ms, checks.Incumbent)
-	engine := migration.NewEngine(f.runs, writers)
-	rep, err := engine.DryRun(ctx, mirrorFlipSource{ms: f.ms})
+func (f *flipRunner) parityPreview(ctx context.Context, incumbent string) ([]crmcontracts.OverlayFlipParityEntry, error) {
+	writers := newFlipWriters(f.pool, f.ms, incumbent)
+	rep, err := migration.NewEngine(f.runs, writers).DryRun(ctx, mirrorFlipSource{ms: f.ms})
 	if err != nil {
 		return nil, fmt.Errorf("flip preflight: parity dry-run: %w", err)
 	}
-	out := make([]struct {
-		MirrorCount int    `json:"mirror_count"`
-		Object      string `json:"object"`
-		Skipped     *[]struct {
-			ExternalId string `json:"external_id"`
-			Reason     string `json:"reason"`
-		} `json:"skipped,omitempty"`
-		WillCreate int `json:"will_create"`
-		WillUpdate int `json:"will_update"`
-	}, 0, len(rep.Objects))
+	out := make([]crmcontracts.OverlayFlipParityEntry, 0, len(rep.Objects))
 	for _, or := range rep.Objects {
-		entry := struct {
-			MirrorCount int    `json:"mirror_count"`
-			Object      string `json:"object"`
-			Skipped     *[]struct {
-				ExternalId string `json:"external_id"`
-				Reason     string `json:"reason"`
-			} `json:"skipped,omitempty"`
-			WillCreate int `json:"will_create"`
-			WillUpdate int `json:"will_update"`
-		}{MirrorCount: or.MirrorCount, Object: or.Object, WillCreate: or.WillCreate, WillUpdate: or.WillUpdate}
+		entry := crmcontracts.OverlayFlipParityEntry{
+			MirrorCount: or.MirrorCount, Object: or.Object,
+			WillCreate: or.WillCreate, WillUpdate: or.WillUpdate,
+		}
 		if len(or.Skipped) > 0 {
-			skipped := make([]struct {
-				ExternalId string `json:"external_id"`
-				Reason     string `json:"reason"`
-			}, 0, len(or.Skipped))
+			skipped := make([]crmcontracts.OverlayFlipParitySkip, 0, len(or.Skipped))
 			for _, s := range or.Skipped {
-				skipped = append(skipped, struct {
-					ExternalId string `json:"external_id"`
-					Reason     string `json:"reason"`
-				}{ExternalId: s.ExternalID, Reason: s.Reason})
+				skipped = append(skipped, crmcontracts.OverlayFlipParitySkip{ExternalId: s.ExternalID, Reason: s.Reason})
 			}
 			entry.Skipped = &skipped
 		}
 		out = append(out, entry)
 	}
-	return &out, nil
+	return out, nil
 }
 
 // Execute is OVA-WIRE-8. The typed phrase gates both modes; fresh_sync
@@ -275,7 +250,7 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	case crmcontracts.OverlayFlipRequestModeEmergency:
 		// Never a substitute: the emergency path is refused while a
 		// fresh-sync flip is possible (OVA-AC-6 b).
-		if v.checks.ConnectionStatus == "active" {
+		if migration.GuardIncumbentSource(v.checks.ConnectionStatus) == nil {
 			return crmcontracts.OverlayFlipAccepted{}, fmt.Errorf(
 				"the incumbent is reachable — run the fresh-sync flip; the emergency cutover is only for a lost incumbent: %w", apperrors.ErrOverlayFlipBlocked)
 		}
@@ -290,6 +265,17 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 			return crmcontracts.OverlayFlipAccepted{}, flipBlocked([]crmcontracts.OverlayFlipPreflightBlocking{crmcontracts.ExportMissing})
 		}
 	}
+
+	// One flip at a time per workspace. Without this, two overlapping
+	// requests re-enter the same run with independent writer caches,
+	// each classifying a row as absent before the other writes it, and
+	// the estate imports twice — person/organization/deal carry no
+	// natural-key constraint to catch it (only lead and activity do).
+	unlock, err := f.claimFlip(ctx)
+	if err != nil {
+		return crmcontracts.OverlayFlipAccepted{}, err
+	}
+	defer unlock()
 
 	// Freeze (idempotent — a green preflight already sealed).
 	snap, err := f.svc.SealFlipSnapshot(ctx)
@@ -314,8 +300,13 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	if err != nil {
 		// The run record holds the failure + checkpoint: executing again
 		// resumes it. The mirror stays frozen — the estate must not
-		// drift between attempts.
-		return crmcontracts.OverlayFlipAccepted{}, fmt.Errorf("the flip's migration run failed and is resumable (run %s): %w", run.ID, err)
+		// drift between attempts. The cause is logged, not wrapped onto
+		// the wire: the engine's chain names internal call sites and can
+		// carry store sentinels that would remap the status.
+		f.log.Error("overlay flip: migration run failed", "run_id", run.ID.String(), "mode", string(mode), "err", err)
+		return crmcontracts.OverlayFlipAccepted{}, fmt.Errorf(
+			"the flip's migration run did not complete; it is resumable — re-run the flip to continue from its checkpoint (run %s): %w",
+			run.ID, apperrors.ErrConflict)
 	}
 
 	if err := f.svc.CompleteFlip(ctx, run.ID, string(mode)); err != nil {
@@ -344,6 +335,50 @@ func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRe
 	}
 	return out, nil
 }
+
+// claimFlip takes a workspace-scoped advisory lock for the duration of
+// one execute. A second concurrent flip is refused outright rather than
+// queued: it would be running against the same sealed snapshot, so
+// waiting for the first to finish only to import an already-imported
+// estate helps nobody. The returned release is safe to call once.
+func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
+	ws, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return nil, errors.New("compose: flip execute called outside a workspace context")
+	}
+	conn, err := f.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("flip execute: acquiring the claim connection: %w", err)
+	}
+	// A 64-bit key derived from the workspace id, XORed with the flip's
+	// own namespace constant: the same workspace always maps to the same
+	// lock, distinct workspaces effectively never collide, and the
+	// namespace keeps the flip clear of any other advisory-lock user.
+	// (The single-argument bigint form — the two-argument one takes
+	// int4s, which a workspace-derived key overflows.)
+	key := int64(binary.BigEndian.Uint64(ws[:8])) ^ flipAdvisoryLockNamespace
+	var claimed bool
+	if err := conn.QueryRow(ctx, `SELECT pg_try_advisory_lock($1)`, key).Scan(&claimed); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("flip execute: claiming the flip: %w", err)
+	}
+	if !claimed {
+		conn.Release()
+		return nil, fmt.Errorf("another flip is already running for this workspace: %w", apperrors.ErrConflict)
+	}
+	return func() {
+		if _, err := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, key); err != nil {
+			// The lock dies with the connection anyway; log rather than
+			// mask the flip's own outcome.
+			f.log.Warn("overlay flip: releasing the flip claim failed", "err", err)
+		}
+		conn.Release()
+	}, nil
+}
+
+// flipAdvisoryLockNamespace keeps the flip's advisory-lock keys clear of
+// any other user of the shared 64-bit advisory-lock space.
+const flipAdvisoryLockNamespace int64 = 0x464C4950 // "FLIP"
 
 // resumeOrCreateRun continues an interrupted flip run for the SAME
 // sealed snapshot (checkpoint intact — never from zero, never past it),
@@ -386,31 +421,6 @@ func blockingContains(blocking []crmcontracts.OverlayFlipPreflightBlocking, want
 		}
 	}
 	return false
-}
-
-func wireFlipConflicts(conflicts []overlay.FlipConflict) []struct {
-	ExternalId  string  `json:"external_id"`
-	ObjectClass string  `json:"object_class"`
-	Property    *string `json:"property,omitempty"`
-} {
-	out := make([]struct {
-		ExternalId  string  `json:"external_id"`
-		ObjectClass string  `json:"object_class"`
-		Property    *string `json:"property,omitempty"`
-	}, 0, len(conflicts))
-	for _, c := range conflicts {
-		entry := struct {
-			ExternalId  string  `json:"external_id"`
-			ObjectClass string  `json:"object_class"`
-			Property    *string `json:"property,omitempty"`
-		}{ExternalId: c.ExternalID, ObjectClass: c.ObjectClass}
-		if c.Property != "" {
-			p := c.Property
-			entry.Property = &p
-		}
-		out = append(out, entry)
-	}
-	return out
 }
 
 // wireEmergency builds the preflight's emergency block (OVA-AC-6 b):

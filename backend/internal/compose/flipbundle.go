@@ -25,10 +25,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
+	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // bundleFlipSource serves a margince-export/1 bundle's mirror snapshot
@@ -65,41 +71,55 @@ func (s bundleFlipSource) Associations(context.Context) ([]migration.Assoc, erro
 	return s.assocs, nil
 }
 
-// NewBundleFlipSource parses an export bundle into a reconstruction
-// source, returning the incumbent name its manifest discloses
-// (canonical_data_resides_in — the provenance stamp reconstruction
-// re-applies, so a rebuilt row carries the same source its flipped
-// sibling would).
-func NewBundleFlipSource(bundle []byte) (migration.Source, string, error) {
+// bundleContents is one parsed export bundle: the estate source plus
+// the two things the rebuild needs beside it — the incumbent name the
+// manifest discloses (the provenance stamp a rebuilt row re-applies, so
+// it carries the same source its flipped sibling would) and the
+// bundle's OWN owner map, since a clean instance has no live
+// mirror_user_map to resolve owners against.
+type bundleContents struct {
+	source    migration.Source
+	incumbent string
+	owners    map[string]ids.UUID
+}
+
+// maxBundleEntryBytes caps one decompressed bundle member. The bundle is
+// operator-supplied input to a rebuild, so a crafted archive must not be
+// able to exhaust memory before the parse even starts.
+const maxBundleEntryBytes = 512 << 20 // 512 MiB
+
+// parseBundle reads an export bundle into its reconstruction contents.
+func parseBundle(bundle []byte) (bundleContents, error) {
 	zr, err := zip.NewReader(bytes.NewReader(bundle), int64(len(bundle)))
 	if err != nil {
-		return nil, "", fmt.Errorf("reconstruction: opening the export bundle: %w", err)
+		return bundleContents{}, fmt.Errorf("reconstruction: opening the export bundle: %w", err)
 	}
 	var dump struct {
 		Format  string                      `json:"format"`
 		Objects map[string][]map[string]any `json:"objects"`
 	}
 	if err := readBundleJSON(zr, "data.json", &dump); err != nil {
-		return nil, "", err
+		return bundleContents{}, err
 	}
 	if dump.Format != exportFormat {
-		return nil, "", fmt.Errorf("reconstruction: bundle format %q is not %q", dump.Format, exportFormat)
+		return bundleContents{}, fmt.Errorf("reconstruction: bundle format %q is not %q: %w", dump.Format, exportFormat, apperrors.ErrConflict)
 	}
 	var manifest struct {
 		CanonicalDataResidesIn string `json:"canonical_data_resides_in"`
 	}
 	if err := readBundleJSON(zr, "manifest.json", &manifest); err != nil {
-		return nil, "", err
+		return bundleContents{}, err
 	}
 	if manifest.CanonicalDataResidesIn == "" {
-		return nil, "", fmt.Errorf("reconstruction: the bundle carries no mirror snapshot (no canonical_data_resides_in manifest line) — only a pre-flip overlay bundle reconstructs: %w", errNotAPreflipBundle)
+		return bundleContents{}, fmt.Errorf(
+			"reconstruction: this bundle carries no mirror snapshot — only a PRE-FLIP overlay bundle rebuilds an estate: %w", apperrors.ErrConflict)
 	}
 
 	src := bundleFlipSource{rows: map[string][]migration.Row{}}
 	for _, raw := range dump.Objects["overlay_mirror"] {
 		row, class, err := bundleMirrorRow(raw)
 		if err != nil {
-			return nil, "", err
+			return bundleContents{}, err
 		}
 		src.rows[class] = append(src.rows[class], row)
 	}
@@ -114,10 +134,25 @@ func NewBundleFlipSource(bundle []byte) (migration.Source, string, error) {
 			Category: bundleString(raw, "category"), Label: bundleString(raw, "label"),
 		})
 	}
-	return src, manifest.CanonicalDataResidesIn, nil
-}
 
-var errNotAPreflipBundle = fmt.Errorf("not a pre-flip overlay bundle")
+	// The bundle's own owner map: the flipped estate's records carry
+	// their incumbent owner, and only this map turns that back into an
+	// app_user — without it every rebuilt row would land ownerless.
+	owners := map[string]ids.UUID{}
+	for _, raw := range dump.Objects["mirror_user_map"] {
+		incumbentUser := bundleString(raw, "incumbent_user_id")
+		appUser := bundleString(raw, "app_user_id")
+		if incumbentUser == "" || appUser == "" {
+			continue
+		}
+		id, err := ids.Parse(appUser)
+		if err != nil {
+			return bundleContents{}, fmt.Errorf("reconstruction: the bundle's user map carries an unparseable app_user_id %q: %w", appUser, err)
+		}
+		owners[incumbentUser] = id
+	}
+	return bundleContents{source: src, incumbent: manifest.CanonicalDataResidesIn, owners: owners}, nil
+}
 
 // ReconstructFromBundle rebuilds a clean native instance from a pre-flip
 // export bundle: a `bundle`-connector migration run through the same
@@ -125,7 +160,13 @@ var errNotAPreflipBundle = fmt.Errorf("not a pre-flip overlay bundle")
 // ctx's — reconstruction assumes a clean instance and is idempotent on
 // the rows' provenance if re-run.
 func ReconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byte) (migration.Report, error) {
-	src, incumbent, err := NewBundleFlipSource(bundle)
+	// Gated here as well as at the run store: a rebuild writes the whole
+	// estate into this workspace, so the caller must hold the import
+	// grant before the bundle is even parsed.
+	if err := auth.Require(ctx, "import_run", principal.ActionCreate); err != nil {
+		return migration.Report{}, err
+	}
+	contents, err := parseBundle(bundle)
 	if err != nil {
 		return migration.Report{}, err
 	}
@@ -138,13 +179,53 @@ func ReconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	if err != nil {
 		return migration.Report{}, err
 	}
-	writers := newFlipWriters(pool, overlay.NewMirrorStore(pool, nil), incumbent)
-	assocs, err := src.Associations(ctx)
+	// unresolvedOwnerEmails, not nil: the reconstruction path never
+	// resolves an owner email (owners come from the bundle's own map),
+	// and a fail-loud placeholder beats a nil-interface panic if that
+	// ever stops being true.
+	// The bundle's owner map names app_users of the workspace it was
+	// exported FROM. Reconstruction may land in a different tenant whose
+	// user set differs, and an owner_id pointing at a stranger would be
+	// rejected by the FK — so the map is filtered to users that actually
+	// exist here, and a record whose owner did not travel imports
+	// ownerless with a disclosure rather than failing the rebuild.
+	owners, err := presentOwners(ctx, pool, contents.owners)
+	if err != nil {
+		return migration.Report{}, err
+	}
+	writers := newFlipWriters(pool, overlay.NewMirrorStore(pool, unresolvedOwnerEmails{}), contents.incumbent).
+		WithOwnerMap(owners)
+	assocs, err := contents.source.Associations(ctx)
 	if err != nil {
 		return migration.Report{}, err
 	}
 	writers.SetAssociations(assocs)
-	return migration.NewEngine(runs, writers).Run(ctx, run.ID, src)
+	return migration.NewEngine(runs, writers).Run(ctx, run.ID, contents.source)
+}
+
+// presentOwners narrows a bundle's incumbent-user -> app-user map to the
+// app_users that exist in the target workspace.
+func presentOwners(ctx context.Context, pool *pgxpool.Pool, owners map[string]ids.UUID) (map[string]ids.UUID, error) {
+	if len(owners) == 0 {
+		return owners, nil
+	}
+	present := make(map[string]ids.UUID, len(owners))
+	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		for incumbentUser, appUser := range owners {
+			var exists bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM app_user WHERE id = $1)`, appUser).Scan(&exists); err != nil {
+				return fmt.Errorf("reconstruction: checking whether owner %s travelled with the bundle: %w", appUser, err)
+			}
+			if exists {
+				present[incumbentUser] = appUser
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return present, nil
 }
 
 func readBundleJSON(zr *zip.Reader, name string, out any) error {
@@ -152,12 +233,17 @@ func readBundleJSON(zr *zip.Reader, name string, out any) error {
 	if err != nil {
 		return fmt.Errorf("reconstruction: the bundle has no %s: %w", name, err)
 	}
-	raw, readErr := io.ReadAll(f)
+	// LimitReader + 1: a member that fills the cap is over it, and a
+	// zip bomb hits the ceiling instead of the machine's memory.
+	raw, readErr := io.ReadAll(io.LimitReader(f, maxBundleEntryBytes+1))
 	if closeErr := f.Close(); closeErr != nil && readErr == nil {
 		readErr = closeErr
 	}
 	if readErr != nil {
 		return fmt.Errorf("reconstruction: reading %s: %w", name, readErr)
+	}
+	if len(raw) > maxBundleEntryBytes {
+		return fmt.Errorf("reconstruction: %s exceeds the %d-byte bundle-member cap: %w", name, maxBundleEntryBytes, apperrors.ErrConflict)
 	}
 	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("reconstruction: decoding %s: %w", name, err)
