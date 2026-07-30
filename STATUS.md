@@ -26,26 +26,36 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Session pickup — 2026-07-30
 
-**The company-view rebuild is 5 of 7 PRs in.** #309 (composite read), #313
-(one-page view), #315 (evidence mark) and #317 (account brief) are merged. **#319
-(next-step suggestions + Ask Margince) is feature-complete with auto-merge armed**
-— all local gates green with `main` merged, the branch's one review round done and
-its four bot threads resolved. If it has not landed, the only likely cause is
-another `main` push putting it BEHIND again: merge `origin/main`, confirm no
-migration-number collision (mine is `0145_suggestion_dismissal`), push, and
-auto-merge takes it.
+**The company-view rebuild is 6 of 7 PRs in.** #309 (composite read), #313
+(one-page view), #315 (evidence mark), #317 (account brief) and #319 (next-step
+suggestions + Ask Margince) are merged. **PR 6, the connections card, is on
+`feat/company-connections-graph`** — `GET /organizations/{id}/graph` in
+`internal/compose/org360/graph*.go` plus `frontend/src/screens/connections.tsx`,
+wired into the company rail between the people and deals cards. `make check` and
+the graph's nine integration tests are green; `craft static` reports nothing.
 
-**Next: PR 6 — the connections card (graph level 1).** Scope, in full, because the
-concept it comes from is not in this repo: a compose-level
-`GET /organizations/{id}/graph` returning `{nodes[], edges[]}` — contacts by
-employment (strength-weighted), open deals with their stakeholder edges,
-partner/parent orgs, the active signal's intro path. One hop, RBAC-pruned the way
-the roll-up walk is, deterministic node selection, and `dropped_count` rather than
-a silent cap. Frontend: a collapsed ego view in the right rail (hand-rolled SVG,
-fixed radial layout) with a keyboard-navigable node list as the real fallback, an
-expandable `Modal size="wide"`, and nodes routing through `EntityRef`. It replaces
-`RecordContextPanel` on this screen; graph level 2 is deferred. **Start it in a
-fresh context** — this session ran long.
+**Three decisions PR 6 made that the scope line left open.** Read these before
+extending the card.
+
+- **`related_organizations` is NOT an omittable group.** Parent, children and
+  partner companies need no grant beyond the organization read the endpoint
+  already demands, so they are row-scope pruned like every other node and can
+  never be withheld wholesale. Declaring a value nothing can emit would be
+  vocabulary a client had to handle and would never see.
+- **The intro path is reported only when its contact is already a node.** The
+  ranking is the warm room's own — `signals.RankRouteIn`, extracted from
+  `Warmth` in this PR so both callers share one spelling — so the card can never
+  name a DIFFERENT person than `GET /signals/{id}/intro-path`. When the route-in
+  contact's only seat is on a deal the card did not draw, the card says nothing
+  rather than promoting the next contact it happens to have.
+- **Stakeholder contacts have no cap of their own,** so `dropped_count` does not
+  speak for them. They arrive with the deals already capped, which bounds them.
+  A deal with an implausible number of stakeholders would grow the payload; if
+  that ever shows up, cap them and add to the count.
+
+**PR 7 is the last one, and graph level 2 is still deferred.** The card does not
+replace `RecordContextPanel` (that panel is on the deal, person and lead screens,
+never on the company view — the scope line assumed otherwise).
 
 **Two things worth knowing before touching the suggestion code.** The stall
 episode's monotonicity constraint is written at `stalledDeal.episode()` in

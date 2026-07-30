@@ -6,6 +6,13 @@
 // list memberships, decidable approvals, open next steps, and what has
 // changed since the caller last acknowledged seeing the account.
 //
+// It also serves the same page's CONNECTIONS card (graph.go), a second read
+// returning the account's one-hop neighbourhood as nodes and edges. Separate
+// because a client that wants the profile does not always want the graph, and
+// because its unit of authorization is a node group rather than a section —
+// but the same posture: one transaction, one instant, per-group grants, and a
+// cap that reports what it left out.
+//
 // It lives in compose because it spans organization, person, relationship,
 // deal, activity, tag, list and approval — the composition layer's charter
 // — and it durably owns two tables of its own, both per-user view state rather

@@ -283,6 +283,55 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	return contactStrengths(ctx, tx, contacts, now)
 }
 
+// StrengthForPeople computes §4 for an ARBITRARY contact set inside the
+// caller's own transaction, pruned to their person row scope and to live
+// rows. A person the caller may not read, or one that is archived, is
+// absent from the result rather than carried with a zero — the caller
+// learns nothing about a record they cannot open.
+//
+// StrengthForOrgContacts answers "everyone employed here"; this answers
+// "these people", which is what a reader that assembled its own contact
+// set needs — the company view's connection graph scores employees and
+// deal stakeholders together, and asking per person would open one
+// transaction each and read a different instant for every node.
+func StrengthForPeople(ctx context.Context, tx pgx.Tx, people []ids.PersonID, now time.Time) ([]ContactStrength, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	if len(people) == 0 {
+		return nil, nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	peoplePos := arg(people)
+	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return nil, err
+	}
+	if scope == "" {
+		scope = "TRUE"
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT p.id FROM person p
+		WHERE p.id = ANY($%d) AND p.archived_at IS NULL AND (%s)
+		ORDER BY p.id`, peoplePos, scope), args...)
+	if err != nil {
+		return nil, err
+	}
+	visible, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ids.PersonID, error) {
+		var id ids.PersonID
+		err := row.Scan(&id)
+		return id, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return nil, nil
+	}
+	return contactStrengths(ctx, tx, visible, now)
+}
+
 // contactStrengths folds the §4 inputs for a whole contact set out of ONE
 // grouped pass over their qualifying activities. The evidence ids are
 // deliberately NOT collected here: they are the person page's receipts, and

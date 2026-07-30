@@ -3882,6 +3882,108 @@ func (e OrganizationFactSource) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationGraphGroupsOmitted.
+const (
+	OrganizationGraphGroupsOmittedContacts  OrganizationGraphGroupsOmitted = "contacts"
+	OrganizationGraphGroupsOmittedDeals     OrganizationGraphGroupsOmitted = "deals"
+	OrganizationGraphGroupsOmittedIntroPath OrganizationGraphGroupsOmitted = "intro_path"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphGroupsOmitted enum.
+func (e OrganizationGraphGroupsOmitted) Valid() bool {
+	switch e {
+	case OrganizationGraphGroupsOmittedContacts:
+		return true
+	case OrganizationGraphGroupsOmittedDeals:
+		return true
+	case OrganizationGraphGroupsOmittedIntroPath:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationGraphEdgeKind.
+const (
+	OrganizationGraphEdgeKindCoSellWith      OrganizationGraphEdgeKind = "co_sell_with"
+	OrganizationGraphEdgeKindDealStakeholder OrganizationGraphEdgeKind = "deal_stakeholder"
+	OrganizationGraphEdgeKindEmployment      OrganizationGraphEdgeKind = "employment"
+	OrganizationGraphEdgeKindHasDeal         OrganizationGraphEdgeKind = "has_deal"
+	OrganizationGraphEdgeKindParentOf        OrganizationGraphEdgeKind = "parent_of"
+	OrganizationGraphEdgeKindPartnerOf       OrganizationGraphEdgeKind = "partner_of"
+	OrganizationGraphEdgeKindReferredBy      OrganizationGraphEdgeKind = "referred_by"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphEdgeKind enum.
+func (e OrganizationGraphEdgeKind) Valid() bool {
+	switch e {
+	case OrganizationGraphEdgeKindCoSellWith:
+		return true
+	case OrganizationGraphEdgeKindDealStakeholder:
+		return true
+	case OrganizationGraphEdgeKindEmployment:
+		return true
+	case OrganizationGraphEdgeKindHasDeal:
+		return true
+	case OrganizationGraphEdgeKindParentOf:
+		return true
+	case OrganizationGraphEdgeKindPartnerOf:
+		return true
+	case OrganizationGraphEdgeKindReferredBy:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationGraphNodeKind.
+const (
+	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
+	OrganizationGraphNodeKindOrganization OrganizationGraphNodeKind = "organization"
+	OrganizationGraphNodeKindPerson       OrganizationGraphNodeKind = "person"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphNodeKind enum.
+func (e OrganizationGraphNodeKind) Valid() bool {
+	switch e {
+	case OrganizationGraphNodeKindDeal:
+		return true
+	case OrganizationGraphNodeKindOrganization:
+		return true
+	case OrganizationGraphNodeKindPerson:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OrganizationGraphNodeStrengthBucket.
+const (
+	OrganizationGraphNodeStrengthBucketDormant     OrganizationGraphNodeStrengthBucket = "dormant"
+	OrganizationGraphNodeStrengthBucketLessThannil OrganizationGraphNodeStrengthBucket = "<nil>"
+	OrganizationGraphNodeStrengthBucketStrong      OrganizationGraphNodeStrengthBucket = "strong"
+	OrganizationGraphNodeStrengthBucketWarm        OrganizationGraphNodeStrengthBucket = "warm"
+	OrganizationGraphNodeStrengthBucketWeak        OrganizationGraphNodeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphNodeStrengthBucket enum.
+func (e OrganizationGraphNodeStrengthBucket) Valid() bool {
+	switch e {
+	case OrganizationGraphNodeStrengthBucketDormant:
+		return true
+	case OrganizationGraphNodeStrengthBucketLessThannil:
+		return true
+	case OrganizationGraphNodeStrengthBucketStrong:
+		return true
+	case OrganizationGraphNodeStrengthBucketWarm:
+		return true
+	case OrganizationGraphNodeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationHierarchyRollupScope.
 const (
 	OrganizationHierarchyRollupScopeSelf OrganizationHierarchyRollupScope = "self"
@@ -5705,31 +5807,31 @@ func (e VoiceBuildStatus) Valid() bool {
 
 // Defines values for VoiceBuildStatusCode.
 const (
-	VoiceBuildStatusCodeBudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
-	VoiceBuildStatusCodeInternal          VoiceBuildStatusCode = "internal"
-	VoiceBuildStatusCodeInvalidOutput     VoiceBuildStatusCode = "invalid_output"
-	VoiceBuildStatusCodeLessThannil       VoiceBuildStatusCode = "<nil>"
-	VoiceBuildStatusCodeMaterialDrift     VoiceBuildStatusCode = "material_drift"
-	VoiceBuildStatusCodeModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
-	VoiceBuildStatusCodeQualityRegression VoiceBuildStatusCode = "quality_regression"
+	BudgetDeferred    VoiceBuildStatusCode = "budget_deferred"
+	Internal          VoiceBuildStatusCode = "internal"
+	InvalidOutput     VoiceBuildStatusCode = "invalid_output"
+	LessThannil       VoiceBuildStatusCode = "<nil>"
+	MaterialDrift     VoiceBuildStatusCode = "material_drift"
+	ModelUnavailable  VoiceBuildStatusCode = "model_unavailable"
+	QualityRegression VoiceBuildStatusCode = "quality_regression"
 )
 
 // Valid indicates whether the value is a known member of the VoiceBuildStatusCode enum.
 func (e VoiceBuildStatusCode) Valid() bool {
 	switch e {
-	case VoiceBuildStatusCodeBudgetDeferred:
+	case BudgetDeferred:
 		return true
-	case VoiceBuildStatusCodeInternal:
+	case Internal:
 		return true
-	case VoiceBuildStatusCodeInvalidOutput:
+	case InvalidOutput:
 		return true
-	case VoiceBuildStatusCodeLessThannil:
+	case LessThannil:
 		return true
-	case VoiceBuildStatusCodeMaterialDrift:
+	case MaterialDrift:
 		return true
-	case VoiceBuildStatusCodeModelUnavailable:
+	case ModelUnavailable:
 		return true
-	case VoiceBuildStatusCodeQualityRegression:
+	case QualityRegression:
 		return true
 	default:
 		return false
@@ -6473,16 +6575,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	Active  ListCustomFieldsParamsStatus = "active"
-	Retired ListCustomFieldsParamsStatus = "retired"
+	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
+	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case Active:
+	case ListCustomFieldsParamsStatusActive:
 		return true
-	case Retired:
+	case ListCustomFieldsParamsStatusRetired:
 		return true
 	default:
 		return false
@@ -6938,28 +7040,28 @@ func (e ListRecordGrantsParamsSubjectType) Valid() bool {
 
 // Defines values for ListRelationshipsParamsKind.
 const (
-	ListRelationshipsParamsKindCoSellWith         ListRelationshipsParamsKind = "co_sell_with"
-	ListRelationshipsParamsKindDealStakeholder    ListRelationshipsParamsKind = "deal_stakeholder"
-	ListRelationshipsParamsKindEmployment         ListRelationshipsParamsKind = "employment"
-	ListRelationshipsParamsKindPartnerOf          ListRelationshipsParamsKind = "partner_of"
-	ListRelationshipsParamsKindProjectStakeholder ListRelationshipsParamsKind = "project_stakeholder"
-	ListRelationshipsParamsKindReferredBy         ListRelationshipsParamsKind = "referred_by"
+	CoSellWith         ListRelationshipsParamsKind = "co_sell_with"
+	DealStakeholder    ListRelationshipsParamsKind = "deal_stakeholder"
+	Employment         ListRelationshipsParamsKind = "employment"
+	PartnerOf          ListRelationshipsParamsKind = "partner_of"
+	ProjectStakeholder ListRelationshipsParamsKind = "project_stakeholder"
+	ReferredBy         ListRelationshipsParamsKind = "referred_by"
 )
 
 // Valid indicates whether the value is a known member of the ListRelationshipsParamsKind enum.
 func (e ListRelationshipsParamsKind) Valid() bool {
 	switch e {
-	case ListRelationshipsParamsKindCoSellWith:
+	case CoSellWith:
 		return true
-	case ListRelationshipsParamsKindDealStakeholder:
+	case DealStakeholder:
 		return true
-	case ListRelationshipsParamsKindEmployment:
+	case Employment:
 		return true
-	case ListRelationshipsParamsKindPartnerOf:
+	case PartnerOf:
 		return true
-	case ListRelationshipsParamsKindProjectStakeholder:
+	case ProjectStakeholder:
 		return true
-	case ListRelationshipsParamsKindReferredBy:
+	case ReferredBy:
 		return true
 	default:
 		return false
@@ -7076,31 +7178,31 @@ func (e ListSignalsParamsResolutionState) Valid() bool {
 
 // Defines values for ListSavedViewsParamsResource.
 const (
-	ListSavedViewsParamsResourceActivities    ListSavedViewsParamsResource = "activities"
-	ListSavedViewsParamsResourceDeals         ListSavedViewsParamsResource = "deals"
-	ListSavedViewsParamsResourceLeads         ListSavedViewsParamsResource = "leads"
-	ListSavedViewsParamsResourceOrganizations ListSavedViewsParamsResource = "organizations"
-	ListSavedViewsParamsResourcePartners      ListSavedViewsParamsResource = "partners"
-	ListSavedViewsParamsResourcePeople        ListSavedViewsParamsResource = "people"
-	ListSavedViewsParamsResourceProjects      ListSavedViewsParamsResource = "projects"
+	Activities    ListSavedViewsParamsResource = "activities"
+	Deals         ListSavedViewsParamsResource = "deals"
+	Leads         ListSavedViewsParamsResource = "leads"
+	Organizations ListSavedViewsParamsResource = "organizations"
+	Partners      ListSavedViewsParamsResource = "partners"
+	People        ListSavedViewsParamsResource = "people"
+	Projects      ListSavedViewsParamsResource = "projects"
 )
 
 // Valid indicates whether the value is a known member of the ListSavedViewsParamsResource enum.
 func (e ListSavedViewsParamsResource) Valid() bool {
 	switch e {
-	case ListSavedViewsParamsResourceActivities:
+	case Activities:
 		return true
-	case ListSavedViewsParamsResourceDeals:
+	case Deals:
 		return true
-	case ListSavedViewsParamsResourceLeads:
+	case Leads:
 		return true
-	case ListSavedViewsParamsResourceOrganizations:
+	case Organizations:
 		return true
-	case ListSavedViewsParamsResourcePartners:
+	case Partners:
 		return true
-	case ListSavedViewsParamsResourcePeople:
+	case People:
 		return true
-	case ListSavedViewsParamsResourceProjects:
+	case Projects:
 		return true
 	default:
 		return false
@@ -10559,6 +10661,135 @@ type OrganizationFactSource string
 type OrganizationFactListResponse struct {
 	Data []OrganizationFact `json:"data"`
 }
+
+// OrganizationGraph The account's one-hop connection graph, as nodes and edges the client lays out.
+type OrganizationGraph struct {
+	// AsOf The instant the assembling transaction read. Every group is consistent to this moment under Read Committed.
+	AsOf time.Time `json:"as_of"`
+
+	// DroppedCount How many nodes the per-group caps left out, summed across the groups that were
+	// read. Zero means the graph is the whole one-hop neighbourhood this caller can
+	// see; anything else means the card is showing a deterministic top slice.
+	DroppedCount int                     `json:"dropped_count"`
+	Edges        []OrganizationGraphEdge `json:"edges"`
+
+	// GroupsOmitted The groups withheld for lack of a grant — so a client can say "you can't see
+	// this" instead of "there is none". `contacts` withheld also withholds
+	// `deal_stakeholder` edges and the intro path, because both name a person.
+	//
+	// The parent, child and partner organizations are not a group here: they need no
+	// grant beyond the organization read this whole endpoint already demands, so they
+	// are row-scope pruned like every other node and can never be withheld wholesale.
+	GroupsOmitted []OrganizationGraphGroupsOmitted `json:"groups_omitted"`
+
+	// IntroPath The warm-intro route the account's most recent open signal proposes: which signal,
+	// and which contact is the way in. The contact is ranked exactly as
+	// `GET /signals/{id}/intro-path` ranks it — strongest live relationship first — so
+	// the card and the warm room can never name different people.
+	//
+	// Absent when the caller lacks the signal or person grant (then `groups_omitted` says
+	// so), when the account has no open resolved signal, when it has one and no live
+	// contact this caller can read — a cold account has no warm path, and inventing one
+	// would be a claim — or when the route-in contact is not one of this graph's nodes,
+	// which happens when their only seat is on a deal the card did not draw. The card
+	// never names a DIFFERENT person than the warm room: it either shows that contact or
+	// says nothing.
+	IntroPath *OrganizationGraphIntroPath `json:"intro_path,omitempty"`
+	Nodes     []OrganizationGraphNode     `json:"nodes"`
+
+	// RootId The account the graph is centred on — the node carrying `root: true`.
+	RootId openapi_types.UUID `json:"root_id"`
+}
+
+// OrganizationGraphGroupsOmitted defines model for OrganizationGraph.GroupsOmitted.
+type OrganizationGraphGroupsOmitted string
+
+// OrganizationGraphEdge One edge, from the record that owns it to the record it points at. Both ends are
+// always nodes in the same payload — an edge naming a record the caller may not
+// read is dropped with its group, never returned dangling.
+type OrganizationGraphEdge struct {
+	From openapi_types.UUID `json:"from"`
+
+	// Kind `employment` — the account employs the person.
+	// `has_deal` — the deal belongs to the account.
+	// `deal_stakeholder` — the person holds a stakeholder seat on the deal.
+	// `parent_of` — `from` is the parent organization of `to` (the account's parent
+	// points at it; the account points at each child).
+	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
+	// the organization that records the edge to its counterparty.
+	Kind OrganizationGraphEdgeKind `json:"kind"`
+
+	// Role The edge's role where it has one — an employment title, a stakeholder role
+	// (champion, economic_buyer, …). Null on the edges that carry none.
+	Role *string            `json:"role,omitempty"`
+	To   openapi_types.UUID `json:"to"`
+}
+
+// OrganizationGraphEdgeKind `employment` — the account employs the person.
+// `has_deal` — the deal belongs to the account.
+// `deal_stakeholder` — the person holds a stakeholder seat on the deal.
+// `parent_of` — `from` is the parent organization of `to` (the account's parent
+// points at it; the account points at each child).
+// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
+// the organization that records the edge to its counterparty.
+type OrganizationGraphEdgeKind string
+
+// OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
+// and which contact is the way in. The contact is ranked exactly as
+// `GET /signals/{id}/intro-path` ranks it — strongest live relationship first — so
+// the card and the warm room can never name different people.
+//
+// Absent when the caller lacks the signal or person grant (then `groups_omitted` says
+// so), when the account has no open resolved signal, when it has one and no live
+// contact this caller can read — a cold account has no warm path, and inventing one
+// would be a claim — or when the route-in contact is not one of this graph's nodes,
+// which happens when their only seat is on a deal the card did not draw. The card
+// never names a DIFFERENT person than the warm room: it either shows that contact or
+// says nothing.
+type OrganizationGraphIntroPath struct {
+	// ContactId The route-in contact. Always present in `nodes`, carrying `intro_path: true`.
+	ContactId openapi_types.UUID `json:"contact_id"`
+	SignalId  openapi_types.UUID `json:"signal_id"`
+}
+
+// OrganizationGraphNode One record in the account's one-hop neighbourhood. `id` is the record's own id,
+// so a client routes to it with the same route it uses everywhere else.
+type OrganizationGraphNode struct {
+	// Detail One short line of context the node cannot be read without: a contact's title,
+	// or a deal's stage name. Null when the record has none on file, and always null
+	// on an organization — how a related company is attached is the EDGE's kind, and
+	// saying it twice would let the two disagree.
+	Detail *string            `json:"detail,omitempty"`
+	Id     openapi_types.UUID `json:"id"`
+
+	// IntroPath This contact is the route in the active signal's warm-intro path proposes.
+	// At most one node carries it, and only when `intro_path` at the top level is
+	// present. Absent on every other node — there is nothing to say about them.
+	IntroPath *bool                     `json:"intro_path,omitempty"`
+	Kind      OrganizationGraphNodeKind `json:"kind"`
+
+	// Label The record's display name — the organization's, the person's full name, the deal's name.
+	Label string `json:"label"`
+
+	// Root This node is the account the graph is centred on. Exactly one node carries
+	// `true`. Always present, because "is this the centre" is a fact about every
+	// node and a client that had to read absence as false would branch on it.
+	Root bool `json:"root"`
+
+	// Strength The person's §4 relationship strength, for weighting the node. Null for an
+	// organization or a deal, which have no relationship of their own, and for a
+	// contact whose strength this caller's person scope did not resolve.
+	Strength *int `json:"strength,omitempty"`
+
+	// StrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
+	StrengthBucket *OrganizationGraphNodeStrengthBucket `json:"strength_bucket,omitempty"`
+}
+
+// OrganizationGraphNodeKind defines model for OrganizationGraphNode.Kind.
+type OrganizationGraphNodeKind string
+
+// OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
+type OrganizationGraphNodeStrengthBucket string
 
 // OrganizationHierarchyRollup The account-tree roll-up over organization.parent_org_id. A server read only,
 // never client-summed. Money is base-currency converted — never a raw
@@ -21979,6 +22210,9 @@ type ServerInterface interface {
 	// The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 	// (GET /organizations/{id}/facts)
 	ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id)
+	// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
+	// (GET /organizations/{id}/graph)
+	GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id)
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
@@ -23275,6 +23509,12 @@ func (_ Unimplemented) ScrapeCompany(w http.ResponseWriter, r *http.Request, id 
 // The organization's confirmed facts (organization_fact), grouped by category on the client. Site-read facts carry evidence (snippet, source URL, confidence); human/migration values may omit it.
 // (GET /organizations/{id}/facts)
 func (_ Unimplemented) ListOrganizationFacts(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
+// (GET /organizations/{id}/graph)
+func (_ Unimplemented) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30883,6 +31123,40 @@ func (siw *ServerInterfaceWrapper) ListOrganizationFacts(w http.ResponseWriter, 
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationGraph operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationGraph(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationGraph(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetOrganizationHierarchyRollup operation middleware
 func (siw *ServerInterfaceWrapper) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request) {
 
@@ -38060,6 +38334,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/facts", wrapper.ListOrganizationFacts)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/graph", wrapper.GetOrganizationGraph)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)
