@@ -620,6 +620,10 @@ func (stubs) ListOrganizationFacts(w nethttp.ResponseWriter, r *nethttp.Request,
 	httperr.NotImplemented(w, r, "ListOrganizationFacts")
 }
 
+func (stubs) GetOrganizationGraph(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationGraph")
+}
+
 func (stubs) GetOrganizationHierarchyRollup(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.GetOrganizationHierarchyRollupParams) {
 	httperr.NotImplemented(w, r, "GetOrganizationHierarchyRollup")
 }

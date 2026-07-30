@@ -53,6 +53,7 @@ import {
   TagsCard,
   useOrganization360,
 } from "./company360";
+import { ConnectionsCard } from "./connections";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
@@ -1534,6 +1535,7 @@ function businessRail({
     return (
       <>
         <PeopleCard view={view} />
+        <ConnectionsCard orgId={org.id} />
         <DealsCard view={view} />
         <SignalsCard orgId={org.id} />
         <TagsCard view={view} />
@@ -1550,6 +1552,9 @@ function businessRail({
   return (
     <>
       <PeopleCard />
+      {/* The connections card reads its own endpoint, so a failed 360 tells it
+          nothing — it still tries, and says so itself if its own read fails. */}
+      <ConnectionsCard orgId={org.id} />
       <DealsCard />
       <SignalsCard orgId={org.id} />
       <TagsCard />
