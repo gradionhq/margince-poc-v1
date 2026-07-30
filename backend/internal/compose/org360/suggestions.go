@@ -229,9 +229,10 @@ func staleThread(
 	}
 }
 
-// stalledDealSuggestions raises one per stalled open deal. The stall flag is
-// the deals module's own (deals.IsStalled, against the pipeline's window),
-// never re-derived here from a date.
+// stalledDealSuggestions raises one per stalled open deal. The stall flag is the
+// deals module's own — deals.IsStalled, against its fixed 60-day window
+// (StalledThresholdDays); there is no per-pipeline setting — never re-derived
+// here from a date.
 func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization360Suggestion {
 	out := make([]crmcontracts.Organization360Suggestion, 0, len(stalled))
 	for _, deal := range stalled {

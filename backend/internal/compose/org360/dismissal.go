@@ -63,10 +63,10 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 		if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 			return err
 		}
-		// The body is checked AFTER the record gate, the house order: a caller
-		// who may not read this account must get the same 404 whatever they put
-		// in the body, or the shape of their mistake becomes an answer about
-		// whether the account exists.
+		// After the record gate, so a caller who may not read this account gets the
+		// same 404 whatever they put in the body. The shape check alone is
+		// account-independent, but the raisesSuggestion call below is not — keeping
+		// both on this side of the gate means there is one order to reason about.
 		if !isFingerprint(fingerprint) {
 			return httperr.Validation("fingerprint", "malformed",
 				"dismiss a suggestion by the fingerprint it was served with, unchanged")

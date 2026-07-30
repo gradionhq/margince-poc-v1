@@ -8,9 +8,11 @@
 //
 // It lives in compose because it spans organization, person, relationship,
 // deal, activity, tag, list and approval — the composition layer's charter
-// — and it durably owns exactly one table of its own:
+// — and it durably owns two tables of its own, both per-user view state rather
+// than record facts, so both are written without an audit row or an outbox event:
 //
-//	Tables owned: user_record_view (the per-user visit baseline).
+//	Tables owned: user_record_view (the per-user visit baseline),
+//	              suggestion_dismissal (the rep's "not this, not now").
 //
 // Two rules shape everything here.
 //

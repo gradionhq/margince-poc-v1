@@ -10428,7 +10428,7 @@ type Organization360Suggestion struct {
 	Fingerprint string `json:"fingerprint"`
 
 	// Kind `no_reply` — an outbound message on a thread nobody answered.
-	// `stalled_deal` — an open deal past the pipeline's stall window.
+	// `stalled_deal` — an open deal idle past the 60-day stall window.
 	// `no_next_step` — an active account with no open task on it.
 	Kind Organization360SuggestionKind `json:"kind"`
 
@@ -10439,7 +10439,7 @@ type Organization360Suggestion struct {
 }
 
 // Organization360SuggestionKind `no_reply` — an outbound message on a thread nobody answered.
-// `stalled_deal` — an open deal past the pipeline's stall window.
+// `stalled_deal` — an open deal idle past the 60-day stall window.
 // `no_next_step` — an active account with no open task on it.
 type Organization360SuggestionKind string
 

@@ -535,12 +535,36 @@ this build repo.
      section with `suggestions_dropped: 0`, which the card renders as "that is
      everything" — while the no-reply rule was never evaluated. It under-advises
      rather than over-advises, so it is a truthfulness gap, not a disclosure.
-- **The company view's suggestion read is deliberately unbounded.** `openPipeline`
-  reads every open deal of one account in one statement, because every bound put
-  the read's own limit inside a number the card reported. An account with tens of
-  thousands of open deals therefore makes each 360 read of it expensive. Bounded by
-  stored data, not by anything a request supplies; raised by the security review as
-  a known tradeoff rather than a finding.
+- **The company view's suggestion read is O(N) in an account's open deals, and
+  four surfaces now pay it.** `openPipeline` reads every open deal of one account
+  in one statement plus a correlated `count(*)` over `deal_stage_history` per deal,
+  because every bound tried put the read's own limit inside a number the card
+  reported. It runs on every `Assemble`, which serves `GET /organizations/{id}/360`,
+  `GET`/`POST /organizations/{id}/brief` and `POST /organizations/{id}/ask`. A
+  tenant-internal principal that can create deals — including an agent, since
+  `createDeal` is auto-execute — can make every later view of that company page an
+  O(N) read. Not cross-tenant and not a leak; a self-inflicted latency amplifier.
+  The fix that keeps the stated semantics (exact count, whole-set digest,
+  dismissals applied before the cap) is to fold in SQL rather than in Go: `count(*)`,
+  `md5(string_agg(id::text, ',' ORDER BY id))` for the digest, and a `LIMIT`ed
+  stalled list ordered by `coalesce(last_activity_at, created_at)` with headroom for
+  the caller's dismissals. Raised by the security review as a NOTE.
+- **`POST /organizations/{id}/ask` is an uncapped per-click model call.** Nothing is
+  cached (deliberately — a cached answer would break the "written from the account
+  as it is now" promise), and the authenticated `/v1` surface has no rate limit, so
+  one session can spend the workspace's AI budget at request rate. Bounded by
+  `ai.Router`'s budget guard and it degrades to the deterministic floor rather than
+  failing, and `POST .../brief`'s force-refresh already had the same profile — so a
+  widening of an accepted posture, not a new class. The honest fix is a per-user
+  `ratelimit` in front of the two model-spending POSTs, not a cache.
+- **Two smaller company-view follow-ups from the final review.** The suggestion
+  card renders a localized kind label above a server-generated ENGLISH reason, so a
+  German reader sees "Deal steht" over an English sentence; the three deterministic
+  reasons could ship as i18n keys plus parameters (the brief has the same property,
+  but its text is model prose). And the `summarize/org_ask` corpus cannot reach half
+  of the `whats_open` instruction: `orgBriefFixture` carries no `open_tasks`, so no
+  scenario can expect a task citation — the unit test covers that half, the
+  certification lane silently does not. Add the field and one scenario.
 - **The company view's "New deal" action needs a staged approval kind.** The
   concept calls for a 🟡 `create_deal` staging; the approval catalog has no such
   kind, so the interim build creates the deal directly under a confirm modal.

@@ -213,9 +213,10 @@ func openPipeline(
 		SELECT d.id, d.name, d.status, d.created_at, d.last_activity_at, d.wait_until,
 		       (SELECT count(*) FROM deal_stage_history h
 		         WHERE h.deal_id = d.id AND h.from_stage_id IS DISTINCT FROM h.to_stage_id)
+		FROM deal d
 		%s
 		ORDER BY coalesce(d.last_activity_at, d.created_at), d.id`,
-		"FROM deal d\n\t\t"+openDealsWhere(orgPos, dealScope)), args...)
+		openDealsWhere(orgPos, dealScope)), args...)
 	if err != nil {
 		return pipeline{}, fmt.Errorf("read the account's open pipeline: %w", err)
 	}
