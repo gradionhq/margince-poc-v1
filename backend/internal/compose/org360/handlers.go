@@ -48,6 +48,19 @@ func (h Handlers) GetOrganization360(w http.ResponseWriter, r *http.Request, id 
 	httperr.WriteJSON(w, http.StatusOK, view)
 }
 
+// GetOrganizationGraph implements GET /organizations/{id}/graph.
+func (h Handlers) GetOrganizationGraph(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
+	if !h.nativeOnly(w, r) {
+		return
+	}
+	graph, err := h.svc.Graph(r.Context(), ids.From[ids.OrganizationKind](ids.UUID(id)))
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, graph)
+}
+
 // AcknowledgeOrganizationView implements POST /organizations/{id}/view-ack.
 func (h Handlers) AcknowledgeOrganizationView(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {
 	if !h.nativeOnly(w, r) {

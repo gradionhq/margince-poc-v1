@@ -460,6 +460,74 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * The account's connections one hop out — its contacts, its open deals and their stakeholders, its parent, children and partner orgs.
+         * @description The company view's connections card: who and what this account is attached to,
+         *     as an explicit node/edge set the client draws rather than a picture the server
+         *     renders.
+         *
+         *     **One hop, and only one.** Every node is reached by a single edge from the
+         *     account — an employment, a deal it owns, a stakeholder seat on one of those
+         *     deals, the `parent_org_id` link up or down, or a partner edge. A contact's other
+         *     employers, a deal's other accounts and a partner's own partners are NOT walked:
+         *     a second hop is a different read with a different cost, and a card that
+         *     sometimes went two hops would have no honest cap.
+         *
+         *     **Authorization is per group**, the same posture `GET /organizations/{id}/360`
+         *     takes for its sections. Reading the organization itself is mandatory. Contacts
+         *     need the person grant, deals need the deal grant, and the intro path needs the
+         *     signal grant; a group the caller may not read is left out of `nodes`/`edges` and
+         *     named in `groups_omitted`, so the card can say "hidden from you" instead of
+         *     drawing a company with no contacts. Within a group every row carries that
+         *     object's row scope, so this card can never out-see the endpoint that owns the
+         *     record — a stakeholder edge needs BOTH the deal and the person to be visible,
+         *     because an edge names two records.
+         *
+         *     **Node selection is deterministic and capped, and the cap is reported.** Each
+         *     group has a fixed order — contacts by relationship strength then id, deals by
+         *     amount then id, organizations by name then id — so two reads of an unchanged
+         *     account return the same nodes. `dropped_count` says how many nodes the caps left
+         *     out, counted over each group's whole membership — a truncated graph with no count
+         *     reads as the whole neighbourhood, and a count taken from a bounded read would
+         *     understate it. Stakeholder contacts have no cap of their own — they are bounded by
+         *     the deals already selected — so they are the one node kind that number does not
+         *     speak for.
+         *
+         *     The reads themselves are bounded, so one request's cost follows the caps and not
+         *     the account. Deals are ordered and limited in the database, so their slice is
+         *     exactly the top N. Organizations are limited by COMPANY rather than by row, so a
+         *     company attached several ways — a parent that is also a reseller — cannot fill the
+         *     allowance and leave the others out; a relationship recorded twice is one edge, not
+         *     two. Contacts are the one group ordered by something the database does not know
+         *     yet (a relationship strength computed after the read), so an account with more
+         *     than 500 contacts contributes the strongest of the first 500 by id rather than of
+         *     all of them. `dropped_count` is the true remainder in every case. No real account
+         *     is near that bound, and an installation that reaches it should read the contact
+         *     list from `GET /people` rather than from a card.
+         *
+         *     Native system-of-record only: a workspace reading from an incumbent mirror gets
+         *     `422 unsupported_in_overlay_mode`, the same refusal the 360 gives, because the
+         *     mirror holds none of these edges.
+         */
+        get: operations["getOrganizationGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/brief": {
         parameters: {
             query?: never;
@@ -6387,6 +6455,130 @@ export interface components {
             suggestions_dropped?: number;
         };
         /**
+         * @description One record in the account's one-hop neighbourhood. `id` is the record's own id,
+         *     so a client routes to it with the same route it uses everywhere else.
+         */
+        OrganizationGraphNode: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            kind: "organization" | "person" | "deal";
+            /** @description The record's display name — the organization's, the person's full name, the deal's name. */
+            label: string;
+            /**
+             * @description This node is the account the graph is centred on. Exactly one node carries
+             *     `true`. Always present, because "is this the centre" is a fact about every
+             *     node and a client that had to read absence as false would branch on it.
+             */
+            root: boolean;
+            /**
+             * @description One short line of context the node cannot be read without: a contact's title,
+             *     or a deal's stage name. Null when the record has none on file, and always null
+             *     on an organization — how a related company is attached is the EDGE's kind, and
+             *     saying it twice would let the two disagree.
+             */
+            detail?: string | null;
+            /**
+             * @description The person's §4 relationship strength, for weighting the node. Null for an
+             *     organization or a deal, which have no relationship of their own, and for a
+             *     contact whose strength this caller's person scope did not resolve.
+             */
+            strength?: number | null;
+            /**
+             * @description The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
+             * @enum {string|null}
+             */
+            strength_bucket?: null | "dormant" | "weak" | "warm" | "strong";
+            /**
+             * @description This contact is the route in the active signal's warm-intro path proposes.
+             *     At most one node carries it, and only when `intro_path` at the top level is
+             *     present. Absent on every other node — there is nothing to say about them.
+             */
+            intro_path?: boolean;
+        };
+        /**
+         * @description One edge, from the record that owns it to the record it points at. Both ends are
+         *     always nodes in the same payload — an edge naming a record the caller may not
+         *     read is dropped with its group, never returned dangling.
+         */
+        OrganizationGraphEdge: {
+            /** Format: uuid */
+            from: string;
+            /** Format: uuid */
+            to: string;
+            /**
+             * @description `employment` — the account employs the person.
+             *     `has_deal` — the deal belongs to the account.
+             *     `deal_stakeholder` — the person holds a stakeholder seat on the deal.
+             *     `parent_of` — `from` is the parent organization of `to` (the account's parent
+             *     points at it; the account points at each child).
+             *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
+             *     the organization that records the edge to its counterparty.
+             * @enum {string}
+             */
+            kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with";
+            /**
+             * @description The edge's role where it has one — an employment title, a stakeholder role
+             *     (champion, economic_buyer, …). Null on the edges that carry none.
+             */
+            role?: string | null;
+        };
+        /**
+         * @description The warm-intro route the account's most recent open signal proposes: which signal,
+         *     and which contact is the way in. The contact is ranked exactly as
+         *     `GET /signals/{id}/intro-path` ranks it — strongest live relationship first — so
+         *     the card and the warm room can never name different people.
+         *
+         *     Absent when the caller lacks the signal or person grant (then `groups_omitted` says
+         *     so), when the account has no open resolved signal, when it has one and no live
+         *     contact this caller can read — a cold account has no warm path, and inventing one
+         *     would be a claim — or when the route-in contact is not one of this graph's nodes,
+         *     which happens when their only seat is on a deal the card did not draw. The card
+         *     never names a DIFFERENT person than the warm room: it either shows that contact or
+         *     says nothing.
+         */
+        OrganizationGraphIntroPath: {
+            /** Format: uuid */
+            signal_id: string;
+            /**
+             * Format: uuid
+             * @description The route-in contact. Always present in `nodes`, carrying `intro_path: true`.
+             */
+            contact_id: string;
+        };
+        /** @description The account's one-hop connection graph, as nodes and edges the client lays out. */
+        OrganizationGraph: {
+            /**
+             * Format: date-time
+             * @description The instant the assembling transaction read. Every group is consistent to this moment under Read Committed.
+             */
+            as_of: string;
+            /**
+             * Format: uuid
+             * @description The account the graph is centred on — the node carrying `root: true`.
+             */
+            root_id: string;
+            nodes: components["schemas"]["OrganizationGraphNode"][];
+            edges: components["schemas"]["OrganizationGraphEdge"][];
+            /**
+             * @description How many nodes the per-group caps left out, summed across the groups that were
+             *     read. Zero means the graph is the whole one-hop neighbourhood this caller can
+             *     see; anything else means the card is showing a deterministic top slice.
+             */
+            dropped_count: number;
+            /**
+             * @description The groups withheld for lack of a grant — so a client can say "you can't see
+             *     this" instead of "there is none". `contacts` withheld also withholds
+             *     `deal_stakeholder` edges and the intro path, because both name a person.
+             *
+             *     The parent, child and partner organizations are not a group here: they need no
+             *     grant beyond the organization read this whole endpoint already demands, so they
+             *     are row-scope pruned like every other node and can never be withheld wholesale.
+             */
+            groups_omitted: ("contacts" | "deals" | "intro_path")[];
+            intro_path?: components["schemas"]["OrganizationGraphIntroPath"];
+        };
+        /**
          * @description The typed edge. Mirrors `relationship` (data-model §5). Shapes by `kind`:
          *     `employment` (person↔org), `deal_stakeholder` (deal↔person), `project_stakeholder`
          *     (project↔person — the deal-stakeholder shape applied to a body of work), and the partner edges
@@ -11530,6 +11722,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Organization360"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getOrganizationGraph: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The organization's one-hop connection graph. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OrganizationGraph"];
                 };
             };
             401: components["responses"]["Unauthorized"];

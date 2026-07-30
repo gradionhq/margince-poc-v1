@@ -252,12 +252,9 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 	var args []any
 	arg := func(v any) int { args = append(args, v); return len(args) }
 	orgPos := arg(orgID)
-	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	scope, err := personScopePredicate(ctx, arg)
 	if err != nil {
 		return nil, err
-	}
-	if scope == "" {
-		scope = "TRUE"
 	}
 	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT p.id FROM person p
@@ -281,6 +278,67 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 		return nil, nil
 	}
 	return contactStrengths(ctx, tx, contacts, now)
+}
+
+// personScopePredicate is the caller's person row-scope predicate for a query
+// that aliases person as p, spelled once for the two batch reads below. An
+// unbounded caller gets the always-true predicate rather than an empty string,
+// so the SQL that embeds it needs only one shape.
+func personScopePredicate(ctx context.Context, arg func(any) int) (string, error) {
+	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return "", err
+	}
+	if scope == "" {
+		return "TRUE", nil
+	}
+	return scope, nil
+}
+
+// StrengthForPeople computes §4 for an ARBITRARY contact set inside the
+// caller's own transaction, pruned to their person row scope and to live
+// rows. A person the caller may not read, or one that is archived, is
+// absent from the result rather than carried with a zero — the caller
+// learns nothing about a record they cannot open.
+//
+// StrengthForOrgContacts answers "everyone employed here"; this answers
+// "these people", which is what a reader that assembled its own contact
+// set needs — the company view's connection graph scores employees and
+// deal stakeholders together, and asking per person would open one
+// transaction each and read a different instant for every node.
+func StrengthForPeople(ctx context.Context, tx pgx.Tx, people []ids.PersonID, now time.Time) ([]ContactStrength, error) {
+	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	if len(people) == 0 {
+		return nil, nil
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	peoplePos := arg(people)
+	scope, err := personScopePredicate(ctx, arg)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT p.id FROM person p
+		WHERE p.id = ANY($%d) AND p.archived_at IS NULL AND (%s)
+		ORDER BY p.id`, peoplePos, scope), args...)
+	if err != nil {
+		return nil, err
+	}
+	visible, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (ids.PersonID, error) {
+		var id ids.PersonID
+		err := row.Scan(&id)
+		return id, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(visible) == 0 {
+		return nil, nil
+	}
+	return contactStrengths(ctx, tx, visible, now)
 }
 
 // contactStrengths folds the §4 inputs for a whole contact set out of ONE

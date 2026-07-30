@@ -102,14 +102,28 @@ function rosterName(kind: RosterKind, entry: User | Team): string | null {
 export function EntityRef({
   kind,
   id,
-}: Readonly<{ kind: EntityRefKind; id: string | null | undefined }>) {
+  name,
+}: Readonly<{
+  kind: EntityRefKind;
+  id: string | null | undefined;
+  // The display name, when the CALLER already has it. A composite read that
+  // returns its own labels — the company view's connection graph — would
+  // otherwise pay one record fetch per reference and show the raw id until each
+  // one lands. Passing it skips the lookup entirely; the link and the id
+  // fallback are unchanged.
+  name?: string | null;
+}>) {
   const isRoster = kind === "user" || kind === "team";
   // Both queries are called unconditionally (rules of hooks) and gated with
-  // `enabled` instead — only the branch matching `kind` actually fetches.
+  // `enabled` instead — only the branch matching `kind` actually fetches, and
+  // neither does when the caller supplied the name.
   const recordQuery = useQuery({
     queryKey: [kind, "ref", id],
     queryFn: () => fetchEntityName(kind as EntityKind, id ?? ""),
-    enabled: Boolean(id) && !isRoster,
+    // A caller-supplied name skips the lookup; a blank one does not, because a
+    // blank is the caller saying it has nothing rather than saying the record
+    // is nameless.
+    enabled: Boolean(id) && !isRoster && !name,
     // References change rarely relative to the pages that render them; a short
     // cache keeps a 360 from re-fetching the same name on every hover/refetch.
     staleTime: 60_000,
@@ -141,7 +155,12 @@ export function EntityRef({
 
   // Only a resolved name is a safe link target; an unresolved id (still
   // loading, or a record the caller can't read) stays plain mono text.
-  if (recordQuery.data == null) {
+  //
+  // An EMPTY supplied name counts as no name: a record whose display field is
+  // blank would otherwise render as a button with nothing in it, which is a
+  // link a reader can neither read nor find.
+  const resolved = name || recordQuery.data;
+  if (resolved == null) {
     return (
       <span className="t-mono" title={id}>
         {id}
@@ -155,7 +174,7 @@ export function EntityRef({
       onClick={() => navigate(ENTITY[kind as EntityKind].route(id))}
       title={id}
     >
-      {recordQuery.data}
+      {resolved}
     </button>
   );
 }
