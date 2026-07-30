@@ -140,22 +140,24 @@ func TestAnEmptyAccountAnswersNothingRatherThanSomethingEmpty(t *testing.T) {
 	}
 }
 
-// TestTwoReadersOfTheSameAccountCannotShareABrief is the per-viewer guarantee
-// where it has a real failure mode.
+// TestTheWriterIsToldWhichSubjectsToStayOffOf is the per-viewer guarantee at the
+// only point it can fail.
 //
-// Two callers, one account, one instant: the difference is that the second may not
-// read deals. Their inputs must fingerprint differently, because the fingerprint IS
-// the cache key — if they collide, whichever reader arrives first writes a brief
-// the other then reads, and the restricted one is served sentences about a pipeline
-// they were refused.
+// A withheld section reaches the writer as an instruction, not as an absence. Both
+// prompts carry "if the summary names sections_omitted, say nothing about those
+// subjects at all", and that line does nothing unless FromView actually carries the
+// names into the payload — a model handed an account with no deals and no note of
+// why is free to remark on the empty pipeline it infers.
 //
-// Asserting instead that a withheld section leaves no deals in the Input would
-// prove nothing: a nil section yields nothing by Go's own semantics, and no change
-// to how omission is handled could make that fail. What CAN break is
-// Input.SectionsOmitted no longer riding the hash, and that is what this catches.
-func TestTwoReadersOfTheSameAccountCannotShareABrief(t *testing.T) {
-	account := crmcontracts.Organization360{
-		Organization: crmcontracts.Organization{DisplayName: "Nordwind AG"},
+// Two framings I tried first were not tests. That a nil section yields no records
+// is Go's own semantics, and nothing about omission handling could break it. And
+// two readers cannot share a cached brief whatever the fingerprint says, because
+// org_brief is keyed (workspace, user, organization) — that leak is closed by the
+// primary key, not by this.
+func TestTheWriterIsToldWhichSubjectsToStayOffOf(t *testing.T) {
+	restricted := crmcontracts.Organization360{
+		Organization:    crmcontracts.Organization{DisplayName: "Nordwind AG"},
+		SectionsOmitted: []crmcontracts.Organization360SectionsOmitted{"deals"},
 		People: &struct {
 			Data []crmcontracts.Organization360Contact `json:"data"`
 			Page crmcontracts.PageInfo                 `json:"page"`
@@ -163,28 +165,18 @@ func TestTwoReadersOfTheSameAccountCannotShareABrief(t *testing.T) {
 			PersonId: openapi_types.UUID(ids.NewV7()), FullName: "Dana Buyer",
 		}}},
 	}
-	// The reader who may not see deals. Everything else about the account, and the
-	// instant it was read at, is identical.
-	restricted := account
-	restricted.SectionsOmitted = []crmcontracts.Organization360SectionsOmitted{"deals"}
 
-	full, err := Fingerprint(FromView(account), "routing-1")
-	if err != nil {
-		t.Fatalf("fingerprint the unrestricted input: %v", err)
+	// End to end into the bytes the model receives, not just into the struct: the
+	// instruction is worthless if the payload never names the section.
+	payload := AskRequest(crmcontracts.MeetingPrep, FromView(restricted)).Messages[0].Content
+	if !strings.Contains(payload, `"sections_omitted":["deals"]`) {
+		t.Errorf("the prompt payload does not name the withheld section, so the "+
+			"instruction to stay silent about it applies to nothing: %s", payload)
 	}
-	narrow, err := Fingerprint(FromView(restricted), "routing-1")
-	if err != nil {
-		t.Fatalf("fingerprint the restricted input: %v", err)
-	}
-	if full == narrow {
-		t.Error("two readers with different grants fingerprint the same, so they share " +
-			"one cached brief — the restricted one would be served the other's pipeline")
-	}
-
-	// And the writer is told which subject to stay off, rather than being left to
-	// infer around the gap.
-	if got := FromView(restricted).SectionsOmitted; len(got) != 1 || got[0] != "deals" {
-		t.Errorf("sections_omitted = %v, want the withheld section named for the prompt", got)
+	// The section that DID come back is there too, so the assertion above is about
+	// omission rather than about an empty payload.
+	if !strings.Contains(payload, "Dana Buyer") {
+		t.Errorf("the payload lost the section this reader can see: %s", payload)
 	}
 }
 
