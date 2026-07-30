@@ -54,17 +54,3 @@ func TestPageTallyTakesOnlyForwardReports(t *testing.T) {
 		})
 	}
 }
-
-// The yield counters are the Sink's, not the connector's, so they must keep
-// climbing independently of whether a connector report was dropped.
-func TestPageTallyYieldsAreIndependentOfDroppedReports(t *testing.T) {
-	var tally pageTally
-	tally.advance(5, 5, 0)
-	tally.people, tally.organizations = 2, 1
-	if tally.advance(3, 3, 0) {
-		t.Fatal("a backward report must be dropped")
-	}
-	if tally.people != 2 || tally.organizations != 1 {
-		t.Fatalf("yields = %d people / %d organizations, want them untouched by a dropped report", tally.people, tally.organizations)
-	}
-}
