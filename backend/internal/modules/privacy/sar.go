@@ -212,11 +212,26 @@ func sarSections(pkg *SARPackage) []sarSection {
 		{&pkg.ConsentEvents, `SELECT cp.key AS purpose, ce.new_state, ce.source, ce.captured_at
 		   FROM consent_event ce JOIN consent_purpose cp ON cp.id = ce.purpose_id
 		   WHERE ce.person_id = $1`},
+		// Reached two ways, like the erasure purge this mirrors (erasure.go's
+		// purgeDerivedTraces): by email, ILIKE against the stored address, and
+		// by channel identity, a typed JSONB path equality rather than a
+		// substring match — a Telegram-only subject carries no email at all,
+		// so the email arm alone would silently omit their entire channel
+		// history from the export, and their sender id is a bare digit run
+		// that a substring match would also match against other rows' message
+		// ids, timestamps and other people's ids. The two payload shapes
+		// matched (message.from.id, my_chat_member.new_chat_member.user.id)
+		// are the same two capture/telegram's Normalize and ParseMembership
+		// read the sender id from — both update kinds land in raw_capture.
 		{&pkg.RawCapture, `SELECT rc.source_system, rc.source_id, rc.payload, rc.received_at
 		   FROM raw_capture rc
 		   WHERE EXISTS (SELECT 1 FROM person_email pe WHERE pe.person_id = $1
 		                 AND rc.payload::text ILIKE
-		                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')`},
+		                     '%' || replace(replace(replace(pe.email, '\', '\\'), '%', '\%'), '_', '\_') || '%' ESCAPE '\')
+		      OR EXISTS (SELECT 1 FROM person_channel_identity pci WHERE pci.person_id = $1
+		                 AND rc.source_system = pci.provider
+		                 AND (rc.payload->'message'->'from'->>'id' = pci.channel_user_id
+		                      OR rc.payload->'my_chat_member'->'new_chat_member'->'user'->>'id' = pci.channel_user_id))`},
 		{&pkg.FieldOrigins, `SELECT fp.field_name, fp.source, fp.captured_by, fp.captured_at, fp.confidence, fp.evidence_ref
 		   FROM field_provenance fp
 		   WHERE fp.object_type = 'person' AND fp.object_id = $1`},

@@ -108,6 +108,11 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// Same reason: read before eraseChannelIdentities deletes the table.
+		identities, err := personChannelIdentities(ctx, tx, subject)
+		if err != nil {
+			return err
+		}
 
 		leadsWiped, err := anonymizeSubjectRows(ctx, tx, subject, emails)
 		if err != nil {
@@ -148,11 +153,11 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := e.eraseAttachments(ctx, tx, subjectAttachmentsWhere, subject, floorInterval, floorAnchor); err != nil {
 			return err
 		}
-		rawPurged, aiPayloadsPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
+		rawPurged, aiPayloadsPurged, err := purgeDerivedTraces(ctx, tx, subject, emails, identities)
 		if err != nil {
 			return err
 		}
-		channelsSuppressed, err := eraseChannelIdentities(ctx, tx, subject)
+		channelsSuppressed, err := eraseChannelIdentities(ctx, tx, subject, identities)
 		if err != nil {
 			return err
 		}
@@ -403,15 +408,14 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 	return redacted, nil
 }
 
-// purgeDerivedTraces removes what the system DERIVED from the subject
-// and arms the suppression list. Raw capture is purged by identifier
-// match: any stored provider payload carrying one of the subject's
-// addresses goes — crude on purpose, over-deleting evidence is
-// recoverable by re-sync, under-deleting PII is a violation. Embeddings
-// of activities on the subject's timeline embed text ABOUT them; the
-// vector store must not keep what a similarity probe could partially
-// reconstruct.
-func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) (rawPurged, aiPayloadsPurged int64, err error) {
+// purgeDerivedTraces removes what the system DERIVED from the subject and
+// arms the suppression list. Raw capture is purged two ways: by email here
+// (crude on purpose — over-deleting evidence is recoverable, under-deleting
+// PII is not) and by channel identity in purgeChannelRawCapture
+// (erasure_channels.go, kept apart for file length). Embeddings of
+// activities on the subject's timeline embed text ABOUT them; the vector
+// store must not keep what a similarity probe could partially reconstruct.
+func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, identities []channelIdentity) (rawPurged, aiPayloadsPurged int64, err error) {
 	for _, email := range emails {
 		tag, execErr := tx.Exec(ctx,
 			`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
@@ -421,6 +425,11 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		}
 		rawPurged += tag.RowsAffected()
 	}
+	channelRawPurged, err := purgeChannelRawCapture(ctx, tx, identities)
+	if err != nil {
+		return 0, 0, err
+	}
+	rawPurged += channelRawPurged
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM embedding e USING activity_link l
 		WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
@@ -428,15 +437,19 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		return 0, 0, err
 	}
 	// Captured AI payloads (Layer 3) are purged by the same identifier
-	// match as raw_capture: any opt-in request/response body whose content
-	// names one of the subject's addresses goes, and its ai_call metadata
-	// row survives (the FK is ON DELETE CASCADE from ai_call, never the
-	// reverse). This reaches ONLY payloads whose text mentions the subject —
-	// a call that never named them keeps no PII and ages out anyway via the
-	// 365d ai_call_payload retention erase; there is no subject FK to scope
-	// by, so a content match is the reachable boundary, crude on purpose
-	// (over-deleting captured content is recoverable, under-deleting PII is
-	// a violation).
+	// match as raw_capture's email lane: any opt-in request/response body
+	// whose content names one of the subject's addresses goes, and its
+	// ai_call metadata row survives (the FK is ON DELETE CASCADE from
+	// ai_call, never the reverse). This reaches ONLY payloads whose text
+	// mentions the subject — a call that never named them keeps no PII and
+	// ages out anyway via the 365d ai_call_payload retention erase; there is
+	// no subject FK to scope by, so a content match is the reachable
+	// boundary, crude on purpose (over-deleting captured content is
+	// recoverable, under-deleting PII is a violation).
+	//
+	// No channel-identity lane here, unlike raw_capture above — see
+	// purgeChannelRawCapture's comment (erasure_channels.go) for why
+	// ai_call_payload cannot safely take the same match.
 	for _, email := range emails {
 		tag, execErr := tx.Exec(ctx, `
 			DELETE FROM ai_call_payload

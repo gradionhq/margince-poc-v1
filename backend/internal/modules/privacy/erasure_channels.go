@@ -31,22 +31,32 @@ type channelIdentity struct {
 	ChannelUserID string
 }
 
+// personChannelIdentities reads the subject's live channel-identity bindings.
+// Called BEFORE anything downstream deletes person_channel_identity — both
+// eraseChannelIdentities (which deletes the rows this returns) and
+// purgeDerivedTraces (which needs the same identifiers to reach the subject's
+// raw_capture rows) key off this one query, so there is exactly one spelling
+// of "which accounts belong to this subject" in the erasure path.
+func personChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonID) ([]channelIdentity, error) {
+	rows, err := tx.Query(ctx,
+		`SELECT provider, channel_user_id FROM person_channel_identity WHERE person_id = $1`, personID)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, pgx.RowToStructByPos[channelIdentity])
+}
+
 // eraseChannelIdentities removes the subject's channel identities and suppresses
 // them, returning how many were suppressed for the erasure tombstone's counts.
+// identities is the caller's OWN pre-erasure read (personChannelIdentities) —
+// this function never re-queries, because the raw_capture purge in
+// purgeDerivedTraces needs the identical rows read at the identical moment;
+// two independent reads could observe different data under concurrent writes.
 // Runs inside the caller's single erasure transaction: a delete that committed
 // without its suppression row would leave the subject erasable-but-resurrectable,
 // which is indistinguishable from a working erasure until the next message
 // arrives.
-func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonID) (int, error) {
-	rows, err := tx.Query(ctx,
-		`SELECT provider, channel_user_id FROM person_channel_identity WHERE person_id = $1`, personID)
-	if err != nil {
-		return 0, err
-	}
-	identities, err := pgx.CollectRows(rows, pgx.RowToStructByPos[channelIdentity])
-	if err != nil {
-		return 0, err
-	}
+func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonID, identities []channelIdentity) (int, error) {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM person_channel_identity WHERE person_id = $1`, personID); err != nil {
 		return 0, err
@@ -61,4 +71,50 @@ func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.PersonI
 		}
 	}
 	return len(identities), nil
+}
+
+// purgeChannelRawCapture reaches raw_capture by channel identity, the
+// counterpart to purgeDerivedTraces' email lane (erasure.go): a Telegram-only
+// Person carries no email at all, so that lane never runs for them, and
+// without this one their raw captures — the verbatim update JSON, including
+// display name, username, numeric id and full message text — would survive
+// Art. 17 erasure forever.
+//
+// The match is a typed JSONB path equality, never ILIKE. A Telegram sender id
+// is a bare 9-10 digit integer; a substring search for it would also match
+// against message ids, timestamps and other subjects' ids anywhere in ANY
+// provider's payload, in the whole workspace's raw_capture table — an
+// over-deleting erasure (another subject's evidence gone) is far worse than an
+// under-deleting one, which is the entire reason the email lane beside this
+// one accepts ILIKE at all: an email address is specific enough that the
+// same risk does not apply to it.
+//
+// Both payload shapes below are matched because both land in raw_capture
+// under the SAME source_system: capture/telegram's Normalize reads the sender
+// from message.from.id for an ordinary message, and ParseMembership reads it
+// from my_chat_member.new_chat_member.user.id for a block/unblock report —
+// the ingest worker persists the raw update before it classifies which kind
+// it is (compose/telegramwebhook.go), so an unerased row of either shape
+// would still resolve back onto this subject's account.
+//
+// ai_call_payload (erasure.go's purgeDerivedTraces) gets no equivalent lane:
+// 0089's schema gives it no structural link to a subject at all, so the only
+// possible match there would be a substring search for the same bare numeric
+// id across every AI call in the workspace, not one provider's captures —
+// strictly the over-deletion risk this function exists to avoid, only wider.
+func purgeChannelRawCapture(ctx context.Context, tx pgx.Tx, identities []channelIdentity) (int64, error) {
+	var purged int64
+	for _, identity := range identities {
+		tag, err := tx.Exec(ctx, `
+			DELETE FROM raw_capture
+			 WHERE source_system = $1
+			   AND (payload->'message'->'from'->>'id' = $2
+			        OR payload->'my_chat_member'->'new_chat_member'->'user'->>'id' = $2)`,
+			identity.Provider, identity.ChannelUserID)
+		if err != nil {
+			return 0, err
+		}
+		purged += tag.RowsAffected()
+	}
+	return purged, nil
 }
