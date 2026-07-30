@@ -200,7 +200,7 @@ func sarSections(pkg *SARPackage) []sarSection {
 		// reach: a disclosure to an admin-mediated export is recoverable, and
 		// destroying another subject's evidence is not.
 		//
-		// It spans BOTH shapes the row admits (comms_outbound_shape, 0149): a
+		// It spans BOTH shapes the row admits (comms_outbound_shape, 0155): a
 		// channel delivery leaves subject/recipients/cc null and names its
 		// addressee in channel_user_id, so a mail-only projection would hand a
 		// channel-only subject a message with no addressee — withholding the

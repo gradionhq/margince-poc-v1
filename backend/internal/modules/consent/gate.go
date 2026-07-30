@@ -150,9 +150,11 @@ func grantedForRecipient(ctx context.Context, tx pgx.Tx, r connector.Recipient, 
 // username. This text becomes the detail of a 409 (httperr copies err.Error()
 // into it), and a channel account id is an opaque third-party identifier the
 // caller never supplied: the reply path resolves the recipient server-side from
-// the conversation precisely so a caller cannot name one. Putting it in the
-// refusal would hand back the one value the read surfaces are built to withhold
-// (telegram-oa design §6.6), to anyone who can provoke a refusal.
+// the conversation precisely so a caller cannot name one. A refusal is not the
+// place to hand one back. This is narrower than it may read — the activity's
+// own source key carries the chat id, so a timeline reader is not being denied
+// something it could not otherwise reach; what this refuses is minting the
+// identifier into an error string for anyone who can provoke one.
 //
 // A username would be no better, and worse in its own way: a handle can be
 // released and re-claimed, so a refusal quoting one could name a different human

@@ -227,8 +227,9 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 // arrived, deliberately NOT ErrSkip: the customer did reach out, and skipping
 // leaves a timeline that says nothing arrived while the reply box offers to
 // answer it — the same silent gap an empty body is. The words are all this
-// connector can show (fetching the media itself is out of scope), and the
-// verbatim update rides along in Raw for any later reader.
+// connector can show (fetching the media itself is out of scope). The
+// verbatim update is not carried here: the webhook's raw_capture row is its
+// single owner (design §6.5).
 func messageBody(msg *telegramMessage) string {
 	if msg.Text != "" {
 		return msg.Text

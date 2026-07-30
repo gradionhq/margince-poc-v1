@@ -161,14 +161,11 @@ func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records 
 
 // applyMembership carries out the reachability change a my_chat_member
 // update reports (design §4.2 D9): kicked sets blocked_at, member clears it.
-// Every other status a chat_member update can name — left, restricted,
-// administrator, creator — is a real value of the SAME Telegram field on a
-// GROUP chat's update; a private bot chat never sends the latter three, and
-// "left" changes nothing this system tracks (there is no reachability edge
-// crossed, and no prior message means no row to touch either way). None of
-// them are silently absorbed: an update this worker does not classify as
-// kicked/member is logged so a status Telegram adds later is visible instead
-// of quietly falling through.
+// Only a PRIVATE-chat update reaches here — ParseMembership declines every
+// other chat type — so the group-only standings are not a case this switch
+// has to answer. A status it does not classify is logged rather than
+// absorbed, so one Telegram adds later is visible instead of falling through
+// quietly.
 //
 // actorCtx carries the workspace this job's args resolved plus the connector
 // principal Work established, so SetChannelIdentityBlocked runs under the

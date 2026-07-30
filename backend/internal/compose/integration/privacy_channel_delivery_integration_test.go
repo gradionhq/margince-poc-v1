@@ -9,7 +9,7 @@ package integration
 // from the mail arm (privacy_comms_integration_test.go) because the row is a
 // different shape and the scrub is a different statement: comms_outbound admits a
 // mail-shaped row or a channel-shaped one and never half of each
-// (comms_outbound_shape, 0149), so writing mail's empty address lists onto a
+// (comms_outbound_shape, 0155), so writing mail's empty address lists onto a
 // channel row is not merely meaningless — the constraint REFUSES it, and an
 // erasure that reached a channel delivery would fail outright rather than
 // silently under-scrub.

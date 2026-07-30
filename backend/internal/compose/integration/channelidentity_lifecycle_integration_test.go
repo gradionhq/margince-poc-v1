@@ -34,7 +34,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// telegramProvider is the only provider the 0146 CHECK admits today.
+// telegramProvider is the only provider the 0152 CHECK admits today.
 const telegramProvider = "telegram"
 
 // seedChannelIdentity binds one provider account to a person. channelUserID

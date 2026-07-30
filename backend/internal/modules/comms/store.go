@@ -108,7 +108,7 @@ type StageInput struct {
 
 // Delivery is one staged message as the dispatcher sees it, in EITHER shape:
 // the row is mail-shaped or channel-shaped and never half of each
-// (comms_outbound_shape, 0149).
+// (comms_outbound_shape, 0155).
 //
 // On a channel delivery the mail fields read as their ZERO VALUES rather than as
 // pointers, because a channel genuinely has no subject and no RFC822 identity —
@@ -268,7 +268,7 @@ func marshalList(values []string) ([]byte, error) {
 // transmitting, rather than dereferencing a row that is not there.
 //
 // Every mail column is COALESCED because a channel-shaped row carries none of
-// them (comms_outbound_shape, 0149): the identity, the subject and the three
+// them (comms_outbound_shape, 0155): the identity, the subject and the three
 // address/reference lists are all NULL there. Without the coalesces the very
 // first channel delivery fails at load time — a NULL into a Go string, and a
 // NULL jsonb into a decode — which is a delivery that can never leave and a

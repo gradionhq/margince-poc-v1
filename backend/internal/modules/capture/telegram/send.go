@@ -197,9 +197,9 @@ func sendOutcome(err error) error {
 		// class the caller must never retry.
 		return fmt.Errorf("%w: %w", connector.ErrSendOutcomeUnknown, err)
 	default:
-		// A DEFINITE refusal on Telegram's own terms — a chat that blocked the
-		// bot, a body it will not accept, a recipient this seam itself rejected
-		// above. Nothing was transmitted, so the caller's ladder may retry it.
+		// A DEFINITE refusal on Telegram's own terms — a body it will not
+		// accept, a chat id it does not recognize. A blocked chat never reaches
+		// here; the branch above owns it. Nothing was transmitted, so the caller's ladder may retry it.
 		// It stays in this package's vocabulary because none of the shared
 		// classes describes it: it is neither an outage nor a credential fault,
 		// and claiming either would send an operator after the wrong problem.

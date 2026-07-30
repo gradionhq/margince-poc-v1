@@ -10,7 +10,7 @@ package comms
 //
 // It lives beside StageTx rather than inside it: comms_outbound admits a
 // mail-shaped row or a channel-shaped one and never half of each
-// (comms_outbound_shape, 0149), and TWO input types is how that invariant
+// (comms_outbound_shape, 0155), and TWO input types is how that invariant
 // reaches Go. One struct with a mode flag could name a subject and a channel
 // recipient together, and the only thing left to refuse it would be the
 // database — after the caller had already decided to write.

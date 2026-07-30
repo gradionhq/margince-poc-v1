@@ -48,7 +48,7 @@ const parkedByPrivacyScrub = "content removed by a privacy scrub before this mes
 // the nightly evaluator refuses to touch.
 //
 // The scrub is SHAPE-AWARE because comms_outbound is: a row is mail-shaped or
-// channel-shaped and never half of each (comms_outbound_shape, 0149). Writing
+// channel-shaped and never half of each (comms_outbound_shape, 0155). Writing
 // mail's empty address lists onto a channel row would not merely be
 // meaningless — the constraint refuses it, and an Art. 17 erasure that reached a
 // channel delivery would fail outright. The two arms therefore run as two

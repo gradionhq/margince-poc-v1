@@ -26,12 +26,6 @@ const (
 	StatusKicked = "kicked" // the user blocked the bot
 	StatusMember = "member" // the user started or unblocked the bot
 
-	// StatusLeft covers a user who has stopped the bot without blocking it
-	// (or never started it) — Telegram sends it as the initial standing on
-	// first contact too. Neither edge changes reachability: nothing this
-	// system tracks depended on "left" ever being true, and there is no
-	// blocked_at to clear or set on its account.
-	StatusLeft = "left"
 )
 
 // Membership is one my_chat_member update, pure-parsed: the identity it

@@ -7,7 +7,7 @@ package capture
 // binding per row, connected by an admin on behalf of the whole workspace
 // rather than by one human over their own mailbox (which is what
 // capture_connection models, and why channel_connection is a separate table —
-// 0145_channel_connection.up.sql carries that reasoning).
+// 0151_channel_connection.up.sql carries that reasoning).
 //
 // Connect's ORDERING is the load-bearing part of this file, and it is spelled
 // out at Connect itself: the row must exist before setWebhook, because the

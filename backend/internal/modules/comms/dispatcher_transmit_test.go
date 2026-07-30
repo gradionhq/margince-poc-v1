@@ -160,8 +160,10 @@ func TestDispatchParksNamingTheRecipientWhenTheProviderRefusesToDeliverToThem(t 
 	if !strings.Contains(store.parked, "recipient") || !strings.Contains(store.parked, "blocked") {
 		t.Errorf("park reason %q does not tell the operator that the recipient is the cause", store.parked)
 	}
-	if strings.Contains(store.parked, "reconnect the channel to resume") {
-		t.Errorf("park reason %q asks for a reconnection, which repairs nothing here", store.parked)
+	// The credential wording is what this park must NOT reuse: rotating a
+	// working token repairs nothing when the recipient is the cause.
+	if strings.Contains(store.parked, "reconnect it to resume sending") {
+		t.Errorf("park reason %q reuses the credential wording, which misdirects the operator", store.parked)
 	}
 	// A definite answer proves nothing was transmitted, so the marker that would
 	// make the NEXT attempt park as an unknown outcome has to be retracted.

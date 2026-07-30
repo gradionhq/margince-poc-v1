@@ -57,7 +57,7 @@ func EmailSuppressed(ctx context.Context, tx pgx.Tx, email string) (bool, error)
 // erasure stop holding the moment the workspace rotated its bot — the
 // erased subject's next message would resurrect them, with nothing
 // erroring and nothing logged. person_channel_identity's unique key omits
-// the bot id for the same reason (0146).
+// the bot id for the same reason (0152).
 func ChannelIdentityHash(provider, channelUserID string) string {
 	return SuppressionHash(strings.TrimSpace(provider) + ":" + strings.TrimSpace(channelUserID))
 }

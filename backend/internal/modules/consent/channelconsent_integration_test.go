@@ -248,9 +248,8 @@ func TestRequireGrantedForEmailsStillAnswersThroughTheSharedRule(t *testing.T) {
 // The refusal TEXT travels: httperr copies err.Error() into the detail of the 409
 // a client reads. On the channel path the caller never supplied the account id —
 // the reply resolves its recipient server-side from the conversation, precisely so
-// a caller cannot name one — so a refusal that quoted it back would disclose the
-// one value the read surfaces are built to withhold, to anyone who can provoke a
-// refusal.
+// a caller cannot name one — so a refusal that quoted it back would mint that
+// identifier into an error string for anyone who can provoke a refusal.
 func TestConsentGateRefusalNeverCarriesTheChannelAccountID(t *testing.T) {
 	e := setupChannelConsent(t)
 	gate := NewGate(e.store)
