@@ -221,6 +221,35 @@ func TestParseRatesFxCurrenciesFailsClosed(t *testing.T) {
 	}
 }
 
+// writeTemp writes doc to a fresh file under t.TempDir() and returns its
+// path, for tests that exercise Load (rather than Parse) against a real
+// file on disk.
+func writeTemp(t *testing.T, doc string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "margince.yaml")
+	if err := os.WriteFile(path, []byte(doc), 0o600); err != nil {
+		t.Fatalf("writeTemp: %v", err)
+	}
+	return path
+}
+
+func TestMCPConnectorGateDefaultsOff(t *testing.T) {
+	cfg, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MCP.ConnectorEnabled {
+		t.Fatal("the connector gate must default OFF — an unset flag must never expose /mcp")
+	}
+	on, err := Load(writeTemp(t, "version: 1\norganization:\n  name: T\nmcp:\n  connector_enabled: true\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !on.MCP.ConnectorEnabled {
+		t.Fatal("mcp.connector_enabled: true must parse")
+	}
+}
+
 func TestBootstrapAdminPasswordComesFromTheFileReference(t *testing.T) {
 	pwFile := filepath.Join(t.TempDir(), "pw")
 	if err := os.WriteFile(pwFile, []byte("a bootstrap password!\n"), 0o600); err != nil {

@@ -45,6 +45,12 @@ rates:
     # anthropic: https://docs.anthropic.com/en/docs/about-claude/pricing
     # openai: https://platform.openai.com/docs/pricing
 
+# Remote MCP connector (Gate 1). OFF by default: turning it on exposes the
+# OAuth authorization server and the agent tool surface to the internet. The
+# per-workspace toggle is the second gate. Requires public_base_url.
+# mcp:
+#   connector_enabled: true
+
 # Ordered company-context rollout (OPS-CFG-10). The default is onboarding;
 # moving backward disables reads/injection/surfaces but never deletes confirmed
 # company data. Stages include the prior stage: off < read < tasks < onboarding.

@@ -34,6 +34,7 @@ type Config struct {
 	Email          Email           `yaml:"email"`
 	AI             AIConfig        `yaml:"ai"`
 	Rates          RatesConfig     `yaml:"rates"`
+	MCP            MCP             `yaml:"mcp"`
 	Capture        Capture         `yaml:"capture"`
 	CompanyContext CompanyContext  `yaml:"company_context"`
 	OverlayBudget  OverlayBudget   `yaml:"overlay_budget"`
@@ -306,6 +307,13 @@ func (e Email) SMTPPassword() (string, error) {
 // engine and the Art. 17 erasure cascade.
 type AIConfig struct {
 	CapturePayloads bool `yaml:"capture_payloads"`
+}
+
+// MCP is the connector's deployment gate (Gate 1, DESIGN §5.5). Off by
+// default: turning it on exposes an internet-facing authorization server
+// plus the agent tool surface, so it is an explicit operator decision.
+type MCP struct {
+	ConnectorEnabled bool `yaml:"connector_enabled"`
 }
 
 // Load reads and strictly validates the configuration file. A missing
