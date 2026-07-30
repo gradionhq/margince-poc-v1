@@ -534,6 +534,14 @@ export interface paths {
          *     the account, and silencing it forever because someone once dismissed it would
          *     make the surface less useful the longer it ran.
          *
+         *     A row is stored ONLY for a fingerprint this account currently raises for this
+         *     caller. A fingerprint that matches nothing answers `204` without storing
+         *     anything — either the situation resolved between the render and the click, in
+         *     which case the suggestion is already gone, or it was never served, in which case
+         *     there is nothing to silence. That is what bounds the stored set to the
+         *     suggestions an account actually raises, so no dismissal is ever dropped to make
+         *     room for another.
+         *
          *     Human-only: an agent has no opinion to record.
          */
         post: operations["dismissOrganizationSuggestion"];
@@ -11599,7 +11607,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Dismissed. */
+            /** @description Dismissed, or nothing matched and nothing was stored. */
             204: {
                 headers: {
                     [name: string]: unknown;

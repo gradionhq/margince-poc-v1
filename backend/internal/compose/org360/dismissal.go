@@ -9,6 +9,18 @@ package org360
 // has seen. Keyed on the suggestion's evidence fingerprint, so it stays gone
 // while the situation holds and re-arms by itself when the evidence changes.
 //
+// A row is written ONLY for a fingerprint the rules currently produce for this
+// account and this caller. That is what bounds the table: the stored set can
+// never exceed the suggestions the account actually raises, per user, so no
+// retention cap is needed and no judgment is ever deleted to make room.
+//
+// The two obvious alternatives are both wrong, and both were tried. Accepting any
+// well-formed fingerprint makes this an authenticated write sink — every distinct
+// value is a row nothing will ever collect. Capping the stored count instead
+// silently deletes the earliest judgments on an account with more suggestions
+// than the cap, so a rep working through it has advice they already dismissed
+// come back. Verifying on write is the only version with neither failure.
+//
 // suggestion_dismissal is view state, not a record fact: written on a click,
 // readable by nobody but its own user, actionable by no consumer. It carries
 // no audit row and no outbox event — the same ruling as user_record_view.
@@ -17,6 +29,7 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -57,7 +70,20 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 			return httperr.Validation("fingerprint", "malformed",
 				"dismiss a suggestion by the fingerprint it was served with, unchanged")
 		}
-		_, err := tx.Exec(ctx, `
+		raises, err := s.raisesSuggestion(ctx, tx, orgID, now, fingerprint)
+		if err != nil {
+			return err
+		}
+		if !raises {
+			// Nothing to dismiss, and that is a success rather than an error. Either
+			// the situation resolved between the render and the click — in which case
+			// the suggestion is already gone and storing a row would change nothing —
+			// or the fingerprint was never served, in which case there is nothing to
+			// silence. Saying which would answer a question the caller has no business
+			// asking.
+			return nil
+		}
+		_, err = tx.Exec(ctx, `
 			INSERT INTO suggestion_dismissal
 			  (workspace_id, user_id, organization_id, fingerprint, dismissed_at)
 			VALUES ($1, $2, $3, $4, $5)
@@ -71,15 +97,35 @@ func (s *Service) DismissSuggestion(ctx context.Context, orgID ids.OrganizationI
 	})
 }
 
+// raisesSuggestion reports whether this account currently raises the suggestion
+// this fingerprint identifies, for this caller.
+//
+// It re-derives the candidates through the SAME function the card serves them
+// from, so "a suggestion the rep could have dismissed" has one definition. A
+// second spelling here would drift, and the failure would be silent: a dismissal
+// that stores a row the card never filters.
+func (s *Service) raisesSuggestion(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, fingerprint string,
+) (bool, error) {
+	in, err := gatherSuggestionInputs(ctx, tx, orgID, now)
+	if err != nil {
+		return false, err
+	}
+	for _, suggestion := range candidateSuggestions(orgID, now, in) {
+		if suggestion.Fingerprint == fingerprint {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // fingerprintPattern is the shape fingerprint() produces: a sha256 digest in
 // lowercase hex.
 //
-// Checking it is what keeps this endpoint from being a write-anything store.
-// The server cannot re-derive the fingerprint to verify it — the situation may
-// legitimately have moved on between the render and the click, and refusing
-// then would lose a dismissal the rep meant — so the shape is the check that
-// stays true. It also fixes the row size, and rejects the NUL byte Postgres
-// would otherwise turn into a 500 for what is a client mistake.
+// The shape is checked before the value is looked for, so a malformed body is a
+// stated 422 rather than a silent no-op the caller cannot tell from a hit. It
+// also rejects the NUL byte Postgres would otherwise turn into a 500 for what is
+// a client mistake.
 var fingerprintPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 func isFingerprint(value string) bool {
@@ -89,17 +135,11 @@ func isFingerprint(value string) bool {
 // dismissedFingerprints asks which of THESE suggestions this caller has already
 // judged.
 //
-// It asks about the candidates rather than reading the whole stored set, and that
-// is what keeps the page read bounded no matter how many rows the table holds. A
-// dismissal matching no suggestion the rules produced is never read at all — so a
-// caller who writes well-formed fingerprints that mean nothing pays for the
-// storage and changes nothing else.
-//
-// Nothing prunes those rows. A count-bounded retention did, and it was wrong: on
-// an account with more stalled deals than the bound, a rep dismissing them one
-// after another would have their earliest judgments deleted and the advice come
-// back. Silently resurrecting a decision the rep made is a worse failure than
-// keeping inert rows in their own tenant.
+// It asks about the candidates rather than reading the whole stored set, so the
+// page read is bounded by the suggestions in hand. Nothing prunes the table
+// either, and nothing needs to: DismissSuggestion only ever writes a fingerprint
+// the rules produce, so the stored set is already bounded by the account's own
+// data.
 //
 // The user_id predicate is explicit in SQL: RLS binds the workspace, so without
 // it one rep's judgment would silence their colleague's suggestions.

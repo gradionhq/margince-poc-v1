@@ -24,12 +24,14 @@ package org360
 // they would have used anyway.
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -66,20 +68,22 @@ var (
 
 // readSuggestions is the section.
 //
-// It holds no grant of its own. Advice is derived from the timeline and the
-// pipeline, and both of those already refused or answered under their own
-// gates: whichever reached this caller is what the rules may read, and a caller
-// shown NEITHER has nothing to be advised from, so the section is omitted and
-// named. Requiring one fixed grant here instead would withhold stalled-deal
-// advice from a caller who can read deals but not activities — advice they are
-// entitled to and can act on.
+// It holds no grant of its own. Each rule runs when the caller holds the grant
+// its records sit behind, so a reader who can see the pipeline but not the
+// timeline gets the advice they can act on and none they cannot. A caller shown
+// neither has nothing to be advised from, and the section is omitted and named
+// rather than answering empty.
 func (a *assembly) readSuggestions() error {
-	if a.out.Activities == nil && a.out.Deals == nil {
+	in, err := gatherSuggestionInputs(a.ctx, a.tx, a.orgID, a.now)
+	if err != nil {
+		return err
+	}
+	if !in.advisable() {
 		return fmt.Errorf(
 			"suggestions are read from the timeline and the pipeline, and this caller may read neither: %w",
 			apperrors.ErrPermissionDenied)
 	}
-	found, dropped, err := a.suggestionsFor()
+	found, dropped, err := a.svc.suggestionsFor(a.ctx, a.tx, a.orgID, a.now, in)
 	if err != nil {
 		return err
 	}
@@ -103,34 +107,14 @@ func (a *assembly) readSuggestions() error {
 //
 // What the cap drops is reported, never shown, so a rep who never scrolls past
 // the card still sees the most urgent thing on it.
-func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, int, error) {
-	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
-
-	// The timeline reached this caller, so the no-reply rule can run.
-	if a.out.Activities != nil {
-		stale, err := a.staleThreadSuggestion()
-		if err != nil {
-			return nil, 0, err
-		}
-		found = appendIf(found, stale)
-	}
-
-	// Both deal-shaped rules need the pipeline. An absent deals section means
-	// the caller may not read deals at all, and advice about a pipeline they
-	// cannot see is advice they cannot take.
-	if a.out.Deals != nil {
-		open, err := openPipeline(a.ctx, a.tx, a.orgID, a.now)
-		if err != nil {
-			return nil, 0, err
-		}
-		found = append(found, stalledDealSuggestions(open.Stalled)...)
-		found = appendIf(found, noNextStepSuggestion(a.orgID, a.out, open))
-	}
-
+func (s *Service) suggestionsFor(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time, in suggestionInputs,
+) ([]crmcontracts.Organization360Suggestion, int, error) {
+	found := candidateSuggestions(orgID, now, in)
 	// Dismissals are applied BEFORE the cap, so judging one row reveals the next
 	// instead of shrinking the card. Capping first would spend a slot on a
 	// suggestion the rep has already dealt with.
-	kept, err := a.keepUndismissed(found)
+	kept, err := s.keepUndismissed(ctx, tx, orgID, found)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -140,12 +124,37 @@ func (a *assembly) suggestionsFor() ([]crmcontracts.Organization360Suggestion, i
 	return kept, 0, nil
 }
 
+// candidateSuggestions is every suggestion this account raises for this caller,
+// before dismissals and before the display cap.
+//
+// It is the definition of "what the rules produce", and both the card and the
+// dismissal endpoint go through it — the card to show them, the dismissal to
+// recognize the one it was handed.
+func candidateSuggestions(
+	orgID ids.OrganizationID, now time.Time, in suggestionInputs,
+) []crmcontracts.Organization360Suggestion {
+	found := make([]crmcontracts.Organization360Suggestion, 0, maxSuggestions)
+	if in.timeline && in.hasNewest {
+		found = appendIf(found, staleThread(orgID, now, in.newest))
+	}
+	if in.pipeline {
+		found = append(found, stalledDealSuggestions(in.open.Stalled)...)
+		if in.timeline {
+			// The no-next-step rule reads BOTH: the pipeline says the account is
+			// live, and the task grant is what makes "nothing is scheduled" a fact
+			// rather than a gap in what this caller may see.
+			found = append(found, appendIf(nil, noNextStepSuggestion(orgID, in))...)
+		}
+	}
+	return found
+}
+
 // keepUndismissed removes the suggestions this caller has already judged.
 //
 // The database is asked about THESE fingerprints, not for the caller's whole
-// dismissal history — so the read is bounded by the suggestions in hand rather
-// than by how many rows the table has accumulated.
-func (a *assembly) keepUndismissed(
+// dismissal history — so the read is bounded by the suggestions in hand.
+func (s *Service) keepUndismissed(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
 	found []crmcontracts.Organization360Suggestion,
 ) ([]crmcontracts.Organization360Suggestion, error) {
 	if len(found) == 0 {
@@ -155,7 +164,7 @@ func (a *assembly) keepUndismissed(
 	for _, suggestion := range found {
 		candidates = append(candidates, suggestion.Fingerprint)
 	}
-	dismissed, err := a.svc.dismissedFingerprints(a.ctx, a.tx, a.orgID, candidates)
+	dismissed, err := s.dismissedFingerprints(ctx, tx, orgID, candidates)
 	if err != nil {
 		return nil, err
 	}
@@ -176,21 +185,6 @@ func appendIf(
 		return into
 	}
 	return append(into, *one)
-}
-
-// staleThreadSuggestion reads the account's newest message and applies the
-// rule to it.
-func (a *assembly) staleThreadSuggestion() (*crmcontracts.Organization360Suggestion, error) {
-	newest, found, err := newestMessage(a.ctx, a.tx, a.orgID)
-	if err != nil {
-		return nil, err
-	}
-	if !found {
-		// Nobody has ever exchanged a message with this account: no wait to
-		// report, and no error either.
-		return nil, nil //nolint:nilnil // found reports the absence; the caller appends nothing
-	}
-	return staleThread(a.orgID, a.now, newest), nil
 }
 
 // staleThread fires when the account's most recent message was OURS and nobody
@@ -258,12 +252,12 @@ func stalledDealSuggestions(stalled []stalledDeal) []crmcontracts.Organization36
 // noise the rep would learn to scroll past, which costs the whole surface its
 // credibility.
 func noNextStepSuggestion(
-	orgID ids.OrganizationID, view *crmcontracts.Organization360, open pipeline,
+	orgID ids.OrganizationID, in suggestionInputs,
 ) *crmcontracts.Organization360Suggestion {
-	present, scheduled := openTasks(view)
-	if !present || scheduled || open.OpenCount == 0 {
+	if in.scheduled || in.open.OpenCount == 0 {
 		return nil
 	}
+	open := in.open
 	evidence := []crmcontracts.OrganizationBriefEvidence{{
 		EntityType: crmcontracts.OrganizationBriefEvidenceEntityTypeOrganization,
 		EntityId:   openapi_types.UUID(orgID.UUID),

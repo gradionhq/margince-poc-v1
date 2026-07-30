@@ -419,6 +419,8 @@ func TestSuggestionDismissalRefusesAnInvisibleAccount(t *testing.T) {
 	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Someone else's account", &e.Rep3))
 	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
 
+	// The record gate runs before anything else, so this is a 404 rather than the
+	// silent success an unmatched fingerprint gets on a visible account.
 	err := svc.DismissSuggestion(rep, org, wellFormedFingerprint)
 	if !errors.Is(err, apperrors.ErrNotFound) {
 		t.Errorf("dismiss on an invisible account → %v, want ErrNotFound (existence-hiding)", err)
@@ -441,9 +443,50 @@ func TestSuggestionDismissalRefusesAnAgent(t *testing.T) {
 	}
 }
 
-// A fingerprint the read never served names no suggestion. Storing arbitrary
-// text would make this endpoint a write-anything store, so its shape is checked
-// — after the record gate, so the refusal cannot double as an existence probe.
+// A fingerprint the account does not currently raise stores nothing.
+//
+// That is what bounds the table: without it, every distinct well-formed value a
+// caller sends is a row nothing will ever collect — an authenticated write sink
+// in their own tenant. It answers success because there is genuinely nothing to
+// dismiss, and saying which reason would answer a question the caller has no
+// business asking.
+func TestSuggestionDismissalStoresNothingForASuggestionTheAccountDoesNotRaise(t *testing.T) {
+	e := Setup(t)
+	svc := org360Service(e)
+	org := ids.From[ids.OrganizationKind](e.SeedOrg(t, "Acme", &e.Rep1))
+	rep := e.As(e.Rep1, []ids.UUID{e.Team1}, org360RepPerms)
+
+	// A quiet account raises nothing, so no fingerprint can match.
+	for _, forged := range []string{wellFormedFingerprint, strings.Repeat("a", 64)} {
+		if err := svc.DismissSuggestion(rep, org, forged); err != nil {
+			t.Errorf("dismiss %q → %v, want success with nothing written", forged, err)
+		}
+	}
+	if count := e.WsCount(t, `SELECT count(*) FROM suggestion_dismissal`); count != 0 {
+		t.Errorf("suggestion_dismissal rows = %d, want 0 — the endpoint is a write sink", count)
+	}
+
+	// And the real one still stores, so the check is not simply refusing everything.
+	seedUnansweredOutbound(t, e, org.UUID)
+	view, err := svc.Assemble(rep, org)
+	if err != nil {
+		t.Fatalf("assemble: %v", err)
+	}
+	if view.Suggestions == nil || len(*view.Suggestions) == 0 {
+		t.Fatal("no suggestion to dismiss")
+	}
+	if err := svc.DismissSuggestion(rep, org, (*view.Suggestions)[0].Fingerprint); err != nil {
+		t.Fatalf("dismiss a served suggestion: %v", err)
+	}
+	if count := e.WsCount(t, `SELECT count(*) FROM suggestion_dismissal`); count != 1 {
+		t.Errorf("suggestion_dismissal rows = %d after dismissing a served suggestion, want 1", count)
+	}
+}
+
+// A malformed fingerprint is a stated 422, not the silent no-op above — a client
+// that mangled the value must be able to tell that from a hit. The shape is
+// checked after the record gate, so the refusal cannot double as an existence
+// probe.
 func TestSuggestionDismissalRefusesAMalformedFingerprint(t *testing.T) {
 	e := Setup(t)
 	svc := org360Service(e)

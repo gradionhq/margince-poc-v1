@@ -94,10 +94,13 @@ func idle(name string) stalledDeal {
 	return stalledDeal{ID: ids.NewV7(), Name: name}
 }
 
-// livePipeline is one open deal the caller can see, with nothing stalled — the
-// aggregate shape openPipeline returns.
-func livePipeline(count int, digest string) pipeline {
-	return pipeline{OpenCount: count, OpenDigest: digest}
+// liveAccount is a caller holding both grants, on an account with open deals and
+// nothing scheduled — the inputs the no-next-step rule fires on.
+func liveAccount(openCount int, digest string) suggestionInputs {
+	return suggestionInputs{
+		timeline: true, pipeline: true,
+		open: pipeline{OpenCount: openCount, OpenDigest: digest},
+	}
 }
 
 // TestStalledDealsRaiseOnePerDeal proves each stalled deal is its own
@@ -123,22 +126,11 @@ func TestStalledDealsRaiseOnePerDeal(t *testing.T) {
 	}
 }
 
-// noTasks is the next-steps section present and empty — the caller may read
-// tasks, and there are none.
-func noTasks() *crmcontracts.Organization360 {
-	return &crmcontracts.Organization360{
-		NextSteps: &struct {
-			Data []crmcontracts.Organization360NextStep `json:"data"`
-			Page crmcontracts.PageInfo                  `json:"page"`
-		}{},
-	}
-}
-
 // TestNoNextStepReportsTheAccountsOwnDealCount proves the reason states how
 // many deals the ACCOUNT has open, not how many rows this read carried. A count
 // bounded by its own read is one a rep cannot tell from a real one.
 func TestNoNextStepReportsTheAccountsOwnDealCount(t *testing.T) {
-	got := noNextStepSuggestion(testOrgID(t), noTasks(), livePipeline(42, "digest-a"))
+	got := noNextStepSuggestion(testOrgID(t), liveAccount(42, "digest-a"))
 	if got == nil {
 		t.Fatal("no suggestion for an active account with nothing scheduled")
 	}
@@ -154,10 +146,10 @@ func TestNoNextStepReportsTheAccountsOwnDealCount(t *testing.T) {
 func TestNoNextStepFiresOnlyOnAnActiveAccount(t *testing.T) {
 	orgID := testOrgID(t)
 
-	if got := noNextStepSuggestion(orgID, noTasks(), livePipeline(1, "digest-a")); got == nil {
+	if got := noNextStepSuggestion(orgID, liveAccount(1, "digest-a")); got == nil {
 		t.Error("no suggestion for an open deal with nothing scheduled")
 	}
-	if got := noNextStepSuggestion(orgID, noTasks(), pipeline{}); got != nil {
+	if got := noNextStepSuggestion(orgID, liveAccount(0, "")); got != nil {
 		t.Errorf("suggestion %+v on a dormant account — nothing there to advance", got)
 	}
 }
@@ -165,27 +157,49 @@ func TestNoNextStepFiresOnlyOnAnActiveAccount(t *testing.T) {
 // TestNoNextStepStaysSilentWhenSomethingIsScheduled is the honest-absent half:
 // a task on the account already answers "what happens next".
 func TestNoNextStepStaysSilentWhenSomethingIsScheduled(t *testing.T) {
-	orgID := testOrgID(t)
-	view := &crmcontracts.Organization360{
-		NextSteps: &struct {
-			Data []crmcontracts.Organization360NextStep `json:"data"`
-			Page crmcontracts.PageInfo                  `json:"page"`
-		}{Data: []crmcontracts.Organization360NextStep{{
-			ActivityId: openapi_types.UUID(ids.NewV7()), Subject: "Call the CFO",
-		}}},
-	}
-	if got := noNextStepSuggestion(orgID, view, livePipeline(1, "digest-a")); got != nil {
+	in := liveAccount(1, "digest-a")
+	in.scheduled = true
+	if got := noNextStepSuggestion(testOrgID(t), in); got != nil {
 		t.Fatalf("suggestion %+v with a task already on the account", got)
 	}
 }
 
-// TestNoNextStepStaysSilentWithoutTheTaskSection is the withheld case: a caller
-// who cannot read tasks must not be told there are none.
-func TestNoNextStepStaysSilentWithoutTheTaskSection(t *testing.T) {
+// TestNoNextStepNeedsBothGrants is the withheld case. A caller who cannot read
+// tasks must not be told there are none, so candidateSuggestions runs this rule
+// only when the timeline grant is there too — the pipeline alone cannot tell
+// "nothing is scheduled" from "you may not see what is".
+func TestNoNextStepNeedsBothGrants(t *testing.T) {
 	orgID := testOrgID(t)
-	withheld := &crmcontracts.Organization360{}
-	if got := noNextStepSuggestion(orgID, withheld, livePipeline(1, "digest-a")); got != nil {
-		t.Fatalf("suggestion %+v with the next-steps section withheld", got)
+	dealsOnly := liveAccount(1, "digest-a")
+	dealsOnly.timeline = false
+	dealsOnly.open.Stalled = []stalledDeal{idle("Renewal")}
+
+	for _, suggestion := range candidateSuggestions(orgID, suggestNow, dealsOnly) {
+		if suggestion.Kind == suggestNoNextStep {
+			t.Error("a no-next-step suggestion reached a caller who cannot read tasks")
+		}
+	}
+	// The advice that grant DOES support still arrives.
+	if len(candidateSuggestions(orgID, suggestNow, dealsOnly)) == 0 {
+		t.Error("a deal reader got no advice at all about a stalled deal they can open")
+	}
+}
+
+// TestCandidateSuggestionsRunOnlyTheRulesTheGrantsSupport is the other half: a
+// timeline reader gets no advice about a pipeline they cannot see.
+func TestCandidateSuggestionsRunOnlyTheRulesTheGrantsSupport(t *testing.T) {
+	orgID := testOrgID(t)
+	timelineOnly := suggestionInputs{
+		timeline:  true,
+		hasNewest: true,
+		newest:    sentAgo(10, crmcontracts.ActivityDirectionOutbound),
+		// Present but unreadable: a pipeline the caller has no grant for must not
+		// reach the rules even if the struct carries one.
+		open: pipeline{OpenCount: 3, Stalled: []stalledDeal{idle("Renewal")}},
+	}
+	found := candidateSuggestions(orgID, suggestNow, timelineOnly)
+	if len(found) != 1 || found[0].Kind != suggestNoReply {
+		t.Fatalf("got %+v, want only the no-reply advice a timeline reader can act on", found)
 	}
 }
 
@@ -198,8 +212,8 @@ func TestNoNextStepStaysSilentWithoutTheTaskSection(t *testing.T) {
 // listed — the case a fingerprint built from a page would miss.
 func TestNoNextStepRidesEveryOpenDeal(t *testing.T) {
 	orgID := testOrgID(t)
-	first := noNextStepSuggestion(orgID, noTasks(), livePipeline(1, "digest-a"))
-	second := noNextStepSuggestion(orgID, noTasks(), livePipeline(1, "digest-b"))
+	first := noNextStepSuggestion(orgID, liveAccount(1, "digest-a"))
+	second := noNextStepSuggestion(orgID, liveAccount(1, "digest-b"))
 	if first == nil || second == nil {
 		t.Fatal("both accounts should raise the suggestion")
 	}

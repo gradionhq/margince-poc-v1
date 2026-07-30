@@ -16,8 +16,7 @@ package org360
 //
 // So each rule reads exactly what it needs, under the SAME row-scope
 // predicates the sections use — the caller cannot see more this way, only
-// further back. The one exception is openTasks at the bottom of this file, which
-// CAN read its section page, and says why.
+// further back, and nothing here reads an assembled section at all.
 //
 // Every figure they state covers the whole visible set, and comes from ONE read
 // of it. A count bounded by its own fetch is one a rep cannot tell from a real
@@ -34,10 +33,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // lastMessage is the newest two-way exchange on an account, as the no-reply
@@ -204,16 +203,98 @@ func openPipeline(
 	return out, nil
 }
 
-// openTasks reports whether the next-steps section reached this caller, and
-// whether it carried anything.
+// hasOpenTask answers whether anything at all is scheduled on the account.
 //
-// This one rule CAN read the section page: truncation only hides rows past the
-// first 25, so an empty page is a real zero and any non-empty page answers
-// "something is scheduled". The rules above cannot, because they need the row
-// the cap hid rather than a count of the rows it kept.
-func openTasks(view *crmcontracts.Organization360) (present, scheduled bool) {
-	if view.NextSteps == nil {
-		return false, false
+// The rule needs "is there one?", so that is what is asked. Reading the
+// next-steps page instead would answer the same question correctly today —
+// truncation only hides rows past the first 25 — while coupling the rules to a
+// section, which is the coupling the whole file exists to remove.
+//
+// Reachability is the any-link walk nextStepsSection uses: a task reaches the
+// account through its own link, its deal, or the contact it is about.
+func hasOpenTask(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID,
+) (bool, error) {
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	orgPos := arg(orgID)
+	activityScope, err := auth.ActivityScopeClause(ctx, "a", arg)
+	if err != nil {
+		return false, err
 	}
-	return true, len(view.NextSteps.Data) > 0
+	if activityScope == "" {
+		activityScope = scopeAll
+	}
+	var scheduled bool
+	err = tx.QueryRow(ctx, fmt.Sprintf(`
+		SELECT EXISTS (
+		  SELECT 1 FROM activity a
+		  WHERE a.kind = 'task' AND NOT a.is_done AND a.archived_at IS NULL AND %[1]s
+		    AND EXISTS (
+		      SELECT 1 FROM activity_link l
+		      LEFT JOIN deal d ON d.id = l.deal_id
+		      LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
+		        AND r.ended_at IS NULL AND r.archived_at IS NULL
+		      WHERE l.activity_id = a.id
+		        AND (l.organization_id = $%[2]d OR d.organization_id = $%[3]d OR r.organization_id = $%[4]d)))`,
+		activityScope, orgPos, orgPos, orgPos), args...).Scan(&scheduled)
+	if err != nil {
+		return false, fmt.Errorf("read whether anything is scheduled on the account: %w", err)
+	}
+	return scheduled, nil
+}
+
+// suggestionInputs is everything the rules read, gathered once.
+//
+// Both callers build from this same struct — the composite read that serves the
+// card, and the dismissal that has to recognize what the card served. Two
+// gatherers would let the two disagree about what a suggestion IS, and then a
+// dismissal would silently match nothing.
+type suggestionInputs struct {
+	// timeline and pipeline are the two grants that decide which rules run at
+	// all. They are the object grants, which is exactly what makes a 360 section
+	// absent — row scope narrows a section, it does not withhold it.
+	timeline bool
+	pipeline bool
+
+	newest    lastMessage
+	hasNewest bool
+	open      pipeline
+	scheduled bool
+}
+
+// advisable reports whether this caller can be advised at all. Neither input
+// means nothing to derive advice from, so the section is omitted and named
+// rather than answering empty.
+func (in suggestionInputs) advisable() bool { return in.timeline || in.pipeline }
+
+// gatherSuggestionInputs reads what the rules need, skipping whatever this
+// caller has no grant for.
+func gatherSuggestionInputs(
+	ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, now time.Time,
+) (suggestionInputs, error) {
+	in := suggestionInputs{
+		timeline: auth.Require(ctx, "activity", principal.ActionRead) == nil,
+		pipeline: auth.Require(ctx, "deal", principal.ActionRead) == nil,
+	}
+	if in.timeline {
+		newest, found, err := newestMessage(ctx, tx, orgID)
+		if err != nil {
+			return suggestionInputs{}, err
+		}
+		in.newest, in.hasNewest = newest, found
+		scheduled, err := hasOpenTask(ctx, tx, orgID)
+		if err != nil {
+			return suggestionInputs{}, err
+		}
+		in.scheduled = scheduled
+	}
+	if in.pipeline {
+		open, err := openPipeline(ctx, tx, orgID, now)
+		if err != nil {
+			return suggestionInputs{}, err
+		}
+		in.open = open
+	}
+	return in, nil
 }
