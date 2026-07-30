@@ -101,13 +101,25 @@ func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.Em
 // recipient list is the gate's whole subject: a gate handed the wrong
 // addressees answers correctly about the wrong people, which is
 // indistinguishable from a pass unless the argument itself is asserted.
+//
+// It records each recipient's own LABEL — the address for mail, provider:account
+// for a channel — because that is the fact every case here asserts, and because
+// a stub that flattened a channel recipient to its empty Email field would let a
+// delivery reach the gate naming nobody and still read as asked-about.
 type stubConsent struct {
 	err   error
 	asked []string
 }
 
-func (s *stubConsent) RequireGrantedForEmails(_ context.Context, recipients []string, _ string) error {
-	s.asked = recipients
+func (s *stubConsent) RequireGrantedForRecipients(_ context.Context, recipients []connector.Recipient, _ string) error {
+	s.asked = nil
+	for _, r := range recipients {
+		if r.Channel != nil {
+			s.asked = append(s.asked, r.Channel.Provider+":"+r.Channel.ChannelUserID)
+			continue
+		}
+		s.asked = append(s.asked, r.Email)
+	}
 	return s.err
 }
 
@@ -168,8 +180,8 @@ func dispatch(ctx context.Context, d *Dispatcher, id ids.UUID) (Outcome, error) 
 	return outcome, err
 }
 
-type consentFunc func(context.Context, []string, string) error
+type consentFunc func(context.Context, []connector.Recipient, string) error
 
-func (f consentFunc) RequireGrantedForEmails(ctx context.Context, r []string, p string) error {
+func (f consentFunc) RequireGrantedForRecipients(ctx context.Context, r []connector.Recipient, p string) error {
 	return f(ctx, r, p)
 }

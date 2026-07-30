@@ -54,9 +54,15 @@ type MessageIdentityReconciler interface {
 	ReconcileMessageIdentityTx(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, previous, stamped string) error
 }
 
-// ConsentGate answers whether these recipients may still be mailed for this
+// ConsentGate answers whether these recipients may still be reached for this
 // purpose. It is default-deny: a recipient who never granted the purpose, and
 // one who withdrew it, are refused alike.
+//
+// It asks in RECIPIENTS rather than addresses because one delivery ladder
+// carries both transports: a channel recipient has no address, and a gate that
+// could only be handed addresses would be handed an empty list for every
+// channel delivery — a default-deny gate asked about nobody refuses nobody, so
+// the whole channel would pass a check that never ran.
 //
 // The dispatcher's call is THE AUTHORITATIVE CHECK. Consent is also verified
 // when the send is requested, but transmission happens later and a recipient
@@ -69,7 +75,7 @@ type MessageIdentityReconciler interface {
 // says consent is absent, and every other error says the question could not be
 // asked. The dispatcher parks on the first and retries on the second.
 type ConsentGate interface {
-	RequireGrantedForEmails(ctx context.Context, recipients []string, purposeKey string) error
+	RequireGrantedForRecipients(ctx context.Context, recipients []connector.Recipient, purposeKey string) error
 }
 
 // SeatAuthority answers whether the human whose mailbox is about to transmit
@@ -132,6 +138,26 @@ type ConnectionResolver interface {
 	Resolve(ctx context.Context, userID ids.UserID, provider string) (connector.EmailSender, connector.Auth, []string, error)
 }
 
+// consentRecipients is every subject this delivery reaches, in the vocabulary
+// the suppression gate answers about. It is the ONE place a delivery's shape is
+// read on the way to that gate, which is what lets the dispatcher ask the same
+// question once for both transports instead of branching before a default-deny
+// check.
+//
+// A channel delivery reaches exactly one subject: the channel has no Cc, and
+// the provider plus the recipient's account id ARE the resolution key
+// (connector.ChannelIdentity). The username is deliberately absent — a handle
+// can be released and re-claimed, so nothing may resolve or authorize on it.
+func consentRecipients(del Delivery) []connector.Recipient {
+	if del.IsChannel() {
+		return []connector.Recipient{{Channel: &connector.ChannelIdentity{
+			Provider:      del.Provider,
+			ChannelUserID: del.ChannelRecipient(),
+		}}}
+	}
+	return connector.EmailRecipients(addressees(del))
+}
+
 // addressees is every person this delivery reaches — To and Cc together, in
 // To-then-Cc order, deduplicated case- and space-insensitively the way a mail
 // server treats an address.
@@ -168,28 +194,57 @@ func addressees(del Delivery) []string {
 	return all
 }
 
-// SendScopeFor names the OAuth scope a provider's grant must hold to transmit,
-// and reports false for a provider that cannot send at all. One if rather than
-// a registry: Gmail is the only sending provider today, and a registry with a
-// single entry is an abstraction with no second caller.
+// SendCapability is what this installation knows about a provider's ability to
+// transmit, and it has THREE states because two cannot express a bot token: the
+// token holds no OAuth scope, yet it sends. Collapsing "sends without a scope"
+// into "cannot send" would read a channel provider as capture-only and park
+// every message it was ever handed, with a reason naming a connector limitation
+// that does not exist.
+type SendCapability int
+
+const (
+	// CannotSend means nothing on this installation transmits for the provider.
+	// It is the zero value, so a capability nobody answered refuses rather than
+	// sends.
+	CannotSend SendCapability = iota
+	// SendsWithScope means the provider's grant must hold a named OAuth scope
+	// before its credential may transmit, and SendScopeFor's first return names
+	// that scope.
+	SendsWithScope
+	// SendsWithoutScope means the credential IS the whole authority and there is
+	// no scope to intersect — a Telegram bot token authorizes sendMessage by
+	// itself. SendScopeFor returns an empty scope, and that emptiness is not a
+	// refusal.
+	SendsWithoutScope
+)
+
+// SendScopeFor answers whether a provider can transmit and, when its grant must
+// carry an OAuth scope to do so, which scope. A switch rather than a registry:
+// two providers is not a registry, and one with two entries is an abstraction
+// with no third caller.
 //
 // It is exported so the request-time pre-flight — which refuses a send this
 // installation already knows cannot leave — asks the SAME question as the
 // authority gate. Two spellings of "may this grant send" could disagree, and a
 // pre-flight that accepted what the gate then parks is worse than none.
 //
-// The literal below is the SECOND spelling of a string the Gmail connector
-// already declares — the OAuth consent requests that same constant rather than
-// a copy, so consent and connector are one literal by construction — and it has
-// to be: this module must not import a capture provider. compose imports both
-// and holds them against each other (compose/sendscope_test.go), because drift
-// here is silent — every send parks as ungranted, which reads as a user who
-// declined consent.
-func SendScopeFor(provider string) (string, bool) {
-	if provider == "gmail" {
-		return "https://www.googleapis.com/auth/gmail.send", true
+// Both literals below are SECOND spellings of strings a capture provider
+// already declares — Gmail's OAuth consent requests that same scope constant
+// rather than a copy, and capture.ProviderTelegram names that provider once —
+// and they have to be: this module must not import a capture provider. compose
+// imports both sides and holds them against each other
+// (compose/sendscope_test.go), because drift here is silent: a misspelled scope
+// parks every send as ungranted, which reads as a user who declined consent,
+// and a misspelled provider reads a live channel as capture-only.
+func SendScopeFor(provider string) (string, SendCapability) {
+	switch provider {
+	case "gmail":
+		return "https://www.googleapis.com/auth/gmail.send", SendsWithScope
+	case "telegram":
+		return "", SendsWithoutScope
+	default:
+		return "", CannotSend
 	}
-	return "", false
 }
 
 // rfc8058Post derives the List-Unsubscribe-Post header from its partner. RFC

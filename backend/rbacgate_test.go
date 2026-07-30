@@ -155,6 +155,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	// record to anyone — the reason each of them writes is an operator-facing
 	// transport diagnosis, not tenant data.
 	"internal/modules/comms:StageTx":        "derives user_id from the authenticated principal (storekit.Actor) and fails closed with no caller-suppliable override; the activity:create check on the shared transaction admits the send action itself, but the sending IDENTITY is enforced here, in the store, not inherited from that check",
+	"internal/modules/comms:StageChannelTx": "the channel-shaped twin of StageTx and the same posture: it derives user_id from the authenticated principal (stagingUser, shared with StageTx so neither can grow a caller-suppliable override) and runs inside the caller's already-gated activity transaction",
 	"internal/modules/comms:Load":           "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
 	"internal/modules/comms:RecordSent":     "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",
 	"internal/modules/comms:Park":           "worker-loop terminal transition on an unretryable provider failure, system principal, same posture as Load",

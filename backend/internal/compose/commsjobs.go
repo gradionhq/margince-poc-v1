@@ -330,8 +330,8 @@ func (m mailboxAuthority) SendCapable(ctx context.Context) (bool, error) {
 		// pre-flight and is told so here rather than at transmission.
 		return false, nil
 	}
-	scope, sends := comms.SendScopeFor(m.provider)
-	if !sends {
+	scope, capability := comms.SendScopeFor(m.provider)
+	if capability == comms.CannotSend {
 		return false, nil
 	}
 	granted, err := m.grants.GrantedScopesFor(ctx, ids.From[ids.UserKind](actor.UserID), m.provider)
@@ -342,6 +342,13 @@ func (m mailboxAuthority) SendCapable(ctx context.Context) (bool, error) {
 		// A pre-flight that cannot ask must not answer. Reporting the fault
 		// refuses the send loudly instead of asserting a grant nobody read.
 		return false, err
+	}
+	if capability == comms.SendsWithoutScope {
+		// There is no grant to intersect — the credential is the whole
+		// authority — so the live connection this lookup just proved IS the
+		// answer. Testing an empty scope against the list would refuse every
+		// such provider on a technicality of mail's authority model.
+		return true, nil
 	}
 	return slices.Contains(granted, scope), nil
 }

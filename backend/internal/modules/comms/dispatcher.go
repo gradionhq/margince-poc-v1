@@ -150,12 +150,8 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Gate: authority. It refuses first so that a caller with no rights at
 	// all learns nothing about the recipients' consent state.
-	scope, sends := SendScopeFor(del.Provider)
-	if !sends {
-		return d.park(ctx, del.ID, fmt.Sprintf("provider %q cannot send messages", del.Provider))
-	}
-	if !slices.Contains(granted, scope) {
-		return d.park(ctx, del.ID, "this mailbox connection was not granted the send scope; reconnect it to enable sending")
+	if outcome, wait, err := d.gateSendAuthority(ctx, del, granted); outcome != outcomeUndecided {
+		return outcome, wait, err
 	}
 
 	// Gate: the sender's seat, which is authority-class and therefore belongs
@@ -190,6 +186,35 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 	}
 
 	return d.transmit(ctx, del, sender, auth)
+}
+
+// gateSendAuthority refuses a delivery this installation's own knowledge of the
+// provider says can never leave, and returns outcomeUndecided when it may.
+//
+// It reads the PROVIDER's answer about a credential — granted is the scope list
+// the resolver just read from the provider, not a copy stored when the grant was
+// made — and it applies the scope check only where the provider HAS a scope to
+// check. A credential carrying no OAuth grant is its own authority: the resolver
+// either produced one or reported that it could not, so demanding a scope of it
+// would park every message the provider can actually send, with a reason naming
+// a connector limitation that does not exist.
+//
+// Both refusals PARK. Neither a provider this installation cannot transmit
+// through nor a connection the provider never granted the send scope is repaired
+// by waiting; the scope one names reconnecting, which is the act that repairs it.
+func (d *Dispatcher) gateSendAuthority(ctx context.Context, del Delivery, granted []string) (Outcome, time.Duration, error) {
+	switch scope, capability := SendScopeFor(del.Provider); capability {
+	case CannotSend:
+		return d.park(ctx, del.ID, fmt.Sprintf("provider %q cannot send messages", del.Provider))
+	case SendsWithScope:
+		if !slices.Contains(granted, scope) {
+			return d.park(ctx, del.ID, "this mailbox connection was not granted the send scope; reconnect it to enable sending")
+		}
+	case SendsWithoutScope:
+		// Nothing to intersect: the resolved credential is the whole authority,
+		// and the seat gate is what still binds the human who lent it.
+	}
+	return outcomeUndecided, 0, nil
 }
 
 // gateSeat refuses a delivery whose sender is no longer a live,
@@ -227,10 +252,12 @@ func (d *Dispatcher) gateConsent(ctx context.Context, del Delivery) (Outcome, ti
 		// quietly never goes out.
 		return d.park(ctx, del.ID, "no consent authority is configured on this send path")
 	}
-	// EVERY addressee is asked about, not just the To line: a Cc'd person is
-	// owed the same suppression, and this call is the only one that runs after
-	// they could have withdrawn.
-	switch err := d.consent.RequireGrantedForEmails(ctx, addressees(del), del.ConsentPurpose); {
+	// EVERY subject this delivery reaches is asked about, not just the To line:
+	// a Cc'd person is owed the same suppression, and this call is the only one
+	// that runs after they could have withdrawn. consentRecipients is what makes
+	// the question shape-agnostic — mail's addressees and a channel's single
+	// recipient arrive here as the same list.
+	switch err := d.consent.RequireGrantedForRecipients(ctx, consentRecipients(del), del.ConsentPurpose); {
 	case errors.Is(err, apperrors.ErrConsentNotGranted):
 		// An answer: consent is absent, and no amount of waiting brings it
 		// back.

@@ -47,8 +47,25 @@ const parkedByPrivacyScrub = "content removed by a privacy scrub before this mes
 // message; an address match would scrub the delivery copy of a Handelsbrief
 // the nightly evaluator refuses to touch.
 //
-// recipients/cc/subject/body are NOT NULL, so they are emptied rather than
-// nulled. Two more columns go with them:
+// The scrub is SHAPE-AWARE because comms_outbound is: a row is mail-shaped or
+// channel-shaped and never half of each (comms_outbound_shape, 0149). Writing
+// mail's empty address lists onto a channel row would not merely be
+// meaningless — the constraint refuses it, and an Art. 17 erasure that reached a
+// channel delivery would fail outright. The two arms therefore run as two
+// statements over disjoint rows, and what each removes is the same fact in its
+// own vocabulary: who the message named, what it said, and any live identifier
+// pointing back at the subject.
+//
+// A channel row's channel_user_id is EMPTIED rather than nulled, exactly as
+// mail's address lists are, and for a sharper reason: it is also the row's shape
+// discriminator, so nulling it would re-declare the row as mail with every mail
+// column missing. Emptied, the row stays a channel delivery that names nobody —
+// and no recipient shape validates as empty, so a scrubbed delivery could not
+// transmit even if its status were somehow reopened.
+//
+// recipients/cc/subject/body are emptied rather than nulled on the mail arm for
+// the same reason: an empty list is the mail shape's "nobody", where NULL is now
+// the schema's "this is not a mail row". Two more columns go with them:
 //
 //   - list_unsubscribe carries a per-recipient one-click token — a live
 //     identifier for the subject, and the same link the body footer this scrub
@@ -82,9 +99,18 @@ func redactDeliveries(ctx context.Context, tx pgx.Tx, activityIDs []ids.UUID, to
 		       body = '', list_unsubscribe = NULL,
 		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
 		       reason = CASE WHEN status = 'pending' THEN $3 ELSE NULL END
-		 WHERE activity_id = ANY($1)`,
+		 WHERE activity_id = ANY($1) AND channel_user_id IS NULL`,
 		activityIDs, tombstone, parkedByPrivacyScrub); err != nil {
 		return fmt.Errorf("redacting the deliveries of scrubbed activities: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		UPDATE comms_outbound
+		   SET channel_user_id = '', body = '',
+		       status = CASE WHEN status = 'pending' THEN 'parked' ELSE status END,
+		       reason = CASE WHEN status = 'pending' THEN $2 ELSE NULL END
+		 WHERE activity_id = ANY($1) AND channel_user_id IS NOT NULL`,
+		activityIDs, parkedByPrivacyScrub); err != nil {
+		return fmt.Errorf("redacting the channel deliveries of scrubbed activities: %w", err)
 	}
 	return nil
 }
