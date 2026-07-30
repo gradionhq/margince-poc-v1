@@ -199,10 +199,39 @@ func TestHubSpotCompanyMapping(t *testing.T) {
 		t.Errorf("address.city = %v, want Munich", got)
 	}
 
-	// domain has no home column (design §9) — it must surface as
-	// unmapped, never silently dropped.
-	if !containsString(unmapped, "domain") {
-		t.Errorf("unmapped = %v, want it to contain %q", unmapped, "domain")
+	// domain maps into the organization_domain child (the same 1:N child
+	// shape contacts' email → person_email uses), lowercased — so it is
+	// consumed, never left unmapped.
+	domainRow, ok := out["organization_domain"].(map[string]any)
+	if !ok {
+		t.Fatalf("organization_domain = %#v, want a child row map", out["organization_domain"])
+	}
+	if got := domainRow["domain"]; got != "muller-gmbh.example" {
+		t.Errorf("organization_domain.domain = %v, want the lowercased domain", got)
+	}
+	if containsString(unmapped, "domain") {
+		t.Errorf("unmapped = %v, want it NOT to contain %q now that it maps to the child", unmapped, "domain")
+	}
+}
+
+// TestHubSpotCompanyDomainLowercases proves the domain child value is
+// lowercased on the mapping path (the canonical domain spelling), not carried
+// through in the incumbent's casing.
+func TestHubSpotCompanyDomainLowercases(t *testing.T) {
+	m, ok := hubspot.Mapping("companies")
+	if !ok {
+		t.Fatal("Mapping(companies): want a declared mapping")
+	}
+	out, _, err := overlay.Apply(m, map[string]any{"hs_object_id": "1", "domain": "Muller-GmbH.Example"})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	child, ok := out["organization_domain"].(map[string]any)
+	if !ok {
+		t.Fatalf("organization_domain = %#v, want a child row map", out["organization_domain"])
+	}
+	if got := child["domain"]; got != "muller-gmbh.example" {
+		t.Errorf("organization_domain.domain = %v, want the lowercased domain", got)
 	}
 }
 

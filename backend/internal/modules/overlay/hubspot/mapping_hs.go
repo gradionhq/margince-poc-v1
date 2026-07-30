@@ -56,6 +56,7 @@ const unmappedPolicyFlag = "flag"
 const (
 	propEmail       = "email"
 	propName        = "name"
+	propDomain      = "domain"
 	propFirstname   = "firstname"
 	propLastname    = "lastname"
 	propLeadLabel   = "hs_lead_label"
@@ -199,9 +200,11 @@ var contactsMapping = overlay.ObjectMapping{
 }
 
 // companiesMapping is the design.md §9 companies→organization subset.
-// `domain` has no home column (§9: "domain→no column (x_domain/raw)") —
-// left unconsumed so Apply's unmapped []string surfaces it, the same
-// "flag, never silently drop" treatment contacts' phone gets.
+// `domain` maps into the organization_domain child row — the same 1:N child
+// shape contacts' email → person_email uses — lowercased to the canonical
+// domain spelling (HubSpot's `domain` property is already a bare host: no
+// scheme, no www). The overlay org wire lifts it onto the contract's
+// domains[] so a mirrored company shows its domain like a native one.
 var companiesMapping = overlay.ObjectMapping{
 	Source:         objectClassCompanies,
 	Target:         organizationTarget,
@@ -216,6 +219,12 @@ var companiesMapping = overlay.ObjectMapping{
 			To:        "size_band",
 			Kind:      overlay.TargetColumn,
 			Transform: "employees_to_size_band",
+		},
+		{
+			From:      []string{propDomain},
+			To:        "organization_domain.domain",
+			Kind:      overlay.TargetChild,
+			Transform: "lowercase",
 		},
 		ownerIDField,
 		{
