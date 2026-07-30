@@ -44,6 +44,7 @@ const (
 	graphGroupContacts  = crmcontracts.OrganizationGraphGroupsOmitted("contacts")
 	graphGroupDeals     = crmcontracts.OrganizationGraphGroupsOmitted("deals")
 	graphGroupIntroPath = crmcontracts.OrganizationGraphGroupsOmitted("intro_path")
+	graphGroupOurSide   = crmcontracts.OrganizationGraphGroupsOmitted("our_side")
 )
 
 // How many nodes of each capped group one graph carries. The card is a
@@ -52,10 +53,15 @@ const (
 //
 // Stakeholder contacts have no cap of their own: they arrive with the deals
 // already capped above, so the deal cap bounds them.
+// graphUserCap counts USERS, not edges: one teammate can have emailed five of
+// the account's contacts, and a row budget would let them fill it while the
+// nine other colleagues who touched the account went undrawn. It is chosen in
+// SQL for the same reason graphOrgCap is.
 const (
 	graphContactCap = 15
 	graphDealCap    = 10
 	graphOrgCap     = 10
+	graphUserCap    = 10
 )
 
 // graphScanCap bounds the ONE read whose display order this code cannot push
@@ -147,6 +153,11 @@ type graphAssembly struct {
 	signalID  *ids.UUID
 	strengths map[ids.PersonID]people.RelationshipStrength
 
+	// Our side of the account: who owns it, and which colleagues have actually
+	// been in contact with its people.
+	accountOwner *graphUser
+	ourSide      []ourSideEdge
+
 	// The true size of each capped group, counted over the same predicate the
 	// read used. dropped_count is derived from these rather than from the rows
 	// in hand, so a read bounded by graphScanCap still reports the whole
@@ -154,6 +165,10 @@ type graphAssembly struct {
 	employeeTotal int
 	openDealTotal int
 	relatedTotal  int
+	// ourSideTotal counts the colleagues WITH RECORDED CONTACT only. The
+	// account owner is read separately and is never capped, so counting them
+	// here would let dropped_count fall below zero once the owner is drawn.
+	ourSideTotal int
 }
 
 // graphPersonEdge is one employment edge: who, and what they do here.
@@ -179,6 +194,20 @@ type graphSeat struct {
 	role   *string
 }
 
+// graphUser is one member of THIS workspace — someone on our side of the
+// account, carrying only the name a colleague is recognized by.
+type graphUser struct {
+	userID      ids.UUID
+	displayName string
+}
+
+// ourSideEdge is one colleague's recorded contact with one of the account's
+// people: who on our side, and whom they were in touch with.
+type ourSideEdge struct {
+	user     graphUser
+	personID ids.UUID
+}
+
 // build reads every group, scores the people once, then places the nodes.
 //
 // Every read happens before any placement, and every gate is asked inside the
@@ -193,6 +222,10 @@ func (g *graphAssembly) build() error {
 	}{
 		{graphGroupContacts, g.readEmployment},
 		{graphGroupDeals, g.readOpenDeals},
+		// Our side reads AFTER the contacts: its interaction edges are
+		// correlated against the contacts already selected, the same
+		// already-selected rule readSeats applies to the deals.
+		{graphGroupOurSide, g.readOurSide},
 		{graphGroupIntroPath, g.readRouteIn},
 	} {
 		if err := g.group(group.name, group.read); err != nil {
@@ -209,6 +242,10 @@ func (g *graphAssembly) build() error {
 	g.placeContacts()
 	g.placeDeals()
 	g.placeRelated(related)
+	// Placed last of the node groups: an in_contact_with edge may only point at
+	// a contact the card actually drew, so every contact node has to exist
+	// before this runs.
+	g.placeOurSide()
 	g.markIntroPath()
 	return nil
 }

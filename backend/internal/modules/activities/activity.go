@@ -313,58 +313,6 @@ func ListActivitiesTx(ctx context.Context, tx pgx.Tx, in ListActivitiesInput) ([
 	return activities, page, nil
 }
 
-// listActivitiesFilter builds the timeline query's join, WHERE terms and
-// bind arguments from one list input.
-func listActivitiesFilter(ctx context.Context, in ListActivitiesInput) (join string, where []string, args []any, err error) {
-	where = []string{"1=1"}
-	args = []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-
-	// The timeline carries the workspace's most sensitive free-text, so
-	// it is scoped through the linked records.
-	scope, err := auth.ActivityScopeClause(ctx, "a", arg)
-	if err != nil {
-		return "", nil, nil, err
-	}
-	if scope != "" {
-		where = append(where, scope)
-	}
-	if !in.IncludeArchived {
-		where = append(where, "a.archived_at IS NULL")
-	}
-	if in.Kind != nil {
-		where = append(where, sprintf("a.kind = $%d", arg(*in.Kind)))
-	}
-	if in.EntityType != nil && in.EntityID != nil {
-		join = ` JOIN activity_link al ON al.activity_id = a.id`
-		where = append(where, sprintf("al.entity_type = $%d", arg(*in.EntityType)))
-		// The SAME vocabulary the write uses. A second list here drifted from
-		// linkTargets and silently dropped two kinds: an activity could be
-		// linked to a lead or a project and then be unfindable by filtering on
-		// the very link that was just written.
-		column := linkColumn(*in.EntityType)
-		if column == "" {
-			return "", nil, nil, &InvalidLinkTypeError{EntityType: *in.EntityType}
-		}
-		where = append(where, sprintf("al.%s = $%d", column, arg(*in.EntityID)))
-	}
-	if in.Query != nil && *in.Query != "" {
-		// subject + body are the two human-readable columns a person would
-		// recognize an item by. The wildcard is escaped, so a caller typing %
-		// searches for a percent sign rather than matching everything.
-		pos := arg("%" + storekit.EscapeLike(*in.Query) + "%")
-		where = append(where, sprintf("(a.subject ILIKE $%d ESCAPE '\\' OR a.body ILIKE $%d ESCAPE '\\')", pos, pos))
-	}
-	if in.Cursor != nil && *in.Cursor != "" {
-		c, decodeErr := storekit.DecodeCursor(*in.Cursor)
-		if decodeErr != nil {
-			return "", nil, nil, decodeErr
-		}
-		where = append(where, sprintf("(a.occurred_at, a.id) < ($%d, $%d)", arg(c.CreatedAt), arg(c.ID)))
-	}
-	return join, where, args, nil
-}
-
 const activityColumns = `a.id, a.workspace_id, a.kind, a.subject, a.body, a.occurred_at, a.direction,
 	a.due_at, a.remind_at, a.assignee_id, a.is_done, a.done_at, a.duration_seconds, a.meeting_status,
 	a.source_system, a.source_id, a.source, a.captured_by, a.version, a.created_at, a.updated_at, a.archived_at`

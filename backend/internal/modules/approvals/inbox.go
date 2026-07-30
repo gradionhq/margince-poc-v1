@@ -12,12 +12,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
-	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -63,7 +63,7 @@ func scan(r pgx.Row) (row, error) {
 // effectiveStatus folds lazy expiry in: a pending row past its expiry
 // reads as expired everywhere without a sweeper process.
 func (a row) effectiveStatus(now time.Time) string {
-	if a.Status == "pending" && now.After(a.ExpiresAt) {
+	if a.Status == statusPending && now.After(a.ExpiresAt) {
 		return "expired"
 	}
 	return a.Status
@@ -81,6 +81,25 @@ const inboxBatch = 200
 // read a full result as "this many or more" rather than as an exact total.
 const PendingScanCap = inboxBatch
 
+// statusPending is the status column value a staged, undecided row carries.
+const statusPending = "pending"
+
+// ListInput narrows an inbox read. Status and Kind filter the staged rows
+// themselves; TargetType + TargetID scope the question to ONE record and are
+// a pair — a type alone would match every record of that type and an id alone
+// every type of that id, so the transport refuses a half-reference and one
+// never reaches here.
+type ListInput struct {
+	Status     *string
+	Kind       *string
+	TargetType *string
+	TargetID   *ids.UUID
+	Limit      int
+}
+
+// targeted reports whether the read is scoped to one record.
+func (in ListInput) targeted() bool { return in.TargetType != nil && in.TargetID != nil }
+
 // List returns the inbox, newest first — but only the approvals the caller
 // could themselves decide. Deciding is human work, and so is triage: an
 // agent cannot browse the queue of withheld authority, and neither can a
@@ -88,80 +107,170 @@ const PendingScanCap = inboxBatch
 // target row under their own/team scope. Without this filter the inbox is
 // a workspace-wide side channel that leaks proposed_change, target ids,
 // and diffs to any low-privilege user (C3/ADR-0036).
-func (s *Service) List(ctx context.Context, status *string, limit int) ([]row, error) {
+//
+// The bool is has_more: whether rows the caller could decide were left
+// unreturned. A record page can carry dozens of stagings — one deep site read
+// stages a proposal per person it found — so a client that filtered to one
+// record has to be able to tell a full page from a complete answer.
+func (s *Service) List(ctx context.Context, in ListInput) ([]row, bool, error) {
 	if err := humanOnly(ctx); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	p, _ := principal.Actor(ctx)
-	if limit <= 0 || limit > inboxBatch {
-		limit = 50
+	if in.Limit <= 0 || in.Limit > inboxBatch {
+		in.Limit = 50
 	}
 	var out []row
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// Decidability is role/target/row-scope-shaped, not expressible as
-		// one WHERE without joining every object grant — so scan keyset
-		// batches and filter in memory until the display limit fills or the
-		// table runs out.
-		var afterCreated *time.Time
-		var afterID *ids.ApprovalID
-		for {
-			q, args := inboxPageQuery(status, afterCreated, afterID)
-			batch, err := collect(ctx, tx, q, args)
-			if err != nil {
-				return err
-			}
-			var full bool
-			out, full, err = appendDecidable(ctx, tx, p, batch, out, limit)
-			if err != nil {
-				return err
-			}
-			if full || len(batch) < inboxBatch {
-				return nil // display limit met, or the table is exhausted
-			}
-			last := batch[len(batch)-1]
-			afterCreated, afterID = &last.CreatedAt, &last.ID
+	var more bool
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) (err error) {
+		if in.targeted() {
+			out, more, err = listForTarget(ctx, tx, p, in)
+			return err
 		}
+		out, more, err = scanInbox(ctx, tx, p, in)
+		return err
 	})
-	return out, err
+	if err != nil {
+		return nil, false, err
+	}
+	return out, more, nil
 }
 
-// inboxPageQuery builds one keyset page of the inbox scan: newest first,
-// optionally filtered by status and paged past the (created_at, id)
-// cursor of the previous batch.
-func inboxPageQuery(status *string, afterCreated *time.Time, afterID *ids.ApprovalID) (string, []any) {
-	q := `SELECT ` + columns + ` FROM approval`
-	args := []any{}
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	where := []string{}
-	if status != nil {
-		where = append(where, fmt.Sprintf("status = $%d", arg(*status)))
+// scanInbox walks the whole table newest-first and filters each keyset batch
+// through the per-row decidability probe.
+//
+// Decidability is role/target/row-scope-shaped, not expressible as one WHERE
+// without joining every object grant — so it runs in memory, and the scan
+// pages rather than taking one wide LIMIT: a burst of undecidable stagings
+// must never starve older visible rows out of a caller's inbox.
+//
+// It fills one row PAST the display limit so has_more is a fact rather than a
+// guess; that row is then dropped, and its existence is what the flag reports.
+func scanInbox(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInput) ([]row, bool, error) {
+	decide := func(a row) (bool, error) { return decidable(ctx, tx, p, a) }
+	var out []row
+	var afterCreated *time.Time
+	var afterID *ids.ApprovalID
+	for {
+		q, args := approvalPageQuery(in, afterCreated, afterID, inboxBatch)
+		batch, err := collect(ctx, tx, q, args)
+		if err != nil {
+			return nil, false, err
+		}
+		var full bool
+		out, full, err = appendDecidable(batch, out, in.Limit+1, decide)
+		if err != nil {
+			return nil, false, err
+		}
+		if full || len(batch) < inboxBatch {
+			break // a row past the display limit is in hand, or the table is exhausted
+		}
+		last := batch[len(batch)-1]
+		afterCreated, afterID = &last.CreatedAt, &last.ID
+	}
+	return capPage(out, in.Limit, false)
+}
+
+// listForTarget answers the inbox scoped to ONE record.
+//
+// Every row shares that target, so the target-visibility half of decidable is
+// asked ONCE for the record rather than once per row — the inbox's per-row
+// probe exists only because its rows point at different records. The per-kind
+// grant check still varies by row and stays in the loop.
+//
+// A target outside the caller's row scope answers an EMPTY list, never a
+// refusal: nothing staged against a record they cannot see is decidable, and
+// saying so is the same existence-hiding answer the record's own read gives.
+//
+// The scan is bounded at PendingScanCap, so a full scan is also a reason to
+// report has_more: past the cap this read cannot tell a client it has seen
+// everything, and claiming otherwise is the lie the flag exists to prevent.
+func listForTarget(ctx context.Context, tx pgx.Tx, p principal.Principal, in ListInput) ([]row, bool, error) {
+	visible, err := targetVisible(ctx, tx, in.TargetType, in.TargetID)
+	if err != nil {
+		return nil, false, err
+	}
+	if !visible {
+		return []row{}, false, nil
+	}
+	q, args := approvalPageQuery(in, nil, nil, PendingScanCap)
+	batch, err := collect(ctx, tx, q, args)
+	if err != nil {
+		return nil, false, err
+	}
+	granted := func(a row) (bool, error) { return requireDecisionGrants(p, a) == nil, nil }
+	out, _, err := appendDecidable(batch, nil, in.Limit+1, granted)
+	if err != nil {
+		return nil, false, err
+	}
+	return capPage(out, in.Limit, len(batch) == PendingScanCap)
+}
+
+// capPage cuts a filled-one-past result back to the display limit and reports
+// has_more. beyondScan is the other reason there may be more: a read whose
+// scan hit its own cap has not seen the whole backlog either.
+func capPage(out []row, limit int, beyondScan bool) ([]row, bool, error) {
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, beyondScan, nil
+}
+
+// approvalWhere is the ONE spelling of "which staged rows this read wants":
+// the caller's filters, plus the keyset cursor of the previous batch when the
+// scan is paging. Every read of the approval table renders its predicate here,
+// so a filter added to the surface reaches the inbox, the target-scoped list
+// and the record page together instead of drifting between copies.
+func approvalWhere(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalID, arg func(any) int) string {
+	var terms []string
+	if in.Status != nil {
+		terms = append(terms, fmt.Sprintf("status = $%d", arg(*in.Status)))
+	}
+	if in.Kind != nil {
+		terms = append(terms, fmt.Sprintf("kind = $%d", arg(*in.Kind)))
+	}
+	if in.TargetType != nil {
+		terms = append(terms, fmt.Sprintf("target_entity_type = $%d", arg(*in.TargetType)))
+	}
+	if in.TargetID != nil {
+		terms = append(terms, fmt.Sprintf("target_entity_id = $%d", arg(*in.TargetID)))
 	}
 	if afterCreated != nil {
-		where = append(where, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(*afterCreated), arg(*afterID)))
+		terms = append(terms, fmt.Sprintf("(created_at, id) < ($%d, $%d)", arg(*afterCreated), arg(*afterID)))
 	}
-	for i, w := range where {
-		if i == 0 {
-			q += " WHERE " + w
-		} else {
-			q += " AND " + w
-		}
+	if len(terms) == 0 {
+		return ""
 	}
-	q += fmt.Sprintf(` ORDER BY created_at DESC, id DESC LIMIT %d`, inboxBatch)
-	return q, args
+	return " WHERE " + strings.Join(terms, " AND ")
 }
 
-// appendDecidable filters one scanned batch through the decidability
-// probe and appends the visible rows to out, stopping the moment the
-// display limit is met (full = true) so a burst of undecidable stagings
-// cannot starve older visible rows out of the caller's inbox.
-func appendDecidable(ctx context.Context, tx pgx.Tx, p principal.Principal, batch, out []row, limit int) ([]row, bool, error) {
+// approvalPageQuery is one newest-first page of the scan under those filters,
+// bounded by the caller's scan window.
+func approvalPageQuery(in ListInput, afterCreated *time.Time, afterID *ids.ApprovalID, scan int) (string, []any) {
+	args := []any{}
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	where := approvalWhere(in, afterCreated, afterID, arg)
+	return fmt.Sprintf(`SELECT %s FROM approval%s ORDER BY created_at DESC, id DESC LIMIT %d`,
+		columns, where, scan), args
+}
+
+// appendDecidable filters one scanned batch through a visibility probe and
+// appends the rows that pass, stopping the moment limit is met (full = true)
+// so a burst of undecidable stagings cannot starve older visible rows out of
+// the caller's inbox.
+//
+// The probe is a parameter because the two readers differ in exactly one half:
+// the inbox asks the whole decidable predicate per row, while a target-scoped
+// read has already established that one target's visibility for every row and
+// asks only the per-kind grants.
+func appendDecidable(batch, out []row, limit int, visible func(row) (bool, error)) ([]row, bool, error) {
 	for i := range batch {
 		a := batch[i]
-		visible, err := decidable(ctx, tx, p, a)
+		ok, err := visible(a)
 		if err != nil {
 			return out, false, err
 		}
-		if !visible {
+		if !ok {
 			continue
 		}
 		out = append(out, a)
@@ -218,7 +327,7 @@ func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType st
 	if limit <= 0 || limit > PendingScanCap {
 		limit = PendingScanCap
 	}
-	visible, err := auth.VisibleTo(ctx, tx, targetType, targetID)
+	visible, err := targetVisible(ctx, tx, &targetType, &targetID)
 	if err != nil {
 		return nil, err
 	}
@@ -229,17 +338,18 @@ func (s *Service) PendingForTarget(ctx context.Context, tx pgx.Tx, targetType st
 		return []crmcontracts.Approval{}, nil
 	}
 	now := s.now()
-	batch, err := collect(ctx, tx, `SELECT `+columns+` FROM approval
-		WHERE status = 'pending' AND target_entity_type = $1 AND target_entity_id = $2
-		ORDER BY created_at DESC, id DESC
-		LIMIT $3`, []any{targetType, targetID, PendingScanCap})
+	pending := statusPending
+	q, args := approvalPageQuery(ListInput{
+		Status: &pending, TargetType: &targetType, TargetID: &targetID,
+	}, nil, nil, PendingScanCap)
+	batch, err := collect(ctx, tx, q, args)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]crmcontracts.Approval, 0, len(batch))
 	for i := range batch {
 		a := batch[i]
-		if a.effectiveStatus(now) != "pending" {
+		if a.effectiveStatus(now) != statusPending {
 			// Lazy expiry: a row past its expiry is not a decision anyone
 			// still owes, so it must not appear as one on the record page.
 			continue

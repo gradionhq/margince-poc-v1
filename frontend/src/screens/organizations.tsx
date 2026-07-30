@@ -9,6 +9,7 @@ import {
   Badge,
   Button,
   DataTable,
+  Disclosure,
   EmptyState,
   SectionHeader,
   SegmentedControl,
@@ -28,7 +29,9 @@ import {
 import { formatDateTime, formatMoney } from "../format/format";
 import { type Locale, useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
+import { taskWriteKeys } from "./activitykeys";
 import { ArchiveAction } from "./archive";
+import { AssistantPanel } from "./assistant";
 import {
   coldFieldLabel,
   problemMessage,
@@ -39,8 +42,6 @@ import {
   useSorMode,
 } from "./common";
 import {
-  AskCard,
-  BriefCard,
   DealsCard,
   NextSteps,
   type Org360Result,
@@ -49,10 +50,11 @@ import {
   RECORD_ZONE,
   SignalsCard,
   SinceLastVisit,
-  SuggestionsCard,
   TagsCard,
   useOrganization360,
 } from "./company360";
+import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
+import { TimelineActions } from "./compose";
 import { ConnectionsCard } from "./connections";
 import { CreateAction, type CreateField, type FormRows } from "./create";
 import { CustomFieldsCard } from "./customfields.card";
@@ -68,12 +70,17 @@ import {
   ListToolbar,
   useListQuery,
 } from "./listquery";
-import { LogActivity } from "./logactivity";
+import { LogActivityAction } from "./logactivity";
 import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
 import { RelationshipsTab } from "./relationships";
 import { ShareAction } from "./share";
+import {
+  TaskDetailModal,
+  TaskQuickActions,
+  useTaskUpdate,
+} from "./taskactions";
 
 // Companies list + company 360 (B-EP09.10a/b). Firmographics render
 // evidence-or-omit: a field with no stored value is absent, never guessed.
@@ -1347,7 +1354,15 @@ function companySubtitle(org: Organization): string | undefined {
 function CompanyPulse({
   org,
   view,
-}: Readonly<{ org: Organization; view?: Organization360View }>) {
+  onOpenDecisions,
+}: Readonly<{
+  org: Organization;
+  view?: Organization360View;
+  // The overview owns the decisions panel, so only it can offer the way in.
+  // The other tabs render the same pulse line without the chip rather than a
+  // button that has nothing to open.
+  onOpenDecisions?: () => void;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const strength = view?.strength;
@@ -1382,6 +1397,13 @@ function CompanyPulse({
         )}
       </span>
       <ProvenanceTag provenance={provenanceOf(org.captured_by)} />
+      {/* What is waiting on a human decision here, and the way to make it.
+          The count was a badge that led nowhere: a reader told that 27
+          decisions are owed and given no way to pay them learns only that the
+          page keeps score. */}
+      {onOpenDecisions && (
+        <DecisionsChip view={view} onOpen={onOpenDecisions} />
+      )}
     </>
   );
 }
@@ -1437,29 +1459,60 @@ function CompanyOverview({
 }>) {
   const t = useT();
   const timeline = view?.activities?.data ?? [];
+  const [openTaskId, setOpenTaskId] = useState<string | null>(null);
+  const [decisionsOpen, setDecisionsOpen] = useState(false);
+  // A task written or completed from this page changes the account's timeline,
+  // its next steps (both read from the 360) and the standing work queue.
+  const taskUpdate = useTaskUpdate(taskWriteKeys("organization", org.id));
   return (
     <RecordView
       name={org.display_name}
       subtitle={companySubtitle(org)}
       zone={RECORD_ZONE}
       badges={<CompanyActionBadges org={org} />}
-      pulse={<CompanyPulse org={org} view={view} />}
-      actions={<LogActivity entityType="organization" entityId={org.id} />}
+      pulse={
+        <CompanyPulse
+          org={org}
+          view={view}
+          onOpenDecisions={() => setDecisionsOpen(true)}
+        />
+      }
+      // The composer opens from a button rather than standing open above the
+      // page: a whole form in the header's action strip pushed the account's
+      // own story below the fold before a word of it was read.
+      actions={
+        <LogActivityAction entityType="organization" entityId={org.id} />
+      }
       rail={
         overlay ? undefined : (
           <>
             <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
             <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
-            <CustomFieldsCard object="organization" record={org} />
-            <HierarchyRollupCard orgId={org.id} />
             <RelationshipsTab scope={{ organization_id: org.id }} />
-            <EnrichCard orgId={org.id} />
-            <DeepReadCard orgId={org.id} />
+            {/* One-off tools and configuration, folded away. Standing open
+                they carried the same weight as the facts a rep opens the page
+                for, and they are used a fraction as often. */}
+            <Disclosure summary={t("co.tools.title")}>
+              <CustomFieldsCard object="organization" record={org} />
+              <HierarchyRollupCard orgId={org.id} />
+              <EnrichCard orgId={org.id} />
+              <DeepReadCard orgId={org.id} />
+            </Disclosure>
           </>
         )
       }
       aside={businessRail({ org, view, overlay, failed })}
-      timeline={view ? activityTimeline(timeline) : []}
+      timeline={
+        view
+          ? activityTimeline(timeline, (activity) => (
+              <TimelineActions
+                activity={activity}
+                entityType="organization"
+                entityId={org.id}
+              />
+            ))
+          : []
+      }
       // In overlay mode the refusal is stated once, in the body: repeating it
       // over the timeline would read as two separate things being
       // unavailable rather than one page not being assembled.
@@ -1478,23 +1531,45 @@ function CompanyOverview({
       {tabs}
       {overlay && <OverlayFallback />}
       {failed && <EmptyState>{t("co.partial")}</EmptyState>}
-      <BriefCard
+      {view && (
+        <SinceLastVisit
+          view={view}
+          onOpenDecisions={() => setDecisionsOpen(true)}
+        />
+      )}
+      <AssistantPanel
         orgId={org.id}
+        view={view}
         enabled={!overlay}
         onOpenRecord={openCitation}
       />
       {view && (
-        <>
-          <SinceLastVisit view={view} />
-          <SuggestionsCard
-            orgId={org.id}
-            view={view}
-            onOpenRecord={openCitation}
-          />
-          <NextSteps view={view} />
-        </>
+        <NextSteps
+          view={view}
+          onOpenTask={(step) => setOpenTaskId(step.activity_id)}
+          renderAction={(step) => (
+            <TaskQuickActions
+              activityId={step.activity_id}
+              dueAt={step.due_at}
+              update={taskUpdate}
+            />
+          )}
+        />
       )}
-      <AskCard orgId={org.id} enabled={!overlay} onOpenRecord={openCitation} />
+      {openTaskId && (
+        <TaskDetailModal
+          activityId={openTaskId}
+          onClose={() => setOpenTaskId(null)}
+          update={taskUpdate}
+        />
+      )}
+      {decisionsOpen && (
+        <CompanyApprovalsPanel
+          orgId={org.id}
+          view={view}
+          onClose={() => setDecisionsOpen(false)}
+        />
+      )}
     </RecordView>
   );
 }
@@ -1543,7 +1618,23 @@ function businessRail({
     );
   }
   if (!failed) {
-    return undefined; // still loading: the rail arrives with the read
+    // Still loading. The rail must occupy its column NOW: RecordView picks its
+    // grid template from which zones are present, so a rail that arrives with
+    // the read re-columns the page under the reader — the whole middle column
+    // and everything above it shift the moment the 360 lands.
+    return (
+      <>
+        <section className="card co-card">
+          <Skeleton width="100%" height={96} />
+        </section>
+        <section className="card co-card">
+          <Skeleton width="100%" height={96} />
+        </section>
+        <section className="card co-card">
+          <Skeleton width="100%" height={64} />
+        </section>
+      </>
+    );
   }
   // The read failed, so the cards get NO payload and say so themselves.
   // Handing them a fabricated empty one would mean inventing an as_of the

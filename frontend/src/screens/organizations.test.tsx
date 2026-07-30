@@ -1727,3 +1727,46 @@ describe("CompanyScreen — Ask Margince", () => {
     );
   });
 });
+
+// The page must not re-column itself under the reader. RecordView picks its
+// grid template from which zones are present, so a right rail that arrives
+// with the composite read moves the whole middle column — and everything the
+// reader was looking at — sideways the moment it lands.
+describe("CompanyScreen — the layout does not shift as the read lands", () => {
+  it("holds the three-column template while the 360 is still in flight", async () => {
+    let releaseView: (() => void) | undefined;
+    const held = new Promise<void>((resolve) => {
+      releaseView = resolve;
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (request: Request) => {
+        const pathname = new URL(request.url).pathname;
+        if (pathname.endsWith("/360")) {
+          await held;
+          return jsonResponse(org360);
+        }
+        if (pathname.endsWith("/hierarchy-rollup")) {
+          return jsonResponse(emptyRollup);
+        }
+        if (pathname.endsWith("/organizations/o-1")) {
+          return jsonResponse(org);
+        }
+        return jsonResponse({
+          data: [],
+          page: { has_more: false, next_cursor: null },
+        });
+      }),
+    );
+    const { container } = render(<CompanyScreen id="o-1" />);
+    await screen.findByText("Brandt Automotive GmbH");
+    const zonesWhileLoading = container.querySelector(".record-zones");
+    expect(zonesWhileLoading?.className).toContain("record-zones-both");
+    releaseView?.();
+    await waitFor(() =>
+      expect(container.querySelector(".record-zones")?.className).toContain(
+        "record-zones-both",
+      ),
+    );
+  });
+});

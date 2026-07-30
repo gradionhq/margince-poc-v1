@@ -14,6 +14,7 @@ package orgbrief
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Deterministic writes the brief without a model. Every sentence cites the
@@ -28,15 +29,13 @@ func Deterministic(orgID string, in Input) []Sentence {
 	if len(in.OpenDeals) > 0 {
 		sentences = append(sentences, Sentence{
 			Text:     pipelineLine(in),
-			Evidence: dealEvidence(in),
+			Evidence: leadDealEvidence(in),
 		})
 	}
-	if stalled := stalledNames(in); len(stalled) > 0 {
-		sentences = append(sentences, Sentence{
-			Text:     fmt.Sprintf("Stalled with no recent activity: %s.", strings.Join(stalled, ", ")),
-			Evidence: stalledEvidence(in),
-		})
-	}
+	// One sentence per stalled deal, so the reader opens the one they mean
+	// instead of picking between chips hanging off a joined list.
+	sentences = append(sentences,
+		perRecordSentences(stalledDeals(in), citeDeal, dealID, stalledLine)...)
 	if len(in.Recent) > 0 {
 		last := in.Recent[0]
 		sentences = append(sentences, Sentence{
@@ -46,13 +45,13 @@ func Deterministic(orgID string, in Input) []Sentence {
 	}
 	if len(in.OpenTasks) > 0 {
 		sentences = append(sentences, Sentence{
-			Text: fmt.Sprintf("%d open task(s), starting with %q.",
-				len(in.OpenTasks), in.OpenTasks[0].Name),
+			Text: fmt.Sprintf("%s, starting with %q.",
+				plural(len(in.OpenTasks), "open task"), in.OpenTasks[0].Name),
 			// Cites the task itself, so the reader can open the one named.
 			Evidence: []Evidence{{EntityType: citeActivity, EntityID: in.OpenTasks[0].ID}},
 		})
 	}
-	return sentences
+	return dedupedSentences(sentences)
 }
 
 func identityLine(in Input) string {
@@ -75,7 +74,7 @@ func identityLine(in Input) string {
 }
 
 func pipelineLine(in Input) string {
-	line := fmt.Sprintf("%d open deal(s)", len(in.OpenDeals))
+	line := plural(len(in.OpenDeals), "open deal")
 	total, currency, ok := oneCurrencyTotal(in.OpenDeals)
 	if ok && total > 0 {
 		// Minor units are rendered as a plain major-unit figure; the card
@@ -125,39 +124,69 @@ func oneCurrencyTotal(deals []DealIn) (total int64, currency string, ok bool) {
 	return total, currency, currency != ""
 }
 
-func stalledNames(in Input) []string {
-	var names []string
+func stalledDeals(in Input) []DealIn {
+	stalled := make([]DealIn, 0, len(in.OpenDeals))
 	for _, deal := range in.OpenDeals {
 		if deal.Stalled {
-			names = append(names, deal.Name)
+			stalled = append(stalled, deal)
 		}
 	}
-	return names
+	return stalled
 }
 
-func dealEvidence(in Input) []Evidence {
-	out := make([]Evidence, 0, len(in.OpenDeals))
-	for _, deal := range in.OpenDeals {
-		out = append(out, Evidence{EntityType: citeDeal, EntityID: deal.ID})
-	}
-	return out
+func dealID(deal DealIn) string { return deal.ID }
+
+// leadDealEvidence cites the one deal a pipeline COUNT is anchored on: the
+// first the account listed. The sentence names no deal, so it needs somewhere
+// for the reader to start, and citing all of them was what produced a row of
+// chips nobody could tell apart.
+func leadDealEvidence(in Input) []Evidence {
+	return []Evidence{{EntityType: citeDeal, EntityID: in.OpenDeals[0].ID}}
 }
 
-func stalledEvidence(in Input) []Evidence {
-	out := make([]Evidence, 0)
-	for _, deal := range in.OpenDeals {
-		if deal.Stalled {
-			out = append(out, Evidence{EntityType: citeDeal, EntityID: deal.ID})
-		}
-	}
-	return out
+func stalledLine(deal DealIn) string {
+	return fmt.Sprintf("%s is stalled with no recent activity.", deal.Name)
 }
 
 func lastTouchLine(last ActIn) string {
+	line := "Last contact was a " + last.Kind
+	if when := shortDate(last.At); when != "" {
+		line += " on " + when
+	}
 	if last.Subject == "" {
-		return fmt.Sprintf("Last contact was a %s on %s.", last.Kind, last.At)
+		return line + "."
 	}
 	// The subject is quoted rather than woven into the sentence: it is text
 	// from outside the workspace, and it must read as theirs, not ours.
-	return fmt.Sprintf("Last contact was a %s on %s: %q.", last.Kind, last.At, last.Subject)
+	return fmt.Sprintf("%s: %q.", line, last.Subject)
+}
+
+// plural renders a count with the noun it counts. "3 open task(s)" is a
+// developer's shorthand printed at a salesperson, which is the register this
+// whole surface is trying to leave behind.
+func plural(count int, noun string) string {
+	if count == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", count, noun)
+}
+
+// shortDate renders an RFC3339 instant the way a reader writes a date, and
+// returns empty for one it cannot read.
+//
+// Empty means "say nothing about when": the caller drops the clause instead of
+// printing a machine timestamp at the reader. The instants are formatted by
+// this package's own folds, so an unreadable one is a defect upstream of here
+// rather than a fact about the account — and the sentence around it is still
+// true without the date. The year is always named because these writers hold
+// no clock, and "21 Jul" on a task from last year reads as this year.
+func shortDate(at string) string {
+	if at == "" {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339, at)
+	if err != nil {
+		return ""
+	}
+	return parsed.UTC().Format("2 Jan 2006")
 }

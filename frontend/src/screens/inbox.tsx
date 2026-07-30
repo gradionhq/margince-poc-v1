@@ -1,4 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryKey,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { api } from "../api/client";
@@ -425,6 +430,7 @@ export function ApprovalRow({
   decided,
   onApproved,
   onAlreadyDecided,
+  extraInvalidateKeys,
 }: Readonly<{
   approval: Approval;
   decided?: boolean;
@@ -433,6 +439,10 @@ export function ApprovalRow({
   // so HomeScreen can reuse the row without a screen-level surface.
   onApproved?: (approvalId: string, token: string) => void;
   onAlreadyDecided?: () => void;
+  // Reads outside the approvals list that a decision also changes. A record
+  // page carrying its own count of what is waiting has to re-read it, and only
+  // the caller knows which record that is.
+  extraInvalidateKeys?: readonly QueryKey[];
 }>) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -480,6 +490,9 @@ export function ApprovalRow({
         onApproved?.(approval.id, data.approval_token);
       }
       queryClient.invalidateQueries({ queryKey: ["approvals"] });
+      for (const queryKey of extraInvalidateKeys ?? []) {
+        queryClient.invalidateQueries({ queryKey });
+      }
     },
     onError: (error) => {
       const problem = error instanceof ProblemError ? error.problem : null;

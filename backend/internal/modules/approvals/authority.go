@@ -115,7 +115,7 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 	if requireDecisionGrants(p, a) != nil {
 		return false, nil
 	}
-	return targetVisible(ctx, tx, a)
+	return targetVisible(ctx, tx, a.TargetType, a.TargetID)
 }
 
 // targetVisible applies the target row's own/team/all row scope to the
@@ -133,22 +133,28 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 // summary and proposed change in the inbox of everyone holding the object
 // grant, and let any of them decide a write against a row their own scope
 // hides. A type with no id has nothing to check the scope against.
-func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
-	if a.TargetType == nil && a.TargetID == nil {
+//
+// It takes the pair rather than a row because a target-FILTERED read asks the
+// same question about a target the client named, before any row is in hand.
+// An unrecognized type must fail closed there too: auth.VisibleTo errors on a
+// table it does not row-scope, so the switch below — not the caller — is what
+// keeps a made-up target_entity_type from reaching it.
+func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
+	if targetType == nil && targetID == nil {
 		return true, nil
 	}
-	if a.TargetType == nil || a.TargetID == nil {
+	if targetType == nil || targetID == nil {
 		return false, nil
 	}
-	switch *a.TargetType {
+	switch *targetType {
 	case "person", "organization", "deal", "lead":
-		return auth.VisibleTo(ctx, tx, *a.TargetType, *a.TargetID)
+		return auth.VisibleTo(ctx, tx, *targetType, *targetID)
 	case "offer":
 		// An offer carries no owner_id — it is visible exactly when its
 		// DEAL is (the same anchoring the deals store applies), so the
 		// approval surface discloses nothing the record itself would not.
 		var dealID ids.UUID
-		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, *a.TargetID).Scan(&dealID)
+		err := tx.QueryRow(ctx, `SELECT deal_id FROM offer WHERE id = $1`, *targetID).Scan(&dealID)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return false, nil
 		}
@@ -164,7 +170,7 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 		var exists bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM product WHERE id = $1 AND archived_at IS NULL)`,
-			*a.TargetID).Scan(&exists); err != nil {
+			*targetID).Scan(&exists); err != nil {
 			return false, err
 		}
 		return exists, nil
@@ -177,7 +183,7 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 		var exists bool
 		if err := tx.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM custom_field WHERE id = $1)`,
-			*a.TargetID).Scan(&exists); err != nil {
+			*targetID).Scan(&exists); err != nil {
 			return false, err
 		}
 		return exists, nil
@@ -191,12 +197,12 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 		// workspace is not decidable here (its effect would write to this
 		// context's sheet, not the claimed one).
 		wsID, ok := principal.WorkspaceID(ctx)
-		return ok && *a.TargetID == wsID, nil
+		return ok && *targetID == wsID, nil
 	case "signal":
 		// A signal has no owner_id — it is visible when its SUBJECT entity
 		// is (the same scope the signals store applies), so a staged
 		// archive discloses nothing the record itself would not.
-		err := auth.EnsureSignalVisible(ctx, tx, *a.TargetID)
+		err := auth.EnsureSignalVisible(ctx, tx, *targetID)
 		switch {
 		case err == nil:
 			return true, nil
@@ -206,7 +212,7 @@ func targetVisible(ctx context.Context, tx pgx.Tx, a row) (bool, error) {
 			return false, err
 		}
 	case "activity":
-		err := auth.EnsureActivityVisible(ctx, tx, *a.TargetID)
+		err := auth.EnsureActivityVisible(ctx, tx, *targetID)
 		switch {
 		case err == nil:
 			return true, nil

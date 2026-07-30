@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
@@ -337,5 +337,36 @@ export function DataTable<Row>({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Disclosure is a section the reader opens when they want it.
+ *
+ * For the surfaces a record page carries but does not lead with — one-off
+ * tools, configuration, the occasional deep read. Kept as a standing card
+ * each of those competes for the eye with the facts a reader came for; kept
+ * behind a summary they cost one line until asked for.
+ *
+ * `open` forces it open for a state the reader must not miss (a tool that is
+ * running, a result that just arrived); left undefined the reader decides.
+ */
+export function Disclosure({
+  summary,
+  open,
+  children,
+}: Readonly<{
+  summary: string;
+  open?: boolean;
+  children: ReactNode;
+}>) {
+  return (
+    <details className="disclosure" open={open}>
+      <summary className="disclosure-summary">
+        <ChevronRight className="disclosure-chevron" aria-hidden="true" />
+        <span className="t-label">{summary}</span>
+      </summary>
+      <div className="disclosure-body">{children}</div>
+    </details>
   );
 }

@@ -58,33 +58,38 @@ func TestDeterministicNamesEveryStalledDeal(t *testing.T) {
 	text := briefLines(sentences)
 	for _, want := range []string{"Fleet retrofit", "Spare parts"} {
 		if !strings.Contains(text, want) {
-			t.Errorf("the stalled line omits %q: %q", want, text)
+			t.Errorf("no stalled sentence names %q: %q", want, text)
 		}
 	}
-	if strings.Contains(text, "Depot pilot") {
+	if strings.Contains(text, "Depot pilot is stalled") {
 		t.Errorf("a deal that is not stalled was named as stalled: %q", text)
 	}
-	// The stalled sentence cites exactly the stalled deals, so the card can
-	// link the two the rep has to act on and not the one they need not.
-	var stalled []Evidence
+	// One sentence per stalled deal, each citing only its own deal: the reader
+	// opens the one they mean rather than picking between chips hanging off a
+	// joined list.
+	stalled := map[string]bool{}
 	for _, sentence := range sentences {
-		if strings.Contains(sentence.Text, "Stalled") {
-			stalled = sentence.Evidence
+		if !strings.Contains(sentence.Text, "is stalled") {
+			continue
 		}
-	}
-	if len(stalled) != 2 {
-		t.Fatalf("the stalled sentence cites %d deals, want the two that stalled", len(stalled))
-	}
-	for _, cited := range stalled {
-		if cited.EntityID == "d-2" {
-			t.Error("the stalled sentence cites the deal that is not stalled")
+		if len(sentence.Evidence) != 1 {
+			t.Fatalf("stalled sentence %q cites %d records, want the one it is about",
+				sentence.Text, len(sentence.Evidence))
 		}
+		stalled[sentence.Evidence[0].EntityID] = true
+	}
+	if !stalled["d-1"] || !stalled["d-3"] {
+		t.Errorf("the stalled deals cited are %v, want d-1 and d-3", stalled)
+	}
+	if stalled["d-2"] {
+		t.Error("a stalled sentence cites the deal that is not stalled")
 	}
 }
 
-// A pipeline sentence reports the account's money and cites every open deal,
-// so the reader can open any of them from it.
-func TestDeterministicPipelineCitesEveryOpenDeal(t *testing.T) {
+// A pipeline sentence reports the account's money and cites the ONE deal the
+// list leads with: it names no deal, so it needs somewhere for the reader to
+// start, and citing all of them rendered as chips nobody could tell apart.
+func TestDeterministicPipelineCitesTheLeadingOpenDeal(t *testing.T) {
 	sentences := Deterministic(briefOrgID, Input{
 		Name: "Acme",
 		OpenDeals: []DealIn{
@@ -110,8 +115,8 @@ func TestDeterministicPipelineCitesEveryOpenDeal(t *testing.T) {
 	if !strings.Contains(pipeline.Text, "12000 EUR won") {
 		t.Errorf("the lifetime won figure is missing: %q", pipeline.Text)
 	}
-	if len(pipeline.Evidence) != 2 {
-		t.Errorf("the pipeline sentence cites %d deals, want both", len(pipeline.Evidence))
+	if len(pipeline.Evidence) != 1 || pipeline.Evidence[0].EntityID != "d-1" {
+		t.Errorf("the pipeline sentence cites %+v, want only the deal the list leads with", pipeline.Evidence)
 	}
 }
 
@@ -141,7 +146,7 @@ func TestDeterministicLastTouchSurvivesAMissingSubject(t *testing.T) {
 func TestDeterministicReportsOpenTasks(t *testing.T) {
 	text := briefLines(Deterministic(briefOrgID, Input{
 		Name: "Acme",
-		OpenTasks: []NamedIn{
+		OpenTasks: []TaskIn{
 			{ID: "t-1", Name: "Send the paperwork"},
 			{ID: "t-2", Name: "Book the walkthrough"},
 		},

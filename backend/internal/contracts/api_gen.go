@@ -3887,6 +3887,7 @@ const (
 	OrganizationGraphGroupsOmittedContacts  OrganizationGraphGroupsOmitted = "contacts"
 	OrganizationGraphGroupsOmittedDeals     OrganizationGraphGroupsOmitted = "deals"
 	OrganizationGraphGroupsOmittedIntroPath OrganizationGraphGroupsOmitted = "intro_path"
+	OrganizationGraphGroupsOmittedOurSide   OrganizationGraphGroupsOmitted = "our_side"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphGroupsOmitted enum.
@@ -3897,6 +3898,8 @@ func (e OrganizationGraphGroupsOmitted) Valid() bool {
 	case OrganizationGraphGroupsOmittedDeals:
 		return true
 	case OrganizationGraphGroupsOmittedIntroPath:
+		return true
+	case OrganizationGraphGroupsOmittedOurSide:
 		return true
 	default:
 		return false
@@ -3909,6 +3912,8 @@ const (
 	OrganizationGraphEdgeKindDealStakeholder OrganizationGraphEdgeKind = "deal_stakeholder"
 	OrganizationGraphEdgeKindEmployment      OrganizationGraphEdgeKind = "employment"
 	OrganizationGraphEdgeKindHasDeal         OrganizationGraphEdgeKind = "has_deal"
+	OrganizationGraphEdgeKindInContactWith   OrganizationGraphEdgeKind = "in_contact_with"
+	OrganizationGraphEdgeKindOwns            OrganizationGraphEdgeKind = "owns"
 	OrganizationGraphEdgeKindParentOf        OrganizationGraphEdgeKind = "parent_of"
 	OrganizationGraphEdgeKindPartnerOf       OrganizationGraphEdgeKind = "partner_of"
 	OrganizationGraphEdgeKindReferredBy      OrganizationGraphEdgeKind = "referred_by"
@@ -3924,6 +3929,10 @@ func (e OrganizationGraphEdgeKind) Valid() bool {
 	case OrganizationGraphEdgeKindEmployment:
 		return true
 	case OrganizationGraphEdgeKindHasDeal:
+		return true
+	case OrganizationGraphEdgeKindInContactWith:
+		return true
+	case OrganizationGraphEdgeKindOwns:
 		return true
 	case OrganizationGraphEdgeKindParentOf:
 		return true
@@ -3941,6 +3950,7 @@ const (
 	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
 	OrganizationGraphNodeKindOrganization OrganizationGraphNodeKind = "organization"
 	OrganizationGraphNodeKindPerson       OrganizationGraphNodeKind = "person"
+	OrganizationGraphNodeKindUser         OrganizationGraphNodeKind = "user"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphNodeKind enum.
@@ -3951,6 +3961,8 @@ func (e OrganizationGraphNodeKind) Valid() bool {
 	case OrganizationGraphNodeKindOrganization:
 		return true
 	case OrganizationGraphNodeKindPerson:
+		return true
+	case OrganizationGraphNodeKindUser:
 		return true
 	default:
 		return false
@@ -10677,6 +10689,11 @@ type OrganizationGraph struct {
 	// this" instead of "there is none". `contacts` withheld also withholds
 	// `deal_stakeholder` edges and the intro path, because both name a person.
 	//
+	// `our_side` is the workspace members connected to the account — the owner and the
+	// teammates who have interacted with its contacts. It needs BOTH the person and the
+	// activity grant, because each of its edges names a contact and is derived from a
+	// recorded interaction; either one missing withholds the whole group.
+	//
 	// The parent, child and partner organizations are not a group here: they need no
 	// grant beyond the organization read this whole endpoint already demands, so they
 	// are row-scope pruned like every other node and can never be withheld wholesale.
@@ -10717,10 +10734,16 @@ type OrganizationGraphEdge struct {
 	// points at it; the account points at each child).
 	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 	// the organization that records the edge to its counterparty.
+	// `owns` — `from` is the workspace member who owns the account.
+	// `in_contact_with` — `from` is the workspace member who has recorded interactions
+	// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+	// those interactions, so a task assigned to a teammate does not make one: an
+	// assignment is intent, a logged email is contact.
 	Kind OrganizationGraphEdgeKind `json:"kind"`
 
 	// Role The edge's role where it has one — an employment title, a stakeholder role
-	// (champion, economic_buyer, …). Null on the edges that carry none.
+	// (champion, economic_buyer, …). Null on the edges that carry none, which includes
+	// both `owns` and `in_contact_with`.
 	Role *string            `json:"role,omitempty"`
 	To   openapi_types.UUID `json:"to"`
 }
@@ -10732,6 +10755,11 @@ type OrganizationGraphEdge struct {
 // points at it; the account points at each child).
 // `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 // the organization that records the edge to its counterparty.
+// `owns` — `from` is the workspace member who owns the account.
+// `in_contact_with` — `from` is the workspace member who has recorded interactions
+// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+// those interactions, so a task assigned to a teammate does not make one: an
+// assignment is intent, a logged email is contact.
 type OrganizationGraphEdgeKind string
 
 // OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
@@ -10757,18 +10785,25 @@ type OrganizationGraphIntroPath struct {
 type OrganizationGraphNode struct {
 	// Detail One short line of context the node cannot be read without: a contact's title,
 	// or a deal's stage name. Null when the record has none on file, and always null
-	// on an organization — how a related company is attached is the EDGE's kind, and
-	// saying it twice would let the two disagree.
+	// on an organization or a user — how a related company is attached, and how a
+	// teammate is connected, is the EDGE's kind, and saying it twice would let the two
+	// disagree.
 	Detail *string            `json:"detail,omitempty"`
 	Id     openapi_types.UUID `json:"id"`
 
 	// IntroPath This contact is the route in the active signal's warm-intro path proposes.
 	// At most one node carries it, and only when `intro_path` at the top level is
 	// present. Absent on every other node — there is nothing to say about them.
-	IntroPath *bool                     `json:"intro_path,omitempty"`
-	Kind      OrganizationGraphNodeKind `json:"kind"`
+	IntroPath *bool `json:"intro_path,omitempty"`
 
-	// Label The record's display name — the organization's, the person's full name, the deal's name.
+	// Kind `organization`, `person` and `deal` are the account's own records.
+	// `user` is a member of THIS workspace — someone on our side who is connected to the
+	// account. A user node carries its display name as the `label` and nothing else:
+	// `detail`, `strength`, `strength_bucket` and `intro_path` are all null, because §4
+	// measures our relationship with the account's people, not with each other.
+	Kind OrganizationGraphNodeKind `json:"kind"`
+
+	// Label The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name.
 	Label string `json:"label"`
 
 	// Root This node is the account the graph is centred on. Exactly one node carries
@@ -10777,15 +10812,19 @@ type OrganizationGraphNode struct {
 	Root bool `json:"root"`
 
 	// Strength The person's §4 relationship strength, for weighting the node. Null for an
-	// organization or a deal, which have no relationship of their own, and for a
-	// contact whose strength this caller's person scope did not resolve.
+	// organization, a deal or a user, none of which have a relationship of their own,
+	// and for a contact whose strength this caller's person scope did not resolve.
 	Strength *int `json:"strength,omitempty"`
 
 	// StrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
 	StrengthBucket *OrganizationGraphNodeStrengthBucket `json:"strength_bucket,omitempty"`
 }
 
-// OrganizationGraphNodeKind defines model for OrganizationGraphNode.Kind.
+// OrganizationGraphNodeKind `organization`, `person` and `deal` are the account's own records.
+// `user` is a member of THIS workspace — someone on our side who is connected to the
+// account. A user node carries its display name as the `label` and nothing else:
+// `detail`, `strength`, `strength_bucket` and `intro_path` are all null, because §4
+// measures our relationship with the account's people, not with each other.
 type OrganizationGraphNodeKind string
 
 // OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
@@ -13157,6 +13196,18 @@ type ListApprovalsParams struct {
 
 	// Kind Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight).
 	Kind *string `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// TargetEntityType Filter to the approvals staged against ONE record, together with `target_entity_id`.
+	// The two are a discriminated reference and only mean something as a pair, so supplying
+	// one without the other is a 422 rather than a filter that quietly matches every record
+	// of a type or every type of an id.
+	//
+	// A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+	// existence-hiding the record's own read gives.
+	TargetEntityType *string `form:"target_entity_type,omitempty" json:"target_entity_type,omitempty"`
+
+	// TargetEntityId The record the staged actions act on. Requires `target_entity_type`.
+	TargetEntityId *openapi_types.UUID `form:"target_entity_id,omitempty" json:"target_entity_id,omitempty"`
 }
 
 // ListApprovalsParamsStatus defines parameters for ListApprovals.
@@ -25167,6 +25218,32 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_entity_type", r.URL.Query(), &params.TargetEntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_entity_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_entity_id", r.URL.Query(), &params.TargetEntityId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_id", Err: err})
 		}
 		return
 	}

@@ -378,6 +378,38 @@
   gap: var(--space-3);
 }
 
+/* Side-by-side fields inside a .form-stack. They wrap rather than compress,
+   so a narrow column stacks the fields instead of shrinking the inputs. */
+.form-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.form-row > .field {
+  flex: 1 1 140px;
+}
+
+/* A form's submit row: the actions sit right, away from the fields. */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.form-error {
+  color: var(--danger);
+}
+
+/* A card that stacks above the next one in a rail. */
+.card-stack {
+  margin-bottom: var(--space-4);
+}
+
+/* A dialog's own heading, where the content has no SectionHeader of its own. */
+.modal-title {
+  margin-bottom: var(--space-3);
+}
+
 /* Group divider inside a form (create.tsx RecordFormBody): sets custom fields
    apart from core fields with a labeled rule, no input of its own. */
 .form-divider {
@@ -523,4 +555,44 @@ select.input {
   letter-spacing: 0.06em;
   font-weight: 600;
   color: var(--textMeta);
+}
+
+/* Disclosure: a section the reader opens when they want it. The chevron is the
+   only state indicator, so it must turn — a summary that looks identical open
+   and closed leaves the reader unsure whether the click did anything. */
+.disclosure {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+  color: var(--textMeta);
+}
+.disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure-summary:hover {
+  color: var(--textPrimary);
+}
+.disclosure-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.disclosure-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform 0.15s;
+}
+.disclosure[open] .disclosure-chevron {
+  transform: rotate(90deg);
+}
+.disclosure-body {
+  margin-top: var(--space-3);
 }

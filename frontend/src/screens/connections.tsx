@@ -53,7 +53,12 @@ type RelationKey =
   | "partner_of.owner"
   | "referred_by.counterparty"
   | "referred_by.owner"
-  | "co_sell_with";
+  | "co_sell_with"
+  // Our side of the account: the owner, and teammates with recorded
+  // interactions with a contact. These name a workspace user, not a record at
+  // the account, and read from the user's end rather than the account's.
+  | "owns"
+  | "in_contact_with";
 
 /** useOrganizationGraph reads the account's one-hop connections. */
 export function useOrganizationGraph(id: string) {
@@ -240,28 +245,28 @@ function relationKey(edge: GraphEdge, nodeId: string): RelationKey | null {
       return `${edge.kind}.${pointsAtNode ? "counterparty" : "owner"}`;
     case "co_sell_with":
       return edge.kind;
+    // A user edge describes the user it starts at, so it labels the FROM end —
+    // the mirror of every account-side edge below.
+    case "owns":
+    case "in_contact_with":
+      return pointsAtNode ? null : edge.kind;
     default:
       return pointsAtNode ? edge.kind : null;
   }
 }
 
 /**
- * NodeList is the card's accessible content: every node the diagram draws, in
- * the same order, each reachable by keyboard through EntityRef's own link and
- * each naming how it attaches to the account.
- *
- * The root is left out — it is the record the reader is already on, and a
- * link back to the current page is a dead end that costs a tab stop.
+ * NodeList renders one group of connections, each row reachable by keyboard
+ * through EntityRef's own link and naming how it attaches to the account.
  */
-function NodeList({ graph }: Readonly<{ graph: Graph }>) {
+function NodeList({ nodes, graph }: Readonly<{ nodes: readonly GraphNode[]; graph: Graph }>) {
   const t = useT();
-  const neighbours = graph.nodes.filter((node) => !node.root);
-  if (neighbours.length === 0) {
+  if (nodes.length === 0) {
     return <p className="co-empty">{t("co.connections.empty")}</p>;
   }
   return (
     <ul className="co-list cx-nodes">
-      {neighbours.map((node) => (
+      {nodes.map((node) => (
         <li key={node.id} className="co-row">
           <span className="cx-node-name">
             {/* The label comes off THIS payload. EntityRef would otherwise
@@ -337,6 +342,45 @@ function Withheld({ groups }: Readonly<{ groups: readonly Group[] }>) {
  * the 360's sections get from their payload: a failed read is unavailable, and
  * only a successful one may say the account has no connections.
  */
+/**
+ * ConnectionsBody is what the card and the expanded view both show, so the two
+ * cannot drift into saying different things about one payload.
+ *
+ * The connections split by SIDE, because the two answer different questions:
+ * who here already deals with this account, and who at the account there is to
+ * deal with. Rolled into one list, the second buried the first — which is what
+ * made the card read as a staff directory.
+ */
+function ConnectionsBody({ graph }: Readonly<{ graph: Graph }>) {
+  const t = useT();
+  const neighbours = graph.nodes.filter((node) => !node.root);
+  const ourSide = neighbours.filter((node) => node.kind === "user");
+  const theirSide = neighbours.filter((node) => node.kind !== "user");
+  return (
+    <>
+      {/* Absent, not empty, when the server sent no user nodes: an older
+          server that cannot answer who on our side is connected must not be
+          rendered as an account nobody here knows. */}
+      {ourSide.length > 0 && (
+        <section className="co-part" aria-label={t("co.connections.ourSide")}>
+          <h3 className="co-part-label">{t("co.connections.ourSide")}</h3>
+          <NodeList nodes={ourSide} graph={graph} />
+        </section>
+      )}
+      <section className="co-part" aria-label={t("co.connections.theirSide")}>
+        <h3 className="co-part-label">{t("co.connections.theirSide")}</h3>
+        <NodeList nodes={theirSide} graph={graph} />
+      </section>
+      <Withheld groups={graph.groups_omitted} />
+      {graph.dropped_count > 0 && (
+        <p className="co-row-meta">
+          {t("co.connections.more", { count: graph.dropped_count })}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -356,14 +400,11 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
       )}
       {readable && (
         <>
-          <EgoDiagram graph={readable} />
-          <NodeList graph={readable} />
-          <Withheld groups={readable.groups_omitted} />
-          {readable.dropped_count > 0 && (
-            <p className="co-row-meta">
-              {t("co.connections.more", { count: readable.dropped_count })}
-            </p>
-          )}
+          {/* The diagram lives in the expanded view only. In a rail card it
+              took half the height to say what the list under it already said,
+              and being aria-hidden decoration it said it to some readers
+              only. */}
+          <ConnectionsBody graph={readable} />
           <p className="cx-actions">
             <Button small onClick={() => setExpanded(true)}>
               {t("co.connections.expand")}
@@ -375,19 +416,13 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
             labelledBy="cx-modal-title"
             size="wide"
           >
-            <h2 id="cx-modal-title" className="t-h2">
+            <h2 id="cx-modal-title" className="t-h2 modal-title">
               {t("co.connections.title")}
             </h2>
             <div className="cx-expanded">
               <EgoDiagram graph={readable} />
-              <NodeList graph={readable} />
+              <ConnectionsBody graph={readable} />
             </div>
-            <Withheld groups={readable.groups_omitted} />
-            {readable.dropped_count > 0 && (
-              <p className="co-row-meta">
-                {t("co.connections.more", { count: readable.dropped_count })}
-              </p>
-            )}
             <p className="cx-actions">
               <Button small onClick={() => setExpanded(false)}>
                 {t("co.connections.collapse")}

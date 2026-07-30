@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/workflow"
 )
@@ -177,23 +178,38 @@ func anchorReminderTaskEffect(ev workflow.Event, subject string) (workflow.Effec
 
 // anchorIdempotencyKey is the load-bearing occurrence key (Task 12) every
 // anchor-derived clock handler derives its dedupe key from: keyed on the
-// ANCHOR, never ev.ID — a fresh time-scan pass mints a new ev.ID every
-// tick regardless of whether the anchor actually moved, so keying on it
-// would refire the reminder every single pass while the condition stays
-// true. Keying on the anchor means the SAME anchor value claims the SAME
-// row (claimRun's ON CONFLICT DO NOTHING absorbs every redundant pass),
-// and only a NEW anchor re-arms it. anchorErr folds a decode failure into
-// the key itself — rather than a fixed placeholder — so a caller that
-// skipped Match still can't silently collide two different failures onto
-// one claimed row; workflow.Handler's IdempotencyKey has no error return
-// (ports/workflow/workflow.go), and every real caller (runOne, reached
-// only after Match already decoded this same payload successfully) never
-// hits that branch in practice.
-func anchorIdempotencyKey(name string, anchor time.Time, anchorErr error) string {
+// ENTITY plus the ANCHOR, never ev.ID — a fresh time-scan pass mints a
+// new ev.ID every tick regardless of whether the anchor actually moved,
+// so keying on it would refire the reminder every single pass while the
+// condition stays true. Keying on the anchor means the SAME anchor value
+// claims the SAME row (claimRun's ON CONFLICT DO NOTHING absorbs every
+// redundant pass), and only a NEW anchor re-arms it.
+//
+// The entity is part of the key because the claim is UNIQUE on
+// (workspace_id, handler, idempotency_key) alone. Two records can share
+// one anchor instant — one captured mail linked to a person and to their
+// employer gives both the identical last touch — and an anchor-only key
+// would let the first of them claim the row while the second silently
+// never gets its reminder.
+//
+// anchorErr folds a decode failure into the key itself — rather than a
+// fixed placeholder — so a caller that skipped Match still can't silently
+// collide two different failures onto one claimed row; workflow.Handler's
+// IdempotencyKey has no error return (ports/workflow/workflow.go), and
+// every real caller (runOne, reached only after Match already decoded
+// this same payload successfully) never hits that branch in practice.
+//
+// Keys minted before the entity joined the key do not match the new
+// shape, so a record that is still eligible and still quiet claims a
+// fresh row and reminds once more. That is the intended pairing with the
+// cleanup migration that archives the reminders the pre-eligibility scan
+// left behind.
+func anchorIdempotencyKey(name string, entity datasource.EntityRef, anchor time.Time, anchorErr error) string {
+	prefix := name + ":" + string(entity.Type) + ":" + entity.ID.String()
 	if anchorErr != nil {
-		return name + ":anchor-error:" + anchorErr.Error()
+		return prefix + ":anchor-error:" + anchorErr.Error()
 	}
-	return name + ":anchor:" + anchor.UTC().Format(time.RFC3339Nano)
+	return prefix + ":anchor:" + anchor.UTC().Format(time.RFC3339Nano)
 }
 
 // noActivityReminder reminds an entity's owner once its most recent
@@ -241,7 +257,7 @@ func (w noActivityReminder) Apply(ctx context.Context, _ workflow.Event, eff wor
 // function's doc for why.
 func (noActivityReminder) IdempotencyKey(ev workflow.Event) string {
 	anchor, err := touchAnchor(ev)
-	return anchorIdempotencyKey(noActivityReminderName, anchor, err)
+	return anchorIdempotencyKey(noActivityReminderName, ev.Entity, anchor, err)
 }
 
 // checkInCadenceName is the catalog key Task 6 seeds this starter under.
@@ -321,7 +337,7 @@ func (w checkInCadence) Apply(ctx context.Context, _ workflow.Event, eff workflo
 
 func (checkInCadence) IdempotencyKey(ev workflow.Event) string {
 	anchor, err := touchAnchor(ev)
-	return anchorIdempotencyKey(checkInCadenceName, anchor, err)
+	return anchorIdempotencyKey(checkInCadenceName, ev.Entity, anchor, err)
 }
 
 // renewalReminderName is the catalog key Task 6 seeds this starter under.
@@ -465,5 +481,5 @@ func (w renewalReminder) Apply(ctx context.Context, _ workflow.Event, eff workfl
 
 func (renewalReminder) IdempotencyKey(ev workflow.Event) string {
 	anchor, err := renewalAnchor(ev)
-	return anchorIdempotencyKey(renewalReminderName, anchor, err)
+	return anchorIdempotencyKey(renewalReminderName, ev.Entity, anchor, err)
 }

@@ -81,12 +81,16 @@ const emptyRollup = {
   computed_at: "2026-06-01T09:00:00Z",
 };
 
-let briefBody: unknown = {
+const EMPTY_BRIEF = {
   organization_id: "o-1",
   generated_at: "2026-06-01T09:00:00Z",
   generated_by: "deterministic",
   sentences: [],
 };
+
+// Reset after every test (see afterEach): a brief one case set for itself is
+// otherwise still being served to the next one.
+let briefBody: unknown = EMPTY_BRIEF;
 
 function stub(three60: unknown, status = 200) {
   vi.stubGlobal(
@@ -113,6 +117,7 @@ function stub(three60: unknown, status = 200) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  briefBody = EMPTY_BRIEF;
 });
 
 function render(ui: ReactNode) {
@@ -517,5 +522,138 @@ describe("company view — the account brief", () => {
       return section;
     });
     expect(within(card).getByText(/Could not be loaded/)).toBeTruthy();
+  });
+});
+
+// The company page's own affordances: what it says is waiting, and what a
+// reader can do about it without leaving the account.
+
+describe("company view — the citations under a sentence", () => {
+  it("collapses several sources of one unopenable kind into one counted chip", async () => {
+    briefBody = {
+      organization_id: "o-1",
+      generated_at: "2026-06-01T09:00:00Z",
+      generated_by: "deterministic",
+      sentences: [
+        {
+          text: "3 open tasks, the earliest due 17 Jul 2026.",
+          evidence: [
+            { entity_type: "activity", entity_id: "a-1" },
+            { entity_type: "activity", entity_id: "a-2" },
+            { entity_type: "activity", entity_id: "a-3" },
+          ],
+        },
+      ],
+    };
+    stub(view());
+    renderCompany();
+    // Not "activityactivityactivity": one chip that says how many.
+    await waitFor(() => expect(screen.getByText("3 activities")).toBeTruthy());
+    expect(screen.queryAllByText("activity")).toHaveLength(0);
+  });
+
+  it("counts one record cited twice as one source", async () => {
+    briefBody = {
+      organization_id: "o-1",
+      generated_at: "2026-06-01T09:00:00Z",
+      generated_by: "deterministic",
+      sentences: [
+        {
+          text: "One task is open.",
+          evidence: [
+            { entity_type: "activity", entity_id: "a-1" },
+            { entity_type: "activity", entity_id: "a-1" },
+          ],
+        },
+      ],
+    };
+    stub(view());
+    renderCompany();
+    await waitFor(() => expect(screen.getByText("activity")).toBeTruthy());
+    expect(screen.queryByText("2 activities")).toBeNull();
+  });
+});
+
+describe("company view — what is waiting on a decision", () => {
+  const staged = {
+    id: "ap-1",
+    workspace_id: "w",
+    kind: "site_lead",
+    status: "pending",
+    summary: "Add Markus Bueckle as a contact",
+    proposed_change: { full_name: "Markus Bueckle" },
+    proposed_by: "agent:capture",
+    target_entity_type: "organization",
+    target_entity_id: "o-1",
+    diff_hash: "h1",
+    created_at: "2026-06-01T08:00:00Z",
+    evidence: [],
+  };
+
+  it("offers a way into the queue it counts, grouped by what is proposed", async () => {
+    stub(
+      view({
+        pending_approvals: {
+          data: [staged, { ...staged, id: "ap-2" }],
+          page: emptyPage,
+        },
+        since_last_visit: {
+          baseline_at: "2026-05-30T09:00:00Z",
+          new_activities: 0,
+          deal_stage_moves: 0,
+          pending_proposals: 2,
+        },
+      }),
+    );
+    renderCompany();
+    const open = await screen.findByRole("button", {
+      name: "Review 2 waiting",
+    });
+    open.click();
+    await waitFor(() => expect(screen.getByText("2 × site_lead")).toBeTruthy());
+  });
+
+  it("says nothing is waiting rather than offering an empty queue", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByText("Brandt Automotive GmbH");
+    expect(screen.queryByRole("button", { name: /Review/ })).toBeNull();
+  });
+});
+
+describe("company view — an open task can be acted on", () => {
+  const step = {
+    activity_id: "t-1",
+    subject: "Send the retrofit proposal",
+    due_at: "2026-06-10T09:00:00Z",
+    overdue: false,
+    linked_deal_id: null,
+    linked_person_id: null,
+    assignee_id: null,
+  };
+
+  it("renders the subject as a way to open the task, with the two verbs beside it", async () => {
+    stub(view({ next_steps: { data: [step], page: emptyPage } }));
+    renderCompany();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Send the retrofit proposal" }),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Snooze 1d" })).toBeTruthy();
+  });
+
+  it("offers no snooze for a task with no date to move", async () => {
+    stub(
+      view({
+        next_steps: { data: [{ ...step, due_at: null }], page: emptyPage },
+      }),
+    );
+    renderCompany();
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Done" })).toBeTruthy(),
+    );
+    expect(screen.queryByRole("button", { name: "Snooze 1d" })).toBeNull();
   });
 });

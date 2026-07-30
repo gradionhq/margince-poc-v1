@@ -163,6 +163,48 @@ func (g *graphAssembly) relatedEdge(row graphRelatedOrg) (ids.UUID, ids.UUID, cr
 	}
 }
 
+// placeOurSide draws our side of the account: the member who owns it, and the
+// colleagues with recorded contact with the contacts the card is showing.
+//
+// An interaction edge whose contact the card did not draw is skipped, the same
+// no-dangling-edge rule placeDeals applies to a stakeholder seat on a dropped
+// deal. A colleague left with no surviving edge is not placed at all — a lone
+// user node floating beside the account states nothing.
+//
+// The drop count runs over the colleagues WITH CONTACT only. The owner is never
+// capped, so counting them in the total would let one drawn owner push
+// dropped_count below the contract's `minimum: 0`.
+func (g *graphAssembly) placeOurSide() {
+	if g.accountOwner != nil {
+		g.addUserNode(*g.accountOwner)
+		g.addEdge(g.accountOwner.userID, g.orgID.UUID,
+			crmcontracts.OrganizationGraphEdgeKindOwns, nil)
+	}
+	drawn := map[ids.UUID]bool{}
+	for _, edge := range g.ourSide {
+		if _, contactDrawn := g.nodeIndex[edge.personID]; !contactDrawn {
+			continue
+		}
+		drawn[edge.user.userID] = true
+		g.addUserNode(edge.user)
+		g.addEdge(edge.user.userID, edge.personID,
+			crmcontracts.OrganizationGraphEdgeKindInContactWith, nil)
+	}
+	g.out.DroppedCount += g.ourSideTotal - len(drawn)
+}
+
+// addUserNode adds one colleague. A user node carries a name and nothing else:
+// §4 measures our relationship with the account's people, not with each other,
+// and how this colleague is connected is the EDGE's kind. The owner who also
+// emailed a contact dedupes through nodeIndex into ONE node with two edges.
+func (g *graphAssembly) addUserNode(user graphUser) {
+	g.addNode(crmcontracts.OrganizationGraphNode{
+		Id:    openapi_types.UUID(user.userID),
+		Kind:  crmcontracts.OrganizationGraphNodeKindUser,
+		Label: user.displayName,
+	})
+}
+
 // markIntroPath names the contact the warm room would route the account's
 // active signal through, and marks their node.
 //

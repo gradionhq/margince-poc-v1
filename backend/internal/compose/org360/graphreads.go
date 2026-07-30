@@ -180,6 +180,131 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 	return err
 }
 
+// readOurSide reads who on OUR side is connected to the account: the member
+// who owns it, and the colleagues who have actually been in touch with its
+// people. Without it the card answers "who works there" and leaves out the
+// half a rep opens it for — which of us already has a way in.
+//
+// It carries BOTH its gates itself. Every edge names one of the account's
+// contacts, so it is a person read; every interaction edge is derived from an
+// activity, so it is an activity read too. Neither is inferred from whether
+// another group reported itself omitted — a group list reordered for any
+// reason must not be able to turn a gated read into an ungated one.
+func (g *graphAssembly) readOurSide() error {
+	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
+		return err
+	}
+	if err := auth.Require(g.ctx, "activity", principal.ActionRead); err != nil {
+		return err
+	}
+	if err := g.readAccountOwner(); err != nil {
+		return err
+	}
+	return g.readInContactWith(g.employedPersonIDs())
+}
+
+// employedPersonIDs is the contacts the interaction read correlates against —
+// the employees readEmployment brought back. Correlating on already-selected
+// rows is what keeps the graph one hop: an interaction with someone who does
+// not work at this account is not a connection INTO it.
+func (g *graphAssembly) employedPersonIDs() []ids.UUID {
+	out := make([]ids.UUID, len(g.employees))
+	for i, edge := range g.employees {
+		out[i] = edge.personID.UUID
+	}
+	return out
+}
+
+// readAccountOwner reads the live workspace member the account is assigned to.
+// It needs no row-scope clause of its own: the caller has already read the
+// organization row this owner_id comes off, and the roster (GET /users) is
+// readable by any authenticated member, so naming the owner discloses nothing
+// the account page does not.
+//
+// A deactivated or removed member is left out rather than drawn as a dangling
+// name — owner_id survives the archive, and a card naming someone who no longer
+// works here would send a rep to ask them for an intro.
+func (g *graphAssembly) readAccountOwner() error {
+	var owner graphUser
+	err := g.tx.QueryRow(g.ctx, `
+		SELECT u.id, u.display_name
+		FROM organization o
+		JOIN app_user u ON u.id = o.owner_id AND u.archived_at IS NULL
+		WHERE o.id = $1`, g.orgID).Scan(&owner.userID, &owner.displayName)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil // an unassigned account, or an owner who has left
+	}
+	if err != nil {
+		return err
+	}
+	g.accountOwner = &owner
+	return nil
+}
+
+// readInContactWith reads which colleagues have REAL recorded contact with the
+// account's people, and with whom.
+//
+// Real contact means an interaction: an email, a call or a meeting. A task or
+// a note is not one — a task assigned to a colleague is intent, and the card
+// would claim a relationship nobody has had. For the same reason the colleague
+// is the activity's AUTHOR (captured_by), not its assignee, and the match is
+// against the `human:<uuid>` provenance stamp alone, so a connector-captured or
+// agent-captured row contributes no edge to anyone.
+//
+// The activity row-scope clause applies: an edge derived from an activity the
+// caller cannot read would disclose the fact of contact, which is the same
+// disclosure the timeline refuses.
+//
+// The cap picks distinct USERS in the query — most recent contact first — and
+// the distinct-user total rides the SAME statement as the rows. Two statements
+// would each take their own Read Committed snapshot, so a concurrent interaction
+// between them could make dropped_count NEGATIVE, a response violating the
+// contract's own `minimum: 0`.
+func (g *graphAssembly) readInContactWith(contactIDs []ids.UUID) error {
+	if len(contactIDs) == 0 {
+		return nil // no contacts to have been in touch with
+	}
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	contactsPos := arg(contactIDs)
+	activityScope, err := auth.ActivityScopeClause(g.ctx, "a", arg)
+	if err != nil {
+		return err
+	}
+	if activityScope == "" {
+		activityScope = scopeAll
+	}
+	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
+		WITH touch AS (
+			SELECT u.id AS user_id, u.display_name, l.person_id, a.occurred_at
+			FROM activity a
+			JOIN activity_link l ON l.activity_id = a.id
+			                    AND l.entity_type = 'person' AND l.person_id = ANY($%[1]d)
+			JOIN app_user u ON a.captured_by = 'human:' || u.id::text AND u.archived_at IS NULL
+			WHERE a.archived_at IS NULL AND a.kind IN ('email','call','meeting') AND (%[2]s)
+		), colleagues AS (
+			SELECT user_id, max(occurred_at) AS last_touch FROM touch GROUP BY user_id
+		), chosen AS (
+			SELECT user_id FROM colleagues ORDER BY last_touch DESC, user_id LIMIT %[3]d
+		)
+		SELECT DISTINCT touch.user_id, touch.display_name, touch.person_id,
+		       (SELECT count(*) FROM colleagues)
+		FROM touch JOIN chosen ON chosen.user_id = touch.user_id
+		ORDER BY touch.user_id, touch.person_id`,
+		contactsPos, activityScope, graphUserCap), args...)
+	if err != nil {
+		return err
+	}
+	g.ourSide, err = pgx.CollectRows(rows, func(row pgx.CollectableRow) (ourSideEdge, error) {
+		var edge ourSideEdge
+		// Every row carries the same total; they agree because they come from
+		// one statement.
+		err := row.Scan(&edge.user.userID, &edge.user.displayName, &edge.personID, &g.ourSideTotal)
+		return edge, err
+	})
+	return err
+}
+
 // readRouteIn reads the account's most recent open signal and the contact
 // edges the warm room would rank as ways in. It asks the signals module for
 // the candidates rather than gathering them here: the warm/cold join owns
