@@ -141,7 +141,7 @@ test("AC-deal-6: a terminal-stage drop is a 🟡 confirm — nothing runs before
 
 test("AC-inbox: approve and reject act on the staged row", async ({ page }) => {
   await page.goto("/#/inbox");
-  await expect(page.getByText("send_email", { exact: true })).toBeVisible();
+  await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
   await expect(page.getByText("Agent: runner")).toBeVisible();
   await page.getByRole("button", { name: "Übernehmen" }).click();
 });
@@ -608,7 +608,7 @@ test.describe("§3.8: 390px mobile", () => {
     page,
   }) => {
     await page.goto("/#/inbox");
-    await expect(page.getByText("send_email", { exact: true })).toBeVisible();
+    await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Übernehmen" }).click();
   });
 });
