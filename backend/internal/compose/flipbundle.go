@@ -303,11 +303,10 @@ func bundleString(raw map[string]any, key string) string {
 	return strings.TrimSpace(s)
 }
 
-// ReconstructForTest is the OVA-AC-6(d) lane's entry point into the
-// unexported rebuild. The rebuild has no product caller yet — the
-// /import/* wire that would give it one is IEM-GAP-2's contract
-// extension — so this seam exists so the acceptance criterion can be
-// proven without exporting a surface nothing ships.
+// ReconstructForTest is the OVA-AC-6(d) lane's entry into the
+// unexported rebuild — its only caller until the /import/* wire lands
+// (IEM-GAP-2's contract extension), which is why the rebuild itself
+// stays unexported and this seam is named for what it is.
 func ReconstructForTest(ctx context.Context, pool *pgxpool.Pool, bundle []byte) (migration.Report, error) {
 	return reconstructFromBundle(ctx, pool, bundle)
 }

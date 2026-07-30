@@ -7692,9 +7692,11 @@ paths:
   #       §5 importer, preserve record counts/relationships, carry over OUR
   #       augmentation (context/embeddings/audit/capture/mappings), re-tag
   #       incumbent-derived nodes T2→T1, detach write-back, flip
-  #       `workspace.sor_mode = native`. 🟡 (irreversible mode change),
-  #       ErrRequiresApproval + token; 202 + migration job ref.
-  #       x-mcp-tool: tier confirmation_required.
+  #       `workspace.sor_mode = native`. Human-only, like its preflight:
+  #       the typed confirmation phrase IS the human-intent control, and
+  #       an agent supplying it in staged arguments would collapse the
+  #       confirm-first gate to one approval click on a one-way,
+  #       estate-wide change. 202 + migration run ref.
   #
   # Overlay error sentinels (interfaces.md §0 + overlay additions): 404
   # `mode_not_overlay` (op called in SoR-mode), 409 `incumbent_already_connected`,

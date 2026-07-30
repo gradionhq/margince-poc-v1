@@ -18,11 +18,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
+	"sync"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -74,13 +73,16 @@ func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
 		conn.Release()
 		return nil, fmt.Errorf("another flip is already running for this workspace: %w", apperrors.ErrConflict)
 	}
+	var once sync.Once
 	return func() {
-		if _, err := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, key); err != nil {
-			// The lock dies with the connection anyway; log rather than
-			// mask the flip's own outcome.
-			f.log.Warn("overlay flip: releasing the flip claim failed", "err", err)
-		}
-		conn.Release()
+		once.Do(func() {
+			if _, err := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, key); err != nil {
+				// The lock dies with the connection anyway; log rather
+				// than mask the flip's own outcome.
+				f.log.Warn("overlay flip: releasing the flip claim failed", "err", err)
+			}
+			conn.Release()
+		})
 	}, nil
 }
 
@@ -119,25 +121,4 @@ func FlipImportProbe(ctx context.Context, tx pgx.Tx) (bool, error) {
 		return false, err
 	}
 	return migration.MirrorRunInFlight(ctx, tx)
-}
-
-// ClaimFlipForTest takes the flip's real advisory claim so the
-// integration lane can prove the claim and FlipImportProbe key on the
-// same lock. Nothing else can: claimFlip is bound to a flipRunner the
-// lane has no reason to build, and a fake would defeat the point.
-func ClaimFlipForTest(ctx context.Context, t testingTB, pool *pgxpool.Pool) func() {
-	t.Helper()
-	runner := &flipRunner{pool: pool, log: slog.New(slog.DiscardHandler)}
-	release, err := runner.claimFlip(ctx)
-	if err != nil {
-		t.Fatalf("claiming the flip: %v", err)
-	}
-	return release
-}
-
-// testingTB is the slice of testing.TB this helper needs, so the
-// production package does not import testing.
-type testingTB interface {
-	Helper()
-	Fatalf(format string, args ...any)
 }

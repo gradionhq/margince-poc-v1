@@ -145,6 +145,13 @@ func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.Ove
 	if err := auth.Require(ctx, "overlay_connection", principal.ActionUpdate); err != nil {
 		return crmcontracts.OverlayFlipPreflight{}, err
 	}
+	// The contract's human-only annotation is enforced at the transport;
+	// this is the second lock on a one-way door (the same shape
+	// overlay's requireUserMapAdmin uses), so the op does not depend on
+	// route-pattern resolution alone.
+	if err := auth.RequireHuman(ctx); err != nil {
+		return crmcontracts.OverlayFlipPreflight{}, err
+	}
 	// The same claim the execute takes: a preflight that unseals while
 	// an import is mid-run would let the mirror drift under a positional
 	// cursor, silently dropping one estate row per concurrent insert.
@@ -244,6 +251,11 @@ func (f *flipRunner) parityPreview(ctx context.Context, incumbent string) ([]crm
 // run id (and the emergency disclosure when lossy).
 func (f *flipRunner) Execute(ctx context.Context, req crmcontracts.OverlayFlipRequest) (crmcontracts.OverlayFlipAccepted, error) {
 	if err := auth.Require(ctx, "overlay_connection", principal.ActionUpdate); err != nil {
+		return crmcontracts.OverlayFlipAccepted{}, err
+	}
+	// See Preflight: the human-only class is enforced here too, not only
+	// by the transport gate.
+	if err := auth.RequireHuman(ctx); err != nil {
 		return crmcontracts.OverlayFlipAccepted{}, err
 	}
 	mode, err := parseFlipRequest(req)

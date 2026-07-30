@@ -123,7 +123,9 @@ func (s *MirrorStore) FlipAssociations(ctx context.Context) ([]Assoc, error) {
 
 // ResolveMirrorOwner maps an incumbent owner id to the mapped app_user,
 // via mirror_user_map — the flip writer's owner resolution. found=false
-// means unmapped (the row imports ownerless, disclosed), never an error.
+// means unmapped: the row imports under the flip operator, disclosed
+// (an ownerless native row would be workspace-shared, while the mirror
+// row it came from was hidden from every seat). Never an error.
 func (s *MirrorStore) ResolveMirrorOwner(ctx context.Context, incumbentUserID string) (ids.UUID, bool, error) {
 	if err := auth.Require(ctx, overlayConnectionObject, principal.ActionUpdate); err != nil {
 		return ids.UUID{}, false, err
