@@ -6253,7 +6253,7 @@ export interface components {
             amount?: components["schemas"]["Money"];
             /** Format: date */
             expected_close_date?: string | null;
-            /** @description No linked activity inside the pipeline's stall window. */
+            /** @description No linked activity inside the 60-day stall window. */
             stalled: boolean;
         };
         /** @description The account's open deals plus the two lifetime figures the header needs. */

@@ -9734,7 +9734,7 @@ components:
         stage_name: { type: [string, 'null'] }
         amount: { $ref: '#/components/schemas/Money' }
         expected_close_date: { type: [string, 'null'], format: date }
-        stalled: { type: boolean, description: No linked activity inside the pipeline's stall window. }
+        stalled: { type: boolean, description: No linked activity inside the 60-day stall window. }
 
     Organization360Deals:
       type: object

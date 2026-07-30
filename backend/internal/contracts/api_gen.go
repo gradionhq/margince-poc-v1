@@ -10349,7 +10349,7 @@ type Organization360Deal struct {
 	StageId           *openapi_types.UUID `json:"stage_id,omitempty"`
 	StageName         *string             `json:"stage_name,omitempty"`
 
-	// Stalled No linked activity inside the pipeline's stall window.
+	// Stalled No linked activity inside the 60-day stall window.
 	Stalled bool `json:"stalled"`
 
 	// Status Always `open` in the 360's `deals.data` — closed deals are reported by
