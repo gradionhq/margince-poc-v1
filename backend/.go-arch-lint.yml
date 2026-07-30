@@ -96,7 +96,10 @@ deps:
     canUse: [pgx, oapi, xcrypto]
   ai:
     mayDependOn: [contracts, platform]
-    canUse: [pgx, yaml, oapi]
+    # xtext: the voice send-outcome similarity metric is pinned over
+    # NFC-normalized, case-folded text — both are Unicode transforms
+    # golang.org/x/text owns and the stdlib does not.
+    canUse: [pgx, yaml, oapi, xtext]
   search:
     mayDependOn: [contracts, platform]
     canUse: [pgx, oapi]

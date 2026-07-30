@@ -339,19 +339,9 @@ func ActivityScopeClause(ctx context.Context, alias string, arg func(any) int) (
 	if Unbounded(p) {
 		return "", nil
 	}
-	person := VisiblePredicate(p, "person", arg)
-	organization := VisiblePredicate(p, "organization", arg)
-	deal := VisiblePredicate(p, "deal", arg)
-	lead := VisiblePredicate(p, "lead", arg)
-	project := VisiblePredicate(p, "project", arg)
 	return fmt.Sprintf(`(NOT EXISTS (SELECT 1 FROM activity_link nl WHERE nl.activity_id = %[1]s.id)
-	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND (
-	      (l.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = l.person_id AND %[2]s))
-	   OR (l.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization so WHERE so.id = l.organization_id AND %[3]s))
-	   OR (l.deal_id IS NOT NULL AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = l.deal_id AND %[4]s))
-	   OR (l.lead_id IS NOT NULL AND EXISTS (SELECT 1 FROM lead sl WHERE sl.id = l.lead_id AND %[5]s))
-	   OR (l.project_id IS NOT NULL AND EXISTS (SELECT 1 FROM project spr WHERE spr.id = l.project_id AND %[6]s)))))`,
-		alias, person("sp"), organization("so"), deal("sd"), lead("sl"), project("spr")), nil
+	 OR EXISTS (SELECT 1 FROM activity_link l WHERE l.activity_id = %[1]s.id AND %[2]s))`,
+		alias, linkTargetVisible(p, "l", arg)), nil
 }
 
 // SignalScopeClause is the signal analogue of ActivityScopeClause: a

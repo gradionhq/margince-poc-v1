@@ -1,0 +1,162 @@
+/* The company view's cards. The rails stack cards vertically at a tighter
+   rhythm than the main column, because a rail card is a glance and a main
+   column card is something you read. */
+
+.record-rail,
+.record-aside {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.co-card {
+  padding: 12px 14px;
+}
+
+.co-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.co-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--textPrimary);
+}
+
+.co-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--textMeta);
+}
+
+/* A row's name is a link, so it reads as one: no button chrome, and the
+   affordance is the underline on hover, not a colour alone. */
+.co-rowlink {
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+  font: inherit;
+  color: var(--textPrimary);
+  cursor: pointer;
+}
+.co-rowlink:hover {
+  text-decoration: underline;
+}
+.co-rowlink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* The two absent states read differently on purpose: "there is none" is
+   ordinary meta text, "you may not see this" is set apart so a rep never
+   mistakes a permission boundary for an empty account. */
+.co-empty {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--textMeta);
+}
+/* Reads --textMeta, the canonical AA small-text role: this text says a
+   permission boundary or a failed read, which is exactly the text a reader
+   must not have to squint at. Italic carries the "this is about the page,
+   not the record" tone without leaning on colour. */
+.co-restricted {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--textMeta);
+  font-style: italic;
+}
+
+.co-callout {
+  margin-top: 8px;
+}
+
+.co-since {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+
+.co-timeline-filters {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+
+.co-tabs {
+  margin-bottom: var(--space-4);
+}
+
+/* A card holding two independently-governed sections labels each one, so a
+   "hidden from you" or "could not be loaded" notice attaches to a named
+   thing rather than floating under a heading that covers both. */
+.co-part + .co-part {
+  margin-top: var(--space-3);
+}
+.co-part-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}
+
+/* A profile/fact row: label above the value, with the value carrying its
+   own evidence mark rather than a footer of chips beneath it. */
+.co-field {
+  margin-bottom: var(--space-3);
+}
+
+/* The brief leads the middle column: prose, so it reads at body size with
+   its citations inline rather than as a footer of chips. */
+.co-brief {
+  padding: 12px 14px;
+  margin-bottom: var(--space-3);
+}
+.co-brief-lines {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 8px 0;
+  font-size: 13.5px;
+  color: var(--textContent);
+}
+.co-brief-cite {
+  background: none;
+  border: 0;
+  padding: 0 0 0 6px;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--textMeta);
+  cursor: pointer;
+  text-decoration: underline dotted var(--borderStrong);
+  text-underline-offset: 3px;
+}
+.co-brief-cite:hover {
+  text-decoration-color: var(--accent);
+}
+.co-brief-cite:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+/* A citation with nowhere to go: the same size and colour as a linked one,
+   without the affordance, so it reads as a label rather than a dead link. */
+.co-brief-cite-flat {
+  padding-left: 6px;
+  font-size: 11.5px;
+  color: var(--textMeta);
+}

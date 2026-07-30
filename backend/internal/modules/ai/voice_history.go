@@ -272,18 +272,38 @@ func (s *VoiceStore) RejectDraft(ctx context.Context, profileID ids.UUID, draftR
 }
 
 // voiceDraftOutcomeRecordedPayload builds voice.draft_outcome_recorded's
-// typed payload. Both outcomes that emit it today — a just-served draft
-// (RecordDraftedSignal) and a rejection (RejectDraft) — are terminal for
-// learning: neither qualifies as a corpus source nor carries any
-// transformations, so those two required fields are always false/0 here.
-// The accept-with-edits outcome that would set them (qualifies_as_source
-// true, a positive transformation_count) has no emit site yet; add the
-// parameters back when that caller arrives.
+// typed payload from a STORED outcome, translating it to the published
+// wire vocabulary on the way out.
+//
+// qualifies_as_source and transformation_count are constant for every
+// outcome emitted today. A served draft (RecordDraftedSignal), a rejection
+// (RejectDraft), and a send (RecordSendOutcomeTx) all leave the signal
+// unpromoted: corpus promotion is a separate later decision, and nothing
+// extracts per-edit transformations yet, so no emitter has a non-constant
+// value to pass. Give them parameters when one does.
 func voiceDraftOutcomeRecordedPayload(profileID ids.UUID, outcome string) crmcontracts.PublicEventVoiceDraftOutcomeRecorded {
 	return crmcontracts.PublicEventVoiceDraftOutcomeRecorded{
 		ProfileId:           openapi_types.UUID(profileID),
-		Outcome:             outcome,
+		Outcome:             voiceOutcomeWireValue(outcome),
 		QualifiesAsSource:   false,
 		TransformationCount: 0,
+	}
+}
+
+// voiceOutcomeWireValue maps the stored outcome vocabulary
+// ('drafted','accepted','edited_sent','rejected') onto the published event
+// contract's (drafted | sent_unedited | sent_edited | rejected). The two
+// disagree only on the sent outcomes; that split is a spec inconsistency
+// raised upstream, and this is the local workaround. It sits at the single
+// emit seam rather than at each call site so no emitter can publish a
+// spelling subscribers do not know.
+func voiceOutcomeWireValue(outcome string) string {
+	switch outcome {
+	case voiceOutcomeAccepted:
+		return voiceOutcomeWireSentUnedited
+	case voiceOutcomeEditedSent:
+		return voiceOutcomeWireSentEdited
+	default:
+		return outcome
 	}
 }

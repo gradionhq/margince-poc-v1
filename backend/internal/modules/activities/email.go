@@ -66,6 +66,10 @@ type SendEmailInput struct {
 	Subject        string
 	Body           string
 	ConsentPurpose string
+	// DraftRef names the voice draft this message came from, so the send can
+	// close the learning signal that draft opened. Empty is the ordinary case:
+	// mail the human composed independently resolves no draft.
+	DraftRef string
 }
 
 // DeliveryStager records an outbound message for transmission. It is the
@@ -192,7 +196,7 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 
 	// Deliverability is derived here, after the gates, so both transports
 	// get it and neither can send marketing mail without it.
-	listUnsubscribe, body, err := s.deliverability(ctx, in.Body, in.Recipients, in.ConsentPurpose)
+	derived, err := s.deliverability(ctx, in.Body, in.Recipients, in.ConsentPurpose)
 	if err != nil {
 		return crmcontracts.Activity{}, err
 	}
@@ -201,8 +205,9 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 	message := outboundMessage{
 		in:              in,
 		messageID:       messageID,
-		body:            body,
-		listUnsubscribe: listUnsubscribe,
+		body:            derived.transmitted,
+		recordedBody:    derived.recorded,
+		listUnsubscribe: derived.listUnsubscribe,
 		to:              toRecipients(in.Recipients, in.Cc),
 		links:           inheritedLinks(anchor),
 	}
@@ -217,7 +222,17 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 		if err != nil {
 			return err
 		}
-		return stager.StageTx(ctx, tx, message.delivery(ids.UUID(sent.Id), chain))
+		if err := stager.StageTx(ctx, tx, message.delivery(ids.UUID(sent.Id), chain)); err != nil {
+			return err
+		}
+		// in.Body, not message.body: the judgment is about the text the HUMAN
+		// approved, and the two differ once a footer is applied. The reason
+		// in.Body still holds that text is that deliverability() returns a NEW
+		// local and never rewrites in — the transmitted body is that derived
+		// local. So this is correct because in is immutable, NOT because of
+		// where the footer is applied relative to this call, and moving the
+		// transaction boundary does not make it wrong.
+		return s.recordDraftOutcome(ctx, tx, in.DraftRef, in.Body)
 	})
 	if err != nil {
 		return crmcontracts.Activity{}, err
@@ -231,9 +246,16 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 // side by side: a field that disagreed between them would be a message whose
 // record and whose transmission say different things.
 type outboundMessage struct {
-	in              SendEmailInput
-	messageID       string
+	in        SendEmailInput
+	messageID string
+	// body is what the recipient receives; recordedBody is what the
+	// workspace keeps. They differ by exactly one thing — the live
+	// preference token the footer carries — because the timeline row is
+	// served back to any seat holding activity:read, and that token is a
+	// bearer credential over the recipient's consent record (see
+	// redactedToken). Only the delivery may read body.
 	body            string
+	recordedBody    string
 	listUnsubscribe string
 	to              []string
 	links           []ActivityLinkInput
@@ -245,7 +267,7 @@ func (m outboundMessage) activity(chain threading) LogActivityInput {
 	return LogActivityInput{
 		Kind:         "email",
 		Subject:      &m.in.Subject,
-		Body:         &m.body,
+		Body:         &m.recordedBody,
 		Direction:    &direction,
 		Links:        m.links,
 		Source:       "manual",

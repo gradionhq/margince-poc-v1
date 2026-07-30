@@ -15,9 +15,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/diffhash"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
 )
 
 var errInvalidApprovalID = errors.New("approval_id must be a UUID string")
@@ -68,13 +71,66 @@ type stageableTool interface {
 // question (the diff_hash binding guarantees the call IS that effect).
 type approvalRedeemedKey struct{}
 
+// withApprovalRedeemed marks ctx as carrying a released approval. Set only by
+// RedeemAndMark, which cannot mark without a successful Redeem.
 func withApprovalRedeemed(ctx context.Context) context.Context {
 	return context.WithValue(ctx, approvalRedeemedKey{}, true)
 }
 
-func approvalRedeemed(ctx context.Context) bool {
+// RedeemAndMark consumes an approval and returns a context marked as released,
+// binding the two together so neither can happen without the other. The
+// version pin travels back for a transport that must forward it as its own
+// precondition; pinned is false when the approval carried none.
+//
+// Outside this package this is the ONLY way to obtain a released context: the
+// marker is proof that a human released exactly THIS call, so only the
+// redemption path may set it. There are two dispatch layers — the MCP registry
+// and the REST agent gate — and both must mark what they redeem, or the gate
+// refuses the very write the approval was granted for; making the marking a
+// consequence of redeeming is what keeps that true without trusting either
+// caller to remember.
+func RedeemAndMark(ctx context.Context, approvals Approvals, approvalID ids.ApprovalID, tool, diffHash string,
+) (marked context.Context, version int64, pinned bool, err error) {
+	version, pinned, err = approvals.Redeem(ctx, approvalID, tool, diffHash)
+	if err != nil {
+		return ctx, 0, false, err
+	}
+	return withApprovalRedeemed(ctx), version, pinned, nil
+}
+
+// ApprovalRedeemed reports whether this call already consumed a redeemed
+// approval. Exported because the composition layer needs the same answer at
+// the datasource seam, where a write into an external system of record is
+// refused unless a human released this exact call. Read-only by design: the
+// marker is set only by RedeemAndMark.
+func ApprovalRedeemed(ctx context.Context) bool {
 	redeemed, ok := ctx.Value(approvalRedeemedKey{}).(bool)
 	return ok && redeemed
+}
+
+// refuseStagingElsewhere refuses to stage a change whose target's authority
+// lives in another system of record.
+//
+// A staged approval is an authority object a human must be able to both SEE
+// and RELEASE, and for such a target neither holds: the decidability probe and
+// the redemption version pin both read our own tables, which the record has no
+// row in. Staging anyway puts a decision in an inbox that can never take
+// effect and cannot be withdrawn — the zombie authority object the REST gate's
+// own decision-grant check refuses to mint. Answering the declared
+// unsupported-by-SoR sentinel instead makes the 🟡 tools agree with the
+// datasource seam, which refuses the same write for the same reason. That
+// agreement is only true while EVERY stageable tool calls this, so the set is
+// derived rather than trusted: stagingfitness_test.go walks the registry and
+// fails on a stageable tool that does not refuse.
+//
+// rec must be the record the change targets, read through the seam.
+func refuseStagingElsewhere(rec datasource.Record) error {
+	if rec.Freshness.Authoritative {
+		return nil
+	}
+	return fmt.Errorf(
+		"this %s is held in an external system of record, so an approval for it could never be released: %w",
+		rec.Ref.Type, apperrors.ErrUnsupportedBySoR)
 }
 
 // splitApproval pops the approval_id argument and canonicalizes what

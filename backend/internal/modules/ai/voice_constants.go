@@ -16,12 +16,24 @@ const (
 	voiceVersionStatusCandidate  = "candidate"
 	voiceVersionStatusRejected   = "rejected"
 	voiceOutcomeDrafted          = "drafted"
+	voiceOutcomeAccepted         = "accepted"
+	voiceOutcomeEditedSent       = "edited_sent"
 	voiceOutcomeRejected         = "rejected"
 	voiceBuildReasonOnboarding   = "onboarding"
 	voiceBuildReasonManual       = "manual"
 	voiceBuildStatusQueued       = "queued"
 	voiceBuildStatusDeferred     = "deferred"
 	voiceBuildStatusRunning      = "running"
+)
+
+// The published event contract spells the two SENT outcomes differently
+// from the DDL: (drafted | sent_unedited | sent_edited | rejected) against
+// ('drafted','accepted','edited_sent','rejected'). Naming both vocabularies
+// keeps voiceOutcomeWireValue's translation readable instead of a bare
+// lookup between string literals.
+const (
+	voiceOutcomeWireSentUnedited = "sent_unedited"
+	voiceOutcomeWireSentEdited   = "sent_edited"
 )
 
 // Voice source kinds and registers are the closed ADR-0066 vocabulary.
@@ -47,6 +59,7 @@ const (
 	voiceKeyDocument         = "document"
 	voiceKeyDraftRef         = "draft_ref"
 	voiceKeyExcluded         = "excluded"
+	voiceKeyFinalCapturedBy  = "final_captured_by"
 	voiceKeyFormat           = "format"
 	voiceKeyIdentityJaccard  = "identity_word_jaccard"
 	voiceKeyIncluded         = "included"
@@ -66,6 +79,7 @@ const (
 	voiceKeySpeakerLabel     = "speaker_label"
 	voiceKeyStatus           = "status"
 	voiceKeySignatureJaccard = "signature_set_jaccard"
+	voiceKeySimilarity       = "similarity"
 	voiceKeyStatusCode       = "status_code"
 	voiceKeyCandidateAction  = "candidate_action"
 	voiceKeyWordsAdded       = "words_added"

@@ -52,6 +52,10 @@ func TestExplainKeepsSentinelGuidance(t *testing.T) {
 		{fmt.Errorf("row: %w", apperrors.ErrNotFound), "No such record"},
 		{fmt.Errorf("cas: %w", apperrors.ErrVersionSkew), "changed since it was read"},
 		{fmt.Errorf("token: %w", apperrors.ErrApprovalTokenInvalid), "approval token"},
+		// A declared capability gap must say do-not-retry: the generic branch
+		// tells the agent to retry, which for a permanent refusal spends a
+		// scheduled run's whole step budget re-calling the same tool.
+		{fmt.Errorf("mode: %w", apperrors.ErrUnsupportedBySoR), "Do not retry"},
 	}
 	for _, tc := range cases {
 		if got := srv.explain("t", tc.err); !strings.Contains(got, tc.want) {

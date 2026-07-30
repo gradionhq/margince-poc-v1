@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 
+	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -76,6 +78,54 @@ func TestOverlayWirePersonNamelessFallsBackToEmailThenUnnamed(t *testing.T) {
 	}
 	if bare.FullName != "Unnamed" {
 		t.Errorf("bare person FullName = %q, want Unnamed", bare.FullName)
+	}
+}
+
+func TestOverlayWireOrganizationSurfacesDomain(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{
+		"display_name":        "Acme",
+		"organization_domain": map[string]any{"domain": "acme.io"},
+	})
+	org, err := overlayWireOrganization(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireOrganization: %v", err)
+	}
+	if org.Domains == nil || len(*org.Domains) != 1 {
+		t.Fatalf("Domains = %#v, want exactly one mirrored domain", org.Domains)
+	}
+	d := (*org.Domains)[0]
+	if d.Domain != "acme.io" {
+		t.Errorf("domain = %q, want acme.io", d.Domain)
+	}
+	if !d.IsPrimary {
+		t.Error("the single mirrored domain must be primary")
+	}
+	if d.Source != "overlay" {
+		t.Errorf("domain source = %q, want overlay", d.Source)
+	}
+	if d.Id == (openapi_types.UUID{}) {
+		t.Error("the synthesized domain id must not be the zero UUID")
+	}
+	// The synthesized id is STABLE across reads: an overlay domain has no
+	// native row of its own, so a churning id would be a fresh identity on
+	// every request.
+	again, err := overlayWireOrganization(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireOrganization (second read): %v", err)
+	}
+	if (*again.Domains)[0].Id != d.Id {
+		t.Errorf("domain id churned across reads: %v then %v", d.Id, (*again.Domains)[0].Id)
+	}
+}
+
+func TestOverlayWireOrganizationWithoutDomainOmitsDomains(t *testing.T) {
+	rec := wireRecord(t, datasource.EntityOrganization, map[string]any{"display_name": "Acme"})
+	org, err := overlayWireOrganization(wireCtx(), rec)
+	if err != nil {
+		t.Fatalf("overlayWireOrganization: %v", err)
+	}
+	if org.Domains != nil {
+		t.Errorf("Domains = %#v, want nil when the mirror carries no domain", org.Domains)
 	}
 }
 

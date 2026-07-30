@@ -16,6 +16,8 @@ package comms
 import (
 	"context"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // A stale second RecordSent (a network partition or GC pause outliving a
@@ -26,10 +28,10 @@ func TestRecordSentOnAnAlreadySentDeliveryIsABenignNoOp(t *testing.T) {
 	if _, err := e.store.Load(e.ctx, id); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if err := e.store.RecordSent(e.ctx, id, "receipt-first"); err != nil {
+	if err := e.store.RecordSent(e.ctx, id, connector.SendReceipt{ProviderMessageID: "receipt-first"}); err != nil {
 		t.Fatalf("first RecordSent: %v", err)
 	}
-	if err := e.store.RecordSent(e.ctx, id, "receipt-stale-retry"); err != ErrTerminal {
+	if err := e.store.RecordSent(e.ctx, id, connector.SendReceipt{ProviderMessageID: "receipt-stale-retry"}); err != ErrTerminal {
 		t.Fatalf("second RecordSent on an already-sent delivery: got %v, want ErrTerminal", err)
 	}
 
@@ -79,7 +81,7 @@ func TestRecordSentOnAParkedDeliveryIsABenignNoOp(t *testing.T) {
 	if err := e.store.Park(e.ctx, id, "recipient permanently rejected"); err != nil {
 		t.Fatalf("Park: %v", err)
 	}
-	if err := e.store.RecordSent(e.ctx, id, "stale-receipt"); err != ErrTerminal {
+	if err := e.store.RecordSent(e.ctx, id, connector.SendReceipt{ProviderMessageID: "stale-receipt"}); err != ErrTerminal {
 		t.Fatalf("RecordSent on a parked delivery: got %v, want ErrTerminal", err)
 	}
 
@@ -102,7 +104,7 @@ func TestRecordFailureOnAnAlreadySentDeliveryReportsErrTerminal(t *testing.T) {
 	if _, err := e.store.Load(e.ctx, id); err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if err := e.store.RecordSent(e.ctx, id, "receipt"); err != nil {
+	if err := e.store.RecordSent(e.ctx, id, connector.SendReceipt{ProviderMessageID: "receipt"}); err != nil {
 		t.Fatalf("RecordSent: %v", err)
 	}
 	if err := e.store.RecordFailure(e.ctx, id, "stale failure"); err != ErrTerminal {

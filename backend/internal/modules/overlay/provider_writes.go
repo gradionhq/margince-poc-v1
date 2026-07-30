@@ -331,6 +331,18 @@ const (
 	WriteArchive WriteVerb = "archive"
 )
 
+// AllWriteVerbs returns every value above. Exported so a caller that must
+// reason over the whole set — the composition layer's fitness test that every
+// verb SupportsWrite can answer true for is egress-gated — derives it from here
+// instead of restating the list, which a fourth verb would silently outgrow.
+//
+// A function rather than a package-level slice: a caller that truncated a
+// shared slice would silently narrow whatever that fitness test covers, which
+// is the opposite of what deriving the set is for.
+func AllWriteVerbs() []WriteVerb {
+	return []WriteVerb{WriteCreate, WriteUpdate, WriteArchive}
+}
+
 // requireSupportedWrite refuses a verb SupportsWrite does not declare for
 // et — the ONE enforcement point for that declaration, applied inside each
 // write verb rather than at any one transport.

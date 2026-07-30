@@ -54,6 +54,9 @@ func (t archiveRecord) StageInfo(ctx context.Context, in json.RawMessage) (Stage
 	if err != nil {
 		return StageInfo{}, err
 	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
 	return StageInfo{
 		TargetType: args.RecordType, TargetID: args.ID, TargetVersion: &rec.Version,
 		Summary: fmt.Sprintf("Archive %s %s", args.RecordType, recordLabel(rec)),
@@ -119,6 +122,9 @@ func (t promoteLead) StageInfo(ctx context.Context, in json.RawMessage) (StageIn
 	if err != nil {
 		return StageInfo{}, err
 	}
+	if err := refuseStagingElsewhere(rec); err != nil {
+		return StageInfo{}, err
+	}
 	return StageInfo{
 		TargetType: "lead", TargetID: args.LeadID, TargetVersion: &rec.Version,
 		Summary: fmt.Sprintf("Promote lead %s to a contact (%s)", recordLabel(rec), args.Trigger),
@@ -149,7 +155,7 @@ func (t promoteLead) Handle(ctx context.Context, in json.RawMessage) (json.RawMe
 	}
 	return json.Marshal(map[string]any{
 		"merged": merged,
-		"person": wireRecord{RecordType: string(rec.Ref.Type), ID: rec.Ref.ID, Fields: rec.Fields, Version: rec.Version},
+		"person": newWireRecord(rec),
 	})
 }
 
@@ -197,8 +203,10 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	}
 	// Pin the SURVIVOR's version: the human's yes is a judgment about
 	// merging into B as it is now, so if B changes before redemption the
-	// approval no longer covers it (version skew, re-stage). Read the source
-	// too, only to label the inbox entry.
+	// approval no longer covers it (version skew, re-stage). The source is read
+	// because it is the other half of the change — the merge archives and
+	// relinks it — so its authority is checked too and its label goes in the
+	// summary.
 	survivor, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.TargetID})
 	if err != nil {
 		return StageInfo{}, err
@@ -206,6 +214,14 @@ func (t mergeRecords) StageInfo(ctx context.Context, in json.RawMessage) (StageI
 	source, err := t.p.Read(ctx, datasource.EntityRef{Type: datasource.EntityType(args.RecordType), ID: args.SourceID})
 	if err != nil {
 		return StageInfo{}, err
+	}
+	// Every record this change touches, not just the pinned one, and named so a
+	// human reading the refusal knows which half of the merge blocked it.
+	if err := refuseStagingElsewhere(survivor); err != nil {
+		return StageInfo{}, fmt.Errorf("the record being merged INTO: %w", err)
+	}
+	if err := refuseStagingElsewhere(source); err != nil {
+		return StageInfo{}, fmt.Errorf("the record being merged FROM: %w", err)
 	}
 	return StageInfo{
 		TargetType: args.RecordType, TargetID: args.TargetID, TargetVersion: &survivor.Version,

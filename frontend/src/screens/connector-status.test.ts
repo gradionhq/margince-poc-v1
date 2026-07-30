@@ -2,7 +2,14 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { describe, expect, it } from "vitest";
-import { errorClassKey, isUnhealthy, statusTone } from "./connector-status";
+import {
+  errorClassKey,
+  isUnhealthy,
+  missingSendGrant,
+  statusTone,
+} from "./connector-status";
+
+const GMAIL_SEND = "https://www.googleapis.com/auth/gmail.send";
 
 describe("statusTone", () => {
   it("gives each status its own tone so four states never collapse to two", () => {
@@ -42,5 +49,34 @@ describe("isUnhealthy", () => {
     // A deliberately disconnected mailbox is quiet on home, matching
     // Settings, which filters `disconnected` rows out of its list entirely.
     expect(isUnhealthy("disconnected")).toBe(false);
+  });
+});
+
+describe("missingSendGrant", () => {
+  it("flags a Gmail mailbox connected before the send scope existed", () => {
+    expect(
+      missingSendGrant({
+        provider: "gmail",
+        scopes: ["https://www.googleapis.com/auth/gmail.readonly"],
+      }),
+    ).toBe(true);
+  });
+
+  it("stays quiet once the send scope is actually granted", () => {
+    expect(
+      missingSendGrant({
+        provider: "gmail",
+        scopes: ["https://www.googleapis.com/auth/gmail.readonly", GMAIL_SEND],
+      }),
+    ).toBe(false);
+  });
+
+  // A provider that cannot send at all is not "cannot send" — it was never a
+  // sending mailbox, and its scope vocabulary is not Google's, so no absent
+  // Google scope says anything about it.
+  it("never badges a provider that does not send in the first place", () => {
+    expect(missingSendGrant({ provider: "imap", scopes: [] })).toBe(false);
+    expect(missingSendGrant({ provider: "gcal", scopes: [] })).toBe(false);
+    expect(missingSendGrant({ provider: "graph", scopes: [] })).toBe(false);
   });
 });

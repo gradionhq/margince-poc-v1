@@ -171,6 +171,14 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 	}
 	recipients = append(recipients, cc...)
 
+	// The contract field is nullable, and its absence is the ordinary case:
+	// mail composed without a served draft resolves no learning signal, which
+	// the empty string says to the send path.
+	draftRef := ""
+	if req.DraftRef != nil {
+		draftRef = *req.DraftRef
+	}
+
 	// Deliverability — the RFC 8058 header and the visible footer — is
 	// derived by the store, on the message, where the MCP send tool reaches
 	// it too. It belongs on the mail, not on this response to the API
@@ -181,6 +189,7 @@ func (h Handlers) SendEmail(w http.ResponseWriter, r *http.Request, id crmcontra
 		Subject:        req.Subject,
 		Body:           req.Body,
 		ConsentPurpose: req.ConsentPurpose,
+		DraftRef:       draftRef,
 	}, h.consent, h.delivery)
 	if err != nil {
 		writeStoreErr(w, r, err)

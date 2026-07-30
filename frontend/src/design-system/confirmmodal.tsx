@@ -24,6 +24,7 @@ export function ConfirmModal({
   onConfirm,
   pending,
   error,
+  size,
   children,
 }: Readonly<{
   open: boolean;
@@ -31,6 +32,10 @@ export function ConfirmModal({
   title: string;
   tier?: "confirm";
   confirmLabel: string;
+  // Passed through to Modal. A confirm whose body is a form the user has to
+  // READ before an irreversible act — an email about to leave — needs more
+  // than the compact width every yes/no confirm uses.
+  size?: "default" | "wide";
   // The confirm button's tone. Defaults to "primary" (backward-compatible);
   // a destructive confirm (e.g. reject-with-reason) passes "danger" so it
   // doesn't read green like an approve.
@@ -47,7 +52,7 @@ export function ConfirmModal({
   const t = useT();
   const headingId = useId();
   return (
-    <Modal open={open} onClose={onClose} labelledBy={headingId}>
+    <Modal open={open} onClose={onClose} labelledBy={headingId} size={size}>
       <h2 id={headingId} className="t-h2" style={{ marginBottom: 12 }}>
         {tier && (
           <>

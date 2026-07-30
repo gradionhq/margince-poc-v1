@@ -43,6 +43,14 @@ numbers appear here when releases start.
 - **Quality gates**: golangci-lint + depguard, go-arch-lint, tree-derived
   architecture/schema/license fitness tests, contract drift-lint, and a
   real-Postgres integration lane covering the security invariants.
+- **Company 360**: `GET /organizations/{id}/360` serves the whole company
+  record page in one transaction — profile, contacts with §4 relationship
+  strength and per-purpose consent, deals, timeline, tags, list
+  memberships, decidable approvals, open next steps, and what changed
+  since the caller last visited. Authorization is per section: a section
+  the caller may not read is omitted and named in `sections_omitted`,
+  never returned empty. `POST /organizations/{id}/view-ack` is the
+  explicit, human-only, monotonic visit baseline those counts run against.
 
 ### Changed
 

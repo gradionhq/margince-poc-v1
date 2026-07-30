@@ -291,7 +291,7 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connecto
 		return d.classifySendFailure(ctx, del, err)
 	}
 
-	if err := d.store.RecordSent(ctx, del.ID, receipt.ProviderMessageID); err != nil {
+	if err := d.store.RecordSent(ctx, del.ID, receipt); err != nil {
 		if errors.Is(err, ErrTerminal) {
 			// A newer attempt already closed this row against its own
 			// receipt; overwriting it would replace a real one.

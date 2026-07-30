@@ -1,0 +1,51 @@
+name: brief_names_the_stalled_deal_and_the_last_touch
+task: summarize
+site: org_brief
+source: hand_authored
+sanitized_by: hand_authored/claude-opus-5
+fixture:
+  name: Brandt Automotive GmbH
+  industry: Automotive
+  strength: 41
+  contact_count: 2
+  open_deals:
+    - label: stalled_retrofit
+      name: Fleet retrofit 2026
+      stage: Proposal
+      amount_minor: 4800000
+      currency: EUR
+      stalled: true
+    - label: fresh_pilot
+      name: Depot pilot
+      stage: Discovery
+      amount_minor: 900000
+      currency: EUR
+      stalled: false
+  recent:
+    - label: last_email
+      kind: email
+      subject: "Re: proposal — coming back to you after the board meeting"
+      at: "2026-07-10T09:00:00Z"
+expect:
+  outcome: accepted
+  # The records a correct brief has to be grounded in — not its wording. A
+  # brief for this account that never mentions the stalled deal has missed
+  # the one thing a rep opening it needs to act on, and one that never cites
+  # the last contact is asserting a state of play from nothing.
+  answer: [stalled_retrofit, last_email]
+  bands:
+    # The brief is a reading aid over records the reader can already open,
+    # and it degrades to a deterministic floor whenever the model is
+    # unavailable or wrong. So the bar is "reliably grounded", not
+    # "flawless": a model that cites the right records four times in five
+    # is worth reading, and one that does it half the time is not.
+    certified_min: 70
+    degraded_min: 50
+    floor: 40
+  rubric: >
+    Score whether the brief states only what the summary states — no inferred
+    cause for the stall, no invented next step, no read on the counterparty's
+    intent beyond the quoted subject line — and whether every sentence cites
+    ids the summary actually supplied. A brief that reads well but attributes
+    the stall to a reason nobody recorded is worse than the deterministic
+    fallback, because it is unfalsifiable at a glance.

@@ -12,8 +12,11 @@ func TestGeneratedDeclarationAccessors(t *testing.T) {
 	if got := Status(TaskCaptureCounterpartyVerdict); got != StatusShipped {
 		t.Errorf("Status(verdict) = %q, want %q", got, StatusShipped)
 	}
-	if got := Status(TaskSummarize); got != StatusPlanned {
-		t.Errorf("Status(summarize) = %q, want %q", got, StatusPlanned)
+	// deal_health stands in for the planned half of the table. summarize
+	// used to: it shipped with the account brief, which is exactly the
+	// transition this accessor exists to report.
+	if got := Status(TaskDealHealth); got != StatusPlanned {
+		t.Errorf("Status(deal_health) = %q, want %q", got, StatusPlanned)
 	}
 	if !NoPayload(TaskCaptureCounterpartyVerdict) {
 		t.Error("NoPayload(verdict) = false; the contract pins it true")
@@ -32,7 +35,7 @@ func TestGeneratedDeclarationAccessors(t *testing.T) {
 	if loop := SitesFor(TaskAgentLoop); len(loop) != 1 || loop[0].Kind != SiteKindAgentLoop {
 		t.Errorf("SitesFor(agent_loop) = %+v, want one agent_loop site", loop)
 	}
-	if got := SitesFor(TaskSummarize); len(got) != 0 {
+	if got := SitesFor(TaskDealHealth); len(got) != 0 {
 		t.Errorf("a planned task declares sites: %+v", got)
 	}
 

@@ -13,6 +13,8 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // stubUnsubscribeLinker stands in for the consent module's preference-token
@@ -34,6 +36,25 @@ type stubMailbox struct {
 }
 
 func (m stubMailbox) SendCapable(context.Context) (bool, error) { return m.capable, m.err }
+
+// draftOutcomeCall is what the send path handed the learning loop: the
+// reference it carried, and the body it asks to be judged.
+type draftOutcomeCall struct{ draftRef, finalBody string }
+
+// recordingDraftOutcome stands in for the ai module's voice-signal writer. It
+// answers either of the two ways the seam allows — recorded/not-recorded, or a
+// fault — and remembers WHETHER it was asked, because "never consulted" is the
+// only proof that a send with no draft reference costs no query.
+type recordingDraftOutcome struct {
+	recorded bool
+	err      error
+	calls    []draftOutcomeCall
+}
+
+func (r *recordingDraftOutcome) RecordSendOutcomeTx(_ context.Context, _ pgx.Tx, draftRef, finalBody string) (bool, error) {
+	r.calls = append(r.calls, draftOutcomeCall{draftRef: draftRef, finalBody: finalBody})
+	return r.recorded, r.err
+}
 
 // Threading headers are derived from an anchor's stored identifiers, and only a
 // MAIL activity's are RFC822 message identities. A calendar event's iCalUID is
@@ -107,13 +128,20 @@ func TestSendPathOptionsAccumulateOnOneStore(t *testing.T) {
 	handlers := NewHandlers(nil).
 		WithUnsubscribe(stubUnsubscribeLinker{token: "tok", ok: true}).
 		WithPublicBaseURL(" https://mail.example.test/ ").
-		WithMailbox(stubMailbox{capable: true})
+		WithMailbox(stubMailbox{capable: true}).
+		WithDraftOutcome(&recordingDraftOutcome{})
 
 	if handlers.store.unsubscribe == nil {
 		t.Fatal("the unsubscribe linker did not survive the later options")
 	}
 	if handlers.store.mailbox == nil {
 		t.Fatal("the mailbox pre-flight did not survive the option chain")
+	}
+	// The handler option is the half the MCP transport does NOT use, so it is
+	// also the half nothing else would notice missing: a store that reached the
+	// send path without it closes no learning signal for HTTP sends.
+	if handlers.store.draftOutcome == nil {
+		t.Fatal("the draft-outcome recorder did not reach the handlers' own store")
 	}
 	// Trimmed of whitespace and of the trailing slash, so the links built from
 	// it never carry a doubled separator.

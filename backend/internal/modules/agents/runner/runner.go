@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/promptfence"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
@@ -232,6 +233,38 @@ func (r *Runner) Resume(ctx context.Context, job Job, dec Decision) (Result, err
 	return r.loop(ctx, job, win, carried)
 }
 
+// observeRefusal feeds a refusal back as an observation and returns the
+// trace step for it. A DECLARED capability gap is called out as terminal,
+// because it is not a fault the model can route around by trying again — and
+// this is the loop with a step budget, so a re-plan that re-calls the same
+// tool spends the run on a permanent no.
+func observeRefusal(win *window, step modelStep, err error, meta Meta, resp model.Response) Step {
+	observation := "tool call refused: " + err.Error()
+	// Telling the model not to retry is an ORDER, so it rides the directive
+	// argument: inside the fence it would be text the prompt has already
+	// declared to be data the model must disregard (observeThen's own doc). The
+	// trace keeps both halves joined — a trace is a record of what happened,
+	// not a prompt.
+	directive := ""
+	if errors.Is(err, apperrors.ErrUnsupportedBySoR) {
+		directive = "this workspace's system of record cannot serve this tool at all; do not call it again in this run"
+	}
+	win.observeThen(step.Tool, observation, directive)
+	// Reserve the directive's room inside the cap: provider text whose LENGTH is
+	// influenceable by mirrored content must neither crowd "this was terminal"
+	// out of the trace nor grow the entry past the bound.
+	suffix := ""
+	if directive != "" {
+		suffix = " — " + directive
+	}
+	recorded := truncateTo(observation, traceObservationLimit-len(suffix)) + suffix
+	return Step{
+		Tool: step.Tool, Args: step.Args, Observation: recorded,
+		ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
+		Admission: "refused",
+	}
+}
+
 // consecutiveInvalidLimit ends a run whose model cannot produce a valid
 // step: retry-with-error-feedback twice, then degrade honestly
 // (ai-operational-spec §5.2 — never a partial fabrication).
@@ -293,13 +326,7 @@ func (r *Runner) loop(ctx context.Context, job Job, win *window, acc Result) (Re
 			// back as observations — the model learns it cannot do that
 			// and re-plans; agent ≤ human holds without the loop knowing
 			// the policy.
-			observation := "tool call refused: " + err.Error()
-			win.observe(step.Tool, observation)
-			acc.Steps = append(acc.Steps, Step{
-				Tool: step.Tool, Args: step.Args, Observation: truncate(observation),
-				ModelID: meta.ModelID, Tier: meta.Tier, TokensIn: resp.InputTokens, TokensOut: resp.OutputTokens,
-				Admission: "refused",
-			})
+			acc.Steps = append(acc.Steps, observeRefusal(win, step, err, meta, resp))
 		default:
 			win.observe(step.Tool, string(out))
 			acc.Steps = append(acc.Steps, Step{
@@ -403,13 +430,32 @@ func withApprovalID(args json.RawMessage, id ids.ApprovalID) (json.RawMessage, e
 	return json.Marshal(m)
 }
 
-// truncate bounds trace observations: the trace is a record of what
-// happened, not a second copy of every payload.
+// traceObservationLimit bounds trace observations: the trace is a record of
+// what happened, not a second copy of every payload.
 const traceObservationLimit = 2000
 
-func truncate(s string) string {
-	if len(s) <= traceObservationLimit {
+// truncationMarker names the elision, and its own length counts against the
+// cap — a caller reserving room for a suffix has to reserve for this too.
+const truncationMarker = "…[truncated]"
+
+// truncate bounds one trace observation at the default limit.
+func truncate(s string) string { return truncateTo(s, traceObservationLimit) }
+
+// truncateTo bounds s so the RESULT is at most limit bytes, marker included —
+// which is what lets a caller reserve room for a suffix inside the same cap
+// rather than overrun it. The bound holds for every limit, including one too
+// small to carry the marker: a function that exists to enforce a cap must not
+// exceed it while saying it does.
+func truncateTo(s string, limit int) string {
+	if limit < 0 {
+		limit = 0
+	}
+	if len(s) <= limit {
 		return s
 	}
-	return s[:traceObservationLimit] + "…[truncated]"
+	if limit <= len(truncationMarker) {
+		// No room to say "elided" without breaking the bound; the bound wins.
+		return s[:limit]
+	}
+	return s[:limit-len(truncationMarker)] + truncationMarker
 }

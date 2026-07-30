@@ -52,28 +52,45 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// rides: a native-mode workspace lands on the composite SoR
 	// Provider exactly as before, an overlay-mode workspace's reads land
 	// on the mirror (design.md §4.2/§4.6) — chosen per call from
-	// ctx, never fixed at registry construction time. This registry's own
-	// The MCP overlay provider carries no live-incumbent resolver (the nil
-	// below) and agent tools never call the freshness path, so this surface
-	// incurs no force-fresh spend of its own — its OVB meter is a
-	// fail-closed placeholder (no Redis), never charged. When a metered MCP
-	// force-fresh path lands, this becomes a Redis-backed NewOverlayMeter
-	// like the REST surface's, sharing the same per-workspace windows.
+	// ctx, never fixed at registry construction time.
+	//
+	// No tool reaches Dispatcher.Freshness, the only route to a force-fresh
+	// reservation on this provider, so this surface has no spend of its own to
+	// account for and its OVB meter is a fail-closed placeholder (no Redis),
+	// never charged; the live reservations and charges live in the refetch and
+	// reconcile pollers, which take their own Redis-backed meters. When a
+	// metered force-fresh path lands for a tool, this becomes a Redis-backed
+	// NewOverlayMeter like the REST surface's, sharing the same per-workspace
+	// windows.
 	provider := NewDispatcher(NewProvider(pool), NewOverlayProvider(pool, failClosedOverlayMeter(), resolveIncumbent), pool)
 	registry := agents.NewRegistry(approvalsAdapter{svc: approvals.NewService(pool)}, gate)
+	// The guards take the Dispatcher as an overlayModeChecker — the interface
+	// whose method IS the uncached read, so no wiring here can hand them the
+	// cached mode. See overlayModeChecker for why that distinction is typed.
+	sorMode := overlayModeChecker(provider)
 	agents.RegisterCoreTools(registry, provider, provider, provider, fieldOwnership{pool: pool})
-	agents.RegisterReportTool(registry, reportToolRunner(newReportEngine(pool)))
+	agents.RegisterReportTool(registry, nativeOnlyReportRunner(sorMode, reportToolRunner(newReportEngine(pool))))
 	// The intent tools ground on the graph walk (no embed lane needed);
 	// the comms tools ride the same store paths as the HTTP transport.
-	agents.RegisterIntentTools(registry, search.NewRetriever(search.NewStore(pool), nil))
+	agents.RegisterIntentTools(registry, nativeOnlyRetriever{
+		mode:  sorMode,
+		inner: search.NewRetriever(search.NewStore(pool), nil),
+	})
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
-	agents.RegisterSlippingTools(registry, slippingLister(pool), followUpDrafter(provider))
+	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
 	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that
 	// collides with a core verb fails loudly (RegisterExtensions stashed
 	// them at boot, before this ran).
+	//
+	// They need no native-only guard: extension.ToolHandler is handed a context
+	// and raw JSON and nothing else — no provider, no pool, no store — and the
+	// boot adapter injects none, so an extension tool cannot read a domain table
+	// to answer wrongly for an overlay workspace. If that surface ever grants
+	// record access, it has to arrive mode-routed through the datasource seam,
+	// or gain the guard the three dependencies above take.
 	registerComposedTools(registry)
 	return registry
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -140,13 +141,15 @@ func writeErr(w http.ResponseWriter, r *http.Request, err error) {
 	httperr.Write(w, r, err)
 }
 
+func (h Handlers) wire(a row) crmcontracts.Approval { return wire(a, h.svc.now()) }
+
 // wire maps the store row onto the contract shape; effectiveStatus folds
 // lazy expiry in so a stale pending row never reads as approvable.
-func (h Handlers) wire(a row) crmcontracts.Approval {
+func wire(a row, now time.Time) crmcontracts.Approval {
 	out := crmcontracts.Approval{
 		Id:         openapi_types.UUID(a.ID.UUID),
 		Kind:       a.Kind,
-		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus(h.svc.now())),
+		Status:     crmcontracts.ApprovalStatus(a.effectiveStatus(now)),
 		ProposedBy: a.ProposedBy,
 		CreatedAt:  a.CreatedAt,
 		DiffHash:   &a.DiffHash,
