@@ -159,8 +159,10 @@ func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
 		}
 		resp.Result = map[string]any{
 			"protocolVersion": negotiateProtocolVersion(params.ProtocolVersion),
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": s.name, "version": s.version},
+			// listChanged: true claims the notification the GET SSE stream
+			// (a later phase) actually fires; nothing else is claimed.
+			"capabilities": map[string]any{"tools": map[string]any{"listChanged": true}},
+			"serverInfo":   map[string]any{"name": s.name, "version": s.version},
 		}
 	case "ping":
 		resp.Result = map[string]any{}
@@ -168,6 +170,16 @@ func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
 		resp.Result = map[string]any{"tools": s.toolList()}
 	case "tools/call":
 		resp.Result = s.call(ctx, req.Params)
+	case "resources/list":
+		// This server has no resources; claude.ai calls this right after
+		// initialize regardless, and an unadvertised capability answering
+		// -32601 there reads as a broken server rather than a legitimate
+		// empty catalog.
+		resp.Result = map[string]any{"resources": []any{}}
+	case "resources/templates/list":
+		resp.Result = map[string]any{"resourceTemplates": []any{}}
+	case "prompts/list":
+		resp.Result = map[string]any{"prompts": []any{}}
 	default:
 		resp.Error = &rpcError{Code: -32601, Message: "method not found: " + req.Method}
 	}
