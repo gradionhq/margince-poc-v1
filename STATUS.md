@@ -30,6 +30,19 @@ Open work, roughly in priority order.
 
 ### Correctness and security
 
+- **A backfill's counterparty count is at-most-once, not exactly-once.**
+  `capture.pageProgress.counted` bumps `capture_backfill.people_created` /
+  `organizations_created` once per created row, in its own transaction. The row
+  itself is created in the resolver's transaction, so a failure of the counter
+  write loses the count of ONE row: logged at ERROR, bounded, and permanent —
+  capture is idempotent, so a replayed message never reaches the resolver again
+  and nothing re-offers that row to be counted. It never double-counts. Closing
+  it takes a ledger keyed on the created row's id, idempotent under retry, with
+  the counts derived from it instead of accumulated; that also moves CAP-PARAM-2
+  off its single-row read, so it is a decision and not a cleanup. The number
+  drives the activation view and the cost estimator's yield ratios, neither of
+  which is materially wrong one row short.
+
 - **Recorded idempotency bodies survive Art. 17 erasure.**
   `idempotency_key.response_body` (migration 0033) holds full 2xx `Person`/
   `Lead`/`Activity` bodies for 24h, and `privacy/erasure.go` does not touch that

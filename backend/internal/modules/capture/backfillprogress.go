@@ -124,8 +124,18 @@ func (c *pageProgress) Observed(ctx context.Context, scanned, captured, skipped 
 // is something to lose. Whatever writes it can fail, and nothing can rebuild it
 // afterwards: capture is idempotent, so a replayed message never reaches the
 // resolver again and no retry re-offers these rows to anybody. Counting each row
-// as it appears bounds a failed write to the one row it was about, and leaves no
-// batch anywhere to be dropped, double-credited, or fenced off.
+// as it appears leaves no batch anywhere to be dropped, double-credited, or
+// fenced off.
+//
+// What this guarantees, exactly: it never double-counts, because a row is
+// created once and this runs on that one outcome. It is NOT exactly-once. The
+// row is created in the resolver's transaction and counted in this one, so a
+// failure here loses the count of ONE row — bounded, logged at ERROR, and
+// permanent, since nothing retries it. Closing that would take a ledger keyed
+// on the created row's id, idempotent under retry, with the counts derived from
+// it rather than accumulated; the number feeds a progress display and the cost
+// estimator's ratios, and neither is worth a table and a retry path today.
+// Recorded as open work in STATUS.md rather than papered over here.
 //
 // Unfenced on the run's liveness and on the connection's generation. The row
 // exists; a cancelled run and a rebound connection do not un-create it, and
