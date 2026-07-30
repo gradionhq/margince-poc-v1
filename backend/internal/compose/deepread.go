@@ -33,6 +33,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
+	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -82,9 +83,16 @@ func siteDeepReadInsertOpts() *river.InsertOpts {
 // queued forever.
 type siteDeepReadWorker struct {
 	river.WorkerDefaults[SiteDeepReadArgs]
-	people     *people.Store
-	crawler    *siteCrawler
-	extract    evidenceExtractor
+	people  *people.Store
+	crawler *siteCrawler
+	extract evidenceExtractor
+	// fetch is the same guarded egress the crawl uses, for the ONE thing the
+	// crawl does not fetch itself: the logo asset the seed page declared.
+	fetch assetFetcher
+	// blob holds the normalized logo bytes. Nil is a worker role with no
+	// object store: it reads sites and resolves no logos, and every company
+	// keeps its monogram.
+	blob       blobstore.Store
 	approvals  *approvals.Service
 	autoEnrich *capture.AutoEnrichStore
 	// settings answers the auto-enrich flag at CLAIM time. The sweep checks it
@@ -102,13 +110,15 @@ type siteDeepReadWorker struct {
 // extractor carries the same seam. brain may be nil — a picked-up read
 // then finishes failed with an actionable log rather than sitting queued
 // behind a worker that cannot extract.
-func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps) *siteDeepReadWorker {
+func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *slog.Logger, caps CrawlCaps, blob blobstore.Store) *siteDeepReadWorker {
 	fetcher := webread.New()
 	caps = caps.withDefaults()
 	return &siteDeepReadWorker{
 		people:     people.NewStore(pool),
 		crawler:    newSiteCrawler(fetcher, caps),
 		extract:    evidenceExtractor{fetch: fetcher, brain: brain, factBrain: factBrain},
+		fetch:      fetcher,
+		blob:       blob,
 		approvals:  approvals.NewService(pool),
 		autoEnrich: capture.NewAutoEnrichStore(pool),
 		settings:   capture.NewSettings(pool),
@@ -124,12 +134,14 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 // escalate headroom.
 const extractLaneBudget = 90 * time.Second
 
-// Timeout overrides River's 1-minute default: the crawl wall plus the
-// parallel extraction budget plus a minute for the staging and dossier
-// writes — floored at eight minutes so a tightened cap never squeezes
-// the terminal writes.
+// Timeout overrides River's 1-minute default: the crawl wall, plus the
+// parallel extraction budget, plus the logo lane's own bounded spend, plus a
+// minute for the staging and dossier writes — floored at eight minutes so a
+// tightened cap never squeezes the terminal writes. Every lane that can hold
+// the job is counted here, or a slow one silently eats the allowance the
+// terminal write depends on.
 func (w *siteDeepReadWorker) Timeout(*river.Job[SiteDeepReadArgs]) time.Duration {
-	budget := w.caps.Wall + extractLaneBudget + time.Minute
+	budget := w.caps.Wall + extractLaneBudget + logoLaneBudget + time.Minute
 	if floor := 8 * time.Minute; budget < floor {
 		return floor
 	}
@@ -203,6 +215,13 @@ func (w *siteDeepReadWorker) run(ctx context.Context, args SiteDeepReadArgs) err
 		}
 		return w.fail(ctx, args.SiteReadID, fmt.Errorf("site deep read %s: %w", args.SiteReadID, err))
 	}
+	// The logo lands as soon as the CRAWL succeeded, before anything the model
+	// lane produced is judged: it is a 🟢 display asset (A55) that no human has
+	// to approve, and it is read off the seed page's own markup, so a company
+	// gets its face even on a read whose extraction later comes back empty or
+	// dies outright.
+	w.resolveLogo(ctx, args, claim, crawl)
+
 	if deferred, deferErr := w.deferForBudget(ctx, args.SiteReadID, extraction.err); deferred {
 		return deferErr
 	}

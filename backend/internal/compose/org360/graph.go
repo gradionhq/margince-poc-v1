@@ -113,10 +113,11 @@ func (s *Service) Graph(ctx context.Context, orgID ids.OrganizationID) (crmcontr
 			strengths: map[ids.PersonID]people.RelationshipStrength{},
 		}
 		g.addNode(crmcontracts.OrganizationGraphNode{
-			Id:    openapi_types.UUID(orgID.UUID),
-			Kind:  crmcontracts.OrganizationGraphNodeKindOrganization,
-			Label: org.DisplayName,
-			Root:  true,
+			Id:      openapi_types.UUID(orgID.UUID),
+			Kind:    crmcontracts.OrganizationGraphNodeKindOrganization,
+			Label:   org.DisplayName,
+			Root:    true,
+			LogoUrl: org.LogoUrl,
 		})
 		return g.build()
 	})

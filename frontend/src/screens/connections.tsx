@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
+  Avatar,
   Badge,
   Button,
   Modal,
@@ -130,6 +131,15 @@ export function layout(nodes: readonly GraphNode[]): Placed[] {
 function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
   const placed = layout(graph.nodes);
   const at = new Map(placed.map((p) => [p.node.id, p]));
+  // Logos that failed to load. A node then keeps its kind colour and reads as
+  // an ordinary node, which is the same floor the list's monogram gives it —
+  // never a pale empty disc where a company should be.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  // The card and its expanded modal are BOTH mounted while the modal is open,
+  // so a clip id built from the node id alone would exist twice in one
+  // document and `url(#…)` would resolve to whichever came first. Scoping the
+  // ids per diagram keeps each one's clips its own.
+  const clipScope = useId();
   return (
     <svg
       className="cx-diagram"
@@ -157,15 +167,48 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
           />
         );
       })}
-      {placed.map((p) => (
-        <circle
-          key={p.node.id}
-          className={nodeClass(p.node)}
-          cx={p.x}
-          cy={p.y}
-          r={p.node.root ? ROOT_RADIUS : NODE_RADIUS}
-        />
-      ))}
+      {placed.map((p) => {
+        const r = p.node.root ? ROOT_RADIUS : NODE_RADIUS;
+        const logo = p.node.logo_url && !broken.has(p.node.logo_url);
+        return (
+          <g key={p.node.id}>
+            <circle
+              className={nodeClass(p.node, Boolean(logo))}
+              cx={p.x}
+              cy={p.y}
+              r={r}
+            />
+            {logo && p.node.logo_url && (
+              <>
+                {/* One clip per node: a clipPath is defined in the diagram's
+                    own coordinates, so a shared one would clip every logo to
+                    a single node's position. */}
+                <clipPath id={`${clipScope}-${p.node.id}`}>
+                  <circle cx={p.x} cy={p.y} r={r - 1} />
+                </clipPath>
+                {/* The circle underneath keeps its fill and its ring, so a
+                    company whose image never loads is still a drawn node
+                    rather than a hole in the diagram. */}
+                <image
+                  className="cx-node-logo"
+                  href={p.node.logo_url}
+                  clipPath={`url(#${clipScope}-${p.node.id})`}
+                  x={p.x - r + 2}
+                  y={p.y - r + 2}
+                  width={(r - 2) * 2}
+                  height={(r - 2) * 2}
+                  preserveAspectRatio="xMidYMid meet"
+                  onError={() =>
+                    setBroken((was) =>
+                      p.node.logo_url ? new Set(was).add(p.node.logo_url) : was,
+                    )
+                  }
+                />
+              </>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -180,13 +223,21 @@ function edgeKey(edge: GraphEdge): string {
 // nodeClass carries the node's kind, whether it is the centre, and whether it
 // is on the intro path into CSS, so the diagram's palette lives in the
 // stylesheet rather than in inline attributes.
-function nodeClass(node: GraphNode): string {
+function nodeClass(node: GraphNode, hasLogo: boolean): string {
   const classes = ["cx-node", `cx-node-${node.kind}`];
   if (node.root) {
     classes.push("cx-node-root");
   }
   if (node.intro_path) {
     classes.push("cx-node-intro");
+  }
+  if (hasLogo) {
+    // A company whose logo IS being drawn needs the same neutral backing the
+    // avatar chip gives it elsewhere: a mark drawn on transparency would
+    // otherwise read against the node's own dark fill. Keyed off the drawing,
+    // not off the field — a node whose image failed keeps its kind colour
+    // instead of becoming a pale empty disc.
+    classes.push("cx-node-marked");
   }
   return classes.join(" ");
 }
@@ -271,7 +322,10 @@ function NodeList({
     <ul className="co-list cx-nodes">
       {nodes.map((node) => (
         <li key={node.id} className="co-row">
-          <span className="cx-node-name">
+          <span className="cx-node-name avatar-row">
+            {node.kind === "organization" && (
+              <Avatar name={node.label} src={node.logo_url} tinted />
+            )}
             {/* The label comes off THIS payload. EntityRef would otherwise
                 fetch each record's name — one request per visible node, with
                 the raw id showing until it lands — for names the graph read

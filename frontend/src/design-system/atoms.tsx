@@ -5,6 +5,7 @@ import {
   type ReactNode,
   useEffect,
   useRef,
+  useState,
 } from "react";
 import "./atoms.css";
 
@@ -55,12 +56,28 @@ const AVATAR_TONES = 6;
 export function Avatar({
   name,
   tinted,
+  src,
+  size,
 }: Readonly<{
   name: string;
   // A deterministic per-name colour. Off by default so the many existing
   // callers keep the neutral chip they render today.
   tinted?: boolean;
+  // A resolved logo to render instead of the monogram. The monogram is the
+  // floor, not the fallback of last resort: it is what shows while the image
+  // loads, if it fails to load, and whenever no logo resolved — so a company
+  // is never a broken image or an empty slot.
+  src?: string | null;
+  // "lg" is the record header's larger chip; the default is the 28px chip
+  // every list and row uses.
+  size?: "lg";
 }>) {
+  // An image that fails to load falls back to the monogram for the rest of
+  // this mount. Keyed by src so a record whose logo changes gets a fresh try
+  // rather than inheriting the previous one's failure.
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const broken = Boolean(src) && brokenSrc === src;
+  const setBroken = () => setBrokenSrc(src ?? null);
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -78,8 +95,23 @@ export function Avatar({
     }
     tone = hash;
   }
+  const classes = ["avatar"];
+  if (tinted) classes.push(`avatar-t${tone}`);
+  if (size === "lg") classes.push("avatar-lg");
+  if (src && !broken) classes.push("avatar-has-logo");
   return (
-    <span className={tinted ? `avatar avatar-t${tone}` : "avatar"}>
+    <span className={classes.join(" ")}>
+      {src && !broken ? (
+        // The monogram stays underneath: it is what the chip shows until the
+        // image paints, and what is left if the image never does.
+        <img
+          className="avatar-img"
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={setBroken}
+        />
+      ) : null}
       {initials}
     </span>
   );

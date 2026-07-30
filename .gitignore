@@ -53,6 +53,9 @@ coverage.out
 frontend/storybook-static/
 .tmp/
 
+# Generated SBOMs + cosign signatures (build artifacts — `make sbom`, published by CI)
+/sboms/
+
 # Factory boundary backstop: a dispatched worker that mistakenly writes
 # factory artifacts (plans/reports/UAT guides) into the worktree can never
 # stage them (target-minimum-setup §1).

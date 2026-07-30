@@ -90,6 +90,20 @@
   flex: none;
 }
 
+/* An avatar beside its label on one line — a list cell, a search hit, a node
+   row. The label keeps the baseline it had before the mark joined it. */
+.avatar-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.avatar-lg {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+}
+
 /* The per-name tints come AFTER the base rule: same specificity, so the
    later declaration is the one that wins. Defined before it, they were
    silently overridden and every monogram rendered in the accent colour. */
@@ -116,6 +130,25 @@
 .avatar-t5 {
   background: var(--mono5Fill);
   color: var(--mono5Text);
+}
+
+/* A resolved logo sits ON the chip rather than replacing it: the chip is the
+   neutral, theme-aware backdrop a mark with its own opaque background needs to
+   look deliberate, and it is the monogram the viewer sees until the image
+   paints. `contain` plus the inset keeps the mark padded and never stretched —
+   a wide wordmark letterboxes instead of distorting. */
+.avatar-has-logo {
+  background: var(--bgCard);
+  position: relative;
+}
+
+.avatar-img {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  object-fit: contain;
+  border-radius: var(--r-full);
 }
 
 .skeleton {

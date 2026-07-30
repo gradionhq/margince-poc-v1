@@ -99,6 +99,10 @@ func (g *graphAssembly) placeDeals() {
 type graphRelatedOrg struct {
 	orgID       ids.UUID
 	displayName string
+	// logoObjectKey is where the company's resolved logo lives, nil when it
+	// has none — the node's face, so a related company on the graph is
+	// recognized the same way it is on its own record.
+	logoObjectKey *string
 	// relation is the arm that found it: parent, child, or partner.
 	relation string
 	// partnerKind is the relationship kind on a partner arm, and edgeOwner
@@ -130,9 +134,10 @@ func (g *graphAssembly) placeRelated(related []graphRelatedOrg) {
 	for _, row := range related {
 		drawn[row.orgID] = true
 		g.addNode(crmcontracts.OrganizationGraphNode{
-			Id:    openapi_types.UUID(row.orgID),
-			Kind:  crmcontracts.OrganizationGraphNodeKindOrganization,
-			Label: row.displayName,
+			Id:      openapi_types.UUID(row.orgID),
+			Kind:    crmcontracts.OrganizationGraphNodeKindOrganization,
+			Label:   row.displayName,
+			LogoUrl: people.LogoURL(row.orgID, row.logoObjectKey),
 		})
 		from, to, kind := g.relatedEdge(row)
 		g.addEdge(from, to, kind, nil)

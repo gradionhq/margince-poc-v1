@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
+  fireEvent,
   render as rtlRender,
   screen,
   waitFor,
@@ -453,5 +454,66 @@ describe("connections layout", () => {
     // fabricated root would draw a company the payload never named.
     expect(placed).toHaveLength(1);
     expect(placed[0].node.id).toBe("p-1");
+  });
+});
+
+describe("company logos on the diagram", () => {
+  // A55: a logo is the upgrade, the node is the floor. A company node must
+  // read as a node whether or not its image ever paints.
+  const withLogo = () =>
+    graph({
+      nodes: [
+        node({
+          id: ROOT,
+          kind: "organization",
+          label: "Brandt",
+          root: true,
+          logo_url: `/v1/organizations/${ROOT}/logo`,
+        }),
+      ],
+      edges: [],
+    });
+
+  it("draws the mark clipped into the node and takes the neutral backing", async () => {
+    stub(withLogo());
+    const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    await waitFor(() =>
+      expect(container.querySelector("image.cx-node-logo")).toBeTruthy(),
+    );
+    const image = container.querySelector("image.cx-node-logo");
+    expect(image?.getAttribute("href")).toBe(`/v1/organizations/${ROOT}/logo`);
+    // Clipped to its own node, never to a shared path — a shared clip would
+    // cut every logo to one node's position — and scoped per diagram, because
+    // the card and its modal are both mounted while the modal is open.
+    const clip = image?.getAttribute("clip-path") ?? "";
+    expect(clip).toMatch(/^url\(#.+\)$/);
+    expect(clip).toContain(ROOT);
+    const clipId = clip.slice("url(#".length, -1);
+    // Matched by attribute rather than by id selector: React's useId emits
+    // colons, which a CSS id selector would read as a pseudo-class.
+    expect(container.querySelector(`clipPath[id="${clipId}"]`)).toBeTruthy();
+    expect(container.querySelectorAll("circle.cx-node-marked")).toHaveLength(1);
+  });
+
+  it("falls back to the node's own colour when the logo fails to load", async () => {
+    stub(withLogo());
+    const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    const image = await waitFor(() => {
+      const found = container.querySelector("image.cx-node-logo");
+      expect(found).toBeTruthy();
+      return found as SVGImageElement;
+    });
+
+    fireEvent.error(image);
+
+    await waitFor(() =>
+      expect(container.querySelector("image.cx-node-logo")).toBeNull(),
+    );
+    // The neutral backing goes with it: a node whose mark never painted must
+    // keep its kind colour rather than becoming a pale empty disc.
+    expect(container.querySelectorAll("circle.cx-node-marked")).toHaveLength(0);
+    expect(
+      container.querySelectorAll("circle.cx-node-organization"),
+    ).toHaveLength(1);
   });
 });

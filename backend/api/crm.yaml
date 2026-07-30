@@ -851,6 +851,38 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/logo:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationLogo
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Stream an organization's logo image.
+      description: |
+        The bytes behind `Organization.logo_url` (A55): the company mark resolved from its
+        own website during enrichment, normalized once at store time to a square PNG. The
+        response is always `image/png` — whatever the source format was, what is served is
+        the server's own re-encode, so no third-party markup is ever served from this origin.
+        404 when the organization has no resolved logo, is invisible to the caller, or does
+        not exist — a client renders the deterministic monogram for all three alike. 501 when
+        the deployment has no object store configured.
+      responses:
+        '200':
+          description: The normalized logo bytes.
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '501':
+          description: The deployment has no object store configured, so no logo can be stored or served.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /organizations/{id}/360:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -9564,6 +9596,17 @@ components:
           type: array
           items: { $ref: '#/components/schemas/OrganizationDomain' }
         classification: { type: [string, 'null'], enum: [null, prospect, customer, agency, reseller, tech_vendor, platform, partner, competitor, other], description: "An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK." }
+        logo_url:
+          type: [string, 'null']
+          readOnly: true
+          description: |
+            Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
+            path for this record, cookie-authenticated and same-origin. The key is ABSENT
+            entirely (not null) when no logo resolved, which is the common case and never an
+            error: a client renders the deterministic monogram then, so it never shows a
+            broken image or an empty slot.
+            The stored object key is deliberately not exposed; it names a bucket path, and a
+            client's business is the endpoint that streams the bytes.
         strength: { allOf: [ { $ref: '#/components/schemas/RelationshipStrength' } ], readOnly: true, description: 'Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
@@ -10025,6 +10068,12 @@ components:
             This contact is the route in the active signal's warm-intro path proposes.
             At most one node carries it, and only when `intro_path` at the top level is
             present. Absent on every other node — there is nothing to say about them.
+        logo_url:
+          type: [string, 'null']
+          description: |
+            The company node's resolved logo (A55), same value `Organization.logo_url` carries.
+            Absent on an organization with no resolved logo and on every person or deal node —
+            a client draws the node's monogram or its token-coloured circle instead.
 
     OrganizationGraphEdge:
       type: object

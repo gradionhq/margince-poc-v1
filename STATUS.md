@@ -42,6 +42,37 @@ group, the narrowed reminder semantics (open-deal or active-lead eligibility
 plus an N-day creation grace), and the answer-shape rule that ids belong in
 evidence and never in prose.
 
+**Every company now wears its face (#330).** The A55 logo lane resolves a
+company's mark from the site the deep read already crawls — og:image, then the
+declared icons, then `/favicon.ico` — normalizes it once to a square PNG at
+store time, and renders it on the company header, the company list, and the
+connections graph with the deterministic monogram as the floor. `worker
+siteread <url>` prints the chosen mark and every candidate it passed over with
+the reason; that is the loop for tuning it against a real site.
+
+Three things it left open, in priority order:
+
+- **Search hits carry no logo.** `SearchResult` would need `logo_url`, and the
+  search module cannot import people to spell the URL. That wants a
+  compose-injected seam, not a second spelling of the same path.
+- **Nothing purges a logo object**, because nothing hard-deletes an
+  organization row. The key is on the row (`organization.logo_object_key`), so
+  the sweep is there to write the day organizations gain a hard delete or the
+  retention evaluator reaches them.
+- **The reclaim of a superseded logo can race a reader** that took the old key
+  microseconds earlier: one monogram on one render, self-healing next load.
+  The offer-PDF path makes the same trade.
+
+Two deliberate spec deviations to reconcile upstream (P3): one stored 300×300
+variant instead of A55's sm/md/lg, and transparency preserved instead of
+background-flatten (the render chip supplies the backdrop, and a flattened
+white one breaks the dark theme).
+
+Read `internal/platform/imagenorm/svg.go` before touching the vector path: a
+self-referencing `<use>` in a favicon exhausts the goroutine stack, and a Go
+stack overflow is fatal — it kills the worker process, and River's panic
+recovery cannot catch it. `<use>` is refused outright for that reason.
+
 **The company-view rebuild is finished.** #309 (composite read), #313 (one-page
 view), #315 (evidence mark), #317 (account brief), #319 (next-step suggestions +
 Ask Margince) and #322 (the connections card, plus #326 correcting its contract)
