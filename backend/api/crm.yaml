@@ -7935,8 +7935,8 @@ paths:
   # ---------------------------- /overlay ------------------------------------
   # The HubSpot mirror overlay (a second datasource.SystemOfRecordProvider):
   # incumbent connection lifecycle, mirror sync health, budget, and the
-  # read-mode→overlay flip. Handlers land as 501 in this contract-first cut;
-  # real bodies land in later tasks (design.md §11).
+  # overlay→native flip with its ADR-0071 cutover lifecycle (preflight gate,
+  # emergency last-known-mirror variant, retirement ordering — OVA-AC-6).
   /overlay/connection:
     get:
       tags: [Overlay]
@@ -8001,25 +8001,58 @@ paths:
     post:
       tags: [Overlay]
       operationId: preflightOverlayFlip
-      summary: Dry-run the read-mode→overlay flip's readiness checks without executing it.
+      summary: Dry-run the overlay→native flip's readiness checks without executing it.
+      description: >-
+        The B-E18.26 gate (OVA-WIRE-7): reports whether the flip can run —
+        incumbent reachable, force-fresh sync complete, `pending_sync` writes
+        drained, conflicts cleared, pre-flip export available — and, when every
+        check is green, seals the frozen mirror snapshot the flip will import
+        and previews the parity dry-run (counts per object, skips with reasons,
+        zero rows written). Any blocker unseals the snapshot again (UC-E18-04
+        F1): a failed preflight is a no-op return to a healthy overlay. When
+        the incumbent is unreachable (`revoked`/`error`), `blocking` carries
+        `incumbent_unreachable` and the `emergency` block discloses the
+        last-known-mirror cutover option (OVA-AC-6 a/b).
       x-mcp-tool:
         verb: preflight_overlay_flip
         record_type: overlay_connection
         tier: auto_execute
       responses:
-        '200': { description: OK }
-
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayFlipPreflight' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
   /overlay/flip:
     post:
       tags: [Overlay]
       operationId: executeOverlayFlip
-      summary: Execute the read-mode→overlay flip, queuing the migration.
+      summary: Execute the overlay→native flip, running the migration.
+      description: >-
+        The B-E18.27 cutover (OVA-WIRE-8): freezes the mirror, imports the
+        frozen snapshot through the migration engine with counts and
+        relationships preserved (AC-OV-10), carries our augmentation over,
+        detaches write-back, and flips the workspace to native — an
+        irreversible mode change gated by the typed confirmation phrase.
+        Refused with 409 `overlay_flip_blocked` while the preflight is
+        unsatisfied. `mode: emergency` is the ADR-0071 last-known-mirror
+        cutover: available ONLY while the incumbent is unreachable (never a
+        silent substitute for a fresh-sync flip, in either direction) and its
+        202 carries the disclosed-lossy staleness + unverifiable-parity notice.
       x-mcp-tool:
         verb: execute_overlay_flip
         record_type: overlay_connection
         tier: confirmation_required
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OverlayFlipRequest' }
       responses:
-        '202': { description: Migration queued }
+        '202': { description: 'Migration run complete (synchronous behind 202, the teardown precedent).', content: { application/json: { schema: { $ref: '#/components/schemas/OverlayFlipAccepted' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+        '409': { $ref: '#/components/responses/Conflict' }   # overlay_flip_blocked
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /overlay/user-map:
     get:
@@ -9183,6 +9216,109 @@ components:
         The degradation band of a budget window — healthy (`ok`), approaching the
         cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST
         and Search windows so both read the one band vocabulary.
+
+    OverlayFlipPreflight:
+      type: object
+      description: >-
+        The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[],
+        unresolved_conflicts[]}` plus the sealed snapshot and parity preview
+        when ready, and the emergency-cutover disclosure when the incumbent is
+        unreachable (ADR-0071 / OVA-AC-6).
+      required: [ready, blocking, unresolved_conflicts]
+      properties:
+        ready: { type: boolean }
+        blocking:
+          type: array
+          description: >-
+            Why the flip cannot run, empty when ready. `incumbent_unreachable`
+            is the OVA-AC-6(a) honest block — the connection is revoked/error,
+            so the force-fresh sync cannot pass; the workspace stays in overlay
+            on its last mirror.
+          items:
+            type: string
+            enum: [incumbent_unreachable, force_fresh_incomplete, pending_sync_draining, unresolved_conflicts, export_missing]
+        unresolved_conflicts:
+          type: array
+          description: Open incumbent-wins conflicts awaiting acceptance; each blocks the flip.
+          items:
+            type: object
+            required: [object_class, external_id]
+            properties:
+              object_class: { type: string }
+              external_id: { type: string }
+              property: { type: string }
+        snapshot:
+          type: [object, 'null']
+          description: The frozen mirror snapshot the flip will import; sealed only while every check is green, unsealed again by any blocker.
+          required: [id, frozen_at]
+          properties:
+            id: { type: string }
+            frozen_at: { type: string, format: date-time }
+        parity:
+          type: [array, 'null']
+          description: >-
+            The parity dry-run against the sealed snapshot — writes zero CRM
+            rows; skipped rows are disclosed with reasons, never silently
+            dropped (AC-mode-flip-7).
+          items:
+            type: object
+            required: [object, mirror_count, will_create, will_update]
+            properties:
+              object: { type: string }
+              mirror_count: { type: integer }
+              will_create: { type: integer }
+              will_update: { type: integer }
+              skipped:
+                type: array
+                items:
+                  type: object
+                  required: [external_id, reason]
+                  properties:
+                    external_id: { type: string }
+                    reason: { type: string }
+        emergency:
+          type: [object, 'null']
+          description: >-
+            Present only while the incumbent is unreachable: the ADR-0071
+            emergency cutover from the last-known mirror, disclosed-lossy —
+            never offered while a fresh-sync flip is possible.
+          required: [available, last_synced_at, unverifiable_parity_notice]
+          properties:
+            available: { type: boolean }
+            last_synced_at: { type: [string, 'null'], format: date-time }
+            staleness_seconds: { type: integer, format: int64 }
+            unverifiable_parity_notice: { type: string }
+    OverlayFlipRequest:
+      type: object
+      required: [confirmation_phrase]
+      properties:
+        mode:
+          type: string
+          enum: [fresh_sync, emergency]
+          default: fresh_sync
+          description: >-
+            `fresh_sync` (the default) requires the sealed preflight snapshot.
+            `emergency` is the last-known-mirror cutover and is refused while
+            the incumbent is reachable — the explicit field is the
+            never-silently-substituted guarantee (OVA-AC-6 b).
+        confirmation_phrase:
+          type: string
+          description: Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5).
+    OverlayFlipAccepted:
+      type: object
+      required: [run_id, mode]
+      properties:
+        run_id: { type: string, format: uuid, description: The migration run (`import_run`) this flip executed. }
+        mode: { type: string, enum: [fresh_sync, emergency] }
+        records_imported: { type: integer, format: int64 }
+        emergency_disclosure:
+          type: [object, 'null']
+          description: Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent.
+          required: [last_synced_at, unverifiable_parity_notice]
+          properties:
+            last_synced_at: { type: [string, 'null'], format: date-time }
+            staleness_seconds: { type: integer, format: int64 }
+            unverifiable_parity_notice: { type: string }
 
     OverlayUserMapEntry:
       type: object

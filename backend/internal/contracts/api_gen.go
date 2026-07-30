@@ -4119,6 +4119,69 @@ func (e OverlayConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for OverlayFlipAcceptedMode.
+const (
+	OverlayFlipAcceptedModeEmergency OverlayFlipAcceptedMode = "emergency"
+	OverlayFlipAcceptedModeFreshSync OverlayFlipAcceptedMode = "fresh_sync"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipAcceptedMode enum.
+func (e OverlayFlipAcceptedMode) Valid() bool {
+	switch e {
+	case OverlayFlipAcceptedModeEmergency:
+		return true
+	case OverlayFlipAcceptedModeFreshSync:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipPreflightBlocking.
+const (
+	ExportMissing        OverlayFlipPreflightBlocking = "export_missing"
+	ForceFreshIncomplete OverlayFlipPreflightBlocking = "force_fresh_incomplete"
+	IncumbentUnreachable OverlayFlipPreflightBlocking = "incumbent_unreachable"
+	PendingSyncDraining  OverlayFlipPreflightBlocking = "pending_sync_draining"
+	UnresolvedConflicts  OverlayFlipPreflightBlocking = "unresolved_conflicts"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipPreflightBlocking enum.
+func (e OverlayFlipPreflightBlocking) Valid() bool {
+	switch e {
+	case ExportMissing:
+		return true
+	case ForceFreshIncomplete:
+		return true
+	case IncumbentUnreachable:
+		return true
+	case PendingSyncDraining:
+		return true
+	case UnresolvedConflicts:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipRequestMode.
+const (
+	OverlayFlipRequestModeEmergency OverlayFlipRequestMode = "emergency"
+	OverlayFlipRequestModeFreshSync OverlayFlipRequestMode = "fresh_sync"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipRequestMode enum.
+func (e OverlayFlipRequestMode) Valid() bool {
+	switch e {
+	case OverlayFlipRequestModeEmergency:
+		return true
+	case OverlayFlipRequestModeFreshSync:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OverlaySyncStatusObjectsState.
 const (
 	OverlaySyncStatusObjectsStateFresh       OverlaySyncStatusObjectsState = "fresh"
@@ -10958,6 +11021,79 @@ type OverlayConnectionIncumbent string
 // OverlayConnectionStatus defines model for OverlayConnection.Status.
 type OverlayConnectionStatus string
 
+// OverlayFlipAccepted defines model for OverlayFlipAccepted.
+type OverlayFlipAccepted struct {
+	// EmergencyDisclosure Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent.
+	EmergencyDisclosure *struct {
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	} `json:"emergency_disclosure,omitempty"`
+	Mode            OverlayFlipAcceptedMode `json:"mode"`
+	RecordsImported *int64                  `json:"records_imported,omitempty"`
+
+	// RunId The migration run (`import_run`) this flip executed.
+	RunId openapi_types.UUID `json:"run_id"`
+}
+
+// OverlayFlipAcceptedMode defines model for OverlayFlipAccepted.Mode.
+type OverlayFlipAcceptedMode string
+
+// OverlayFlipPreflight The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[], unresolved_conflicts[]}` plus the sealed snapshot and parity preview when ready, and the emergency-cutover disclosure when the incumbent is unreachable (ADR-0071 / OVA-AC-6).
+type OverlayFlipPreflight struct {
+	// Blocking Why the flip cannot run, empty when ready. `incumbent_unreachable` is the OVA-AC-6(a) honest block — the connection is revoked/error, so the force-fresh sync cannot pass; the workspace stays in overlay on its last mirror.
+	Blocking []OverlayFlipPreflightBlocking `json:"blocking"`
+
+	// Emergency Present only while the incumbent is unreachable: the ADR-0071 emergency cutover from the last-known mirror, disclosed-lossy — never offered while a fresh-sync flip is possible.
+	Emergency *struct {
+		Available                bool       `json:"available"`
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	} `json:"emergency,omitempty"`
+
+	// Parity The parity dry-run against the sealed snapshot — writes zero CRM rows; skipped rows are disclosed with reasons, never silently dropped (AC-mode-flip-7).
+	Parity *[]struct {
+		MirrorCount int    `json:"mirror_count"`
+		Object      string `json:"object"`
+		Skipped     *[]struct {
+			ExternalId string `json:"external_id"`
+			Reason     string `json:"reason"`
+		} `json:"skipped,omitempty"`
+		WillCreate int `json:"will_create"`
+		WillUpdate int `json:"will_update"`
+	} `json:"parity,omitempty"`
+	Ready bool `json:"ready"`
+
+	// Snapshot The frozen mirror snapshot the flip will import; sealed only while every check is green, unsealed again by any blocker.
+	Snapshot *struct {
+		FrozenAt time.Time `json:"frozen_at"`
+		Id       string    `json:"id"`
+	} `json:"snapshot,omitempty"`
+
+	// UnresolvedConflicts Open incumbent-wins conflicts awaiting acceptance; each blocks the flip.
+	UnresolvedConflicts []struct {
+		ExternalId  string  `json:"external_id"`
+		ObjectClass string  `json:"object_class"`
+		Property    *string `json:"property,omitempty"`
+	} `json:"unresolved_conflicts"`
+}
+
+// OverlayFlipPreflightBlocking defines model for OverlayFlipPreflight.Blocking.
+type OverlayFlipPreflightBlocking string
+
+// OverlayFlipRequest defines model for OverlayFlipRequest.
+type OverlayFlipRequest struct {
+	// ConfirmationPhrase Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5).
+	ConfirmationPhrase string `json:"confirmation_phrase"`
+
+	// Mode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+	Mode *OverlayFlipRequestMode `json:"mode,omitempty"`
+}
+
+// OverlayFlipRequestMode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+type OverlayFlipRequestMode string
+
 // OverlayOwner defines model for OverlayOwner.
 type OverlayOwner struct {
 	Email           string  `json:"email"`
@@ -16041,6 +16177,9 @@ type DismissOrganizationSuggestionJSONRequestBody DismissOrganizationSuggestionJ
 
 // ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
 type ConnectOverlayJSONRequestBody = OverlayConnectRequest
+
+// ExecuteOverlayFlipJSONRequestBody defines body for ExecuteOverlayFlip for application/json ContentType.
+type ExecuteOverlayFlipJSONRequestBody = OverlayFlipRequest
 
 // SetOverlayUserMapJSONRequestBody defines body for SetOverlayUserMap for application/json ContentType.
 type SetOverlayUserMapJSONRequestBody = SetOverlayUserMapRequest
@@ -22284,10 +22423,10 @@ type ServerInterface interface {
 	// Connect the workspace's overlay incumbent (HubSpot).
 	// (POST /overlay/connection)
 	ConnectOverlay(w http.ResponseWriter, r *http.Request)
-	// Execute the read-mode→overlay flip, queuing the migration.
+	// Execute the overlay→native flip, running the migration.
 	// (POST /overlay/flip)
 	ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request)
-	// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+	// Dry-run the overlay→native flip's readiness checks without executing it.
 	// (POST /overlay/flip:preflight)
 	PreflightOverlayFlip(w http.ResponseWriter, r *http.Request)
 	// The connected incumbent's user directory, for the mapping picker.
@@ -23634,13 +23773,13 @@ func (_ Unimplemented) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Execute the read-mode→overlay flip, queuing the migration.
+// Execute the overlay→native flip, running the migration.
 // (POST /overlay/flip)
 func (_ Unimplemented) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+// Dry-run the overlay→native flip's readiness checks without executing it.
 // (POST /overlay/flip:preflight)
 func (_ Unimplemented) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)

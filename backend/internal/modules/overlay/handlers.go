@@ -21,7 +21,7 @@ import (
 
 // Handlers is the overlay module's transport surface (crm.yaml
 // /overlay/*): the incumbent connection lifecycle, mirror sync health,
-// budget, reconcile, and the read-mode→overlay flip. The admin user-map
+// budget, reconcile, and the overlay→native flip. The admin user-map
 // and owners-directory verbs live next door in handlers_usermap.go, on
 // this same type. svc backs every verb except the flip pair (branch 2),
 // which stays an explicit 501 until it lands regardless of whether svc
@@ -228,13 +228,13 @@ func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	}
 }
 
-// PreflightOverlayFlip dry-runs the read-mode→overlay flip's readiness
+// PreflightOverlayFlip dry-runs the overlay→native flip's readiness
 // checks without executing it.
 func (h Handlers) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	httperr.NotImplemented(w, r, "preflightOverlayFlip")
 }
 
-// ExecuteOverlayFlip executes the read-mode→overlay flip, queuing the
+// ExecuteOverlayFlip executes the overlay→native flip, running the
 // migration.
 func (h Handlers) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	httperr.NotImplemented(w, r, "executeOverlayFlip")
