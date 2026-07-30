@@ -61,6 +61,12 @@ extending the card.
   speak for them. They arrive with the deals already capped, which bounds them.
   A deal with an implausible number of stakeholders would grow the payload; if
   that ever shows up, cap them and add to the count.
+- **A cap must count what the cap MEANS.** `graphOrgCap` is ten companies, but
+  the read first bounded itself by rows — and one company can attach many ways
+  (parent, reseller, referrer, co-seller, each recordable more than once), so it
+  filled the budget and starved the others. The cap now lives in the query and
+  picks distinct companies. Same trap waits for any group whose display unit is
+  not its row unit.
 - **Every group total rides the same statement as its rows.** `WithWorkspaceTx`
   is Read Committed, so a total read in a second statement can be smaller than
   the rows the first one returned, and `dropped_count` then goes negative
