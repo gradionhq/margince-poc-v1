@@ -90,10 +90,10 @@ type Server struct {
 	org360Handlers
 	orgBriefHandlers
 
-	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
-	// when a subscription token is configured — the route is absent
-	// otherwise, never open.
-	gmailPush *gmailPushHandler
+	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
+	// webhook.go), injected by WithGmailPush only when a subscription token
+	// is configured — the route is absent otherwise, never open.
+	gmailPush http.Handler
 
 	// overlayWebhook is the HubSpot webhook-as-signal receiver (OVA-WIRE-10),
 	// injected by WithOverlayWebhook only when the overlay app secret is

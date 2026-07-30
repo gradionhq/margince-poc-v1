@@ -111,7 +111,7 @@ A connector's records reach the CRM through one of three paths, all converging o
    daily probe after 20 consecutive failures, and heals on one success. The error taxonomy
    (`rate_limited | unreachable | auth | history_gone | internal`) surfaces as `last_sync_error_class`.
 3. **Push — Gmail only.** With a Pub/Sub topic configured, Gmail delivers change notifications to `POST
-   /webhooks/gmail-push` (a shared-secret token + Google OIDC when set); the handler zeroes the mailbox's
+   /webhooks/gmail` (a shared-secret token + Google OIDC when set); the handler zeroes the mailbox's
    `next_sync_at` and enqueues an immediate sync. Push is a *latency* optimization over the poll, not a
    separate write path.
 
@@ -264,7 +264,7 @@ Per [STATUS.md](../../STATUS.md) — the pipeline is live; these were scoped out
   Calendar during first-run onboarding still means a trip to Settings afterward.
 - **Graph is poll-only.** The change-notification subscription (validationToken handshake, `clientState`,
   ≤3-day renewal) is unbuilt, so Outlook latency is the poll interval. (Gmail has both halves — the
-  push-watch renewal sweep and the `/webhooks/gmail-push` consumer above — so a Gmail deployment with a
+  push-watch renewal sweep and the `/webhooks/gmail` consumer above — so a Gmail deployment with a
   Pub/Sub topic configured is push-driven, with the poll behind it as the safety net.)
 - **Graph refresh-token rotation isn't persisted.** The stored token usually lasts up to Microsoft's
   default 90-day inactive lifetime (a confidential client) but can be revoked or expire earlier; on
