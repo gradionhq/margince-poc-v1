@@ -15,11 +15,11 @@ RUN apk add --no-cache git ca-certificates
 WORKDIR /src
 COPY . .
 
-RUN cd backend && GOWORK=/src/go.work go run ./tools/gen-composition
+WORKDIR /src/backend
+RUN GOWORK=/src/go.work go run ./tools/gen-composition
 
-RUN cd backend \
-    && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
-       go build -ldflags="-s -w" -o /bin/margince-worker ./cmd/worker
+RUN GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
+        go build -ldflags="-s -w" -o /bin/margince-worker ./cmd/worker
 
 # ── Stage 2: runtime ─────────────────────────────────────────────────────────
 FROM alpine:3.21
@@ -36,8 +36,10 @@ COPY scripts/d13/worker-entrypoint.sh /usr/local/bin/entrypoint.sh
 
 COPY .env /.env
 
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh \
+    && adduser -D -u 10001 app
 
 WORKDIR /app
+USER app
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
