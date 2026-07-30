@@ -156,7 +156,7 @@ describe("AskFab (AC-shell-8)", () => {
     await userEvent.click(
       screen.getByRole("button", { name: "Ask about this" }),
     );
-    expect(screen.getByText("Ask about Deals")).toBeTruthy();
+    expect(screen.getByText("Ask about Pipeline")).toBeTruthy();
   });
 
   it("tracks the active record id when present", async () => {

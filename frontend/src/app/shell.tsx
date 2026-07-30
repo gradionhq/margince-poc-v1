@@ -1,28 +1,81 @@
-import { LogOut, Moon, Search, Sun, UserRound } from "lucide-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  LogOut,
+  Menu,
+  Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  Settings,
+  Sun,
+  X,
+} from "lucide-react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+import type { components } from "../api/schema";
 import { useLocale, useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { useLogout } from "../screens/common";
+import { useLogout, useMe } from "../screens/common";
+import { useEntityName } from "../screens/entityref";
 import { EconomyBanner } from "./economybanner";
 import { EmbedReindexBanner } from "./embedreindexbanner";
-import { NAV, RAIL_LESS_SCREENS } from "./nav";
+import { type EntityKind, SCREEN_ENTITY } from "./entity";
+import {
+  BADGE_SCREENS,
+  MOBILE_PRIMARY,
+  NAV,
+  NAV_GROUPS,
+  RAIL_LESS_SCREENS,
+} from "./nav";
 import { type Route, routeHash, useRoute } from "./router";
 import { SorModeChip } from "./sormodechip";
 import "./shell.css";
 
-// The app shell (B-EP09.4): WorkspaceRail + top bar. The top bar shows only
-// what is true for the current state — actions render from live data or not
-// at all (§2b, the cold-start rule).
+type CompanyProfile = components["schemas"]["CompanyProfile"];
+
+// The app shell (draft ADR-0077): a labeled sidebar that collapses to the
+// canonical 64px rail. Collapsed is the rail WDS-NAV-1 specifies, unchanged —
+// the expanded state is additive. The top bar shows only what is true for the
+// current state (§2b, the cold-start rule).
 
 export type ShellCounts = Partial<Record<string, number>>;
+
+const COLLAPSE_KEY = "margince.sidebarCollapsed";
+// Comfortably past --shellAnim (0.36s) in shell.css: the two must not disagree.
+const SETTLE_MS = 420;
+const THEME_KEY = "margince.theme";
+
+// Storage is unavailable in some embedded contexts; a missing preference is a
+// default, never an error.
+function readStored(key: string): string | null {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function writeStored(key: string, value: string): void {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // A browser refusing storage must not break navigation.
+  }
+}
 
 function Logomark() {
   // The delivered Margin-rule "M" (brand kit geometry, same as the mockups).
   return (
     <svg
       viewBox="0 0 299 230"
-      width="24"
-      height="18.5"
+      width="19"
+      height="14.6"
       fill="none"
       aria-hidden
       role="presentation"
@@ -50,63 +103,259 @@ function Logomark() {
   );
 }
 
+function BrandBlock() {
+  const t = useT();
+  // The installation's own organization (A107/ADR-0061: one installation, one
+  // organization). Read from the cache the onboarding gate already filled
+  // rather than observing ["company"] again: a second observer on that entry
+  // re-triggers the gate's fetch and walks the app back through its splash.
+  // The gate guarantees the profile is present before the shell mounts.
+  // Absent, the block shows the product name only — a company name is never
+  // invented to fill the line.
+  const installation =
+    useQueryClient().getQueryData<CompanyProfile | null>(["company"])
+      ?.display_name || undefined;
+  return (
+    <a className="ws" href="#/home" aria-label={t("shell.logoAria")}>
+      <span className="ws-chip">
+        <Logomark />
+      </span>
+      <span className="ws-name">
+        <b>{t("shell.logoAria")}</b>
+        {installation && <span className="ws-org">{installation}</span>}
+      </span>
+    </a>
+  );
+}
+
+// The agent panel: the prototype's white card at the sidebar foot — orb, who,
+// then two divided rows.
+//
+// What it may claim is constrained: the runtime knows routing is *configured*,
+// it does not continuously prove a provider is reachable, so absent a real
+// running job the panel states configuration and never liveness. The activity
+// line is example data until a list operation exists behind it (the AI activity
+// list has no handler), and it says so on screen rather than passing as real.
+//
+// The orb is pure CSS, deliberately NOT the Core primitive: the Core paints its
+// interior on a canvas, and this sits in permanent chrome on every screen, so it
+// would run a render loop for the whole session. The glass shell here uses the
+// same technique the Core's own shell does — color-mix over tokens, no literal
+// colours — and the interior is layered radial gradients instead of a shader.
+function AgentOrb() {
+  return <span className="agentorb" aria-hidden />;
+}
+
+function AgentPanel({ collapsed }: Readonly<{ collapsed: boolean }>) {
+  const t = useT();
+  if (collapsed) {
+    return (
+      <div className="agentfield collapsed">
+        <span className="agentcard" title={t("agent.title")}>
+          <AgentOrb />
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div className="agentfield">
+      <div className="agentcard">
+        <div className="agenthead">
+          <AgentOrb />
+          <span className="agentwho">
+            <b>{t("agent.title")}</b>
+            <span className="agentstate">{t("agent.configured")}</span>
+          </span>
+        </div>
+        {/* Everything below the rule is example data: the AI activity list has
+            no handler, and routing and spend are not wired into the shell yet.
+            One marker covers the block rather than each line pretending on its
+            own. */}
+        <p className="agentactivity">{t("agent.exampleActivity")}</p>
+        <div className="agentfoot">
+          <span className="agentrouting">{t("agent.exampleRouting")}</span>
+          <b>{t("agent.exampleCost")}</b>
+        </div>
+        <p className="agentfixture">
+          <span className="t-mono">{t("agent.fixture")}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function WorkspaceRail({
   route,
   counts,
+  collapsed = false,
+  onToggle,
 }: Readonly<{
   route: Route;
   counts?: ShellCounts;
+  collapsed?: boolean;
+  onToggle?: () => void;
 }>) {
   const t = useT();
-  const logout = useLogout();
+  // Collapsed items are icon-only, so the label needs a tooltip that satisfies
+  // WCAG 1.4.13: it appears on keyboard focus as well as hover, stays visible
+  // while the pointer is on it (it renders inside the hovered wrapper), and is
+  // dismissible with Escape without moving focus. The tooltip is never the
+  // accessible name — aria-label carries that in both states.
+  const [tip, setTip] = useState<string | null>(null);
+  // At phone width the same markup is a bottom bar; More expands it into a
+  // sheet carrying every destination. One nav element, so there is still exactly
+  // one navigation landmark and no second item list to keep in sync.
+  const [sheetOpen, setSheetOpen] = useState(false);
+  // While the sidebar is mid-collapse the pointer is still inside the head — it
+  // has not narrowed past it yet — so the hover rules would hold the toggle on
+  // screen at its new centred position and read as the icon sliding into the
+  // logomark. Reveal is suppressed until the width settles. Kept slightly longer
+  // than --shellAnim so it cannot end mid-transition.
+  const [settling, setSettling] = useState(false);
+  const settleTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(settleTimer.current), []);
+  const handleToggle = useCallback(() => {
+    setSettling(true);
+    window.clearTimeout(settleTimer.current);
+    settleTimer.current = window.setTimeout(
+      () => setSettling(false),
+      SETTLE_MS,
+    );
+    onToggle?.();
+  }, [onToggle]);
+  const dismiss = useCallback((event: KeyboardEvent) => {
+    if (event.key === "Escape") {
+      setTip(null);
+      setSheetOpen(false);
+    }
+  }, []);
+
+  const classes = ["rail", collapsed ? "collapsed" : "expanded"];
+  if (sheetOpen) {
+    classes.push("sheetopen");
+  }
+  if (settling) {
+    classes.push("settling");
+  }
+
   return (
-    <nav className="rail" aria-label={t("shell.railAria")}>
-      <a className="ws" href="#/home" aria-label={t("shell.logoAria")}>
-        <Logomark />
-      </a>
-      {NAV.map((item) => {
-        const count = counts?.[item.screen];
-        const active = route.screen === item.screen;
-        return (
-          <a
-            key={item.screen}
-            className={active ? "navitem active" : "navitem"}
-            href={routeHash({ screen: item.screen })}
-            aria-label={t(item.labelKey)}
-            aria-current={active ? "page" : undefined}
+    <nav
+      className={classes.join(" ")}
+      aria-label={t("shell.railAria")}
+      onKeyDown={dismiss}
+    >
+      <div className="railhead">
+        <BrandBlock />
+        {onToggle && (
+          <button
+            type="button"
+            className="railtoggle"
+            aria-label={collapsed ? t("shell.expand") : t("shell.collapse")}
+            aria-expanded={!collapsed}
+            onClick={handleToggle}
           >
-            <item.icon aria-hidden />
-            {count !== undefined && count > 0 && (
-              <span className="count">{count}</span>
+            {collapsed ? (
+              <PanelLeftOpen size={17} aria-hidden />
+            ) : (
+              <PanelLeftClose size={17} aria-hidden />
             )}
-          </a>
-        );
-      })}
-      <div className="grow" />
+          </button>
+        )}
+      </div>
+      {NAV_GROUPS.map((group, index) => (
+        <div className="navgroup" key={group.headingKey ?? `group-${index}`}>
+          {/* The heading keeps its box in both states — collapsed it hides its
+              text and draws a hairline inside the same space. Swapping it for a
+              shorter <hr> re-spaced every group and drifted the icons. */}
+          {group.headingKey && (
+            <h2 className="navheading">{t(group.headingKey)}</h2>
+          )}
+          {group.items.map((item) => {
+            const count = BADGE_SCREENS.has(item.screen)
+              ? counts?.[item.screen]
+              : undefined;
+            const active = route.screen === item.screen;
+            const label = t(item.labelKey);
+            const wrapClass = MOBILE_PRIMARY.has(item.screen)
+              ? "navwrap primary"
+              : "navwrap";
+            return (
+              <div className={wrapClass} key={item.screen}>
+                <a
+                  className={active ? "navitem active" : "navitem"}
+                  href={routeHash({ screen: item.screen })}
+                  aria-label={label}
+                  aria-current={active ? "page" : undefined}
+                  onMouseEnter={() => setTip(item.screen)}
+                  onMouseLeave={() => setTip(null)}
+                  onFocus={() => setTip(item.screen)}
+                  onBlur={() => setTip(null)}
+                >
+                  <item.icon aria-hidden />
+                  {/* The label stays mounted and collapses its width, so the
+                      transition is continuous rather than a pop. aria-label
+                      carries the accessible name either way. */}
+                  <span className="navlabel">{label}</span>
+                  {count !== undefined && count > 0 && (
+                    <span className="count">{count}</span>
+                  )}
+                </a>
+                {collapsed && tip === item.screen && (
+                  <span className="navtip" role="tooltip">
+                    {label}
+                  </span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ))}
+      {/* Phone-width only: expands the bar into a sheet carrying every
+          destination. Hidden by CSS on the desktop sidebar. */}
       <button
         type="button"
-        className="signout"
-        aria-label={t("shell.signOutAria")}
-        title={t("shell.signOutAria")}
-        disabled={logout.isPending}
-        onClick={() => logout.mutate()}
+        className="railmore"
+        aria-label={t("shell.more")}
+        aria-expanded={sheetOpen}
+        onClick={() => setSheetOpen((open) => !open)}
       >
-        <LogOut size={16} aria-hidden />
+        {sheetOpen ? <X aria-hidden /> : <Menu aria-hidden />}
+        <span className="navlabel">{t("shell.more")}</span>
       </button>
-      <a className="user" href="#/settings" aria-label={t("nav.settings")}>
-        <UserRound size={16} aria-hidden />
-      </a>
+      <div className="grow" />
+      <AgentPanel collapsed={collapsed} />
     </nav>
   );
 }
 
 // Off-rail screens (reached from Settings, not the NAV rail) carry their own
-// title key; anything unmapped falls back to the raw screen slug.
+// title key. Every authenticated route resolves to real copy — a raw screen
+// slug is never shown as a page title.
 const OFF_RAIL_TITLE_KEYS: Record<string, MessageKey> = {
   settings: "nav.settings",
   design: "nav.design",
-  automations: "nav.automations",
+  dedupe: "nav.dedupe",
+  products: "nav.products",
+  "offer-templates": "nav.offerTemplates",
+  "custom-fields": "nav.customFields",
+  offers: "nav.offers",
+  partners: "nav.partners",
+  share: "nav.share",
+  search: "nav.search",
 };
+
+// The record's name as plain text: unresolved (loading, or a record this
+// principal cannot read) falls back to the id in mono rather than to nothing.
+function CrumbName({ kind, id }: Readonly<{ kind: EntityKind; id: string }>) {
+  const name = useEntityName(kind, id);
+  return name ? (
+    <b>{name}</b>
+  ) : (
+    <span className="t-mono" title={id}>
+      {id}
+    </span>
+  );
+}
 
 function resolveTitle(
   screen: string,
@@ -120,6 +369,33 @@ function resolveTitle(
   return offRailKey ? t(offRailKey) : screen;
 }
 
+function useTheme(): readonly ["light" | "dark", () => void] {
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const stored = readStored(THEME_KEY);
+    if (stored === "light" || stored === "dark") {
+      return stored;
+    }
+    const prefersDark =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "dark" : "light";
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
+
+  const toggle = useCallback(() => {
+    setTheme((current) => {
+      const next = current === "light" ? "dark" : "light";
+      writeStored(THEME_KEY, next);
+      return next;
+    });
+  }, []);
+
+  return [theme, toggle] as const;
+}
+
 export function TopBar({
   route,
   onOpenSearch,
@@ -131,31 +407,49 @@ export function TopBar({
 }>) {
   const t = useT();
   const { locale, setLocale } = useLocale();
-  const [theme, setTheme] = useState<"light" | "dark">("light");
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
+  const [theme, toggleTheme] = useTheme();
+  const logout = useLogout();
 
   const navItem = NAV.find((item) => item.screen === route.screen);
   const title = resolveTitle(route.screen, navItem?.labelKey, t);
+  const crumbKind = SCREEN_ENTITY[route.screen];
 
   return (
     <header className="topbar">
+      {/* On a record, the SECTION is the link — it goes back to the list — and
+          the record's own name is plain text, because you are already on it.
+          The name resolves through EntityRef's cache and falls back to the raw
+          id in mono when it cannot, rather than showing a blank crumb. */}
       <span className="crumb">
-        <b>{title}</b>
-        {route.id && <span> · {route.id}</span>}
+        {route.id ? (
+          <a href={routeHash({ screen: route.screen })}>{title}</a>
+        ) : (
+          <b>{title}</b>
+        )}
+        {route.id &&
+          (crumbKind ? (
+            <span>
+              {" · "}
+              <CrumbName kind={crumbKind} id={route.id} />
+            </span>
+          ) : (
+            <span> · {route.id}</span>
+          ))}
       </span>
       <div className="r">
         {actions}
         <SorModeChip />
+        {/* AC-shell-7: one search affordance. This is a button styled as a
+            field — it opens the palette and never accepts inline typing. */}
         <button
           type="button"
-          className="iconbtn searchbar"
+          className="searchbar"
           aria-label={t("shell.search")}
           onClick={onOpenSearch}
         >
           <Search aria-hidden />
+          <span className="searchhint">{t("shell.searchHint")}</span>
+          <kbd className="t-mono">⌘K</kbd>
         </button>
         <button
           type="button"
@@ -173,12 +467,90 @@ export function TopBar({
           aria-label={
             theme === "light" ? t("theme.toDark") : t("theme.toLight")
           }
-          onClick={() => setTheme(theme === "light" ? "dark" : "light")}
+          onClick={toggleTheme}
         >
           {theme === "light" ? <Moon aria-hidden /> : <Sun aria-hidden />}
         </button>
+        <AccountMenu logout={logout} />
       </div>
     </header>
+  );
+}
+
+// The avatar owns Settings and sign-out (draft ADR-0077 §E). A menu rather than
+// two chrome buttons: the prototype's top bar carries one account affordance,
+// and sign-out beside every screen invites a misclick.
+function AccountMenu({
+  logout,
+}: Readonly<{ logout: ReturnType<typeof useLogout> }>) {
+  const t = useT();
+  const me = useMe();
+  const [open, setOpen] = useState(false);
+
+  const identity = me.data?.user;
+  const label = identity?.display_name || identity?.email || "";
+  // Initials, or a single letter from the address — never a fabricated name.
+  const initials =
+    label
+      .split(/[\s@._-]+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || undefined;
+
+  // Dismissal lives on the document so Escape works from anywhere in the menu
+  // and any outside click closes it — the opening click is deferred past so it
+  // does not close what it just opened.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setOpen(false);
+      }
+    };
+    const onClick = () => setOpen(false);
+    document.addEventListener("keydown", onKey);
+    const timer = window.setTimeout(
+      () => document.addEventListener("click", onClick),
+      0,
+    );
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      window.clearTimeout(timer);
+      document.removeEventListener("click", onClick);
+    };
+  }, [open]);
+
+  return (
+    <div className="account">
+      <button
+        type="button"
+        className="user"
+        aria-label={t("shell.accountAria")}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        {initials ?? <Settings size={15} aria-hidden />}
+      </button>
+      {open && (
+        <div className="accountmenu">
+          <a href="#/settings">
+            <Settings size={15} aria-hidden />
+            {t("nav.settings")}
+          </a>
+          <button
+            type="button"
+            disabled={logout.isPending}
+            onClick={() => logout.mutate()}
+          >
+            <LogOut size={15} aria-hidden />
+            {t("shell.signOutAria")}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -195,6 +567,17 @@ export function Shell({
 }>) {
   const route = useRoute();
   const railless = RAIL_LESS_SCREENS.has(route.screen);
+  const [collapsed, setCollapsed] = useState(
+    () => readStored(COLLAPSE_KEY) === "1",
+  );
+
+  const toggle = useCallback(() => {
+    setCollapsed((current) => {
+      const next = !current;
+      writeStored(COLLAPSE_KEY, next ? "1" : "0");
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     document.body.dataset.screen = route.screen;
@@ -211,8 +594,13 @@ export function Shell({
   }
 
   return (
-    <div className="app">
-      <WorkspaceRail route={route} counts={counts} />
+    <div className={collapsed ? "app" : "app railexpanded"}>
+      <WorkspaceRail
+        route={route}
+        counts={counts}
+        collapsed={collapsed}
+        onToggle={toggle}
+      />
       <main className="main">
         <TopBar
           route={route}
