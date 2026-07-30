@@ -131,7 +131,15 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		// is the one place that legitimately imports both, so the 1:1
 		// translation into the concrete type Sink.Upsert's switch recognizes
 		// happens here, immediately before the record reaches it.
-		fields, _ := rec.Fields.(telegram.ActivityFields)
+		fields, ok := rec.Fields.(telegram.ActivityFields)
+		if !ok {
+			// Discarding the assertion here would translate an unrecognized
+			// Fields type into a zero-valued activity: a captured message with
+			// no body, no direction and no occurrence time, committed as though
+			// it were real. Failing names the type instead.
+			return fmt.Errorf("telegram_ingest: update %s carries %T, want telegram.ActivityFields",
+				rec.NaturalKey.SourceID, rec.Fields)
+		}
 		rec.Fields = capture.ActivityFields{
 			Kind: fields.Kind, Body: fields.Body, OccurredAt: fields.OccurredAt, Direction: fields.Direction,
 		}

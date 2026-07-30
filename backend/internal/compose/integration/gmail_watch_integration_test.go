@@ -122,7 +122,7 @@ func TestGmailWatchRegistersRenewsAndLeavesCursor(t *testing.T) {
 // not a direct RenewWatch call.
 func TestGmailWatchJobRenewsOnSchedule(t *testing.T) {
 	e := setupSearch(t)
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	const owner = "rep@ws.example"
 	stub := gmailStub(t, owner)
 

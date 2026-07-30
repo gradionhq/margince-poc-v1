@@ -149,11 +149,11 @@ func rawCaptureCount(t *testing.T, e *integration.Env, sourceID string) int {
 		`SELECT count(*) FROM raw_capture WHERE source_system = 'telegram' AND source_id = $1`, sourceID)
 }
 
-// riverJobCount counts the jobs THIS delivery enqueued, scoped by the
-// connection its args name. river_job is not workspace-scoped and sibling
-// suites in this binary enqueue the same kind into the same database, so an
-// unscoped count would measure the package's history rather than this
-// test's behaviour.
+// riverJobCount counts the jobs enqueued for one connection. Scoping to the
+// connection under test is what makes the assertion a statement about THIS
+// delivery rather than about the existence of some telegram_ingest row: both
+// deliveries carry the same path-derived connection id, so a duplicate can
+// only raise the count, and an args shape that drifted would drop it to zero.
 func riverJobCount(t *testing.T, e *integration.Env, kind, connectionID string) int {
 	t.Helper()
 	var n int
@@ -223,7 +223,7 @@ func TestRawCaptureAndJobCommitAtomically(t *testing.T) {
 // again.
 func TestRedeliveredUpdateYieldsOneRawRowAndOneJob(t *testing.T) {
 	e := integration.Setup(t)
-	applyRiverSchema(t)
+	integration.ApplyRiverSchema(t)
 	vault := keyvault.NewMemory()
 	conn, secret := connectTestTelegramBot(t, e, vault, 91000003, "redelivery_bot")
 
@@ -258,6 +258,6 @@ func TestRedeliveredUpdateYieldsOneRawRowAndOneJob(t *testing.T) {
 		t.Fatalf("raw_capture rows for a redelivered update_id = %d, want 1", n)
 	}
 	if n := riverJobCount(t, e, "telegram_ingest", conn.ID.String()); n != 1 {
-		t.Fatalf("river_job rows for the redelivered update = %d, want 1 — river's ByArgs dedupe must have skipped the second insert", n)
+		t.Fatalf("river_job rows for the redelivered update = %d, want 1 — 2 means river's ByArgs dedupe did not skip the second insert; 0 means the handler never enqueued, or stamped a connection_id the args do not carry", n)
 	}
 }
