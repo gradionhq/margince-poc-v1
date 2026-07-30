@@ -1,0 +1,35 @@
+# config/margince.staging.yaml — the D13 STAGING deployment configuration
+# (A107/ADR-0061), baked into the api + worker images as /app/config/margince.yaml.
+#
+# On the first boot against an empty database the api bootstraps the organization
+# + admin from this file; an existing installation just reads it. Unlike the local
+# config/margince.yaml (gitignored, seeded from margince.example.yaml), this one is
+# committed because the image needs it — so it carries NO secret: the admin
+# password is supplied via the Vault-managed MARGINCE_ADMIN_PASSWORD env var, which
+# the api entrypoint writes to the password_file below.
+version: 1
+
+organization:
+  name: Margince
+  base_currency: EUR
+  timezone: Europe/Berlin
+
+bootstrap_admin:
+  email: admin@gradion.com
+  display_name: Margince Admin
+  # Written 0600 by scripts/d13/api-entrypoint.sh from $MARGINCE_ADMIN_PASSWORD on
+  # every boot (first boot consumes it; later boots ignore it). Relative to the
+  # api's working directory (/app). Must be >= 12 chars.
+  password_file: secrets/admin-password
+
+# Admin "Refresh from sources" jobs (worker role). A refresh never writes a rate
+# directly — it stages confirm-first proposals into the approvals inbox.
+rates:
+  fx_source: https://api.frankfurter.dev/v1/latest
+  fx_currencies: [USD, GBP, CHF]
+  model_pricing:
+    gemini: https://ai.google.dev/gemini-api/docs/pricing
+
+# Ordered company-context rollout: off < read < tasks < onboarding.
+company_context:
+  rollout: onboarding

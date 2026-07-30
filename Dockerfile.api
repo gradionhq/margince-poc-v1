@@ -1,0 +1,58 @@
+# cmd/api — the HTTP process role (serves /v1 + /healthz + /readyz + /metrics).
+#
+# The build is NOT a plain `go build ./cmd/api`: gen-composition must run first
+# to materialize build/composition/go.work (the composed workspace that folds in
+# the enabled extensions/* packs), then the binary builds under that workspace.
+# This mirrors `make -C backend build` (which is `composition` then a composed
+# `go build`). See CLAUDE.md § "make composition".
+
+# ── Stage 1: build (composed workspace) ──────────────────────────────────────
+FROM golang:1.26-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /src
+
+# The whole repo is the build context — the composed workspace references
+# ../backend, ../backend/tools, ../cli/craft and ../extensions/* by relative
+# path, so a partial copy would break gen-composition.
+COPY . .
+
+# Materialize build/composition/ from the enabled extension set. gen-composition
+# runs pinned to the ROOT workspace (it lives in the separate backend/tools
+# module and must resolve before the composition exists).
+RUN cd backend && GOWORK=/src/go.work go run ./tools/gen-composition
+
+# Build the api + migrate binaries under the COMPOSED workspace. migrate ships in
+# this image so the api entrypoint can apply the embedded migrations as the owner
+# role before serving. CGO is off — the api/migrate roles have no cgo deps.
+RUN cd backend \
+    && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
+       go build -ldflags="-s -w" -o /bin/margince-api ./cmd/api \
+    && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
+       go build -ldflags="-s -w" -o /bin/margince-migrate ./cmd/migrate
+
+# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=builder /bin/margince-api /usr/local/bin/margince-api
+COPY --from=builder /bin/margince-migrate /usr/local/bin/margince-migrate
+
+# Bootstrap config (org + admin) and the AI tier→model binding. Both are read at
+# boot; the admin password itself comes from the Vault-managed environment and is
+# written to secrets/admin-password by the entrypoint (never baked into the image).
+COPY config/margince.staging.yaml /app/config/margince.yaml
+COPY config/ai-routing.example.yaml /app/config/ai-routing.yaml
+COPY scripts/d13/api-entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# The Vault-managed env file (D13 materializes it from Vault before this build).
+COPY .env /.env
+
+RUN chmod +x /usr/local/bin/entrypoint.sh && mkdir -p /app/secrets
+
+WORKDIR /app
+EXPOSE 8080
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

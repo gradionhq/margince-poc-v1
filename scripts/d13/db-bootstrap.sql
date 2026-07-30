@@ -1,0 +1,58 @@
+-- One-time D13 database bootstrap. Run ONCE against the managed Postgres as the
+-- `postgres` superuser BEFORE the first api deploy, then never again.
+--
+--   kubectl -n margince-staging exec -it <postgres-pod> -- \
+--     psql -U postgres -v owner_pw="'…'" -v app_pw="'…'" -f - < scripts/d13/db-bootstrap.sql
+--
+-- (or pipe it through a psql that reaches the `database` service). Pass the two
+-- role passwords as psql variables so they never land in this committed file;
+-- they MUST match the passwords embedded in MARGINCE_OWNER_DSN / MARGINCE_DSN in
+-- Vault.
+--
+-- Why two non-superuser roles: margince enforces tenant isolation with
+-- FORCE ROW LEVEL SECURITY, which a superuser (and only a superuser) bypasses.
+--   * margince_owner — owns the database + tables, runs migrations (DDL). Not a
+--     superuser, no BYPASSRLS: RLS binds it too.
+--   * margince_app   — the runtime role the api/worker connect as. Its table
+--     grants are applied by migration 0015_app_role_grants, which is a no-op
+--     unless the role already exists — hence it is created here, first.
+--
+-- Idempotent: safe to re-run (each step guards on existence).
+
+\set ON_ERROR_STOP on
+
+-- The runtime app role (mirrors scripts/db-init.sql for local dev).
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_app') THEN
+        EXECUTE format('CREATE ROLE margince_app LOGIN PASSWORD %L', :'app_pw');
+    END IF;
+END $$;
+
+-- The owner role that runs migrations and owns every object.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'margince_owner') THEN
+        EXECUTE format('CREATE ROLE margince_owner LOGIN PASSWORD %L', :'owner_pw');
+    END IF;
+END $$;
+
+-- The application database, owned by margince_owner. CREATE DATABASE cannot run
+-- inside a DO block or a transaction, so it is guarded with \gexec instead.
+SELECT 'CREATE DATABASE margince OWNER margince_owner'
+WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'margince')
+\gexec
+
+-- The app role must be able to reach the database; object-level grants come from
+-- migration 0015 (run by the api entrypoint as margince_owner).
+GRANT CONNECT ON DATABASE margince TO margince_app;
+
+-- Extensions the migrations expect. `vector` (pgvector) is NOT a trusted
+-- extension, so it cannot be installed by the non-superuser owner from a
+-- migration — pre-install it (and the trusted ones too, so every migration's
+-- `CREATE EXTENSION IF NOT EXISTS` is a guaranteed no-op) here as superuser.
+\connect margince
+CREATE EXTENSION IF NOT EXISTS vector;      -- 0022_embeddings (pgvector; untrusted)
+CREATE EXTENSION IF NOT EXISTS unaccent;    -- 0052_fts_linguistics
+CREATE EXTENSION IF NOT EXISTS pg_trgm;     -- 0052_fts_linguistics
+CREATE EXTENSION IF NOT EXISTS btree_gist;  -- 0032_meeting_exclusion

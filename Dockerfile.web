@@ -1,0 +1,36 @@
+# The Vite/React SPA — a static build served by nginx. The app talks only to the
+# /v1 contract surface, same-origin (frontend/src/api/client.ts derives its base
+# from location.origin + "/v1"), so there are NO build-time API-base env vars:
+# the D13 ingress routes /v1 (+ /healthz /readyz /metrics) to the api service and
+# / to this one, both under the same host.
+
+# ── Stage 1: build ───────────────────────────────────────────────────────────
+FROM node:22-alpine AS builder
+
+RUN corepack enable
+
+WORKDIR /app
+
+# Lockfile + workspace first (cache layer).
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./frontend/
+RUN cd frontend && pnpm install --frozen-lockfile
+
+# The OpenAPI contract the TS types are generated from (pnpm gen:api reads
+# ../backend/api/*.yaml), then the app source.
+COPY backend/api/crm.yaml backend/api/public-events.yaml ./backend/api/
+COPY frontend/ ./frontend/
+
+# Regenerate the contract types from the shipped crm.yaml, then build. This keeps
+# the image's types pinned to the contract it was built against rather than
+# trusting the committed schema.d.ts.
+RUN cd frontend && pnpm gen:api && pnpm build
+
+# ── Stage 2: serve ───────────────────────────────────────────────────────────
+FROM nginx:alpine
+
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/frontend/dist /usr/share/nginx/html
+
+EXPOSE 80
+
+CMD ["nginx", "-g", "daemon off;"]

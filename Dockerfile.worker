@@ -1,0 +1,43 @@
+# cmd/worker — the background process role: the outbox relay (mail does not
+# leave without it), the retention evaluator, the clock time-scan, and — with a
+# bound model — the Surface-B agent runner + embeddings lane. No HTTP surface.
+#
+# Same composed-workspace build as Dockerfile.api. The worker does NOT run
+# migrations; the api role owns that (entrypoint) so exactly one role applies the
+# schema. On a cold database the worker simply waits (and k8s restarts it) until
+# the api has migrated.
+
+# ── Stage 1: build (composed workspace) ──────────────────────────────────────
+FROM golang:1.26-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /src
+COPY . .
+
+RUN cd backend && GOWORK=/src/go.work go run ./tools/gen-composition
+
+RUN cd backend \
+    && GOWORK=/src/build/composition/go.work CGO_ENABLED=0 GOOS=linux \
+       go build -ldflags="-s -w" -o /bin/margince-worker ./cmd/worker
+
+# ── Stage 2: runtime ─────────────────────────────────────────────────────────
+FROM alpine:3.21
+
+RUN apk add --no-cache ca-certificates tzdata
+
+COPY --from=builder /bin/margince-worker /usr/local/bin/margince-worker
+
+# The worker reads --config for the ai.capture_payloads posture and --ai-routing
+# for the Surface-B runner + embeddings.
+COPY config/margince.staging.yaml /app/config/margince.yaml
+COPY config/ai-routing.example.yaml /app/config/ai-routing.yaml
+COPY scripts/d13/worker-entrypoint.sh /usr/local/bin/entrypoint.sh
+
+COPY .env /.env
+
+RUN chmod +x /usr/local/bin/entrypoint.sh
+
+WORKDIR /app
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

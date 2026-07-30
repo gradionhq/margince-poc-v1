@@ -1,0 +1,19 @@
+# Keep the D13 build context lean. The Go image needs the whole repo (backend,
+# backend/tools, cli/craft, extensions/*, go.work, the composition/ stub) so the
+# gen-composition step can materialize build/composition/ — do NOT exclude those.
+# The web image needs frontend/ + backend/api/*.yaml. Only regenerable machine
+# debris is excluded here.
+.git
+**/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+frontend/storybook-static
+# build/composition/ is regenerated inside the image; a stale local copy must
+# never ride in.
+build/composition
+.tmp
+*.log
+# Never ship a developer's personal secrets. The Vault-managed .env IS copied in
+# (D13 materializes it before the build), so it is deliberately not excluded.
+.env.local
