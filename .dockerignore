@@ -14,6 +14,14 @@ frontend/storybook-static
 build/composition
 .tmp
 *.log
-# Local per-developer secrets never belong in an image.
+# Local/instance runtime configuration never belongs in the build context. The
+# Go builder does `COPY . .`, so any secret-bearing local file would otherwise
+# ride into the builder layer + build cache. The generic images bake NO instance
+# config (it is provided at runtime), so none of these are ever needed here.
 .env
-.env.local
+.env.*
+# The gitignored local instance configs (may carry real BYOK keys / the admin
+# password) — mirror .gitignore's config/ entries.
+config/margince.yaml
+config/ai-routing.yaml
+config/margince-admin-password
