@@ -60,6 +60,30 @@ func SecureHeaders(next http.Handler) http.Handler {
 	})
 }
 
+// RequestOrigin reconstructs the externally visible scheme+host — the
+// origin a client outside the fronting proxy actually sees. TLS
+// terminates ahead of the chassis in production, so the forwarded proto
+// wins when present. Consumers: the OAuth discovery documents (RFC 8414 /
+// RFC 9728) and the 401 challenge's resource_metadata pointer, both of
+// which must name an origin the client can dereference, not the internal
+// one the process is bound to.
+func RequestOrigin(r *http.Request) string {
+	// Only the two legitimate values are honored; anything else in the
+	// forwarded header is attacker noise. Host itself must be sanitized
+	// by the fronting proxy — the metadata documents say so.
+	scheme := "https"
+	switch r.Header.Get("X-Forwarded-Proto") {
+	case "https":
+	case "http":
+		scheme = "http"
+	default:
+		if r.TLS == nil {
+			scheme = "http"
+		}
+	}
+	return scheme + "://" + r.Host
+}
+
 // Correlate opens the per-request trace scope: one freshly minted
 // correlation_id groups every event the request's writes emit (events.md
 // §2). Minted server-side, never taken from a request header — a client

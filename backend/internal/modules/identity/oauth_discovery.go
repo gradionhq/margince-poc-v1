@@ -10,6 +10,7 @@ import (
 	"net/http"
 
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 )
 
 // OAuthServerMetadata is the RFC 8414 discovery document. The issuer is
@@ -41,22 +42,8 @@ func ProtectedResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// requestIssuer reconstructs the externally visible origin. TLS
-// terminates ahead of the chassis in production, so the forwarded
-// proto wins when present.
-func requestIssuer(r *http.Request) string {
-	// Only the two legitimate values are honored; anything else in the
-	// forwarded header is attacker noise. Host itself must be sanitized
-	// by the fronting proxy — the metadata documents say so.
-	scheme := "https"
-	switch r.Header.Get("X-Forwarded-Proto") {
-	case "https":
-	case "http":
-		scheme = "http"
-	default:
-		if r.TLS == nil {
-			scheme = "http"
-		}
-	}
-	return scheme + "://" + r.Host
-}
+// requestIssuer reconstructs the externally visible origin, delegating to
+// the one implementation in platform/httpserver so identity and compose
+// share it rather than each carrying its own copy of the
+// X-Forwarded-Proto handling.
+func requestIssuer(r *http.Request) string { return httpserver.RequestOrigin(r) }

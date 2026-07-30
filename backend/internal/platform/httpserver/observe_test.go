@@ -6,6 +6,7 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -174,5 +175,48 @@ func TestAccessLogRedactsCapabilityPathSegments(t *testing.T) {
 	}
 	if !strings.Contains(line, prefix+"[redacted]") {
 		t.Errorf("the access log line lost the route it was asked for: %s", line)
+	}
+}
+
+// TestChassisWrappersPreserveResponseControllerCapabilities is a fitness
+// function: SSE and long tool calls need SetWriteDeadline + Flush to reach
+// the real ResponseWriter. A wrapper that embeds http.ResponseWriter without
+// Unwrap() silently breaks both, and the symptom is an empty response body —
+// so this asserts the capability rather than the wrapper list.
+func TestChassisWrappersPreserveResponseControllerCapabilities(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	wrappers := map[string]func(http.Handler) http.Handler{
+		"Correlate": Correlate,
+		"AccessLog": func(h http.Handler) http.Handler { return AccessLog(log, h) },
+		"Correlate+AccessLog": func(h http.Handler) http.Handler {
+			return Correlate(AccessLog(log, h))
+		},
+	}
+	for name, wrap := range wrappers {
+		t.Run(name, func(t *testing.T) {
+			var deadlineErr, flushErr error
+			srv := httptest.NewServer(wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				rc := http.NewResponseController(w)
+				deadlineErr = rc.SetWriteDeadline(time.Time{})
+				_, _ = w.Write([]byte("x"))
+				flushErr = rc.Flush()
+			})))
+			defer srv.Close()
+			resp, err := http.Get(srv.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					t.Errorf("closing body: %v", err)
+				}
+			}()
+			if deadlineErr != nil {
+				t.Errorf("SetWriteDeadline through %s: %v", name, deadlineErr)
+			}
+			if flushErr != nil {
+				t.Errorf("Flush through %s: %v", name, flushErr)
+			}
+		})
 	}
 }
