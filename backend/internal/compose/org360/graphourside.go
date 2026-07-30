@@ -21,6 +21,16 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// readOurSide reads who on OUR side is connected to the account: the member
+// who owns it, and the colleagues who have actually been in touch with its
+// people. Without it the card answers "who works there" and leaves out the
+// half a rep opens it for — which of us already has a way in.
+//
+// It carries BOTH its gates itself. Every edge names one of the account's
+// contacts, so it is a person read; every interaction edge is derived from an
+// activity, so it is an activity read too. Neither is inferred from whether
+// another group reported itself omitted — a group list reordered for any
+// reason must not be able to turn a gated read into an ungated one.
 func (g *graphAssembly) readOurSide() error {
 	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
 		return err

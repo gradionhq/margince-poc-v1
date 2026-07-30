@@ -247,3 +247,21 @@ func TestDeterministicOmitsAWonTotalWithNoCurrency(t *testing.T) {
 		t.Errorf("reported a won total with no currency: %q", text)
 	}
 }
+
+// The floor's prose is read by a salesperson, so it has to read like prose.
+// "Last contact was a email" is the register this whole surface is leaving
+// behind, and the activity kinds that reach it include three vowel-initial
+// ones (email, and any future kind spelled the same way).
+func TestTheLastContactLineAgreesWithItsArticle(t *testing.T) {
+	for kind, want := range map[string]string{
+		"email":   "Last contact was an email",
+		"call":    "Last contact was a call",
+		"meeting": "Last contact was a meeting",
+		"note":    "Last contact was a note",
+	} {
+		got := lastTouchLine(ActIn{Kind: kind})
+		if !strings.HasPrefix(got, want) {
+			t.Errorf("a %q renders %q, want it to start %q", kind, got, want)
+		}
+	}
+}

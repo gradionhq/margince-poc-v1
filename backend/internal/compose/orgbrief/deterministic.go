@@ -148,8 +148,23 @@ func stalledLine(deal DealIn) string {
 	return fmt.Sprintf("%s is stalled with no recent activity.", deal.Name)
 }
 
+// article is "an" before a vowel sound and "a" otherwise. The activity kinds
+// this reaches are a closed, ASCII, lower-case set (email, call, meeting,
+// note, task…), so first-letter agreement is exact for all of them rather
+// than approximately right — and "a email" in a sentence written for a
+// salesperson is the register this whole surface is leaving behind.
+func article(noun string) string {
+	if noun == "" {
+		return "a"
+	}
+	if strings.ContainsRune("aeiou", rune(noun[0])) {
+		return "an"
+	}
+	return "a"
+}
+
 func lastTouchLine(last ActIn) string {
-	line := "Last contact was a " + last.Kind
+	line := "Last contact was " + article(last.Kind) + " " + last.Kind
 	if when := shortDate(last.At); when != "" {
 		line += " on " + when
 	}

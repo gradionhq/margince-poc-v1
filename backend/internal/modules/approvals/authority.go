@@ -104,6 +104,15 @@ var kindDecidedEvents = map[string]decidedEcho{
 	},
 }
 
+// The target types this package names in more than one place. They are the
+// `target_entity_type` vocabulary the staged rows carry, and each is spoken by
+// both the decision-grant map and the visibility probe — one spelling, so a
+// typo in either cannot silently make a kind undecidable.
+const (
+	targetOffer   = "offer"
+	targetProduct = "product"
+)
+
 // decidable is the ONE visibility-and-authority predicate for the inbox
 // and the decision: true when p holds every grant approving a would
 // require AND can see the target row under their own/team/all scope. It
@@ -139,15 +148,6 @@ func decidable(ctx context.Context, tx pgx.Tx, p principal.Principal, a row) (bo
 // An unrecognized type must fail closed there too: auth.VisibleTo errors on a
 // table it does not row-scope, so the switch below — not the caller — is what
 // keeps a made-up target_entity_type from reaching it.
-// The target types this package names in more than one place. They are the
-// `target_entity_type` vocabulary the staged rows carry, and each is spoken by
-// both the decision-grant map and the visibility probe — one spelling, so a
-// typo in either cannot silently make a kind undecidable.
-const (
-	targetOffer   = "offer"
-	targetProduct = "product"
-)
-
 func targetVisible(ctx context.Context, tx pgx.Tx, targetType *string, targetID *ids.UUID) (bool, error) {
 	if targetType == nil && targetID == nil {
 		return true, nil

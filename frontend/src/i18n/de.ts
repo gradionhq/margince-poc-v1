@@ -540,7 +540,7 @@ export const de = {
   "approval.kind.enrich": "Aus dem Web anreichern",
   "approval.kind.deepread": "Unternehmensseite lesen",
   "approval.kind.site_lead": "Person von der Website aufnehmen",
-  "approval.kind.capture_counterparty": "Person aus Ihrer Mail aufnehmen",
+  "approval.kind.capture_counterparty": "Person aus deiner Mail aufnehmen",
   "approval.kind.org_name_promotion": "Account umbenennen",
   "approval.kind.fx_rate_proposal": "Wechselkurse aktualisieren",
   "approval.kind.ai_model_rate_proposal": "Modellpreise aktualisieren",

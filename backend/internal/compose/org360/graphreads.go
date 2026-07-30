@@ -180,16 +180,12 @@ func (g *graphAssembly) readSeats(dealIDs []ids.UUID) error {
 	return err
 }
 
-// readOurSide reads who on OUR side is connected to the account: the member
-// who owns it, and the colleagues who have actually been in touch with its
-// people. Without it the card answers "who works there" and leaves out the
-// half a rep opens it for — which of us already has a way in.
+// readRouteIn reads the warm-intro path: the contact an active signal routes
+// through, ranked by the warm room's own ranking so this card can never name a
+// different person than the intro-path endpoint does.
 //
-// It carries BOTH its gates itself. Every edge names one of the account's
-// contacts, so it is a person read; every interaction edge is derived from an
-// activity, so it is an activity read too. Neither is inferred from whether
-// another group reported itself omitted — a group list reordered for any
-// reason must not be able to turn a gated read into an ungated one.
+// It asks for both of its own objects: the group exists only while there is a
+// live signal to route, and the thing it places is a person.
 func (g *graphAssembly) readRouteIn() error {
 	if err := auth.Require(g.ctx, "signal", principal.ActionRead); err != nil {
 		return err
