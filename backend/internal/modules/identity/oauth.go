@@ -233,6 +233,14 @@ func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
 	for _, scope := range req.Scopes {
 		page.WriteString("<li>" + template.HTMLEscapeString(scope) + "</li>")
 	}
+	// offline_access is not shown as a scope because it is not authority over
+	// any record — it is authority over the connection's LIFETIME, which the
+	// exchange records as the grant's refresh_allowed. It must still be shown:
+	// that audit row asserts the human approved a self-renewing connection, so
+	// the screen they approved has to have said so.
+	if req.Offline {
+		page.WriteString(`<li>stay connected without asking again, renewing access until you revoke it</li>`)
+	}
 	page.WriteString(`</ul><form method="post" action="/oauth/authorize">`)
 	// The hidden "scope" field re-adds offline_access (never shown in the
 	// <ul> above, and never a passport scope) so the POST that follows
@@ -296,12 +304,11 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, r, err)
 		return
 	}
-	// oauth_authorization_code has no dedicated column for the refresh
-	// marker (that lands on oauth_grant.refresh_allowed once Task 13 mints
-	// one at the token exchange) — until then, offline_access rides in this
-	// existing, unconstrained scopes column so the marker survives to
-	// redemption instead of dying here. oauth_token.go strips it again
-	// before any scope reaches IssuePassport.
+	// The marker's durable home is oauth_grant.refresh_allowed, and no grant
+	// exists until the code is redeemed — so offline_access rides in this
+	// unconstrained scopes column to survive the round trip instead of dying
+	// here. The exchange re-derives the boolean from it and strips it before
+	// any scope reaches the passport (oauth_token.go).
 	storedScopes := req.Scopes
 	if req.Offline {
 		storedScopes = append(append([]string{}, req.Scopes...), scopeOfflineAccess)
@@ -347,15 +354,15 @@ func oauthError(w http.ResponseWriter, status int, code, description string) {
 // scopeOfflineAccess is the scope Claude appends to ask for a refresh
 // token (§5.2). It requests session lifetime, not access: parseOAuthScopes
 // accepts it but never returns it as a passport scope — validScopes has
-// no entry for it and would reject it as unknown if it ever reached
-// IssuePassport.
+// no entry for it, so the passport mint would reject it as unknown if it
+// ever got that far.
 const scopeOfflineAccess = "offline_access"
 
 // parseOAuthScopes splits and validates the space-delimited scope
 // parameter. offline reports whether the caller asked for offline_access;
 // the returned scopes never include it, so every downstream consumer that
-// treats scopes as passport authority (the consent list, IssuePassport)
-// sees only the closed read|draft|write|send|enrich vocabulary.
+// treats scopes as passport authority (the consent list, the passport
+// mint) sees only the closed read|draft|write|send|enrich vocabulary.
 func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	if strings.TrimSpace(raw) == "" {
 		return []string{"read"}, false, nil
@@ -376,7 +383,7 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 	// the same "nothing asked for" situation as the blank-string case
 	// above, not a client mistake. Defaulting on the empty OUTCOME (rather
 	// than special-casing "offline_access" as the one literal request that
-	// defaults) means IssuePassport never mints a zero-scope passport that
+	// defaults) means no path ever mints a zero-scope passport that
 	// silently fails every later tool call, whatever future marker-style
 	// scope might someday reduce the parsed list to nothing.
 	if len(scopes) == 0 {

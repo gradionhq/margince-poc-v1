@@ -30,8 +30,8 @@ func (h Handlers) OAuthServerMetadata(w http.ResponseWriter, r *http.Request) {
 		"token_endpoint_auth_methods_supported": []string{"none"},
 		// offline_access is listed so Claude appends it when it wants a
 		// refresh token (§5.2) — it is a session-lifetime marker, never a
-		// passport scope, so it is stripped before any grant reaches
-		// IssuePassport (oauth_token.go).
+		// passport scope, so the exchange records it as the grant's
+		// refresh_allowed and strips it from the scopes (oauth_token.go).
 		"scopes_supported": []string{"read", "draft", "write", "send", "enrich", scopeOfflineAccess},
 	})
 }

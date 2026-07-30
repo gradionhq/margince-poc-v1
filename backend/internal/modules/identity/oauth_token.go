@@ -4,9 +4,10 @@
 package identity
 
 // The token endpoint: the authorization-code + PKCE exchange that ends
-// the A2 handshake. The token minted here IS an Agent Seat Passport —
-// there is no separate OAuth token store to drift out of sync with
-// passport revocation.
+// the A2 handshake. The access token minted here IS an Agent Seat Passport
+// — there is no separate OAuth token store to drift out of sync with
+// passport revocation — and it hangs off the oauth_grant row that records
+// the consent, so the connection as a whole stays revocable.
 
 import (
 	"crypto/sha256"
@@ -22,7 +23,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 var (
@@ -47,7 +47,7 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID, workspaceID, scopes, err := h.redeemAuthCode(r, code, verifier)
+	issued, refresh, err := h.exchangeAuthCode(r, code, verifier)
 	switch {
 	// A code cannot exist in a workspace that doesn't resolve, and the
 	// answer must not distinguish that from a spent code.
@@ -65,95 +65,147 @@ func (h Handlers) oauthToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The redeemed scopes may still carry offline_access — it rides the
-	// authorization code's scopes column because that table has no
-	// dedicated marker column yet (oauth.go's oauthAuthorize). It requests
-	// session lifetime, not access, so it is stripped here, the one place
-	// every code exchange passes through: validScopes has no entry for it
-	// and IssuePassport would reject the whole exchange as an unknown
-	// scope otherwise. A future grant (Task 13) records this as
-	// oauth_grant.refresh_allowed instead of surfacing it as a scope.
-	passportScopes := scopes
-	if idx := slices.Index(scopes, scopeOfflineAccess); idx >= 0 {
-		passportScopes = slices.Delete(slices.Clone(scopes), idx, idx+1)
-	}
-
-	label := "oauth:" + r.PostForm.Get("client_id")
-	issued, err := h.svc.IssuePassport(principal.WithWorkspaceID(r.Context(), workspaceID.UUID),
-		Identity{UserID: userID, WorkspaceID: workspaceID},
-		IssuePassportInput{Label: &label, Scopes: passportScopes})
-	if err != nil {
-		httperr.Write(w, r, err)
-		return
-	}
-	httperr.WriteJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"access_token": issued.Token,
 		"token_type":   "Bearer",
 		"expires_in":   int(time.Until(issued.ExpiresAt).Seconds()),
-		"scope":        strings.Join(passportScopes, " "),
-	})
+		"scope":        strings.Join(issued.Scopes, " "),
+	}
+	// A refresh token is answered only when the grant allows one: a client
+	// that never asked for offline_access must not be handed a long-lived
+	// credential it never consented to store.
+	if refresh != "" {
+		response["refresh_token"] = refresh
+		response["refresh_expires_in"] = int(refreshTokenTTL.Seconds())
+	}
+	httperr.WriteJSON(w, http.StatusOK, response)
 }
 
-// redeemAuthCode validates the exchange against the stored grant and
-// consumes the single-use code in one transaction.
-func (h Handlers) redeemAuthCode(r *http.Request, code, verifier string) (userID ids.UserID, workspaceID ids.WorkspaceID, scopes []string, err error) {
+// exchangeAuthCode turns a valid authorization code into the credentials
+// that outlive it, in ONE transaction: the single-use code is validated
+// and consumed, the grant recording what the human approved is written,
+// the first refresh token is minted beneath it, and the passport the
+// client will actually call with is stamped with that grant. A partial
+// commit here would leave a client holding a refresh token for a grant
+// that does not exist, or a live passport no revocation can reach.
+//
+// refresh is empty unless the authorization carried offline_access.
+func (h Handlers) exchangeAuthCode(r *http.Request, code, verifier string) (issued IssuedPassport, refresh string, err error) {
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
-		// Read first, validate, and only then consume: a stranger who
-		// holds the code but not the verifier must not be able to BURN
-		// it for the legitimate client (denial-of-flow). The final
-		// conditional UPDATE keeps single-use airtight under races.
-		var (
-			challenge   string
-			clientID    string
-			redirectURI string
-			resource    *string
-		)
-		err := tx.QueryRow(r.Context(), `
-			SELECT user_id, workspace_id, scopes, code_challenge, client_id, redirect_uri, resource
-			FROM oauth_authorization_code
-			WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()`,
-			hashOAuthCode(code)).
-			Scan(&userID, &workspaceID, &scopes, &challenge, &clientID, &redirectURI, &resource)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return errCodeSpent
-		}
+		redeemed, err := h.consumeAuthCode(r, tx, code, verifier)
 		if err != nil {
 			return err
 		}
-		if r.PostForm.Get("client_id") != clientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
-			return errGrantMismatch
+
+		// offline_access rode the code's scopes column (oauth.go's
+		// oauthAuthorize) because that table has no marker column of its
+		// own. Here it becomes what it always meant — refresh_allowed on
+		// the grant — and leaves the scope list: it is session lifetime,
+		// not authority over any record, and validScopes has no entry for
+		// it, so a passport carrying it would be refused outright.
+		passportScopes := redeemed.Scopes
+		refreshAllowed := slices.Contains(redeemed.Scopes, scopeOfflineAccess)
+		if refreshAllowed {
+			passportScopes = slices.DeleteFunc(slices.Clone(redeemed.Scopes), func(sc string) bool {
+				return sc == scopeOfflineAccess
+			})
 		}
-		// RFC 8707: two independent rules, not one compound check. A
-		// presented resource must always name this installation's
-		// canonical endpoint — checked unconditionally, so a client that
-		// omitted resource at authorize (the accepted older-client path,
-		// stored NULL) cannot smuggle a foreign audience through at
-		// redemption by presenting it only here. Separately, a code that
-		// WAS bound to a resource at authorize requires the presented
-		// value to match that binding, so a stale grant cannot outlive a
-		// reconfigured resource.
-		presented := r.PostForm.Get("resource")
-		if presented != "" && presented != h.mcpResource {
-			return errAudienceMismatch
-		}
-		if resource != nil && presented != *resource {
-			return errAudienceMismatch
-		}
-		// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.
-		sum := sha256.Sum256([]byte(verifier))
-		if base64.RawURLEncoding.EncodeToString(sum[:]) != challenge {
-			return errGrantMismatch
-		}
-		tag, err := tx.Exec(r.Context(), `
-			UPDATE oauth_authorization_code SET consumed_at = now()
-			WHERE code_hash = $1 AND consumed_at IS NULL`, hashOAuthCode(code))
+
+		grantID, refreshToken, err := issueGrant(r.Context(), tx, issueGrantInput{
+			WorkspaceID:    redeemed.WorkspaceID,
+			UserID:         redeemed.UserID,
+			ClientID:       redeemed.ClientID,
+			Scopes:         passportScopes,
+			RefreshAllowed: refreshAllowed,
+			Resource:       redeemed.Resource,
+		})
 		if err != nil {
 			return err
 		}
-		if tag.RowsAffected() == 0 {
-			return errCodeSpent // a racing exchange got there first
-		}
-		return nil
+		refresh = refreshToken
+
+		// The label names the client the consent was for; the grant is what
+		// actually binds the passport to it.
+		label := "oauth:" + redeemed.ClientID
+		issued, err = mintPassport(r.Context(), tx,
+			Identity{UserID: redeemed.UserID, WorkspaceID: redeemed.WorkspaceID},
+			IssuePassportInput{Label: &label, Scopes: passportScopes}, &grantID)
+		return err
 	})
-	return userID, workspaceID, scopes, err
+	if err != nil {
+		return IssuedPassport{}, "", err
+	}
+	return issued, refresh, nil
+}
+
+// redeemedCode is what a validated, spent authorization code carried into
+// the rest of the exchange. Scopes are still as authorized — the
+// offline_access marker included.
+type redeemedCode struct {
+	UserID      ids.UserID
+	WorkspaceID ids.WorkspaceID
+	Scopes      []string
+	ClientID    string
+	Resource    *string
+}
+
+// consumeAuthCode validates the exchange against the stored authorization
+// and consumes the single-use code, inside the caller's transaction so the
+// credentials issued against it commit with it.
+func (h Handlers) consumeAuthCode(r *http.Request, tx pgx.Tx, code, verifier string) (redeemedCode, error) {
+	// Read first, validate, and only then consume: a stranger who holds the
+	// code but not the verifier must not be able to BURN it for the
+	// legitimate client (denial-of-flow). The final conditional UPDATE keeps
+	// single-use airtight under races.
+	var (
+		out         redeemedCode
+		challenge   string
+		redirectURI string
+	)
+	err := tx.QueryRow(r.Context(), `
+		SELECT user_id, workspace_id, scopes, code_challenge, client_id, redirect_uri, resource
+		FROM oauth_authorization_code
+		WHERE code_hash = $1 AND consumed_at IS NULL AND expires_at > now()`,
+		hashOAuthCode(code)).
+		Scan(&out.UserID, &out.WorkspaceID, &out.Scopes, &challenge, &out.ClientID, &redirectURI, &out.Resource)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return redeemedCode{}, errCodeSpent
+	}
+	if err != nil {
+		return redeemedCode{}, err
+	}
+	if r.PostForm.Get("client_id") != out.ClientID || !redirectURIMatches(redirectURI, r.PostForm.Get("redirect_uri")) {
+		return redeemedCode{}, errGrantMismatch
+	}
+	// RFC 8707: two independent rules, not one compound check. A
+	// presented resource must always name this installation's
+	// canonical endpoint — checked unconditionally, so a client that
+	// omitted resource at authorize (the accepted older-client path,
+	// stored NULL) cannot smuggle a foreign audience through at
+	// redemption by presenting it only here. Separately, a code that
+	// WAS bound to a resource at authorize requires the presented
+	// value to match that binding, so a stale grant cannot outlive a
+	// reconfigured resource.
+	presented := r.PostForm.Get("resource")
+	if presented != "" && presented != h.mcpResource {
+		return redeemedCode{}, errAudienceMismatch
+	}
+	if out.Resource != nil && presented != *out.Resource {
+		return redeemedCode{}, errAudienceMismatch
+	}
+	// PKCE S256: SHA-256(verifier), base64url unpadded, constant shape.
+	sum := sha256.Sum256([]byte(verifier))
+	if base64.RawURLEncoding.EncodeToString(sum[:]) != challenge {
+		return redeemedCode{}, errGrantMismatch
+	}
+	tag, err := tx.Exec(r.Context(), `
+		UPDATE oauth_authorization_code SET consumed_at = now()
+		WHERE code_hash = $1 AND consumed_at IS NULL`, hashOAuthCode(code))
+	if err != nil {
+		return redeemedCode{}, err
+	}
+	if tag.RowsAffected() == 0 {
+		return redeemedCode{}, errCodeSpent // a racing exchange got there first
+	}
+	return out, nil
 }

@@ -69,8 +69,33 @@ func (e *InvalidScopeError) Error() string {
 	return "scope " + e.Scope + " is not one of read|draft|write|send|enrich"
 }
 
-// IssuePassport mints a passport for the authenticated human in id.
+// IssuePassport mints a passport for the authenticated human in id — the
+// A1/local path, where the passport answers to no OAuth grant.
 func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePassportInput) (IssuedPassport, error) {
+	var out IssuedPassport
+	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		var err error
+		out, err = mintPassport(ctx, tx, id, in, nil)
+		return err
+	})
+	if err != nil {
+		return IssuedPassport{}, err
+	}
+	return out, nil
+}
+
+// mintPassport is the ONE spelling of the passport-mint write: admission
+// (the closed scope vocabulary and the TTL ceiling), the row, and the
+// audit row that records granting an agent standing authority. Admission
+// lives inside it rather than in each caller so no issuance path can
+// forget it.
+//
+// It takes the CALLER's transaction because the A2 code exchange commits
+// the mint together with the grant the passport belongs to and the
+// authorization code it spent — a passport whose grant did not commit
+// would be live authority nothing can revoke. grantID is nil for a
+// locally minted passport, which answers to no grant.
+func mintPassport(ctx context.Context, tx pgx.Tx, id Identity, in IssuePassportInput, grantID *ids.UUID) (IssuedPassport, error) {
 	if len(in.Scopes) == 0 {
 		return IssuedPassport{}, &InvalidScopeError{Scope: "(none)"}
 	}
@@ -96,25 +121,19 @@ func (s *Service) IssuePassport(ctx context.Context, id Identity, in IssuePasspo
 	token := passportTokenPrefix + raw
 	out := IssuedPassport{Token: token, Scopes: in.Scopes}
 
-	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		err := tx.QueryRow(ctx,
-			`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
-			 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval)
-			 RETURNING id, expires_at`,
-			id.WorkspaceID, id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String()).
-			Scan(&out.ID, &out.ExpiresAt)
-		if err != nil {
-			return err
-		}
-		// Granting an agent standing authority is itself an audited fact.
-		_, err = tx.Exec(ctx,
-			`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id, evidence)
-			 VALUES ($1, 'human', $2, 'create', 'passport', $3,
-			         jsonb_build_object('scopes', $4::text[], 'label', $5::text))`,
-			id.WorkspaceID, "human:"+id.UserID.String(), out.ID, in.Scopes, in.Label)
-		return err
-	})
-	if err != nil {
+	if err := tx.QueryRow(ctx,
+		`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at, oauth_grant_id)
+		 VALUES ($1, $2, $2, $3, $4, $5, now() + $6::interval, $7)
+		 RETURNING id, expires_at`,
+		id.WorkspaceID, id.UserID, in.Label, in.Scopes, hashToken(token), ttl.String(), grantID).
+		Scan(&out.ID, &out.ExpiresAt); err != nil {
+		return IssuedPassport{}, err
+	}
+	// Granting an agent standing authority is itself an audited fact. The
+	// scopes and label are the row's own fields, so they are its after image
+	// rather than evidence about the write.
+	if _, err := storekit.Audit(actorCtx(ctx, id), tx, "create", "passport", out.ID.UUID,
+		nil, map[string]any{"scopes": in.Scopes, "label": in.Label}); err != nil {
 		return IssuedPassport{}, err
 	}
 	return out, nil
