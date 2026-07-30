@@ -6300,6 +6300,9 @@ export interface components {
              *     kind, the subject and the records it fired on. Dismissing a suggestion stores
              *     this, so the same advice stays gone — and re-arms by itself when the evidence
              *     changes, because the situation is then genuinely a new one.
+             *
+             *     Send it back unchanged to dismiss. The server recomputes the account's
+             *     suggestions to recognize it, so a value it cannot match stores nothing.
              */
             fingerprint: string;
             /** @description The rule that fired, in the words the rep reads. Never a score. */
@@ -6370,10 +6373,13 @@ export interface components {
              */
             suggestions?: components["schemas"]["Organization360Suggestion"][];
             /**
-             * @description How many further suggestions this account has that `suggestions` does not
+             * @description How many further suggestions this caller has that `suggestions` does not
              *     list — the card offers at most a handful, because advice past that is a list
              *     a rep learns to scroll past. Reported rather than dropped in silence: a
              *     truncated list with no count reads as "that is everything".
+             *
+             *     Counted after this caller's own dismissals, so a suggestion they have already
+             *     judged is in neither the list nor this number.
              */
             suggestions_dropped: number;
         };
@@ -11598,9 +11604,12 @@ export interface operations {
                 "application/json": {
                     /**
                      * @description The `fingerprint` from the suggestion being dismissed, unchanged — a
-                     *     sha256 digest in lowercase hex. Anything else is a 422: the server
-                     *     cannot re-derive it (the situation may legitimately have moved on
-                     *     between the render and the click), so its shape is what is checked.
+                     *     sha256 digest in lowercase hex.
+                     *
+                     *     A value of the wrong SHAPE is a 422, so a client that mangled it can
+                     *     tell that from a hit. A well-formed value the account does not
+                     *     currently raise is a `204` that stores nothing; see this operation's
+                     *     description for why those two answers differ.
                      */
                     fingerprint: string;
                 };

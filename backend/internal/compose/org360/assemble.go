@@ -98,9 +98,10 @@ func (s *Service) sections(ctx context.Context, tx pgx.Tx, orgID ids.Organizatio
 		{sectionListMemberships, a.readListMemberships},
 		{sectionApprovals, a.readPendingApprovals},
 		{sectionSinceLastVisit, a.readSinceLastVisit},
-		// Last, and deliberately so: the rules read the sections above. A
-		// suggestion is derived from what this caller was actually shown, so it
-		// can never point at a record they would be refused.
+		// Last because it is derived, not because it reads the sections above —
+		// the rules issue their own queries (suggestionreads.go), under the same
+		// grants and the same row scope, so they can see further back than a
+		// truncated section page without ever seeing wider.
 		{sectionSuggestions, a.readSuggestions},
 	}
 	for _, section := range each {
