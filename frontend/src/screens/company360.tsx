@@ -277,6 +277,14 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
       )}
       emptyLabel={t("co.people.empty")}
     >
+      {/* The per-contact chips read as all-time claims — "Not approached"
+          above a timeline showing last year's outbound email is the page
+          arguing with itself. They are computed over the server's 90-day
+          window (PO-F-3), so the window is stated once here rather than
+          repeated on every row. */}
+      {contacts.length > 0 && (
+        <p className="t-caption">{t("co.reach.window")}</p>
+      )}
       <ul className="co-list">
         {contacts.map((contact) => (
           <ContactRow key={contact.person_id} contact={contact} />

@@ -129,7 +129,13 @@ describe("readAccount", () => {
         data: [
           contact({
             person_id: "p1",
-            strength: { score: 12, bucket: "warm", factors: FACTORS },
+            strength: {
+              score: 12,
+              bucket: "warm",
+              factors: FACTORS,
+              outbound_90d: 4,
+              inbound_90d: 2,
+            },
           }),
           contact({
             person_id: "p2",
@@ -215,6 +221,94 @@ describe("readAccount", () => {
     ).toBe("co.read.noChampion.other");
   });
 
+  it("counts engagement from the traffic, not from the rounded score", () => {
+    // A reply near the edge of the 90-day window can score zero. Reading the
+    // score as "never engaged" made the brief say only one person had ever
+    // engaged while that contact's own row said "Answered".
+    const v = view({
+      people: {
+        data: [
+          contact({
+            strength: {
+              score: 12,
+              bucket: "warm",
+              factors: FACTORS,
+              outbound_90d: 3,
+            },
+          }),
+          // Scored zero at the edge of the window, but he replied. Reading the
+          // score would call him unengaged and make "only one person here has
+          // engaged" true, while his own row says Answered.
+          contact({
+            person_id: "p2",
+            full_name: "Thomas Lohner",
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: FACTORS,
+              inbound_90d: 1,
+            },
+          }),
+        ],
+        page: { has_more: false },
+      },
+    });
+    expect(ids(v)).not.toContain("single-thread");
+  });
+
+  it("makes no overdue count from a first page that has more behind it", () => {
+    // "25 commitments are overdue" is a claim about all of them, and 26 may
+    // exist. Silence beats a number the reader would act on as the total.
+    const truncated = view({
+      next_steps: {
+        data: [{ activity_id: "t1", subject: "Send the quote", overdue: true }],
+        page: { has_more: true },
+      },
+    });
+    expect(ids(truncated)).not.toContain("overdue");
+
+    const complete = view({
+      next_steps: {
+        data: [{ activity_id: "t1", subject: "Send the quote", overdue: true }],
+        page: { has_more: false },
+      },
+    });
+    expect(ids(complete)).toContain("overdue");
+  });
+
+  it("names a stalled deal, and says nothing when none has stalled", () => {
+    const stalled = view({
+      deals: deals({
+        data: [{ deal_id: "d1", name: "Pilot", status: "open", stalled: true }],
+      }),
+    });
+    expect(ids(stalled)).toContain("stalled:d1");
+    const moving = view({
+      deals: deals({
+        data: [
+          { deal_id: "d1", name: "Pilot", status: "open", stalled: false },
+        ],
+      }),
+    });
+    expect(ids(moving)).not.toContain("stalled:d1");
+  });
+
+  it("names an account with no contacts, and one carried by a single name", () => {
+    const empty = view({ people: { data: [], page: { has_more: false } } });
+    expect(ids(empty)).toContain("no-contacts");
+    const alone = view({
+      people: { data: [contact()], page: { has_more: false } },
+    });
+    expect(ids(alone)).toContain("one-contact");
+  });
+
+  it("names a missing next step only when the list is complete and empty", () => {
+    const none = view({
+      next_steps: { data: [], page: { has_more: false } },
+    });
+    expect(ids(none)).toContain("no-next-step");
+  });
+
   it("distinguishes a never-customer from a customer with nothing open", () => {
     const never = view({ deals: deals() });
     expect(
@@ -231,10 +325,16 @@ describe("readAccount", () => {
   });
 
   it("says nothing about a section the reader may not see", () => {
-    // The withheld people section must not become "you know nobody here" —
-    // that is the sentence that would send a rep into a meeting wrong.
+    // The sections are POPULATED and also named as omitted. A version that
+    // supplies no data proves nothing: deleting every withheld() check would
+    // still yield no findings, because there would be nothing to read. Each
+    // section here would produce a finding if its check were removed.
     const v = view({
       sections_omitted: ["people", "deals", "strength", "next_steps"],
+      people: { data: [], page: { has_more: false } },
+      deals: deals(),
+      strength: strength({ last_interaction: daysAgo(40) }),
+      next_steps: { data: [], page: { has_more: false } },
     });
     expect(readAccount(v, NOW)).toHaveLength(0);
   });

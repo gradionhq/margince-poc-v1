@@ -598,6 +598,7 @@ export const en = {
   "co.profileField.industry": "Industry",
   "co.profileField.history": "History",
   "co.profile.title": "Company profile",
+  "co.reach.window": "Contact shown for the last 90 days",
   "co.reach.answered": "Answered",
   "co.reach.silent": "No reply",
   "co.reach.untried": "Not approached",

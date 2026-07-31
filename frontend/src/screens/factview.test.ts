@@ -67,6 +67,54 @@ describe("groupFacts", () => {
     expect(offering?.facts[0].field).toBe("product");
   });
 
+  it("collapses on the server's key, which is what real values need", () => {
+    // Facts read off a site are "Name - what it does". The server already
+    // normalized the name into value_key; recomputing identity from the whole
+    // displayed string left these as two rows, so the collapse did nothing on
+    // exactly the shape production sends.
+    const groups = groupFacts([
+      fact({
+        category: "offering",
+        field: "product",
+        value: "Frontic - Commerce platform",
+        value_key: "frontic",
+      }),
+      fact({
+        category: "offering",
+        field: "service",
+        value: "Frontic - Storefront delivery",
+        value_key: "frontic",
+      }),
+    ]);
+    expect(groups.find((g) => g.category === "offering")?.facts).toHaveLength(
+      1,
+    );
+  });
+
+  it("keeps a human value even when a machine one holds the better field", () => {
+    // Product outranks service, and a human outranks a machine. Applying the
+    // field rank first let a site read's product hide a human's service for
+    // the same offering, which is machine over human.
+    const groups = groupFacts([
+      fact({
+        category: "offering",
+        field: "product",
+        value: "PaaS",
+        source: "site_read",
+        confidence: 0.9,
+      }),
+      fact({
+        category: "offering",
+        field: "service",
+        value: "PaaS",
+        source: "human",
+      }),
+    ]);
+    const offering = groups.find((g) => g.category === "offering");
+    expect(offering?.facts).toHaveLength(1);
+    expect(offering?.facts[0].source).toBe("human");
+  });
+
   it("keeps a human-held value over a more confident machine one", () => {
     const groups = groupFacts([
       fact({ value: "E-Commerce", source: "site_read", confidence: 0.9 }),
