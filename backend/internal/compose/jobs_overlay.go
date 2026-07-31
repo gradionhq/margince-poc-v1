@@ -315,7 +315,8 @@ type sweepDeps struct {
 // every phase checks the identical condition, rather than each phase
 // spelling out its own copy that could silently drift from its siblings.
 func sweepMustStop(err error) bool {
-	return errors.Is(err, overlay.ErrConnectionGone) || isConnectionLevelIncumbentError(err)
+	return errors.Is(err, overlay.ErrConnectionGone) || errors.Is(err, overlay.ErrMirrorFrozen) ||
+		isConnectionLevelIncumbentError(err)
 }
 
 // sweepObjectClass runs one object class's full convergence for a

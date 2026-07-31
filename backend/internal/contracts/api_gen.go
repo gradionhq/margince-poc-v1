@@ -4176,6 +4176,69 @@ func (e OverlayConnectionStatus) Valid() bool {
 	}
 }
 
+// Defines values for OverlayFlipAcceptedMode.
+const (
+	OverlayFlipAcceptedModeEmergency OverlayFlipAcceptedMode = "emergency"
+	OverlayFlipAcceptedModeFreshSync OverlayFlipAcceptedMode = "fresh_sync"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipAcceptedMode enum.
+func (e OverlayFlipAcceptedMode) Valid() bool {
+	switch e {
+	case OverlayFlipAcceptedModeEmergency:
+		return true
+	case OverlayFlipAcceptedModeFreshSync:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipPreflightBlocking.
+const (
+	ExportMissing        OverlayFlipPreflightBlocking = "export_missing"
+	ForceFreshIncomplete OverlayFlipPreflightBlocking = "force_fresh_incomplete"
+	IncumbentUnreachable OverlayFlipPreflightBlocking = "incumbent_unreachable"
+	PendingSyncDraining  OverlayFlipPreflightBlocking = "pending_sync_draining"
+	UnresolvedConflicts  OverlayFlipPreflightBlocking = "unresolved_conflicts"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipPreflightBlocking enum.
+func (e OverlayFlipPreflightBlocking) Valid() bool {
+	switch e {
+	case ExportMissing:
+		return true
+	case ForceFreshIncomplete:
+		return true
+	case IncumbentUnreachable:
+		return true
+	case PendingSyncDraining:
+		return true
+	case UnresolvedConflicts:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipRequestMode.
+const (
+	OverlayFlipRequestModeEmergency OverlayFlipRequestMode = "emergency"
+	OverlayFlipRequestModeFreshSync OverlayFlipRequestMode = "fresh_sync"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipRequestMode enum.
+func (e OverlayFlipRequestMode) Valid() bool {
+	switch e {
+	case OverlayFlipRequestModeEmergency:
+		return true
+	case OverlayFlipRequestModeFreshSync:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OverlaySyncStatusObjectsState.
 const (
 	OverlaySyncStatusObjectsStateFresh       OverlaySyncStatusObjectsState = "fresh"
@@ -11068,6 +11131,91 @@ type OverlayConnectionIncumbent string
 // OverlayConnectionStatus defines model for OverlayConnection.Status.
 type OverlayConnectionStatus string
 
+// OverlayFlipAccepted defines model for OverlayFlipAccepted.
+type OverlayFlipAccepted struct {
+	// EmergencyDisclosure Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent.
+	EmergencyDisclosure *struct {
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	} `json:"emergency_disclosure,omitempty"`
+	Mode            OverlayFlipAcceptedMode `json:"mode"`
+	RecordsImported *int64                  `json:"records_imported,omitempty"`
+
+	// RunId The migration run (`import_run`) this flip executed.
+	RunId openapi_types.UUID `json:"run_id"`
+}
+
+// OverlayFlipAcceptedMode defines model for OverlayFlipAccepted.Mode.
+type OverlayFlipAcceptedMode string
+
+// OverlayFlipParityEntry One object class's parity preview row (AC-mode-flip-7).
+type OverlayFlipParityEntry struct {
+	MirrorCount int                      `json:"mirror_count"`
+	Object      string                   `json:"object"`
+	Skipped     *[]OverlayFlipParitySkip `json:"skipped,omitempty"`
+	WillCreate  int                      `json:"will_create"`
+	WillUpdate  int                      `json:"will_update"`
+}
+
+// OverlayFlipParitySkip One row the importer cannot carry, disclosed with its reason (never silently dropped).
+type OverlayFlipParitySkip struct {
+	ExternalId string `json:"external_id"`
+	Reason     string `json:"reason"`
+}
+
+// OverlayFlipPreflight The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[], unresolved_conflicts[]}` plus the sealed snapshot and parity preview when ready, and the emergency-cutover disclosure when the incumbent is unreachable (ADR-0071 / OVA-AC-6).
+type OverlayFlipPreflight struct {
+	// Blocking Why the flip cannot run, empty when ready. `incumbent_unreachable` is the OVA-AC-6(a) honest block — the connection is revoked/error, so the force-fresh sync cannot pass; the workspace stays in overlay on its last mirror.
+	Blocking []OverlayFlipPreflightBlocking `json:"blocking"`
+
+	// Emergency Present only while the incumbent is unreachable: the ADR-0071 emergency cutover from the last-known mirror, disclosed-lossy — never offered while a fresh-sync flip is possible.
+	Emergency *struct {
+		Available                bool       `json:"available"`
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	} `json:"emergency,omitempty"`
+
+	// Parity The parity dry-run against the sealed snapshot — writes zero CRM rows; skipped rows are disclosed with reasons, never silently dropped (AC-mode-flip-7).
+	Parity *[]OverlayFlipParityEntry `json:"parity,omitempty"`
+	Ready  bool                      `json:"ready"`
+
+	// Snapshot The sealed frozen-mirror snapshot the flip imports.
+	Snapshot *OverlayFlipSnapshot `json:"snapshot,omitempty"`
+
+	// UnresolvedConflicts Open incumbent-wins conflicts awaiting acceptance; each blocks the flip. Empty in this build: branch 1 reconciliation resolves incumbent-wins at ingest and persists no conflict queue, so the producer arrives with write-back (branch 2). The field is required by OVA-WIRE-7's response shape.
+	UnresolvedConflicts []OverlayFlipUnresolvedConflict `json:"unresolved_conflicts"`
+}
+
+// OverlayFlipPreflightBlocking defines model for OverlayFlipPreflight.Blocking.
+type OverlayFlipPreflightBlocking string
+
+// OverlayFlipRequest defines model for OverlayFlipRequest.
+type OverlayFlipRequest struct {
+	// ConfirmationPhrase Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5).
+	ConfirmationPhrase string `json:"confirmation_phrase"`
+
+	// Mode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+	Mode *OverlayFlipRequestMode `json:"mode,omitempty"`
+}
+
+// OverlayFlipRequestMode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+type OverlayFlipRequestMode string
+
+// OverlayFlipSnapshot The sealed frozen-mirror snapshot the flip imports.
+type OverlayFlipSnapshot struct {
+	FrozenAt time.Time `json:"frozen_at"`
+	Id       string    `json:"id"`
+}
+
+// OverlayFlipUnresolvedConflict One open incumbent-wins conflict blocking the flip.
+type OverlayFlipUnresolvedConflict struct {
+	ExternalId  string  `json:"external_id"`
+	ObjectClass string  `json:"object_class"`
+	Property    *string `json:"property,omitempty"`
+}
+
 // OverlayOwner defines model for OverlayOwner.
 type OverlayOwner struct {
 	Email           string  `json:"email"`
@@ -11085,10 +11233,13 @@ type OverlayOwnerDirectory struct {
 // OverlaySyncStatus Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7).
 type OverlaySyncStatus struct {
 	Objects *[]struct {
-		BackfillComplete *bool                          `json:"backfillComplete,omitempty"`
-		LastSyncedAt     *time.Time                     `json:"lastSyncedAt,omitempty"`
-		Object           *string                        `json:"object,omitempty"`
-		State            *OverlaySyncStatusObjectsState `json:"state,omitempty"`
+		BackfillComplete *bool `json:"backfillComplete,omitempty"`
+
+		// FrozenForFlip The mirror is held still by a pending overlay→native flip: the sweep skips this workspace entirely, so staleness grows on purpose. Stated rather than left to be inferred from a mirror that merely looks idle.
+		FrozenForFlip *bool                          `json:"frozenForFlip,omitempty"`
+		LastSyncedAt  *time.Time                     `json:"lastSyncedAt,omitempty"`
+		Object        *string                        `json:"object,omitempty"`
+		State         *OverlaySyncStatusObjectsState `json:"state,omitempty"`
 	} `json:"objects,omitempty"`
 }
 
@@ -16230,6 +16381,9 @@ type DismissOrganizationSuggestionJSONRequestBody DismissOrganizationSuggestionJ
 
 // ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
 type ConnectOverlayJSONRequestBody = OverlayConnectRequest
+
+// ExecuteOverlayFlipJSONRequestBody defines body for ExecuteOverlayFlip for application/json ContentType.
+type ExecuteOverlayFlipJSONRequestBody = OverlayFlipRequest
 
 // SetOverlayUserMapJSONRequestBody defines body for SetOverlayUserMap for application/json ContentType.
 type SetOverlayUserMapJSONRequestBody = SetOverlayUserMapRequest
@@ -22503,10 +22657,13 @@ type ServerInterface interface {
 	// Connect the workspace's overlay incumbent (HubSpot).
 	// (POST /overlay/connection)
 	ConnectOverlay(w http.ResponseWriter, r *http.Request)
-	// Execute the read-mode→overlay flip, queuing the migration.
+	// Download the workspace export bundle — the flip's pre-flip export producer.
+	// (GET /overlay/export)
+	DownloadOverlayExport(w http.ResponseWriter, r *http.Request)
+	// Execute the overlay→native flip, running the migration.
 	// (POST /overlay/flip)
 	ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request)
-	// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+	// Dry-run the overlay→native flip's readiness checks without executing it.
 	// (POST /overlay/flip:preflight)
 	PreflightOverlayFlip(w http.ResponseWriter, r *http.Request)
 	// The connected incumbent's user directory, for the mapping picker.
@@ -23883,13 +24040,19 @@ func (_ Unimplemented) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Execute the read-mode→overlay flip, queuing the migration.
+// Download the workspace export bundle — the flip's pre-flip export producer.
+// (GET /overlay/export)
+func (_ Unimplemented) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Execute the overlay→native flip, running the migration.
 // (POST /overlay/flip)
 func (_ Unimplemented) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+// Dry-run the overlay→native flip's readiness checks without executing it.
 // (POST /overlay/flip:preflight)
 func (_ Unimplemented) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -32160,12 +32323,30 @@ func (siw *ServerInterfaceWrapper) ConnectOverlay(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadOverlayExport operation middleware
+func (siw *ServerInterfaceWrapper) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadOverlayExport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ExecuteOverlayFlip operation middleware
 func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -32186,8 +32367,6 @@ func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *
 func (siw *ServerInterfaceWrapper) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -38894,6 +39073,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/connection", wrapper.ConnectOverlay)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/export", wrapper.DownloadOverlayExport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/flip", wrapper.ExecuteOverlayFlip)

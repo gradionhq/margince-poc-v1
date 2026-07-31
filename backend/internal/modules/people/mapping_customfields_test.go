@@ -79,7 +79,10 @@ func TestLeadCreateInputCarriesCustomFieldKeys(t *testing.T) {
 	var req crmcontracts.CreateLeadRequest
 	decodeInto(t, `{"source":"ui","cf_iscool":true,"cf_tier":"gold"}`, &req)
 
-	in := leadCreateInput(req)
+	in, err := leadCreateInput(req)
+	if err != nil {
+		t.Fatalf("leadCreateInput: %v", err)
+	}
 	if got := in.CustomFields["cf_iscool"]; got != true {
 		t.Errorf(`CustomFields["cf_iscool"] = %v, want true`, got)
 	}

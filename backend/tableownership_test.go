@@ -182,6 +182,11 @@ var tableOwners = map[string]string{
 	"overlay_backfill_cursor":     "internal/modules/overlay",
 	"overlay_reconcile_watermark": "internal/modules/overlay",
 	"overlay_sync_state":          "internal/modules/overlay",
+	// migration (the shared importer engine's run records, IEM-DDL-1;
+	// native rows land through injected Writers, so the record tables'
+	// owners are untouched)
+	"import_run":        "internal/modules/migration",
+	"import_record_map": "internal/modules/migration",
 	// compose (HTTP replay protection is transport plumbing, not domain;
 	// the brief read model is the cross-module ranker's own snapshot —
 	// deals + people strength + activities compose only here)

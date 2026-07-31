@@ -73,6 +73,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(missing.Field, "required", missing.Error()))
 		return
 	}
+	var reserved *ReservedSourceSystemError
+	if errors.As(err, &reserved) {
+		httperr.Write(w, r, httperr.Validation("source_system", "reserved_source_system", reserved.Error()))
+		return
+	}
 	var badLink *InvalidLinkTypeError
 	if errors.As(err, &badLink) {
 		httperr.Write(w, r, httperr.Validation("links", "invalid_entity_type", badLink.Error()))

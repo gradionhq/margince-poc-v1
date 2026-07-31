@@ -13,12 +13,21 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/provenance"
 )
 
 // RequiredFieldError maps to 422 on both surfaces.
 type RequiredFieldError struct{ Field string }
 
 func (e *RequiredFieldError) Error() string { return e.Field + " is required" }
+
+// ReservedSourceSystemError refuses a client write into the importer's
+// source-system namespace (see activityLogInput). Maps to 422.
+type ReservedSourceSystemError struct{ Value string }
+
+func (e *ReservedSourceSystemError) Error() string {
+	return "source_system " + e.Value + " is reserved for imports"
+}
 
 // pathID asserts a contract path id as entity K's id — the widening
 // point between the wire and the typed store surface (the route already
@@ -40,6 +49,14 @@ func idArg[K ids.EntityKind](u *openapi_types.UUID) *ids.ID[K] {
 func activityLogInput(req crmcontracts.CreateActivityRequest) (LogActivityInput, error) {
 	if req.Kind == "" {
 		return LogActivityInput{}, &RequiredFieldError{Field: "kind"}
+	}
+	// The importer's namespace is not a client's to write: this store
+	// keys its idempotent replay on (source_system, source_id), so a
+	// caller who could spell the reserved prefix could pre-plant a row
+	// under an incumbent record id and have a later import hand it back
+	// as already existing (provenance.ReservedSourceSystemPrefix).
+	if req.SourceSystem != nil && provenance.ReservedSourceSystem(*req.SourceSystem) {
+		return LogActivityInput{}, &ReservedSourceSystemError{Value: *req.SourceSystem}
 	}
 	in := LogActivityInput{
 		Kind:         string(req.Kind),

@@ -22,30 +22,28 @@ package compose
 // are B-E11.10b; this ticket is the writer they drive.
 
 import (
-	"archive/zip"
 	"context"
-	"encoding/csv"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
-	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // exportFormat is the bundle's self-describing version tag; a recipient
 // (and the round-trip re-importer, B-E11.12) keys off it.
 const exportFormat = "margince-export/1"
+
+// auditFieldFormat names the bundle format in the export audit row.
+const auditFieldFormat = "format"
 
 // scopeMode selects the row-visibility rule a member applies — one per
 // distinct scope shape already in use by the module read paths, reused
@@ -72,6 +70,15 @@ const (
 	// scopePersonChild scopes a person child row (person_social) by its
 	// parent person's visibility  14 the same rule the person read applies.
 	scopePersonChild
+	// scopeMirror gates a mirror row by the caller's mirror_visibility
+	// deny-join — the same fail-closed rule every overlay read applies
+	// (ADR-0044): an unmapped caller exports zero mirror rows.
+	scopeMirror
+	// scopeMirrorAssoc requires BOTH endpoints of a mirrored association
+	// edge to be visible — an edge never discloses a record on the far
+	// side the caller cannot see (the relationship member's rule, on
+	// mirror visibility).
+	scopeMirrorAssoc
 )
 
 // exportMember is one bundle entry: a table, its row-scope rule, and the
@@ -82,6 +89,13 @@ type exportMember struct {
 	table      string
 	scope      scopeMode
 	objectGate string
+	// updateGate additionally requires the UPDATE grant on objectGate —
+	// the admin-only members (the incumbent user map's surface is
+	// admin-managed, RC-15/ADR-0057, so its export follows that gate).
+	updateGate bool
+	// orderBy overrides the deterministic ordering for tables without an
+	// id column (the overlay mirror's composite keys). Empty = "t.id".
+	orderBy string
 }
 
 // exportMembers is the bundle contents, in a stable order (the ZIP entry
@@ -102,6 +116,18 @@ var exportMembers = []exportMember{
 	{table: "stage", scope: scopeWorkspace},
 	{table: "attachment", scope: scopeAttachment},
 	{table: "audit_log", scope: scopeAudit},
+}
+
+// overlayExportMembers join the bundle for a workspace in OVERLAY mode
+// (AC-OV-9: the export contains our augmentation PLUS the mirror
+// snapshot, and documents that canonical data resides in the incumbent).
+// Mirror rows and edges ride the caller's mirror-visibility deny-join —
+// the bundle keeps its "never a row their lists would hide" contract;
+// the user map is admin-gated like its own surface.
+var overlayExportMembers = []exportMember{
+	{table: "overlay_mirror", scope: scopeMirror, objectGate: string(recordTypeOverlayConnection), orderBy: "t.object_class, t.external_id"},
+	{table: "overlay_association", scope: scopeMirrorAssoc, objectGate: string(recordTypeOverlayConnection), orderBy: "t.from_type, t.from_id, t.to_type, t.to_id, t.type_id"},
+	{table: "mirror_user_map", scope: scopeWorkspace, objectGate: string(recordTypeOverlayConnection), updateGate: true, orderBy: "t.app_user_id, t.incumbent"},
 }
 
 // ExportWriter assembles the open-format bundle for the caller's
@@ -142,10 +168,28 @@ func (w *ExportWriter) WriteBundle(ctx context.Context, dst io.Writer) (BundleSu
 	summary := BundleSummary{RowCounts: make(map[string]int, len(exportMembers))}
 
 	var collected []memberData
+	var incumbent string
 	err := database.WithWorkspaceTx(ctx, w.pool, func(tx pgx.Tx) error {
-		for _, m := range exportMembers {
+		// In overlay mode the bundle additionally carries the mirror
+		// snapshot and documents where canonical data lives (AC-OV-9) —
+		// P7 stays honestly partial until the flip.
+		if err := tx.QueryRow(ctx, `
+			SELECT coalesce(x_incumbent, '') FROM workspace
+			WHERE id = NULLIF(current_setting('app.workspace_id', true), '')::uuid`,
+		).Scan(&incumbent); err != nil {
+			return fmt.Errorf("export: resolving the workspace's SoR mode: %w", err)
+		}
+		members := exportMembers
+		if incumbent != "" {
+			members = append(append([]exportMember{}, exportMembers...), overlayExportMembers...)
+		}
+		for _, m := range members {
 			if m.objectGate != "" {
-				if err := auth.Require(ctx, m.objectGate, principal.ActionRead); err != nil {
+				action := principal.ActionRead
+				if m.updateGate {
+					action = principal.ActionUpdate
+				}
+				if err := auth.Require(ctx, m.objectGate, action); err != nil {
 					if errors.Is(err, apperrors.ErrPermissionDenied) {
 						summary.Omitted = append(summary.Omitted, m.table)
 						continue
@@ -167,10 +211,35 @@ func (w *ExportWriter) WriteBundle(ctx context.Context, dst io.Writer) (BundleSu
 	}
 
 	wsID, _ := principal.WorkspaceID(ctx)
-	if err := writeZip(dst, actor, wsID, collected, summary); err != nil {
+	if err := writeZip(dst, actor, wsID, incumbent, collected, summary); err != nil {
+		return BundleSummary{}, err
+	}
+
+	// The single export audit entry (features/04 §5: who exported what,
+	// when) — written only once the bundle itself is complete. Ordering
+	// matters beyond bookkeeping: the flip preflight treats this row as
+	// proof a pre-flip bundle exists, so auditing before the write would
+	// let an aborted download satisfy the gate and leave the
+	// reconstruction promise resting on an artifact nobody holds.
+	if err := auditExport(ctx, w.pool, incumbent, summary); err != nil {
 		return BundleSummary{}, err
 	}
 	return summary, nil
+}
+
+// auditExport records the completed bundle.
+func auditExport(ctx context.Context, pool *pgxpool.Pool, incumbent string, summary BundleSummary) error {
+	wsID, ok := principal.WorkspaceID(ctx)
+	if !ok {
+		return errors.New("compose: no workspace bound to export context")
+	}
+	return database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
+		_, err := storekit.Audit(ctx, tx, "export", "workspace", wsID, nil, map[string]any{
+			auditFieldFormat: exportFormat, "row_counts": summary.RowCounts, "omitted": summary.Omitted,
+			"canonical_data_resides_in": incumbent,
+		})
+		return err
+	})
 }
 
 // readMember runs one member's scoped read: it derives the real
@@ -200,7 +269,11 @@ func readMember(ctx context.Context, tx pgx.Tx, m exportMember) (memberData, err
 	if scope != "" {
 		sql += " WHERE " + scope
 	}
-	sql += " ORDER BY t.id"
+	orderBy := m.orderBy
+	if orderBy == "" {
+		orderBy = "t.id"
+	}
+	sql += " ORDER BY " + orderBy
 
 	pgRows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
@@ -252,181 +325,4 @@ func exportableColumns(ctx context.Context, tx pgx.Tx, table string) ([]string, 
 		return nil, fmt.Errorf("export: table %q has no exportable columns", table)
 	}
 	return columns, nil
-}
-
-// writeZip packs the collected members into the bundle: a CSV per object,
-// the relational JSON dump, the files manifest, and the bundle manifest.
-func writeZip(dst io.Writer, actor principal.Principal, wsID ids.UUID, members []memberData, summary BundleSummary) error {
-	zw := zip.NewWriter(dst)
-
-	dump := make(map[string]any, len(members))
-	var filesManifest []map[string]any
-	generatedAt := time.Now().UTC()
-
-	manifest := bundleManifest{
-		Format:         exportFormat,
-		WorkspaceID:    wsID.String(),
-		GeneratedAt:    generatedAt,
-		GeneratedBy:    actor.ID,
-		OmittedObjects: summary.Omitted,
-		Note: "Row-scoped to the exporting principal; open formats only (CSV per object + a relational JSON dump). " +
-			"File bytes are referenced by storage_key, not embedded — see files-manifest.json.",
-	}
-
-	for _, m := range members {
-		if err := writeCSV(zw, m); err != nil {
-			return err
-		}
-		dump[m.table] = rowsAsMaps(m)
-		manifest.Members = append(manifest.Members, manifestMember{
-			Object: m.table, File: m.table + ".csv", Rows: len(m.rows),
-		})
-		if m.table == "attachment" {
-			filesManifest = rowsAsMaps(m)
-		}
-	}
-
-	if err := writeJSON(zw, "data.json", relationalDump{
-		Format: exportFormat, GeneratedAt: generatedAt, Objects: dump,
-	}); err != nil {
-		return err
-	}
-	if err := writeJSON(zw, "files-manifest.json", filesManifestDoc{
-		Note: "Every attachment with its integrity checksum. File bytes live in the object store under storage_key; " +
-			"the blob substrate (B-EP02.27) is not yet wired in this build, so bytes are referenced here, not bundled.",
-		Files: filesManifest,
-	}); err != nil {
-		return err
-	}
-	if err := writeJSON(zw, "manifest.json", manifest); err != nil {
-		return err
-	}
-
-	return zw.Close()
-}
-
-// writeCSV writes one member as a CSV entry: the derived column list is
-// the header, each driver value rendered as a flat cell.
-func writeCSV(zw *zip.Writer, m memberData) error {
-	f, err := zw.Create(m.table + ".csv")
-	if err != nil {
-		return err
-	}
-	cw := csv.NewWriter(f)
-	if err := cw.Write(m.columns); err != nil {
-		return err
-	}
-	record := make([]string, len(m.columns))
-	for _, row := range m.rows {
-		for i := range m.columns {
-			record[i] = csvCell(row[i])
-		}
-		if err := cw.Write(record); err != nil {
-			return err
-		}
-	}
-	cw.Flush()
-	return cw.Error()
-}
-
-// writeJSON marshals v into a ZIP entry as indented JSON.
-//
-//craft:ignore naked-any the bundle documents are heterogeneous JSON shapes assembled for handover, not a single typed record
-func writeJSON(zw *zip.Writer, name string, v any) error {
-	f, err := zw.Create(name)
-	if err != nil {
-		return err
-	}
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	return enc.Encode(v)
-}
-
-// rowsAsMaps shapes a member's rows as column→value maps for the JSON
-// dump, re-embedding jsonb bytes as raw JSON (never base64) and uuids as
-// their canonical strings.
-func rowsAsMaps(m memberData) []map[string]any {
-	out := make([]map[string]any, 0, len(m.rows))
-	for _, row := range m.rows {
-		rec := make(map[string]any, len(m.columns))
-		for i, col := range m.columns {
-			rec[col] = jsonValue(row[i])
-		}
-		out = append(out, rec)
-	}
-	return out
-}
-
-// jsonValue normalizes a driver value for the JSON dump.
-//
-//craft:ignore naked-any a driver row value spans every SQL type the exported tables carry; the switch narrows each
-func jsonValue(v any) any {
-	switch t := v.(type) {
-	case nil:
-		return nil
-	case [16]byte:
-		return ids.UUID(t).String()
-	case []byte:
-		// jsonb columns arrive as raw bytes; embed them as JSON so the
-		// dump nests the object instead of base64-encoding it.
-		return json.RawMessage(t)
-	default:
-		return v
-	}
-}
-
-// csvCell renders a driver value as a single CSV field.
-//
-//craft:ignore naked-any a driver row value spans every SQL type the exported tables carry; the switch narrows each
-func csvCell(v any) string {
-	switch t := v.(type) {
-	case nil:
-		return ""
-	case [16]byte:
-		return ids.UUID(t).String()
-	case []byte:
-		return string(t)
-	case string:
-		return t
-	case time.Time:
-		return t.UTC().Format(time.RFC3339Nano)
-	case bool:
-		return strconv.FormatBool(t)
-	default:
-		return fmt.Sprint(t)
-	}
-}
-
-// bundleManifest describes the bundle: format, provenance, the members
-// present, and any objects the caller's grants excluded.
-type bundleManifest struct {
-	Format         string           `json:"format"`
-	WorkspaceID    string           `json:"workspace_id,omitempty"`
-	GeneratedAt    time.Time        `json:"generated_at"`
-	GeneratedBy    string           `json:"generated_by"`
-	Members        []manifestMember `json:"members"`
-	OmittedObjects []string         `json:"omitted_objects,omitempty"`
-	Note           string           `json:"note"`
-}
-
-type manifestMember struct {
-	Object string `json:"object"`
-	File   string `json:"file"`
-	Rows   int    `json:"rows"`
-}
-
-// relationalDump is the single JSON view of every exported object.
-//
-//craft:ignore naked-any Objects maps each table name to its exported rows, whose columns are schema-derived at runtime
-type relationalDump struct {
-	Format      string         `json:"format"`
-	GeneratedAt time.Time      `json:"generated_at"`
-	Objects     map[string]any `json:"objects"`
-}
-
-// filesManifestDoc is the files manifest: every attachment plus a note on
-// where the bytes live.
-type filesManifestDoc struct {
-	Note  string           `json:"note"`
-	Files []map[string]any `json:"files"`
 }

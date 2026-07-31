@@ -326,14 +326,27 @@ func (s *Service) UnmapUser(ctx context.Context, appUser ids.UserID) error {
 	return nil
 }
 
-// foldConnectionGone translates the fence's abort signal into the wire answer
-// the /overlay cluster gives for "this workspace has no overlay":
-// ErrConnectionGone is an internal signal, never a wire shape, and a request
-// that lost the race with a disconnect is in exactly the state a request
-// arriving one moment later would be. Every other error passes through.
+// foldConnectionGone translates the fence's abort signals into wire
+// answers: neither is a shape a client may see. ErrConnectionGone gives
+// the /overlay cluster's "this workspace has no overlay" — a request
+// that lost the race with a disconnect is in exactly the state a
+// request arriving one moment later would be. ErrMirrorFrozen is a
+// pending flip holding the mirror still; that is a state conflict the
+// caller can act on, so it says what to do about it rather than
+// surfacing as an opaque 500. Every other error passes through.
 func foldConnectionGone(err error) error {
 	if errors.Is(err, ErrConnectionGone) {
 		return apperrors.ErrModeNotOverlay
+	}
+	return foldMirrorFrozen(err)
+}
+
+// foldMirrorFrozen is the freeze half of the fold, shared by every wire
+// boundary a fenced write can reach (the user-map service here and the
+// write-back path's writePathError).
+func foldMirrorFrozen(err error) error {
+	if errors.Is(err, ErrMirrorFrozen) {
+		return fmt.Errorf("the mirror is frozen for the overlay→native flip; it is released when the flip completes, or when a preflight finds the workspace not ready: %w", apperrors.ErrConflict)
 	}
 	return err
 }

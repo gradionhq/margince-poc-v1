@@ -41,7 +41,12 @@ func (h Handlers) CreateLead(w http.ResponseWriter, r *http.Request, _ crmcontra
 		return
 	}
 
-	lead, created, err := h.store.CreateLead(r.Context(), leadCreateInput(req))
+	in, err := leadCreateInput(req)
+	if err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	lead, created, err := h.store.CreateLead(r.Context(), in)
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

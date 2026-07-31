@@ -71,6 +71,26 @@ func (s *Service) Disconnect(ctx context.Context) error {
 
 	var ref string
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// A flip RUN in flight is the one thing disconnect must not race:
+		// tearing the mirror down mid-import would migrate a vanishing
+		// estate. A merely SEALED snapshot is NOT enough to refuse on —
+		// disconnect is the only path that revokes the incumbent's
+		// credential and purges the mirrored PII, so it stays an escape
+		// hatch from a frozen-but-idle workspace rather than becoming a
+		// latch that strands one. The predicate is injected (compose owns
+		// the migration-module edge) and defaults to "no run in flight"
+		// for a Service built without it. Checked in the same transaction
+		// as the revoke, so a concurrent flip and disconnect serialize on
+		// the connection row.
+		if s.flipImportRunning != nil {
+			running, err := s.flipImportRunning(ctx, tx)
+			if err != nil {
+				return fmt.Errorf("overlay: checking for an in-progress flip before disconnect: %w", err)
+			}
+			if running {
+				return fmt.Errorf("overlay: a flip is in progress for this workspace; let it finish (or fail) before disconnecting: %w", apperrors.ErrConflict)
+			}
+		}
 		connRef, err := revokeConnection(ctx, tx)
 		if err != nil {
 			return err

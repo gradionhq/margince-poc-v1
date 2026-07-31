@@ -76,6 +76,36 @@ each fails; changing what re-arms a dismissal means reading that first.
 
 Open work, roughly in priority order.
 
+### Overlay→native cutover follow-ups (foundation#1179 shipped the lifecycle)
+
+The flip + ADR-0071 lifecycle (preflight gate, emergency cutover, retirement
+ordering, reconstruction-from-export) landed with the OVA-AC-6 integration
+lanes green. What it deliberately did NOT include, for whoever picks up next:
+
+- **The mode-flip screen** (`mode-flip.html`, AC-mode-flip-1..8) — the backend
+  surface is complete (`/overlay/flip:preflight` + `/overlay/flip`); the
+  frontend affordance is its own arc.
+- **The direct migrate-in connectors** (UC-E11-03: HubSpot/Salesforce/CSV) —
+  the shared engine (`internal/modules/migration`) and its `import_run` store
+  exist; the connectors, mapping UI, dry-run/approve lifecycle, and undo are
+  the import-export-migration chapter's own tickets (IEM-GAP-1..3 first).
+- **The RBAC fitness matcher only sees receivers named exactly `Store` or
+  `Service`** (`backend/rbacgate_test.go`), so a module whose store is named
+  `RunStore`/`MirrorStore` sits outside `TestEveryStoreEntryPointIsAuthGated`
+  entirely. The cutover's own new entry points are gated by hand; widening the
+  matcher to a suffix surfaces ~30 pre-existing ungated methods across ai,
+  capture and others, which wants its own change rather than riding a feature
+  PR.
+
+- **Spec-fills raised upstream** (disclosed in the PR): the `blocking[]`
+  reason literals incl. `incumbent_unreachable`; the emergency variant's API
+  shape (`mode` field, reachable-refusal rule); `import_run.connector` gaining
+  `'mirror'`; `x_incumbent` cleared at flip time under the DS-AC-5 CHECK;
+  the export bundle's retention window value (A92 has no number); the
+  OVA-MAP-6 deal pipeline/stage materialization fallback (default pipeline's
+  first open stage, disclosed per row). UC-E18-05 F2 (un-flipped disconnect)
+  and F3 (teardown partial-failure) stay unasserted — named spec gaps.
+
 ### Correctness and security
 
 - **Overlay: 45 of 49 pre-open-source review findings are still open.** The two
