@@ -7992,6 +7992,78 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /people/{id}/network:
+    get:
+      tags: [People]
+      operationId: getPersonNetwork
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: Who on our team knows this contact, and how well.
+      description: |
+        The person-anchored answer to the question the company connections card answers
+        per account: which colleagues have a real recorded relationship with this
+        contact, warmest first.
+
+        Warmth is the per-user relationship strength (PO-F-3b) — the same recency ×
+        frequency × reciprocity arithmetic as the contact's workspace-wide score, over
+        only the interactions THAT colleague was in. The two are not comparable by
+        addition and are never merged: a contact can be warm to the company while the
+        colleague beside them has barely met them, and that gap is the answer to "who
+        should make the introduction".
+
+        A colleague with no qualifying interaction in the window carries the `none`
+        band and no number — "we have never spoken" and "we spoke and it went cold" are
+        different facts, and a zero would render them identically.
+
+        Departed colleagues are absent: the surface exists to name someone who can act.
+        A contact the caller cannot read answers 404, never a leak of its existence.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The colleagues who know this contact.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PersonNetwork' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /deals/{id}/coverage:
+    get:
+      tags: [Deals]
+      operationId: getDealCoverage
+      security: [ { cookieAuth: [] }, { bearerAuth: [] } ]
+      summary: Who covers this deal, and what is wrong with how it is covered.
+      description: |
+        Every seat on the deal, which of them are actually engaged, which colleagues
+        carry the contact, and the risks that follow.
+
+        **Engaged means a two-way exchange**, not a seat on a list: both an inbound and
+        an outbound qualifying interaction in the window. A deal threaded only through
+        people who never replied is exactly what these flags exist to catch, and it is
+        the same test the deal-health composite uses — one definition, so two screens
+        cannot disagree about the same deal.
+
+        Risk kinds and their sources: `single_threaded_theirs` is REPORT-PARAM-1
+        verbatim (fewer than two engaged contacts); `single_threaded_ours` is
+        GRAPH-RISK-1, a statement about OUR coverage rather than the customer's, which
+        is why it carries its own id; `coverage_gap` is a deal with seats but no engaged
+        champion — a well-threaded deal nobody inside is arguing for.
+
+        Every risk carries the ids behind it. A flag a human cannot drill into is a red
+        dot nobody can act on.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The deal's coverage and its risks.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DealCoverage' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /me/linkedin-connections:
     post:
       tags: [People]
@@ -10594,6 +10666,66 @@ components:
             The company node's resolved logo (A55), same value `Organization.logo_url` carries.
             Absent on an organization with no resolved logo and on every person or deal node —
             a client draws the node's monogram or its token-coloured circle instead.
+
+    PersonNetworkColleague:
+      type: object
+      description: One colleague's own relationship with this contact.
+      required: [user_id, display_name, strength_bucket, interactions_90d]
+      properties:
+        user_id:      { type: string, format: uuid }
+        display_name: { type: string }
+        strength:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 100
+          description: 'PO-F-3b, computed at read; null when the band is `none`.'
+        strength_bucket: { type: string, enum: [none, weak, moderate, strong] }
+        interactions_90d: { type: integer, minimum: 0 }
+        last_at:          { type: [string, 'null'], format: date-time }
+
+    PersonNetwork:
+      type: object
+      description: |
+        The colleagues who know this contact, warmest first. Ordering is the answer, not
+        a presentation detail: it is who to ask.
+      required: [person_id, colleagues]
+      properties:
+        person_id:  { type: string, format: uuid }
+        colleagues: { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
+
+    DealCoverageSeat:
+      type: object
+      description: One stakeholder seat, and whether it is a relationship or just a name.
+      required: [person_id, role, engaged]
+      properties:
+        person_id: { type: string, format: uuid }
+        role:      { type: string }
+        engaged:
+          type: boolean
+          description: 'A two-way exchange in the window — both directions, not just our sends.'
+
+    DealCoverageRisk:
+      type: object
+      description: |
+        One finding, with the records behind it. `kind` names the rule so a surface can
+        explain the flag rather than assert it.
+      required: [kind, summary]
+      properties:
+        kind:
+          type: string
+          enum: [single_threaded_theirs, single_threaded_ours, coverage_gap, champion_left, stakeholder_left, going_cold]
+        summary:    { type: string }
+        person_ids: { type: array, items: { type: string, format: uuid } }
+        user_ids:   { type: array, items: { type: string, format: uuid } }
+
+    DealCoverage:
+      type: object
+      required: [deal_id, stakeholders, our_side, risks]
+      properties:
+        deal_id:      { type: string, format: uuid }
+        stakeholders: { type: array, items: { $ref: '#/components/schemas/DealCoverageSeat' } }
+        our_side:     { type: array, items: { $ref: '#/components/schemas/PersonNetworkColleague' } }
+        risks:        { type: array, items: { $ref: '#/components/schemas/DealCoverageRisk' } }
 
     LinkedInImportSummary:
       type: object

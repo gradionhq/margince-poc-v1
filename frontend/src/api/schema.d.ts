@@ -4762,6 +4762,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/people/{id}/network": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who on our team knows this contact, and how well.
+         * @description The person-anchored answer to the question the company connections card answers
+         *     per account: which colleagues have a real recorded relationship with this
+         *     contact, warmest first.
+         *
+         *     Warmth is the per-user relationship strength (PO-F-3b) — the same recency ×
+         *     frequency × reciprocity arithmetic as the contact's workspace-wide score, over
+         *     only the interactions THAT colleague was in. The two are not comparable by
+         *     addition and are never merged: a contact can be warm to the company while the
+         *     colleague beside them has barely met them, and that gap is the answer to "who
+         *     should make the introduction".
+         *
+         *     A colleague with no qualifying interaction in the window carries the `none`
+         *     band and no number — "we have never spoken" and "we spoke and it went cold" are
+         *     different facts, and a zero would render them identically.
+         *
+         *     Departed colleagues are absent: the surface exists to name someone who can act.
+         *     A contact the caller cannot read answers 404, never a leak of its existence.
+         */
+        get: operations["getPersonNetwork"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/deals/{id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who covers this deal, and what is wrong with how it is covered.
+         * @description Every seat on the deal, which of them are actually engaged, which colleagues
+         *     carry the contact, and the risks that follow.
+         *
+         *     **Engaged means a two-way exchange**, not a seat on a list: both an inbound and
+         *     an outbound qualifying interaction in the window. A deal threaded only through
+         *     people who never replied is exactly what these flags exist to catch, and it is
+         *     the same test the deal-health composite uses — one definition, so two screens
+         *     cannot disagree about the same deal.
+         *
+         *     Risk kinds and their sources: `single_threaded_theirs` is REPORT-PARAM-1
+         *     verbatim (fewer than two engaged contacts); `single_threaded_ours` is
+         *     GRAPH-RISK-1, a statement about OUR coverage rather than the customer's, which
+         *     is why it carries its own id; `coverage_gap` is a deal with seats but no engaged
+         *     champion — a well-threaded deal nobody inside is arguing for.
+         *
+         *     Every risk carries the ids behind it. A flag a human cannot drill into is a red
+         *     dot nobody can act on.
+         */
+        get: operations["getDealCoverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/me/linkedin-connections": {
         parameters: {
             query?: never;
@@ -6857,6 +6929,54 @@ export interface components {
              *     a client draws the node's monogram or its token-coloured circle instead.
              */
             logo_url?: string | null;
+        };
+        /** @description One colleague's own relationship with this contact. */
+        PersonNetworkColleague: {
+            /** Format: uuid */
+            user_id: string;
+            display_name: string;
+            /** @description PO-F-3b, computed at read; null when the band is `none`. */
+            strength?: number | null;
+            /** @enum {string} */
+            strength_bucket: "none" | "weak" | "moderate" | "strong";
+            interactions_90d: number;
+            /** Format: date-time */
+            last_at?: string | null;
+        };
+        /**
+         * @description The colleagues who know this contact, warmest first. Ordering is the answer, not
+         *     a presentation detail: it is who to ask.
+         */
+        PersonNetwork: {
+            /** Format: uuid */
+            person_id: string;
+            colleagues: components["schemas"]["PersonNetworkColleague"][];
+        };
+        /** @description One stakeholder seat, and whether it is a relationship or just a name. */
+        DealCoverageSeat: {
+            /** Format: uuid */
+            person_id: string;
+            role: string;
+            /** @description A two-way exchange in the window — both directions, not just our sends. */
+            engaged: boolean;
+        };
+        /**
+         * @description One finding, with the records behind it. `kind` names the rule so a surface can
+         *     explain the flag rather than assert it.
+         */
+        DealCoverageRisk: {
+            /** @enum {string} */
+            kind: "single_threaded_theirs" | "single_threaded_ours" | "coverage_gap" | "champion_left" | "stakeholder_left" | "going_cold";
+            summary: string;
+            person_ids?: string[];
+            user_ids?: string[];
+        };
+        DealCoverage: {
+            /** Format: uuid */
+            deal_id: string;
+            stakeholders: components["schemas"]["DealCoverageSeat"][];
+            our_side: components["schemas"]["PersonNetworkColleague"][];
+            risks: components["schemas"]["DealCoverageRisk"][];
         };
         /**
          * @description What one import did, in the terms someone asked to trust it would check.
@@ -21343,6 +21463,56 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    getPersonNetwork: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The colleagues who know this contact. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonNetwork"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getDealCoverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The deal's coverage and its risks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DealCoverage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     importLinkedInConnections: {

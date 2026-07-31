@@ -2796,6 +2796,36 @@ func (e DealStatus) Valid() bool {
 	}
 }
 
+// Defines values for DealCoverageRiskKind.
+const (
+	DealCoverageRiskKindChampionLeft         DealCoverageRiskKind = "champion_left"
+	DealCoverageRiskKindCoverageGap          DealCoverageRiskKind = "coverage_gap"
+	DealCoverageRiskKindGoingCold            DealCoverageRiskKind = "going_cold"
+	DealCoverageRiskKindSingleThreadedOurs   DealCoverageRiskKind = "single_threaded_ours"
+	DealCoverageRiskKindSingleThreadedTheirs DealCoverageRiskKind = "single_threaded_theirs"
+	DealCoverageRiskKindStakeholderLeft      DealCoverageRiskKind = "stakeholder_left"
+)
+
+// Valid indicates whether the value is a known member of the DealCoverageRiskKind enum.
+func (e DealCoverageRiskKind) Valid() bool {
+	switch e {
+	case DealCoverageRiskKindChampionLeft:
+		return true
+	case DealCoverageRiskKindCoverageGap:
+		return true
+	case DealCoverageRiskKindGoingCold:
+		return true
+	case DealCoverageRiskKindSingleThreadedOurs:
+		return true
+	case DealCoverageRiskKindSingleThreadedTheirs:
+		return true
+	case DealCoverageRiskKindStakeholderLeft:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DedupeCandidateEntityType.
 const (
 	DedupeCandidateEntityTypeOrganization DedupeCandidateEntityType = "organization"
@@ -4488,6 +4518,30 @@ func (e PersonEmailEmailType) Valid() bool {
 	case PersonEmailEmailTypePersonal:
 		return true
 	case PersonEmailEmailTypeWork:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for PersonNetworkColleagueStrengthBucket.
+const (
+	PersonNetworkColleagueStrengthBucketModerate PersonNetworkColleagueStrengthBucket = "moderate"
+	PersonNetworkColleagueStrengthBucketNone     PersonNetworkColleagueStrengthBucket = "none"
+	PersonNetworkColleagueStrengthBucketStrong   PersonNetworkColleagueStrengthBucket = "strong"
+	PersonNetworkColleagueStrengthBucketWeak     PersonNetworkColleagueStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the PersonNetworkColleagueStrengthBucket enum.
+func (e PersonNetworkColleagueStrengthBucket) Valid() bool {
+	switch e {
+	case PersonNetworkColleagueStrengthBucketModerate:
+		return true
+	case PersonNetworkColleagueStrengthBucketNone:
+		return true
+	case PersonNetworkColleagueStrengthBucketStrong:
+		return true
+	case PersonNetworkColleagueStrengthBucketWeak:
 		return true
 	default:
 		return false
@@ -6746,16 +6800,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	Active  ListCustomFieldsParamsStatus = "active"
-	Retired ListCustomFieldsParamsStatus = "retired"
+	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
+	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case Active:
+	case ListCustomFieldsParamsStatusActive:
 		return true
-	case Retired:
+	case ListCustomFieldsParamsStatusRetired:
 		return true
 	default:
 		return false
@@ -7295,28 +7349,28 @@ func (e ListSignalsParamsStatus) Valid() bool {
 
 // Defines values for ListSignalsParamsKind.
 const (
-	BuyingIntent ListSignalsParamsKind = "buying_intent"
-	ChampionLeft ListSignalsParamsKind = "champion_left"
-	Other        ListSignalsParamsKind = "other"
-	Reengagement ListSignalsParamsKind = "reengagement"
-	Risk         ListSignalsParamsKind = "risk"
-	StalledDeal  ListSignalsParamsKind = "stalled_deal"
+	ListSignalsParamsKindBuyingIntent ListSignalsParamsKind = "buying_intent"
+	ListSignalsParamsKindChampionLeft ListSignalsParamsKind = "champion_left"
+	ListSignalsParamsKindOther        ListSignalsParamsKind = "other"
+	ListSignalsParamsKindReengagement ListSignalsParamsKind = "reengagement"
+	ListSignalsParamsKindRisk         ListSignalsParamsKind = "risk"
+	ListSignalsParamsKindStalledDeal  ListSignalsParamsKind = "stalled_deal"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsKind enum.
 func (e ListSignalsParamsKind) Valid() bool {
 	switch e {
-	case BuyingIntent:
+	case ListSignalsParamsKindBuyingIntent:
 		return true
-	case ChampionLeft:
+	case ListSignalsParamsKindChampionLeft:
 		return true
-	case Other:
+	case ListSignalsParamsKindOther:
 		return true
-	case Reengagement:
+	case ListSignalsParamsKindReengagement:
 		return true
-	case Risk:
+	case ListSignalsParamsKindRisk:
 		return true
-	case StalledDeal:
+	case ListSignalsParamsKindStalledDeal:
 		return true
 	default:
 		return false
@@ -9528,6 +9582,34 @@ type DealForecastCategory string
 // DealStatus defines model for Deal.Status.
 type DealStatus string
 
+// DealCoverage defines model for DealCoverage.
+type DealCoverage struct {
+	DealId       openapi_types.UUID       `json:"deal_id"`
+	OurSide      []PersonNetworkColleague `json:"our_side"`
+	Risks        []DealCoverageRisk       `json:"risks"`
+	Stakeholders []DealCoverageSeat       `json:"stakeholders"`
+}
+
+// DealCoverageRisk One finding, with the records behind it. `kind` names the rule so a surface can
+// explain the flag rather than assert it.
+type DealCoverageRisk struct {
+	Kind      DealCoverageRiskKind  `json:"kind"`
+	PersonIds *[]openapi_types.UUID `json:"person_ids,omitempty"`
+	Summary   string                `json:"summary"`
+	UserIds   *[]openapi_types.UUID `json:"user_ids,omitempty"`
+}
+
+// DealCoverageRiskKind defines model for DealCoverageRisk.Kind.
+type DealCoverageRiskKind string
+
+// DealCoverageSeat One stakeholder seat, and whether it is a relationship or just a name.
+type DealCoverageSeat struct {
+	// Engaged A two-way exchange in the window — both directions, not just our sends.
+	Engaged  bool               `json:"engaged"`
+	PersonId openapi_types.UUID `json:"person_id"`
+	Role     string             `json:"role"`
+}
+
 // DealListResponse defines model for DealListResponse.
 type DealListResponse struct {
 	Data []Deal   `json:"data"`
@@ -11590,6 +11672,28 @@ type PersonListResponse struct {
 	Data []Person `json:"data"`
 	Page PageInfo `json:"page"`
 }
+
+// PersonNetwork The colleagues who know this contact, warmest first. Ordering is the answer, not
+// a presentation detail: it is who to ask.
+type PersonNetwork struct {
+	Colleagues []PersonNetworkColleague `json:"colleagues"`
+	PersonId   openapi_types.UUID       `json:"person_id"`
+}
+
+// PersonNetworkColleague One colleague's own relationship with this contact.
+type PersonNetworkColleague struct {
+	DisplayName     string     `json:"display_name"`
+	Interactions90d int        `json:"interactions_90d"`
+	LastAt          *time.Time `json:"last_at,omitempty"`
+
+	// Strength PO-F-3b, computed at read; null when the band is `none`.
+	Strength       *int                                 `json:"strength,omitempty"`
+	StrengthBucket PersonNetworkColleagueStrengthBucket `json:"strength_bucket"`
+	UserId         openapi_types.UUID                   `json:"user_id"`
+}
+
+// PersonNetworkColleagueStrengthBucket defines model for PersonNetworkColleague.StrengthBucket.
+type PersonNetworkColleagueStrengthBucket string
 
 // PersonPhone defines model for PersonPhone.
 type PersonPhone struct {
@@ -22568,6 +22672,9 @@ type ServerInterface interface {
 	// Advance a deal to a new stage (audit-logged with prior + next stage).
 	// (POST /deals/{id}/advance)
 	AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id, params AdvanceDealParams)
+	// Who covers this deal, and what is wrong with how it is covered.
+	// (GET /deals/{id}/coverage)
+	GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// List a deal's offers, newest revision first.
 	// (GET /deals/{id}/offers)
 	ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams)
@@ -22868,6 +22975,9 @@ type ServerInterface interface {
 	// Merge this person into a target (non-lossy).
 	// (POST /people/{id}/merge)
 	MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams)
+	// Who on our team knows this contact, and how well.
+	// (GET /people/{id}/network)
+	GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID)
 	// Relationship strength for a person (deterministic recency × frequency × reciprocity).
 	// (GET /people/{id}/strength)
 	GetPersonStrength(w http.ResponseWriter, r *http.Request, id Id)
@@ -23723,6 +23833,12 @@ func (_ Unimplemented) AdvanceDeal(w http.ResponseWriter, r *http.Request, id Id
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Who covers this deal, and what is wrong with how it is covered.
+// (GET /deals/{id}/coverage)
+func (_ Unimplemented) GetDealCoverage(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // List a deal's offers, newest revision first.
 // (GET /deals/{id}/offers)
 func (_ Unimplemented) ListDealOffers(w http.ResponseWriter, r *http.Request, id Id, params ListDealOffersParams) {
@@ -24320,6 +24436,12 @@ func (_ Unimplemented) IssueDoubleOptIn(w http.ResponseWriter, r *http.Request, 
 // Merge this person into a target (non-lossy).
 // (POST /people/{id}/merge)
 func (_ Unimplemented) MergePerson(w http.ResponseWriter, r *http.Request, id Id, params MergePersonParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Who on our team knows this contact, and how well.
+// (GET /people/{id}/network)
+func (_ Unimplemented) GetPersonNetwork(w http.ResponseWriter, r *http.Request, id openapi_types.UUID) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -29009,6 +29131,40 @@ func (siw *ServerInterfaceWrapper) AdvanceDeal(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// GetDealCoverage operation middleware
+func (siw *ServerInterfaceWrapper) GetDealCoverage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetDealCoverage(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListDealOffers operation middleware
 func (siw *ServerInterfaceWrapper) ListDealOffers(w http.ResponseWriter, r *http.Request) {
 
@@ -33454,6 +33610,40 @@ func (siw *ServerInterfaceWrapper) MergePerson(w http.ResponseWriter, r *http.Re
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.MergePerson(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetPersonNetwork operation middleware
+func (siw *ServerInterfaceWrapper) GetPersonNetwork(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id openapi_types.UUID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetPersonNetwork(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39041,6 +39231,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/deals/{id}/advance", wrapper.AdvanceDeal)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/deals/{id}/coverage", wrapper.GetDealCoverage)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/deals/{id}/offers", wrapper.ListDealOffers)
 	})
 	r.Group(func(r chi.Router) {
@@ -39339,6 +39532,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/people/{id}/merge", wrapper.MergePerson)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/people/{id}/network", wrapper.GetPersonNetwork)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/people/{id}/strength", wrapper.GetPersonStrength)
