@@ -61,6 +61,25 @@ target". `compose/sitelead_integration_test.go` stages leads with no fields, so
 `ApplyDeepRead` never runs; `compose/deepread_integration_test.go` only ever
 decides the bundle, never a sibling lead after it.
 
+## Open decision — the organization brief endpoint has no client
+
+`GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
+removed from the company page because what it produced restated the screen:
+on a live account its two sentences were "you currently have three contacts
+recorded for this account" and "there is one open task due on August 1, 2026",
+both of which the reader could already see, under a heading that promised a
+reading of the account.
+
+The endpoint, its store and `compose/orgbrief` are untouched. Either the
+sentences it generates need to be worth a card of their own — the research on
+account pages says a generated summary must answer a NAMED question and cite
+its source, not narrate the record — or the endpoint should be retired. Not a
+call to make from the frontend.
+
+The client component and its hook were deleted rather than left mounted
+nowhere. `SentenceList`, `Citations` and `WrittenBy` survive: the Ask flow
+uses all three.
+
 ## Open defect — the graph cannot answer "who do I know here"
 
 The `in_contact_with` edge exists in the contract and is implemented
