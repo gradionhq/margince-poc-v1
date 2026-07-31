@@ -6839,10 +6839,12 @@ export interface components {
              *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
              *     the organization that records the edge to its counterparty.
              *     `owns` — `from` is the workspace member who owns the account.
-             *     `in_contact_with` — `from` is the workspace member who has recorded interactions
-             *     (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-             *     those interactions, so a task assigned to a teammate does not make one: an
-             *     assignment is intent, a logged email is contact.
+             *     `in_contact_with` — `from` is the workspace member who has been IN recorded
+             *     interactions (email, call, meeting) with the contact at `to`. It is drawn from
+             *     the recorded participants of those interactions, so it holds for
+             *     connector-captured mail as well as manually logged activity. Being copied on a
+             *     thread does not make one, and neither does a task assigned to a teammate: a cc
+             *     is exposure and an assignment is intent, while a logged exchange is contact.
              * @enum {string}
              */
             kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with" | "owns" | "in_contact_with";
@@ -6852,6 +6854,33 @@ export interface components {
              *     both `owns` and `in_contact_with`.
              */
             role?: string | null;
+            /**
+             * @description How warm this particular colleague's relationship with this contact is, 0–100,
+             *     on `in_contact_with` edges only; null on every other kind, which describes a
+             *     structural fact rather than a relationship.
+             *
+             *     It is the per-user relationship strength (PO-F-3b): the same recency ×
+             *     frequency × reciprocity arithmetic as the workspace-wide contact score, over
+             *     only the interactions THIS colleague was in. It is deliberately not comparable
+             *     by addition to the contact's own score — one answers "how warm is this contact
+             *     to us", the other "to this person among us", and neither is derivable from the
+             *     other.
+             *
+             *     Computed at read from exact timestamps and counts, never stored, so it decays
+             *     with the clock rather than with whenever a job last ran.
+             *
+             *     Null also when the colleague and contact have no qualifying interaction in the
+             *     scoring window, which is not the same as a zero — see `strength_bucket`.
+             */
+            strength?: number | null;
+            /**
+             * @description The display band for `strength`, so a surface renders the same words everywhere.
+             *     `none` means no qualifying interaction at all and is shown as "no signal yet",
+             *     never as a zero: "we have never spoken" and "we spoke and it went cold" are
+             *     different facts about an account.
+             * @enum {string|null}
+             */
+            strength_bucket?: "none" | "weak" | "moderate" | "strong" | null;
         };
         /**
          * @description The warm-intro route the account's most recent open signal proposes: which signal,

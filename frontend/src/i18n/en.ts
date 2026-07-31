@@ -583,6 +583,7 @@ export const en = {
   "co.connections.rel.co_sell_with": "co-selling",
   "co.connections.rel.owns": "owns this account",
   "co.connections.rel.in_contact_with": "in contact",
+  "co.connections.noSignal": "no signal yet",
   "co.connections.group.contacts": "contacts",
   "co.connections.group.deals": "deals",
   "co.connections.group.intro_path": "the warm intro",

@@ -593,6 +593,7 @@ export const de = {
   "co.connections.rel.referred_by.owner": "von diesem Account empfohlen",
   "co.connections.rel.owns": "betreut diesen Account",
   "co.connections.rel.in_contact_with": "im Austausch",
+  "co.connections.noSignal": "noch kein Signal",
   "co.connections.rel.co_sell_with": "gemeinsamer Vertrieb",
   "co.connections.group.contacts": "Kontakte",
   "co.connections.group.deals": "Deals",
