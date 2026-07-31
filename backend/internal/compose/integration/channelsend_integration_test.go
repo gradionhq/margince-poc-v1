@@ -164,17 +164,16 @@ func (c *channelSendEnv) grantConsent(t *testing.T, key string) {
 	}
 }
 
-// connectBot writes the workspace's live bot binding. The credential refs are
-// never resolved on this path — the pre-flight reads liveness and stops short of
-// the vault — so their values are deliberately opaque here.
+// connectBot writes the workspace's live bot binding. The credential ref is never
+// resolved on this path — the pre-flight reads liveness and stops short of the
+// vault — so its value is deliberately opaque here.
 func (c *channelSendEnv) connectBot(t *testing.T) {
 	t.Helper()
 	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(), `
 			INSERT INTO channel_connection
-				(workspace_id, provider, channel_id, channel_label, credential_ref,
-				 webhook_secret_ref, status, connected_by)
-			VALUES ($1, 'telegram', '8100', '@fablebot', 'vault:token', 'vault:secret', 'connected', $2)`,
+				(workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
+			VALUES ($1, 'telegram', '8100', '@fablebot', 'vault:token', 'connected', $2)`,
 			c.ws, c.user)
 		return err
 	}); err != nil {

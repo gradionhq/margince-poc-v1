@@ -5,26 +5,27 @@
 
 package capture_test
 
-// The channel-connect suite (telegram-oa design §5, §9.2). Every test here is
-// about ORDER or about what a failure leaves behind, which is why it runs on a
-// real database: the invariants are "nothing was written", "a pending row
-// survives", "the second workspace loses the global index" — none of which a
-// mocked store could be wrong about.
+// The channel-connect suite (telegram-oa design v2 §4). Every test here is about
+// ORDER or about what a failure leaves behind, which is why it runs on a real
+// database: the invariants are "nothing was written", "the cursor restarted",
+// "the second workspace loses the global index" — none of which a mocked store
+// could be wrong about.
+//
+// The shape connect has under a PULL ingress is what most of these assert: there
+// is no registration, so there is no window between a written row and a live one,
+// and every refusal therefore has to leave the table and the vault untouched.
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
-	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -52,11 +53,8 @@ func TestConnectValidatesTokenBeforePersistingAnything(t *testing.T) {
 	if puts := f.vault.putCount(); puts != 0 {
 		t.Errorf("a refused connect sealed %d secret(s); nothing references them and no sweep collects them", puts)
 	}
-	if len(f.api.getWebhookInfoTokens) != 0 {
-		t.Errorf("the preflight ran %d time(s) on a token getMe already rejected — the order is getMe first", len(f.api.getWebhookInfoTokens))
-	}
-	if len(f.api.setWebhookCalls) != 0 {
-		t.Error("a refused connect registered a webhook")
+	if cleared := f.api.clearedWebhooks(); len(cleared) != 0 {
+		t.Errorf("deleteWebhook ran %d time(s) on a token getMe already rejected — the order is getMe first", len(cleared))
 	}
 }
 
@@ -93,87 +91,72 @@ func TestConnectRejectsAnInvalidTokenWith400(t *testing.T) {
 	}
 }
 
-// Telegram allows exactly ONE webhook per bot, so a bot already delivering to
-// another installation cannot be connected here without silently stealing that
-// installation's traffic. No local constraint can see this — only the preflight
-// can — and the refusal must not name the other installation's URL.
-func TestConnectRefusesABotWhoseWebhookPointsElsewhere(t *testing.T) {
+// Clearing the bot's webhook is what makes it pollable at all — Telegram refuses
+// getUpdates while one is registered — so a connect that cannot clear it must
+// write nothing rather than a row the poller could only ever fail on. The clear
+// happens BEFORE the seal, which is what keeps the vault clean too.
+func TestConnectWritesNothingWhenTheWebhookCannotBeCleared(t *testing.T) {
 	api := newFakeTelegram()
-	token, _ := api.withNewBot("elsewhere_bot")
-	api.pointWebhookElsewhere(token)
-	f := newChannelFixture(t, api)
-
-	_, err := f.store.Connect(f.ctx, capture.ConnectRequest{
-		Provider: capture.ProviderTelegram, BotToken: token,
-	})
-	if !errors.Is(err, capture.ErrChannelWebhookOwnedElsewhere) {
-		t.Fatalf("Connect on a bot registered elsewhere: got %v, want ErrChannelWebhookOwnedElsewhere", err)
-	}
-	if n := f.rowCount(t); n != 0 {
-		t.Errorf("a conflicting connect wrote %d row(s); the preflight runs before anything is written", n)
-	}
-	if puts := f.vault.putCount(); puts != 0 {
-		t.Errorf("a conflicting connect sealed %d secret(s)", puts)
-	}
-
-	rec, req := f.connectRequest(
-		`{"provider":"telegram","botToken":"` + token + `"}`)
-	f.handlers.ConnectChannel(rec, req)
-	if rec.Code != http.StatusConflict {
-		t.Fatalf("status %d, want 409 (body: %s)", rec.Code, rec.Body.String())
-	}
-	if strings.Contains(rec.Body.String(), "staging.internal.example") {
-		t.Errorf("the 409 leaked the other installation's host: %s", rec.Body.String())
-	}
-}
-
-// setWebhook failing is the case the whole ordering exists for: the row is
-// written first, so the failure leaves a `pending` connection an operator can
-// see and retry against the id already in the registered URL — not a silent
-// divergence between us and Telegram.
-func TestConnectLeavesAPendingRowWhenSetWebhookFails(t *testing.T) {
-	api := newFakeTelegram()
-	token, _ := api.withNewBot("pending_bot")
-	api.setWebhookErr = telegram.ErrUnreachable
+	token, _ := api.withNewBot("unclearable_bot")
+	api.deleteWebhookErr = telegram.ErrUnreachable
 	f := newChannelFixture(t, api)
 
 	_, err := f.store.Connect(f.ctx, capture.ConnectRequest{
 		Provider: capture.ProviderTelegram, BotToken: token,
 	})
 	if !errors.Is(err, telegram.ErrUnreachable) {
-		t.Fatalf("Connect with setWebhook failing: got %v, want ErrUnreachable", err)
+		t.Fatalf("Connect with deleteWebhook failing: got %v, want ErrUnreachable", err)
 	}
-
-	// The row must exist and read pending — never connected, and never absent.
-	conns := f.liveConnections(t)
-	if len(conns) != 1 {
-		t.Fatalf("found %d connection(s); a failed setWebhook must leave exactly the one pending row", len(conns))
+	if n := f.rowCount(t); n != 0 {
+		t.Errorf("the refused connect wrote %d row(s); a connection Telegram will not let us poll is not a connection", n)
 	}
-	if conns[0].Status != "pending" {
-		t.Errorf("status %q, want pending — a half-registration that reads connected is indistinguishable from a healthy quiet channel", conns[0].Status)
-	}
-	status, archived, _ := f.rowState(t, conns[0].ID)
-	if status != "pending" || archived {
-		t.Errorf("row state status=%q archived=%v, want pending and live", status, archived)
-	}
-	// The URL Telegram was asked to register carries this row's id — which is
-	// exactly why the row had to exist first.
-	if len(f.api.setWebhookCalls) != 1 {
-		t.Fatalf("setWebhook called %d time(s), want once", len(f.api.setWebhookCalls))
-	}
-	wantURL := channelWebhookBase + "/webhooks/telegram/" + conns[0].ID.String()
-	if got := f.api.setWebhookCalls[0].url; got != wantURL {
-		t.Errorf("registered URL %q, want %q", got, wantURL)
-	}
-	if secret := f.api.setWebhookCalls[0].secret; secret == "" {
-		t.Error("setWebhook was called with an empty secret — the ingress path would have nothing to authenticate")
+	if puts := f.vault.putCount(); puts != 0 {
+		t.Errorf("the refused connect sealed %d secret(s) — the clear runs before the seal for exactly this reason", puts)
 	}
 }
 
-// The bot-scoped unique index is deliberately GLOBAL, not per-workspace: one
-// bot has one webhook, so a second workspace connecting the same bot would
-// silently redirect every delivery away from the first, which would go on
-// reading `connected` and simply fall quiet.
+// A connect that succeeds is live immediately and starts at cursor 0 — "whatever
+// Telegram still holds" — so the messages waiting for a freshly connected bot are
+// collected rather than skipped. There is no `pending` state to pass through,
+// because nothing follows the insert.
+func TestConnectIsLiveOnCommitWithAZeroCursor(t *testing.T) {
+	api := newFakeTelegram()
+	token, botID := api.withNewBot("live_bot")
+	f := newChannelFixture(t, api)
+
+	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: token,
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	if conn.Status != "connected" {
+		t.Errorf("status %q straight out of Connect, want connected", conn.Status)
+	}
+	status, archived, channelID := f.rowState(t, conn.ID)
+	if status != "connected" || archived || channelID != strconv.FormatInt(botID, 10) {
+		t.Errorf("row state status=%q archived=%v channel_id=%q, want connected and live on bot %d",
+			status, archived, channelID, botID)
+	}
+	if offset := f.pollOffsetOf(t, conn.ID); offset != 0 {
+		t.Errorf("poll_offset %d, want 0 — a fresh binding must collect what Telegram is holding, not skip it", offset)
+	}
+	if cleared := f.api.clearedWebhooks(); len(cleared) != 1 || cleared[0] != token {
+		t.Errorf("deleteWebhook calls %v, want exactly one for this bot's token — otherwise getUpdates answers 409", cleared)
+	}
+	// One secret now, not two: a poll authenticates with the bot token alone.
+	if puts := f.vault.putCount(); puts != 1 {
+		t.Errorf("a connect sealed %d secret(s), want 1 (the bot token)", puts)
+	}
+	// Audit-only, and exactly one row: there is no second transition to record.
+	if actions := f.auditActions(t, conn.ID); !slices.Equal(actions, []string{"create"}) {
+		t.Errorf("audit actions %v, want a single create — a connect is one atomic step", actions)
+	}
+}
+
+// The bot-scoped unique index is deliberately GLOBAL, not per-workspace: only one
+// getUpdates consumer may hold a bot, so a second workspace connecting the same
+// bot would not split the traffic, it would race the first for it.
 func TestConnectRefusesTheSameBotInASecondWorkspace(t *testing.T) {
 	api := newFakeTelegram()
 	token, _ := api.withNewBot("shared_bot")
@@ -192,32 +175,74 @@ func TestConnectRefusesTheSameBotInASecondWorkspace(t *testing.T) {
 	if !errors.Is(err, apperrors.ErrConflict) {
 		t.Fatalf("the second workspace's connect: got %v, want ErrConflict", err)
 	}
+	// And it must NOT read as the workspace rule: the remedy differs — pick
+	// another bot, rather than disconnect the one this workspace already has.
+	if errors.Is(err, capture.ErrChannelWorkspaceBotAlreadyBound) {
+		t.Errorf("got %v, which tells the admin to disconnect a binding this workspace does not have", err)
+	}
 	if n := second.rowCount(t); n != 0 {
 		t.Errorf("the losing workspace kept %d row(s)", n)
 	}
-	// The loser sealed two secrets on its way to the insert; both must be
-	// destroyed, because a lost race is the one failure that proves no row
-	// persisted to name them.
+	// The loser sealed a token on its way to the insert; it must be destroyed,
+	// because a lost race is the one failure that proves no row persisted to name it.
 	sealed := second.vault.mintedRefs()
-	if len(sealed) != 2 {
-		t.Fatalf("the losing connect sealed %d secret(s), want the token and the webhook secret", len(sealed))
+	if len(sealed) != 1 {
+		t.Fatalf("the losing connect sealed %d secret(s), want just the bot token", len(sealed))
 	}
-	for _, ref := range sealed {
-		if _, err := second.vault.Get(second.ctx, second.workspaceKey(), ref); err == nil {
-			t.Error("the losing connect left a sealed secret behind, referenced by no row and collected by no sweep")
-		}
-	}
-	// And the winner is untouched: it still holds the registration.
-	if got := api.registeredWebhook(token); !strings.HasPrefix(got, channelWebhookBase) {
-		t.Errorf("the first workspace's registration was disturbed: %q", got)
+	if _, err := second.vault.Get(second.ctx, second.workspaceKey(), sealed[0]); err == nil {
+		t.Error("the losing connect left a sealed secret behind, referenced by no row and collected by no sweep")
 	}
 }
 
-// A token rotation must re-run the preflight (a replacement bot can be wired
-// elsewhere just as a first one can) and must pass back through `pending` on
-// its way to `connected`, so the row never claims to be live while its
-// registration is mid-flight.
-func TestReplaceTokenRerunsThePreflightAndReturnsToConnected(t *testing.T) {
+// One live bot per WORKSPACE (F22). Two live bindings make every outbound reply
+// ambiguous and the send resolver refuses rather than guessing, so a second
+// binding would not add a channel — it would take away the ability to reply on
+// either. The refusal has to say WHICH rule it lost to: the remedy is to
+// disconnect what is already bound, not to try another bot.
+func TestConnectRefusesASecondBotInTheSameWorkspace(t *testing.T) {
+	api := newFakeTelegram()
+	firstToken, _ := api.withNewBot("first_bot")
+	secondToken, _ := api.withNewBot("second_bot")
+	f := newChannelFixture(t, api)
+
+	if _, err := f.store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: firstToken,
+	}); err != nil {
+		t.Fatalf("the first connect must succeed: %v", err)
+	}
+
+	_, err := f.store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: secondToken,
+	})
+	if !errors.Is(err, capture.ErrChannelWorkspaceBotAlreadyBound) {
+		t.Fatalf("connecting a second bot: got %v, want ErrChannelWorkspaceBotAlreadyBound", err)
+	}
+	if n := f.rowCount(t); n != 1 {
+		t.Errorf("%d rows after the refused second connect, want just the first binding", n)
+	}
+
+	rec, req := f.connectRequest(`{"provider":"telegram","botToken":"` + secondToken + `"}`)
+	f.handlers.ConnectChannel(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status %d, want 409 (body: %s)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "channel_workspace_already_bound") {
+		t.Errorf("the 409 does not carry the actionable code: %s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), secondToken) {
+		t.Errorf("the response echoed the bot token: %s", rec.Body.String())
+	}
+}
+
+// A replacement clears the INCOMING bot's webhook (Telegram would otherwise refuse
+// to poll it) and leaves the connection live throughout: there is no registration
+// to be mid-flight, so no state in which the row could claim less than the truth.
+//
+// It also RESTARTS the cursor, and that is the load-bearing half: update_id is a
+// per-bot sequence, so inheriting the outgoing bot's high-water mark would ask the
+// incoming bot for updates numbered far beyond anything it has ever sent, and every
+// message it received would be skipped silently.
+func TestReplaceTokenClearsTheIncomingWebhookAndRestartsTheCursor(t *testing.T) {
 	api := newFakeTelegram()
 	firstToken, firstID := api.withNewBot("original_bot")
 	replacementToken, replacementID := api.withNewBot("replacement_bot")
@@ -229,36 +254,17 @@ func TestReplaceTokenRerunsThePreflightAndReturnsToConnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	oldCredential, oldSecret := f.vaultRefs(t, conn.ID)
+	oldCredential := f.credentialRefOf(t, conn.ID)
+	// The outgoing bot has been polled for a while.
+	f.setPollOffset(t, conn.ID, 900500)
 
-	t.Run("a replacement bot registered elsewhere is refused", func(t *testing.T) {
-		api.pointWebhookElsewhere(replacementToken)
-		defer api.clearWebhook(replacementToken)
-
-		if err := f.store.ReplaceToken(f.ctx, conn.ID, replacementToken); !errors.Is(err, capture.ErrChannelWebhookOwnedElsewhere) {
-			t.Fatalf("ReplaceToken onto a bot registered elsewhere: got %v, want ErrChannelWebhookOwnedElsewhere", err)
-		}
-		status, _, channelID := f.rowState(t, conn.ID)
-		if status != "connected" || channelID != strconv.FormatInt(firstID, 10) {
-			t.Errorf("the refused rotation moved the row: status=%q channel_id=%q, want connected on the original bot", status, channelID)
-		}
-	})
-
-	preflightsBefore := len(api.getWebhookInfoTokens)
 	if err := f.store.ReplaceToken(f.ctx, conn.ID, replacementToken); err != nil {
 		t.Fatalf("ReplaceToken: %v", err)
 	}
 
-	if got := api.getWebhookInfoTokens[len(api.getWebhookInfoTokens)-1]; got != replacementToken {
-		t.Errorf("the last preflight ran against %q, want the replacement token", got)
-	}
-	if len(api.getWebhookInfoTokens) <= preflightsBefore {
-		t.Error("ReplaceToken did not re-run the preflight")
-	}
-
 	status, archived, channelID := f.rowState(t, conn.ID)
 	if status != "connected" {
-		t.Errorf("status %q after a successful rotation, want connected", status)
+		t.Errorf("status %q after a successful rotation, want connected — a replacement never passes through a not-live state", status)
 	}
 	if archived {
 		t.Error("the rotation archived the connection — history and identity bindings hang off this row surviving")
@@ -266,98 +272,38 @@ func TestReplaceTokenRerunsThePreflightAndReturnsToConnected(t *testing.T) {
 	if channelID != strconv.FormatInt(replacementID, 10) {
 		t.Errorf("channel_id %q, want the replacement bot's id %d", channelID, replacementID)
 	}
-	// The audit trail records the pass through pending as its own update, so
-	// the sequence is legible: create(pending) → connected → pending → connected.
-	if actions := f.auditActions(t, conn.ID); len(actions) != 4 || actions[0] != "create" {
-		t.Errorf("audit actions %v, want create followed by three updates", actions)
+	if offset := f.pollOffsetOf(t, conn.ID); offset != 0 {
+		t.Errorf("poll_offset %d after a bot swap, want 0 — update_id is per-bot, so the incoming bot's own messages would be skipped", offset)
 	}
-	// The superseded pair is unreachable from any row and must be gone.
-	for name, ref := range map[string]keyvault.Ref{"bot token": oldCredential, "webhook secret": oldSecret} {
-		if _, err := f.vault.Get(f.ctx, f.workspaceKey(), ref); err == nil {
-			t.Errorf("the superseded %s survived the rotation", name)
-		}
+	if cleared := f.api.clearedWebhooks(); !slices.Contains(cleared, replacementToken) {
+		t.Errorf("deleteWebhook calls %v never named the incoming token — Telegram would refuse to poll it", cleared)
 	}
-	if len(api.setWebhookCalls) < 2 || api.setWebhookCalls[len(api.setWebhookCalls)-1].token != replacementToken {
-		t.Error("the replacement token was never registered with the provider")
+	// create, then one update: the swap is a single transition, not a round trip
+	// through a half-live state.
+	if actions := f.auditActions(t, conn.ID); !slices.Equal(actions, []string{"create", "update"}) {
+		t.Errorf("audit actions %v, want create then one update", actions)
 	}
-}
-
-// Swapping in a DIFFERENT bot has to end the outgoing bot's registration, because
-// nothing else ever will. Left standing, the old bot keeps delivering to this
-// installation's URL carrying a secret the row no longer holds: every one of those
-// messages is refused and silently uncaptured, and it is invisible because the
-// connection reads `connected` for the new bot.
-func TestReplacingWithADifferentBotRevokesTheOutgoingBotsWebhook(t *testing.T) {
-	api := newFakeTelegram()
-	outgoingToken, _ := api.withNewBot("outgoing_bot")
-	incomingToken, _ := api.withNewBot("incoming_bot")
-	f := newChannelFixture(t, api)
-
-	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
-		Provider: capture.ProviderTelegram, BotToken: outgoingToken,
-	})
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
+	// The superseded token is unreachable from any row and must be gone.
+	if _, err := f.vault.Get(f.ctx, f.workspaceKey(), oldCredential); err == nil {
+		t.Error("the superseded bot token survived the rotation, referenced by no row and collected by no sweep")
 	}
-	if got := api.registeredWebhook(outgoingToken); got == "" {
-		t.Fatal("the fixture never registered the outgoing bot, so this test could not observe a revocation")
-	}
-
-	if err := f.store.ReplaceToken(f.ctx, conn.ID, incomingToken); err != nil {
-		t.Fatalf("ReplaceToken: %v", err)
-	}
-
-	if got := api.registeredWebhook(outgoingToken); got != "" {
-		t.Errorf("the outgoing bot still delivers to %q; its messages would be refused for a secret this connection no longer holds", got)
-	}
-	if !slices.Contains(api.deleteWebhookTokens, outgoingToken) {
-		t.Error("deleteWebhook was never called for the outgoing bot")
-	}
-	if got := api.registeredWebhook(incomingToken); got != channelWebhookBase+"/webhooks/telegram/"+conn.ID.String() {
-		t.Errorf("the incoming bot is registered at %q, want this connection's URL — revoking the outgoing bot must not disturb it", got)
+	if firstID == replacementID {
+		t.Fatal("the fixture handed out one bot twice, so this test could not tell a swap from a rotation")
 	}
 }
 
-// A rotation of the SAME bot must delete nothing. Telegram keeps one webhook per
-// bot, so setWebhook replaces the registration in place; deleting it first would
-// take a working channel down for the length of a round trip, and leave it down
-// altogether if the re-registration failed.
-func TestRotatingTheSameBotsTokenRevokesNothing(t *testing.T) {
-	api := newFakeTelegram()
-	token, _ := api.withNewBot("rotating_bot")
-	f := newChannelFixture(t, api)
-
-	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
-		Provider: capture.ProviderTelegram, BotToken: token,
-	})
-	if err != nil {
-		t.Fatalf("Connect: %v", err)
-	}
-	rotated := api.rotateToken(token)
-
-	if err := f.store.ReplaceToken(f.ctx, conn.ID, rotated); err != nil {
-		t.Fatalf("ReplaceToken: %v", err)
-	}
-
-	if len(api.deleteWebhookTokens) != 0 {
-		t.Errorf("a same-bot rotation called deleteWebhook %v — it would drop the registration it is about to replace", api.deleteWebhookTokens)
-	}
-	if got := api.registeredWebhook(rotated); got != channelWebhookBase+"/webhooks/telegram/"+conn.ID.String() {
-		t.Errorf("the rotated token is registered at %q, want this connection's URL", got)
-	}
-	status, _, _ := f.rowState(t, conn.ID)
-	if status != "connected" {
-		t.Errorf("status %q after a rotation, want connected", status)
-	}
-}
-
-// The race the version predicate exists for. Replacement A repoints the row and
-// then blocks at the provider; replacement B repoints the SAME row onto its own
-// bot and its own setWebhook fails, leaving the row `pending` for a bot Telegram
-// was never told about. A's registration then succeeds and A goes to flip the row
-// live — updating by id alone, it would advertise bot B as connected on the
-// strength of a registration made for bot A.
-func TestAStaleReplacementCannotMarkAnUnregisteredBotConnected(t *testing.T) {
+// The race the version predicate exists for, on the replacement arm. Replacement A
+// reads the row and then blocks at the provider; replacement B repoints the SAME
+// row onto its own bot and commits. A must lose rather than overwrite it — and it
+// must lose BEFORE it destroys anything, or the winner is left live with a
+// credential nothing can unseal.
+//
+// The cursor is moved off zero first. A replacement resets it, and the trigger that
+// maintains `version` exempts a cursor-only write — so run against a never-polled
+// connection this case cannot tell a correct exemption from one that also swallows
+// the bump on the transition the predicate reads. The steady state is a bot that
+// HAS polled.
+func TestAStaleReplacementCannotOverwriteTheWinner(t *testing.T) {
 	api := newFakeTelegram()
 	originalToken, _ := api.withNewBot("original_bot")
 	tokenA, botAID := api.withNewBot("bot_a")
@@ -370,20 +316,19 @@ func TestAStaleReplacementCannotMarkAnUnregisteredBotConnected(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
+	f.setPollOffset(t, conn.ID, 4242)
 
-	registrationRefused := errors.New("telegram refused bot B's registration")
-	api.failSetWebhookFor(tokenB, registrationRefused)
 	var errB error
-	// Fires while replacement A is inside setWebhook — after A's repoint has
-	// committed, which is the only window in which A's snapshot can go stale.
-	api.onNextSetWebhook(func(string) {
+	// Fires while replacement A is inside deleteWebhook — after A read the row,
+	// before A repoints it, which is the only window in which A can go stale.
+	api.onNextDeleteWebhook(func(string) {
 		errB = f.store.ReplaceToken(f.ctx, conn.ID, tokenB)
 	})
 
 	errA := f.store.ReplaceToken(f.ctx, conn.ID, tokenA)
 
-	if !errors.Is(errB, registrationRefused) {
-		t.Fatalf("the second replacement = %v, want the provider refusal that leaves its row pending", errB)
+	if errB != nil {
+		t.Fatalf("the replacement that ran inside the window: %v, want it to complete and own the connection", errB)
 	}
 	if !errors.Is(errA, apperrors.ErrVersionSkew) {
 		t.Fatalf("the stale replacement = %v, want ErrVersionSkew — its snapshot no longer describes the row", errA)
@@ -393,112 +338,81 @@ func TestAStaleReplacementCannotMarkAnUnregisteredBotConnected(t *testing.T) {
 	if channelID != strconv.FormatInt(botBID, 10) {
 		t.Fatalf("channel_id %q, want bot B's id %d — the newer replacement owns this connection", channelID, botBID)
 	}
-	if status != "pending" {
-		t.Errorf("status %q: the row advertises bot B although Telegram refused its registration", status)
+	if status != "connected" {
+		t.Errorf("status %q, want connected — the winner's binding is live", status)
 	}
-	if got := api.registeredWebhook(tokenB); got != "" {
-		t.Errorf("bot B is registered at %q, but its setWebhook was refused", got)
-	}
-	// Bot A's own registration is beside the point: the row does not name bot A,
-	// so ingress verifies its deliveries against a secret it does not carry.
 	if channelID == strconv.FormatInt(botAID, 10) {
 		t.Error("the stale replacement overwrote the newer one's bot")
 	}
-}
-
-// revokeHookingTelegram is the fake with a one-shot hook on the revocation call,
-// so a test can drive a second lifecycle operation while a disconnect is out at
-// the provider — the one window in which a disconnect's snapshot can go stale.
-// The hook is disarmed as it fires because what it drives revokes a webhook of
-// its own, and a re-entrant hook would recurse forever.
-type revokeHookingTelegram struct {
-	*fakeTelegram
-	mu   sync.Mutex
-	hook func(token string)
-}
-
-func (t *revokeHookingTelegram) onNextDeleteWebhook(fn func(token string)) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.hook = fn
-}
-
-func (t *revokeHookingTelegram) DeleteWebhook(ctx context.Context, token string) error {
-	t.mu.Lock()
-	hook := t.hook
-	t.hook = nil
-	t.mu.Unlock()
-	if hook != nil {
-		hook(token)
+	// The winner's credential must still resolve: the loser has to refuse before
+	// its own teardown touches state it no longer owns.
+	if _, err := f.vault.Get(f.ctx, f.workspaceKey(), f.credentialRefOf(t, conn.ID)); err != nil {
+		t.Errorf("the live connection's bot token is gone: %v — the stale replacement destroyed the winner's credential", err)
 	}
-	return t.fakeTelegram.DeleteWebhook(ctx, token)
 }
 
-// The same version-predicate race as above, on the teardown arm. A disconnect
-// decides what to tear down from a read taken before a provider round trip; a
-// replacement that commits in that window leaves the disconnect holding refs
-// that no longer name anything and a bot the row no longer runs. Archiving on
-// that snapshot would retire the WINNER's connection — auditing the outgoing bot
-// as the one disconnected, stranding the winner's sealed pair with no row left to
-// name it, and leaving the winner's bot registered against a connection ingress
-// now refuses. The stale writer has to lose instead, before it destroys anything.
-func TestAStaleDisconnectCannotArchiveAReplacedConnection(t *testing.T) {
+// A disconnect landing inside a replacement's provider window wins, and the
+// replacement has to lose CLEANLY. This is the teardown arm of the same race the
+// version predicate guards: the replacement decided to repoint from a read taken
+// before its round trip at Telegram, and by the time it writes, the operator has
+// withdrawn the binding altogether.
+//
+// The loser's obligation is the part that is easy to get wrong. Its repoint wrote
+// nothing — the row it locked is archived — so the token it sealed on the way is
+// referenced by no row and collected by no sweep. Returning the refusal without
+// destroying it leaves a live bot credential in the vault forever, with nothing
+// left that could ever name it.
+func TestADisconnectInsideAReplacementsWindowLeavesNoOrphanedCredential(t *testing.T) {
 	api := newFakeTelegram()
-	originalToken, originalID := api.withNewBot("outgoing_bot")
-	replacementToken, replacementID := api.withNewBot("winning_bot")
+	originalToken, _ := api.withNewBot("outgoing_bot")
+	replacementToken, _ := api.withNewBot("late_bot")
 	f := newChannelFixture(t, api)
 
-	// One store for both operations, over the fixture's pool and vault, so the
-	// replacement contends for exactly the state the disconnect read.
-	provider := &revokeHookingTelegram{fakeTelegram: api}
-	_, pool := setupCaptureDB(t)
-	store := capture.NewChannelStore(pool, f.vault, provider, channelWebhookBase, nil)
-
-	conn, err := store.Connect(f.ctx, capture.ConnectRequest{
+	conn, err := f.store.Connect(f.ctx, capture.ConnectRequest{
 		Provider: capture.ProviderTelegram, BotToken: originalToken,
 	})
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
+	// A bot that has polled — the steady state, and the one in which the version
+	// trigger's cursor exemption could otherwise hide the bump this race needs.
+	f.setPollOffset(t, conn.ID, 4242)
+	sealedBeforeReplacement := len(f.vault.mintedRefs())
 
-	var errReplace error
-	// Fires while the disconnect is revoking the original bot — after its read
-	// of the row, before its archive.
-	provider.onNextDeleteWebhook(func(string) {
-		errReplace = store.ReplaceToken(f.ctx, conn.ID, replacementToken)
+	var errDisconnect error
+	// Fires while the replacement's own webhook clear is out at the provider —
+	// after its read of the row, before its repoint.
+	api.onNextDeleteWebhook(func(string) {
+		errDisconnect = f.store.Disconnect(f.ctx, conn.ID)
 	})
 
-	errDisconnect := store.Disconnect(f.ctx, conn.ID)
+	errReplace := f.store.ReplaceToken(f.ctx, conn.ID, replacementToken)
 
-	if errReplace != nil {
-		t.Fatalf("the replacement that ran inside the window: %v, want it to complete and own the connection", errReplace)
+	if errDisconnect != nil {
+		t.Fatalf("the disconnect that ran inside the window: %v, want it to complete — the operator withdrew the binding they were shown", errDisconnect)
 	}
-	if !errors.Is(errDisconnect, apperrors.ErrVersionSkew) {
-		t.Fatalf("the stale disconnect = %v, want ErrVersionSkew — its snapshot names bot %d, the row names bot %d", errDisconnect, originalID, replacementID)
+	if !errors.Is(errReplace, apperrors.ErrNotFound) {
+		t.Fatalf("the losing replacement = %v, want ErrNotFound — the connection it was repointing no longer exists", errReplace)
 	}
 
-	status, archived, channelID := f.rowState(t, conn.ID)
-	if archived {
-		t.Error("the stale disconnect archived the replacement's connection; the operator asked to disconnect the bot it read, not the one that replaced it")
+	status, archived, _ := f.rowState(t, conn.ID)
+	if status != "disconnected" || !archived {
+		t.Errorf("row state status=%q archived=%v, want disconnected and archived — the replacement resurrected a withdrawn binding", status, archived)
 	}
-	if status != "connected" || channelID != strconv.FormatInt(replacementID, 10) {
-		t.Errorf("row state status=%q channel_id=%q, want connected on the replacement bot %d", status, channelID, replacementID)
-	}
-	// The refusal has to come BEFORE the teardown: a disconnect that destroys and
-	// only then discovers it lost leaves the winner live with credentials it can
-	// no longer unseal — unable to send, and unable to verify a delivery.
-	credentialRef, secretRef := f.vaultRefs(t, conn.ID)
-	for name, ref := range map[string]keyvault.Ref{"bot token": credentialRef, "webhook secret": secretRef} {
-		if _, err := f.vault.Get(f.ctx, f.workspaceKey(), ref); err != nil {
-			t.Errorf("the live connection's %s is gone: %v", name, err)
+	// Every ref sealed after the connect belongs to the losing replacement, and
+	// none of them may survive it.
+	for _, ref := range f.vault.mintedRefs()[sealedBeforeReplacement:] {
+		if _, err := f.vault.Get(f.ctx, f.workspaceKey(), ref); err == nil {
+			t.Error("the losing replacement left a sealed bot token behind, referenced by no row and collected by no sweep")
 		}
 	}
 }
 
-// Disconnecting stops capture; it does not erase. The webhook is revoked, both
-// sealed secrets are destroyed, the row is archived as disconnected — and every
-// activity already captured through the channel is still there.
-func TestDisconnectRevokesTheWebhookAndKeepsActivities(t *testing.T) {
+// Disconnecting stops capture; it does not erase. The sealed token is destroyed
+// and the row archived as disconnected — which is what actually ends ingress,
+// because the poll dispatcher's due-scan selects only live connected rows — and
+// every activity already captured through the channel is still there.
+func TestDisconnectArchivesTheBindingAndKeepsActivities(t *testing.T) {
 	api := newFakeTelegram()
 	token, _ := api.withNewBot("disconnect_bot")
 	f := newChannelFixture(t, api)
@@ -510,26 +424,18 @@ func TestDisconnectRevokesTheWebhookAndKeepsActivities(t *testing.T) {
 		t.Fatalf("Connect: %v", err)
 	}
 	activity := f.seedActivity(t)
-	credentialRef, secretRef := f.vaultRefs(t, conn.ID)
+	credentialRef := f.credentialRefOf(t, conn.ID)
 
 	if err := f.store.Disconnect(f.ctx, conn.ID); err != nil {
 		t.Fatalf("Disconnect: %v", err)
 	}
 
-	if len(api.deleteWebhookTokens) != 1 || api.deleteWebhookTokens[0] != token {
-		t.Errorf("deleteWebhook was called %d time(s), want exactly once with the connected bot's token", len(api.deleteWebhookTokens))
-	}
-	if still := api.registeredWebhook(token); still != "" {
-		t.Errorf("Telegram still holds a webhook for a disconnected channel: %q", still)
-	}
 	status, archived, _ := f.rowState(t, conn.ID)
 	if status != "disconnected" || !archived {
-		t.Errorf("row state status=%q archived=%v, want disconnected and archived (archival is what frees the unique indexes for a reconnect)", status, archived)
+		t.Errorf("row state status=%q archived=%v, want disconnected and archived (archival is what both stops the due-scan and frees the unique indexes for a reconnect)", status, archived)
 	}
-	for name, ref := range map[string]keyvault.Ref{"bot token": credentialRef, "webhook secret": secretRef} {
-		if _, err := f.vault.Get(f.ctx, f.workspaceKey(), ref); err == nil {
-			t.Errorf("the %s survived disconnect — a live credential outlives the operator's withdrawal", name)
-		}
+	if _, err := f.vault.Get(f.ctx, f.workspaceKey(), credentialRef); err == nil {
+		t.Error("the bot token survived disconnect — a live credential outlives the operator's withdrawal")
 	}
 	if !f.activityExists(t, activity) {
 		t.Error("disconnect removed a captured activity; disconnecting stops capture, it does not erase history")
@@ -543,41 +449,5 @@ func TestDisconnectRevokesTheWebhookAndKeepsActivities(t *testing.T) {
 		Provider: capture.ProviderTelegram, BotToken: token,
 	}); err != nil {
 		t.Errorf("reconnecting the same bot after a disconnect: %v", err)
-	}
-}
-
-// A deployment that does not know its own public address must refuse to connect
-// rather than derive one from the request, and must say which knob to set. This
-// is the failure the whole path is shaped around: a bot registered against an
-// unreachable URL reads `connected` and then falls silent.
-func TestConnectRefusesWhenTheInstallationHasNoPublicAddress(t *testing.T) {
-	api := newFakeTelegram()
-	token, _ := api.withNewBot("homeless_bot")
-	f := newChannelFixtureWithoutPublicAddress(t, api)
-
-	_, err := f.store.Connect(f.ctx, capture.ConnectRequest{
-		Provider: capture.ProviderTelegram, BotToken: token,
-	})
-	if !errors.Is(err, capture.ErrChannelWebhookBaseUnset) {
-		t.Fatalf("Connect with no public address: got %v, want ErrChannelWebhookBaseUnset", err)
-	}
-	if !strings.Contains(err.Error(), "--public-base-url") {
-		t.Errorf("the refusal does not name the knob to set: %v", err)
-	}
-	if len(api.getMeTokens) != 0 {
-		t.Error("the token was spent on a provider call the deployment could never complete")
-	}
-	if n := f.rowCount(t); n != 0 {
-		t.Errorf("the refused connect wrote %d row(s)", n)
-	}
-
-	rec, req := f.connectRequest(
-		`{"provider":"telegram","botToken":"` + token + `"}`)
-	f.handlers.ConnectChannel(rec, req)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status %d, want 503 (body: %s)", rec.Code, rec.Body.String())
-	}
-	if !strings.Contains(rec.Body.String(), "channel_public_base_url_unset") {
-		t.Errorf("the 503 does not carry the actionable code: %s", rec.Body.String())
 	}
 }

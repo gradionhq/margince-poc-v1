@@ -5,20 +5,14 @@ package telegram
 
 // InScopeSubjects decides, before a single byte is persisted, whose account an
 // update belongs to and whether the update is one this connector captures at
-// all. The ingress webhook stores nothing when it answers empty, so every shape
+// all. The poller stores nothing when it answers empty, so every shape
 // Telegram actually posts is asserted here — an over-generous answer puts a
 // verbatim payload in the only-copy store with no subject any erasure could
 // reach it by.
 
 import (
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 )
@@ -54,7 +48,7 @@ func TestInScopeSubjectsReadsAMembershipUpdatesChatNotTheBot(t *testing.T) {
 // group chats out of scope, so no record is ever made of one — which means no
 // person_channel_identity, which means neither the erasure raw purge nor the
 // subject-access raw section can ever reach the stored payload again. Answering
-// with the sender's account here would let the webhook store their id, handle,
+// with the sender's account here would let the poller store their id, handle,
 // names and every word they wrote, permanently and unerasably.
 func TestInScopeSubjectsRefusesAGroupChat(t *testing.T) {
 	got, err := InScopeSubjects([]byte(`{
@@ -97,7 +91,7 @@ func TestInScopeSubjectsRefusesAGroupMembershipUpdate(t *testing.T) {
 // A supergroup id under a `private` label is still a supergroup: Telegram
 // numbers those chats negative, and the type field is only the payload's claim
 // about itself. This must answer the same as the honestly-labelled group above,
-// and it must answer the same as Normalize — the webhook persists on the
+// and it must answer the same as Normalize — the poller persists on the
 // strength of this function while Normalize decides what is captured, so an
 // admitted update Normalize then skips is a verbatim payload stored with no
 // person_channel_identity any erasure could reach it by.
@@ -198,8 +192,9 @@ func TestInScopeSubjectsRefusesAnUpdateCarryingBothKinds(t *testing.T) {
 }
 
 // Undecodable bytes are an error, never an empty answer: an empty answer reads
-// as "nothing to capture" and would have the webhook answer 200 to a delivery
-// it never understood, which Telegram will then never resend.
+// as "nothing to capture", and the poller's own refusal branch already covers the
+// updates it may not store — folding a decode fault in there would hide it among
+// the group chats.
 func TestInScopeSubjectsRefusesUndecodableBytes(t *testing.T) {
 	if _, err := InScopeSubjects([]byte(`{"update_id":`)); err == nil {
 		t.Error("InScopeSubjects accepted truncated JSON — a decode fault must not read as 'nothing to capture'")
@@ -207,20 +202,21 @@ func TestInScopeSubjectsRefusesUndecodableBytes(t *testing.T) {
 }
 
 // What this connector asks Telegram to send and what this parser can read are
-// one decision spelled in two packages: capture's channelAllowedUpdates
-// registers the subscription, subjectEnvelope decodes it. Widening only the
-// subscription lands the new kind in InScopeSubjects' default arm, which
-// answers "no subject" — and an empty answer is the webhook's refusal test, so
-// a real customer message is discarded at ingress with no error, no record and
-// nothing to find afterwards. Widening only the envelope is the milder half of
-// the same drift: a decode arm for updates that never arrive.
+// one decision: AllowedUpdates registers the subscription, subjectEnvelope
+// decodes it. Widening only the subscription lands the new kind in
+// InScopeSubjects' default arm, which answers "no subject" — and an empty
+// answer is the poller's refusal test, so a real customer message is discarded
+// at ingress with no error, no record and nothing to find afterwards. Widening
+// only the envelope is the milder half of the same drift: a decode arm for
+// updates that never arrive.
 //
-// Both sets are DERIVED — the envelope by reflection, the subscription from
-// capture's source — because a set restated here would agree with itself
-// forever, which is exactly the failure being guarded against.
+// Both sets are DERIVED — the envelope by reflection, the subscription from the
+// declaration the poller actually spends — because a set restated here would
+// agree with itself forever, which is exactly the failure being guarded
+// against.
 func TestEveryAllowedUpdateKindHasASubjectArm(t *testing.T) {
 	decoded := subjectEnvelopeUpdateKinds(t)
-	subscribed := subscribedUpdateKinds(t)
+	subscribed := slices.Sorted(slices.Values(AllowedUpdates()))
 	if !slices.Equal(decoded, subscribed) {
 		t.Errorf("subjectEnvelope decodes %v but the connector subscribes to %v — the kinds only one side knows about are dropped silently at ingress",
 			decoded, subscribed)
@@ -244,77 +240,4 @@ func subjectEnvelopeUpdateKinds(t *testing.T) []string {
 	}
 	slices.Sort(kinds)
 	return kinds
-}
-
-// capturePackageDir is the parent package's source, relative to this one: a Go
-// test runs in its own package directory.
-const capturePackageDir = ".."
-
-// allowedUpdatesDecl is the capture-side declaration of the subscription.
-const allowedUpdatesDecl = "channelAllowedUpdates"
-
-// subscribedUpdateKinds reads the subscribed set out of capture's source rather
-// than importing it. It cannot be imported: capture imports this package, so a
-// Go reference would be an import cycle — and it is unexported besides. Parsing
-// the declaration is what pins the two together without one.
-func subscribedUpdateKinds(t *testing.T) []string {
-	t.Helper()
-	entries, err := os.ReadDir(capturePackageDir)
-	if err != nil {
-		t.Fatalf("reading the capture package directory: %v", err)
-	}
-	fset := token.NewFileSet()
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
-			continue
-		}
-		path := filepath.Join(capturePackageDir, entry.Name())
-		file, err := parser.ParseFile(fset, path, nil, 0)
-		if err != nil {
-			t.Fatalf("parsing %s: %v", path, err)
-		}
-		if kinds, found := stringSliceVar(t, file, allowedUpdatesDecl); found {
-			slices.Sort(kinds)
-			return kinds
-		}
-	}
-	t.Fatalf("no %s declaration found under %s — this derivation is stale, not the code it guards", allowedUpdatesDecl, capturePackageDir)
-	return nil
-}
-
-// stringSliceVar returns the elements of `var <name> = []string{…}` in file.
-// A declaration under that name whose shape is anything else is a fault, not a
-// miss: reporting "not found" would let the gate go quietly green.
-func stringSliceVar(t *testing.T, file *ast.File, name string) ([]string, bool) {
-	t.Helper()
-	for _, decl := range file.Decls {
-		gen, ok := decl.(*ast.GenDecl)
-		if !ok || gen.Tok != token.VAR {
-			continue
-		}
-		for _, spec := range gen.Specs {
-			value, ok := spec.(*ast.ValueSpec)
-			if !ok || len(value.Names) != 1 || value.Names[0].Name != name || len(value.Values) != 1 {
-				continue
-			}
-			composite, ok := value.Values[0].(*ast.CompositeLit)
-			if !ok {
-				t.Fatalf("%s is no longer a composite literal, so its elements cannot be derived", name)
-			}
-			elements := make([]string, 0, len(composite.Elts))
-			for _, element := range composite.Elts {
-				lit, ok := element.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					t.Fatalf("%s holds an element that is not a string literal, so its elements cannot be derived", name)
-				}
-				unquoted, err := strconv.Unquote(lit.Value)
-				if err != nil {
-					t.Fatalf("unquoting an element of %s: %v", name, err)
-				}
-				elements = append(elements, unquoted)
-			}
-			return elements, true
-		}
-	}
-	return nil, false
 }

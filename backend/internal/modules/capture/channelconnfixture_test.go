@@ -14,6 +14,7 @@ package capture_test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -29,11 +30,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// channelWebhookBase is the installation origin the suite connects under; the
-// registered webhook URL is built on it, and the preflight recognizes a URL
-// under it as one of ours.
-const channelWebhookBase = "https://crm.test"
-
 // fakeTelegram is the provider boundary. Each field is what the next call
 // answers, so a test states the provider's behaviour as data rather than as
 // control flow, and the recorded calls let a test assert on what was asked of
@@ -45,40 +41,21 @@ type fakeTelegram struct {
 	// is one Telegram rejects. Two tokens may name the SAME bot, which is what a
 	// BotFather rotation produces.
 	bots map[string]telegram.Bot
-	// webhooks maps a BOT ID to the URL Telegram currently holds for it. Keyed on
-	// the bot rather than on the token because that is Telegram's own rule — one
-	// webhook per bot — and it is the rule a rotation and a bot swap differ over:
-	// re-registering the same bot replaces its entry, while swapping bots leaves
-	// the outgoing bot's entry standing until something deletes it.
-	webhooks map[int64]string
-	// setWebhookErr, when non-nil, is what SetWebhook answers for every token.
-	setWebhookErr error
-	// setWebhookErrByToken answers for ONE token, so a test can fail the
-	// registration of one participant in a race while the other's succeeds.
-	setWebhookErrByToken map[string]error
-	// setWebhookHook runs once, before the next SetWebhook takes the lock, so a
-	// test can drive a second concurrent operation while this one is mid-flight at
-	// the provider. It fires outside the mutex because what it drives calls back
-	// into this same fake.
-	setWebhookHook func(token string)
+	// deleteWebhookErr, when non-nil, is what DeleteWebhook answers — the one
+	// provider refusal that can stop a connect after getMe has already succeeded.
+	deleteWebhookErr error
+	// deleteWebhookHook runs once, before the next DeleteWebhook takes the lock, so
+	// a test can drive a second concurrent lifecycle operation while this one is
+	// mid-flight at the provider. It fires outside the mutex because what it drives
+	// calls back into this same fake.
+	deleteWebhookHook func(token string)
 
-	getMeTokens          []string
-	getWebhookInfoTokens []string
-	setWebhookCalls      []setWebhookCall
-	deleteWebhookTokens  []string
-}
-
-type setWebhookCall struct {
-	token, url, secret string
-	allowed            []string
+	getMeTokens         []string
+	deleteWebhookTokens []string
 }
 
 func newFakeTelegram() *fakeTelegram {
-	return &fakeTelegram{
-		bots:                 map[string]telegram.Bot{},
-		webhooks:             map[int64]string{},
-		setWebhookErrByToken: map[string]error{},
-	}
+	return &fakeTelegram{bots: map[string]telegram.Bot{}}
 }
 
 // nextBotID hands out a bot id unique within the test binary. It has to be
@@ -100,71 +77,32 @@ func (f *fakeTelegram) withNewBot(username string) (token string, id int64) {
 	return token, id
 }
 
-// rotateToken issues a SECOND token for a bot Telegram already knows — what a
-// BotFather rotation produces, and the case a bot SWAP has to be told apart from:
-// the bot id is unchanged, so the outgoing registration is the incoming one.
-func (f *fakeTelegram) rotateToken(existing string) string {
+// onNextDeleteWebhook arms the one-shot hook: fn runs when the next DeleteWebhook
+// call begins, and is disarmed as it fires so what fn itself drives cannot
+// re-enter it. DeleteWebhook is the only provider call a connect or a replacement
+// makes after reading the row, so it is the only window in which a snapshot can go
+// stale.
+func (f *fakeTelegram) onNextDeleteWebhook(fn func(token string)) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	bot, known := f.bots[existing]
-	if !known {
-		panic("fakeTelegram: rotateToken needs a token Telegram already knows")
-	}
-	rotated := fmt.Sprintf("%d:AAH-rotated-%d-for-%s", bot.ID, nextBotID.Add(1), bot.Username)
-	f.bots[rotated] = bot
-	return rotated
+	f.deleteWebhookHook = fn
 }
 
-// failSetWebhookFor makes the registration of one token fail, leaving every other
-// token's registration working.
-func (f *fakeTelegram) failSetWebhookFor(token string, err error) {
+// takeDeleteWebhookHook disarms and returns the hook, under the lock, so it fires
+// at most once however many goroutines are in DeleteWebhook.
+func (f *fakeTelegram) takeDeleteWebhookHook() func(string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.setWebhookErrByToken[token] = err
-}
-
-// onNextSetWebhook arms the one-shot hook: fn runs when the next SetWebhook call
-// begins, before it reaches the provider state, and is disarmed as it fires so
-// what fn itself registers cannot re-enter it.
-func (f *fakeTelegram) onNextSetWebhook(fn func(token string)) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.setWebhookHook = fn
-}
-
-// takeSetWebhookHook disarms and returns the hook, under the lock, so it fires at
-// most once however many goroutines are in SetWebhook.
-func (f *fakeTelegram) takeSetWebhookHook() func(string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	hook := f.setWebhookHook
-	f.setWebhookHook = nil
+	hook := f.deleteWebhookHook
+	f.deleteWebhookHook = nil
 	return hook
 }
 
-// pointWebhookElsewhere makes Telegram report that this bot already delivers to
-// another installation — the staging-vs-production collision only the provider
-// can see.
-func (f *fakeTelegram) pointWebhookElsewhere(token string) {
+// clearedWebhooks is every token deleteWebhook was called with, in order.
+func (f *fakeTelegram) clearedWebhooks() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.webhooks[f.bots[token].ID] = "https://staging.internal.example/webhooks/telegram/11111111-1111-1111-1111-111111111111"
-}
-
-// clearWebhook forgets a bot's registration, so a test can undo the line above.
-func (f *fakeTelegram) clearWebhook(token string) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	delete(f.webhooks, f.bots[token].ID)
-}
-
-// registeredWebhook reports where Telegram currently delivers this bot's updates,
-// asked in the caller's terms (a token) and answered in Telegram's (per bot), so a
-// rotated token reports the registration its bot already holds.
-func (f *fakeTelegram) registeredWebhook(token string) string {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.webhooks[f.bots[token].ID]
+	return append([]string(nil), f.deleteWebhookTokens...)
 }
 
 func (f *fakeTelegram) GetMe(_ context.Context, token string) (telegram.Bot, error) {
@@ -178,36 +116,20 @@ func (f *fakeTelegram) GetMe(_ context.Context, token string) (telegram.Bot, err
 	return bot, nil
 }
 
-func (f *fakeTelegram) GetWebhookInfo(_ context.Context, token string) (telegram.WebhookInfo, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.getWebhookInfoTokens = append(f.getWebhookInfoTokens, token)
-	return telegram.WebhookInfo{URL: f.webhooks[f.bots[token].ID]}, nil
+func (f *fakeTelegram) GetUpdates(context.Context, string, int64, int, []string) ([]json.RawMessage, int64, error) {
+	// The connect suite is about the binding lifecycle, never about ingress; a
+	// test that polls here is asking the wrong fixture and must be told so.
+	panic("fakeTelegram: the channel-connect suite must not poll for updates")
 }
 
-func (f *fakeTelegram) SetWebhook(_ context.Context, token, url, secret string, allowed []string) error {
-	if hook := f.takeSetWebhookHook(); hook != nil {
+func (f *fakeTelegram) DeleteWebhook(_ context.Context, token string) error {
+	if hook := f.takeDeleteWebhookHook(); hook != nil {
 		hook(token)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.setWebhookCalls = append(f.setWebhookCalls, setWebhookCall{token: token, url: url, secret: secret, allowed: allowed})
-	if err := f.setWebhookErrByToken[token]; err != nil {
-		return err
-	}
-	if f.setWebhookErr != nil {
-		return f.setWebhookErr
-	}
-	f.webhooks[f.bots[token].ID] = url
-	return nil
-}
-
-func (f *fakeTelegram) DeleteWebhook(_ context.Context, token string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.deleteWebhookTokens = append(f.deleteWebhookTokens, token)
-	delete(f.webhooks, f.bots[token].ID)
-	return nil
+	return f.deleteWebhookErr
 }
 
 func (f *fakeTelegram) SendMessage(context.Context, string, telegram.OutboundChannelMessage) (int64, error) {
@@ -286,7 +208,7 @@ func newChannelFixture(t *testing.T, api *fakeTelegram) *channelFixture {
 		api = newFakeTelegram()
 	}
 	vault := &countingVault{Vault: keyvault.NewMemory()}
-	store := capture.NewChannelStore(pool, vault, api, channelWebhookBase, nil)
+	store := capture.NewChannelStore(pool, vault, api, nil)
 
 	return &channelFixture{
 		ctx:      adminChannelContext(ctx, wsUUID, userUUID),
@@ -299,18 +221,6 @@ func newChannelFixture(t *testing.T, api *fakeTelegram) *channelFixture {
 	}
 }
 
-// newChannelFixtureWithoutPublicAddress is newChannelFixture for the deployment
-// that never declared its own origin — the one state in which connect must
-// refuse instead of guessing.
-func newChannelFixtureWithoutPublicAddress(t *testing.T, api *fakeTelegram) *channelFixture {
-	t.Helper()
-	f := newChannelFixture(t, api)
-	_, pool := setupCaptureDB(t)
-	f.store = capture.NewChannelStore(pool, f.vault, api, "", nil)
-	f.handlers = capture.NewChannelHandlers(f.store)
-	return f
-}
-
 // withoutVault re-points the fixture at a store composed with no credential
 // custodian — a deployment that never configured a keyvault. It keeps the same
 // pool, so rows an earlier connect wrote are still there for the lifecycle paths
@@ -318,7 +228,7 @@ func newChannelFixtureWithoutPublicAddress(t *testing.T, api *fakeTelegram) *cha
 func (f *channelFixture) withoutVault(t *testing.T) {
 	t.Helper()
 	_, pool := setupCaptureDB(t)
-	f.store = capture.NewChannelStore(pool, nil, f.api, channelWebhookBase, nil)
+	f.store = capture.NewChannelStore(pool, nil, f.api, nil)
 	f.handlers = capture.NewChannelHandlers(f.store)
 }
 
@@ -384,18 +294,40 @@ func (f *channelFixture) rowState(t *testing.T, id ids.UUID) (status string, arc
 	return status, archivedAt != nil, channelID
 }
 
-// vaultRefs reads a connection's two vault refs off the owner connection — the
-// teardown assertions need them after the row is gone from the read surface.
-func (f *channelFixture) vaultRefs(t *testing.T, id ids.UUID) (credential, secret keyvault.Ref) {
+// credentialRefOf reads a connection's sealed-token ref off the owner connection —
+// the teardown assertions need it after the row is gone from the read surface.
+func (f *channelFixture) credentialRefOf(t *testing.T, id ids.UUID) keyvault.Ref {
 	t.Helper()
 	owner, _ := setupCaptureDB(t)
-	var credentialRef, secretRef string
+	var credentialRef string
 	if err := owner.QueryRow(context.Background(),
-		`SELECT credential_ref, webhook_secret_ref FROM channel_connection WHERE id = $1`, id).
-		Scan(&credentialRef, &secretRef); err != nil {
-		t.Fatalf("reading channel_connection refs %s: %v", id, err)
+		`SELECT credential_ref FROM channel_connection WHERE id = $1`, id).Scan(&credentialRef); err != nil {
+		t.Fatalf("reading channel_connection credential ref %s: %v", id, err)
 	}
-	return keyvault.Ref(credentialRef), keyvault.Ref(secretRef)
+	return keyvault.Ref(credentialRef)
+}
+
+// pollOffsetOf reads a connection's getUpdates cursor.
+func (f *channelFixture) pollOffsetOf(t *testing.T, id ids.UUID) int64 {
+	t.Helper()
+	owner, _ := setupCaptureDB(t)
+	var offset int64
+	if err := owner.QueryRow(context.Background(),
+		`SELECT poll_offset FROM channel_connection WHERE id = $1`, id).Scan(&offset); err != nil {
+		t.Fatalf("reading channel_connection poll offset %s: %v", id, err)
+	}
+	return offset
+}
+
+// setPollOffset moves a connection's cursor, so a test can prove a lifecycle
+// change resets it rather than inheriting another bot's sequence.
+func (f *channelFixture) setPollOffset(t *testing.T, id ids.UUID, offset int64) {
+	t.Helper()
+	owner, _ := setupCaptureDB(t)
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE channel_connection SET poll_offset = $2 WHERE id = $1`, id, offset); err != nil {
+		t.Fatalf("setting channel_connection poll offset %s: %v", id, err)
+	}
 }
 
 // rowCount counts this workspace's connection rows, for the assertions about

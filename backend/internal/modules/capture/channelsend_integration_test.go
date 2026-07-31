@@ -19,6 +19,7 @@ import (
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -131,10 +132,10 @@ func TestChannelSenderForResolvesTheWorkspacesBotToken(t *testing.T) {
 	}
 }
 
-// A workspace that bound no bot, and one whose registration never completed,
-// read the same way: there is nothing live to send through. A `pending` row is
-// deliberately NOT sendable — its webhook call failed, so the bot is unreachable
-// in both directions and an operator has not been told the binding is broken.
+// A workspace that bound no bot, and one whose binding was withdrawn, read the
+// same way: there is nothing live to send through. The withdrawn case matters on
+// its own because the row survives — archived, status disconnected — and a resolve
+// that read it would transmit through a token the vault no longer holds.
 func TestChannelSenderForReportsNoConnectionForAnythingNotLive(t *testing.T) {
 	t.Run("no binding at all", func(t *testing.T) {
 		f := newChannelFixture(t, nil)
@@ -144,18 +145,19 @@ func TestChannelSenderForReportsNoConnectionForAnythingNotLive(t *testing.T) {
 		}
 	})
 
-	t.Run("a registration that never completed", func(t *testing.T) {
+	t.Run("a binding the operator withdrew", func(t *testing.T) {
 		f := newChannelFixture(t, nil)
-		token, _ := f.api.withNewBot("halfbot")
-		f.api.setWebhookErr = errors.New("telegram unreachable")
-		if _, err := f.store.Connect(f.ctx, capture.ConnectRequest{
-			Provider: capture.ProviderTelegram, BotToken: token,
-		}); err == nil {
-			t.Fatal("Connect succeeded despite a failed setWebhook")
+		connectChannel(t, f, "withdrawnbot")
+		live := f.liveConnections(t)
+		if len(live) != 1 {
+			t.Fatalf("the fixture holds %d live connections, want exactly 1", len(live))
+		}
+		if err := f.store.Disconnect(f.ctx, live[0].ID); err != nil {
+			t.Fatalf("Disconnect: %v", err)
 		}
 		reg := channelSendRegistry(t, f, &channelSendConnector{})
 		if _, _, err := reg.ChannelSenderFor(f.ctx, capture.ProviderTelegram); !errors.Is(err, capture.ErrNoConnection) {
-			t.Fatalf("ChannelSenderFor on a pending binding = %v, want ErrNoConnection", err)
+			t.Fatalf("ChannelSenderFor on a withdrawn binding = %v, want ErrNoConnection", err)
 		}
 	})
 }
@@ -182,28 +184,40 @@ func TestChannelSenderForNamesTheDeploymentFacts(t *testing.T) {
 	})
 }
 
-// Two live bindings for one provider in one workspace is a state the schema
-// permits — the unique indexes bind (workspace, provider, bot) and
-// (provider, bot), never (workspace, provider). The resolve REFUSES rather than
-// picking: replying through a bot the customer never opened a chat with is
-// refused by Telegram, so a guess turns into a message that silently never
-// arrives.
-func TestChannelSenderForRefusesToGuessBetweenTwoLiveBindings(t *testing.T) {
+// The send resolver refuses to guess between two live bindings, and F22 makes that
+// state unreachable: uq_channel_connection_ws permits ONE live row per
+// (workspace, provider). This is the test of that index rather than of the
+// refusal, because the index is what an operator actually meets — a second bot is
+// refused at connect, not silently bound and then discovered when a rep's reply
+// vanishes.
+//
+// The refusal in liveChannelBinding stays as the second line: it reads the rows
+// rather than trusting a constraint it cannot see, and picking the planner's first
+// row would send a customer's reply through a bot they never opened a chat with.
+func TestASecondLiveBindingCannotBeCreatedForTheResolveToGuessBetween(t *testing.T) {
 	f := newChannelFixture(t, nil)
 	connectChannel(t, f, "firstbot")
-	connectChannel(t, f, "secondbot")
-	reg := channelSendRegistry(t, f, &channelSendConnector{})
 
-	_, _, err := reg.ChannelSenderFor(f.ctx, capture.ProviderTelegram)
-	if !errors.Is(err, capture.ErrChannelConnectionAmbiguous) {
-		t.Fatalf("ChannelSenderFor = %v, want ErrChannelConnectionAmbiguous", err)
+	// Not merely a refusal from the store: the INDEX is asserted, by writing
+	// straight past the application on the owner connection.
+	owner, _ := setupCaptureDB(t)
+	_, err := owner.Exec(context.Background(), `
+		INSERT INTO channel_connection
+		  (workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
+		SELECT workspace_id, provider, channel_id || '9', channel_label, credential_ref, status, connected_by
+		  FROM channel_connection WHERE workspace_id = $1 AND archived_at IS NULL`, f.ws)
+	if err == nil {
+		t.Fatal("a second live binding was written for this workspace — every reply would then be ambiguous and the resolver would refuse to send at all")
 	}
-	// And it is NOT one of the deployment facts: an operator can repair this,
-	// and a delivery that parked on it would need re-sending by hand.
-	for _, fact := range []error{capture.ErrNoConnection, capture.ErrConnectorCannotSend, capture.ErrConnectorNotConfigured} {
-		if errors.Is(err, fact) {
-			t.Fatalf("an ambiguous binding was reported as the deployment fact %v", fact)
-		}
+	if constraint, unique := storekit.UniqueViolation(err); !unique || constraint != "uq_channel_connection_ws" {
+		t.Fatalf("the second binding failed on %v, want the uq_channel_connection_ws unique index", err)
+	}
+
+	// And the one binding still resolves, so the index bounds the state without
+	// breaking the lookup.
+	reg := channelSendRegistry(t, f, &channelSendConnector{})
+	if _, auth, err := reg.ChannelSenderFor(f.ctx, capture.ProviderTelegram); err != nil || len(auth) == 0 {
+		t.Fatalf("the sole binding resolved (%v, %d bytes of credential)", err, len(auth))
 	}
 }
 

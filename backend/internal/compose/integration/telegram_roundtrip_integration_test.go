@@ -93,10 +93,8 @@ func TestInboundThenReplyRoundTrip(t *testing.T) {
 	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{SendRegistry: c.sendRegistry()})
 	startTelegramWorker(t, runner)
 
-	// 1. The customer writes. Telegram delivers to the mounted webhook.
-	if status, _ := c.deliver(t, inbound); status != http.StatusOK {
-		t.Fatal("the inbound delivery was not accepted")
-	}
+	// 1. The customer writes, and the worker's poll collects it.
+	c.arrive(t, sub, inbound)
 	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
 
 	// 2. It became a conversation against a Person nobody created by hand.

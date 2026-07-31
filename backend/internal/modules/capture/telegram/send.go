@@ -34,9 +34,9 @@ import (
 // a live channel as capture-only and park every message staged against it.
 const ProviderName = "telegram"
 
-// Connector is the registered Telegram connector: a push capture source whose
-// updates arrive at the webhook rather than through Sync, plus the send seam the
-// workspace's bot binding transmits through.
+// Connector is the registered Telegram connector: a capture source whose updates
+// are collected by the CHANNEL poller rather than through Sync, plus the send seam
+// the workspace's bot binding transmits through.
 type Connector struct{ api API }
 
 // New builds the connector over the Bot API client. It takes no deployment
@@ -74,10 +74,12 @@ func (c *Connector) Authenticate(context.Context, connector.AuthRequest) (connec
 }
 
 // Sync has nothing to pull, and returning the cursor unchanged is the whole
-// correct behaviour rather than a stub. Telegram is a PUSH source: updates
-// arrive at the webhook and are normalized from the raw capture that persisted
-// them, and the Bot API exposes no history endpoint — so there is no watermark
-// to advance and nothing a poll could read.
+// correct behaviour rather than a stub. Telegram IS polled — but by the channel
+// poller, against a cursor that belongs to the workspace's bot binding
+// (channel_connection.poll_offset), not to one human's connector grant. This seam
+// is keyed on that grant and has no bot to ask, so there is no watermark HERE to
+// advance; and the Bot API exposes no history endpoint, so there is nothing to
+// re-read either.
 func (c *Connector) Sync(_ context.Context, _ connector.Auth, cursor connector.Cursor, _ connector.Sink) (connector.Cursor, error) {
 	return cursor, nil
 }

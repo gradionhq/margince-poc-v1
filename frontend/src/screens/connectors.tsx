@@ -199,7 +199,7 @@ type ChannelConnection = components["schemas"]["ChannelConnection"];
 
 type ChannelConnectionsResult = {
   // GET /channel-connections answers 503 when this deployment serves no
-  // messaging channels, or hasn't set its own public address (§5) — a
+  // messaging channels, or has no credential store to seal a bot token in — a
   // calm, documented feature-off state, mirroring the mail card's 501
   // not_implemented treatment above rather than an error card.
   notConfigured: boolean;
@@ -214,7 +214,7 @@ function useChannelConnections() {
       if (
         response.status === 503 &&
         (problemCode(error) === "channel_connections_not_configured" ||
-          problemCode(error) === "channel_public_base_url_unset")
+          problemCode(error) === "channel_credentials_not_configured")
       ) {
         return { notConfigured: true, data: [] };
       }

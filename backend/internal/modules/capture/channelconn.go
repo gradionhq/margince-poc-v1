@@ -3,15 +3,16 @@
 
 package capture
 
-// The workspace-level channel connection (telegram-oa design §5): one bot
+// The workspace-level channel connection (telegram-oa design v2 §4): one bot
 // binding per row, connected by an admin on behalf of the whole workspace
 // rather than by one human over their own mailbox (which is what
 // capture_connection models, and why channel_connection is a separate table —
 // 0151_channel_connection.up.sql carries that reasoning).
 //
 // Connect's ORDERING is the load-bearing part of this file, and it is spelled
-// out at Connect itself: the row must exist before setWebhook, because the
-// webhook URL contains the connection id.
+// out at Connect itself. Ingress PULLS (compose/telegrampoll.go), so there is no
+// registration to make and no provider call after the insert: connect either
+// succeeds as `connected` or writes nothing.
 //
 // The write is AUDIT-ONLY, the same ratified posture auditLifecycle documents
 // for capture_connection (EVT-NOEVT-3): the closed event catalog
@@ -23,7 +24,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -50,53 +50,41 @@ const channelConnectionObject = "channel_connection"
 // value channel_connection.provider's CHECK admits.
 const ProviderTelegram = telegram.ProviderName
 
-// The channel_connection lifecycle states this file drives. The column's CHECK
-// also admits 'error' and 'reauth_required', which no path here sets yet —
-// they belong to the ingress health signal, not to connect.
+// The channel_connection lifecycle states. There is deliberately no
+// half-connected state: a pull ingress makes no provider call after the insert,
+// so no row can be written that is not already live.
 const (
-	// channelStatusPending: the row exists so setWebhook has an id to
-	// register against, but the registration has not yet succeeded. Ingress
-	// and send both treat a pending row as not live.
-	channelStatusPending = "pending"
-	// channelStatusConnected: the webhook is registered and Telegram is
-	// delivering here.
+	// channelStatusConnected: the binding is live and the dispatcher polls it.
 	channelStatusConnected = "connected"
 	// channelStatusDisconnected: the operator withdrew the binding. Captured
 	// activities remain — disconnecting is not erasing.
 	channelStatusDisconnected = "disconnected"
+	// channelStatusError: the poll cannot proceed for a reason no retry repairs
+	// — another consumer holds this bot's updates. The due-scan stops selecting
+	// the row, so this is what actually parks it.
+	channelStatusError = "error"
+	// channelStatusReauthRequired: Telegram refused the sealed token. The admin
+	// re-pastes it (ReplaceToken); nothing else can recover from here.
+	channelStatusReauthRequired = "reauth_required"
 )
 
-// channelWebhookRoute is the ingress path segment the registered webhook URL
-// is built from; the connection id follows it. Spelled here because connect is
-// what registers the URL, and it must be the same route the webhook handler
-// mounts.
-const channelWebhookRoute = "/webhooks/telegram/"
-
-// channelAllowedUpdates narrows what Telegram sends us: the messages a person
-// writes, and the membership changes that tell us a person blocked or
-// unblocked the bot. Anything else (polls, inline queries, edited channel
-// posts) is bandwidth this system has no reader for, and asking for it would
-// mean parking updates nobody consumes.
-var channelAllowedUpdates = []string{"message", "my_chat_member"}
+// ChannelPollStopped names the two statuses a failing poll parks a connection
+// under, so the poller in the composition layer states them by name rather than
+// re-spelling the column's vocabulary.
+const (
+	ChannelPollStoppedByRivalConsumer = channelStatusError
+	ChannelPollStoppedByBadToken      = channelStatusReauthRequired
+)
 
 // channelConnectionColumns is the read shape, spelled once so every scan
 // agrees with every select.
 const channelConnectionColumns = `id, workspace_id, provider, channel_id, channel_label, status, version, created_at, updated_at`
 
-// ChannelConnection is one channel binding as read back. The bot token never
-// rides this shape: it lives sealed in the vault, addressed by a ref no
-// caller here has a legitimate reason to hold — List, Get and Connect's own
-// response all leave it out.
-//
-// WebhookSecretRef is the one field that IS a vault ref, and it is populated
-// ONLY by ResolveChannelConnection (push.go): verifying an inbound delivery
-// is literally unsealing that ref and comparing against what Telegram sent
-// (design §6.2 step 2), and the ingress webhook has no session yet through
-// which to ask for it any other way. Every other reader of this shape — List,
-// Get, ReplaceToken's response — never selects the webhook_secret_ref column,
-// so a ChannelConnection reached through any of those carries it as the zero
-// value, and wireChannelConnection's field-by-field mapping never forwards it
-// onto the wire regardless.
+// ChannelConnection is one channel binding as read back. No vault ref rides this
+// shape: the bot token lives sealed in the vault, addressed by a ref no caller
+// here has a legitimate reason to hold — List, Get and Connect's own response all
+// leave it out, and the poller reads it through its own narrow shape
+// (ChannelPollTarget).
 type ChannelConnection struct {
 	ID          ids.UUID
 	WorkspaceID ids.UUID
@@ -110,73 +98,61 @@ type ChannelConnection struct {
 	Version      int64
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
-
-	WebhookSecretRef keyvault.Ref
 }
 
 // ConnectRequest is Connect's input: which provider, and the BotFather token to
 // seal. Everything else about the connection — the bot id, its label, the
-// webhook secret, the connecting human — is server-derived, so a caller cannot
-// claim a bot identity it does not hold the token for.
+// connecting human — is server-derived, so a caller cannot claim a bot identity
+// it does not hold the token for.
 type ConnectRequest struct {
 	Provider string
 	BotToken string
 }
 
-// ErrChannelWebhookOwnedElsewhere reports that the bot already delivers its
-// updates to a URL this installation does not serve — the staging-vs-production
-// collision. Telegram permits exactly ONE webhook per bot, so connecting anyway
-// would silently steal the other installation's traffic. No local constraint
-// can see this; only the provider knows.
-var ErrChannelWebhookOwnedElsewhere = errors.New("capture: the bot's webhook is registered to another installation")
-
-// ErrChannelWebhookBaseUnset reports that this deployment does not know its own
-// externally-reachable origin, so it cannot tell Telegram where to deliver.
-// Connect refuses rather than guessing: a bot registered against an
-// unreachable URL reads `connected` and then simply falls quiet, which is
-// indistinguishable from a healthy channel nobody is messaging.
-var ErrChannelWebhookBaseUnset = errors.New("capture: no public webhook base URL is configured")
+// ErrChannelWorkspaceBotAlreadyBound reports that this workspace already holds a
+// live bot. It is a DIFFERENT refusal from the bot already being bound somewhere:
+// the remedy is to disconnect the existing binding, not to pick another bot.
+//
+// Only one live bot per workspace is permitted, because every outbound reply
+// resolves the workspace's bot and the send path refuses to guess between two —
+// so a second binding would not add a channel, it would take away the ability to
+// reply on either.
+var ErrChannelWorkspaceBotAlreadyBound = errors.New("capture: this workspace already has a live channel connection")
 
 // ErrChannelWiringIncomplete reports that this deployment composed no credential
-// custodian, so a bot token can neither be sealed nor destroyed. Like the base
-// URL above it is a DEPLOYMENT FACT an operator can act on, not an internal
-// fault, so it refuses by name (503) instead of the opaque 500 an untyped error
-// would become — which sends whoever is looking at the screen to a server log
-// they may not have.
+// custodian, so a bot token can neither be sealed nor destroyed. It is a
+// DEPLOYMENT FACT an operator can act on, not an internal fault, so it refuses by
+// name (503) instead of the opaque 500 an untyped error would become — which
+// sends whoever is looking at the screen to a server log they may not have.
 var ErrChannelWiringIncomplete = errors.New("capture: no credential custodian is composed for the channel surface")
 
 // ChannelStore owns channel_connection and its write shape. vault is the
-// custodian of both sealed values; api is the Telegram boundary; webhookBase is
-// this installation's externally-reachable origin.
+// custodian of the sealed bot token; api is the Telegram boundary.
+//
+// Connecting needs no public address of our own: a poll dials OUT, so this store
+// has nothing to tell the provider about where we are.
 //
 // api is REQUIRED — every composition of this store supplies one, and a role
 // that serves no channel surface composes no store at all rather than a
-// client-less one. vault and webhookBase may be absent on a deployment that did
-// not configure them, and every entry point that needs one refuses by name
-// rather than proceeding half-wired.
+// client-less one. vault may be absent on a deployment that configured none, and
+// every entry point that needs it refuses by name rather than proceeding
+// half-wired.
 type ChannelStore struct {
-	pool        *pgxpool.Pool
-	vault       keyvault.Vault
-	api         telegram.API
-	webhookBase string
-	log         *slog.Logger
+	pool  *pgxpool.Pool
+	vault keyvault.Vault
+	api   telegram.API
+	log   *slog.Logger
 }
 
-// NewChannelStore wires the channel-connection store. vault may be nil and
-// webhookBase empty when the deployment configured neither — in both cases the
-// mutating paths refuse with a named, actionable error instead of writing a
-// connection that could never receive a delivery.
-func NewChannelStore(pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, webhookBase string, log *slog.Logger) *ChannelStore {
+// NewChannelStore wires the channel-connection store. vault may be nil when the
+// deployment configured none — the mutating paths then refuse with a named,
+// actionable error instead of writing a connection whose token nothing could
+// unseal.
+func NewChannelStore(pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, log *slog.Logger) *ChannelStore {
 	if log == nil {
 		log = slog.Default()
 	}
-	return &ChannelStore{
-		pool:        pool,
-		vault:       vault,
-		api:         api,
-		webhookBase: strings.TrimRight(webhookBase, "/"),
-		log:         log,
-	}
+	return &ChannelStore{pool: pool, vault: vault, api: api, log: log}
 }
 
 // withVault returns a copy of the store carrying the credential custodian. The
@@ -189,39 +165,25 @@ func (s *ChannelStore) withVault(vault keyvault.Vault) *ChannelStore {
 	return &next
 }
 
-// webhookURL renders the delivery target for one connection. The id is IN the
-// URL — that is what forces the row to exist before setWebhook is called.
-func (s *ChannelStore) webhookURL(id ids.UUID) string {
-	return s.webhookBase + channelWebhookRoute + id.String()
-}
-
-// ownsWebhook reports whether a webhook URL Telegram already holds is one this
-// installation registered. A URL under our own ingress route is ours to
-// overwrite (a retried connect, or a bot we previously held); anything else
-// belongs to another installation and is a conflict.
-func (s *ChannelStore) ownsWebhook(registered string) bool {
-	return strings.HasPrefix(registered, s.webhookBase+channelWebhookRoute)
-}
-
-// Connect binds one bot to this workspace. The ORDER is the design's (§5) and
+// Connect binds one bot to this workspace. The ORDER is the design's (v2 §4) and
 // is not interchangeable:
 //
 //  1. getMe — validates the token and yields the bot id and username. A bad
 //     token fails here, before anything is sealed or written.
-//  2. getWebhookInfo preflight — a bot already delivering to another
-//     installation is refused. Only the provider knows this.
-//  3. Seal the token and a freshly minted webhook secret in the vault.
-//  4. Insert the row with status='pending' (domain row + audit, one
-//     transaction).
-//  5. setWebhook against the URL carrying that row's id.
-//  6. Flip to status='connected'.
+//  2. deleteWebhook — clears any registration the bot still carries, because
+//     Telegram refuses getUpdates while one exists. Pending updates are
+//     deliberately KEPT: they are the customer's messages.
+//  3. Seal the token in the vault.
+//  4. Insert the row `connected` with a zero cursor, in one transaction with its
+//     audit row.
 //
-// Step 4 MUST precede step 5, because the webhook URL contains the connection
-// id: registering first would leave Telegram delivering to an id that does not
-// exist, every delivery answering 401, and the half-registration living on
-// Telegram's side where no local transaction can roll it back. A failure at
-// step 5 instead leaves a `pending` row an operator can see and retry or clean
-// up — a state the system can name.
+// Nothing follows step 4 — no registration, no flip — which is why there is no
+// `pending` state to reach: a poll dials out, so a committed row is already live,
+// and a failure anywhere before the commit leaves nothing behind but a vault entry
+// this path destroys itself. The dispatcher's next tick picks the row up.
+//
+// Step 2 precedes step 3 for the ordinary reason: a provider refusal must not
+// leave a sealed secret nothing names.
 func (s *ChannelStore) Connect(ctx context.Context, req ConnectRequest) (ChannelConnection, error) {
 	if err := auth.Require(ctx, channelConnectionObject, principal.ActionCreate); err != nil {
 		return ChannelConnection{}, err
@@ -246,43 +208,53 @@ func (s *ChannelStore) Connect(ctx context.Context, req ConnectRequest) (Channel
 	if err != nil {
 		return ChannelConnection{}, err
 	}
-	if err := s.preflightWebhook(ctx, req.BotToken); err != nil {
+	if err := s.clearWebhook(ctx, req.BotToken); err != nil {
 		return ChannelConnection{}, err
 	}
 
-	sealed, err := s.sealChannelSecrets(ctx, ws, req.BotToken)
+	credentialRef, err := s.sealBotToken(ctx, ws, req.BotToken)
 	if err != nil {
 		return ChannelConnection{}, err
 	}
-	row, err := s.insertPending(ctx, bot, sealed)
+	row, err := s.insertConnected(ctx, bot, credentialRef)
 	if err != nil {
 		// A lost race for either unique index is the one failure that
-		// guarantees no row persisted, so the just-sealed refs are definitely
+		// GUARANTEES no row persisted, so the just-sealed ref is definitely
 		// orphaned and safe to destroy. Any other error leaves the commit
 		// outcome ambiguous, and deleting then could strand a live
-		// connection's credentials — the same put-then-commit posture
+		// connection's credential — the same put-then-commit posture
 		// Registry.Connect and overlay's Connect document.
-		if storekit.IsUniqueViolation(err) {
-			sealed.destroy(ctx, s.vault, s.log, ws, "channel-connect-lost-race")
-			return ChannelConnection{}, fmt.Errorf("this bot is already connected: %w", apperrors.ErrConflict)
+		if constraint, unique := storekit.UniqueViolation(err); unique {
+			keyvault.DeleteDetached(ctx, s.vault, s.log, ws, credentialRef, "channel-connect-lost-race")
+			return ChannelConnection{}, channelUniquenessRefusal(constraint)
 		}
 		return ChannelConnection{}, err
 	}
-
-	if err := s.api.SetWebhook(ctx, req.BotToken, s.webhookURL(row.ID), sealed.webhookSecret, channelAllowedUpdates); err != nil {
-		// The pending row and its sealed credentials are deliberately KEPT: an
-		// operator retries or removes the connection, and a retry needs the
-		// same id it already registered against.
-		return ChannelConnection{}, err
-	}
-	return s.markConnected(ctx, row)
+	return row, nil
 }
 
+// channelUniquenessRefusal names WHICH uniqueness rule a connect or a
+// replacement lost to, because the two send an operator to do different things:
+// one says pick a different bot, the other says disconnect the bot this workspace
+// already has. Answering both as "this bot is already connected" leaves an admin
+// hunting for a binding of a bot they have never used.
+func channelUniquenessRefusal(constraint string) error {
+	if constraint == channelWorkspaceUniqueIndex {
+		return fmt.Errorf("another bot is already connected to this workspace; disconnect it first: %w",
+			ErrChannelWorkspaceBotAlreadyBound)
+	}
+	return fmt.Errorf("this bot is already connected: %w", apperrors.ErrConflict)
+}
+
+// channelWorkspaceUniqueIndex is the partial unique index that permits ONE live
+// bot per workspace (0151). Named here because the refusal above branches on it,
+// and a rename in the migration must break this compile-time-invisible link
+// loudly — which the connect suite's two distinct refusals are what enforce.
+const channelWorkspaceUniqueIndex = "uq_channel_connection_ws"
+
 // requireConnectWiring refuses a connect this deployment cannot honestly
-// complete: an unimplemented provider, a missing vault (nothing could seal the
-// token), or an unknown public origin. Each refusal names what to fix — a
-// connect that half-succeeds is the failure mode this whole path is shaped to
-// avoid.
+// complete: an unimplemented provider, or a missing vault (nothing could seal the
+// token). Each refusal names what to fix.
 func (s *ChannelStore) requireConnectWiring(provider string) error {
 	if provider != ProviderTelegram {
 		return fmt.Errorf("channel provider %q is not implemented: %w", provider, apperrors.ErrConflict)
@@ -291,71 +263,44 @@ func (s *ChannelStore) requireConnectWiring(provider string) error {
 		return fmt.Errorf("configure a credential store for this installation, so a bot token can be sealed: %w",
 			ErrChannelWiringIncomplete)
 	}
-	if s.webhookBase == "" {
-		return fmt.Errorf("set --public-base-url (or --api-base-url when the api is on its own origin) to this installation's externally-reachable origin, so Telegram can be told where to deliver: %w",
-			ErrChannelWebhookBaseUnset)
+	return nil
+}
+
+// clearWebhook removes any webhook a bot still carries, because Telegram refuses
+// getUpdates for a bot with one registered (telegram.ErrWebhookActive). It runs
+// before anything is sealed or written, so a provider refusal leaves no trace to
+// clean up.
+//
+// drop_pending_updates is NOT sent: those pending updates are the customer's
+// messages, and the first poll is meant to collect them.
+//
+// This DOES take a bot away from whatever had registered that webhook — a staging
+// installation, or an unrelated integration. That is unavoidable rather than
+// overlooked: the two ingress modes cannot coexist on one bot, so binding a bot
+// here means taking it, and the operator pasting the token is the one asserting
+// they may.
+func (s *ChannelStore) clearWebhook(ctx context.Context, token string) error {
+	if err := s.api.DeleteWebhook(ctx, token); err != nil {
+		return fmt.Errorf("capture: clearing the bot's webhook so its updates can be polled: %w", err)
 	}
 	return nil
 }
 
-// preflightWebhook refuses a bot Telegram already delivers elsewhere. It runs
-// before anything is sealed or written, so a refusal leaves no trace to clean
-// up.
-func (s *ChannelStore) preflightWebhook(ctx context.Context, token string) error {
-	info, err := s.api.GetWebhookInfo(ctx, token)
+// sealBotToken puts the token in the vault before any row names it
+// (put-then-commit). One secret per connection now: a poll authenticates with the
+// bot token alone, so there is no second value to mint, rotate or destroy.
+func (s *ChannelStore) sealBotToken(ctx context.Context, ws ids.UUID, token string) (keyvault.Ref, error) {
+	ref, err := s.vault.Put(ctx, ids.From[ids.WorkspaceKind](ws), []byte(token))
 	if err != nil {
-		return err
+		return "", fmt.Errorf("capture: sealing the bot token: %w", err)
 	}
-	if info.URL != "" && !s.ownsWebhook(info.URL) {
-		// The registered URL is another installation's and is NOT echoed to
-		// the caller: it names an internal host of a system the caller may
-		// have no business knowing about.
-		return fmt.Errorf("the bot already delivers its updates to another installation of this system: %w",
-			ErrChannelWebhookOwnedElsewhere)
-	}
-	return nil
+	return ref, nil
 }
 
-// channelSecrets is the pair of vault refs one connection is built on, plus the
-// webhook secret's plaintext for the setWebhook call that follows. The
-// plaintext lives only for the span of a connect: the row stores refs.
-type channelSecrets struct {
-	credentialRef keyvault.Ref
-	secretRef     keyvault.Ref
-	webhookSecret string
-}
-
-// sealChannelSecrets mints the webhook secret and seals it together with the
-// bot token (put-then-commit: the vault holds both before any row names them).
-// A failure sealing the second value destroys the first rather than leaving it
-// orphaned — nothing references it, and there is no vault sweep to collect it.
-func (s *ChannelStore) sealChannelSecrets(ctx context.Context, ws ids.UUID, token string) (channelSecrets, error) {
-	secret, err := telegram.MintWebhookSecret()
-	if err != nil {
-		return channelSecrets{}, err
-	}
-	wsKey := ids.From[ids.WorkspaceKind](ws)
-	credentialRef, err := s.vault.Put(ctx, wsKey, []byte(token))
-	if err != nil {
-		return channelSecrets{}, fmt.Errorf("capture: sealing the bot token: %w", err)
-	}
-	secretRef, err := s.vault.Put(ctx, wsKey, []byte(secret))
-	if err != nil {
-		keyvault.DeleteDetached(ctx, s.vault, s.log, ws, credentialRef, "channel-connect-seal-failed")
-		return channelSecrets{}, fmt.Errorf("capture: sealing the webhook secret: %w", err)
-	}
-	return channelSecrets{credentialRef: credentialRef, secretRef: secretRef, webhookSecret: secret}, nil
-}
-
-// destroy removes both sealed values, for the paths that must undo a seal.
-func (c channelSecrets) destroy(ctx context.Context, v keyvault.Vault, log *slog.Logger, ws ids.UUID, lifecycle string) {
-	keyvault.DeleteDetached(ctx, v, log, ws, c.credentialRef, lifecycle)
-	keyvault.DeleteDetached(ctx, v, log, ws, c.secretRef, lifecycle)
-}
-
-// insertPending writes the pending row and its audit in one transaction. It is
-// the step that gives setWebhook an id to register against.
-func (s *ChannelStore) insertPending(ctx context.Context, bot telegram.Bot, sealed channelSecrets) (ChannelConnection, error) {
+// insertConnected writes the live row and its audit in one transaction. The
+// cursor starts at 0 — "whatever Telegram still holds" — so a freshly connected
+// bot collects the messages waiting for it rather than starting from silence.
+func (s *ChannelStore) insertConnected(ctx context.Context, bot telegram.Bot, credentialRef keyvault.Ref) (ChannelConnection, error) {
 	connectedBy, err := channelActor(ctx)
 	if err != nil {
 		return ChannelConnection{}, err
@@ -364,65 +309,17 @@ func (s *ChannelStore) insertPending(ctx context.Context, bot telegram.Bot, seal
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		out, err = scanChannelConnection(tx.QueryRow(ctx, `
 			INSERT INTO channel_connection
-			  (workspace_id, provider, channel_id, channel_label, credential_ref, webhook_secret_ref, status, connected_by)
-			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, $6, $7)
+			  (workspace_id, provider, channel_id, channel_label, credential_ref, status, poll_offset, connected_by)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5, 0, $6)
 			RETURNING `+channelConnectionColumns,
 			ProviderTelegram, channelIDOf(bot), bot.Username,
-			string(sealed.credentialRef), string(sealed.secretRef), channelStatusPending, connectedBy))
+			string(credentialRef), channelStatusConnected, connectedBy))
 		if err != nil {
 			return err
 		}
 		return auditLifecycle(ctx, tx, "create", channelConnectionObject, out.ID, nil,
-			channelAuditImage(out.ChannelID, out.ChannelLabel, channelStatusPending))
-	})
-	if err != nil {
-		return ChannelConnection{}, err
-	}
-	return out, nil
-}
-
-// markConnected flips a registered connection live. Reached only after
-// setWebhook succeeded for the bot named on `row`, so the row and Telegram agree
-// from here on — provided the row still names that bot, which is what the
-// version predicate below is for.
-//
-// The row is locked first because a provider round trip sat between the pending
-// write and this flip: a disconnect that landed in that window archived the row
-// deliberately, and this write must not resurrect it as connected. The lock is
-// taken inside this transaction only — never held across the provider call.
-//
-// `row.Version` is a PREDICATE, not decoration. A concurrent replacement can have
-// repointed this connection at a DIFFERENT bot while the provider call was in
-// flight; updating by id alone would then flip that newer bot's row to
-// `connected` on the strength of a registration made for the older one, and if
-// the newer replacement's own setWebhook went on to fail, the row would advertise
-// a bot Telegram was never told about. Zero rows matched means exactly that race,
-// so the stale writer fails with version skew instead of overwriting.
-func (s *ChannelStore) markConnected(ctx context.Context, row ChannelConnection) (ChannelConnection, error) {
-	var out ChannelConnection
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := storekit.LockRow(ctx, tx, "channel_connection", row.ID, storekit.LiveOnly); err != nil {
-			return err
-		}
-		var err error
-		out, err = scanChannelConnection(tx.QueryRow(ctx,
-			`UPDATE channel_connection SET status = $2
-			  WHERE id = $1 AND version = $3 AND archived_at IS NULL
-			 RETURNING `+channelConnectionColumns, row.ID, channelStatusConnected, row.Version))
-		if err != nil {
-			return err
-		}
-		return auditLifecycle(ctx, tx, "update", channelConnectionObject, out.ID,
-			channelAuditImage(row.ChannelID, row.ChannelLabel, row.Status),
 			channelAuditImage(out.ChannelID, out.ChannelLabel, out.Status))
 	})
-	if errors.Is(err, pgx.ErrNoRows) {
-		// The lock resolved a LIVE row, so `archived_at IS NULL` held and the only
-		// clause left to fail is the version: a newer writer owns this connection.
-		// The webhook this call registered is inert — the row names another bot's
-		// secret, and ingress verifies against that.
-		return ChannelConnection{}, apperrors.ErrVersionSkew
-	}
 	if err != nil {
 		return ChannelConnection{}, err
 	}

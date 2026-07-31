@@ -8313,7 +8313,7 @@ type ChangeUserRoleRequest struct {
 // ChangeUserRoleRequestRole defines model for ChangeUserRoleRequest.Role.
 type ChangeUserRoleRequestRole string
 
-// ChannelConnection One workspace-level messaging-channel binding. Neither the bot token nor the webhook secret ever appears in this shape — both live sealed in the vault.
+// ChannelConnection One workspace-level messaging-channel binding. The bot token never appears in this shape — it lives sealed in the vault, and it is the only secret a binding holds.
 type ChannelConnection struct {
 	// ChannelId The provider's own id for the bot — the key the binding is unique on.
 	ChannelId string `json:"channelId"`
@@ -8324,7 +8324,7 @@ type ChannelConnection struct {
 	Id           openapi_types.UUID        `json:"id"`
 	Provider     ChannelConnectionProvider `json:"provider"`
 
-	// Status `pending` means the row exists but the provider webhook is not registered yet — it is NOT live, and must not be rendered as connected, or a half-registration reads exactly like a healthy channel nobody is messaging.
+	// Status Only `connected` is live, and it is the only state a connect can produce — a pull ingress makes no provider call after the write, so there is no half-connected state. `error` and `reauth_required` are where ingress parks a binding it can no longer poll (another consumer holds the bot's updates; the token was refused), and neither is polled again until an operator acts. `pending` is a value NO server produces: it is retained because the code generator disambiguates enum member names across the whole document, so dropping it renames unrelated generated constants in other schemas.
 	Status    ChannelConnectionStatus `json:"status"`
 	UpdatedAt *time.Time              `json:"updatedAt,omitempty"`
 	Version   int64                   `json:"version"`
@@ -8333,7 +8333,7 @@ type ChannelConnection struct {
 // ChannelConnectionProvider defines model for ChannelConnection.Provider.
 type ChannelConnectionProvider string
 
-// ChannelConnectionStatus `pending` means the row exists but the provider webhook is not registered yet — it is NOT live, and must not be rendered as connected, or a half-registration reads exactly like a healthy channel nobody is messaging.
+// ChannelConnectionStatus Only `connected` is live, and it is the only state a connect can produce — a pull ingress makes no provider call after the write, so there is no half-connected state. `error` and `reauth_required` are where ingress parks a binding it can no longer poll (another consumer holds the bot's updates; the token was refused), and neither is polled again until an operator acts. `pending` is a value NO server produces: it is retained because the code generator disambiguates enum member names across the whole document, so dropping it renames unrelated generated constants in other schemas.
 type ChannelConnectionStatus string
 
 // ChannelConnectionListResponse defines model for ChannelConnectionListResponse.
@@ -22318,7 +22318,7 @@ type ServerInterface interface {
 	// Connect a messaging-channel bot for the whole workspace.
 	// (POST /channel-connections)
 	ConnectChannel(w http.ResponseWriter, r *http.Request)
-	// Disconnect a messaging channel (revokes the webhook and the credential).
+	// Disconnect a messaging channel (archives the binding and destroys the credential).
 	// (DELETE /channel-connections/{id})
 	DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id)
 	// Replace a channel connection's bot token in place.
@@ -23362,7 +23362,7 @@ func (_ Unimplemented) ConnectChannel(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Disconnect a messaging channel (revokes the webhook and the credential).
+// Disconnect a messaging channel (archives the binding and destroys the credential).
 // (DELETE /channel-connections/{id})
 func (_ Unimplemented) DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)

@@ -4,14 +4,13 @@
 package telegram
 
 // The seam between the ingest worker's I/O world and Normalize's pure one
-// (design §6.3): BuildRawEnvelope joins the bot id the worker resolved from
-// channel_connection with the verbatim update Task 8's webhook persisted,
-// producing the one byte record connector.Connector.Normalize's contract
-// expects. Telegram is a Connector — a webhook push source, no incremental
-// cursor to advance — and deliberately never a Backfiller: the Bot API has
-// no history endpoint, and Telegram itself retains undelivered updates only
-// ~24h, so there is nothing to page backward through even if this package
-// grew one.
+// (design §6.3): BuildRawEnvelope joins the bot id the poll pinned onto the update
+// with the verbatim update that poll persisted, producing the one byte record
+// connector.Connector.Normalize's contract expects. Telegram is a Connector whose
+// per-user Sync seam has nothing to pull (the channel poller owns its cursor), and
+// deliberately never a Backfiller: the Bot API has no history endpoint, and
+// Telegram itself retains unacknowledged updates only ~24h, so there is nothing to
+// page backward through even if this package grew one.
 
 import (
 	"encoding/json"

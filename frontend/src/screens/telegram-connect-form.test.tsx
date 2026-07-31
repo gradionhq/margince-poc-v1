@@ -161,14 +161,18 @@ describe("TelegramConnectForm", () => {
     expect(screen.queryByText(/@acme_sales_bot/)).not.toBeInTheDocument();
   });
 
-  it("surfaces a webhook-conflict refusal with its reason", async () => {
+  // A 409 has two causes and they call for different things — disconnect the
+  // bot this workspace already has, or pick a different bot. Flattened into one
+  // generic "could not connect", an admin is left hunting for a binding of a bot
+  // they have never used, so the server's own `detail` is surfaced verbatim.
+  it("surfaces the workspace-already-bound refusal with its reason", async () => {
     installFetchStub({
       "POST /channel-connections": () =>
         jsonResponse(
           {
-            code: "channel_webhook_owned_elsewhere",
+            code: "channel_workspace_already_bound",
             detail:
-              "This bot already delivers its updates to another installation. Use a different bot, or disconnect it there first.",
+              "Another bot is already connected to this workspace. Disconnect it first, or replace its token to point it at a different bot.",
           },
           409,
         ),
@@ -180,9 +184,7 @@ describe("TelegramConnectForm", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Connect" }));
     expect(
-      await screen.findByText(
-        /already delivers its updates to another installation/i,
-      ),
+      await screen.findByText(/already connected to this workspace/i),
     ).toBeInTheDocument();
     // The token is never retained after a failed submit.
     expect(screen.getByLabelText("Bot token")).toHaveValue("");

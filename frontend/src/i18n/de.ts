@@ -1497,8 +1497,7 @@ export const de = {
   "connectors.provGraph": "Microsoft",
   "connectors.provImap": "IMAP-Postfach",
   "connectors.statusConnected": "Aktiv",
-  "connectors.statusPending":
-    "Ausstehend — registriert, aber noch nicht bestätigt aktiv",
+  "connectors.statusPending": "Ausstehend — noch nicht bestätigt aktiv",
   "connectors.statusReauth": "Neu verbinden nötig",
   "connectors.statusError": "Sync-Fehler",
   "connectors.statusDisconnected": "Getrennt",
@@ -1592,7 +1591,7 @@ export const de = {
   "connectors.telegramEditToken": "Token ersetzen",
   "connectors.telegramDisconnectTitle": "Diesen Bot trennen?",
   "connectors.telegramDisconnectBody":
-    "Dies widerruft den Webhook des Bots und löscht das gespeicherte Token. Erfassung und Versand stoppen sofort; alles bereits Erfasste bleibt in deinem CRM.",
+    "Dies löscht das gespeicherte Token und beendet das Abrufen neuer Nachrichten. Erfassung und Versand stoppen sofort; alles bereits Erfasste bleibt in deinem CRM.",
   "connectors.telegramModalTitle": "Telegram-Bot verbinden",
   "connectors.telegramEditTitle": "Bot-Token ersetzen",
   "connectors.telegramBotToken": "Bot-Token",

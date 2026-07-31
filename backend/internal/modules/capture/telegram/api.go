@@ -42,13 +42,6 @@ type Bot struct {
 	Username string
 }
 
-// WebhookInfo is the part of getWebhookInfo the connect preflight reads: the
-// URL Telegram currently delivers this bot's updates to. Empty means no
-// webhook is registered.
-type WebhookInfo struct {
-	URL string
-}
-
 // API is the Telegram Bot API surface. Every call carries the bot token
 // explicitly rather than binding one per instance, because a single composed
 // client serves every workspace's connection and a token rotation must not
@@ -56,16 +49,20 @@ type WebhookInfo struct {
 type API interface {
 	// GetMe validates the token and identifies the bot behind it.
 	GetMe(ctx context.Context, token string) (Bot, error)
-	// GetWebhookInfo reports where Telegram currently delivers this bot's
-	// updates — the preflight that catches a bot already wired to another
-	// installation, which no local constraint can see.
-	GetWebhookInfo(ctx context.Context, token string) (WebhookInfo, error)
-	// SetWebhook points the bot's updates at url, authenticated by secret
-	// (echoed back in X-Telegram-Bot-Api-Secret-Token on every delivery) and
-	// narrowed to the allowed update kinds.
-	SetWebhook(ctx context.Context, token, url, secret string, allowed []string) error
-	// DeleteWebhook stops Telegram delivering this bot's updates to us.
+	// DeleteWebhook clears any webhook registered against this bot. There is
+	// nothing for it to undo here — this installation never registers one — but
+	// Telegram refuses getUpdates while a webhook exists, so clearing whatever a
+	// bot arrives carrying is what makes it pollable at all.
 	DeleteWebhook(ctx context.Context, token string) error
+	// GetUpdates long-polls for the next batch after offset, returning each
+	// update's raw JSON — the subject and normalize passes both read raw bytes
+	// — and the highest update_id in the batch (0 when the batch is empty).
+	//
+	// Asking for offset = highest + 1 is what ACKNOWLEDGES the previous batch,
+	// so a caller must not advance its stored offset until the batch it just
+	// read is durable. timeoutSeconds is how long Telegram holds the connection
+	// open with nothing to report; allowed narrows the update kinds.
+	GetUpdates(ctx context.Context, token string, offset int64, timeoutSeconds int, allowed []string) ([]json.RawMessage, int64, error)
 	// SendMessage transmits one message and returns Telegram's message id for
 	// it — the id a later reply threads under.
 	SendMessage(ctx context.Context, token string, m OutboundChannelMessage) (messageID int64, err error)
@@ -81,7 +78,7 @@ const apiBase = "https://api.telegram.org"
 const httpTimeout = 30 * time.Second
 
 // maxResponseBytes bounds every response read. These are small JSON documents
-// (a Bot, a WebhookInfo, a sent-message id); the cap exists so a compromised or
+// (a Bot, one batch of updates, a sent-message id); the cap exists so a compromised or
 // misconfigured host cannot exhaust memory by answering with an endless body.
 const maxResponseBytes = 1 << 20
 
@@ -122,30 +119,105 @@ func (a *httpAPI) GetMe(ctx context.Context, token string) (Bot, error) {
 	return Bot{ID: out.ID, Username: out.Username}, nil
 }
 
-// GetWebhookInfo reports the bot's current webhook registration.
-func (a *httpAPI) GetWebhookInfo(ctx context.Context, token string) (WebhookInfo, error) {
-	var out struct {
-		URL string `json:"url"`
-	}
-	if err := a.call(ctx, token, "getWebhookInfo", nil, &out); err != nil {
-		return WebhookInfo{}, err
-	}
-	return WebhookInfo{URL: out.URL}, nil
+// DeleteWebhook clears any webhook registered against the bot.
+//
+// drop_pending_updates is deliberately NOT sent: its default is false, and those
+// pending updates are the customer's messages — the first poll after a connect is
+// meant to collect them.
+func (a *httpAPI) DeleteWebhook(ctx context.Context, token string) error {
+	return a.call(ctx, token, "deleteWebhook", nil, nil)
 }
 
-// SetWebhook registers the delivery target, its secret, and the update kinds
-// this installation consumes.
-func (a *httpAPI) SetWebhook(ctx context.Context, token, webhookURL, secret string, allowed []string) error {
-	body := map[string]any{"url": webhookURL, "secret_token": secret}
+// longPollSlack is the headroom a long poll gets on top of the interval it asks
+// Telegram to hold the connection for. Telegram answers AT that interval when
+// nothing arrived, and the answer still has to travel; a budget equal to the
+// poll itself would abandon batches that were already on the wire — not lost
+// (an unacknowledged batch is re-delivered) but a round trip wasted on every
+// single poll, forever.
+const longPollSlack = 15 * time.Second
+
+// LongPollBudget is the whole-request deadline for a poll that asks Telegram to
+// hold the connection for timeoutSeconds. A non-positive interval is not a long
+// poll at all — Telegram answers it immediately — so it takes the ordinary
+// bound.
+//
+// It is exported because the JOB that runs a poll must be given a timeout longer
+// than this, and a caller that derived that bound from the poll interval alone
+// would forget the headroom and cancel every poll just before Telegram answered.
+func LongPollBudget(timeoutSeconds int) time.Duration {
+	if timeoutSeconds <= 0 {
+		return httpTimeout
+	}
+	return time.Duration(timeoutSeconds)*time.Second + longPollSlack
+}
+
+// longPollClient widens the request timeout for one long poll, on a COPY of the
+// shared client. http.Client.Timeout is a hard cap on the whole request, so the
+// bound sized for calls Telegram answers immediately would cut a long poll off
+// mid-hold — and a poll that never completes never advances its offset, so the
+// connection would retry forever without making progress. Copying rather than
+// mutating keeps every other Bot API call on the short bound; a client with no
+// timeout of its own already outlasts any budget and is used as it is.
+func (a *httpAPI) longPollClient(budget time.Duration) *http.Client {
+	if a.client.Timeout == 0 || a.client.Timeout >= budget {
+		return a.client
+	}
+	widened := *a.client
+	widened.Timeout = budget
+	return &widened
+}
+
+// GetUpdates long-polls the next batch of raw update envelopes.
+func (a *httpAPI) GetUpdates(ctx context.Context, token string, offset int64, timeoutSeconds int, allowed []string) ([]json.RawMessage, int64, error) {
+	body := map[string]any{"offset": offset, "timeout": timeoutSeconds}
 	if len(allowed) > 0 {
 		body["allowed_updates"] = allowed
 	}
-	return a.call(ctx, token, "setWebhook", body, nil)
+	budget := LongPollBudget(timeoutSeconds)
+	pollCtx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+
+	var batch []json.RawMessage
+	if err := a.callWith(pollCtx, a.longPollClient(budget), token, "getUpdates", body, &batch); err != nil {
+		return nil, 0, err
+	}
+	return batch, highestUpdateID(batch), nil
 }
 
-// DeleteWebhook unregisters the delivery target.
-func (a *httpAPI) DeleteWebhook(ctx context.Context, token string) error {
-	return a.call(ctx, token, "deleteWebhook", nil, nil)
+// UpdateIDOf reads one update's Telegram-assigned sequence number, decoding
+// nothing else — the rest of the envelope belongs to the subject and normalize
+// passes, which read the raw bytes themselves.
+//
+// It reports false for an envelope carrying no usable number. Telegram documents
+// update_id as a required positive integer, and both the numbers this package
+// derives from a batch and the raw key a caller stores an update under come
+// through here, so the two can never disagree about what an update is called.
+func UpdateIDOf(update []byte) (int64, bool) {
+	var env struct {
+		UpdateID int64 `json:"update_id"`
+	}
+	if err := json.Unmarshal(update, &env); err != nil {
+		return 0, false
+	}
+	return env.UpdateID, env.UpdateID > 0
+}
+
+// highestUpdateID reads the acknowledgement number out of a batch.
+//
+// An envelope this side cannot number contributes nothing: acknowledging a
+// number nobody read would be a guess, and the caller refuses that update on its
+// own terms anyway. The consequence is stated rather than hidden — such an
+// update is re-delivered until something in the batch numbers above it — because
+// the alternative, inventing a number, tells Telegram to forget an update this
+// installation never saw.
+func highestUpdateID(batch []json.RawMessage) int64 {
+	var highest int64
+	for _, raw := range batch {
+		if id, ok := UpdateIDOf(raw); ok {
+			highest = max(highest, id)
+		}
+	}
+	return highest
 }
 
 // SendMessage transmits one message into a chat.
@@ -200,11 +272,22 @@ type envelope struct {
 //
 //craft:ignore naked-any out is the caller's per-method JSON decode target — one shape per Bot API method
 func (a *httpAPI) call(ctx context.Context, token, method string, body map[string]any, out any) error {
+	return a.callWith(ctx, a.client, token, method, body, out)
+}
+
+// callWith is call over a nominated client. Only the long poll needs one — it
+// runs on a copy whose timeout outlasts the interval Telegram holds the
+// connection for — and it goes through here rather than a second request
+// pipeline so the status verdict, the response cap and the error wrapping stay
+// spelled exactly once.
+//
+//craft:ignore naked-any out is the caller's per-method JSON decode target — one shape per Bot API method
+func (a *httpAPI) callWith(ctx context.Context, client *http.Client, token, method string, body map[string]any, out any) error {
 	req, err := a.request(ctx, token, method, body)
 	if err != nil {
 		return err
 	}
-	resp, err := a.client.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		// A transport failure carries no provider verdict: the token may be
 		// perfect and Telegram simply unreachable.
@@ -326,6 +409,21 @@ func classify(status int, method, description string, retryAfter time.Duration) 
 		// reader must keep classifying it without being taught about recipients.
 		return errors.Join(
 			fmt.Errorf("telegram: %s: %s: %w", method, description, ErrRecipientUnreachable),
+			ErrRequestRejected,
+		)
+	case status == http.StatusConflict:
+		// getUpdates is the only method that meets this: Telegram refuses it
+		// while anything else holds the bot's updates. It is a definite answer
+		// about CONFIGURATION, so it must not read as a credential fault (which
+		// would send an operator to rotate a working token) or as an outage
+		// (which would just be retried until the registration is cleared).
+		//
+		// It ALSO answers ErrRequestRejected, joined rather than replaced, for
+		// the same reason 403 and 429 do: to any reader that has not been taught
+		// about ingress modes, a 409 is one more request Telegram understood and
+		// refused on its own terms.
+		return errors.Join(
+			fmt.Errorf("telegram: %s: %s: %w", method, description, ErrWebhookActive),
 			ErrRequestRejected,
 		)
 	case status == http.StatusTooManyRequests:

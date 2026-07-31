@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-// The Telegram ingest worker (design §6.3): the other half of Task 8's
-// webhook, and the only place that closes the loop from a persisted raw
-// update to a captured activity. It re-establishes the workspace context
-// from its job args exactly as CaptureSyncArgs does (jobs_capture.go), reads
-// back what the webhook wrote in the SAME transaction it was written in,
-// joins the bot id the delivery pinned onto the payload (capture/telegram's
-// Normalize is pure and knows nothing of connections), and hands every
-// resulting record to the ONE guarded Sink every capture path shares.
+// The Telegram ingest worker (design §6.3): the other half of the poller
+// (telegrampoll.go), and the only place that closes the loop from a persisted raw
+// update to a captured activity. It re-establishes the workspace context from its
+// job args exactly as CaptureSyncArgs does (jobs_capture.go), reads back what the
+// poll wrote in the SAME transaction it was written in, joins the bot id that poll
+// pinned onto the payload (capture/telegram's Normalize is pure and knows nothing
+// of connections), and hands every resulting record to the ONE guarded Sink every
+// capture path shares.
 
 package compose
 
@@ -32,7 +32,42 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
-// telegramIngestWorker consumes Task 8's TelegramIngestArgs: args → raw
+// TelegramIngestArgs is the durable work request one poll's transaction enqueues
+// alongside each raw row. The worker below re-establishes the workspace context
+// from these args (as CaptureSyncArgs already does) and runs Normalize → Sink.
+// RawCaptureID names the exact row to normalize, so a re-delivered update that
+// refreshed an existing raw_capture row (rather than minting a new one) still
+// points the job at the right payload.
+//
+// BotID is the bot that RECEIVED this update, pinned here by the poll that read
+// it, and never resolved from the connection row when the job runs. ReplaceToken
+// re-points a live connection at a different bot in place, so the row's channel_id
+// is mutable state: a job reading it later would build the message's natural key
+// and thread_key from whichever bot is current, filing one bot's message into
+// another bot's conversation — and because Telegram's message ids restart per chat
+// per bot, that re-keyed natural key can equal a real message of the new bot's,
+// whereupon the Sink's idempotent upsert merges two different customers' messages
+// into one activity. The bot an update arrived through is a fact about that
+// arrival, so it travels with it.
+//
+// A field constant per raw row does not weaken river's ByArgs dedupe: every
+// re-delivery of one update resolves to the same raw row and therefore the same
+// bot.
+type TelegramIngestArgs struct {
+	Workspace string `json:"workspace"`
+	// ConnectionID names which connection read the update. The worker resolves
+	// nothing from it — that is the point of BotID — but it is the operational link
+	// between a queued job and the connection an operator is looking at, and the
+	// key the ingest jobs are queried by.
+	ConnectionID string `json:"connection_id"`
+	BotID        string `json:"bot_id"`
+	RawCaptureID string `json:"raw_capture_id"`
+}
+
+// Kind names this job to River.
+func (TelegramIngestArgs) Kind() string { return "telegram_ingest" }
+
+// telegramIngestWorker consumes TelegramIngestArgs: args → raw
 // payload → Normalize → Sink. sink is the connector.Sink SEAM, not the
 // concrete *capture.Sink, so a test can inject a fake that fails in a
 // specific, controlled way (a unique-constraint race) without a real
@@ -58,9 +93,9 @@ func newTelegramIngestWorker(pool *pgxpool.Pool, cfg CaptureConfig, log *slog.Lo
 
 // Work re-establishes the workspace context from job.Args (never inherited
 // from ctx, which carries none — the job queue is not a request), reads back
-// the raw update the webhook persisted, and normalizes+captures. Every
-// identity the message is keyed on comes from the args, which were stamped at
-// delivery. Every failure past that point — a missing raw row,
+// the raw update the poll persisted, and normalizes+captures. Every
+// identity the message is keyed on comes from the args, which were stamped when
+// the update was read. Every failure past that point — a missing raw row,
 // a decode fault, a Sink error including a unique-constraint
 // race the Sink's own idempotent upserts did not absorb — is returned
 // unswallowed: River's retry is Telegram's ONLY recovery path (there is no
@@ -90,7 +125,7 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 	}
 
 	// job.Args.BotID, never a read of the connection row: the bot that received
-	// this update is pinned at delivery, and the row's channel_id is mutable
+	// this update is pinned by the poll that read it, and the row's channel_id is mutable
 	// (ReplaceToken re-points a live connection at a different bot). See
 	// TelegramIngestArgs for what re-keying an already-delivered message costs.
 	raw, err := telegram.BuildRawEnvelope(job.Args.BotID, payload)

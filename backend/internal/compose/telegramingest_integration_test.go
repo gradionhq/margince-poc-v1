@@ -42,8 +42,8 @@ func telegramIngestFixture(t *testing.T, e *integration.Env) (connID, rawID ids.
 	err := database.WithWorkspaceTx(ctx, e.Pool, func(tx pgx.Tx) error {
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO channel_connection
-				(id, workspace_id, provider, channel_id, channel_label, credential_ref, webhook_secret_ref, status, connected_by)
-			VALUES ($1, $2, 'telegram', '42', 'acme_bot', 'cred-ref', 'secret-ref', 'connected', $3)`,
+				(id, workspace_id, provider, channel_id, channel_label, credential_ref, status, connected_by)
+			VALUES ($1, $2, 'telegram', '42', 'acme_bot', 'cred-ref', 'connected', $3)`,
 			connID, e.WS, e.Rep1); err != nil {
 			return err
 		}

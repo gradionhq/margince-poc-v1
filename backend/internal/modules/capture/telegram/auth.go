@@ -2,20 +2,18 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 // Package telegram is the Telegram Bot API boundary the workspace-level
-// channel connection is built on (telegram-oa design §5): the four connect-path
-// calls (getMe, getWebhookInfo, setWebhook, deleteWebhook) plus the one send
-// call, hand-rolled over net/http so capture takes on no new dependency.
+// channel connection is built on (telegram-oa design v2): the two connect-path
+// calls (getMe, deleteWebhook), the ingress long poll (getUpdates) and the one
+// send call, hand-rolled over net/http so capture takes on no new dependency.
 //
-// The surface is an interface (API) so the connect ordering is unit-tested
-// against a fake rather than a live bot, and every non-2xx maps to one of this
-// package's four sentinels. Telegram's own `description` text never reaches a
+// The surface is an interface (API) so the connect ordering and the poll are
+// unit-tested against a fake rather than a live bot, and every non-2xx maps to one
+// of this package's sentinels. Telegram's own `description` text never reaches a
 // client: it rides the wrapped error, which is logged server-side, while the
 // transport writes a fixed message per sentinel.
 package telegram
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"strings"
@@ -46,7 +44,7 @@ var ErrRecipientUnreachable = errors.New("telegram: the recipient cannot be reac
 // ErrUnreachable marks a transport-level failure or a Telegram 5xx (DNS, TCP,
 // TLS, timeout, outage) — us failing to reach TELEGRAM, which is a different
 // fact from Telegram refusing to reach a recipient. The transport maps it to a
-// 502, and connect keeps its `pending` row so an operator can retry.
+// 502; connect wrote nothing, so an operator simply retries.
 var ErrUnreachable = errors.New("telegram: could not reach Telegram")
 
 // ErrRequestRejected marks a request Telegram understood and refused on its
@@ -55,26 +53,15 @@ var ErrUnreachable = errors.New("telegram: could not reach Telegram")
 // two sentinels would be honest.
 var ErrRequestRejected = errors.New("telegram: the request was rejected")
 
-// webhookSecretBytes is the entropy of a minted webhook secret. Telegram
-// echoes it back on every delivery in X-Telegram-Bot-Api-Secret-Token, so it
-// is the authentication credential of the ingress path: 256 bits, drawn from
-// crypto/rand, never a per-connection value derived from anything guessable.
-const webhookSecretBytes = 32
-
-// MintWebhookSecret draws a fresh webhook secret. base64url's alphabet
-// (A–Z a–z 0–9 - _) is a subset of the characters Telegram accepts in
-// secret_token, so the encoded form needs no further sanitising, and 32 raw
-// bytes encode to 43 characters — inside Telegram's 1–256 bound.
-//
-// A crypto/rand failure means the process cannot mint credentials and is
-// surfaced, never masked with a predictable value.
-func MintWebhookSecret() (string, error) {
-	raw := make([]byte, webhookSecretBytes)
-	if _, err := rand.Read(raw); err != nil {
-		return "", fmt.Errorf("telegram: minting the webhook secret: %w", err)
-	}
-	return base64.RawURLEncoding.EncodeToString(raw), nil
-}
+// ErrWebhookActive marks Telegram's 409 on getUpdates: something else already
+// holds this bot's updates. Usually a registered webhook — the two ingress
+// modes are mutually exclusive per bot — but Telegram answers the same status
+// when a second getUpdates consumer is polling the same bot, and the response
+// text is the only thing that tells the two apart. Neither is a fault: both are
+// configuration facts, and both take the same remedy from the poller's side —
+// clear the registration this installation can clear, poll again, and report
+// the connection as broken if it repeats.
+var ErrWebhookActive = errors.New("telegram: something else already holds this bot's updates, so getUpdates is refused")
 
 // ValidateToken rejects a value that cannot be a BotFather token before it is
 // spent on a network call. A token is `<bot id>:<secret>` — the numeric id is

@@ -13,12 +13,18 @@ CREATE TABLE channel_connection (
   channel_id         text NOT NULL,   -- the bot's numeric id, from getMe
   channel_label      text NOT NULL,   -- @username, display only — mutable and re-assignable
   credential_ref     text NOT NULL,   -- vault reference to the bot token
-  webhook_secret_ref text NOT NULL,   -- vault reference to the minted secret
-  -- pending: the row exists so setWebhook has a target to register against,
-  -- but the webhook call has not yet succeeded (§5 Connect) — a pending row
-  -- is never treated as live by ingress or send.
-  status             text NOT NULL DEFAULT 'pending'
-                       CHECK (status IN ('pending','connected','disconnected','error','reauth_required')),
+  -- There is no half-connected state. Ingress PULLS (getUpdates), so connect
+  -- makes no provider call after the insert and therefore has no window in
+  -- which a written row is not yet live: it succeeds as 'connected' or it
+  -- writes nothing at all. 'error' and 'reauth_required' are what the poller
+  -- parks a connection under; the due-scan selects only 'connected', so the
+  -- status IS the enable flag.
+  status             text NOT NULL
+                       CHECK (status IN ('connected','disconnected','error','reauth_required')),
+  -- The getUpdates cursor. getUpdates(offset = poll_offset) is ALSO the
+  -- acknowledgement of everything below it, so this advances only in the same
+  -- transaction that made the batch durable. 0 means "never polled".
+  poll_offset        bigint NOT NULL DEFAULT 0,
   connected_by       uuid NOT NULL,   -- the admin who ran Connect; audit only
   version            bigint NOT NULL DEFAULT 1,
   created_at         timestamptz NOT NULL DEFAULT now(),
@@ -31,17 +37,36 @@ CREATE TABLE channel_connection (
     REFERENCES app_user (workspace_id, id) ON DELETE RESTRICT
 );
 
+-- ONE live bot per workspace, not one per (workspace, bot). Two live rows make
+-- every outbound reply ambiguous, and the send resolver refuses rather than
+-- guessing which bot a customer opened their chat with — so permitting a second
+-- binding does not add a capability, it removes the ability to reply at all.
 CREATE UNIQUE INDEX uq_channel_connection_ws
-  ON channel_connection (workspace_id, provider, channel_id) WHERE archived_at IS NULL;
--- Telegram permits exactly ONE webhook URL per bot. Without a GLOBAL constraint the same
--- bot connected in a second workspace silently redirects every delivery away from the
--- first, which goes on reading 'connected' and simply falls quiet — indistinguishable
--- from a healthy channel nobody is messaging.
+  ON channel_connection (workspace_id, provider) WHERE archived_at IS NULL;
+-- And ONE installation per bot, globally. Only one getUpdates consumer may hold a
+-- bot at a time: a second installation polling the same token does not split the
+-- traffic, it steals it — Telegram answers one consumer and refuses the other with
+-- a 409, and which of the two wins is a race. No local constraint can see another
+-- installation, but this one at least rules out the same fleet doing it to itself.
 CREATE UNIQUE INDEX uq_channel_connection_bot
   ON channel_connection (provider, channel_id) WHERE archived_at IS NULL;
 
+-- `version` on this table means "the BINDING moved": the send path resolves a
+-- credential, walks the seat/consent/pacing gates, then re-reads this version to
+-- refuse a token whose bot was replaced under it, and the lifecycle writers use
+-- it as an optimistic guard. An advancing poll cursor is not a change to the
+-- binding: bumping on it would fire that fence on every inbound message, and make
+-- an admin's disconnect 409 because a customer happened to write mid-request.
+--
+-- So the bump is skipped when the cursor is the ONLY column that moved. The
+-- condition is DERIVED from the row rather than naming the columns it must not
+-- skip for: a write that changes poll_offset TOGETHER with the bot it points at
+-- (ReplaceToken does exactly that) still bumps, and a column added later is
+-- covered without anyone remembering to add it here.
 CREATE TRIGGER trg_channel_connection_updated BEFORE UPDATE ON channel_connection
-  FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();
+  FOR EACH ROW
+  WHEN (to_jsonb(OLD) - 'poll_offset' IS DISTINCT FROM to_jsonb(NEW) - 'poll_offset')
+  EXECUTE FUNCTION set_updated_at_bump_version();
 
 ALTER TABLE channel_connection ENABLE ROW LEVEL SECURITY;
 ALTER TABLE channel_connection FORCE ROW LEVEL SECURITY;

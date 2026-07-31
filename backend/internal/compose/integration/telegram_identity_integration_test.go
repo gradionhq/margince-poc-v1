@@ -374,7 +374,7 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 // becomes a lie.
 //
 // The suppression list alone is not enough, and that is the whole point of this
-// case. It stops the PERSON from being recreated, but the webhook persists the
+// case. It stops the PERSON from being recreated, but the poll persists the
 // verbatim update — numeric sender id, @username, first and last name, full
 // message body — as the only copy of the message, and the Sink would then commit
 // the body onto an activity too. No later erasure can reach any of it: both the
@@ -384,19 +384,16 @@ func TestTwoConcurrentFirstMessagesYieldOnePersonAndTwoActivities(t *testing.T) 
 // would stay fully re-identifiable, indefinitely, from data written AFTER their
 // erasure. Refusing to persist is the only moment this can be stopped.
 //
-// The redelivered message is deliberately a NEW update, not a replay of the
-// erased one: a replay would be absorbed by the raw layer's own dedupe and
-// would prove nothing about the suppression list.
+// The second message is deliberately a NEW update, not a replay of the erased
+// one: a replay would be absorbed by the raw layer's own dedupe and would prove
+// nothing about the suppression list.
 func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 	c := setupTelegramConnected(t)
 	before := telegramUpdate{updateID: 5801, messageID: 81, senderID: 770801, username: "forgetme", firstName: "Iris", text: "please delete me"}
 
 	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{})
 	startTelegramWorker(t, runner)
-	acceptedStatus, acceptedBody := c.deliver(t, before)
-	if acceptedStatus != http.StatusOK {
-		t.Fatal("the first delivery was not accepted")
-	}
+	c.arrive(t, sub, before)
 	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
 	_, personID := c.capturedMessage(t, before)
 
@@ -420,17 +417,17 @@ func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 		t.Fatal("the erased account is not on the suppression list — their next message would recreate them")
 	}
 
-	jobsBeforeRedelivery := c.ingestJobs(t)
+	jobsBeforeSecondMessage := c.ingestJobs(t)
 	after := telegramUpdate{updateID: 5802, messageID: 82, senderID: 770801, username: "forgetme", firstName: "Iris", text: "hello again"}
-	status, body := c.deliver(t, after)
+	c.arrive(t, sub, after)
 
-	// Byte-identical to the accept the FIRST delivery got. A distinguishable
-	// answer would turn this edge into an oracle: anyone holding the URL and the
-	// connection's secret could test whether a given Telegram account has been
-	// erased, which is a disclosure about the subject in its own right.
-	if status != acceptedStatus || body != acceptedBody {
-		t.Fatalf("the post-erasure delivery answered %d/%q, want %d/%q — Telegram (and anyone else) can tell the two apart",
-			status, body, acceptedStatus, acceptedBody)
+	// The batch was still ACKNOWLEDGED. Refusing to persist must not refuse to
+	// advance the cursor: a cursor held back by an erased subject's messages would
+	// re-fetch them on every poll forever and block every later customer's message
+	// behind them.
+	if cursor := c.pollCursor(t); cursor != after.updateID+1 {
+		t.Errorf("the poll cursor is at %d after refusing update %d, want %d — a cursor wedged behind an erased subject blocks every later customer's message",
+			cursor, after.updateID, after.updateID+1)
 	}
 
 	// Nothing was written, at any layer. raw_capture first, because it is the
@@ -439,9 +436,9 @@ func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 		t.Errorf("%d raw captures for an erased subject's message, want 0 — "+
 			"their id, handle, name and message text were stored where no erasure can reach them", n)
 	}
-	if n := c.ingestJobs(t); n != jobsBeforeRedelivery {
+	if n := c.ingestJobs(t); n != jobsBeforeSecondMessage {
 		t.Errorf("ingest jobs went from %d to %d — an update that must not be stored must not be queued for capture either",
-			jobsBeforeRedelivery, n)
+			jobsBeforeSecondMessage, n)
 	}
 	if n := c.telegramActivities(t, after); n != 0 {
 		t.Errorf("%d activities for an erased subject's message, want 0 — activity.body is their words", n)
@@ -450,7 +447,7 @@ func TestErasedSubjectsNextMessageIsAcceptedAndPersistsNothing(t *testing.T) {
 		t.Errorf("%d channel identities exist after the erased account wrote again, want 0 — the erasure was undone", n)
 	}
 	if !c.accountSuppressed(t, after.account()) {
-		t.Error("the suppression entry did not survive the redelivery")
+		t.Error("the suppression entry did not survive the second message")
 	}
 }
 

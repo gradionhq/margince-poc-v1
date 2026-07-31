@@ -30,16 +30,16 @@ import (
 )
 
 // ErrChannelConnectionAmbiguous reports more than one live channel binding for
-// one provider in one workspace. The schema permits it — the unique indexes bind
-// (workspace, provider, bot) and (provider, bot), not (workspace, provider) — and
-// the send path must not guess between them: replying through the wrong bot
-// reaches a chat the customer never opened, which Telegram refuses, so the rep's
-// message would vanish with a provider error that names nothing an operator can
-// act on.
+// one provider in one workspace. uq_channel_connection_ws makes that state
+// unreachable through this application, and this refusal is what stops the
+// resolver depending on that: it reads the rows rather than trusting a constraint
+// it cannot see, because replying through the wrong bot reaches a chat the
+// customer never opened, which Telegram refuses — so the rep's message would
+// vanish with a provider error naming nothing an operator can act on.
 //
-// It is a FAULT and not one of the three deployment facts below: the deployment
-// is answerable, and an operator disconnecting the surplus binding repairs every
-// delivery still pending.
+// It is a FAULT and not one of the three deployment facts below: if it is ever
+// reached, an operator disconnecting the surplus binding repairs every delivery
+// still pending.
 var ErrChannelConnectionAmbiguous = errors.New("capture: more than one live channel connection for this provider in this workspace")
 
 // ErrChannelBindingReplaced reports that the binding a send resolved its
@@ -62,10 +62,10 @@ var ErrChannelBindingReplaced = errors.New("capture: the channel binding was rep
 // failure to get an answer, and parking on one would permanently destroy a
 // legitimate message that nothing is wrong with.
 //
-// Only a `connected`, un-archived row counts. A `pending` row registered a
-// binding whose webhook call never succeeded (channelconn.go), so the bot is not
-// reachable in either direction; treating it as live would transmit through a
-// connection the operator has not been told is broken.
+// Only a `connected`, un-archived row counts. `error` and `reauth_required` are
+// what the poller parks a broken binding under, and `disconnected` is what an
+// operator withdrew: transmitting through any of them would spend a credential the
+// row no longer stands behind, on a channel nobody has been told is broken.
 //
 //nolint:ireturn // returns the optional connector.MessageSender seam by design, the posture SenderFor takes for connector.EmailSender
 func (r *Registry) ChannelSenderFor(ctx context.Context, provider string) (connector.MessageSender, connector.Auth, error) {
@@ -96,9 +96,9 @@ func (r *Registry) ChannelSenderFor(ctx context.Context, provider string) (conne
 // The credential is unsealed when the delivery resolves, and the send path then
 // walks the seat, consent and pacing gates — several database round trips —
 // before the provider is called. An admin replacing the bot inside that window
-// has withdrawn the token in hand: Telegram deleted the outgoing bot's webhook,
-// so a reply transmitted through it reaches a chat nothing will ever answer
-// from, and a rotated token is refused outright.
+// has withdrawn the token in hand: the row no longer names the outgoing bot, so
+// nothing polls it, and a reply transmitted through it reaches a chat this
+// installation will never read an answer from; a rotated token is refused outright.
 //
 // This NARROWS the window; it does not close it. No transaction spans Telegram's
 // HTTP call, so a replacement committing between the re-read and the provider
@@ -160,8 +160,7 @@ func (r *Registry) requireBindingUnchanged(ctx context.Context, resolved channel
 // It deliberately does NOT distinguish the ambiguous case. Which of two live
 // bindings transmits is the delivery path's decision, and that path refuses to
 // guess; the pre-flight answers only the fact a rep can act on — that no bot is
-// bound — and a workspace with two is a misconfiguration an operator repairs
-// while the reply waits, not a reason to refuse the rep's message here.
+// bound.
 func (r *Registry) ChannelSendCapable(ctx context.Context, provider string) (bool, error) {
 	bindings, err := r.liveChannelBindings(ctx, provider)
 	if err != nil {

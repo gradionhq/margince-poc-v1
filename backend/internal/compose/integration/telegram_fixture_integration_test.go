@@ -6,9 +6,10 @@
 package integration
 
 // The shared fixture the Telegram acceptance suite rides: the composed api
-// role with both channel surfaces live, the ONE faked boundary (the Telegram
-// Bot API), the worker role's runner, and the update builder every test
-// delivers through.
+// role with the channel surface live, the ONE faked boundary (the Telegram
+// Bot API), the worker role's runner — which is where ingress now lives, because
+// updates are POLLED rather than delivered — and the update builder every test
+// puts into the provider's hands.
 //
 // It is its own file because it is what GREW — four suites now share it — and
 // because a reader looking for what a criterion asserts should not have to
@@ -24,8 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net/http"
-	"strings"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -51,11 +51,6 @@ const (
 	telegramBotToken = "8100:AAH-acceptance-fixture-bot-token"
 	telegramBotUser  = "acme_support_bot"
 
-	// telegramWebhookBase is the installation's externally-reachable origin,
-	// the base Connect registers the delivery URL against. It is asserted
-	// against the URL the fake provider received, so one literal serves both.
-	telegramWebhookBase = "https://telegram.acceptance.test"
-
 	// telegramWorkspaceName / telegramAdminEmail bootstrap the installation.
 	telegramWorkspaceName = "Telegram Acceptance"
 	telegramWorkspaceSlug = "telegram-acceptance"
@@ -67,17 +62,24 @@ const (
 // AC-TG-1 is about — a token validated against the provider before anything is
 // stored — and an out-of-order connect would still leave a correct-looking row
 // behind.
+//
+// getUpdates implements the real OFFSET CONTRACT rather than handing out scripted
+// batches: it answers every update it still holds at or above the asked offset,
+// and forgets everything below it, because asking for offset N+1 IS the
+// acknowledgement of N. A scripted fake would happily "re-deliver" an update
+// Telegram had already been told to forget, which is the one thing that contract
+// rules out — and every durability claim in this suite rests on it.
 type fakeTelegramAPI struct {
 	mu    sync.Mutex
 	calls []string
 
 	bot telegram.Bot
 
-	// What setWebhook was handed. The secret is the ingress credential every
-	// later delivery in this suite is authenticated with, so it is read back
-	// from here rather than re-derived.
-	gotWebhookURL     string
-	gotWebhookSecret  string
+	// held is every update Telegram is still holding for this bot, oldest first.
+	held []heldUpdate
+	// polledOffsets is the offset each getUpdates asked from, in order.
+	polledOffsets []int64
+	// gotAllowedUpdates is the subscription the last poll narrowed itself to.
 	gotAllowedUpdates []string
 
 	// sent is every outbound message the send path transmitted. nextMessageID
@@ -89,6 +91,24 @@ type fakeTelegramAPI struct {
 	// onGetMe runs inside GetMe, which is the only moment a test can observe
 	// the system's state BEFORE the connect wrote or sealed anything.
 	onGetMe func()
+}
+
+// heldUpdate is one update Telegram has not yet been told to forget.
+type heldUpdate struct {
+	id  int64
+	raw json.RawMessage
+}
+
+// hold puts one update into Telegram's hands. Nothing is delivered by this call:
+// the next poll is what collects it, exactly as a real bot's traffic arrives.
+func (f *fakeTelegramAPI) hold(raw json.RawMessage) {
+	id, ok := telegram.UpdateIDOf(raw)
+	if !ok {
+		panic("fakeTelegramAPI: an update with no usable update_id could not be acknowledged, so Telegram would never stop sending it")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.held = append(f.held, heldUpdate{id: id, raw: raw})
 }
 
 func (f *fakeTelegramAPI) record(call string) {
@@ -119,26 +139,29 @@ func (f *fakeTelegramAPI) GetMe(context.Context, string) (telegram.Bot, error) {
 	return f.bot, nil
 }
 
-// GetWebhookInfo answers as a fresh bot does: no webhook registered anywhere,
-// so the connect preflight has nothing to refuse. The preflight's own conflict
-// case is proven in package capture, against a fake that reports another
-// installation's URL.
-func (f *fakeTelegramAPI) GetWebhookInfo(context.Context, string) (telegram.WebhookInfo, error) {
-	f.record("getWebhookInfo")
-	return telegram.WebhookInfo{}, nil
-}
-
-func (f *fakeTelegramAPI) SetWebhook(_ context.Context, _, url, secret string, allowed []string) error {
-	f.record("setWebhook")
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.gotWebhookURL, f.gotWebhookSecret, f.gotAllowedUpdates = url, secret, allowed
-	return nil
-}
-
 func (f *fakeTelegramAPI) DeleteWebhook(context.Context, string) error {
 	f.record("deleteWebhook")
 	return nil
+}
+
+// GetUpdates answers the offset contract: everything still held at or above
+// offset, with the batch's highest id, and the acknowledgement of everything
+// below applied first.
+func (f *fakeTelegramAPI) GetUpdates(_ context.Context, _ string, offset int64, _ int, allowed []string) ([]json.RawMessage, int64, error) {
+	f.record("getUpdates")
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.polledOffsets = append(f.polledOffsets, offset)
+	f.gotAllowedUpdates = allowed
+	f.held = slices.DeleteFunc(f.held, func(h heldUpdate) bool { return h.id < offset })
+
+	batch := make([]json.RawMessage, 0, len(f.held))
+	var highest int64
+	for _, h := range f.held {
+		batch = append(batch, h.raw)
+		highest = max(highest, h.id)
+	}
+	return batch, highest, nil
 }
 
 func (f *fakeTelegramAPI) SendMessage(_ context.Context, _ string, m telegram.OutboundChannelMessage) (int64, error) {
@@ -157,22 +180,21 @@ type telegramEnv struct {
 	*env
 	vault keyvault.Vault
 	api   *fakeTelegramAPI
-	// inserter is the api role's insert-only River client — the same shape
-	// cmd/api holds, so the webhook's enqueue is the real one.
+	// inserter is an insert-only River client, used to put one poll job on the
+	// queue when a test wants ingress to run now rather than on the dispatcher's
+	// next tick.
 	inserter *jobs.Runner
 	log      *slog.Logger
 
 	ws, admin string
-	// conn is the live bot binding Connect wrote, and secret is the ingress
-	// credential it registered with Telegram.
-	conn   capture.ChannelConnection
-	secret string
+	// conn is the live bot binding Connect wrote.
+	conn capture.ChannelConnection
 }
 
-// setupTelegram boots the api composition with BOTH channel surfaces live —
-// the connect/read transport (WithChannelWebhookBase) and the ingress webhook
-// (WithTelegramWebhook) — and then binds the workspace's bot through the REAL
-// ChannelStore over the fake provider.
+// setupTelegram boots the api composition with the channel surface live and then
+// binds the workspace's bot through the REAL ChannelStore over the fake provider.
+// There is no ingress surface on the api role at all any more: updates are polled
+// by the worker role (newTelegramWorker).
 //
 // Connect runs rather than a hand-inserted row on purpose: every later test
 // reads what connect wrote (the vault refs the webhook unseals, the bot id the
@@ -199,12 +221,10 @@ func setupTelegram(t *testing.T) *telegramEnv {
 	}
 	api := &fakeTelegramAPI{bot: telegram.Bot{ID: telegramBotID, Username: telegramBotUser}}
 
-	// Option ORDER is the contract both channel options state: the origin and
-	// the job inserter must be recorded before WithKeyvault, which is what
-	// composes the connect transport and the ingress webhook over them.
+	// Option ORDER is the contract WithChannelSurface states: the transport is
+	// composed first, and WithKeyvault is what hands it the vault it seals with.
 	e := setupWithOptions(t,
-		compose.WithChannelWebhookBase(telegramWebhookBase),
-		compose.WithTelegramWebhook(inserter),
+		compose.WithChannelSurface(),
 		compose.WithKeyvault(vault),
 	)
 	bootstrapWorkspaceSession(t, e, telegramWorkspaceName, telegramAdminEmail, "Telegram Admin")
@@ -283,14 +303,13 @@ func (c *telegramEnv) strangerRepCtx(t *testing.T, objects map[string]principal.
 }
 
 // channelStore is the REAL store the composed transport is built over, wired
-// to the same vault the server holds so a secret sealed here is a secret the
-// ingress webhook can unseal.
+// to the same vault the server holds so a token sealed here is a token the
+// poller can unseal.
 func (c *telegramEnv) channelStore() *capture.ChannelStore {
-	return capture.NewChannelStore(c.pool, c.vault, c.api, telegramWebhookBase, c.log)
+	return capture.NewChannelStore(c.pool, c.vault, c.api, c.log)
 }
 
-// connectBot binds the workspace's bot and records the live connection plus
-// the ingress secret every later delivery authenticates with.
+// connectBot binds the workspace's bot and records the live connection.
 func (c *telegramEnv) connectBot(t *testing.T) {
 	t.Helper()
 	conn, err := c.channelStore().Connect(c.adminCtx(t), capture.ConnectRequest{
@@ -299,10 +318,10 @@ func (c *telegramEnv) connectBot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	c.conn, c.secret = conn, c.api.gotWebhookSecret
-	if c.secret == "" {
-		t.Fatal("Connect returned without registering a webhook secret — the ingress path has no credential")
+	if conn.Status != "connected" {
+		t.Fatalf("Connect left the binding %q — there is no half-connected state under a pull ingress", conn.Status)
 	}
+	c.conn = conn
 }
 
 // setupTelegramConnected is setupTelegram plus the bound bot: the arrange step
@@ -362,37 +381,59 @@ func (u telegramUpdate) naturalKey() string {
 // account is the sender's Telegram account id as the identity tables hold it.
 func (u telegramUpdate) account() string { return fmt.Sprintf("%d", u.senderID) }
 
-// deliver posts one update to the REAL mounted ingress route with the
-// connection's registered secret, and returns the status and the verbatim
-// response body — the body matters because a refusal must name nothing.
-func (c *telegramEnv) deliver(t *testing.T, u telegramUpdate) (int, string) {
+// arrive puts one update into Telegram's hands and drives the poll that collects
+// it, through the SAME worker-role runner production polls with. It returns once
+// the poll has completed, which is when the raw row and its ingest job are
+// durable — the ingest itself is a separate await, because it is a separate job.
+//
+// The poll is enqueued explicitly rather than waited for: the dispatcher would
+// pick this connection up on its next tick, and a test that waited out a real tick
+// would be a sleep in disguise.
+func (c *telegramEnv) arrive(t *testing.T, sub <-chan *river.Event, u telegramUpdate) {
 	t.Helper()
-	return c.post(t, c.conn.ID.String(), c.secret, u.body(t))
+	c.api.hold(u.body(t))
+	c.pollNow(t, sub)
 }
 
-// post is deliver's unauthenticated sibling: any connection id, any secret,
-// any bytes. AC-TG-2 needs all three to vary.
-func (c *telegramEnv) post(t *testing.T, connectionID, secret string, body []byte) (int, string) {
+// pollNow runs one poll of this connection and waits for it to finish.
+func (c *telegramEnv) pollNow(t *testing.T, sub <-chan *river.Event) {
 	t.Helper()
-	req, err := http.NewRequest(http.MethodPost,
-		c.ts.URL+"/webhooks/telegram/"+connectionID, strings.NewReader(string(body)))
-	if err != nil {
-		t.Fatalf("building the delivery: %v", err)
+	if err := c.inserter.Enqueue(context.Background(), compose.TelegramPollArgs{
+		Workspace: c.ws, ConnectionID: c.conn.ID.String(),
+	}, nil); err != nil {
+		t.Fatalf("enqueueing a poll: %v", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	if secret != "" {
-		req.Header.Set("X-Telegram-Bot-Api-Secret-Token", secret)
+	awaitJobKind(t, sub, compose.TelegramPollArgs{}.Kind())
+}
+
+// pollCursor is the offset the next poll will ask from. Advancing it IS the
+// acknowledgement of everything below it, so this is the direct read of whether a
+// batch was accepted — and, when nothing was stored, of whether the cursor moved
+// anyway.
+func (c *telegramEnv) pollCursor(t *testing.T) int64 {
+	t.Helper()
+	var offset int64
+	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(),
+			`SELECT poll_offset FROM channel_connection WHERE id = $1`, c.conn.ID).Scan(&offset)
+	}); err != nil {
+		t.Fatalf("reading the poll cursor: %v", err)
 	}
-	resp, err := c.client.Do(req)
-	if err != nil {
-		t.Fatalf("delivering the update: %v", err)
+	return offset
+}
+
+// rewindPollCursor puts the connection's cursor back, which is exactly the state
+// a crash between Telegram answering and the transaction committing leaves behind:
+// the batch was never acknowledged, so the next poll asks for it again.
+func (c *telegramEnv) rewindPollCursor(t *testing.T, offset int64) {
+	t.Helper()
+	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE channel_connection SET poll_offset = $2 WHERE id = $1`, c.conn.ID, offset)
+		return err
+	}); err != nil {
+		t.Fatalf("rewinding the poll cursor: %v", err)
 	}
-	defer closeBody(t, resp)
-	raw, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatalf("reading the delivery response: %v", err)
-	}
-	return resp.StatusCode, string(raw)
 }
 
 // count runs one scalar count under the bootstrapped workspace's GUC. Every
@@ -436,14 +477,17 @@ func (c *telegramEnv) ingestJobs(t *testing.T) int {
 }
 
 // newTelegramWorker builds the WORKER role's runner — the same
-// compose.NewJobRunner cmd/worker calls, so the Telegram ingest worker under
-// test is the registered one — and its completion feed. Nothing is started:
-// several tests must observe the system between the webhook's ack and the
-// job's run, which is only possible while the queue is idle.
+// compose.NewJobRunner cmd/worker calls, so the poll dispatcher, the poll worker
+// and the ingest worker under test are the registered ones — and its completion
+// feed. Nothing is started yet, so a test can arrange before ingress runs.
+//
+// ChannelAPI is the fake: left nil the poller would compose the real Bot API
+// client and this suite would reach api.telegram.org.
 func newTelegramWorker(t *testing.T, c *telegramEnv, cfg compose.JobRunnerConfig) (*jobs.Runner, <-chan *river.Event) {
 	t.Helper()
 	ApplyRiverSchema(t)
 	cfg.CloseDateInterval, cfg.ReconcileInterval, cfg.TimeScanInterval = time.Hour, time.Hour, time.Hour
+	cfg.ChannelVault, cfg.ChannelAPI = c.vault, c.api
 	runner, err := compose.NewJobRunner(c.pool, c.log, cfg)
 	if err != nil {
 		t.Fatalf("NewJobRunner: %v", err)

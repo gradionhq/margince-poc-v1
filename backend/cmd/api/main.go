@@ -262,22 +262,10 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 	}
-	// The channel webhook is served by the API, so it rides the api's own
-	// origin — the same fallback rule the OAuth callback URL uses (see
-	// channelWebhookBase). Passed even when empty, so connecting a channel
-	// refuses by name (naming the flag to set) instead of registering a bot
-	// against an address this installation guessed.
-	opts = append(opts, compose.WithChannelWebhookBase(channelWebhookBase(cfg)))
-
-	// The Telegram ingress webhook needs only the pool and an insert-only
-	// client, the deep-read pattern (the api enqueues, the worker works —
-	// Task 9). It must precede kvOpts below: WithKeyvault is what actually
-	// builds the handler once the vault it also needs is wired.
-	telegramInserter, err := jobs.NewInserter(pool, logger)
-	if err != nil {
-		return nil, nil, err
-	}
-	opts = append(opts, compose.WithTelegramWebhook(telegramInserter))
+	// The channel-connection surface needs no public origin of its own: Telegram
+	// ingress polls, so nothing is ever told where to reach this installation.
+	// It must precede kvOpts below, which hands it the vault it seals with.
+	opts = append(opts, compose.WithChannelSurface())
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {
@@ -322,18 +310,6 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	opts = append(opts, schemaOpts...)
 
 	return opts, closeSchemaPool, nil
-}
-
-// channelWebhookBase resolves the origin a messaging provider is told to
-// deliver to. It is --api-base-url when the api serves on its own origin (the
-// split dev stack), otherwise --public-base-url — the same precedence the OAuth
-// callback URL uses, and for the same reason: the URL must resolve to where the
-// api actually listens, not to where the SPA is served.
-func channelWebhookBase(cfg apiConfig) string {
-	if cfg.apiBaseURL != "" {
-		return cfg.apiBaseURL
-	}
-	return cfg.publicBaseURL
 }
 
 // passwordResetOptions wires the A74 forgot-password flow when the

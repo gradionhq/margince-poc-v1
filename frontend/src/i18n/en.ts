@@ -1467,7 +1467,7 @@ export const en = {
   "connectors.provGraph": "Microsoft",
   "connectors.provImap": "IMAP mailbox",
   "connectors.statusConnected": "Capturing",
-  "connectors.statusPending": "Pending — registered but not yet confirmed live",
+  "connectors.statusPending": "Pending — not yet confirmed live",
   "connectors.statusReauth": "Needs reconnect",
   "connectors.statusError": "Sync error",
   "connectors.statusDisconnected": "Disconnected",
@@ -1561,7 +1561,7 @@ export const en = {
   "connectors.telegramEditToken": "Replace token",
   "connectors.telegramDisconnectTitle": "Disconnect this bot?",
   "connectors.telegramDisconnectBody":
-    "This revokes the bot's webhook and deletes the stored token. Capture and sending stop immediately; everything already captured stays in your CRM.",
+    "This deletes the stored token and stops checking the bot for new messages. Capture and sending stop immediately; everything already captured stays in your CRM.",
   "connectors.telegramModalTitle": "Connect a Telegram bot",
   "connectors.telegramEditTitle": "Replace the bot token",
   "connectors.telegramBotToken": "Bot token",

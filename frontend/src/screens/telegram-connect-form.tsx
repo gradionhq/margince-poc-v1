@@ -10,16 +10,17 @@ import { useT } from "../i18n";
 import { ProblemError, problemMessage, throwProblem } from "./common";
 import { statusLabel, statusTone } from "./connector-status";
 
-// The Telegram connector (Task 17, design §9.1/§9.2): one bot connects for
-// the WHOLE workspace, not per-user — there is no OAuth handshake, so
-// first-connect is the same "paste a credential, submit" shape
-// imap-connect-form.tsx already established. Unlike the mail providers, a
-// live channel connection stays EDITABLE: replacing the token goes through
-// PATCH and returns to `connected` via `pending`, so captured history and
-// every person_channel_identity binding survive the rotation instead of a
-// disconnect-reconnect cycle that would discard them. This one form serves
-// both first-connect (no `connection` prop) and that in-place edit (a
-// `connection` prop supplies the id PATCH targets).
+// The Telegram connector: one bot connects for the WHOLE workspace, not
+// per-user — there is no OAuth handshake, so first-connect is the same "paste a
+// credential, submit" shape imap-connect-form.tsx already established, and it
+// asks for nothing else: the installation polls the provider for messages, so
+// there is no address of our own for anyone to supply. Unlike the mail
+// providers, a live channel connection stays EDITABLE: replacing the token goes
+// through PATCH and stays `connected` throughout, so captured history and every
+// channel identity binding survive the rotation instead of a
+// disconnect-reconnect cycle that would discard them. This one form serves both
+// first-connect (no `connection` prop) and that in-place edit (a `connection`
+// prop supplies the id PATCH targets).
 
 type ChannelConnection = components["schemas"]["ChannelConnection"];
 
@@ -92,9 +93,10 @@ export function TelegramConnectForm({
   }, [open, resetConnect]);
 
   const ready = botToken.trim() !== "";
-  // RFC 7807 `detail` carries the actionable reason (e.g. the webhook-
-  // conflict refusal names the other installation) — surfaced verbatim
-  // rather than flattened into a generic "failed to connect" (§5).
+  // RFC 7807 `detail` carries the actionable reason (e.g. which of the two
+  // conflicts a 409 is — this bot is bound elsewhere, or this workspace already
+  // has one) — surfaced verbatim rather than flattened into a generic "failed
+  // to connect".
   let errorMessage: string | null = null;
   if (connect.isError) {
     errorMessage =
@@ -151,10 +153,10 @@ export function TelegramConnectForm({
             connect.mutate(botToken.trim());
           }}
         >
-          {/* The connection's CURRENT status stays visible while replacing
-              its token — a pending row must read as pending here too, not
-              silently as "connected" just because an edit form opened on
-              it (§9.1). */}
+          {/* The connection's CURRENT status stays visible while replacing its
+              token — a binding ingress has parked (error / reauth_required)
+              must read that way here too, not silently as "connected" just
+              because an edit form opened on it. */}
           {connection && (
             <div>
               <Badge tone={statusTone(connection.status)}>

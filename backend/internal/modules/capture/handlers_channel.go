@@ -164,17 +164,11 @@ func writeChannelErr(w http.ResponseWriter, r *http.Request, err error) {
 			Code:   "channel_token_rejected",
 			Detail: "The bot token was rejected. Check the token BotFather issued, and that it has not been revoked.",
 		})
-	case errors.Is(err, ErrChannelWebhookOwnedElsewhere):
+	case errors.Is(err, ErrChannelWorkspaceBotAlreadyBound):
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusConflict,
-			Code:   "channel_webhook_owned_elsewhere",
-			Detail: "This bot already delivers its updates to another installation. Use a different bot, or disconnect it there first.",
-		})
-	case errors.Is(err, ErrChannelWebhookBaseUnset):
-		httperr.Write(w, r, &httperr.DetailedError{
-			Status: http.StatusServiceUnavailable,
-			Code:   "channel_public_base_url_unset",
-			Detail: "This installation does not know its own public address, so the provider cannot be told where to deliver. Set the public base URL and restart.",
+			Code:   "channel_workspace_already_bound",
+			Detail: "Another bot is already connected to this workspace. Disconnect it first, or replace its token to point it at a different bot.",
 		})
 	case errors.Is(err, ErrChannelWiringIncomplete):
 		httperr.Write(w, r, &httperr.DetailedError{
@@ -186,13 +180,13 @@ func writeChannelErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusBadGateway,
 			Code:   "channel_provider_unreachable",
-			Detail: "The messaging provider could not be reached. The connection is kept as pending — retry it once the provider is back.",
+			Detail: "The messaging provider could not be reached. Nothing was changed — retry once the provider is back.",
 		})
 	case errors.Is(err, telegram.ErrRequestRejected):
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusBadGateway,
 			Code:   "channel_provider_rejected",
-			Detail: "The messaging provider refused this request. The connection is kept as pending — check the installation's public address is reachable from the internet.",
+			Detail: "The messaging provider refused this request. Nothing was changed — check the bot has not been restricted or deleted in BotFather.",
 		})
 	default:
 		httperr.Write(w, r, err)

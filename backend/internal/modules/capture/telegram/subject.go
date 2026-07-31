@@ -4,14 +4,14 @@
 package telegram
 
 // Whose account an update is about, decided BEFORE anything is persisted
-// (design §10). The ingress webhook writes the verbatim update — numeric
-// sender id, handle, names, message text — as the only copy of the message,
-// and it does so before any domain code has classified the update at all. So
-// the one question that has to be answerable at that moment, without a
-// database read of the payload and without decoding it twice downstream, is
-// which channel account the update belongs to: an installation that has
-// erased a human may not go on storing their words because the refusal
-// happens to sit further down the pipeline.
+// (design §10). The poller writes the verbatim update — numeric sender id,
+// handle, names, message text — as the only copy of the message, and it does so
+// before any domain code has classified the update at all. So the one question
+// that has to be answerable at that moment, without a database read of the
+// payload and without decoding it twice downstream, is which channel account the
+// update belongs to: an installation that has erased a human may not go on
+// storing their words because the refusal happens to sit further down the
+// pipeline.
 //
 // This is the same identity Normalize and ParseMembership resolve, read from
 // the same two places, and it is pure for the same reason they are.
@@ -21,9 +21,20 @@ import (
 	"fmt"
 )
 
-// subjectEnvelope decodes only the two update kinds this connector subscribes
-// to (channelAllowedUpdates), each narrowed to the object the account id is
-// read from.
+// AllowedUpdates narrows what the poller asks Telegram for: the messages a
+// person writes, and the membership changes that tell us a person blocked or
+// unblocked the bot. Anything else (polls, inline queries, edited channel
+// posts) is bandwidth this system has no reader for, and asking for it would
+// mean fetching updates nobody consumes.
+//
+// It lives beside subjectEnvelope because the two must name the SAME set. A
+// kind subscribed here with no arm below falls to InScopeSubjects' `default:
+// return nil, nil` and is dropped silently at ingress — which reads exactly
+// like a bot nobody is messaging.
+func AllowedUpdates() []string { return []string{"message", "my_chat_member"} }
+
+// subjectEnvelope decodes only the update kinds this connector subscribes to
+// (AllowedUpdates), each narrowed to the object the account id is read from.
 type subjectEnvelope struct {
 	Message      *telegramMessage   `json:"message"`
 	MyChatMember *chatMemberUpdated `json:"my_chat_member"`
@@ -34,9 +45,9 @@ type subjectEnvelope struct {
 // the erasure suppression list hashes — and returns NONE for an update this
 // connector does not capture.
 //
-// An empty result is therefore the ingress webhook's whole refusal test, and
-// the reason this function answers scope and subject together rather than
-// leaving the scope decision to the worker that normalizes the payload later.
+// An empty result is therefore the poller's whole refusal test, and the reason
+// this function answers scope and subject together rather than leaving the scope
+// decision to the worker that normalizes the payload later.
 // A record this connector captures always names a human the erasure and SAR
 // lanes can reach it by: they drive off person_channel_identity, which only a
 // captured record ever creates. An update outside that scope names nobody
@@ -83,7 +94,7 @@ func InScopeSubjects(update []byte) ([]string, error) {
 // connector captures and Telegram named an account at all; nothing otherwise.
 //
 // The account test is the sign test Normalize's identity mint applies, and the
-// two must stay identical: this function decides what the webhook PERSISTS and
+// two must stay identical: this function decides what the POLLER persists and
 // Normalize decides what is captured, so an id admitted here and refused there
 // is a verbatim payload in the only-copy store with no person_channel_identity
 // the erasure or SAR lanes could ever reach it by.

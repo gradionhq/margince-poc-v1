@@ -57,8 +57,8 @@ type telegramUser struct {
 // reply resolves its recipient through the sender's channel identity — which
 // for Telegram is the sender's PRIVATE chat — so a message filed under a group
 // thread would be answered somewhere else entirely, or refused outright by a
-// user who never started the bot. Telegram delivers group messages under the
-// same bare `message` update this webhook subscribes to, so the refusal has to
+// user who never started the bot. Telegram answers group messages under the
+// same bare `message` update this connector subscribes to, so the refusal has to
 // happen here.
 const chatTypePrivate = "private"
 
@@ -123,10 +123,9 @@ type telegramMessage struct {
 }
 
 // telegramUpdate is Telegram's own update envelope. Message is a pointer
-// because most other update kinds this webhook subscribes to
-// (my_chat_member — design §6.6/Task 11's block-unblock signal) carry none;
-// a nil Message is how Normalize tells "not a message" from "a message with
-// no text".
+// because the other update kind this connector subscribes to (my_chat_member,
+// the block/unblock signal) carries none; a nil Message is how Normalize tells
+// "not a message" from "a message with no text".
 type telegramUpdate struct {
 	UpdateID int64            `json:"update_id"`
 	Message  *telegramMessage `json:"message"`
@@ -204,19 +203,19 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		},
 		Source:     Provider + ":" + naturalID,
 		CapturedBy: CapturedByTelegram,
-		// Raw is deliberately EMPTY, unlike every mail connector's record. The
-		// ingress webhook already persisted this exact update as the only-copy
-		// evidence row before it answered 200 (design §6.5), keyed on the
-		// per-bot update_id; handing the same bytes to the Sink would store the
-		// message a SECOND time under a chat-scoped key with the opposite
-		// conflict rule — an append-once evidence table half of whose Telegram
-		// rows are rewritable, an unbounded second copy of the largest column,
-		// and a subject access request that hands the human every message twice.
-		// The erasure purge and the SAR section both match raw_capture by JSONB
-		// path, so they reach the webhook's row without this one.
+		// Raw is deliberately EMPTY, unlike every mail connector's record. The poll
+		// that read this update already persisted it as the only-copy evidence row,
+		// in the same transaction that acknowledged it, keyed on the per-bot
+		// update_id; handing the same bytes to the Sink would store the message a
+		// SECOND time under a chat-scoped key with the opposite conflict rule — an
+		// append-once evidence table half of whose Telegram rows are rewritable, an
+		// unbounded second copy of the largest column, and a subject access request
+		// that hands the human every message twice. The erasure purge and the SAR
+		// section both match raw_capture by JSONB path, so they reach the poll's row
+		// without this one.
 		Counterparty: connector.Counterparty{
 			// No outbound echo (design §6.4): a bot has no companion app a
-			// human types into, so every update this webhook ever delivers
+			// human types into, so every update this connector ever reads
 			// originates with the human, never with us.
 			Direction:   connector.DirectionInbound,
 			DisplayName: telegramDisplayName(msg.From),
@@ -242,8 +241,8 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 // leaves a timeline that says nothing arrived while the reply box offers to
 // answer it — the same silent gap an empty body is. The words are all this
 // connector can show (fetching the media itself is out of scope). The
-// verbatim update is not carried here: the webhook's raw_capture row is its
-// single owner (design §6.5).
+// verbatim update is not carried here: the raw_capture row the poll wrote is its
+// single owner.
 func messageBody(msg *telegramMessage) string {
 	if msg.Text != "" {
 		return msg.Text

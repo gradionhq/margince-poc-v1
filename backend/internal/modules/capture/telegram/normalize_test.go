@@ -126,7 +126,7 @@ func TestNormalizeCarriesNoEmailButAChannelIdentity(t *testing.T) {
 	}
 }
 
-// A my_chat_member update (the block/unblock signal Task 11 owns) carries no
+// A my_chat_member update (the block/unblock signal) carries no
 // message at all; Normalize must skip it rather than error, exactly like a
 // mail connector's own deliberate exclusions.
 func TestNormalizeSkipsAnUpdateWithNoMessage(t *testing.T) {
@@ -216,14 +216,14 @@ func TestNormalizeSkipsAMessageWithNoSender(t *testing.T) {
 }
 
 // Raw must stay EMPTY for Telegram, and this is the assertion that keeps it
-// that way. The ingress webhook already stored this exact update as the
+// that way. The poll that read this update already stored it as the
 // only-copy evidence row before answering 200; a record carrying Raw makes the
 // Sink store the same bytes a second time under a different key with the
 // opposite conflict rule — every inbound message duplicated in the largest
 // column, and handed to the subject twice in their Art. 15 export.
 func TestNormalizeCarriesNoRawBecauseTheWebhookOwnsTheEvidenceCopy(t *testing.T) {
 	if raw := normalizeFixture(t).Raw; len(raw) != 0 {
-		t.Errorf("Raw = %s, want empty — the webhook's raw_capture row is the single evidence copy", raw)
+		t.Errorf("Raw = %s, want empty — the raw_capture row the poll wrote is the single evidence copy", raw)
 	}
 }
 

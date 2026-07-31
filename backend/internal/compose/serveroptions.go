@@ -123,18 +123,9 @@ func WithKeyvault(vault keyvault.Vault) Option {
 			s.sorDispatch.SetOverlayIncumbentResolver(s.resolveOverlayIncumbent(pool))
 		}
 		// The channel connect path needs the same custodian: it seals the bot
-		// token and the webhook secret it mints, and destroys both on
-		// disconnect. A role that declared no public origin composed no channel
-		// transport, and this leaves it that way (channelconnect.go).
+		// token and destroys it on disconnect. A role that composed no channel
+		// transport is left that way (channelconnect.go).
 		s.channelHandlers = s.WithVault(vault)
-		// The Telegram ingress webhook needs the same custodian: verifying a
-		// delivery is unsealing the connection's webhook secret
-		// (telegramwebhook.go). A role that never called WithTelegramWebhook
-		// composes no handler here, the same declared-by-omission posture as
-		// the channel-connect surface above.
-		if s.telegramInserter != nil {
-			s.telegramWebhook = newTelegramWebhookHandler(pool, vault, s.telegramInserter, newTelegramWebhookLimiters(), s.log)
-		}
 		// The pre-flight reads whichever registry the lines above just
 		// ensured exists — the SAME one, never a second construction — so a
 		// mailbox or bot connected through it is a mailbox or bot the check

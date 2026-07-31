@@ -11,8 +11,10 @@ package integration
 // these four files is a fact read back out of a real migrated Postgres or off
 // the real HTTP router — never a fact about a mock's own bookkeeping.
 //
-// This file holds the two connect-side criteria: what binding a bot writes and
-// seals, and what an unauthenticated delivery is told. The shared fixture is in
+// This file holds the connect-side criterion: what binding a bot writes and
+// seals. AC-TG-2's twin — what an unauthenticated delivery is told — has no
+// subject any more: ingress polls, so this installation exposes no inbound
+// endpoint for anyone to authenticate against. The shared fixture is in
 // telegram_fixture_integration_test.go.
 
 import (
@@ -30,10 +32,9 @@ import (
 )
 
 // TestAC_TG_1_ConnectValidatesSealsAndRecordsAuditOnly is AC-TG-1 whole: the
-// bot is validated against the provider BEFORE anything is stored, both
-// secrets are sealed in the vault, the minted webhook secret is the one
-// Telegram was registered with, and the acting admin is captured for audit and
-// nothing else — the connection belongs to the workspace, not to them.
+// bot is validated against the provider BEFORE anything is stored, its token is
+// sealed in the vault, and the acting admin is captured for audit and nothing
+// else — the connection belongs to the workspace, not to them.
 func TestAC_TG_1_ConnectValidatesSealsAndRecordsAuditOnly(t *testing.T) {
 	c := setupTelegram(t)
 
@@ -48,7 +49,9 @@ func TestAC_TG_1_ConnectValidatesSealsAndRecordsAuditOnly(t *testing.T) {
 		t.Fatalf("%d channel_connection rows existed when the token was validated, want 0 — "+
 			"getMe must run before anything is written", rowsWhenValidated)
 	}
-	if got, want := c.api.callOrder(), []string{"getMe", "getWebhookInfo", "setWebhook"}; !slices.Equal(got, want) {
+	// getMe first, then the webhook clear that makes the bot pollable at all —
+	// and nothing after, because a pull ingress has no registration to make.
+	if got, want := c.api.callOrder(), []string{"getMe", "deleteWebhook"}; !slices.Equal(got, want) {
 		t.Fatalf("Bot API call order = %v, want %v", got, want)
 	}
 
@@ -60,56 +63,43 @@ func TestAC_TG_1_ConnectValidatesSealsAndRecordsAuditOnly(t *testing.T) {
 			c.conn.ChannelID, c.conn.ChannelLabel, telegramBotID, telegramBotUser)
 	}
 
-	// The webhook Telegram was told about must be the route this installation
-	// actually serves, carrying THIS connection's id: registering any other URL
-	// leaves the row reading `connected` while every delivery 401s.
-	wantURL := telegramWebhookBase + "/webhooks/telegram/" + c.conn.ID.String()
-	if c.api.gotWebhookURL != wantURL {
-		t.Fatalf("registered webhook URL = %q, want %q", c.api.gotWebhookURL, wantURL)
-	}
-	if got, want := c.api.gotAllowedUpdates, []string{"message", "my_chat_member"}; !slices.Equal(got, want) {
-		t.Fatalf("registered allowed_updates = %v, want %v", got, want)
-	}
-
-	c.assertSecretsSealed(t)
+	c.assertTokenSealed(t)
 	c.assertConnectIsAuditOnly(t)
 	c.assertConnectionIsWorkspaceOwned(t)
 }
 
-// assertSecretsSealed reads the row's two vault refs and unseals both. The bot
-// token must be recoverable (the send path resolves it) and the webhook secret
-// must be exactly what Telegram was registered with (the ingress path compares
-// against it) — if the minted secret and the registered secret ever diverged,
-// every delivery would be refused and nothing else in this suite would notice.
-func (c *telegramEnv) assertSecretsSealed(t *testing.T) {
+// assertTokenSealed reads the row's vault ref and unseals it. The bot token must be
+// recoverable, because it is the ONE credential both halves of the channel spend:
+// the poll authenticates with it and the send path resolves it. One secret per
+// connection is the whole shape now — there is no second value to mint, register,
+// rotate or destroy.
+func (c *telegramEnv) assertTokenSealed(t *testing.T) {
 	t.Helper()
-	var credentialRef, secretRef string
+	var credentialRef string
 	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(),
-			`SELECT credential_ref, webhook_secret_ref FROM channel_connection WHERE id = $1`,
-			c.conn.ID).Scan(&credentialRef, &secretRef)
+			`SELECT credential_ref FROM channel_connection WHERE id = $1`, c.conn.ID).Scan(&credentialRef)
 	}); err != nil {
-		t.Fatalf("reading the connection's vault refs: %v", err)
+		t.Fatalf("reading the connection's vault ref: %v", err)
 	}
-	if credentialRef == telegramBotToken || secretRef == c.secret {
-		t.Fatal("a vault ref holds the plaintext it is supposed to address")
+	if credentialRef == telegramBotToken {
+		t.Fatal("the vault ref holds the plaintext it is supposed to address")
+	}
+	// Structurally, not merely by count: a column that still existed would invite a
+	// second custodian back in.
+	if n := c.count(t, `
+		SELECT count(*) FROM information_schema.columns
+		 WHERE table_name = 'channel_connection' AND column_name = 'webhook_secret_ref'`); n != 0 {
+		t.Error("channel_connection still carries webhook_secret_ref; a polled channel authenticates nothing inbound")
 	}
 
 	ws := ids.From[ids.WorkspaceKind](c.workspaceID(t))
-	ctx := context.Background()
-	token, err := c.vault.Get(ctx, ws, keyvault.Ref(credentialRef))
+	token, err := c.vault.Get(context.Background(), ws, keyvault.Ref(credentialRef))
 	if err != nil {
 		t.Fatalf("unsealing the bot token: %v", err)
 	}
 	if string(token) != telegramBotToken {
 		t.Fatalf("sealed bot token = %q, want the token Connect was given", token)
-	}
-	secret, err := c.vault.Get(ctx, ws, keyvault.Ref(secretRef))
-	if err != nil {
-		t.Fatalf("unsealing the webhook secret: %v", err)
-	}
-	if string(secret) != c.secret {
-		t.Fatal("the sealed webhook secret is not the one Telegram was registered with — every delivery would be refused")
 	}
 }
 
@@ -121,8 +111,8 @@ func (c *telegramEnv) assertConnectIsAuditOnly(t *testing.T) {
 	if n := c.count(t, `
 		SELECT count(*) FROM audit_log
 		 WHERE entity_type = 'channel_connection' AND entity_id = $1 AND actor_id = $2`,
-		c.conn.ID, "human:"+c.admin); n != 2 {
-		t.Errorf("%d audit rows name the acting admin for this connection, want 2 (the pending create and the connected flip)", n)
+		c.conn.ID, "human:"+c.admin); n != 1 {
+		t.Errorf("%d audit rows name the acting admin for this connection, want 1 — a connect is one atomic step, so there is no second transition to record", n)
 	}
 	if n := c.count(t, `
 		SELECT count(*) FROM event_outbox WHERE envelope::text LIKE '%' || $1::text || '%'`,
@@ -177,58 +167,5 @@ func (c *telegramEnv) assertConnectionIsWorkspaceOwned(t *testing.T) {
 	if len(listed.Data) != 1 || listed.Data[0].ID != c.conn.ID.String() ||
 		listed.Data[0].Status != "connected" || listed.Data[0].Provider != "telegram" {
 		t.Fatalf("the channel list served %+v, want the one connected telegram binding", listed.Data)
-	}
-}
-
-// TestAC_TG_2_WrongSecretIsRefusedAndCapturesNothing is AC-TG-2: a delivery
-// whose secret does not match is refused with no body detail and captures
-// nothing. Every refusal shape answers identically — wrong secret, absent
-// header, unknown connection id — so an attacker probing this unauthenticated
-// edge learns neither which connections exist nor which of their guesses was
-// closer.
-//
-// The accepted delivery at the end is not a bonus case: without it a 401 could
-// equally mean the route is not mounted at all, and every refusal above would
-// pass against an installation that captures nothing from anybody.
-func TestAC_TG_2_WrongSecretIsRefusedAndCapturesNothing(t *testing.T) {
-	c := setupTelegramConnected(t)
-	refused := telegramUpdate{updateID: 5101, messageID: 11, senderID: 770101, username: "prober", text: "let me in"}
-
-	for _, probe := range []struct {
-		name         string
-		connectionID string
-		secret       string
-	}{
-		{"a wrong secret", c.conn.ID.String(), "not-the-registered-secret"},
-		{"no secret header at all", c.conn.ID.String(), ""},
-		{"the right secret against an unknown connection", ids.NewV7().String(), c.secret},
-		{"a connection id that is not a uuid", "not-a-uuid", c.secret},
-	} {
-		status, body := c.post(t, probe.connectionID, probe.secret, refused.body(t))
-		if status != http.StatusUnauthorized {
-			t.Fatalf("%s → %d, want 401", probe.name, status)
-		}
-		if body != "" {
-			t.Fatalf("%s answered with a body (%q); a refusal must name nothing", probe.name, body)
-		}
-	}
-
-	if n := c.rawCaptures(t, refused.updateID); n != 0 {
-		t.Fatalf("%d raw captures stored behind refused deliveries, want 0", n)
-	}
-	if n := c.ingestJobs(t); n != 0 {
-		t.Fatalf("%d ingest jobs enqueued behind refused deliveries, want 0", n)
-	}
-
-	accepted := telegramUpdate{updateID: 5102, messageID: 12, senderID: 770102, username: "buyer", text: "hello"}
-	if status, _ := c.deliver(t, accepted); status != http.StatusOK {
-		t.Fatalf("a delivery carrying the registered secret → %d, want 200 — "+
-			"the refusals above prove nothing if this route refuses everyone", status)
-	}
-	if n := c.rawCaptures(t, accepted.updateID); n != 1 {
-		t.Fatalf("%d raw captures stored for the accepted delivery, want 1", n)
-	}
-	if n := c.ingestJobs(t); n != 1 {
-		t.Fatalf("%d ingest jobs enqueued for the accepted delivery, want 1", n)
 	}
 }

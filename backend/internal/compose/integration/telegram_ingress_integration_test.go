@@ -5,16 +5,16 @@
 
 package integration
 
-// The ingress half of the Telegram acceptance suite (telegram-oa design §12):
-// what an inbound message leaves behind once the real webhook has accepted it
-// and the real worker has normalized it. The fixture is in
+// The ingress half of the Telegram acceptance suite (telegram-oa design v2 §3):
+// what an inbound message leaves behind once the real poll has collected it and
+// the real worker has normalized it. The fixture is in
 // telegram_fixture_integration_test.go.
 //
-// Every test here drives the whole leg — composed router → raw_capture →
-// River → the ONE guarded Sink → people — because each claim is about the
-// SEAM: that an unmatched sender lands ownerless, that a redelivery converges,
-// that the mail ladder never judges a message with no address, and that the
-// capture completes on the async path rather than at the ack.
+// Every test here drives the whole leg — getUpdates → raw_capture → River → the
+// ONE guarded Sink → people — because each claim is about the SEAM: that an
+// unmatched sender lands ownerless, that a re-delivered batch converges, that the
+// mail ladder never judges a message with no address, and that the capture
+// completes on the async path rather than when the poll committed.
 
 import (
 	"context"
@@ -79,17 +79,13 @@ func (c *telegramEnv) channelIdentities(t *testing.T, u telegramUpdate) int {
 		 WHERE provider = 'telegram' AND channel_user_id = $1 AND archived_at IS NULL`, u.account())
 }
 
-// ingestOne delivers an update and runs the async leg to completion, returning
-// nothing but the guarantee that the whole path finished. The worker is built
-// AFTER the delivery so the job is already queued when it boots, which is what
-// makes the completion feed a reliable "the async leg is done" signal.
+// ingestOne puts one update into Telegram's hands and runs the whole leg — the
+// poll that collects it and the ingest that captures it — to completion.
 func (c *telegramEnv) ingestOne(t *testing.T, u telegramUpdate, cfg compose.JobRunnerConfig) {
 	t.Helper()
-	if status, _ := c.deliver(t, u); status != 200 {
-		t.Fatalf("delivering %s → %d, want 200", u.naturalKey(), status)
-	}
 	runner, sub := newTelegramWorker(t, c, cfg)
 	startTelegramWorker(t, runner)
+	c.arrive(t, sub, u)
 	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
 }
 
@@ -205,34 +201,37 @@ func (c *telegramEnv) assertWorkspaceVisible(t *testing.T, personID, ownedPerson
 }
 
 // TestAC_TG_4_RedeliveryYieldsExactlyOneActivity is AC-TG-4 on both layers a
-// redelivery can arrive at.
+// re-delivery can arrive at.
 //
-// Telegram redelivering the same update_id is the first: raw_capture's
-// conflict target refreshes the stored original and River's by-args uniqueness
-// drops the second job. But a job is at-least-once quite apart from the
-// provider — River retries what it picked up — so the second half puts the
-// SAME job back on the queue and lets it run again. The activity's own natural
-// key is what has to absorb that, and nothing above it can.
+// Under a pull ingress a re-delivery has one cause: the batch was never
+// acknowledged, because the transaction that would have advanced the cursor did
+// not commit. Rewinding the cursor and re-holding the update reproduces exactly
+// that, and raw_capture's conflict target plus River's by-args uniqueness are what
+// converge it. But a job is at-least-once quite apart from the provider — River
+// retries what it picked up — so the second half puts the SAME job back on the
+// queue and lets it run again. The activity's own natural key is what has to absorb
+// that, and nothing above it can.
 func TestAC_TG_4_RedeliveryYieldsExactlyOneActivity(t *testing.T) {
 	c := setupTelegramConnected(t)
 	u := telegramUpdate{updateID: 5301, messageID: 31, senderID: 770301, username: "twice", firstName: "Rita", text: "same message"}
 
-	for attempt := range 2 {
-		if status, _ := c.deliver(t, u); status != 200 {
-			t.Fatalf("delivery attempt %d → %d, want 200 (a redelivery is still accepted)", attempt+1, status)
-		}
-	}
-	if n := c.rawCaptures(t, u.updateID); n != 1 {
-		t.Fatalf("%d raw captures for a redelivered update_id, want 1", n)
-	}
-	if n := c.ingestJobs(t); n != 1 {
-		t.Fatalf("%d ingest jobs for a redelivered update_id, want 1", n)
-	}
-
 	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{})
 	startTelegramWorker(t, runner)
+
+	c.arrive(t, sub, u)
 	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
 
+	// The cursor never advanced, so Telegram sends the identical batch again.
+	c.rewindPollCursor(t, 0)
+	c.api.hold(u.body(t))
+	c.pollNow(t, sub)
+
+	if n := c.rawCaptures(t, u.updateID); n != 1 {
+		t.Fatalf("%d raw captures for a re-delivered update_id, want 1", n)
+	}
+	if n := c.ingestJobs(t); n != 1 {
+		t.Fatalf("%d ingest jobs for a re-delivered update_id, want 1", n)
+	}
 	if n := c.telegramActivities(t, u); n != 1 {
 		t.Fatalf("%d activities after two deliveries of one update, want exactly 1", n)
 	}
@@ -322,44 +321,35 @@ func TestAC_TG_5_MailGatesAreNoOpsForAChannelRecord(t *testing.T) {
 	}
 }
 
-// TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck holds AC7.1's
+// TestCaptureLatencyIsMeasuredOnTheAsyncPathNotThePollCommit holds AC7.1's
 // 60-second window over the right pair of anchors.
 //
-// The ack is not the capture. Telegram's delivery is acknowledged the instant
-// the raw update is durable, which is BEFORE any activity exists — so a
-// latency measured at the ack reports success while the customer's message is
-// still nowhere on the timeline. The window AC7.1 caps has to run from the
-// receipt the webhook recorded to the capture the worker recorded, and this
-// test pins each of the three instants involved so none can stand in for
-// another:
+// The poll's commit is not the capture. A polled update is durable the instant the
+// raw row commits, which is BEFORE any activity exists — so a latency closed there
+// reports success while the customer's message is still nowhere on the timeline.
+// The window AC7.1 caps has to run from the receipt the POLL recorded to the
+// capture the INGEST recorded, and this test pins each of the three instants
+// involved so none can stand in for another:
 //
 //   - occurred_at is the customer's own send time, injected as the provider's
 //     `date` and asserted exactly.
-//   - raw_capture.received_at is the opening anchor, written by the webhook's
+//   - raw_capture.received_at is the opening anchor, written by the poll's
 //     transaction.
-//   - activity.created_at is the closing anchor, written by the worker's.
+//   - activity.created_at is the closing anchor, written by the ingest's.
 //
-// The receipt anchor is moved to an INJECTED instant while the job is still
-// queued — never with a sleep, and never read off the wall clock. That does two
-// things at once. It reproduces a slow async leg, so the breach AC7.1 cares
-// about becomes visible over this pair while the ack-anchored measurement is
-// still reporting a capture that has not happened. And it makes the closing
-// anchor falsifiable: if the worker stamped the activity from the raw row's
-// receipt instead of from its own transaction, created_at would come back AS
-// the injected instant, and the window would collapse to zero.
-func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
+// The receipt anchor is then moved BACK to an injected instant — never with a
+// sleep, and never read off the wall clock — which reproduces a slow async leg and
+// makes the breach AC7.1 cares about visible over this pair. It also makes the
+// closing anchor falsifiable: if the ingest had stamped the activity from the raw
+// row's receipt rather than from its own transaction, created_at would move with
+// the injection and the window would collapse to zero.
+func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotThePollCommit(t *testing.T) {
 	c := setupTelegramConnected(t)
 	u := telegramUpdate{updateID: 5501, messageID: 51, senderID: 770501, username: "waiting", firstName: "Sam", text: "how long?"}
 
-	if status, _ := c.deliver(t, u); status != 200 {
-		t.Fatal("the delivery was not accepted")
-	}
-	// AT THE ACK: durable, and not yet captured.
+	c.ingestOne(t, u, compose.JobRunnerConfig{})
 	if n := c.rawCaptures(t, u.updateID); n != 1 {
-		t.Fatalf("%d raw captures at the ack, want 1 — Telegram has no history API, so the ack must not outrun durability", n)
-	}
-	if n := c.telegramActivities(t, u); n != 0 {
-		t.Fatalf("%d activities already exist at the ack, want 0 — a latency closed here would be measuring the acknowledgement, not the capture", n)
+		t.Fatalf("%d raw captures for the polled update, want 1 — Telegram has no history API, so the cursor must not outrun durability", n)
 	}
 
 	injectedReceipt := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -372,10 +362,6 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("moving the receipt anchor to the injected instant: %v", err)
 	}
-
-	runner, sub := newTelegramWorker(t, c, compose.JobRunnerConfig{})
-	startTelegramWorker(t, runner)
-	awaitJobKind(t, sub, compose.TelegramIngestArgs{}.Kind())
 
 	var receivedAt, createdAt, occurredAt time.Time
 	if err := c.inWorkspace(t, c.slug, func(tx pgx.Tx) error {
@@ -394,7 +380,7 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 	}
 
 	if !receivedAt.Equal(injectedReceipt) {
-		t.Fatalf("received_at = %s, want the injected %s — the async leg rewrote the opening anchor, "+
+		t.Fatalf("received_at = %s, want the injected %s — the opening anchor was rewritten, "+
 			"so the window can never show how long a capture actually took", receivedAt, injectedReceipt)
 	}
 	if want := time.Unix(telegramProviderDate, 0).UTC(); !occurredAt.Equal(want) {
@@ -403,7 +389,7 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 	}
 	if createdAt.Equal(receivedAt) {
 		t.Fatalf("created_at and received_at are both %s — one instant serves as both anchors, "+
-			"so the capture is being recorded as having happened at the ack", createdAt)
+			"so the capture is being recorded as having happened when the poll committed", createdAt)
 	}
 	if window := createdAt.Sub(receivedAt); window <= captureLatencyBudget {
 		t.Fatalf("the receipt→capture window measured %s against an injected receipt of %s; "+
@@ -412,18 +398,17 @@ func TestCaptureLatencyIsMeasuredOnTheAsyncPathNotTheWebhookAck(t *testing.T) {
 	}
 }
 
-// One inbound message is stored ONCE. The webhook's raw_capture row is the
-// only-copy evidence (design §6.5) — written before the delivery was
-// acknowledged, keyed on the per-bot update_id, append-once. A normalized
-// record that also carried the update in Raw makes the Sink store the same
-// bytes a SECOND time under a chat-scoped key with the opposite conflict rule,
+// One inbound message is stored ONCE. The poll's raw_capture row is the only-copy
+// evidence — written in the same transaction that acknowledged the batch, keyed on
+// the per-bot update_id, append-once. A normalized record that also carried the
+// update in Raw makes the Sink store the same bytes a SECOND time under a
+// chat-scoped key with the opposite conflict rule,
 // so the evidence table ends up half rewritable for one provider, the largest
 // column in the installation grows at twice the rate of the conversation, and
 // Art. 15 hands the subject every message they ever sent twice over.
 //
-// The count is taken AFTER the worker has run, which is the whole point: every
-// other raw-capture assertion in this suite samples between the ack and the
-// job, where the duplicate does not exist yet.
+// The count is taken AFTER the ingest has run, which is the whole point: a
+// duplicate written by the Sink does not exist until then.
 func TestOneInboundMessageLeavesOneRawEvidenceRowAndIsExportedOnce(t *testing.T) {
 	c := setupTelegramConnected(t)
 	u := telegramUpdate{updateID: 5901, messageID: 91, senderID: 770901, username: "onlyonce", firstName: "Omar", text: "store me once"}

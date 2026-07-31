@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // recorder is a Bot API stand-in: it answers every method with one canned
@@ -140,13 +141,13 @@ func TestEveryFailureClassLandsOnItsOwnSentinel(t *testing.T) {
 		// path, so a token naming no bot cannot be routed.
 		{"token names no bot", http.StatusNotFound, `{"ok":false,"description":"Not Found"}`, ErrTokenRejected, ErrRecipientUnreachable},
 		{"provider outage", http.StatusBadGateway, `{"ok":false,"description":"Bad Gateway"}`, ErrUnreachable, nil},
-		{"bad request", http.StatusBadRequest, `{"ok":false,"description":"Bad Request: bad webhook"}`, ErrRequestRejected, nil},
+		{"bad request", http.StatusBadRequest, `{"ok":false,"description":"Bad Request: invalid offset"}`, ErrRequestRejected, nil},
 		{"rate limited", http.StatusTooManyRequests, `{"ok":false,"description":"Too Many Requests"}`, ErrRequestRejected, nil},
 		{"ok=false under a 200", http.StatusOK, `{"ok":false,"description":"refused"}`, ErrRequestRejected, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api, _ := serve(t, tc.status, tc.body)
-			err := api.SetWebhook(context.Background(), "1:x", "https://crm.test/webhooks/telegram/x", "s", nil)
+			_, _, err := api.GetUpdates(context.Background(), "1:x", 0, 25, nil)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("got %v, want %v", err, tc.want)
 			}
@@ -166,7 +167,7 @@ func TestAForbiddenAlsoReadsAsARefusalForTheConnectTransport(t *testing.T) {
 	api, _ := serve(t, http.StatusForbidden,
 		`{"ok":false,"error_code":403,"description":"Forbidden: bot was blocked by the user"}`)
 
-	err := api.SetWebhook(context.Background(), "1:x", "https://crm.test/webhooks/telegram/x", "s", nil)
+	_, _, err := api.GetUpdates(context.Background(), "1:x", 0, 25, nil)
 	if !errors.Is(err, ErrRequestRejected) {
 		t.Fatalf("got %v, want a 403 to also answer ErrRequestRejected", err)
 	}
@@ -185,8 +186,8 @@ func TestAnUnreachableHostIsReportedAsUnreachable(t *testing.T) {
 	srv.Close()
 
 	api := NewAPI(client, url)
-	if _, err := api.GetWebhookInfo(context.Background(), "1:x"); !errors.Is(err, ErrUnreachable) {
-		t.Fatalf("GetWebhookInfo against a closed host: got %v, want ErrUnreachable", err)
+	if err := api.DeleteWebhook(context.Background(), "1:x"); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("DeleteWebhook against a closed host: got %v, want ErrUnreachable", err)
 	}
 }
 
@@ -194,26 +195,29 @@ func TestAnUnreachableHostIsReportedAsUnreachable(t *testing.T) {
 // exhaust memory. Past the cap the body is truncated, which fails the decode —
 // reported as a reachability failure, never as success on a partial document.
 func TestAnOversizedResponseIsRefusedRatherThanRead(t *testing.T) {
-	oversized := `{"ok":true,"result":{"url":"` + strings.Repeat("a", maxResponseBytes+1) + `"}}`
+	oversized := `{"ok":true,"result":{"username":"` + strings.Repeat("a", maxResponseBytes+1) + `"}}`
 	api, _ := serve(t, http.StatusOK, oversized)
 
-	if _, err := api.GetWebhookInfo(context.Background(), "1:x"); !errors.Is(err, ErrUnreachable) {
-		t.Fatalf("GetWebhookInfo on an oversized body: got %v, want ErrUnreachable", err)
+	if _, err := api.GetMe(context.Background(), "1:x"); !errors.Is(err, ErrUnreachable) {
+		t.Fatalf("GetMe on an oversized body: got %v, want ErrUnreachable", err)
 	}
 }
 
-func TestSetWebhookSendsTheSecretAndTheAllowedUpdates(t *testing.T) {
+// deleteWebhook must not ask Telegram to drop the updates it is holding: those
+// are the customer's messages, and the first poll after a connect is what collects
+// them. The default for drop_pending_updates is false, so the guarantee is that
+// the parameter is absent rather than set.
+func TestDeleteWebhookKeepsThePendingUpdates(t *testing.T) {
 	api, rec := serve(t, http.StatusOK, `{"ok":true,"result":true}`)
 
-	if err := api.SetWebhook(context.Background(), "1:x",
-		"https://crm.test/webhooks/telegram/abc", "the-secret", []string{"message", "my_chat_member"}); err != nil {
-		t.Fatalf("SetWebhook: %v", err)
+	if err := api.DeleteWebhook(context.Background(), "1:x"); err != nil {
+		t.Fatalf("DeleteWebhook: %v", err)
 	}
-	body := rec.lastBody(t)
-	for _, want := range []string{"https://crm.test/webhooks/telegram/abc", "the-secret", "my_chat_member"} {
-		if !strings.Contains(body, want) {
-			t.Errorf("the setWebhook request omitted %q: %s", want, body)
-		}
+	if body := rec.lastBody(t); strings.Contains(body, "drop_pending_updates") {
+		t.Errorf("the deleteWebhook request names drop_pending_updates (%s) — messages waiting for this bot would be discarded", body)
+	}
+	if got := rec.lastPath(t); !strings.HasSuffix(got, "/deleteWebhook") {
+		t.Errorf("request path %q did not reach deleteWebhook", got)
 	}
 }
 
@@ -254,14 +258,96 @@ func TestSendMessageReturnsTheProviderMessageID(t *testing.T) {
 // must never be mistaken for something safe to show a client, so it stays in
 // the error the platform mapper logs and nowhere else.
 func TestTheProviderDescriptionRidesTheErrorForTheServerLog(t *testing.T) {
-	api, _ := serve(t, http.StatusBadRequest, `{"ok":false,"description":"Bad Request: bad webhook: HTTPS url must be provided"}`)
+	api, _ := serve(t, http.StatusBadRequest, `{"ok":false,"description":"Bad Request: terminated by other getUpdates request"}`)
 
-	err := api.SetWebhook(context.Background(), "1:x", "http://insecure.test/hook", "s", nil)
+	err := api.DeleteWebhook(context.Background(), "1:x")
 	if err == nil {
-		t.Fatal("SetWebhook accepted a request Telegram refused")
+		t.Fatal("DeleteWebhook accepted a request Telegram refused")
 	}
-	if !strings.Contains(err.Error(), "HTTPS url must be provided") {
+	if !strings.Contains(err.Error(), "terminated by other getUpdates request") {
 		t.Errorf("the error dropped the provider's reason, leaving nothing to diagnose from: %v", err)
+	}
+}
+
+// The poller reads raw envelopes because both passes downstream of it —
+// InScopeSubjects and Normalize — consume raw bytes, and the highest update_id
+// is what the next poll acknowledges the batch with.
+func TestGetUpdatesReturnsRawEnvelopesAndTheHighestUpdateID(t *testing.T) {
+	api, rec := serve(t, http.StatusOK, `{"ok":true,"result":[
+		{"update_id":7,"message":{"message_id":1,"chat":{"id":5,"type":"private"},"from":{"id":5},"text":"one"}},
+		{"update_id":9,"message":{"message_id":2,"chat":{"id":5,"type":"private"},"from":{"id":5},"text":"two"}}]}`)
+
+	batch, highest, err := api.GetUpdates(context.Background(), "1:x", 4, 25, []string{"message"})
+	if err != nil {
+		t.Fatalf("GetUpdates: %v", err)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("got %d envelopes, want 2", len(batch))
+	}
+	if !strings.Contains(string(batch[0]), `"text":"one"`) {
+		t.Errorf("the first envelope is not the raw update Telegram sent: %s", batch[0])
+	}
+	if highest != 9 {
+		t.Errorf("highest update_id %d, want 9", highest)
+	}
+	body := rec.lastBody(t)
+	for _, want := range []string{`"offset":4`, `"timeout":25`, `"message"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the getUpdates request omitted %q: %s", want, body)
+		}
+	}
+}
+
+// An empty batch is the ordinary outcome of a long poll that timed out with
+// nothing to report, and it must leave the offset exactly where it was: 0 is
+// not "start over", it is "nothing arrived".
+func TestGetUpdatesReportsNoHighestIDForAnEmptyBatch(t *testing.T) {
+	api, _ := serve(t, http.StatusOK, `{"ok":true,"result":[]}`)
+
+	batch, highest, err := api.GetUpdates(context.Background(), "1:x", 4, 25, nil)
+	if err != nil {
+		t.Fatalf("GetUpdates: %v", err)
+	}
+	if len(batch) != 0 || highest != 0 {
+		t.Fatalf("got %d envelopes / highest %d, want 0 / 0", len(batch), highest)
+	}
+}
+
+// getUpdates and setWebhook are mutually exclusive per bot, so this 409 is a
+// configuration fact the caller can act on — clear the registration and poll
+// again — and it has to be tellable apart from every other refusal.
+func TestGetUpdatesSurfacesAConflictWhenAWebhookIsActive(t *testing.T) {
+	api, _ := serve(t, http.StatusConflict,
+		`{"ok":false,"error_code":409,"description":"Conflict: can't use getUpdates method while webhook is active"}`)
+
+	_, _, err := api.GetUpdates(context.Background(), "1:x", 0, 25, nil)
+	if !errors.Is(err, ErrWebhookActive) {
+		t.Fatalf("GetUpdates against a webhook-registered bot: got %v, want ErrWebhookActive", err)
+	}
+	if errors.Is(err, ErrTokenRejected) {
+		t.Errorf("got %v, which reads as a credential fault — it would send an operator to rotate a working token", err)
+	}
+}
+
+// A long poll asks Telegram to HOLD the connection, so the request budget must
+// outlast the poll. The shared client timeout bounds an ordinary call and would
+// otherwise truncate the poll before Telegram ever answered — and a poll that
+// never completes never advances its offset, so the connection would retry
+// forever without progress.
+func TestALongPollOutlastsTheSharedRequestTimeout(t *testing.T) {
+	shared := &http.Client{Timeout: httpTimeout}
+	poll := &httpAPI{client: shared, base: "https://example.invalid"}
+
+	budget := LongPollBudget(25)
+	if budget <= 25*time.Second {
+		t.Fatalf("a 25s poll gets a %s budget — Telegram answers AT the interval, so the answer needs room to travel", budget)
+	}
+	widened := poll.longPollClient(budget)
+	if widened.Timeout < budget {
+		t.Fatalf("a %s long poll runs under a %s client timeout — Telegram's answer would be cut off", budget, widened.Timeout)
+	}
+	if shared.Timeout != httpTimeout {
+		t.Errorf("the shared client's timeout moved to %s; every other Bot API call now waits longer", shared.Timeout)
 	}
 }
 
@@ -282,32 +368,5 @@ func TestValidateTokenRefusesWhatCannotBeABotToken(t *testing.T) {
 	}
 	if err := ValidateToken("  424242:AAH-a-real-looking-secret  "); err != nil {
 		t.Errorf("ValidateToken refused a well-formed token (surrounding whitespace is a paste artefact, not an error): %v", err)
-	}
-}
-
-// The webhook secret authenticates every inbound delivery, so two mints must
-// never collide and the encoding must be one Telegram accepts in secret_token.
-func TestMintWebhookSecretIsUnguessableAndWireSafe(t *testing.T) {
-	const mints = 64
-	seen := make(map[string]struct{}, mints)
-	for i := range mints {
-		secret, err := MintWebhookSecret()
-		if err != nil {
-			t.Fatalf("MintWebhookSecret: %v", err)
-		}
-		if _, dup := seen[secret]; dup {
-			t.Fatalf("mint %d repeated a secret — the ingress credential is predictable", i)
-		}
-		seen[secret] = struct{}{}
-		if len(secret) < 32 || len(secret) > 256 {
-			t.Fatalf("secret length %d is outside Telegram's 1..256 bound (and below a credible entropy floor)", len(secret))
-		}
-		if bad := strings.TrimLeft(secret, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"); bad != "" {
-			t.Fatalf("secret %q carries characters Telegram does not accept in secret_token", secret)
-		}
-	}
-	// Guard the constant itself: 32 bytes is what makes the secret unguessable.
-	if webhookSecretBytes < 32 {
-		t.Fatalf("webhookSecretBytes is %d — below the 256-bit floor an authentication credential needs", webhookSecretBytes)
 	}
 }

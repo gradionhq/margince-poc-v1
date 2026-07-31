@@ -88,15 +88,15 @@ export const EditPendingConnection: Story = {
   },
 };
 
-export const WebhookConflict: Story = {
+export const WorkspaceAlreadyBound: Story = {
   render: () => {
     installFetchStub({
       "POST /channel-connections": () =>
         jsonResponse(
           {
-            code: "channel_webhook_owned_elsewhere",
+            code: "channel_workspace_already_bound",
             detail:
-              "This bot already delivers its updates to another installation. Use a different bot, or disconnect it there first.",
+              "Another bot is already connected to this workspace. Disconnect it first, or replace its token to point it at a different bot.",
           },
           409,
         ),
@@ -110,7 +110,7 @@ export const WebhookConflict: Story = {
   play: async ({ canvasElement }) => {
     await fillAndSubmit(canvasElement, "Connect");
     await within(canvasElement).findByText(
-      /already delivers its updates to another installation/i,
+      /already connected to this workspace/i,
     );
   },
 };
