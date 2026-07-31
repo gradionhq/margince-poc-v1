@@ -12,25 +12,14 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
-## Fixed — staged leads could not be accepted (merged 2026-07-31)
+## Open defect — capture_counterparty repeats the version-pin failure
 
-Accepting a staged `site_lead` failed with `version_skew` whenever anything had
-written to the pinned organization after staging, and the lead was then
-unrecoverable: the decision commits before the effect runs, so a failed accept
-left the approval `approved` but unredeemed. Auto-enrich and accepting the
-deep-read bundle both wrote the org's profile fields, which made every sibling
-lead from that read un-acceptable.
-
-Fixed in PR #349: the pin is now opt-in per approval kind. A `site_lead` is
-FILED under a company rather than being an operation on it, so its effect never
-reads the organization row and has no version to guard —
-`approvals.TargetIsContextOnly` names the kinds that opt out, and a fitness
-test holds the list against the kinds whose effects actually read their target.
-
-The same class still applies to `capture_counterparty`, whose pinned `activity`
-version is bumped by the classify pass
-(`activities/capturelabel.go:77-81`) — that one has a different cause and is
-still open.
+`capture_counterparty` stages with a pinned `activity` version, and the classify
+pass bumps that version (`activities/capturelabel.go:77-81`), so the accept can
+fail the same way `site_lead` used to. The `site_lead` fix (PR #349, opt-in pins
+via `approvals.TargetIsContextOnly`) does not cover it: a counterparty decision
+IS about the activity it names, so the pin is arguably correct and the classify
+write is what needs to move. Decide which before changing either.
 
 ## Open decision — the organization brief endpoint has no client
 
@@ -148,7 +137,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 ## Session pickup — 2026-07-31
 
 **The site read stopped proposing leads nobody asked for.** Three defects in
-the published-person lane closed on `feat/company-page-wow-slice`:
+the published-person lane closed in PR #342 (merged):
 
 - **Testimonials became leads.** A home or about page's "what our clients say"
   wall names people who work elsewhere, and they were filed as contacts at the
