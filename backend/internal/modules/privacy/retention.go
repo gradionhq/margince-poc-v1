@@ -351,11 +351,15 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		switch pol.ObjectType + "/" + pol.Action {
 		case "activity/archive":
 			_, err = tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1`, id)
+			if err == nil {
+				err = invalidateGraphEdgesFor(ctx, tx, id)
+			}
 		case "activity/erase":
 			// Transcript free-text is the special-category risk; the
 			// record of the meeting stays, its content goes — including any
 			// attached recording/transcript file (objects first, so the
 			// purge shares the person-erase durability guarantee).
+
 			_, err = tx.Exec(ctx,
 				`UPDATE activity SET body = NULL, subject = $2, archived_at = coalesce(archived_at, now()) WHERE id = $1`,
 				id, erasedActivitySubject)
@@ -422,6 +426,31 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, id)
+			}
+			// The relationship-graph structures (ADR-0078) hold the subject as
+			// surely as the columns above, and the time-based sweep reaches
+			// them for the same reason the request-driven eraser does: an
+			// anonymized person who is still named on a participant row, still
+			// counted in an interaction edge, or still listed in an imported
+			// address book is not anonymized. This sweep is the path nobody
+			// asks for, which is exactly why it must not be the thinner one.
+			if err == nil {
+				_, err = tx.Exec(ctx, `
+					DELETE FROM activity_participant
+					 WHERE user_id IS NULL AND person_id = $1`, id)
+			}
+			if err == nil {
+				_, err = tx.Exec(ctx, `
+					UPDATE activity_participant SET person_id = NULL, address = NULL
+					 WHERE user_id IS NOT NULL AND person_id = $1`, id)
+			}
+			if err == nil {
+				_, err = tx.Exec(ctx,
+					`DELETE FROM graph_interaction_edge WHERE person_id = $1`, id)
+			}
+			if err == nil {
+				_, err = tx.Exec(ctx,
+					`DELETE FROM linkedin_connection WHERE matched_person_id = $1`, id)
 			}
 		default:
 			return fmt.Errorf("retention: no executor for %s/%s", pol.ObjectType, pol.Action)

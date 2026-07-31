@@ -55,9 +55,17 @@ func (h Reads) GetPersonNetwork(w http.ResponseWriter, r *http.Request, id crmco
 		// probe that 404s a contact this caller cannot read. Capture privacy
 		// rides that probe, so an unpromoted contact discloses neither its
 		// existence nor who talks to it.
-		edges, err := search.EdgesForPerson(ctx, tx, personID.UUID, personNetworkCap)
+		// Over-fetch, rank by warmth, THEN cap. Capping in SQL would cap by
+		// last contact, and the answer this endpoint promises is who is
+		// warmest — a recent one-line reply would evict the colleague who has
+		// worked the account for a year.
+		edges, err := search.EdgesForPerson(ctx, tx, personID.UUID, personNetworkFetch)
 		if err != nil {
 			return err
+		}
+		search.SortByStrength(edges, now)
+		if len(edges) > personNetworkCap {
+			edges = edges[:personNetworkCap]
 		}
 		names, err := userNames(ctx, tx, edgeUsers(edges))
 		if err != nil {
@@ -79,6 +87,11 @@ func (h Reads) GetPersonNetwork(w http.ResponseWriter, r *http.Request, id crmco
 // nobody reads past the tenth name; an uncapped list would also make the
 // payload grow with a contact's history rather than with its relevance.
 const personNetworkCap = 10
+
+// personNetworkFetch is how many edges are read before ranking. Generous
+// relative to the cap because the ranking is the point: too tight a fetch
+// reintroduces the eviction it exists to prevent.
+const personNetworkFetch = 100
 
 // GetDealCoverage implements GET /deals/{id}/coverage.
 func (h Reads) GetDealCoverage(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {

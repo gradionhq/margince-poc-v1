@@ -199,6 +199,8 @@ var erasureCascadeFiles = []string{
 	// transaction, so it counts here; leaving it off would let a table look
 	// uncovered the moment its purge moved file.
 	"internal/modules/privacy/erasuretimeline.go",
+	// Retention’s graph invalidation — same Art. 17/retention transaction.
+	"internal/modules/privacy/retentiongraph.go",
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/erasure_rivals.go",

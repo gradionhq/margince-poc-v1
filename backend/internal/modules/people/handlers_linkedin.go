@@ -13,7 +13,20 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
+
+// uploaderID is whose network this upload is. The matcher is scoped to them so
+// the counts reported back describe THIS upload rather than every unmatched
+// ghost in the workspace.
+func uploaderID(ctx context.Context) ids.UUID {
+	actor, ok := principal.Actor(ctx)
+	if !ok {
+		return ids.Nil
+	}
+	return actor.UserID
+}
 
 // maxLinkedInExportBytes bounds the upload. A large personal network is a few
 // thousand rows of short text — well under a megabyte — so 8 MB is generous
@@ -76,7 +89,7 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 	// what the upload actually achieved. An import that answered "3,000
 	// stored" and left the matches for an invisible nightly pass would look
 	// like it had done nothing.
-	matched, err := h.store.MatchLinkedInConnections(r.Context())
+	matched, err := h.store.MatchLinkedInConnections(r.Context(), uploaderID(r.Context()))
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return

@@ -301,13 +301,22 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		DELETE FROM linkedin_connection g
 		 WHERE g.matched_person_id = $1
 		    OR (g.email IS NOT NULL AND g.email = ANY($2))
+		    -- Name + employer, matched on the NAME the ghost carries rather
+		    -- than on its derived matched_org_id. That column is set by a
+		    -- matcher that runs on upload: a ghost imported before its account
+		    -- existed, or one whose matcher pass failed, has it NULL and would
+		    -- survive an erasure it plainly belongs in. The employer is
+		    -- compared as text, which is the evidence the ghost actually holds.
 		    OR (g.normalized_company IS NOT NULL
 		        AND lower(f_unaccent($3)) = g.normalized_name
 		        AND EXISTS (
 		            SELECT 1 FROM relationship r
+		              JOIN organization o ON o.id = r.organization_id
 		             WHERE r.person_id = $1 AND r.kind = 'employment'
 		               AND r.archived_at IS NULL
-		               AND r.organization_id = g.matched_org_id))`,
+		               AND (r.organization_id = g.matched_org_id
+		                    OR lower(f_unaccent(o.display_name)) = g.normalized_company
+		                    OR lower(f_unaccent(o.display_name)) LIKE g.normalized_company || ' %')))`,
 		personID, emails, subjectName); err != nil {
 		return nil, err
 	}

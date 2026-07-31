@@ -192,21 +192,29 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 			}
 		}
 		// A relink to a PERSON is a human saying "this conversation was
-		// actually with someone else", so the participant row that names the
-		// old contact is now wrong (ACT-DDL-3). Repointing it here keeps the
-		// participants and the links telling the same story; leaving it would
-		// credit the old contact — and whichever colleague spoke to them —
-		// with a conversation the correction just moved away, permanently,
-		// because nothing else revisits that row.
+		// actually with someone else", so the participant row naming the old
+		// contact is now wrong (ACT-DDL-3). Repointing it keeps the
+		// participants and the links telling one story.
 		//
-		// Only when the relink REPLACED the previous person link. An
-		// additional link means the activity concerns both, and both were in
-		// it as far as anything here knows.
+		// KNOWN GAP, stated rather than papered over: the graph consumer
+		// derives its affected (user, person) pairs from the participant rows,
+		// and by the time it runs they name the NEW contact — so the OLD
+		// edge is not recomputed and keeps counting an interaction that no
+		// longer points at it. The nightly rebuild clears it, which bounds the
+		// staleness to the same 24h the window counts already carry, but it is
+		// a bound and not a fix.
+		//
+		// The fix is the additive `relinked_from` reference ADR-0078 specifies
+		// on the activity.updated relink payload: the consumer needs the
+		// displaced id, and this module cannot recompute the edge itself
+		// because search is a sibling. That is a public-event contract change
+		// and belongs in its own slice.
 		if in.EntityType == linkEntityPerson && in.ReplaceExistingOfType {
 			if _, err := tx.Exec(ctx, `
 				UPDATE activity_participant
 				   SET person_id = $2
 				 WHERE activity_id = $1 AND person_id IS NOT NULL
+				   AND person_id <> $2
 				   AND NOT EXISTS (
 				       SELECT 1 FROM activity_participant other
 				        WHERE other.activity_id = $1 AND other.person_id = $2)`,
@@ -214,6 +222,7 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 				return err
 			}
 		}
+
 		// Idempotent: replaying the same association is a no-op, and a
 		// no-op writes no audit noise.
 		tag, err := tx.Exec(ctx, storekit.SQLf(`

@@ -154,13 +154,14 @@ func TestADepartedColleagueIsNotOfferedAsAWayIn(t *testing.T) {
 		t.Fatal("the edge was not created in the first place")
 	}
 
-	// They leave. The card exists to tell a rep who to ask for an
-	// introduction, and a former colleague is not an answer to that question.
-	// No projection row is rewritten — the read filters through the live
-	// member join, which is why a departure needs no event handler at all.
+	// They leave — the way the product actually makes that happen.
+	// DeactivateUser sets status and leaves archived_at NULL, so a test that
+	// archived the row instead would pass against a read that filters only on
+	// archived_at while production kept offering the departed colleague. That
+	// is exactly what happened here before this line was corrected.
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		_, err := tx.Exec(context.Background(),
-			`UPDATE app_user SET archived_at = now() WHERE id = $1`, e.Rep2)
+			`UPDATE app_user SET status = 'deactivated' WHERE id = $1`, e.Rep2)
 		return err
 	}); err != nil {
 		t.Fatalf("deactivating the colleague: %v", err)

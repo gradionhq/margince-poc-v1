@@ -100,7 +100,7 @@ func TestAnAddressMatchConfirmsAndANameMatchOnlySuggests(t *testing.T) {
 	e.employ(t, andreas, org)
 
 	e.importExport(t)
-	if _, err := e.store.MatchLinkedInConnections(e.as()); err != nil {
+	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
 
@@ -129,7 +129,7 @@ func TestTwoContactsOfTheSameNameAtOneEmployerAreNotGuessedBetween(t *testing.T)
 	e.employ(t, second, org)
 
 	e.importExport(t)
-	if _, err := e.store.MatchLinkedInConnections(e.as()); err != nil {
+	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
 	if status, person := e.ghostStatus(t, "Andreas Müller"); status != "unmatched" || person != nil {
@@ -150,7 +150,7 @@ func TestImportingConnectionsCreatesNoPeople(t *testing.T) {
 	}
 	count(&before)
 	e.importExport(t)
-	if _, err := e.store.MatchLinkedInConnections(e.as()); err != nil {
+	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
 	count(&after)
@@ -212,7 +212,7 @@ func TestAnUnmatchedGhostStillNamesTheSubject(t *testing.T) {
 	andreas := e.seedContact(t, "Andreas Müller")
 	e.employ(t, andreas, org)
 	e.importExport(t)
-	if _, err := e.store.MatchLinkedInConnections(e.as()); err != nil {
+	if _, err := e.store.MatchLinkedInConnections(e.as(), e.rep); err != nil {
 		t.Fatalf("matching: %v", err)
 	}
 

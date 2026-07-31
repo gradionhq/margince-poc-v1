@@ -19,8 +19,10 @@ package search
 // and that property is worth more than the writes it costs.
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -260,7 +262,20 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 	return nil
 }
 
-// EdgesForPerson answers "who on our team knows this contact", warmest first.
+// liveMemberJoin is the ONE spelling of "someone who still works here" for
+// these reads, and both halves are load-bearing: deactivation sets status and
+// leaves archived_at NULL, so filtering on archived_at alone keeps offering a
+// departed colleague as a route in. (org360 already spelled it this way; this
+// read did not, and a test that ARCHIVED a user rather than deactivating one
+// passed while production would have shown them.)
+const liveMemberJoin = `JOIN app_user u ON u.id = e.user_id AND u.status = 'active' AND u.archived_at IS NULL`
+
+// EdgesForPerson answers "who on our team knows this contact".
+//
+// It returns edges in LAST-CONTACT order and does NOT rank by warmth, because
+// warmth is not stored — it is computed at read from these rows. A caller that
+// promises "warmest first" must score and sort them itself; see
+// SortByStrength, which is what the network surface uses.
 //
 // Two gates, and both are load-bearing. The caller must be able to read the
 // PERSON — capture privacy means an unpromoted contact is nobody's business
@@ -272,14 +287,19 @@ func EdgesForPerson(ctx context.Context, tx pgx.Tx, personID ids.UUID, limit int
 	if err := auth.Require(ctx, "person", principal.ActionRead); err != nil {
 		return nil, err
 	}
-	if err := auth.EnsureVisible(ctx, tx, "person", personID); err != nil {
+	// EnsureVisibleLive, not EnsureVisible: an ARCHIVED contact is hidden by
+	// every ordinary person read, and an unbounded caller skips EnsureVisible's
+	// probe entirely. Either gap would let a known id return the contact's
+	// colleagues and interaction counts after the record itself stopped being
+	// readable.
+	if err := auth.EnsureVisibleLive(ctx, tx, "person", personID); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `
 		SELECT e.user_id, e.person_id, e.last_at, e.last_inbound_at, e.last_outbound_at,
 		       e.count_90d, e.in_count_90d, e.out_count_90d, e.count_total
 		  FROM graph_interaction_edge e
-		  JOIN app_user u ON u.id = e.user_id AND u.archived_at IS NULL
+		  `+liveMemberJoin+`
 		 WHERE e.person_id = $1
 		 ORDER BY e.last_at DESC, e.user_id
 		 LIMIT $2`, personID, limit)
@@ -288,6 +308,27 @@ func EdgesForPerson(ctx context.Context, tx pgx.Tx, personID ids.UUID, limit int
 	}
 	defer rows.Close()
 	return scanEdges(rows)
+}
+
+// SortByStrength ranks edges warmest first at the given instant, with a
+// deterministic id tie-break.
+//
+// It exists because ranking cannot be pushed into SQL: the score is a decayed
+// function of (row, now), so the database would have to reimplement the
+// formula — a second spelling of the arithmetic the whole relstrength leaf
+// exists to keep single.
+//
+// The consequence for callers is a real one and worth stating: a CAPPED read
+// must fetch more than the cap and rank afterwards, or a recent-but-weak edge
+// evicts a genuinely warmer colleague before anything is scored.
+func SortByStrength(edges []InteractionEdge, now time.Time) {
+	sort.SliceStable(edges, func(i, j int) bool {
+		a, b := edges[i].StrengthOf(now), edges[j].StrengthOf(now)
+		if a.Strength != b.Strength {
+			return a.Strength > b.Strength
+		}
+		return bytes.Compare(edges[i].UserID[:], edges[j].UserID[:]) < 0
+	})
 }
 
 // EdgesForPeople answers the same question for a whole contact set in one
@@ -309,7 +350,7 @@ func EdgesForPeople(ctx context.Context, tx pgx.Tx, people []ids.UUID) ([]Intera
 		SELECT e.user_id, e.person_id, e.last_at, e.last_inbound_at, e.last_outbound_at,
 		       e.count_90d, e.in_count_90d, e.out_count_90d, e.count_total
 		  FROM graph_interaction_edge e
-		  JOIN app_user u ON u.id = e.user_id AND u.archived_at IS NULL
+		  `+liveMemberJoin+`
 		 WHERE e.person_id = ANY($1)
 		 ORDER BY e.person_id, e.last_at DESC, e.user_id`, people)
 	if err != nil {

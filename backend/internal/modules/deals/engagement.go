@@ -18,10 +18,12 @@ package deals
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -72,11 +74,31 @@ func Stakeholders(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Ti
 	for _, id := range engaged {
 		isEngaged[id] = true
 	}
-	rows, err := tx.Query(ctx, `
+	// The person row scope, not just the deal's. Being able to read a deal
+	// does not license learning WHO is on it: a stakeholder can be an
+	// owner-private captured contact, and a coverage payload that listed them
+	// would disclose through a side door exactly what the person read closes.
+	// Seats the caller cannot see are absent, and the caller cannot tell an
+	// invisible seat from an empty one — which is the same answer every other
+	// row-scoped list gives.
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	dealPos := arg(dealID)
+	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return nil, err
+	}
+	visible := "true"
+	if scope != "" {
+		visible = scope
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
 		SELECT r.person_id, coalesce(r.role, '')
 		  FROM relationship r
-		 WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $1 AND r.archived_at IS NULL
-		 ORDER BY r.person_id`, dealID)
+		  JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
+		 WHERE r.kind = 'deal_stakeholder' AND r.deal_id = $%d AND r.archived_at IS NULL
+		   AND (%s)
+		 ORDER BY r.person_id`, dealPos, visible), args...)
 	if err != nil {
 		return nil, err
 	}

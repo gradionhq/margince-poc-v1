@@ -41,19 +41,26 @@ type LinkedInMatchResult struct {
 	Suggested int
 }
 
-// MatchLinkedInConnections runs the matcher over every unmatched ghost in the
-// workspace and reports what it decided.
+// MatchLinkedInConnections runs the matcher over one OWNER's unmatched ghosts
+// and reports what it decided.
+//
+// Scoped to the owner because the caller is an upload reporting its own
+// result: a workspace-wide sweep would count a colleague's older unmatched
+// ghosts as this upload's confirmations, so the number on the screen would
+// describe work the person did not just do. A zero owner means every ghost —
+// the shape a scheduled sweep wants, and the only caller allowed to say
+// "workspace-wide".
 //
 // It is safe to re-run: a ghost a human has already confirmed or rejected is
 // never revisited, so a nightly pass cannot overturn a person's decision, and
 // a rejection is permanent rather than something the next import forgets.
-func (s *Store) MatchLinkedInConnections(ctx context.Context) (LinkedInMatchResult, error) {
+func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (LinkedInMatchResult, error) {
 	if err := auth.Require(ctx, "person", principal.ActionUpdate); err != nil {
 		return LinkedInMatchResult{}, err
 	}
 	var out LinkedInMatchResult
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		confirmed, err := matchGhostsByEmail(ctx, tx)
+		confirmed, err := matchGhostsByEmail(ctx, tx, owner)
 		if err != nil {
 			return err
 		}
@@ -64,7 +71,7 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context) (LinkedInMatchResu
 		if err := matchGhostOrganizations(ctx, tx); err != nil {
 			return err
 		}
-		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx)
+		suggested, err := suggestGhostsByNameAndEmployer(ctx, tx, owner)
 		if err != nil {
 			return err
 		}
@@ -79,7 +86,7 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context) (LinkedInMatchResu
 // automatic for the same reason capture's dedupe is: an address identifies a
 // person, and treating it as a suggestion would ask a human to re-confirm a
 // fact the system is already certain of everywhere else.
-func matchGhostsByEmail(ctx context.Context, tx pgx.Tx) (int, error) {
+func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, error) {
 	tag, err := tx.Exec(ctx, `
 		UPDATE linkedin_connection g
 		   SET matched_person_id = pe.person_id,
@@ -91,7 +98,8 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx) (int, error) {
 		   AND lower(pe.email) = g.email
 		   AND g.tombstoned_at IS NULL
 		   -- Only an undecided ghost. A human's confirm or reject stands.
-		   AND g.match_status = 'unmatched'`)
+		   AND g.match_status = 'unmatched'
+		   AND ($1::uuid IS NULL OR g.owner_user_id = $1)`, nullableOwner(owner))
 	if err != nil {
 		return 0, fmt.Errorf("people: matching LinkedIn connections by address: %w", err)
 	}
@@ -109,7 +117,7 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx) (int, error) {
 // It also refuses to propose a person some other ghost is already confirmed
 // against: one contact cannot be two different LinkedIn connections of the
 // same colleague, and offering that choice invites a wrong click.
-func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx) (int, error) {
+func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, error) {
 	tag, err := tx.Exec(ctx, `
 		WITH pair AS (
 		    -- DISTINCT pairs FIRST. A contact with two live employment rows at
@@ -134,6 +142,7 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx) (int, error)
 		       -- Go-side resolver set using the ONE org-name normalizer. Doing
 		       -- it here in SQL would mean a second spelling of the
 		       -- legal-suffix strip, and two spellings of a normalizer drift.
+		       AND ($1::uuid IS NULL OR g.owner_user_id = $1)
 		       AND g.matched_org_id IS NOT NULL
 		       AND r.organization_id = g.matched_org_id
 		       AND NOT EXISTS (
@@ -159,7 +168,7 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx) (int, error)
 		   -- Ambiguity is not a suggestion. Two contacts of the same name at
 		   -- the same employer is exactly the case a human must resolve, and
 		   -- picking one would be a guess wearing a confirmation's clothes.
-		   AND c.matches = 1`)
+		   AND c.matches = 1`, nullableOwner(owner))
 	if err != nil {
 		return 0, fmt.Errorf("people: suggesting LinkedIn connection matches: %w", err)
 	}
@@ -302,4 +311,14 @@ func OrganizationLinkedInReach(ctx context.Context, tx pgx.Tx, orgID ids.Organiz
 		out[user] = n
 	}
 	return out, rows.Err()
+}
+
+// nullableOwner renders the zero id as SQL NULL, which the scoping clauses
+// read as "every owner". A zero uuid would otherwise match nobody and turn a
+// workspace-wide sweep into a silent no-op.
+func nullableOwner(owner ids.UUID) any {
+	if owner == ids.Nil {
+		return nil
+	}
+	return owner
 }
