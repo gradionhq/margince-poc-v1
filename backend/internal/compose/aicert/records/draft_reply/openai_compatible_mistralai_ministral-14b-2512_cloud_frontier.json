@@ -23,10 +23,10 @@
   ],
   "score_p50": 100,
   "score_min": 100,
-  "latency_p50": 1946,
-  "latency_p95": 2067,
-  "mean_tokens": 583,
-  "mean_tokens_in": 410,
+  "latency_p50": 2508,
+  "latency_p95": 2685,
+  "mean_tokens": 580,
+  "mean_tokens_in": 407,
   "mean_tokens_out": 173,
   "mean_cached_tokens": 0,
   "mean_cache_write_tokens": 0,
@@ -34,7 +34,7 @@
   "judge_served_model": "mistralai/mistral-large-2512",
   "self_judged": false,
   "served_identity_source": "echo",
-  "ran_at": "2026-07-31T03:14:29Z",
+  "ran_at": "2026-07-31T03:57:59Z",
   "scenarios": [
     {
       "scenario": "reply_to_pricing_question",
