@@ -31,6 +31,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -236,6 +237,27 @@ func linkedInRowFrom(record []string, index map[string]int) (linkedInRow, bool) 
 // regularly, and a second import that doubled everyone's network would make
 // the reach counts meaningless.
 func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow) error {
+	// An erased subject must not walk back in through a colleague's next
+	// export. Erasure hashes the addresses it destroyed onto the suppression
+	// list precisely so re-ingestion cannot resurrect them, and an import that
+	// did not consult it would undo an Art. 17 request with a file upload.
+	//
+	// The check is on the ADDRESS, which is the only identifier a ghost shares
+	// with the suppression list; a name-only row carries nothing to match and
+	// is imported, which is the same limit every address-keyed suppression in
+	// this codebase has.
+	if row.email != "" {
+		var suppressed bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (SELECT 1 FROM erasure_suppression
+			                WHERE kind = 'email' AND value_hash = $1)`,
+			storekit.SuppressionHash(row.email)).Scan(&suppressed); err != nil {
+			return fmt.Errorf("people: checking the erasure suppression list: %w", err)
+		}
+		if suppressed {
+			return nil
+		}
+	}
 	_, err := tx.Exec(ctx, `
 		INSERT INTO linkedin_connection
 		    (workspace_id, owner_user_id, full_name, normalized_name, position,

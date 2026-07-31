@@ -87,7 +87,22 @@ func (s *Store) MatchLinkedInConnections(ctx context.Context, owner ids.UUID) (L
 // person, and treating it as a suggestion would ask a human to re-confirm a
 // fact the system is already certain of everywhere else.
 func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, error) {
-	tag, err := tx.Exec(ctx, `
+	// The person row scope, on the MATCH itself. Without it the matcher links
+	// a ghost to a contact the uploader cannot see — and then reports a
+	// confirmed count, which turns a one-row CSV into an oracle: upload a
+	// guessed address, read the number, learn whether an owner-private
+	// captured contact with that address exists.
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	ownerPos := arg(nullableOwner(owner))
+	visible, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return 0, err
+	}
+	if visible == "" {
+		visible = sqlAlwaysVisible
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		UPDATE linkedin_connection g
 		   SET matched_person_id = pe.person_id,
 		       match_status = 'confirmed',
@@ -99,7 +114,8 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, er
 		   AND g.tombstoned_at IS NULL
 		   -- Only an undecided ghost. A human's confirm or reject stands.
 		   AND g.match_status = 'unmatched'
-		   AND ($1::uuid IS NULL OR g.owner_user_id = $1)`, nullableOwner(owner))
+		   AND ($%[1]d::uuid IS NULL OR g.owner_user_id = $%[1]d)
+		   AND (%[2]s)`, ownerPos, visible), args...)
 	if err != nil {
 		return 0, fmt.Errorf("people: matching LinkedIn connections by address: %w", err)
 	}
@@ -118,7 +134,19 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, er
 // against: one contact cannot be two different LinkedIn connections of the
 // same colleague, and offering that choice invites a wrong click.
 func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UUID) (int, error) {
-	tag, err := tx.Exec(ctx, `
+	var args []any
+	arg := func(v any) int { args = append(args, v); return len(args) }
+	ownerPos := arg(nullableOwner(owner))
+	// Same reason as the email arm: a suggestion against an invisible contact
+	// both creates a link the uploader may not make and reports its existence.
+	visible, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
+	if err != nil {
+		return 0, err
+	}
+	if visible == "" {
+		visible = sqlAlwaysVisible
+	}
+	tag, err := tx.Exec(ctx, fmt.Sprintf(`
 		WITH pair AS (
 		    -- DISTINCT pairs FIRST. A contact with two live employment rows at
 		    -- one account (a role change recorded as a second row) joins twice
@@ -142,7 +170,8 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 		       -- Go-side resolver set using the ONE org-name normalizer. Doing
 		       -- it here in SQL would mean a second spelling of the
 		       -- legal-suffix strip, and two spellings of a normalizer drift.
-		       AND ($1::uuid IS NULL OR g.owner_user_id = $1)
+		       AND ($%[1]d::uuid IS NULL OR g.owner_user_id = $%[1]d)
+		       AND (%[2]s)
 		       AND g.matched_org_id IS NOT NULL
 		       AND r.organization_id = g.matched_org_id
 		       AND NOT EXISTS (
@@ -168,7 +197,7 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner ids.UU
 		   -- Ambiguity is not a suggestion. Two contacts of the same name at
 		   -- the same employer is exactly the case a human must resolve, and
 		   -- picking one would be a guess wearing a confirmation's clothes.
-		   AND c.matches = 1`, nullableOwner(owner))
+		   AND c.matches = 1`, ownerPos, visible), args...)
 	if err != nil {
 		return 0, fmt.Errorf("people: suggesting LinkedIn connection matches: %w", err)
 	}

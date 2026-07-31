@@ -210,15 +210,33 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 		// because search is a sibling. That is a public-event contract change
 		// and belongs in its own slice.
 		if in.EntityType == linkEntityPerson && in.ReplaceExistingOfType {
-			if _, err := tx.Exec(ctx, `
-				UPDATE activity_participant
-				   SET person_id = $2
-				 WHERE activity_id = $1 AND person_id IS NOT NULL
-				   AND person_id <> $2
+			// The DISPLACED person carries the row scope too. The relink
+			// already gated the new target; without this the old one is
+			// rewritten sight unseen, so a caller could repoint a participant
+			// naming a contact they cannot read — including an owner-private
+			// captured one. The link delete above scopes for the same reason;
+			// this is its participant twin.
+			var pargs []any
+			parg := func(v any) int { pargs = append(pargs, v); return len(pargs) }
+			idPos, targetPos := parg(id), parg(in.EntityID)
+			visible, err := auth.ScopeClauseFor(ctx, linkEntityPerson, "op", parg)
+			if err != nil {
+				return err
+			}
+			if visible == "" {
+				// An unbounded caller narrows nothing.
+				visible = "true"
+			}
+			if _, err := tx.Exec(ctx, storekit.SQLf(`
+				UPDATE activity_participant ap
+				   SET person_id = $%d
+				 WHERE ap.activity_id = $%d AND ap.person_id IS NOT NULL
+				   AND ap.person_id <> $%d
+				   AND EXISTS (SELECT 1 FROM person op WHERE op.id = ap.person_id AND (`+visible+`))
 				   AND NOT EXISTS (
 				       SELECT 1 FROM activity_participant other
-				        WHERE other.activity_id = $1 AND other.person_id = $2)`,
-				id, in.EntityID); err != nil {
+				        WHERE other.activity_id = ap.activity_id AND other.person_id = $%d)`,
+				targetPos, idPos, targetPos, targetPos), pargs...); err != nil {
 				return err
 			}
 		}

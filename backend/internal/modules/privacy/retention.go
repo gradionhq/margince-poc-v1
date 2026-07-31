@@ -350,6 +350,13 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			if emailErr != nil {
 				return emailErr
 			}
+			// The NAME too, and before the anonymization below overwrites it —
+			// the ghost sweep matches on it, and by then it is the tombstone.
+			var subjectName string
+			if nameErr := tx.QueryRow(ctx,
+				`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, id).Scan(&subjectName); nameErr != nil {
+				return nameErr
+			}
 			// Same in-place anonymization the eraser uses, minus the
 			// suppression list — the subject may lawfully return.
 			_, err = tx.Exec(ctx, `
@@ -410,10 +417,25 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 					`DELETE FROM graph_interaction_edge WHERE person_id = $1`, id)
 			}
 			if err == nil {
+				// The same reach the request-driven eraser uses, including the
+				// name-and-employer arm. Most exported rows carry no address,
+				// so a person-and-email-only sweep leaves the common case
+				// behind — and this is the path nobody asks for, which is
+				// exactly why it must not be the thinner one.
 				_, err = tx.Exec(ctx, `
-					DELETE FROM linkedin_connection
-					 WHERE matched_person_id = $1
-					    OR (email IS NOT NULL AND email = ANY($2))`, id, subjectEmails)
+					DELETE FROM linkedin_connection g
+					 WHERE g.matched_person_id = $1
+					    OR (g.email IS NOT NULL AND g.email = ANY($2))
+					    OR (g.normalized_company IS NOT NULL
+					        AND g.normalized_name = lower(f_unaccent($3))
+					        AND EXISTS (
+					            SELECT 1 FROM relationship r
+					              JOIN organization o ON o.id = r.organization_id
+					             WHERE r.person_id = $1 AND r.kind = 'employment'
+					               AND r.archived_at IS NULL
+					               AND (r.organization_id = g.matched_org_id
+					                    OR lower(f_unaccent(o.display_name)) = g.normalized_company)))`,
+					id, subjectEmails, subjectName)
 			}
 		default:
 			return fmt.Errorf("retention: no executor for %s/%s", pol.ObjectType, pol.Action)
