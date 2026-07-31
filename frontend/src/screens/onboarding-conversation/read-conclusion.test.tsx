@@ -232,7 +232,7 @@ describe("the read conclusion ordering contract", () => {
     stubApi([midRead, midRead, partialRead]);
     render(<OnboardingScreen />);
     const composer = await screen.findByRole("textbox", {
-      name: /Type your website address/,
+      name: /Your website address/,
     });
     await userEvent.type(composer, "gradion.com{Enter}");
 
@@ -252,16 +252,24 @@ describe("the read conclusion ordering contract", () => {
     ).toBeTruthy();
   }, 20000);
 
-  it("chat during the read does not stall the conclusion", async () => {
+  // The read now runs on its own full-screen stage with no composer, so a
+  // question cannot be asked mid-crawl — the tree's own ob.ai.readFirst rule
+  // already says an answer given before the evidence lands is the wrong answer.
+  // What still has to hold is the part that was genuinely at risk: a long run
+  // whose snapshots keep arriving must converge on the review rather than
+  // stalling as the poll count grows, and the composer must come back with it.
+  it("a long multi-snapshot run converges on the review and reopens the composer", async () => {
     stubApi([midRead, midRead, midRead, midRead, partialRead]);
     render(<OnboardingScreen />);
-    const composer = await screen.findByRole("textbox", {
-      name: /Type your website address/,
-    });
-    await userEvent.type(composer, "gradion.com{Enter}");
-    await screen.findByText(/Reading gradion\.com now/);
-    await userEvent.type(composer, "what did you find so far?{Enter}");
-    expect(await screen.findByText("Noted.")).toBeTruthy();
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: /Your website address/ }),
+      "gradion.com{Enter}",
+    );
+
+    // While it runs, the theatre is the surface and it reports the polled run.
+    expect(
+      await screen.findByRole("heading", { level: 1, name: /Reading gradion/ }),
+    ).toBeTruthy();
 
     expect(
       await screen.findByRole(
@@ -272,13 +280,16 @@ describe("the read conclusion ordering contract", () => {
         },
       ),
     ).toBeTruthy();
+    expect(
+      screen.getByRole("textbox", { name: /Type your website address/ }),
+    ).toBeTruthy();
   }, 20000);
 
   it("a poll error mid-read that recovers into the terminal still reaches review", async () => {
     stubApi([midRead, 500, partialRead]);
     render(<OnboardingScreen />);
     const composer = await screen.findByRole("textbox", {
-      name: /Type your website address/,
+      name: /Your website address/,
     });
     await userEvent.type(composer, "gradion.com{Enter}");
 

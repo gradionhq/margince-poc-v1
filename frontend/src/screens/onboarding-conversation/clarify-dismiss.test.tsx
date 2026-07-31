@@ -317,7 +317,7 @@ function render(ui: ReactNode) {
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }

@@ -266,7 +266,7 @@ function stubApi(proposal: Proposal) {
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
@@ -276,7 +276,7 @@ describe("the next-step bar in the company act", () => {
     stubApi(proposalFor(readyRead));
     render(<OnboardingScreen />);
 
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     expect(document.querySelector(".ob-conv-nextstep")).toBeNull();
   });
 

@@ -264,7 +264,7 @@ function render(ui: ReactNode) {
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
@@ -504,14 +504,16 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
-    // The act never sits silent: one honest turn, the failed outcome, and
-    // the manual fallback back on offer.
+    // The act never sits silent. The gate carries the cause forward — a lost
+    // poll, not a site that refused — and the terminal turn's own advice ("try
+    // another URL, or tell me directly") is now the two controls in front of
+    // the reader rather than a second sentence repeating them.
     expect(
       await screen.findByText(/I lost the connection while reading/),
     ).toBeTruthy();
-    expect(await screen.findByText(/I could not read that site/)).toBeTruthy();
+    expect(await screen.findByLabelText(/Your website address/)).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
     ).toBeTruthy();
   });
 

@@ -1,0 +1,545 @@
+/*
+ * The onboarding gate and the read theatre — the two full-column surfaces that
+ * come before the working view.
+ *
+ * Three rules here are behaviour rather than taste:
+ *
+ *  - the surface SCROLLS and centres by flex slack, never by translation, so the
+ *    submit button survives 200% zoom and a phone keyboard;
+ *  - every region that changes while a read polls (the phase line, the count
+ *    row, the cost line) holds its own height, so an arriving page never moves
+ *    what someone is reading;
+ *  - under reduced motion the animations end rather than never happen: the tiles
+ *    are present, the phase line is legible, the entrance is complete. Only the
+ *    decorative snippet layer stands down, and its component does that itself.
+ *
+ * Copy never lives here (conformance gate) and no colour is a literal: literals
+ * live only in design-system/tokens.css.
+ */
+
+.ob-gate {
+  /* The snippet layer positions against this column. */
+  position: relative;
+  width: min(540px, 100%);
+  margin: 0 auto;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: 48px var(--space-6);
+  text-align: center;
+}
+@supports (min-height: 100dvh) {
+  .ob-gate {
+    /* 100vh on iOS subtracts the browser chrome from the wrong side and puts
+       the primary action under the keyboard. */
+    min-height: 100dvh;
+  }
+}
+
+.ob-gate .core {
+  --coreSize: 170px;
+  --coreGlass: 108px;
+}
+
+@keyframes ob-gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ob-gate > *:not(.ob-snips) {
+  animation: ob-gate-rise 0.6s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.ob-gate-title {
+  animation-delay: 0.08s;
+}
+.ob-gate-sub {
+  animation-delay: 0.16s;
+}
+.ob-gate-form,
+.ob-scan-phase {
+  animation-delay: 0.24s;
+}
+
+.ob-gate-title {
+  margin: 0;
+  font-family: var(--f-display);
+  font-size: 30px;
+  font-weight: 600;
+  letter-spacing: -0.026em;
+  line-height: 1.15;
+  text-wrap: balance;
+  color: var(--textPrimary);
+}
+.ob-gate-sub {
+  margin: 0;
+  max-width: 452px;
+  font-size: 14.5px;
+  line-height: 1.62;
+  color: var(--textContent);
+}
+
+/* ===== the ask ========================================================== */
+
+.ob-gate-form {
+  width: 100%;
+  margin-top: var(--space-2);
+}
+/* One box, two controls: the ring is on the wrapper (`:focus-within`) and
+   suppressed on the bare input, the way `.auth-shell` does it — a leading field
+   and a trailing action inside one outline rather than beside it. */
+.ob-gate-field {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 0 0 0 var(--space-4);
+  border: 1px solid var(--borderStrong);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-card);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s;
+}
+.ob-gate-field:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+.ob-gate-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: 0;
+  padding: 13px var(--space-3) 13px 0;
+  font-family: var(--f-body);
+  font-size: 15px;
+  color: var(--textPrimary);
+}
+.ob-gate-input::placeholder {
+  color: var(--textMeta);
+}
+.ob-gate-submit {
+  flex: none;
+  align-self: stretch;
+  /* Inside the field's own corner rather than a smaller radius floating in it. */
+  margin: var(--space-1);
+  padding: 0 var(--space-4);
+  min-height: 44px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--textOnAccent);
+  font-family: var(--f-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+.ob-gate-submit:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--accent) 88%, var(--overlayDark));
+}
+.ob-gate-submit:disabled {
+  /* In-flight, and the control is coming back. Pale reads as "wait". */
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.ob-gate-alt {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: 13px;
+  color: var(--textMeta);
+}
+.ob-gate-link {
+  background: transparent;
+  border: 0;
+  padding: 2px;
+  cursor: pointer;
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--accent);
+}
+.ob-gate-link:hover,
+.ob-gate-link:focus-visible {
+  text-decoration: underline;
+}
+
+.ob-gate-alert {
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  background: var(--dangerBg);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-sm);
+  padding: 10px var(--space-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--textContent);
+}
+
+/* A paused read wears the warn family, not the danger family: the server will
+   come back to it, so it must not read as something the reader broke. The two
+   tones are also distinguished by their role (alert vs status), so the
+   difference survives without colour. */
+.ob-gate-alert.is-paused {
+  border-color: var(--warnBorder);
+  background: var(--warnBg);
+}
+
+/* Which model is about to read the site, stated before the address is handed
+   over. AI indigo, never the brand accent — this is disclosure, not an action. */
+.ob-gate-ai {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  justify-content: center;
+  margin: var(--space-2) 0 0;
+  color: var(--textMeta);
+  font-size: 11px;
+}
+
+.ob-gate-ai span {
+  color: var(--aiText);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ob-gate-ai b {
+  color: var(--textContent);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* The gate and the theatre are full-viewport stages, not cards on a page: the
+   host page's own washes would sit behind a surface that already owns the
+   whole screen. */
+.ob-gate-stage {
+  min-height: 100vh;
+  background: var(--bgElevated);
+}
+
+/* ===== the read theatre ================================================= */
+
+/* Fixed height so the crossfade cannot move the strip beneath it. */
+.ob-scan-phase {
+  margin: 0;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  color: var(--aiText);
+}
+@keyframes ob-scan-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+/* Opacity only: the text changes in place and must not travel. */
+.ob-scan-phase-text {
+  animation: ob-scan-fade 0.4s ease both;
+}
+
+/* The pages, one tile each, in arrival order. No denominator exists on the
+   wire, so this is a growing row and never a filling bar. */
+.ob-scan-strip {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 22px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+@keyframes ob-scan-tile-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.ob-scan-tile {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  animation: ob-scan-tile-in 0.32s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+/* Shape as well as colour, because a tile is a colour to most people and a
+   shape to some: read is a filled square, skipped a hollow one, failed a
+   diamond. The accessible name says which in words regardless. */
+.ob-scan-tile[data-page-status="fetched"] {
+  background: var(--accent);
+}
+.ob-scan-tile[data-page-status="skipped"] {
+  background: var(--bgCard);
+  border: 1px solid var(--borderStrong);
+}
+.ob-scan-tile[data-page-status="failed"] {
+  background: var(--dangerBg);
+  border: 1px solid var(--danger);
+  border-radius: var(--r-full);
+}
+
+.ob-scan-counts {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--textMeta);
+}
+/* A drawn separator rather than a character: a middot in a string would be copy
+   outside the catalog, and a screen reader reads it aloud. */
+.ob-scan-counts span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin-right: var(--space-2);
+  vertical-align: middle;
+  border-radius: var(--r-full);
+  background: var(--borderStrong);
+}
+
+.ob-scan-cost {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-sm);
+  background: var(--aiLight);
+}
+.ob-scan-cost-label {
+  margin: 0;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--aiText);
+}
+
+.ob-scan-cost-model {
+  margin: var(--space-1) 0 0;
+  color: var(--textContent);
+  font-family: var(--f-mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.ob-scan-cost-line {
+  margin: 0;
+  min-height: 18px;
+  font-family: var(--f-mono);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--textContent);
+}
+
+/* ===== the snippet layer (decorative) =================================== */
+
+.ob-snips {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+@keyframes ob-snip-life {
+  0% {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  14%,
+  74% {
+    opacity: 1;
+    transform: none;
+  }
+  100% {
+    opacity: 0;
+    transform: none;
+  }
+}
+/* Surfaces and fades IN PLACE — nothing travels across the column. The chip's
+   life is one animation, and it leaves the DOM when the facts array grows past
+   it, so no timer is deciding anything. */
+.ob-snip {
+  position: absolute;
+  max-width: 38%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px var(--space-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--borderSubtle);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-card);
+  text-align: left;
+  border-left: 3px solid var(--snipTint, var(--borderStrong));
+  animation: ob-snip-life 5.4s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.ob-snip-value {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--textPrimary);
+}
+.ob-snip-src {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  color: var(--textMeta);
+}
+/* The four wire categories, one tint each, the same tint the chips, bars and
+   rows use elsewhere. */
+.ob-snip[data-fact-category="company"] {
+  --snipTint: var(--catCompany);
+}
+.ob-snip[data-fact-category="offering"] {
+  --snipTint: var(--catOffering);
+}
+.ob-snip[data-fact-category="market"] {
+  --snipTint: var(--catMarket);
+}
+.ob-snip[data-fact-category="signal"] {
+  --snipTint: var(--catSignal);
+}
+/* Seven slots, claimed by a coprime step in the component: two chips on screen
+   at the same time can never be given the same one.
+
+   The offsets clear the column rather than merely leaning out of it. A chip is
+   up to 38% of the column wide, so an inset of -12% left it sitting ON the
+   heading and the cost strip; -44% puts its inner edge at the column boundary,
+   which is what "beside the column, in the page margin" actually requires. The
+   two bottom slots also stay out of the 20–40% band, where the transparency
+   card lives. */
+.ob-snip[data-slot="0"] {
+  top: 4%;
+  left: -44%;
+}
+.ob-snip[data-slot="1"] {
+  top: 18%;
+  right: -44%;
+}
+.ob-snip[data-slot="2"] {
+  top: 36%;
+  left: -48%;
+}
+.ob-snip[data-slot="3"] {
+  bottom: 12%;
+  right: -46%;
+}
+.ob-snip[data-slot="4"] {
+  bottom: 2%;
+  left: -42%;
+}
+.ob-snip[data-slot="5"] {
+  top: 54%;
+  right: -50%;
+}
+.ob-snip[data-slot="6"] {
+  bottom: 44%;
+  left: -46%;
+}
+
+/* ===== breakpoints ====================================================== */
+
+/* The floating layer needs genuine page margin beside a 540px column, and that
+   does not exist until roughly 1200px. Below it the chips are simply not drawn —
+   every fact they show is in the review regardless, so the honest degradation is
+   to omit the decoration rather than to overlap the copy with it. */
+@media (max-width: 1199px) {
+  .ob-snips {
+    display: none;
+  }
+}
+
+@media (max-width: 899px) {
+  .ob-gate {
+    gap: var(--space-3);
+    padding: 32px var(--space-4);
+  }
+  .ob-gate .core {
+    --coreSize: 130px;
+    --coreGlass: 88px;
+  }
+  .ob-gate-title {
+    font-size: 25px;
+  }
+  .ob-gate-input {
+    /* 16px or iOS zooms the page on focus. */
+    font-size: 16px;
+  }
+  /* No room beside the column for a floating layer, and a chip over the copy is
+     worse than no chip: the facts are all in the review either way. */
+  .ob-snips {
+    display: none;
+  }
+}
+
+@media (max-width: 400px) {
+  /* The inline submit and a usable field cannot share 340px, so the action
+     takes its own row rather than shrinking to a stub. */
+  .ob-gate-field {
+    flex-direction: column;
+    align-items: stretch;
+    padding: var(--space-2);
+  }
+  .ob-gate-input {
+    padding: var(--space-2);
+  }
+  .ob-gate-submit {
+    margin: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The END state, not nothing: the column, the phase line and every tile are
+     present and complete on the first frame. */
+  .ob-gate > *:not(.ob-snips),
+  .ob-scan-phase-text,
+  .ob-scan-tile,
+  .ob-snip {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .ob-scan-tile,
+  .ob-scan-cost,
+  .ob-gate-field {
+    forced-color-adjust: auto;
+  }
+}

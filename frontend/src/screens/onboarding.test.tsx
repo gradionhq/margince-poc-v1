@@ -292,7 +292,7 @@ function render(
 
 async function submitWebsite() {
   const composer = await screen.findByRole("textbox", {
-    name: /Type your website address/,
+    name: /Your website address/,
   });
   await userEvent.type(composer, "gradion.com{Enter}");
 }
@@ -300,7 +300,7 @@ async function submitWebsite() {
 async function chooseManual() {
   await userEvent.click(
     await screen.findByRole("button", {
-      name: /I would rather tell you directly/,
+      name: /Enter the details yourself/,
     }),
   );
   await screen.findByRole("textbox", {
@@ -383,11 +383,9 @@ describe("the conversational company act", () => {
     stubApi();
     render(<OnboardingScreen />);
 
+    expect(await screen.findByLabelText(/Your website address/)).toBeTruthy();
     expect(
-      await screen.findByText(/Where should I start reading\?/),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
     ).toBeTruthy();
     expect(screen.queryByLabelText(/Company name/)).toBeNull();
   });
@@ -464,8 +462,10 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
+    // The server's own detail reaches the reader, now inside the gate's
+    // sentence rather than as a bare line of its own.
     expect(
-      await screen.findByText("site blocked automated access"),
+      await screen.findByText(/site blocked automated access/),
     ).toBeTruthy();
     await chooseManual();
   });
@@ -488,11 +488,16 @@ describe("the conversational company act", () => {
 
     await submitWebsite();
 
+    // A deferral is scheduled work, not a failure: it arrives as a status and
+    // carries the server's own explanation of when it resumes.
+    const paused = await screen.findByRole("status");
+    expect(paused.textContent).toContain("That read is paused for now.");
+    expect(paused.textContent).toContain(
+      "This website read will resume automatically.",
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(
-      await screen.findByText(/The read is paused for now\./),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /I would rather tell you directly/ }),
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
     ).toBeTruthy();
   });
 
@@ -553,8 +558,18 @@ describe("the conversational company act", () => {
     await submitWebsite();
     await screen.findByText(/Finished reading\./);
     expect(screen.getByText("gemini-3.1-flash-lite-2026-07")).toBeTruthy();
-    expect(screen.getByText("$0.079529")).toBeTruthy();
+    // The run's spend appears twice on purpose: unlabelled on the always-visible
+    // chip, and again as a labelled row inside the disclosure. Assert the
+    // labelled one, so this stays a test of "the cost is disclosed" rather than
+    // of how many places repeat it.
+    const costRow = screen
+      .getByText("Estimated provider cost")
+      .closest(".mw-aistat-r");
+    expect(costRow?.querySelector("dd")?.textContent).toContain("$0.079529");
 
+    // The workbench composer, not the gate field: by this point the read has
+    // landed and the surface is the two-column review, where the same box
+    // takes free-text questions.
     const composer = screen.getByRole("textbox", {
       name: /Type your website address/,
     });
@@ -583,7 +598,7 @@ describe("the mandatory company minimum", () => {
   it("saves a manually entered company without requiring a website", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     await chooseManual();
     await completeManualInterview();
 
@@ -611,7 +626,7 @@ describe("the mandatory company minimum", () => {
   it("starts with legal identity and does not advance without the required company name", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     await chooseManual();
 
     expect(screen.getByText("Your legal organization")).toBeTruthy();
@@ -631,7 +646,7 @@ describe("the mandatory company minimum", () => {
   it("treats whitespace as missing and keeps a failed save editable", async () => {
     stubApi({ saveError: { detail: "database unavailable", status: 503 } });
     render(<OnboardingScreen />);
-    await screen.findByText(/Where should I start reading\?/);
+    await screen.findByLabelText(/Your website address/);
     await chooseManual();
     await completeManualInterview();
 

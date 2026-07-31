@@ -6,7 +6,7 @@ import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { useLocale, useT } from "../../i18n";
-import { problemMessage } from "../common";
+import { problemMessage, useMe } from "../common";
 import type { CompanyDraft } from "../onboarding";
 import {
   changeDraftField,
@@ -15,6 +15,7 @@ import {
   normalizeUrl,
   onboardingDraftPayload,
 } from "../onboarding";
+import { OnboardingGate, ReadTheatre } from "../onboarding-gate";
 import {
   ConversationEntries,
   conversationHistory,
@@ -35,13 +36,14 @@ import type {
   ConversationState,
 } from "./conversation-machine";
 import { NarrationBubble } from "./entries";
+import { gateNoticeFor } from "./gate-notice";
 import { NextStepBar } from "./next-step-bar";
 import { presenceFor } from "./presence";
 import { ConversationThread } from "./thread";
 import { useClarifyAnswers } from "./use-clarify-answers";
 import { useCompanyRead } from "./use-company-read";
 import type { WizardPersistInput } from "./use-wizard-state";
-import { ConversationWorkbench } from "./workbench";
+import { ConversationWorkbench, useConfiguredModel } from "./workbench";
 
 // The company act driver: the read lifecycle lives in useCompanyRead and
 // clarify authorization in useClarifyAnswers; this component owns the draft,
@@ -83,6 +85,11 @@ export function CompanyAct({
   const t = useT();
   const { locale } = useLocale();
   const queryClient = useQueryClient();
+  // The gate greets by name, and uses the whole display_name rather than a
+  // first token: name order is not universal, so slicing one off would greet
+  // some people by their family name.
+  const me = useMe();
+  const configuredModel = useConfiguredModel();
 
   // Draft state mirrors the classic coordinator: values + grounding +
   // human-edited marks move together, and a ref keeps callbacks current.
@@ -255,6 +262,23 @@ export function CompanyAct({
     },
   });
 
+  // The gate's field and the composer's URL branch must start a read the same
+  // way, or the two entry points would disagree about what got persisted. The
+  // gate hands back a bare host; canonicalising it here keeps normalizeUrl the
+  // single spelling of "what a website address is".
+  const startFromGate = useCallback(
+    (host: string) => {
+      const norm = normalizeUrl(host);
+      if (!norm.ok || startRead.isPending) {
+        return;
+      }
+      setDraft((current) => changeDraftField(current, "website", norm.full));
+      dispatch({ type: "URL_SUBMITTED", url: norm.full });
+      startRead.mutate(norm.full);
+    },
+    [dispatch, setDraft, startRead],
+  );
+
   const composer = useRef<HTMLTextAreaElement>(null);
   const submitComposer = () => {
     const text = conversation.draft.trim();
@@ -284,6 +308,15 @@ export function CompanyAct({
   const read = siteRead.data ?? startRead.data ?? null;
   const missing = missingRequiredFields(draft.values);
   const readBroken = startRead.isError || siteRead.isError;
+
+  const gateNotice = gateNoticeFor({
+    state,
+    read,
+    startError: startRead.isError ? startRead.error.message : null,
+    translate: t,
+    failedWithDetail: (detail) => t("ob.gate.startFailed", { detail }),
+    pausedWithDetail: (detail) => t("ob.gate.readPaused", { detail }),
+  });
 
   // The review renders even when the proposal endpoint failed: the site-read
   // snapshot carries the same evidence-gated mapping, just with no
@@ -371,10 +404,47 @@ export function CompanyAct({
 
   const presence = presenceFor(state, { read, readBroken });
 
+  // The gate and the read theatre are the company act's first two faces. They
+  // are full-screen and deliberately have no thread, no panel and no composer:
+  // before there is anything sourced to review, a two-column workbench would be
+  // showing the reader an empty dossier and asking them to trust it.
+  //
+  // The split follows the machine, not a local flag. `showManualChip` is true
+  // in exactly the states where no run is in flight, which is the same question
+  // the gate asks, so the two cannot drift apart.
+  if (state.phase === "co.reading" && state.activeReadId !== null && read) {
+    return (
+      <div className="ob-gate-stage">
+        <ReadTheatre
+          read={read}
+          host={normalizeUrl(read.root_url).host}
+          locale={locale}
+          configuredModel={configuredModel}
+        />
+      </div>
+    );
+  }
+
+  if (showManualChip) {
+    return (
+      <div className="ob-gate-stage">
+        <OnboardingGate
+          name={me.data?.user.display_name}
+          running={startRead.isPending}
+          notice={gateNotice}
+          configuredModel={configuredModel}
+          onSubmit={startFromGate}
+          onManual={() => dispatch({ type: "MANUAL_CHOSEN" })}
+        />
+      </div>
+    );
+  }
+
   return (
     <ConversationWorkbench
       core={presence.core}
       progress={presence.progress}
+      railState={state}
       status={
         readBroken
           ? t("ob.readStatus.failed")

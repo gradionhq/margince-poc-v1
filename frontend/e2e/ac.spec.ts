@@ -299,11 +299,22 @@ test("AC-onboarding-1: onboarding is the rail-less conversational shell", async 
   // The onboarding wizard/stepper was replaced by the conversational shell
   // (#217): onboarding is a focused, rail-less flow whose journey is a
   // conversation thread, not a stepper.
+  //
+  // The flow now opens on the gate: one question, centred, before any thread
+  // exists — nobody should meet the whole tool on their first screen. So the AC
+  // asserts what it always meant (rail-less, no stepper) against the surface
+  // that is actually first, and that the single question is the whole ask.
   await page.goto("/#/onboarding");
   await expect(page.locator("nav.rail")).toHaveCount(0);
+  await expect(page.locator(".stepper")).toHaveCount(0);
+  await expect(page.getByLabel("Deine Website-Adresse")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Meine Website lesen" }),
+  ).toBeVisible();
+  // The thread belongs to the working view, not the gate.
   await expect(
     page.getByRole("log", { name: "Einrichtungsgespräch" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });
 
 test("AC-create-1: a contact is created from the list and lands on its 360", async ({
