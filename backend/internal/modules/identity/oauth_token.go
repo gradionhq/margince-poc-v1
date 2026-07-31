@@ -61,8 +61,12 @@ func (h Handlers) tokenFromAuthCode(w http.ResponseWriter, r *http.Request) {
 	issued, refresh, err := h.exchangeAuthCode(r, code, verifier)
 	switch {
 	// A code cannot exist in a workspace that doesn't resolve, and the
-	// answer must not distinguish that from a spent code.
-	case errors.Is(err, errCodeSpent), errors.Is(err, database.ErrNoWorkspace):
+	// answer must not distinguish that from a spent code. A code whose human
+	// was deactivated between authorization and redemption joins them: the
+	// refusal is the same sentence, because whether an account exists and is
+	// deactivated is not something an unauthenticated caller may probe.
+	case errors.Is(err, errCodeSpent), errors.Is(err, database.ErrNoWorkspace),
+		errors.Is(err, errConsentingUserInactive):
 		oauthError(w, http.StatusBadRequest, "invalid_grant", "code is unknown, expired, or already used")
 		return
 	case errors.Is(err, errGrantMismatch):

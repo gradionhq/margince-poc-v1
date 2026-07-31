@@ -54,6 +54,46 @@ type issueGrantInput struct {
 	Resource       *string
 }
 
+// errConsentingUserInactive refuses a consent whose human is no longer live.
+// It answers on the wire exactly as a spent code does: whether an account
+// exists and is deactivated is not something an unauthenticated token request
+// may learn.
+var errConsentingUserInactive = errors.New("oauth: the consenting user is not active")
+
+// requireLiveConsentingUser refuses to build a connection on authority its
+// human no longer has, and takes app_user FOR UPDATE to do it.
+//
+// The predicate has to be re-read HERE rather than trusted from the
+// authorization code. A code minted while the human was live redeems into a
+// brand-new grant afterwards, and because a grant outlives every passport
+// beneath it, per-call re-auth alone does not cover the gap: the connector is
+// merely dormant while the human is deactivated, and reactivating them
+// silently restores a connector nobody re-approved.
+//
+// The lock is what makes it a decision rather than a guess. DeactivateUser
+// takes the same app_user row FOR UPDATE before revoking what borrows the
+// human's authority, so a redemption racing a deactivation serializes instead
+// of interleaving: one of the two goes second and sees the other's outcome.
+// Taking it BEFORE the grant insert also keeps the app_user → oauth_grant
+// order that cascade already uses, so the two cannot deadlock.
+func requireLiveConsentingUser(ctx context.Context, tx pgx.Tx, in issueGrantInput) error {
+	var status string
+	err := tx.QueryRow(ctx, `
+		SELECT status FROM app_user
+		WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL
+		FOR UPDATE`, in.UserID, in.WorkspaceID).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return errConsentingUserInactive
+	}
+	if err != nil {
+		return err
+	}
+	if status != userStatusActive {
+		return errConsentingUserInactive
+	}
+	return nil
+}
+
 // issueGrant records one approved consent and mints the first refresh token
 // beneath it inside the CALLER's transaction, so the grant commits together
 // with the authorization-code consumption that authorized it and the
@@ -65,6 +105,9 @@ type issueGrantInput struct {
 // stored. It is empty when the grant does not allow refresh — then there is
 // no credential to hand back.
 func issueGrant(ctx context.Context, tx pgx.Tx, in issueGrantInput) (grantID ids.UUID, refresh string, err error) {
+	if err := requireLiveConsentingUser(ctx, tx, in); err != nil {
+		return ids.Nil, "", err
+	}
 	err = tx.QueryRow(ctx, `
 		INSERT INTO oauth_grant (workspace_id, client_id, user_id, scopes, refresh_allowed, resource)
 		VALUES ($1, $2, $3, $4, $5, $6)

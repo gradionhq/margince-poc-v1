@@ -111,6 +111,45 @@ func TestCodeExchangeIssuesAGrantAndItsFirstRefreshToken(t *testing.T) {
 // The exchange writes an audit row asserting the human approved a renewable
 // connection, so the screen they approved has to disclose it — offline_access
 // is not a passport scope and so appears in no scope list of its own.
+// A code authorized while the human was live must not redeem into a connection
+// after that human is deactivated. Per-call re-auth is not enough on its own:
+// the grant would outlive the deactivation dormant, and reactivating the human
+// would restore a connector nobody re-approved. So the redemption is refused
+// and NO grant row is written — and the refusal is the same sentence a spent
+// code gets, because an unauthenticated caller may not probe account state.
+func TestCodeExchangeAfterTheHumanIsDeactivatedIssuesNoGrant(t *testing.T) {
+	o := setupOAuth(t)
+	ctx := context.Background()
+
+	code := o.authorize(t, url.Values{"scope": {"read write offline_access"}})
+
+	// Every member, so the assertion does not depend on WHICH fixture user the
+	// consent screen bound the code to.
+	if _, err := o.owner.Exec(ctx,
+		`UPDATE app_user SET status = 'deactivated' WHERE status = 'active'`); err != nil {
+		t.Fatalf("deactivating the consenting members: %v", err)
+	}
+
+	status, body := o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusBadRequest {
+		t.Fatalf("token after deactivation → %d %v, want 400", status, body)
+	}
+	if got, _ := body["error"].(string); got != "invalid_grant" {
+		t.Fatalf("error = %q, want invalid_grant", got)
+	}
+	// The wire answer must not separate "deactivated human" from "spent code".
+	if got, _ := body["error_description"].(string); got != "code is unknown, expired, or already used" {
+		t.Fatalf("error_description = %q, want the spent-code sentence verbatim", got)
+	}
+	if _, ok := body["access_token"]; ok {
+		t.Fatalf("a refused exchange returned a token: %v", body)
+	}
+	// The whole point: no durable consent was recorded, so reactivating the
+	// human cannot bring a connection back.
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_refresh_token`)
+}
+
 func TestConsentFormDisclosesTheRenewalRequest(t *testing.T) {
 	o := setupOAuth(t)
 
