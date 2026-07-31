@@ -21,6 +21,21 @@ via `approvals.TargetIsContextOnly`) does not cover it: a counterparty decision
 IS about the activity it names, so the pin is arguably correct and the classify
 write is what needs to move. Decide which before changing either.
 
+## Open decision — a testimonial with an email files under the wrong company
+
+The site read only proposes a published person who carries a name, a role, and
+an email address the page actually PRINTED. That floor removed every
+testimonial lead seen in practice, because none of them published an address.
+
+It proves contactability, not affiliation. A "what our clients say" wall that
+does print the quoted person's own address — `jane@client.example` on our
+site — still yields a lead filed as a contact AT our company, which their own
+quoted job title disproves on the same line.
+
+Requiring the address to sit on the crawled site's own domain would close it,
+and would also drop staff who publish a personal address. That trade is a
+product call, not a bug fix, so it is raised rather than taken.
+
 ## Open decision — the organization brief endpoint has no client
 
 `GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
@@ -160,11 +175,7 @@ the published-person lane closed in PR #342 (merged):
   ignoring both, and `StageOrJoinPendingInTx` is the door that honors them.
 
 **Still open in this area:** the email floor proves contactability, not
-affiliation. A testimonial that prints the quoted person's own address
-(`jane@client.example` on our site) still becomes a lead filed under the wrong
-company. Requiring the address to sit on the crawled site's own domain would
-close it, at the cost of dropping staff who publish a personal address —
-a product call, not a bug fix. Raised here rather than decided.
+affiliation — see the open decision above.
 
 **A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
 binds OpenRouter through the generic `openai_compatible` adapter, with three

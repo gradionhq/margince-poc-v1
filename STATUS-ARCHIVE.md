@@ -38,14 +38,19 @@ target.
 the account means rather than listing what it holds, made email bodies
 readable, grouped and deduplicated the facts wall, collapsed three overlapping
 people sections into one, and kept the rails mounted across tab switches. It
-also closed three defects in the site read's published-person lane: customer
-testimonials were becoming leads at the company whose site they appeared on
-(fixed by requiring an email address the page actually printed), people already
-on file were re-proposed (fixed by a probe that runs under the REQUESTING
-HUMAN's grants, because answering it workspace-wide made the approval inbox an
-existence oracle for records the reader's row scope hides), and re-reads stacked
-duplicate questions (fixed by keying the approval's logical identity on the
-lead's natural key). `approvals.StageInTx` now refuses an input carrying
+also worked three defects in the site read's published-person lane. Two are
+closed: people already on file were re-proposed (fixed by a probe that runs
+under the REQUESTING HUMAN's grants, because answering it workspace-wide made
+the approval inbox an existence oracle for records the reader's row scope
+hides), and re-reads stacked duplicate questions (fixed by keying the
+approval's logical identity on the lead's natural key).
+
+The third is only narrowed, not closed. A published person must now carry an
+email address the page actually printed, which removed every testimonial lead
+observed in practice — none of them published an address. But the floor proves
+CONTACTABILITY, not affiliation: a testimonial that does print the quoted
+person's own address still becomes a lead filed under the wrong company. See
+STATUS.md for the open call. `approvals.StageInTx` now refuses an input carrying
 `Identity` or `JoinPending` instead of ignoring both silently.
 
 **The company-view rebuild, finished — six feature PRs (#309, #313, #315, #317,
