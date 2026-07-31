@@ -11,7 +11,15 @@ package telegram
 // reach it by.
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"os"
+	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -196,4 +204,117 @@ func TestInScopeSubjectsRefusesUndecodableBytes(t *testing.T) {
 	if _, err := InScopeSubjects([]byte(`{"update_id":`)); err == nil {
 		t.Error("InScopeSubjects accepted truncated JSON — a decode fault must not read as 'nothing to capture'")
 	}
+}
+
+// What this connector asks Telegram to send and what this parser can read are
+// one decision spelled in two packages: capture's channelAllowedUpdates
+// registers the subscription, subjectEnvelope decodes it. Widening only the
+// subscription lands the new kind in InScopeSubjects' default arm, which
+// answers "no subject" — and an empty answer is the webhook's refusal test, so
+// a real customer message is discarded at ingress with no error, no record and
+// nothing to find afterwards. Widening only the envelope is the milder half of
+// the same drift: a decode arm for updates that never arrive.
+//
+// Both sets are DERIVED — the envelope by reflection, the subscription from
+// capture's source — because a set restated here would agree with itself
+// forever, which is exactly the failure being guarded against.
+func TestEveryAllowedUpdateKindHasASubjectArm(t *testing.T) {
+	decoded := subjectEnvelopeUpdateKinds(t)
+	subscribed := subscribedUpdateKinds(t)
+	if !slices.Equal(decoded, subscribed) {
+		t.Errorf("subjectEnvelope decodes %v but the connector subscribes to %v — the kinds only one side knows about are dropped silently at ingress",
+			decoded, subscribed)
+	}
+}
+
+// subjectEnvelopeUpdateKinds reads the update kinds the parser can decode off
+// subjectEnvelope's JSON tags, which are the Bot API's own names for them.
+func subjectEnvelopeUpdateKinds(t *testing.T) []string {
+	t.Helper()
+	envelope := reflect.TypeOf(subjectEnvelope{})
+	kinds := make([]string, 0, envelope.NumField())
+	for i := range envelope.NumField() {
+		field := envelope.Field(i)
+		tag, ok := field.Tag.Lookup("json")
+		if !ok {
+			t.Fatalf("subjectEnvelope.%s carries no json tag, so the update kind it decodes cannot be derived", field.Name)
+		}
+		name, _, _ := strings.Cut(tag, ",")
+		kinds = append(kinds, name)
+	}
+	slices.Sort(kinds)
+	return kinds
+}
+
+// capturePackageDir is the parent package's source, relative to this one: a Go
+// test runs in its own package directory.
+const capturePackageDir = ".."
+
+// allowedUpdatesDecl is the capture-side declaration of the subscription.
+const allowedUpdatesDecl = "channelAllowedUpdates"
+
+// subscribedUpdateKinds reads the subscribed set out of capture's source rather
+// than importing it. It cannot be imported: capture imports this package, so a
+// Go reference would be an import cycle — and it is unexported besides. Parsing
+// the declaration is what pins the two together without one.
+func subscribedUpdateKinds(t *testing.T) []string {
+	t.Helper()
+	entries, err := os.ReadDir(capturePackageDir)
+	if err != nil {
+		t.Fatalf("reading the capture package directory: %v", err)
+	}
+	fset := token.NewFileSet()
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") || strings.HasSuffix(entry.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(capturePackageDir, entry.Name())
+		file, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", path, err)
+		}
+		if kinds, found := stringSliceVar(t, file, allowedUpdatesDecl); found {
+			slices.Sort(kinds)
+			return kinds
+		}
+	}
+	t.Fatalf("no %s declaration found under %s — this derivation is stale, not the code it guards", allowedUpdatesDecl, capturePackageDir)
+	return nil
+}
+
+// stringSliceVar returns the elements of `var <name> = []string{…}` in file.
+// A declaration under that name whose shape is anything else is a fault, not a
+// miss: reporting "not found" would let the gate go quietly green.
+func stringSliceVar(t *testing.T, file *ast.File, name string) ([]string, bool) {
+	t.Helper()
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			value, ok := spec.(*ast.ValueSpec)
+			if !ok || len(value.Names) != 1 || value.Names[0].Name != name || len(value.Values) != 1 {
+				continue
+			}
+			composite, ok := value.Values[0].(*ast.CompositeLit)
+			if !ok {
+				t.Fatalf("%s is no longer a composite literal, so its elements cannot be derived", name)
+			}
+			elements := make([]string, 0, len(composite.Elts))
+			for _, element := range composite.Elts {
+				lit, ok := element.(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					t.Fatalf("%s holds an element that is not a string literal, so its elements cannot be derived", name)
+				}
+				unquoted, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatalf("unquoting an element of %s: %v", name, err)
+				}
+				elements = append(elements, unquoted)
+			}
+			return elements, true
+		}
+	}
+	return nil, false
 }

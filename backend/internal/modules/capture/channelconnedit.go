@@ -234,6 +234,10 @@ func (s *ChannelStore) revokeOutgoingWebhook(ctx context.Context, current channe
 // unique indexes so the same bot can be connected again later. Its history does
 // not live on this row: the activities and the person_channel_identity bindings
 // outlive it.
+//
+// A replacement that commits while this call is out at the provider makes it
+// refuse with version skew, teardown untouched: the operator asked to disconnect
+// the bot they were shown, not the one that has since taken the connection over.
 func (s *ChannelStore) Disconnect(ctx context.Context, id ids.UUID) error {
 	if err := auth.Require(ctx, channelConnectionObject, principal.ActionDelete); err != nil {
 		return err
@@ -287,10 +291,17 @@ func (s *ChannelStore) revokeWebhook(ctx context.Context, ws ids.UUID, current c
 	}
 }
 
-// archiveDisconnected flips the row disconnected and archives it, with its
-// audit row, in one transaction, under the row lock — so a rotation racing this
-// teardown cannot interleave with it and leave the row live but pointing at
-// credentials this call is about to destroy.
+// archiveDisconnected flips the row disconnected and archives it, with its audit
+// row, in one transaction, under the row lock.
+//
+// The lock is taken because the teardown was decided from a read taken before a
+// provider round trip. It only SERIALIZES the writers, though — it does not tell
+// this one that its snapshot went stale — so `current.Version` travels into the
+// WHERE clause as a predicate, exactly as the replacement path does. Zero rows
+// matched means a replacement already repointed this connection at another bot:
+// archiving anyway would retire that bot's live connection, record the outgoing
+// bot as the one disconnected, and send the caller on to destroy a sealed pair
+// the row no longer names — leaving the winner's pair with nothing to collect it.
 func (s *ChannelStore) archiveDisconnected(ctx context.Context, current channelRow) error {
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		if _, err := storekit.LockRow(ctx, tx, "channel_connection", current.ID, storekit.LiveOnly); err != nil {
@@ -298,8 +309,8 @@ func (s *ChannelStore) archiveDisconnected(ctx context.Context, current channelR
 		}
 		after, err := scanChannelConnection(tx.QueryRow(ctx, `
 			UPDATE channel_connection SET status = $2, archived_at = now()
-			 WHERE id = $1 AND archived_at IS NULL
-			 RETURNING `+channelConnectionColumns, current.ID, channelStatusDisconnected))
+			 WHERE id = $1 AND version = $3 AND archived_at IS NULL
+			 RETURNING `+channelConnectionColumns, current.ID, channelStatusDisconnected, current.Version))
 		if err != nil {
 			return err
 		}
@@ -308,9 +319,10 @@ func (s *ChannelStore) archiveDisconnected(ctx context.Context, current channelR
 			channelAuditImage(after.ChannelID, after.ChannelLabel, after.Status))
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
-		// A concurrent disconnect already archived it; the caller's intent
-		// holds either way, but the row it named is gone.
-		return apperrors.ErrNotFound
+		// The lock resolved a LIVE row — an already-archived or absent one fails
+		// there as ErrNotFound — so only the version clause can have failed, and
+		// the caller must abort before its teardown touches the winner's state.
+		return apperrors.ErrVersionSkew
 	}
 	return err
 }

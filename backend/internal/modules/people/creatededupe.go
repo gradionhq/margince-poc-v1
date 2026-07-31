@@ -36,11 +36,13 @@ package people
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/values"
 )
 
 // manualDedupePerson runs PO-F-1 for a manual person create. It must run
@@ -54,11 +56,66 @@ func manualDedupePerson(ctx context.Context, tx pgx.Tx, in CreatePersonInput) (P
 	for _, e := range in.Emails {
 		emails = append(emails, e.Email)
 	}
-	phones := make([]string, 0, len(in.Phones))
-	for _, p := range in.Phones {
-		phones = append(phones, p.Phone)
+	phones, err := phoneLaneKeys(in.Phones)
+	if err != nil {
+		return PersonResolution{}, err
+	}
+	if err := lockPhoneLane(ctx, tx, phones); err != nil {
+		return PersonResolution{}, err
 	}
 	return DedupePerson(ctx, tx, PersonCandidate{FullName: in.FullName, Emails: emails, Phones: phones})
+}
+
+// phoneLaneKeys is the request's numbers in the form the phone lane
+// actually compares: exactPersonByPhone normalizes its candidates to
+// E.164 before it queries, so a key derived any other way would name
+// something no probe reads and the lock below would be decorative.
+// Deriving it here from that same function is what keeps the two from
+// drifting apart. Sorted and deduplicated, which is what gives
+// lockPhoneLane its fixed order.
+//
+// A number that will not parse cannot reach here — parsePersonContacts
+// refuses the whole create before the transaction opens — so a parse
+// failure is reported rather than dropped: a key the probe reads but no
+// lock covers is exactly the hole below.
+func phoneLaneKeys(phones []PersonPhoneInput) ([]string, error) {
+	keys := make([]string, 0, len(phones))
+	for _, p := range phones {
+		parsed, err := values.ParsePhone(p.Phone)
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, parsed.String())
+	}
+	slices.Sort(keys)
+	return slices.Compact(keys), nil
+}
+
+// lockPhoneLane makes the phone tier's probe and the person_phone row the
+// create goes on to write one indivisible step per number.
+//
+// The other two lanes are backstopped by a unique index — an address by
+// uq_person_email_dedupe, a channel account by
+// uq_person_channel_identity — so a create that reads a lane too early is
+// still refused by the key itself. The phone lane has no such index and
+// must not have one: a household line and a switchboard belong to several
+// real people. Nothing structural is left, and at READ COMMITTED two
+// creates carrying the same number would both read an empty lane, both
+// fall to no-match, and both commit — two live records on one number
+// with no dedupe_candidate row, and nothing writes one afterwards: every
+// row on that queue comes from the path that detected the collision.
+//
+// The keys are taken in a FIXED order (phoneLaneKeys sorts them): two
+// creates naming the same two numbers in opposite orders would deadlock,
+// and Postgres would resolve that by killing one of them — a create lost
+// to an ordering nobody chose.
+func lockPhoneLane(ctx context.Context, tx pgx.Tx, keys []string) error {
+	for _, key := range keys {
+		if err := storekit.LockWriteIdentity(ctx, tx, "person_phone", key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // manualDedupeOrganization runs PO-F-2 for a manual organization create,

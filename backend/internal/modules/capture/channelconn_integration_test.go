@@ -12,12 +12,14 @@ package capture_test
 // mocked store could be wrong about.
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
@@ -401,6 +403,95 @@ func TestAStaleReplacementCannotMarkAnUnregisteredBotConnected(t *testing.T) {
 	// so ingress verifies its deliveries against a secret it does not carry.
 	if channelID == strconv.FormatInt(botAID, 10) {
 		t.Error("the stale replacement overwrote the newer one's bot")
+	}
+}
+
+// revokeHookingTelegram is the fake with a one-shot hook on the revocation call,
+// so a test can drive a second lifecycle operation while a disconnect is out at
+// the provider — the one window in which a disconnect's snapshot can go stale.
+// The hook is disarmed as it fires because what it drives revokes a webhook of
+// its own, and a re-entrant hook would recurse forever.
+type revokeHookingTelegram struct {
+	*fakeTelegram
+	mu   sync.Mutex
+	hook func(token string)
+}
+
+func (t *revokeHookingTelegram) onNextDeleteWebhook(fn func(token string)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.hook = fn
+}
+
+func (t *revokeHookingTelegram) DeleteWebhook(ctx context.Context, token string) error {
+	t.mu.Lock()
+	hook := t.hook
+	t.hook = nil
+	t.mu.Unlock()
+	if hook != nil {
+		hook(token)
+	}
+	return t.fakeTelegram.DeleteWebhook(ctx, token)
+}
+
+// The same version-predicate race as above, on the teardown arm. A disconnect
+// decides what to tear down from a read taken before a provider round trip; a
+// replacement that commits in that window leaves the disconnect holding refs
+// that no longer name anything and a bot the row no longer runs. Archiving on
+// that snapshot would retire the WINNER's connection — auditing the outgoing bot
+// as the one disconnected, stranding the winner's sealed pair with no row left to
+// name it, and leaving the winner's bot registered against a connection ingress
+// now refuses. The stale writer has to lose instead, before it destroys anything.
+func TestAStaleDisconnectCannotArchiveAReplacedConnection(t *testing.T) {
+	api := newFakeTelegram()
+	originalToken, originalID := api.withNewBot("outgoing_bot")
+	replacementToken, replacementID := api.withNewBot("winning_bot")
+	f := newChannelFixture(t, api)
+
+	// One store for both operations, over the fixture's pool and vault, so the
+	// replacement contends for exactly the state the disconnect read.
+	provider := &revokeHookingTelegram{fakeTelegram: api}
+	_, pool := setupCaptureDB(t)
+	store := capture.NewChannelStore(pool, f.vault, provider, channelWebhookBase, nil)
+
+	conn, err := store.Connect(f.ctx, capture.ConnectRequest{
+		Provider: capture.ProviderTelegram, BotToken: originalToken,
+	})
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+
+	var errReplace error
+	// Fires while the disconnect is revoking the original bot — after its read
+	// of the row, before its archive.
+	provider.onNextDeleteWebhook(func(string) {
+		errReplace = store.ReplaceToken(f.ctx, conn.ID, replacementToken)
+	})
+
+	errDisconnect := store.Disconnect(f.ctx, conn.ID)
+
+	if errReplace != nil {
+		t.Fatalf("the replacement that ran inside the window: %v, want it to complete and own the connection", errReplace)
+	}
+	if !errors.Is(errDisconnect, apperrors.ErrVersionSkew) {
+		t.Fatalf("the stale disconnect = %v, want ErrVersionSkew — its snapshot names bot %d, the row names bot %d", errDisconnect, originalID, replacementID)
+	}
+
+	status, archived, channelID := f.rowState(t, conn.ID)
+	if archived {
+		t.Error("the stale disconnect archived the replacement's connection; the operator asked to disconnect the bot it read, not the one that replaced it")
+	}
+	if status != "connected" || channelID != strconv.FormatInt(replacementID, 10) {
+		t.Errorf("row state status=%q channel_id=%q, want connected on the replacement bot %d", status, channelID, replacementID)
+	}
+	// The refusal has to come BEFORE the teardown: a disconnect that destroys and
+	// only then discovers it lost leaves the winner live with credentials it can
+	// no longer unseal — unable to send, and unable to verify a delivery.
+	credentialRef, secretRef := f.vaultRefs(t, conn.ID)
+	for name, ref := range map[string]keyvault.Ref{"bot token": credentialRef, "webhook secret": secretRef} {
+		if _, err := f.vault.Get(f.ctx, f.workspaceKey(), ref); err != nil {
+			t.Errorf("the live connection's %s is gone: %v", name, err)
+		}
 	}
 }
 
