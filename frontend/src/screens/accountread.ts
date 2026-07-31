@@ -24,6 +24,12 @@ type Section = Organization360["sections_omitted"][number];
  */
 export const QUIET_DAYS = 14;
 
+/**
+ * ONE_WAY_FLOOR is how long a run of unanswered messages has to be to mean
+ * something. Two is a follow-up; three is a pattern.
+ */
+export const ONE_WAY_FLOOR = 3;
+
 /** A finding is one sentence the page is prepared to defend, plus its subject. */
 export type AccountFinding = {
   /** Stable across renders and re-reads, so React keys and tests can name one. */
@@ -78,6 +84,7 @@ export function readAccount(
   findings.push(...coverage(view));
   findings.push(...pipeline(view));
   findings.push(...commitments(view));
+  findings.push(...reciprocity(view));
   // Risks first: the reader's attention is spent top-down, and the neutral
   // lines are context for the risks rather than the other way round.
   return [
@@ -275,6 +282,47 @@ function pipeline(view: Organization360): AccountFinding[] {
     });
   }
   return out;
+}
+
+// Whether the conversation is still going, or has become a broadcast.
+//
+// The measure is the CURRENT RUN of unanswered messages, not the whole
+// history's balance. An account that replied once a year ago and has ignored
+// the last five mails is the one worth flagging, and a ratio over everything
+// ever sent would average that away. The run is also the only claim the
+// payload can support on its own: the activities section is paged, so
+// "nobody has ever replied" is not something this read can know, while "the
+// last five were ours" is true of the window whatever sits behind it.
+function reciprocity(view: Organization360): AccountFinding[] {
+  const activities = view.activities?.data;
+  if (!activities || withheld(view, "activities")) {
+    return [];
+  }
+  // Rows with no direction — notes, tasks — are ours by definition and say
+  // nothing about whether they answered, so they are skipped rather than
+  // counted: a page of internal notes is not an unanswered outreach.
+  const directed = activities.filter((a) => a.direction);
+  let run = 0;
+  for (const activity of directed) {
+    if (activity.direction !== "outbound") {
+      break;
+    }
+    run += 1;
+  }
+  // One unanswered message is normal; a run of them is the account telling
+  // you something, and the point at which a fourth of the same kind is the
+  // wrong move.
+  if (run < ONE_WAY_FLOOR) {
+    return [];
+  }
+  return [
+    {
+      id: "one-way",
+      tone: "risk",
+      key: "co.read.oneWay",
+      params: { count: run },
+    },
+  ];
 }
 
 // What was promised: the open tasks, with overdue called out separately

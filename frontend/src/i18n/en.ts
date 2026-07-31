@@ -623,6 +623,8 @@ export const en = {
   "co.read.newActivityMany": "{count} new items since your last visit.",
   "co.read.dealMovedOne": "One deal moved stage since your last visit.",
   "co.read.dealMovedMany": "{count} deals moved stage since your last visit.",
+  "co.read.oneWay":
+    "The last {count} messages here were all ours. Nothing has come back.",
   "co.read.noContacts": "You do not know anyone at this account yet.",
   "co.read.singleThread":
     "Only {name} has ever engaged. Nobody else here has responded.",

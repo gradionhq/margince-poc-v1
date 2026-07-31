@@ -311,6 +311,86 @@ describe("readAccount", () => {
     expect(ids(v)).not.toContain("no-champion");
   });
 
+  it("names a run of unanswered messages as one-way", () => {
+    const v = view({
+      activities: {
+        data: [
+          { id: "a1", kind: "email", direction: "outbound" },
+          { id: "a2", kind: "email", direction: "outbound" },
+          { id: "a3", kind: "email", direction: "outbound" },
+        ],
+        page: { has_more: false },
+      },
+    } as Partial<Organization360>);
+    const oneWay = readAccount(v, NOW).find((f) => f.id === "one-way");
+    expect(oneWay?.key).toBe("co.read.oneWay");
+    expect(oneWay?.params?.count).toBe(3);
+  });
+
+  it("counts only the current run, not the whole history's balance", () => {
+    // Newest first. A reply behind three unanswered messages does not make
+    // the run answered, and an account that replied once a year ago is
+    // exactly the one a lifetime ratio would average away.
+    const v = view({
+      activities: {
+        data: [
+          { id: "a1", kind: "email", direction: "outbound" },
+          { id: "a2", kind: "email", direction: "outbound" },
+          { id: "a3", kind: "email", direction: "outbound" },
+          { id: "a4", kind: "email", direction: "inbound" },
+        ],
+        page: { has_more: false },
+      },
+    } as Partial<Organization360>);
+    expect(
+      readAccount(v, NOW).find((f) => f.id === "one-way")?.params?.count,
+    ).toBe(3);
+  });
+
+  it("says nothing once they have answered the latest message", () => {
+    const v = view({
+      activities: {
+        data: [
+          { id: "a1", kind: "email", direction: "inbound" },
+          { id: "a2", kind: "email", direction: "outbound" },
+          { id: "a3", kind: "email", direction: "outbound" },
+          { id: "a4", kind: "email", direction: "outbound" },
+        ],
+        page: { has_more: false },
+      },
+    } as Partial<Organization360>);
+    expect(ids(v)).not.toContain("one-way");
+  });
+
+  it("treats a follow-up as normal rather than as a pattern", () => {
+    const v = view({
+      activities: {
+        data: [
+          { id: "a1", kind: "email", direction: "outbound" },
+          { id: "a2", kind: "email", direction: "outbound" },
+        ],
+        page: { has_more: false },
+      },
+    } as Partial<Organization360>);
+    expect(ids(v)).not.toContain("one-way");
+  });
+
+  it("ignores rows that carry no direction at all", () => {
+    // Notes and tasks have no direction. Counting them as ours would call a
+    // page of internal notes an unanswered outreach.
+    const v = view({
+      activities: {
+        data: [
+          { id: "a1", kind: "note" },
+          { id: "a2", kind: "task" },
+          { id: "a3", kind: "note" },
+        ],
+        page: { has_more: false },
+      },
+    } as Partial<Organization360>);
+    expect(ids(v)).not.toContain("one-way");
+  });
+
   it("leads with the overdue commitment and names it", () => {
     const v = view({
       next_steps: {

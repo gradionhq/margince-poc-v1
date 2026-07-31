@@ -636,6 +636,8 @@ export const de = {
     "Ein Deal hat seit deinem letzten Besuch die Phase gewechselt.",
   "co.read.dealMovedMany":
     "{count} Deals haben seit deinem letzten Besuch die Phase gewechselt.",
+  "co.read.oneWay":
+    "Die letzten {count} Nachrichten kamen alle von uns. Zurück kam nichts.",
   "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
   "co.read.singleThread":
     "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",
