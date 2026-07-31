@@ -24,7 +24,73 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
-## Session pickup — 2026-07-31
+## Session pickup — 2026-07-31 (relationship graph, branch `feat/network-graph`)
+
+**"Who on our team knows this contact" is now a stored fact, and the company
+page's connections card works for the first time on real mail.** Branch
+`feat/network-graph`, unpushed, nine commits. Upstream half is
+`spec/network-graph-decision-pack` in margince-foundation (ADR-0078 / A123,
+accepted).
+
+**The defect that started it.** The card derived our-side edges by matching
+`captured_by = 'human:<uuid>'` on the activity row. Connector-captured mail is
+stamped `connector:gmail`, so on any workspace whose history comes from a real
+mailbox the group matched nothing and rendered empty — worst on the accounts
+with the most correspondence, with no error to contradict it. The root cause
+was that nothing recorded WHO WAS IN a conversation: `activity_link` has no
+user arm, and the mailbox owner (known at ingest from `capture_connection`) was
+never written down.
+
+**What shipped**
+
+- **0157 `activity_participant`** (ACT-DDL-3): one row per party per activity,
+  three identity arms (our user / a known person / a raw address for the party
+  who never became a record), closed role set. Stamped by capture at ingest and
+  by the hand-logging path; promoted from address to person at
+  `linkActivityToPerson`, the one chokepoint every ensure path reaches.
+- **0158 `graph_interaction_edge`** (CG-DDL-1): the derived user↔contact
+  projection. Recompute-never-increment, no audit/outbox, score computed at
+  read. Maintained by the `cg:graph-edge` consumer, re-trued nightly.
+- **`shared/kernel/relstrength`**: the §4 arithmetic extracted so PO-F-3 and
+  PO-F-3b cannot drift. Existing tests pass unchanged; new tests pin the spec's
+  worked example exactly (47, moderate).
+- **`StrengthForPeopleAsOf`**: what §4 would have said at a past instant, for
+  the going-cold comparison. A counterfactual over today's corpus, not history
+  — an erased interaction is absent from the past answer too, deliberately.
+- **A resumable participant backfill** for history captured before the table
+  existed. Refuses to guess when two users share one provider.
+- **Capture privacy is now enforced** — see below; it was a prerequisite.
+
+**Three defects found on the way, all pre-existing on main**
+
+1. **`visibility='owner'` was written and never read.** Migration 0095 says it
+   is "enforced by the row-scope clauses in platform/auth"; `VisiblePredicate`
+   never consulted the column. Under team scope a whole team read each other's
+   unpromoted captured contacts, and under `row_scope=all` so did every admin.
+   Fixed, with the founder rule: the importing user ALONE, not even Admin.
+   Art. 15/17 cross it through `EnsureVisibleForSubjectRights`.
+2. **`GET /v1/record-grants` answered 500 for every non-admin.** It probed
+   visibility inside an open cursor on the same transaction ("conn busy"). It
+   looked healthy only because the probe was a no-op for unbounded callers and
+   the test runs as one.
+3. **Postgres JIT cost more than it saved.** The row-scope predicates inflate
+   estimated plan cost past `jit_above_cost` while the query stays an indexed
+   OLTP read: 12ms of work behind 475ms of LLVM on the `/search` union. The
+   threshold is crossed by the row-scope TIER, so a rep paid it on a query an
+   admin ran for free. `jit=off` on the app pool.
+
+**Deliberately NOT done on this branch** (the plan's phases 5–7). No
+`compose/network/` risk detectors (single-threaded, going-cold, champion-left,
+coverage-gap), no `GET /people/{id}/network`, no `GET /deals/{id}/coverage`, no
+agent tools, no frontend work beyond the contract fields the card can now read,
+and nothing LinkedIn. The substrate they all sit on is in place and tested.
+
+**Verification.** `make check-backend` green. Integration lane matches the
+`origin/main` baseline exactly — the overlay/mirror, MinIO and Redis-relay
+failures present there are unchanged and unrelated. Not yet run: `make dev`
+(shared machine, other session active) and `make frontend-e2e`.
+
+## Session pickup — 2026-07-31 (AI certification)
 
 **A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
 binds OpenRouter through the generic `openai_compatible` adapter, with three
