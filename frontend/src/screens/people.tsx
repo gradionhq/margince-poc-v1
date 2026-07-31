@@ -302,6 +302,33 @@ function timelineKind(kind: string): TimelineEntry["kind"] {
   return known ?? "note";
 }
 
+// A timeline row is one line, so a body used as its title has its whitespace
+// collapsed and is cut at this many characters.
+const TIMELINE_TITLE_MAX = 140;
+
+// timelineTitle is what the row says the activity WAS. A subject is the natural
+// title, but a channel message has none — Telegram carries text, not a subject
+// line — so a subject-only title rendered the literal word "telegram" on every
+// row and made the conversation invisible on the record it belongs to. The
+// body is the title for anything that has no subject, which is also why the
+// connector fills it for a wordless message ("photo", "voice"): capture's
+// messageBody names the kind precisely so this row has something to show.
+function timelineTitle(activity: Activity): string {
+  const subject = activity.subject?.trim();
+  if (subject) {
+    return subject;
+  }
+  // Collapsed rather than trusted: a pasted multi-line message would otherwise
+  // break the row's single-line layout.
+  const body = activity.body?.replace(/\s+/g, " ").trim();
+  if (!body) {
+    return activity.kind;
+  }
+  return body.length > TIMELINE_TITLE_MAX
+    ? `${body.slice(0, TIMELINE_TITLE_MAX - 1)}…`
+    : body;
+}
+
 export function activityTimeline(
   activities: Activity[],
   renderActions?: (activity: Activity) => ReactNode,
@@ -309,7 +336,7 @@ export function activityTimeline(
   return activities.map((activity) => ({
     id: activity.id,
     kind: timelineKind(activity.kind),
-    title: activity.subject ?? activity.kind,
+    title: timelineTitle(activity),
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by),
     actions: renderActions?.(activity),
