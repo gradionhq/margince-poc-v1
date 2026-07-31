@@ -12,6 +12,85 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Open defect — staged leads cannot be accepted, and accepting loses them
+
+**Severity: leads are silently discarded. Fix before anything else on the
+approvals surface.**
+
+Accepting a staged lead always fails with `version_skew` ("This record changed
+since it was staged — re-stage it before deciding"). Rejecting works. The lead
+is then unrecoverable: the decision commits *before* the effect runs
+(`approvals/decide.go:83-92`), so a failed accept leaves the approval
+`approved` but unredeemed, no lead created, and a retry answers "Already
+decided". The "Re-read" link the UI offers is the only path that works.
+
+**Mechanism.** Staging pins the target row's `version`
+(`approvals/staging.go:251-282`, `resolveTargetVersion`), and redemption
+compares that pin against the live row (`approvals/redeem.go:119-132`). For a
+`site_lead` the pinned target is the **organization**
+(`compose/deepread.go:390-412`), and every `UPDATE organization` bumps
+`version` through the shared trigger (`migrations/core/0001_foundation.up.sql:27-33`).
+Two writes guarantee the mismatch:
+
+- Auto-enrich stages the leads and then, in the same worker run, writes the
+  org's profile fields (`compose/deepreadautoapply.go:56-96` →
+  `people/coldstartprofile.go:243`). The pin is stale before a human ever sees
+  the lead.
+- In the human lane, accepting the deep-read bundle writes those same fields
+  (`compose/deepreadaccept.go:49-51`), which makes **every sibling `site_lead`
+  from that read** permanently un-acceptable.
+
+Nothing lowers a version again, so the pin can never match. The same class of
+bug hits `capture_counterparty`, whose pinned `activity` version is bumped by
+the classify pass (`activities/capturelabel.go:77-81`).
+
+**Why the pin is wrong here, not just mistimed.** `resolveTargetVersion`
+attaches a pin to *any* staging that names a pinnable target type, whether or
+not the effect reads that row. Creating a lead does not depend on the
+organization's profile fields at all, so the check is guarding a dependency
+that does not exist.
+
+**Two candidate fixes, both needing a decision:** make the pin opt-in per
+approval kind (only kinds whose effect actually reads the pinned row), or run
+the effect inside the decision transaction so a failed redemption rolls the
+decision back instead of stranding it. The second also fixes the
+lead-loss half, which the first does not.
+
+**Test gap.** Nothing asserts "accept after an unrelated write to the pinned
+target". `compose/sitelead_integration_test.go` stages leads with no fields, so
+`ApplyDeepRead` never runs; `compose/deepread_integration_test.go` only ever
+decides the bundle, never a sibling lead after it.
+
+## Open defect — the graph cannot answer "who do I know here"
+
+The `in_contact_with` edge exists in the contract and is implemented
+(`compose/org360/graphourside.go`), but it is joined on who TYPED the activity:
+
+```sql
+JOIN app_user u ON a.captured_by = 'human:' || u.id::text
+```
+
+Connector-captured mail carries `captured_by = 'connector:gmail'`, so the join
+never matches and no edge is drawn. In a product whose premise is that capture
+means nobody types anything, the condition excludes essentially all real data:
+on a live account with three contacts and a year of correspondence, the graph
+returns only `owns` and `employment`, and "who on our side has a way in" is
+unanswerable.
+
+The authorship the edge wants is on the row already: `direction`
+(`migrations/core/0008_activity.up.sql:21`) says which way the mail went, and
+`counterparty_email` (`migrations/core/0123`) says who the other end was. The
+edge should be derived from the mailbox the activity came through and its
+participants, not from who entered it.
+
+Related contract gap: `counterparty_email` is stored and used by the capture
+sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with. `direction` IS on the wire and unused by the
+UI today.
+
+Both block the coverage matrix (their buying committee × our team, cells by
+relationship strength) agreed as the company page's centrepiece.
+
 ## Where this is
 
 Margince's **WP0 foundation + WP1 core spine** are built and green:
