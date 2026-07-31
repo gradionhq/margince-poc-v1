@@ -23,6 +23,36 @@
 
 ## Landed arcs
 
+**The company page's second pass — PRs #351 and #352 (2026-07-31).** #351
+fixed defects a review of the page's rule engines found after the page had
+already merged. All were one failure: a sentence the reader can disprove from
+the rest of the same screen. Engagement was read off the relationship SCORE,
+which decays to zero near the window edge, so the brief said only one person
+had ever engaged while that contact's own row said "Answered"; the reach chips
+made all-time claims ("Not approached") from a 90-day window, printed above a
+timeline showing the approach; the overdue count came off page one and read as
+the total. `groupFacts` recomputed identity from the whole displayed value
+while the server already sends a normalized `value_key`, so two descriptions of
+one product stayed two rows — the collapse did nothing on the shape production
+sends. And `better()` ranked the offering field before human precedence, so a
+site read's `product` hid a human's `service`.
+
+The single-thread sentence took three passes to make true. It has to carry the
+WINDOW (the counts cover 90 days), the DIRECTION (a contact qualifies on
+outbound alone, so "in contact" would call unanswered mail a relationship), and
+the CHANNELS (the server counts email, calls and meetings only, so a contact's
+WhatsApp sits on the timeline contributing nothing).
+
+#352 gave the page verbs. New deal on the Deals card, Add tag and Add to list
+on Lists & tags, each under the section it changes. The tag and list actions
+take a typed NAME and create when it is new, because a pick-only control has
+nothing to offer on a fresh workspace — which is exactly when it is first
+needed. `SectionCard` gained an `actions` slot that renders only on a section
+that came back read and answered, so a caller whose grants withheld the deals
+is not offered a button to add one. `CreateAction` gained `stay`, for a create
+whose result is a PROPERTY of the record on screen: without it the tag create
+routed to `/companies/<taggable-id>`, a page that 404s.
+
 **The company page rework and the leads behind it — PRs #349 and #342
 (2026-07-31).** #349 fixed a defect that silently destroyed leads: accepting a
 staged `site_lead` failed with `version_skew` whenever anything had written to
