@@ -6,6 +6,7 @@ package people
 // The LinkedIn export upload (ADR-0078 §2.1b).
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -41,7 +42,11 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 			"a file part is required — the Connections.csv from LinkedIn's data export"))
 		return
 	}
-	defer func() {
+	// The context is passed IN rather than captured: the request's context is
+	// cancelled by the time a deferred close runs on some paths, and a log
+	// line that silently drops because its context is done is a log line that
+	// does not exist. (Same shape as the attachment upload.)
+	defer func(ctx context.Context) {
 		// Logged, not ignored, and not returned: by the time this runs the
 		// import has either committed or failed on its own terms, and a close
 		// error changes neither. It still has to be visible — the upload is a
@@ -49,9 +54,9 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		// descriptor per request, which is a slow outage rather than a loud
 		// one. (Same handling as the attachment upload.)
 		if cerr := file.Close(); cerr != nil {
-			slog.WarnContext(r.Context(), "closing uploaded LinkedIn export", "err", cerr)
+			slog.WarnContext(ctx, "closing uploaded LinkedIn export", "err", cerr)
 		}
-	}()
+	}(r.Context())
 
 	result, err := h.store.ImportLinkedInConnections(r.Context(), file)
 	if err != nil {
