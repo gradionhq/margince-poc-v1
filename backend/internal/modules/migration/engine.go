@@ -30,9 +30,15 @@ const pageSize = 200
 // field map (keys are native column names — the mirror ingest projector
 // already speaks this shape), and the record's last sync instant.
 type Row struct {
-	ExternalID   string
-	Fields       map[string]any
-	LastSyncedAt time.Time
+	ExternalID string
+	Fields     map[string]any
+	// OwnerExternalID is the source's owner id, kept OUT of Fields on
+	// purpose: Fields is the canonical payload and its emptiness is what
+	// the empty_payload skip reads. Carrying transport metadata in there
+	// would make every owned-but-blank system entry look like a record
+	// worth creating, and the writer would land a nameless native row.
+	OwnerExternalID string
+	LastSyncedAt    time.Time
 }
 
 // Assoc is one detangled source edge, applied after both endpoints
@@ -147,7 +153,7 @@ type runRecords interface {
 	Get(ctx context.Context, id RunID) (Run, error)
 	advanceCheckpoint(ctx context.Context, id RunID, checkpoint int) error
 	complete(ctx context.Context, id RunID, rep Report) error
-	failRun(ctx context.Context, id RunID, cause error) error
+	failRun(ctx context.Context, id RunID, rep Report, cause error) error
 }
 
 // Engine runs one Source through the Writers seam. It owns
@@ -231,14 +237,14 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 	}
 	counts, err := src.Counts(ctx)
 	if err != nil {
-		return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: counting source rows: %w", err))
+		return Report{}, e.fail(ctx, runID, Report{}, fmt.Errorf("migration run: counting source rows: %w", err))
 	}
 
 	rep := Report{}
 	done := run.Checkpoint // rows already processed across the ordered objects
 	seen := 0              // global index of the row about to be processed
 	for _, object := range src.Objects() {
-		or, advanced, err := e.importObject(ctx, runID, src, object, counts[object], done, seen)
+		or, advanced, err := e.importObject(ctx, runID, src, object, counts[object], done, seen, &rep)
 		if err != nil {
 			return Report{}, err
 		}
@@ -254,12 +260,12 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 
 	assocs, err := src.Associations(ctx)
 	if err != nil {
-		return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: reading associations: %w", err))
+		return Report{}, e.fail(ctx, runID, rep, fmt.Errorf("migration run: reading associations: %w", err))
 	}
 	for _, a := range assocs {
 		res, err := e.w.Associate(ctx, a)
 		if err != nil {
-			return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: applying association %s/%s→%s/%s: %w", a.FromType, a.FromID, a.ToType, a.ToID, err))
+			return Report{}, e.fail(ctx, runID, rep, fmt.Errorf("migration run: applying association %s/%s→%s/%s: %w", a.FromType, a.FromID, a.ToType, a.ToID, err))
 		}
 		if res.Applied {
 			rep.Associations++
@@ -273,7 +279,7 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 	}
 
 	if err := e.runs.complete(ctx, runID, rep); err != nil {
-		return Report{}, e.fail(ctx, runID, fmt.Errorf("migration run: recording completion: %w", err))
+		return Report{}, e.fail(ctx, runID, rep, fmt.Errorf("migration run: recording completion: %w", err))
 	}
 	return rep, nil
 }
@@ -282,7 +288,7 @@ func (e *Engine) Run(ctx context.Context, runID RunID, src Source) (Report, erro
 // an earlier attempt already landed. It returns the class's disposition
 // and the new global cursor — the checkpoint advances after every row,
 // so a kill mid-class resumes from the next one.
-func (e *Engine) importObject(ctx context.Context, runID RunID, src Source, object string, total, done, seen int) (ObjectReport, int, error) {
+func (e *Engine) importObject(ctx context.Context, runID RunID, src Source, object string, total, done, seen int, rep *Report) (ObjectReport, int, error) {
 	or := ObjectReport{Object: object, MirrorCount: total}
 	// A whole already-processed class is skipped without re-reading it.
 	if done >= seen+total {
@@ -293,7 +299,7 @@ func (e *Engine) importObject(ctx context.Context, runID RunID, src Source, obje
 	for offset := localOffset; ; {
 		rows, err := src.Rows(ctx, object, offset, pageSize)
 		if err != nil {
-			return ObjectReport{}, 0, e.fail(ctx, runID, fmt.Errorf("migration run: reading %s rows at %d: %w", object, offset, err))
+			return ObjectReport{}, 0, e.fail(ctx, runID, withPartial(*rep, or), fmt.Errorf("migration run: reading %s rows at %d: %w", object, offset, err))
 		}
 		if len(rows) == 0 {
 			return or, cursor, nil
@@ -301,12 +307,12 @@ func (e *Engine) importObject(ctx context.Context, runID RunID, src Source, obje
 		for _, row := range rows {
 			res, err := e.ensureRow(ctx, object, row)
 			if err != nil {
-				return ObjectReport{}, 0, e.fail(ctx, runID, err)
+				return ObjectReport{}, 0, e.fail(ctx, runID, withPartial(*rep, or), err)
 			}
 			or.record(row.ExternalID, res)
 			cursor++
 			if err := e.runs.advanceCheckpoint(ctx, runID, cursor); err != nil {
-				return ObjectReport{}, 0, e.fail(ctx, runID, err)
+				return ObjectReport{}, 0, e.fail(ctx, runID, withPartial(*rep, or), err)
 			}
 		}
 		offset += len(rows)
@@ -344,12 +350,59 @@ func (e *Engine) ensureRow(ctx context.Context, object string, row Row) (EnsureR
 	return res, nil
 }
 
-// fail records the run as failed and returns the original error joined
-// with any record-keeping failure — the caller always sees why the run
-// stopped.
-func (e *Engine) fail(ctx context.Context, runID RunID, cause error) error {
-	if ferr := e.runs.failRun(ctx, runID, cause); ferr != nil {
+// fail records the run as failed — with the dispositions this attempt
+// managed before it stopped — and returns the original error joined with
+// any record-keeping failure, so the caller always sees why the run
+// stopped. The partial report matters because a resumed run only ever
+// reports its own attempt: without persisting this one, every record
+// landed before the crash vanishes from the operator's final count.
+func (e *Engine) fail(ctx context.Context, runID RunID, rep Report, cause error) error {
+	if ferr := e.runs.failRun(ctx, runID, rep, cause); ferr != nil {
 		return fmt.Errorf("%w (and recording the failure failed: %v)", cause, ferr)
 	}
 	return cause
+}
+
+// withPartial is the report as it stands plus the class currently being
+// imported — what an attempt has actually landed at the moment it dies.
+// The object is appended rather than merged: the run loop only appends a
+// class once it finishes, so a crashed class has no entry yet.
+func withPartial(rep Report, or ObjectReport) Report {
+	rep.Objects = append(append([]ObjectReport(nil), rep.Objects...), or)
+	rep.Imported += int64(or.Created + or.Updated)
+	return rep
+}
+
+// mergedWith folds an earlier attempt's dispositions into this one's, so
+// a run resumed across several crashes still reports the whole estate it
+// imported rather than only its final leg. Counts add and per-object
+// entries fold by class; the checkpoint guarantees no row is walked
+// twice, so addition cannot double-count.
+func (r Report) mergedWith(next Report) Report {
+	out := Report{
+		Associations:        r.Associations + next.Associations,
+		AssociationsSkipped: append(append([]SkippedAssoc(nil), r.AssociationsSkipped...), next.AssociationsSkipped...),
+		Imported:            r.Imported + next.Imported,
+	}
+	at := map[string]int{}
+	for _, or := range append(append([]ObjectReport(nil), r.Objects...), next.Objects...) {
+		i, seen := at[or.Object]
+		if !seen {
+			at[or.Object] = len(out.Objects)
+			out.Objects = append(out.Objects, or)
+			continue
+		}
+		into := &out.Objects[i]
+		into.Created += or.Created
+		into.Updated += or.Updated
+		into.Unchanged += or.Unchanged
+		into.WillCreate += or.WillCreate
+		into.WillUpdate += or.WillUpdate
+		// MirrorCount is the source's size, not a tally: both attempts saw
+		// the same frozen snapshot, so the later read stands.
+		into.MirrorCount = or.MirrorCount
+		into.Skipped = append(into.Skipped, or.Skipped...)
+		into.Disclosures = append(into.Disclosures, or.Disclosures...)
+	}
+	return out
 }

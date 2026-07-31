@@ -51,17 +51,11 @@ func (s mirrorFlipSource) Rows(ctx context.Context, object string, offset, limit
 	}
 	out := make([]migration.Row, 0, len(rows))
 	for _, r := range rows {
-		fields := r.Fields
-		if r.OwnerExternalID != "" {
-			// The mirror keeps the incumbent owner id in its own column;
-			// the writer resolves it through mirror_user_map, so carry it
-			// in-band where the row's other values already live.
-			fields = cloneFieldsWith(fields, flipFieldOwnerExternalID, r.OwnerExternalID)
-		}
 		out = append(out, migration.Row{
-			ExternalID:   r.ExternalID,
-			Fields:       fields,
-			LastSyncedAt: r.LastSyncedAt,
+			ExternalID:      r.ExternalID,
+			Fields:          r.Fields,
+			OwnerExternalID: r.OwnerExternalID,
+			LastSyncedAt:    r.LastSyncedAt,
 		})
 	}
 	return out, nil
@@ -81,18 +75,4 @@ func (s mirrorFlipSource) Associations(ctx context.Context) ([]migration.Assoc, 
 		})
 	}
 	return out, nil
-}
-
-// flipFieldOwnerExternalID carries the mirror row's incumbent owner id
-// into the writer's field map without colliding with a mapped column
-// (mapping keys are native column names; the underscore prefix is not).
-const flipFieldOwnerExternalID = "_owner_external_id"
-
-func cloneFieldsWith(fields map[string]any, key string, value any) map[string]any {
-	out := make(map[string]any, len(fields)+1)
-	for k, v := range fields {
-		out[k] = v
-	}
-	out[key] = value
-	return out
 }

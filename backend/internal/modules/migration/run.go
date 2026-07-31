@@ -292,23 +292,46 @@ func (s *RunStore) advanceCheckpoint(ctx context.Context, id RunID, checkpoint i
 
 // complete records the finished run with its report, audited.
 func (s *RunStore) complete(ctx context.Context, id RunID, rep Report) error {
-	raw, err := json.Marshal(rep)
-	if err != nil {
-		return fmt.Errorf("encoding import run report: %w", err)
-	}
 	return s.transition(ctx, id, StatusComplete, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE import_run SET report = $2 WHERE id = $1`, id, raw)
-		return err
+		return storeReport(ctx, tx, id, rep)
 	})
 }
 
 // failRun records why the run stopped — a resumable state, not a dead
-// end (the same run id re-enters Engine.Run after the cause clears).
-func (s *RunStore) failRun(ctx context.Context, id RunID, cause error) error {
+// end (the same run id re-enters Engine.Run after the cause clears) —
+// together with what the attempt managed to import first. Without that
+// report the resumed run's final count would omit every pre-crash
+// record, understating a one-way cutover to the operator reading it.
+func (s *RunStore) failRun(ctx context.Context, id RunID, rep Report, cause error) error {
 	return s.transition(ctx, id, StatusFailed, func(tx pgx.Tx) error {
-		_, err := tx.Exec(ctx, `UPDATE import_run SET error = $2 WHERE id = $1`, id, cause.Error())
-		return err
+		if _, err := tx.Exec(ctx, `UPDATE import_run SET error = $2 WHERE id = $1`, id, cause.Error()); err != nil {
+			return err
+		}
+		return storeReport(ctx, tx, id, rep)
 	})
+}
+
+// storeReport folds rep into whatever the run already recorded. Each
+// attempt only ever reports its own leg, so replacing the stored report
+// would erase the dispositions of every attempt before it.
+func storeReport(ctx context.Context, tx pgx.Tx, id RunID, rep Report) error {
+	var stored []byte
+	if err := tx.QueryRow(ctx, `SELECT report FROM import_run WHERE id = $1`, id).Scan(&stored); err != nil {
+		return fmt.Errorf("reading the import run's recorded report: %w", err)
+	}
+	if len(stored) > 0 {
+		var prior Report
+		if err := json.Unmarshal(stored, &prior); err != nil {
+			return fmt.Errorf("decoding the import run's recorded report: %w", err)
+		}
+		rep = prior.mergedWith(rep)
+	}
+	raw, err := json.Marshal(rep)
+	if err != nil {
+		return fmt.Errorf("encoding import run report: %w", err)
+	}
+	_, err = tx.Exec(ctx, `UPDATE import_run SET report = $2 WHERE id = $1`, id, raw)
+	return err
 }
 
 // Resume flips a failed run back to running so Engine.Run re-enters it

@@ -282,9 +282,7 @@ func bundleMirrorRow(raw map[string]any) (migration.Row, string, error) {
 	if fields, ok := raw["fields"].(map[string]any); ok {
 		row.Fields = fields
 	}
-	if owner := bundleString(raw, "owner_external_id"); owner != "" {
-		row.Fields = cloneFieldsWith(row.Fields, flipFieldOwnerExternalID, owner)
-	}
+	row.OwnerExternalID = bundleString(raw, "owner_external_id")
 	if ts := bundleString(raw, "last_synced_at"); ts != "" {
 		parsed, err := time.Parse(time.RFC3339Nano, ts)
 		if err != nil {

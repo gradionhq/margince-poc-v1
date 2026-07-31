@@ -67,6 +67,11 @@ type FlipChecks struct {
 	// MirrorRows counts the whole mirror estate — the parity preview's
 	// denominator, and zero distinguishes "nothing mirrored" honestly.
 	MirrorRows int
+	// LastSweepAt is when a sync sweep last succeeded. The export-recency
+	// check needs it because an empty mirror has no row watermark at all:
+	// comparing against a zero LastSyncedAt would accept any export ever
+	// written and quietly turn the gate into a no-op.
+	LastSweepAt time.Time
 }
 
 // FlipSnapshot is the sealed frozen-mirror snapshot the flip imports.
@@ -113,10 +118,14 @@ func (s *Service) FlipChecks(ctx context.Context) (FlipChecks, error) {
 			checks.LastSyncedAt = *lastSynced
 		}
 
-		var sweepSucceeded bool
-		err := tx.QueryRow(ctx, `SELECT last_success_at IS NOT NULL FROM overlay_sync_state`).Scan(&sweepSucceeded)
+		var lastSweep *time.Time
+		err := tx.QueryRow(ctx, `SELECT last_success_at FROM overlay_sync_state`).Scan(&lastSweep)
 		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 			return fmt.Errorf("overlay: reading sweep state for the flip preflight: %w", err)
+		}
+		sweepSucceeded := lastSweep != nil
+		if lastSweep != nil {
+			checks.LastSweepAt = *lastSweep
 		}
 
 		backfilled, err := s.allMirroredClassesBackfilled(ctx, tx)

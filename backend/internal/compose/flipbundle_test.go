@@ -93,9 +93,15 @@ func TestParseBundleReadsTheEstateAndItsOwnerMap(t *testing.T) {
 	if len(people) != 2 || people[0].ExternalID != "p-1" || people[1].ExternalID != "p-2" {
 		t.Fatalf("person rows = %+v, want p-1 then p-2", people)
 	}
-	// The owner rides in-band, where the writer's resolver reads it.
-	if people[1].Fields[flipFieldOwnerExternalID] != "owner-1" {
+	// The owner rides beside the payload, not inside it — see Row.
+	if people[1].OwnerExternalID != "owner-1" {
 		t.Errorf("p-2 lost its incumbent owner: %v", people[1].Fields)
+	}
+	// And it stays out of Fields: the engine reads Fields' emptiness to
+	// decide the empty_payload skip, so an owner folded in there would
+	// make every owned-but-blank system entry land as a nameless row.
+	if _, leaked := people[1].Fields["_owner_external_id"]; leaked || len(people[1].Fields) != 1 {
+		t.Errorf("p-2 payload = %v, want the mapped fields alone", people[1].Fields)
 	}
 
 	counts, err := contents.source.Counts(t.Context())

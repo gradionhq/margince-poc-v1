@@ -97,16 +97,28 @@ func (r *fakeRuns) advanceCheckpoint(_ context.Context, _ RunID, checkpoint int)
 	return nil
 }
 
+// complete and failRun both FOLD the attempt's report into whatever the
+// run already recorded, exactly as the SQL store does. A double that
+// replaced it instead would report a resumed run's final leg only, and
+// the understated-count bug would pass this suite untouched.
 func (r *fakeRuns) complete(_ context.Context, _ RunID, rep Report) error {
 	r.run.Status = StatusComplete
-	r.run.Report = &rep
+	r.record(rep)
 	return nil
 }
 
-func (r *fakeRuns) failRun(_ context.Context, _ RunID, cause error) error {
+func (r *fakeRuns) failRun(_ context.Context, _ RunID, rep Report, cause error) error {
 	r.run.Status = StatusFailed
 	r.run.Error = cause.Error()
+	r.record(rep)
 	return nil
+}
+
+func (r *fakeRuns) record(rep Report) {
+	if r.run.Report != nil {
+		rep = r.run.Report.mergedWith(rep)
+	}
+	r.run.Report = &rep
 }
 
 func twoObjectSource() *fakeSource {
@@ -250,6 +262,29 @@ func TestRunResumesFromCheckpointAndConverges(t *testing.T) {
 	if rep.Imported != 2 {
 		t.Errorf("resumed attempt imported = %d, want 2 (only the remaining person rows)", rep.Imported)
 	}
+
+	// The RETURNED report is this attempt's leg — but the RECORDED one is
+	// what the operator is shown for a one-way cutover, and it has to
+	// cover the whole estate. A stored report that only knew the final
+	// leg would tell someone who resumed a crashed flip that half their
+	// records never arrived.
+	stored := runs.run.Report
+	if stored == nil {
+		t.Fatal("a completed run must record a report")
+	}
+	if stored.Imported != 4 {
+		t.Errorf("recorded imported = %d, want 4 — the two pre-crash organizations plus the two resumed persons", stored.Imported)
+	}
+	landed := map[string]int{}
+	for _, or := range stored.Objects {
+		if _, dup := landed[or.Object]; dup {
+			t.Errorf("object %q appears twice in the recorded report; the merge must fold by class", or.Object)
+		}
+		landed[or.Object] = or.Created + or.Updated
+	}
+	if landed["organization"] != 2 || landed["person"] != 2 {
+		t.Errorf("recorded dispositions = %v, want 2 organizations and 2 persons across both attempts", landed)
+	}
 }
 
 // threeObjectSource crashes-and-resumes across a LATER class boundary
@@ -335,5 +370,48 @@ func TestGuardIncumbentSourceBlocksRevokedAndError(t *testing.T) {
 			// and the preflight blocking[] can never drift apart.
 			t.Errorf("status %q: error %q must carry %s", status, err, ReasonIncumbentUnreachable)
 		}
+	}
+}
+
+// A system entry the incumbent owns but never populated is still a
+// system entry. Owner metadata travels beside the payload precisely so
+// this stays true: were it folded into Fields, every owned blank row
+// would read as substantive and the writer would land a nameless
+// native record instead of disclosing the skip (AC-mode-flip-7).
+func TestAnOwnedRowWithNoPayloadIsStillAnEmptyPayloadSkip(t *testing.T) {
+	src := &fakeSource{
+		order: []string{"person"},
+		objects: map[string][]Row{"person": {
+			{ExternalID: "p-blank", OwnerExternalID: "owner-1"},
+			{ExternalID: "p-real", OwnerExternalID: "owner-1", Fields: map[string]any{"full_name": "Real"}},
+		}},
+	}
+
+	dry, err := (&Engine{w: &fakeWriters{existing: map[string]bool{}}}).DryRun(context.Background(), src)
+	if err != nil {
+		t.Fatalf("DryRun: %v", err)
+	}
+	if len(dry.Objects) != 1 {
+		t.Fatalf("dry-run report = %+v, want one object", dry.Objects)
+	}
+	if got := dry.Objects[0]; got.WillCreate != 1 || len(got.Skipped) != 1 ||
+		got.Skipped[0].ExternalID != "p-blank" || got.Skipped[0].Reason != "empty_payload" {
+		t.Errorf("dry-run person = %+v, want p-blank skipped and only p-real counted", got)
+	}
+
+	w := &fakeWriters{existing: map[string]bool{}}
+	rep, err := (&Engine{runs: newFakeRuns(), w: w}).Run(context.Background(), RunID{}, src)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(w.ensured) != 1 || w.ensured[0] != "person/p-real" {
+		t.Errorf("ensured %v, want only person/p-real — a blank row must never reach the writer", w.ensured)
+	}
+	if rep.Imported != 1 {
+		t.Errorf("imported = %d, want 1; a nameless row counted as imported overstates the cutover", rep.Imported)
+	}
+	if len(rep.Objects) != 1 || len(rep.Objects[0].Skipped) != 1 ||
+		rep.Objects[0].Skipped[0].Reason != "empty_payload" {
+		t.Errorf("import report = %+v, want the owned blank row disclosed as empty_payload", rep.Objects)
 	}
 }

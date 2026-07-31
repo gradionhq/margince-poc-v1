@@ -35,7 +35,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -43,7 +42,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/migration"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -71,61 +69,6 @@ var _ overlay.FlipRunner = (*flipRunner)(nil)
 
 func newFlipRunner(pool *pgxpool.Pool, svc *overlay.Service, ms *overlay.MirrorStore, log *slog.Logger) *flipRunner {
 	return &flipRunner{pool: pool, svc: svc, ms: ms, runs: migration.NewRunStore(pool), log: log}
-}
-
-// flipVerdict is the runner's internal readiness read: the raw checks
-// plus the derived blocking reasons for a fresh-sync flip.
-type flipVerdict struct {
-	checks   overlay.FlipChecks
-	blocking []crmcontracts.OverlayFlipPreflightBlocking
-}
-
-func (f *flipRunner) verdict(ctx context.Context) (flipVerdict, error) {
-	checks, err := f.svc.FlipChecks(ctx)
-	if err != nil {
-		return flipVerdict{}, err
-	}
-	v := flipVerdict{checks: checks}
-	// The same guard the direct importer runs (one constant, one rule):
-	// a live-read import cannot pass with the connection revoked/error.
-	if err := migration.GuardIncumbentSource(checks.ConnectionStatus); err != nil {
-		v.blocking = append(v.blocking, crmcontracts.IncumbentUnreachable)
-	}
-	if !checks.ForceFreshDone {
-		v.blocking = append(v.blocking, crmcontracts.ForceFreshIncomplete)
-	}
-	if checks.PendingSyncCount > 0 {
-		v.blocking = append(v.blocking, crmcontracts.PendingSyncDraining)
-	}
-	exported, err := f.exportSince(ctx, checks.LastSyncedAt)
-	if err != nil {
-		return flipVerdict{}, err
-	}
-	if !exported {
-		v.blocking = append(v.blocking, crmcontracts.ExportMissing)
-	}
-	return v, nil
-}
-
-// exportSince answers whether a workspace export bundle was written
-// after the mirror's freshest watermark — the preflight's "honest-scope
-// export available" check (B-E18.26). The export audit row is the
-// bundle writer's own (export.go); a bundle older than the mirror's
-// last change no longer captures the estate the flip will migrate.
-func (f *flipRunner) exportSince(ctx context.Context, since time.Time) (bool, error) {
-	var ok bool
-	err := database.WithWorkspaceTx(ctx, f.pool, func(tx pgx.Tx) error {
-		return tx.QueryRow(ctx, `
-			SELECT EXISTS (
-				SELECT 1 FROM audit_log
-				WHERE entity_type = 'workspace' AND action = 'export' AND occurred_at >= $1)`,
-			since,
-		).Scan(&ok)
-	})
-	if err != nil {
-		return false, fmt.Errorf("flip preflight: checking for a pre-flip export: %w", err)
-	}
-	return ok, nil
 }
 
 // Preflight is OVA-WIRE-7: {ready, blocking[], unresolved_conflicts[]}
@@ -168,7 +111,12 @@ func (f *flipRunner) Preflight(ctx context.Context) (verdictOut crmcontracts.Ove
 		if sealed {
 			return
 		}
-		unsealErr := f.svc.UnsealFlipSnapshot(ctx)
+		// On the request's context this unseal would itself fail
+		// whenever the caller went away mid-preview, latching the
+		// freeze for exactly the abandoned preflight that most needs
+		// undoing. Dropping cancellation keeps the workspace/principal
+		// values the transaction resolves from.
+		unsealErr := f.svc.UnsealFlipSnapshot(context.WithoutCancel(ctx))
 		if unsealErr == nil {
 			return
 		}
@@ -365,7 +313,10 @@ func (f *flipRunner) admitMode(ctx context.Context, mode crmcontracts.OverlayFli
 		if len(v.blocking) == 0 {
 			return nil
 		}
-		if err := f.svc.UnsealFlipSnapshot(ctx); err != nil {
+		// Cancellation-independent for the same reason as the preflight's:
+		// a refused execute must leave a healthy overlay even when the
+		// caller has already hung up.
+		if err := f.svc.UnsealFlipSnapshot(context.WithoutCancel(ctx)); err != nil {
 			return err
 		}
 		return flipBlocked(v.blocking)

@@ -180,3 +180,24 @@ func TestFlipAddressOnlyBuildsAnAddressThatSaysSomething(t *testing.T) {
 		t.Errorf("absent parts must stay nil, got line1 = %v", *partial.Line1)
 	}
 }
+
+func TestExportCutoffNeverFallsBackToAMeaninglessZero(t *testing.T) {
+	sweep := time.Now().Add(-time.Hour)
+	rows := time.Now().Add(-10 * time.Minute)
+
+	// An empty estate stamps no row watermark. Without the sweep the
+	// cutoff would be the zero time and ANY export ever written — one
+	// predating the incumbent connection entirely — would clear the gate.
+	if got := exportCutoff(overlay.FlipChecks{LastSweepAt: sweep}); !got.Equal(sweep) {
+		t.Errorf("cutoff on an empty mirror = %v, want the sweep at %v", got, sweep)
+	}
+	// With rows, the freshest change wins: a bundle taken before the last
+	// mirrored edit no longer describes the estate the flip migrates.
+	if got := exportCutoff(overlay.FlipChecks{LastSweepAt: sweep, LastSyncedAt: rows}); !got.Equal(rows) {
+		t.Errorf("cutoff = %v, want the newer row watermark %v", got, rows)
+	}
+	// And a sweep that ran after the last row change still advances it.
+	if got := exportCutoff(overlay.FlipChecks{LastSweepAt: rows, LastSyncedAt: sweep}); !got.Equal(rows) {
+		t.Errorf("cutoff = %v, want the newer sweep %v", got, rows)
+	}
+}

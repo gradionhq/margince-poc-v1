@@ -214,13 +214,13 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 	}
 }
 
-// resolveOwner maps the row's incumbent owner id (carried in-band by the
-// flip source) onto the mapped app_user. An owner that does not map —
+// resolveOwner maps the row's incumbent owner id onto the mapped
+// app_user. An owner that does not map —
 // or a row that names none at all — imports under the flip OPERATOR,
 // disclosed: an ownerless native row is workspace-shared at every tier,
 // while the mirror row it came from was hidden from every seat.
 func (w *flipWriters) resolveOwner(ctx context.Context, row migration.Row, object string) (*ids.UserID, string, error) {
-	raw := strings.TrimSpace(fieldString(row.Fields, flipFieldOwnerExternalID))
+	raw := strings.TrimSpace(row.OwnerExternalID)
 	if raw == "" {
 		// No incumbent owner at all: the mirror row was hidden from every
 		// seat (the fail-closed NULL-owner rule), so it inherits the

@@ -102,7 +102,11 @@ func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
 		t.Fatalf("backwards checkpoint err = %v, want ErrConflict", err)
 	}
 
-	if err := s.failRun(ctx, run.ID, errors.New("incumbent went away")); err != nil {
+	// The crash records what the attempt had already landed, not just its
+	// cause: the resumed leg reports only its own work, so this is the
+	// only place the pre-crash dispositions are kept.
+	partial := Report{Imported: 3, Objects: []ObjectReport{{Object: "person", Created: 3}}}
+	if err := s.failRun(ctx, run.ID, partial, errors.New("incumbent went away")); err != nil {
 		t.Fatalf("failRun: %v", err)
 	}
 	got, err := s.Get(ctx, run.ID)
@@ -124,8 +128,17 @@ func TestRunStoreLifecycleWithAuditAndResume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get after complete: %v", err)
 	}
-	if got.Status != StatusComplete || got.Report == nil || got.Report.Imported != 7 {
+	if got.Status != StatusComplete || got.Report == nil {
 		t.Fatalf("completed run = %+v, want complete with the report persisted", got)
+	}
+	// 3 + 7, through a real JSON round-trip: the operator of a resumed
+	// cutover is told what the run imported in total, not what its last
+	// leg managed. Storing 7 here would read as four lost records.
+	if got.Report.Imported != 10 {
+		t.Errorf("recorded imported = %d, want 10 — the pre-crash 3 folded into the resumed 7", got.Report.Imported)
+	}
+	if len(got.Report.Objects) != 1 || got.Report.Objects[0].Created != 10 {
+		t.Errorf("recorded objects = %+v, want one person entry crediting all 10", got.Report.Objects)
 	}
 
 	// Completion is terminal — a second transition is refused.
