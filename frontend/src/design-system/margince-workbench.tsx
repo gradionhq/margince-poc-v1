@@ -47,6 +47,7 @@ export function MarginceWorkbench({
         <MarginceCoreScene
           state={state}
           progress={progress}
+          feed={false}
           className="mw-core"
         />
         <div className="mw-identity">

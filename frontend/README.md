@@ -19,13 +19,83 @@ From the repo root: `make frontend-check`, `make frontend-e2e`, and `make dev`
 (the full running stack — api + this SPA). The frontend lane is separate from
 the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
 
+### UI-preview switches (`VITE_UI_PREVIEW_*`)
+
+Presentation scaffolding for design review, off unless the var is set, and
+**not** feature flags — they cannot make a flow work, only draw one. They live
+in `src/app/ui-preview.ts`; the naming prefix is the contract with the reader.
+
+| Var | What it draws |
+|---|---|
+| `VITE_UI_PREVIEW_OIDC=1` | The federated sign-in buttons on the login screen, with the second provider marked *not yet available*. |
+| `VITE_UI_PREVIEW_RESET=1` | The "Forgot password?" link and the request card it opens. |
+
+```sh
+pnpm dev:preview                    # both switches on — the demo entry point
+pnpm build:preview                  # the same, built
+VITE_UI_PREVIEW_OIDC=1 pnpm dev     # login screen, with the SSO block drawn
+```
+
+**A preview build draws controls this installation cannot honour, so it must never
+be what ships** — `dev` and `build` stay unchanged and stay honest.
+
+`/auth/capabilities` serves `oidc_providers: []` because the OIDC flow has not
+shipped (§19), and `ProviderButtons` correctly renders nothing for an empty
+list — so the block is otherwise only visible in Storybook. With the switch on,
+two providers are substituted **at the render boundary in `AuthScreen`**, after
+the query: the wire is untouched, the query cache still holds the server's real
+empty answer, and the buttons **complete no sign-in** — `startFederatedSignIn`
+stays inert, because the contract documents no OIDC start or callback path. The
+labels are deliberately not in the i18n catalogs: `oidc_providers[].label` is
+server-owned copy that §11.5 says is never translated. A preview build logs a
+one-time `console.warn` saying exactly this.
+
+The same switch marks the second of those two providers **not yet available** —
+`previewedUnavailableProviders()`, a set of keys `ProviderButtons` renders as a
+native `disabled` button plus an `.is-unavailable` class the stylesheet draws.
+The label is untouched, and that is the point: the marker must not splice words
+we wrote onto a label the installation wrote. So the state is carried visually
+and by `disabled`, and the trade is stated rather than hidden — a screen reader
+hears that the control is unavailable, but not why. It can only ever come from
+here:
+`oidc_providers[]` items are `{ key, label }` with no availability field, so no
+server can produce a marked provider, `ProviderButtons` receives an empty set in
+the product, and its shipped behaviour is unchanged. That matters because §3.3
+forbids a dead provider control by name (Google, Microsoft, SSO) and ADR-0076
+keeps §3.3 load-bearing — a marked button is legal here for the same reason a
+Storybook story is, and for no other.
+
+`VITE_UI_PREVIEW_RESET=1` draws the "Forgot password?" link. This flow is
+finished on both sides — `POST /auth/forgot-password` and
+`POST /auth/reset-password` in the contract, handlers in
+`backend/internal/modules/identity/reset.go`, and all four views on this screen —
+and `password_reset` is computed live as `h.resetMailer != nil`, so it reports
+`false` on the shipped `config/margince.yaml` only because that file has no
+`email:` block. The switch draws the link; it wires no mailer. The request form
+behind it is the real one, so submitting it against a mailer-less installation
+gets a `501 not_implemented` back and shows it as the form's failure note — the
+confirmation, the deep-link form and the spent-token refusal stay asserted in
+`src/screens/auth.test.tsx` rather than reachable here.
+
+Unset, each switch reads `undefined` and nothing changes. Both positions of both
+are pinned by `src/app/ui-preview.test.ts` and the `federated sign-in` cases in
+`src/screens/auth.test.tsx`; the e2e lane builds without any of them, so
+`offers no identity provider that does not work` still measures the real
+default.
+
 ## Layout
 
 - `src/design-system/` — tokens (Ledger Green canon, pinned by
-  `tokens.test.ts`), atoms, the trust primitives (§4 vocabulary:
-  EvidenceChip, ConfidenceMeter, ProvenanceTag, StagingCard, ApprovalGate,
-  StagedProposal), composed surfaces, and `conformance.test.ts` — the
-  drift gates.
+  `tokens.test.ts`) plus `brand.css`, the DERIVED layer: every value there is a
+  `color-mix()` of a canonical token, never a new hex, so it follows the dark
+  theme's accent lift automatically and passes the purity gate. Then atoms, the
+  trust primitives (§4 vocabulary: EvidenceChip, ConfidenceMeter, ProvenanceTag,
+  StagingCard, ApprovalGate, StagedProposal), the **Margince Core**
+  (`margince-core*`, WDS-CORE-1..4 — one primitive, a closed eight-state
+  vocabulary, a required non-GPU rendering of every state, `aria-hidden`;
+  callers pass `state` and size it through `--coreSize` / `--coreGlass` and
+  never restyle it), `motion.ts` (reduced motion jumps to the END state, never
+  to nothing), composed surfaces, and `conformance.test.ts` — the drift gates.
 - `src/app/` — shell (WorkspaceRail + top bar), hash router, ⌘K palette,
   Ask FAB.
 - `src/screens/` — one file per surface; unbuilt routes render the honest
@@ -54,6 +124,12 @@ the Go merge gate (`make check`) — it needs node ≥ 20 and pnpm.
    semantics render through the `.dot` token component.
 6. The service worker never caches or fabricates a `/v1` response.
 7. WCAG 2.2 AA (axe) + the perceived-perf budget in the e2e lane.
+8. The unauthenticated surface at 390px / 320px / 200% zoom (ADR-0076): no
+   horizontal scroll, the primary action reachable, nothing hidden to fit, the
+   task region above the identity region below 960px, one h1 and it is the task,
+   the Core out of the a11y tree, and axe. The rest of the §3.8 sweep walks
+   authenticated routes only, so login had never been measured at any width —
+   the first run of this found a contrast defect in the field labels.
 
 ## Working agreements
 

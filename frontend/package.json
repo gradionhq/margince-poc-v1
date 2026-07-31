@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 vite",
     "build": "tsc -b && vite build",
+    "build:preview": "VITE_UI_PREVIEW_OIDC=1 VITE_UI_PREVIEW_RESET=1 pnpm build",
     "preview": "vite preview",
     "test": "vitest run",
     "lint": "biome check src index.html",
