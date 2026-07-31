@@ -21,7 +21,7 @@ import (
 // (features/04 §1). A policy naming anything else is rejected — a typo'd
 // object would otherwise silently grant nothing and read as a bug in the
 // role, not the document.
-var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "import_run"}
+var coreObjects = []string{"person", "organization", "deal", "lead", "activity", "pipeline", "list", "tag", "relationship", "partner", "automation", "voice_profile", "product", "offer", "signal", "saved_view", "custom_field", "computed_field", "quota", "offer_template", "overlay_connection", "embedding_reindex", "webhook_subscription", "fx_rate", "ai_model_rate", "capture_settings", "project", "channel_connection", "import_run"}
 
 // Document is the role.permissions JSONB shape:
 // {"objects": {"<object>": {"create":…,"read":…,"update":…,"delete":…}},
@@ -92,18 +92,24 @@ var (
 // delete admin/ops-only); every role may read subscriptions and their
 // delivery health. (UC-E10-04 narrates a Rep registering one; that
 // posture question is tracked upstream against the spec, not settled
-// here.) import_run is admin/ops-only on EVERY verb, read included: a
+// here.)
+// channel_connection follows overlay_connection's posture exactly: a bot
+// bound at the workspace level carries every seat's inbound channel traffic,
+// so create/update/delete are admin/ops-only, while every role may read the
+// binding's status (a rep needs to know whether the channel is live before
+// expecting a reply to arrive there).
+// import_run is admin/ops-only on EVERY verb, read included: a
 // migration run is a workspace-wide bulk mutation of the estate (the
 // overlay→native flip executes through it), and unlike quota or
 // overlay_connection there is no per-rep read surface — the mode-flip
 // and migrate-in screens are admin surfaces.
 var defaults = map[string]Document{
 	"admin": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 	"manager": {
-		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, crud, grant{}),
+		Objects:  objects(crud, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, readOnly, crud, crud, crud, crud, crud, readOnly, readOnly, readOnly, crud, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, crud, readOnly, grant{}),
 		RowScope: principal.RowScopeTeam,
 	},
 	"rep": {
@@ -153,6 +159,9 @@ var defaults = map[string]Document{
 			// project — the record posture: reps create and work a body
 			// of work, archiving stays manager/admin/ops.
 			grant{Create: true, Read: true, Update: true},
+			// channel_connection — everyone reads (a rep needs to know
+			// whether the channel is live), only admin/ops bind one.
+			readOnly,
 			grant{}), // import_run — admin/ops-only
 		RowScope: principal.RowScopeTeam,
 	},
@@ -160,18 +169,18 @@ var defaults = map[string]Document{
 		// A read-only role still owns its personal view state: saved views
 		// are P1-exempt per-user prefs (runtime-config-surface.md §3), not
 		// shared records, so full self-service is correct even here.
-		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, grant{}),
+		Objects:  objects(readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, readOnly, crud, readOnly, readOnly, readOnly, readOnly, readOnly, grant{}, readOnly, grant{}, grant{}, readOnly, readOnly, readOnly, grant{}),
 		RowScope: principal.RowScopeAll,
 	},
 	"ops": {
-		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate, crud, crud),
+		Objects:  objects(crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, crud, readOnly, crud, crud, crud, readUpdate, crud, writeNoDelete, writeNoDelete, readUpdate, crud, crud, crud),
 		RowScope: principal.RowScopeAll,
 	},
 }
 
 // objects zips grants onto coreObjects in declaration order — one line
 // per role instead of twelve repeated map literals.
-func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, importRun grant) map[string]grant {
+func objects(person, organization, deal, lead, activity, pipeline, list, tag, relationship, partner, automation, voiceProfile, product, offer, signal, savedView, customField, computedField, quota, offerTemplate, overlayConnection, embeddingReindex, webhookSubscription, fxRate, aiModelRate, captureSettings, project, channelConnection, importRun grant) map[string]grant {
 	return map[string]grant{
 		"person": person, "organization": organization, "deal": deal,
 		"lead": lead, "activity": activity, "pipeline": pipeline,
@@ -187,6 +196,7 @@ func objects(person, organization, deal, lead, activity, pipeline, list, tag, re
 		"ai_model_rate":        aiModelRate,
 		"capture_settings":     captureSettings,
 		"project":              project,
+		"channel_connection":   channelConnection,
 		"import_run":           importRun,
 	}
 }

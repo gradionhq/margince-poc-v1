@@ -4,6 +4,7 @@
 package ratelimit
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,6 +63,58 @@ func TestBlockedReportsWithoutCounting(t *testing.T) {
 	if l.Blocked("k") {
 		t.Error("an expired window no longer blocks")
 	}
+}
+
+// Every caller keys on a value a remote client chose — a slug, a token, an
+// email — and Go admits a request line near 1 MB, so a key the limiter accepts
+// verbatim is memory an unauthenticated caller decides the size of. The map
+// keeps whatever it has taken until the next Record or Allow sweeps it, which
+// is never once a flood stops arriving, so the cost is resident for the life of
+// the process rather than for one window.
+//
+// The refusal is what this asserts, on all three entry points and on the map
+// itself: an over-long key must not be stored, must not deny the caller (a
+// legitimate caller cannot be locked out by the size of a value it did not
+// choose — the bounded per-IP budget is what brakes a flood), and must not
+// disturb the metering of a normal key.
+func TestALimiterRefusesAnOversizedKey(t *testing.T) {
+	clock := newFakeClock()
+	l := NewWithClock(1, time.Minute, clock.Now)
+	oversized := strings.Repeat("x", 100*1024)
+
+	if !l.Allow(oversized) {
+		t.Error("Allow denied an unmeterable key; refusing to meter must not refuse the caller")
+	}
+	l.Record(oversized)
+	if l.Blocked(oversized) {
+		t.Error("Blocked reported a key that was never counted as over its limit")
+	}
+	if got := heldKeys(t, l); got != 0 {
+		t.Errorf("the limiter retains %d keys after three over-long calls, want 0", got)
+	}
+
+	if !l.Allow("alice") {
+		t.Fatal("a normal key is still metered: attempt 1 of 1 should be within the limit")
+	}
+	if l.Allow("alice") {
+		t.Error("a normal key is still metered: attempt 2 of 1 should be rejected")
+	}
+	if got := heldKeys(t, l); got != 1 {
+		t.Errorf("the limiter retains %d keys, want 1 — only the normal one", got)
+	}
+}
+
+// heldKeys reports what the limiter is holding, read under its own lock so the
+// assertion cannot race the code it asserts on. starts and counts are written
+// as a pair, so the two disagreeing is itself the fault.
+func heldKeys(t *testing.T, l *Limiter) int {
+	t.Helper()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if len(l.starts) != len(l.counts) {
+		t.Fatalf("the limiter holds %d window starts but %d counts", len(l.starts), len(l.counts))
+	}
+	return len(l.counts)
 }
 
 func TestSweepDropsAbandonedKeys(t *testing.T) {

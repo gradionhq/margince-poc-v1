@@ -6,6 +6,7 @@ import {
   errorClassKey,
   isUnhealthy,
   missingSendGrant,
+  statusLabel,
   statusTone,
 } from "./connector-status";
 
@@ -17,6 +18,16 @@ describe("statusTone", () => {
     expect(statusTone("reauth_required")).toBe("warn");
     expect(statusTone("error")).toBe("danger");
     expect(statusTone("disconnected")).toBe(undefined);
+  });
+
+  // A channel connection whose webhook registration hasn't landed yet is a
+  // half-registration, not a live channel — it must read as "needs a look"
+  // (the same tone as reauth_required), never as the "success" tone a
+  // healthy connected row gets (§9.1).
+  it("renders pending as a warn tone, distinct from connected", () => {
+    expect(statusTone("pending")).toBe("warn");
+    expect(statusLabel("pending")).toBe("connectors.statusPending");
+    expect(statusLabel("pending")).not.toBe(statusLabel("connected"));
   });
 });
 

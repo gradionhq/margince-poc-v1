@@ -413,6 +413,13 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 				_, err = tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, id)
 			}
 			if err == nil {
+				// The channel identity is a resolution key on the subject as
+				// much as their address: left behind, it would keep binding
+				// inbound messages to the row this sweep just anonymized.
+				_, err = tx.Exec(ctx,
+					`DELETE FROM person_channel_identity WHERE person_id = $1`, id)
+			}
+			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'person' AND entity_id = $1`, id)
 			}

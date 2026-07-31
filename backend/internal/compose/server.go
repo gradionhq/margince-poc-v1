@@ -11,7 +11,6 @@ package compose
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -34,7 +33,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
-	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/modules/privacy"
 	"github.com/gradionhq/margince/backend/internal/modules/quotas"
@@ -46,7 +44,6 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 	"github.com/gradionhq/margince/backend/internal/platform/overlaybudget"
-	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -77,6 +74,7 @@ type Server struct {
 	backfillHandlers
 	captureExclusionHandlers
 	captureSettingsHandlers
+	channelHandlers
 	filteredExportHandlers
 	overlayExportHandlers
 	orgRollupHandlers
@@ -91,10 +89,10 @@ type Server struct {
 	org360Handlers
 	orgBriefHandlers
 
-	// gmailPush is the Pub/Sub push webhook, injected by WithGmailPush only
-	// when a subscription token is configured — the route is absent
-	// otherwise, never open.
-	gmailPush *gmailPushHandler
+	// gmailPush is the Pub/Sub push webhook (built on the shared chassis,
+	// webhook.go), injected by WithGmailPush only when a subscription token
+	// is configured — the route is absent otherwise, never open.
+	gmailPush http.Handler
 
 	// overlayWebhook is the HubSpot webhook-as-signal receiver (OVA-WIRE-10),
 	// injected by WithOverlayWebhook only when the overlay app secret is
@@ -135,6 +133,21 @@ type Server struct {
 	// only the Gmail one WithGmailCapture threads it into. Zero value = the
 	// pinned baselines.
 	captureConfig CaptureConfig
+
+	// gmailAppConfigured records whether this DEPLOYMENT configured a Google app
+	// that could transmit under a user's mailbox grant — the one fact the send
+	// pre-flight cannot read off a capture_connection row, since the grant
+	// survives the app being removed and a mailbox connected on one deployment
+	// reads the same on another.
+	//
+	// It is a deployment fact, not a role fact: WithGmailCapture records it
+	// before its own transport gate and off canSync, so an installation holding
+	// client credentials but no state key — which mounts no api-side connect
+	// transport yet sends perfectly well from the worker — still counts as
+	// configured. False is the honest default for a composition never told about
+	// a Google app at all. Gmail is the only provider with a field here because
+	// it is the only one comms.SendScopeFor gives a send scope.
+	gmailAppConfigured bool
 
 	// schemaPoolReady is the /readyz schema-pool probe, injected only by
 	// WithSchemaPool — a role that never mounted --schema-dsn declares
@@ -404,60 +417,21 @@ func (s *Server) rebuildToolRegistry(pool *pgxpool.Pool) {
 		s.replyDrafter, s.resolveOverlayIncumbent(pool), s.send)
 }
 
-// resolveOverlayIncumbent builds the per-request live-incumbent resolver
-// FreshnessReader's force-fresh lane reads through: for the request's
-// workspace it reads the active incumbent_connection and unseals its
-// private-app token, returning a live HubSpot adapter. It reads s.vault
-// LAZILY (at request time), not at construction, because WithKeyvault
-// installs the vault AFTER newServer builds the dispatch — so before a
-// vault is wired, or on a role that never wires one, it returns a nil
-// adapter and force-fresh degrades to the mirror honestly. A workspace
-// with no active connection (ErrNotFound) or a non-HubSpot incumbent is
-// the same honest nil degrade, not an error; only a genuine connection-read
-// or vault failure surfaces as an error (which FreshnessReader logs and
-// then degrades on, never faking authority).
-func (s *Server) resolveOverlayIncumbent(pool *pgxpool.Pool) func(context.Context) (overlay.Incumbent, error) {
-	// s.vault is read LAZILY (per call) because WithKeyvault installs it after
-	// newServer builds the dispatch — so delegate to OverlayIncumbentResolver
-	// at request time with whatever vault is then wired.
-	return func(ctx context.Context) (overlay.Incumbent, error) {
-		return OverlayIncumbentResolver(pool, s.vault)(ctx)
-	}
-}
-
-// OverlayIncumbentResolver builds the per-request live-incumbent resolver from
-// a KNOWN vault: for the request's workspace it reads the active
-// incumbent_connection and unseals its private-app token, returning a live
-// HubSpot adapter. A nil vault, no active connection (ErrNotFound), or a
-// non-HubSpot incumbent all degrade honestly to a nil adapter (force-fresh
-// falls back to the mirror; write-back answers errNoWriteIncumbent) — never a
-// faked authority. Only a genuine connection-read or vault failure surfaces as
-// an error. The api server passes its (lazily-wired) vault via
-// resolveOverlayIncumbent; the standalone MCP server and the worker's Surface-B
-// runner pass their own FromEnv vault so those agent surfaces reach write-back too.
-func OverlayIncumbentResolver(pool *pgxpool.Pool, vault keyvault.Vault) func(context.Context) (overlay.Incumbent, error) {
-	return func(ctx context.Context) (overlay.Incumbent, error) {
-		if vault == nil {
-			return nil, nil
-		}
-		conn, err := overlay.ActiveConnection(ctx, pool)
-		if err != nil {
-			if errors.Is(err, apperrors.ErrNotFound) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		if conn.Incumbent != incumbentHubSpot {
-			return nil, nil
-		}
-		token, err := vault.Get(ctx, conn.Workspace, conn.CredentialRef)
-		if err != nil {
-			return nil, err
-		}
-		return hubspotIncumbentFactory(conn.Region, string(token)), nil
-	}
-}
-
+// contractAPI mounts the generated contract router with the ADR-0055
+// admission layer, which rides INSIDE the router (it needs the matched
+// route pattern) and shares the MCP surface's tier table, approvals
+// staging, and live-authority gate — one gate, two transports.
+// readyzEmbedState builds /readyz's embed-status closure (Task 17) over
+// whatever embed lane this process role already wired via
+// WithEmbedReindex — the SAME store and embedder embedReindexHandlers'
+// status/preview/confirm read, so this reports through the one seam
+// rather than opening a second router/store pair. A role that never
+// wires an embed lane (no declared routing config, --ai-fake, or the
+// two self-gating nils WithEmbedReindex checks) leaves engine nil; that
+// is a legitimate "no embed lane to report on" shape, not a fault, so it
+// renders "unknown" exactly like a marker-read failure does — Readyz's
+// body never distinguishes the two, only ever "was this readable right
+// now or not."
 // signalStrength bridges people's §4 relationship-strength computation to
 // the slice the warm room consumes (signals.StrengthSource). It carries
 // only the score and its bucket across the seam — the full explainable

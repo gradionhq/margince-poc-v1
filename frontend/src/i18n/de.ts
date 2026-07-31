@@ -981,6 +981,9 @@ export const de = {
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
     "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.sendMessageConfirmTitle": "Diese Nachricht senden?",
+  "compose.sendMessageBody":
+    "Sie senden diese Nachricht jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
   "compose.consentBlockedTitle": "Versand blockiert — keine Einwilligung",
   "compose.consentBlocked":
     "Ein Empfänger hat für diesen Zweck nicht eingewilligt, daher wurde der Versand unterdrückt (Standard-Ablehnung).",
@@ -1535,6 +1538,7 @@ export const de = {
   "connectors.provGraph": "Microsoft",
   "connectors.provImap": "IMAP-Postfach",
   "connectors.statusConnected": "Aktiv",
+  "connectors.statusPending": "Ausstehend — noch nicht bestätigt aktiv",
   "connectors.statusReauth": "Neu verbinden nötig",
   "connectors.statusError": "Sync-Fehler",
   "connectors.statusDisconnected": "Getrennt",
@@ -1611,6 +1615,32 @@ export const de = {
   "connectors.imapLoginRejected":
     "Das Postfach hat diese Zugangsdaten abgelehnt. Prüfe Server, E-Mail und App-Passwort.",
   "connectors.imapUnreachable": "Der Mailserver konnte nicht erreicht werden.",
+
+  // Das Telegram-Connector-Panel (Task 17, Design §9.1-§9.2): ein Bot
+  // verbindet sich für den gesamten Workspace — kein OAuth-Handshake,
+  // sondern ein BotFather-Token im selben eingebetteten Formular wie beim
+  // IMAP-Connector. Anders als bei den Mail-Anbietern bleibt die Verbindung
+  // vor Ort bearbeitbar: das Ersetzen des Tokens läuft über PATCH, nie über
+  // ein Trennen.
+  "connectors.provTelegram": "Telegram",
+  "connectors.telegramTitle": "Telegram-Bot",
+  "connectors.telegramSub":
+    "Ein Bot empfängt und sendet Nachrichten für den gesamten Workspace.",
+  "connectors.telegramNotConfigured":
+    "Messaging-Kanäle sind in dieser Installation nicht konfiguriert.",
+  "connectors.telegramConnectCta": "Telegram-Bot verbinden",
+  "connectors.telegramEditToken": "Token ersetzen",
+  "connectors.telegramDisconnectTitle": "Diesen Bot trennen?",
+  "connectors.telegramDisconnectBody":
+    "Dies löscht das gespeicherte Token und beendet das Abrufen neuer Nachrichten. Erfassung und Versand stoppen sofort; alles bereits Erfasste bleibt in deinem CRM.",
+  "connectors.telegramModalTitle": "Telegram-Bot verbinden",
+  "connectors.telegramEditTitle": "Bot-Token ersetzen",
+  "connectors.telegramBotToken": "Bot-Token",
+  "connectors.telegramBotTokenHint":
+    "Füge das Token ein, das BotFather beim Anlegen des Bots ausgegeben hat. Wir versiegeln es im Credential-Vault und zeigen es nie wieder an.",
+  "connectors.telegramSubmitCta": "Verbinden",
+  "connectors.telegramReplaceCta": "Token ersetzen",
+  "connectors.telegramConnectedAs": "Verbunden als @{username}.",
 
   // Persönliche Mail-Ausschlüsse (RC-2, Task 8).
   "exclusions.title": "Ausschlüsse für persönliche Mails",

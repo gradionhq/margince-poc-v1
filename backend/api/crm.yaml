@@ -2292,6 +2292,57 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /activities/{id}/send-message:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    post:
+      tags: [Activities, AI]
+      operationId: sendMessage
+      summary: Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+      description: |
+        The `send_message` MCP verb — the channel twin of `send_email`. Outbound + irreversible
+        → 🟡 confirm-first: an agent caller must supply an approval token; a human caller's own
+        action is the approval.
+
+        The `{id}` activity is the conversation being answered, and its `kind` names the channel
+        the reply transmits through (`telegram`). The RECIPIENT is not named by the caller: it is
+        the channel identity of the person that conversation is with, so a reply can only reach
+        the human who opened it. A person with no live channel identity, or one who blocked the
+        workspace's bot, is refused with 422 before anything is staged.
+
+        Consent gate is **default-deny per purpose** (A22/ADR-0011, data-model §3.4), exactly as
+        for mail: the send is suppressed (409, `code: consent_not_granted`) unless an active,
+        proven `granted` `person_consent` row exists for the *purpose* this send falls under
+        (passed as `consent_purpose`). A grant for a different purpose does not authorize the
+        send; `unknown` and `withdrawn` both block.
+      x-mcp-tool: { verb: send_message, record_type: activity, tier: confirmation_required }
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/ApprovalToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SendMessageRequest' }
+      responses:
+        '202':
+          description: Accepted for send (queued); the resulting outbound activity is logged.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activity' }
+        '403':
+          description: Approval token missing for a 🟡 send, or RBAC denied.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: 'Consent not granted for the send purpose (`code: consent_not_granted`) — suppressed.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   # ------------------------------ /availability + /bookings (E04 meeting scheduling) ----------
   /availability:
     get:
@@ -3255,6 +3306,160 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+
+  # ------------------------ /channel-connections ----------------------------
+  # Workspace-level messaging-channel bindings (telegram-oa design §5, §9.1/§9.2).
+  # Unlike /connectors/* — one human's grant over their OWN mailbox — a channel
+  # connection is an admin binding a bot on behalf of the whole workspace, so
+  # create/update/delete are admin/ops-only (the `channel_connection` RBAC
+  # object) while every role may read the status. Human-only throughout: the bot
+  # token grants read of every message the bot receives, and it is never echoed
+  # back — it lives sealed in the vault from the moment it arrives.
+  #
+  # Ingress PULLS: the installation long-polls the provider for updates, so it
+  # needs no inbound endpoint and no public address of its own, and there is no
+  # half-connected state — a connect either commits as `connected` or writes
+  # nothing at all.
+  /channel-connections:
+    get:
+      tags: [Connectors]
+      operationId: listChannelConnections
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: List the workspace's messaging-channel connections.
+      responses:
+        '200':
+          description: Channel connections.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnectionListResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    post:
+      tags: [Connectors]
+      operationId: connectChannel
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Connect a messaging-channel bot for the whole workspace.
+      description: |
+        Validates the bot token with the provider, clears any webhook the bot still carries
+        (the provider refuses long-polling while one is registered, and pending updates are
+        deliberately kept — they are the customer's messages), seals the token, and writes the
+        connection `connected` in one transaction with its audit row.
+
+        Nothing follows that write, so there is no half-connected state to observe: the connect
+        either commits live or leaves nothing behind. A `502` means the provider could not be
+        reached and nothing was written — retry it.
+
+        Two `409`s, and they call for different things: `channel_workspace_already_bound` means
+        this workspace already has a live bot (disconnect it first), while a bot-level conflict
+        means that bot is bound elsewhere in this installation (use a different bot).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConnectChannelRequest' }
+      responses:
+        '201':
+          description: The connected channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnection' }
+        '400':
+          description: 'The bot token was rejected by the provider (`code: channel_token_rejected`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502':
+          description: 'The provider could not be reached (`code: channel_provider_unreachable`); nothing was written, so the request is simply retried.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /channel-connections/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Connectors]
+      operationId: replaceChannelToken
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Replace a channel connection's bot token in place.
+      description: |
+        Re-runs the connect sequence against the new token and repoints the row in place. The
+        connection stays live throughout — there is no registration to be mid-flight — and the row
+        survives, so captured history and every channel identity binding survive the rotation;
+        provider user ids are global, so identities keep resolving even when the new token belongs
+        to a different bot.
+
+        The ingress cursor RESTARTS, because a provider's update sequence is per bot: inheriting
+        the outgoing bot's position would ask the incoming bot for updates numbered beyond
+        anything it has ever sent, and every message it received would be skipped silently.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReplaceChannelTokenRequest' }
+      responses:
+        '200':
+          description: The reconnected channel.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChannelConnection' }
+        '400':
+          description: 'The bot token was rejected by the provider (`code: channel_token_rejected`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '502':
+          description: 'The provider could not be reached (`code: channel_provider_unreachable`); nothing was written, so the request is simply retried.'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+    delete:
+      tags: [Connectors]
+      operationId: disconnectChannel
+      security: [ { cookieAuth: [] } ]
+      x-agent-access: human-only
+      summary: Disconnect a messaging channel (archives the binding and destroys the credential).
+      description: |
+        Archives the connection as `disconnected` — which is what stops ingress, since only a
+        live `connected` binding is polled — and destroys the sealed bot token. Already-captured
+        activities are retained: disconnecting stops capture, it does not erase history.
+      responses:
+        '204': { description: Disconnected. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '503':
+          description: 'This deployment serves no messaging channels (`code: channel_connections_not_configured`), or has no credential store configured to seal a bot token in (`code: channel_credentials_not_configured`).'
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
 
   # ----------------------- /webhook-subscriptions ---------------------------
   # Outbound webhook subscriptions (E10/S-E10.6, A51): a first-party outbound
@@ -9187,6 +9392,59 @@ components:
       properties:
         data: { type: array, items: { $ref: '#/components/schemas/CaptureExclusionRule' } }
 
+    # ---- channel connections (telegram-oa design §4.1, §5) ----
+    ChannelConnection:
+      type: object
+      description: >-
+        One workspace-level messaging-channel binding. The bot token never appears in this
+        shape — it lives sealed in the vault, and it is the only secret a binding holds.
+      required: [id, provider, channelId, channelLabel, status, version]
+      properties:
+        id: { type: string, format: uuid }
+        provider: { type: string, enum: [telegram] }
+        channelId:
+          type: string
+          description: The provider's own id for the bot — the key the binding is unique on.
+        channelLabel:
+          type: string
+          description: The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing.
+        status:
+          type: string
+          enum: [pending, connected, disconnected, error, reauth_required]
+          description: >-
+            Only `connected` is live, and it is the only state a connect can produce — a pull
+            ingress makes no provider call after the write, so there is no half-connected state.
+            `error` and `reauth_required` are where ingress parks a binding it can no longer poll
+            (another consumer holds the bot's updates; the token was refused), and neither is
+            polled again until an operator acts. `pending` is a value NO server produces: it is
+            retained because the code generator disambiguates enum member names across the whole
+            document, so dropping it renames unrelated generated constants in other schemas.
+        version: { type: integer, format: int64 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ChannelConnectionListResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { type: array, items: { $ref: '#/components/schemas/ChannelConnection' } }
+    ConnectChannelRequest:
+      type: object
+      required: [provider, botToken]
+      properties:
+        provider: { type: string, enum: [telegram] }
+        botToken:
+          type: string
+          minLength: 1
+          description: The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
+    ReplaceChannelTokenRequest:
+      type: object
+      required: [botToken]
+      properties:
+        botToken:
+          type: string
+          minLength: 1
+          description: The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
+
     # ---- overlay (HubSpot mirror; design.md §11) ----
     OverlayConnection:
       type: object
@@ -9568,6 +9826,20 @@ components:
         updated_at: { type: string, format: date-time }
         archived_at: { type: [string, 'null'], format: date-time }
 
+    PersonReachability:
+      type: object
+      description: |
+        Whether a reply on this channel can currently be delivered (design §6.6) — a live
+        `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+      required: [provider, reachable, since]
+      properties:
+        provider: { type: string, enum: [telegram] }
+        reachable: { type: boolean }
+        since:
+          type: string
+          format: date-time
+          description: When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+
     RelationshipStrength:
       type: object
       description: |
@@ -9620,6 +9892,16 @@ components:
         phones:
           type: array
           items: { $ref: '#/components/schemas/PersonPhone' }
+        reachability:
+          type: array
+          readOnly: true
+          description: |
+            Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+            Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+            third-party identifier) stays out of this broad read; a governed surface owns it.
+            A blocked identity still appears here, with `reachable: false`, so the record keeps
+            showing that a conversation exists even when a reply cannot currently be delivered.
+          items: { $ref: '#/components/schemas/PersonReachability' }
         consent:
           type: array
           readOnly: true
@@ -10942,6 +11224,29 @@ components:
             The consent purpose this send falls under (e.g. `transactional`, `marketing_email`).
             The send is suppressed (409 `consent_not_granted`) unless every recipient has an active
             `granted` `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+
+    SendMessageRequest:
+      type: object
+      required: [body, consent_purpose]
+      description: |
+        One channel reply. It carries no subject and no addressee list, and that absence is the
+        shape of the transport rather than an omission: a messaging channel has no subject line
+        and no Cc, and the recipient is resolved from the conversation being answered (see the
+        operation), never named by the caller.
+      properties:
+        body:
+          type: string
+          minLength: 1
+          description: |
+            The (possibly edited) final message text that is sent. A messaging provider rejects a
+            text-less message, so an empty or whitespace-only body is refused at request time
+            (422 `empty_message_body`) rather than staged for a delivery that could only park.
+        consent_purpose:
+          type: string
+          description: |
+            The consent purpose this send falls under (e.g. `transactional`). The send is
+            suppressed (409 `consent_not_granted`) unless the recipient has an active `granted`
+            `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
 
     # ---- Lead ----
     Lead:

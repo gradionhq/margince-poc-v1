@@ -87,7 +87,7 @@ func (unreportableFault) Error() string { panic("the reconcile fault cannot desc
 // worker shutting down between them, arrive here identically.
 type cancellingSender struct{ cancel context.CancelFunc }
 
-func (s cancellingSender) Send(context.Context, connector.Auth, connector.OutboundMessage) (connector.SendReceipt, error) {
+func (s cancellingSender) SendEmail(context.Context, connector.Auth, connector.EmailMessage) (connector.SendReceipt, error) {
 	s.cancel()
 	return connector.SendReceipt{ProviderMessageID: "gmsg-cancelled", RFC822MessageID: stampedIdentity}, nil
 }
@@ -380,5 +380,47 @@ func TestRecordSentKeepsTheReceiptWhenTheBreadcrumbItselfCannotBeWritten(t *test
 	// everything above it still reads back.
 	if n := e.reconcileFaults(t); n != 0 {
 		t.Errorf("%d reconcile-fault breadcrumbs, want 0 — the write this case makes fail must not have landed", n)
+	}
+}
+
+// The same obligation, on the transport that cannot fall back on a retry: when
+// the receipt itself cannot be written, the park that stands in for it carries
+// the provider's own message id. Nothing else in this installation holds that
+// id once the receipt write failed, and no later attempt can go and ask
+// Telegram for it — parked without it, the send log would record a message the
+// recipient is holding with no way to point at it.
+func TestParkTransmittedKeepsTheProvidersMessageId(t *testing.T) {
+	e := setupStore(t)
+	id := e.stageReply(t)
+
+	if err := e.store.ParkTransmitted(e.ctx, id, receiptUnrecordedReason, "9911"); err != nil {
+		t.Fatalf("ParkTransmitted: %v", err)
+	}
+
+	status, _, reason := e.deliveryRow(t, id)
+	if status != StatusParked {
+		t.Fatalf("status = %q, want parked", status)
+	}
+	if reason != receiptUnrecordedReason {
+		t.Errorf("reason = %q, want the receipt-unrecorded sentence", reason)
+	}
+	var providerMessageID *string
+	if err := e.owner.QueryRow(context.Background(),
+		`SELECT provider_message_id FROM comms_outbound WHERE id = $1`, id).Scan(&providerMessageID); err != nil {
+		t.Fatalf("reading the parked delivery back: %v", err)
+	}
+	if providerMessageID == nil || *providerMessageID != "9911" {
+		t.Errorf("provider_message_id = %v, want the id the provider handed back", providerMessageID)
+	}
+
+	// Terminal like every other close, so a redelivered job stops at Load
+	// instead of messaging the customer again.
+	if _, err := e.store.Load(e.ctx, id); !errors.Is(err, ErrTerminal) {
+		t.Fatalf("re-loading the parked delivery: %v, want ErrTerminal", err)
+	}
+	// And a stale attempt reaching it second is the benign no-op every guarded
+	// transition here reports, never a clobbered receipt.
+	if err := e.store.ParkTransmitted(e.ctx, id, receiptUnrecordedReason, "another-id"); !errors.Is(err, ErrTerminal) {
+		t.Fatalf("a second ParkTransmitted = %v, want ErrTerminal", err)
 	}
 }

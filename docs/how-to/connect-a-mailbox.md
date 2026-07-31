@@ -75,7 +75,7 @@ export MARGINCE_KEYVAULT_ROOT_KEY="$(openssl rand -base64 32)"  # base64 of exac
 export MARGINCE_PUBLIC_BASE_URL="http://localhost:8080"         # post-consent landing + default callback base
 # Optional — near-real-time Gmail (else it runs on the 2-minute sync poll):
 # export MARGINCE_GMAIL_PUBSUB_TOPIC="projects/<p>/topics/<t>"  # worker: enables push-watch
-# export MARGINCE_GMAIL_PUSH_TOKEN="$(openssl rand -hex 16)"    # api: enables POST /webhooks/gmail-push
+# export MARGINCE_GMAIL_PUSH_TOKEN="$(openssl rand -hex 16)"    # api: enables POST /webhooks/gmail
 ```
 
 Without the client id/secret + state key + public base URL, `/connectors/gmail/*` stays its declared

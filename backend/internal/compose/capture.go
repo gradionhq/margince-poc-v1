@@ -18,13 +18,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gcal"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/graph"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/imap"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/deployconfig"
@@ -116,6 +116,14 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 	// are per-connection, vault-sealed — so every capture-capable role
 	// carries it.
 	r.Register(imap.NewStanding())
+	// Telegram is registered on the same terms and for the same reason: a bot
+	// binding's token is per-connection and vault-sealed, so there is no
+	// deployment-wide app to configure. It is the registration that lets the send
+	// path resolve the workspace's bot at all — Registry.ChannelSenderFor
+	// type-asserts the message seam off this map, so an unregistered connector
+	// reads as "this installation has no Telegram integration" and parks every
+	// reply a rep writes.
+	r.Register(telegram.New(telegram.NewAPI(nil, "")))
 	return r
 }
 
@@ -125,6 +133,7 @@ func NewCaptureRegistry(pool *pgxpool.Pool, vault keyvault.Vault, cfg CaptureCon
 // registry above, and the site_lead accept effect (siteleadaccept.go),
 // which captures through the Sink directly without needing a registry.
 func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
+	ensurer := peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger()), log: cfg.logger()}
 	return capture.NewSink(pool).
 		WithStager(mergeStager{svc: approvals.NewService(pool)}).
 		// The RC-2 personal-mail exclusion gate runs in the ONE Sink before
@@ -136,13 +145,21 @@ func newCaptureSink(pool *pgxpool.Pool, cfg CaptureConfig) *capture.Sink {
 		// chokepoint — composed here so capture never imports people. The
 		// free-mail (CAP-PARAM-5) and transactional/ESP (CAP-PARAM-6, ADR-0072)
 		// gates decide which senders derive no company / no counterparty.
-		WithEnsurer(peopleEnsurer{store: people.NewStore(pool), enrich: newAutoEnrichTrigger(pool, cfg.logger())},
+		WithEnsurer(ensurer,
 			capture.NewFreemailList(cfg.FreemailExtra),
-			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever))
+			capture.NewTransactionalList(cfg.TransactionalExtra, cfg.TransactionalNever)).
+		// The channel twin of the line above (telegram-oa design §6.4): an
+		// inbound channel message reaches the SAME module through its own
+		// contract — one adapter serving two seams, so the two ensures cannot
+		// drift onto different dedupe implementations.
+		WithChannelEnsurer(ensurer)
 }
 
 // peopleEnsurer adapts the people module's auto-create engine onto
-// capture's resolver seam.
+// capture's resolver seams — the mail one and the channel one. Both land in the
+// same module because both must resolve through the same dedupe chokepoint; the
+// contracts differ because a mail counterparty is named by an address and a
+// channel counterparty by a provider identity.
 type peopleEnsurer struct {
 	store *people.Store
 	// enrich queues the web dossier for a company this ensure just minted. It
@@ -150,6 +167,10 @@ type peopleEnsurer struct {
 	// website reads exist — the seam it owns says "make the counterparty real",
 	// and what a new company is then worth is the composition's business.
 	enrich *autoEnrichTrigger
+	// log reports a failed identity-review enqueue (raiseIdentityConflict) —
+	// the one fault on this path that must never become a returned error,
+	// because that would fail the capture that found it.
+	log *slog.Logger
 }
 
 func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.EnsureRequest) (capture.EnsureOutcome, error) {
@@ -179,6 +200,53 @@ func (p peopleEnsurer) EnsureCounterparty(ctx context.Context, in capture.Ensure
 		p.enrich.organizationCaptured(ctx, *res.OrganizationID, in.Domain)
 	}
 	return capture.EnsureOutcome{PersonCreated: res.PersonCreated, OrganizationCreated: res.OrgCreated}, nil
+}
+
+// EnsureChannelCounterparty is the same adaptation for an inbound channel
+// message (telegram-oa design §6.4). No company is derived and so no web
+// dossier is queued: a channel identity carries no domain, and there is nothing
+// for the enrich trigger to read a website from.
+func (p peopleEnsurer) EnsureChannelCounterparty(ctx context.Context, in capture.EnsureChannelRequest) (capture.EnsureOutcome, error) {
+	res, err := p.store.EnsureChannelCounterparty(ctx, people.EnsureChannelCounterpartyInput{
+		Identity:    in.Identity,
+		DisplayName: in.DisplayName,
+		ActivityID:  ids.From[ids.ActivityKind](in.ActivityID),
+		Source:      in.Source,
+		CapturedBy:  in.CapturedBy,
+	})
+	if errors.Is(err, people.ErrCounterpartySuppressed) {
+		// A13 on the channel key: an erased subject stays dead — a deliberate
+		// no-op, not a fault for the reconcile queue, and nothing was created
+		// to count.
+		return capture.EnsureOutcome{}, nil
+	}
+	if err != nil {
+		return capture.EnsureOutcome{}, err
+	}
+	if res.Conflict != nil {
+		p.raiseIdentityConflict(ctx, *res.Conflict, in.Source, in.CapturedBy)
+	}
+	return capture.EnsureOutcome{PersonCreated: res.PersonCreated}, nil
+}
+
+// raiseIdentityConflict is the D8 identity-review half of routing (design
+// §7.3): the ensure above already routed the message deterministically and
+// wrote nothing onto the rival, so what remains is telling a human "these two
+// records may be one person." It runs in its own transaction (EnqueueIdentityConflict),
+// AFTER the ensure's own commit, and deliberately swallows nothing into
+// silence — a failure is logged with the pair and both lanes so it is
+// actionable — but never returns an error: the message that surfaced this
+// conflict is already on the timeline, and it must stay there even when this
+// write does not succeed. Every later message from the same conflicting
+// identity retries this call, and dedupequeue's own pair index absorbs the
+// repeat (EnqueueIdentityConflict's own contract), so a transient failure
+// here self-heals on the next message rather than needing a retry queue.
+func (p peopleEnsurer) raiseIdentityConflict(ctx context.Context, conflict people.LaneConflict, source, capturedBy string) {
+	if _, err := p.store.EnqueueIdentityConflict(ctx, conflict, source, capturedBy); err != nil {
+		p.log.ErrorContext(ctx, "capture: identity-conflict review failed to enqueue",
+			"routed_to", conflict.RoutedTo.String(), "routed_lane", conflict.RoutedLane,
+			"rival", conflict.Rival.String(), "rival_lane", conflict.RivalLane, "err", err)
+	}
 }
 
 // GmailConfig is the composed Gmail OAuth app for a deployment (RC-8): one app
@@ -363,14 +431,15 @@ func WithGraphCapture(c GraphConfig) Option {
 // in the option list) and a fully-configured app; absent any of those the
 // connector surface keeps its declared-but-unimplemented 501 by omission.
 //
-// It ALSO installs the outbound send-grant pre-flight (WithMailbox) over the
-// registry it builds, so this option governs part of the send path too: with
-// it, a user whose mailbox holds no send scope is refused at request time with
-// an actionable 422; without it that check is simply absent and the refusal
-// happens later, at transmission, where only an operator sees it. The
-// placement is not incidental — see the comment at the wiring below.
+// It ALSO re-installs the outbound send pre-flight (WithSendAuthority) over the
+// richer registry it builds here, upgrading the MAILBOX half of that check: a
+// user whose mailbox holds no send scope is refused at request time rather than
+// at transmission, where only an operator sees it. The CHANNEL half — a reply on
+// a channel this workspace bound no bot for — does not depend on this option;
+// WithKeyvault installs it unconditionally (comment below).
 func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
+		s.gmailAppConfigured = c.canSync() // the send pre-flight's fact, recorded before the gate below
 		// Without a vault the connect flow can't seal the refresh token, so
 		// mounting the endpoints would only fail at the callback — leave the
 		// surface its declared 501 instead. (WithKeyvault must precede this.)
@@ -388,17 +457,16 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 			publicBaseURL: c.PublicBaseURL,
 			apiBaseURL:    c.APIBaseURL,
 		}
-		// The send-grant pre-flight reads the registry the connect flow just
-		// wrote to — the same one, not a second construction: a mailbox the
-		// user connects here must be the mailbox the check asks about, and
-		// two registries could answer from different connector sets. A role
-		// without the Google app configured registers no gmail connector, so
-		// there is no grant to pre-flight and the check is absent by
-		// omission, exactly as the connect surface is.
-		WithMailbox(mailboxAuthority{
-			grants:   s.connectorHandlers.registry,
-			provider: activities.SendProvider,
-		})(s, pool)
+		// The send pre-flight reads the registry the connect flow just wrote to
+		// — the same one, not a second construction: a mailbox the user connects
+		// here must be the mailbox the check asks about. WithKeyvault already
+		// wired this same call over the plain registry before this option ran;
+		// re-wiring it here is NOT redundant, because this registry is a
+		// different, richer object (NewCaptureRegistryWithGmail) — without this
+		// line the mailbox half would keep answering off a registry with no
+		// Gmail connector. The channel half answers identically off either
+		// object: ChannelSendCapable is a pool query, not a connector lookup.
+		installSendPreflight(s, pool)
 	}
 }
 

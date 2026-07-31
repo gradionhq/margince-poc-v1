@@ -295,6 +295,10 @@ func (s *Store) ArchivePerson(ctx context.Context, id ids.PersonID) (crmcontract
 			`UPDATE person SET archived_at = $2 WHERE id = $1 AND archived_at IS NULL`,
 			`UPDATE person_email SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
 			`UPDATE person_phone SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
+			// A live channel identity under an archived Person would keep
+			// resolving inbound messages onto a record that has been
+			// soft-deleted; archived, the next message starts a fresh one.
+			`UPDATE person_channel_identity SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
 			`UPDATE relationship SET archived_at = $2 WHERE person_id = $1 AND archived_at IS NULL`,
 		} {
 			if _, err := tx.Exec(ctx, stmt, id, now); err != nil {

@@ -207,7 +207,7 @@ func TestSendEmailRefusesWhenTheMailboxHoldsNoSendGrant(t *testing.T) {
 	e := setupSend(t)
 	anchor := e.seedAnchor(t, "", "")
 	stager := &recordingStager{}
-	store := e.store(stubUnsubscribeLinker{}).WithMailbox(stubMailbox{capable: false})
+	store := e.store(stubUnsubscribeLinker{}).WithSendAuthority(&stubSendAuthority{capable: false})
 
 	_, err := store.SendEmail(e.as(principal.RowScopeAll), anchor, sendInput("transactional"), stubConsentGate{}, stager)
 	var refusal *MailboxNotSendCapableError
@@ -307,7 +307,7 @@ func TestSendEmailAnswersTheMailboxRefusalBeforeTheConsentGate(t *testing.T) {
 	anchor := e.seedAnchor(t, "", "")
 	stager := &recordingStager{}
 	gate := &recordingConsentGate{err: apperrors.ErrConsentNotGranted}
-	store := e.store(stubUnsubscribeLinker{}).WithMailbox(stubMailbox{capable: false})
+	store := e.store(stubUnsubscribeLinker{}).WithSendAuthority(&stubSendAuthority{capable: false})
 
 	_, err := store.SendEmail(e.as(principal.RowScopeAll), anchor, sendInput("transactional"), gate, stager)
 	var refusal *MailboxNotSendCapableError

@@ -156,7 +156,7 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 	// caller), each verified by its own mechanism inside the handler; mounted
 	// only when configured — the route is absent otherwise.
 	if srv.gmailPush != nil {
-		mux.Handle("/webhooks/gmail-push", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
+		mux.Handle("/webhooks/gmail", httpserver.Correlate(httpserver.AccessLog(log, srv.gmailPush)))
 	}
 	if srv.overlayWebhook != nil {
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))

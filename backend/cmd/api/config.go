@@ -63,7 +63,7 @@ func parseAPIFlags(args []string) (apiConfig, error) {
 	fs.StringVar(&cfg.publicBaseURL, "public-base-url", os.Getenv("MARGINCE_PUBLIC_BASE_URL"), "canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe); required to send marketing mail and for the Gmail/Graph OAuth callback")
 	fs.StringVar(&cfg.gmailClientID, "gmail-client-id", os.Getenv("MARGINCE_GMAIL_CLIENT_ID"), "Google OAuth client id for the Gmail capture connector; with the secret, state key and public-base-url, enables /connectors/gmail/*")
 	fs.StringVar(&cfg.gmailClientSecret, "gmail-client-secret", os.Getenv("MARGINCE_GMAIL_CLIENT_SECRET"), "Google OAuth client secret for the Gmail capture connector")
-	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail-push (empty = route absent)")
+	fs.StringVar(&cfg.gmailPushToken, "gmail-push-token", os.Getenv("MARGINCE_GMAIL_PUSH_TOKEN"), "shared secret on the Pub/Sub push subscription URL; enables POST /webhooks/gmail (empty = route absent)")
 	fs.StringVar(&cfg.gmailPushAudience, "gmail-push-audience", os.Getenv("MARGINCE_GMAIL_PUSH_AUDIENCE"), "OIDC audience the Pub/Sub push subscription mints tokens for (this endpoint's public URL); with --gmail-push-service-account, the push webhook also verifies Google's OIDC token")
 	fs.StringVar(&cfg.gmailPushSA, "gmail-push-service-account", os.Getenv("MARGINCE_GMAIL_PUSH_SERVICE_ACCOUNT"), "the Google service account email that signs Pub/Sub push OIDC tokens; verified as the token's email claim")
 	fs.StringVar(&cfg.gmailJWKSURL, "gmail-jwks-url", os.Getenv("MARGINCE_GMAIL_JWKS_URL"), "override Google's OIDC JWKS URL; test/dev only")

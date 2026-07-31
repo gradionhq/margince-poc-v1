@@ -117,6 +117,37 @@ var subjectOnlyDestroyable = `
 // a send inherits its anchor's organization and deal links, so mail on a held
 // deal's thread is the ordinary shape of an activity with no person link at
 // all — precisely the position a litigation hold protects.
+// unlinkedSubjectChannel is the channel twin of unlinkedSubjectMail, and it
+// exists for a sharper reason than symmetry. A channel activity carries NO
+// counterparty_email, so the mail arm cannot see it; and its person link is
+// written by a SEPARATE transaction after the capture commits, so an erasure
+// landing in that gap leaves an activity linked to nobody. Between them those
+// two facts mean a channel activity could be reachable by neither selector —
+// permanently, since the suppression row then guarantees the identity is never
+// recreated and no later erasure, subject-access or retention pass can find it.
+//
+// It matches on thread_key rather than a link, because thread_key IS the
+// account: the capture writes `provider:botID:accountID`, so the third segment
+// is the subject's own account id. Pairing it with source_system in one
+// composite key ($N holds `provider:account` strings) is what keeps the match
+// exact — a bare account-id comparison would be a numeric string match across
+// every provider, which is precisely the over-deletion this module refuses
+// elsewhere (an untyped id match is why ai_call_payload has no channel arm).
+//
+// The same NOT EXISTS exclusion as the mail arm applies: a row shared with
+// another person stays, because redacting it would erase a different subject's
+// record.
+var unlinkedSubjectChannel = `
+	SELECT c.id FROM activity c
+	WHERE c.source_system IS NOT NULL
+	  AND c.thread_key IS NOT NULL
+	  AND c.source_system || ':' || split_part(c.thread_key, ':', 3) = ANY($6)
+	  AND NOT EXISTS (
+	    SELECT 1 FROM activity_link o
+	    WHERE o.activity_id = c.id
+	      AND o.person_id IS NOT NULL AND o.person_id <> $1)` +
+	notTransitivelyHeld("c.id")
+
 var unlinkedSubjectMail = `
 	SELECT m.id FROM activity m
 	WHERE (m.counterparty_email = ANY($2)

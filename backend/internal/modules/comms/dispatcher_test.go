@@ -13,6 +13,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // The gates half of the dispatcher's spec: loading the delivery, resolving
@@ -192,7 +193,7 @@ func TestDispatchParksWhenNoConsentAuthorityIsWired(t *testing.T) {
 // observable to a caller with no rights.
 func TestDispatchChecksAuthorityBeforeConsent(t *testing.T) {
 	consulted := false
-	consent := consentFunc(func(context.Context, []string, string) error { consulted = true; return nil })
+	consent := consentFunc(func(context.Context, []connector.Recipient, string) error { consulted = true; return nil })
 	store := &fakeStore{delivery: liveDelivery()}
 	d := newTestDispatcher(store, fakeResolver{sender: &fakeSender{}, granted: []string{"readonly"}}, consent)
 

@@ -32,16 +32,24 @@ import (
 
 // The repeated storage vocabulary of this engine, named once.
 const (
-	evidenceFieldKey   = "field"
-	evidenceLeftKey    = "left_value"
-	evidenceRightKey   = "right_value"
-	evidenceScoreKey   = "score"
-	evidenceSignalKey  = "signal"
+	evidenceFieldKey  = "field"
+	evidenceLeftKey   = "left_value"
+	evidenceRightKey  = "right_value"
+	evidenceScoreKey  = "score"
+	evidenceSignalKey = "signal"
+	// The fuzzy tier's evidence signals. "collide" is observable downstream:
+	// the review queue renders the value as a row data attribute its
+	// stylesheet selects on, so the string reaches the UI even though the
+	// contract types the field as a bare string and nothing gates a rename.
+	evidenceSignalCollide  = "collide"
+	evidenceSignalOneSided = "one_sided"
+
 	entityPerson       = "person"
 	entityOrganization = "organization"
 	fieldFullName      = "full_name"
 	fieldDisplayName   = "display_name"
 	fieldEmail         = "email"
+	fieldPhone         = "phone"
 	emailTypeWork      = "work"
 )
 
@@ -128,7 +136,7 @@ func (s *Store) EnsureCounterpartyTx(ctx context.Context, tx pgx.Tx, in EnsureCo
 			return EnsureCounterpartyResult{}, err
 		}
 	}
-	if err := s.linkActivityToPerson(ctx, tx, in, res.PersonID); err != nil {
+	if err := s.linkActivityToPerson(ctx, tx, in.ActivityID, res.PersonID); err != nil {
 		return EnsureCounterpartyResult{}, err
 	}
 	return res, nil
@@ -182,8 +190,8 @@ func (s *Store) ensurePerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpar
 			return fmt.Errorf("people: reading dedupe incumbent: %w", err)
 		}
 		evidence := []map[string]any{
-			{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: "collide", evidenceScoreKey: match.Confidence},
-			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: "one_sided"},
+			{evidenceFieldKey: fieldFullName, evidenceLeftKey: name, evidenceRightKey: incumbentName, evidenceSignalKey: evidenceSignalCollide, evidenceScoreKey: match.Confidence},
+			{evidenceFieldKey: fieldEmail, evidenceLeftKey: in.Email, evidenceRightKey: nil, evidenceSignalKey: evidenceSignalOneSided},
 		}
 		recorded, err := recordDedupeCandidate(ctx, tx, entityPerson, id.UUID, match.PersonID.UUID, match.Confidence,
 			evidence, in.Source, in.CapturedBy)
@@ -261,14 +269,37 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 
 // linkActivityToPerson attaches the captured activity to the person —
 // person-only by decision (the org rolls up through employment, a direct
-// org link would double-count the same mail).
-func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, in EnsureCounterpartyInput, personID ids.PersonID) error {
+// org link would double-count the same mail). Shared with the channel ensure,
+// which links the same way: it takes the activity id rather than either
+// path's input so neither has to know the other's shape.
+//
+// Being the ONE point both paths reach, it is also where the person is settled
+// against a merge. Every step above it — the dedupe ladder, the identity bind,
+// the handle refresh — named its person from a read that a merge can invalidate
+// before this insert runs, and no reader of activity_link walks merged_into_id,
+// so a link written to the retired id leaves the message on a record nobody
+// opens. Resolving it here covers both callers at once, and it is the last read
+// before the write, so nothing can overtake it.
+func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, personID ids.PersonID) error {
+	// FOR UPDATE serializes this behind the merge's own LockPair, so the
+	// redirect this reads is the committed one; one hop is enough because a
+	// merge repoints its source's redirect rather than chaining (merge.go).
+	// An archived survivor is still the right subject: the message happened,
+	// and this call's caller logs faults rather than failing the capture, so
+	// refusing here would drop the link silently rather than loudly.
+	var canonical ids.PersonID
+	if err := tx.QueryRow(ctx,
+		`SELECT coalesce(merged_into_id, id) FROM person WHERE id = $1 FOR UPDATE`,
+		personID).Scan(&canonical); err != nil {
+		return fmt.Errorf("people: resolving the person this activity belongs to: %w", err)
+	}
+	personID = canonical
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 		SELECT $1, $2, 'person', $3
 		WHERE NOT EXISTS (
 			SELECT 1 FROM activity_link WHERE activity_id = $2 AND entity_type = 'person' AND person_id = $3)`,
-		workspaceID(ctx), in.ActivityID, personID); err != nil {
+		workspaceID(ctx), activityID, personID); err != nil {
 		return fmt.Errorf("people: linking activity to person: %w", err)
 	}
 	return nil
@@ -320,7 +351,16 @@ func counterpartyName(displayName, email string) string {
 // address on a DIFFERENT domain ("ceo@acme.com <attacker@evil.example>").
 // Flagged rows carry quarantined_at for the review surface; capture still
 // records them — hiding suspicious mail would be worse than labeling it.
+//
+// Both tells are statements ABOUT the sender's mail domain, so with no domain
+// there is nothing for either to contradict and the answer is no. Without that
+// floor the second tell compares an embedded address against "" and matches
+// every display name that merely contains an "@" — quarantining a record for a
+// reason that cannot apply to it.
 func quarantineSuspect(displayName, domain string) bool {
+	if domain == "" {
+		return false
+	}
 	if strings.HasPrefix(domain, "xn--") || strings.Contains(domain, ".xn--") {
 		return true
 	}

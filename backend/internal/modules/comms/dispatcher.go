@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -134,10 +135,13 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Resolve first, because the authority gate reads the scopes the provider
 	// says this grant holds right now — not a copy stored when it was granted.
-	sender, auth, granted, err := d.resolver.Resolve(ctx, del.UserID, del.Provider)
+	// resolveSeam is the ONE branch on provider class (sendseam.go); everything
+	// from here down is one path for both transports.
+	seam, err := d.resolveSeam(ctx, del)
 	switch {
 	case errors.Is(err, ErrNoMailbox):
-		return d.park(ctx, del.ID, "no mailbox is connected for this provider; connect one to enable sending")
+		return d.park(ctx, del.ID, fmt.Sprintf(
+			"nothing is connected for %s to transmit through; connect it to enable sending", del.Provider))
 	case errors.Is(err, ErrCannotSend):
 		return d.park(ctx, del.ID, fmt.Sprintf("the %s connection cannot transmit messages", del.Provider))
 	case errors.Is(err, ErrProviderNotConfigured):
@@ -150,12 +154,8 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 
 	// Gate: authority. It refuses first so that a caller with no rights at
 	// all learns nothing about the recipients' consent state.
-	scope, sends := SendScopeFor(del.Provider)
-	if !sends {
-		return d.park(ctx, del.ID, fmt.Sprintf("provider %q cannot send messages", del.Provider))
-	}
-	if !slices.Contains(granted, scope) {
-		return d.park(ctx, del.ID, "this mailbox connection was not granted the send scope; reconnect it to enable sending")
+	if outcome, wait, err := d.gateSendAuthority(ctx, del, seam.granted); outcome != outcomeUndecided {
+		return outcome, wait, err
 	}
 
 	// Gate: the sender's seat, which is authority-class and therefore belongs
@@ -189,7 +189,36 @@ func (d *Dispatcher) DispatchWithWait(ctx context.Context, id ids.UUID) (Outcome
 		return d.park(ctx, del.ID, fmt.Sprintf("the retry ladder is exhausted after %d attempts", del.Attempts))
 	}
 
-	return d.transmit(ctx, del, sender, auth)
+	return d.transmit(ctx, del, seam)
+}
+
+// gateSendAuthority refuses a delivery this installation's own knowledge of the
+// provider says can never leave, and returns outcomeUndecided when it may.
+//
+// It reads the PROVIDER's answer about a credential — granted is the scope list
+// the resolver just read from the provider, not a copy stored when the grant was
+// made — and it applies the scope check only where the provider HAS a scope to
+// check. A credential carrying no OAuth grant is its own authority: the resolver
+// either produced one or reported that it could not, so demanding a scope of it
+// would park every message the provider can actually send, with a reason naming
+// a connector limitation that does not exist.
+//
+// Both refusals PARK. Neither a provider this installation cannot transmit
+// through nor a connection the provider never granted the send scope is repaired
+// by waiting; the scope one names reconnecting, which is the act that repairs it.
+func (d *Dispatcher) gateSendAuthority(ctx context.Context, del Delivery, granted []string) (Outcome, time.Duration, error) {
+	switch scope, capability := SendScopeFor(del.Provider); capability {
+	case CannotSend:
+		return d.park(ctx, del.ID, fmt.Sprintf("provider %q cannot send messages", del.Provider))
+	case SendsWithScope:
+		if !slices.Contains(granted, scope) {
+			return d.park(ctx, del.ID, "this mailbox connection was not granted the send scope; reconnect it to enable sending")
+		}
+	case SendsWithoutScope:
+		// Nothing to intersect: the resolved credential is the whole authority,
+		// and the seat gate is what still binds the human who lent it.
+	}
+	return outcomeUndecided, 0, nil
 }
 
 // gateSeat refuses a delivery whose sender is no longer a live,
@@ -227,10 +256,12 @@ func (d *Dispatcher) gateConsent(ctx context.Context, del Delivery) (Outcome, ti
 		// quietly never goes out.
 		return d.park(ctx, del.ID, "no consent authority is configured on this send path")
 	}
-	// EVERY addressee is asked about, not just the To line: a Cc'd person is
-	// owed the same suppression, and this call is the only one that runs after
-	// they could have withdrawn.
-	switch err := d.consent.RequireGrantedForEmails(ctx, addressees(del), del.ConsentPurpose); {
+	// EVERY subject this delivery reaches is asked about, not just the To line:
+	// a Cc'd person is owed the same suppression, and this call is the only one
+	// that runs after they could have withdrawn. consentRecipients is what makes
+	// the question shape-agnostic — mail's addressees and a channel's single
+	// recipient arrive here as the same list.
+	switch err := d.consent.RequireGrantedForRecipients(ctx, consentRecipients(del), del.ConsentPurpose); {
 	case errors.Is(err, apperrors.ErrConsentNotGranted):
 		// An answer: consent is absent, and no amount of waiting brings it
 		// back.
@@ -270,23 +301,16 @@ func (d *Dispatcher) pace(ctx context.Context, del Delivery) (Outcome, time.Dura
 	return outcomeUndecided, 0, nil
 }
 
-// transmit hands the message to the provider and records what came back.
-func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connector.Sender, auth connector.Auth) (Outcome, time.Duration, error) {
-	// Every staged field travels: a retry must rebuild an identical message,
-	// and a field dropped here is a header silently missing from real mail.
-	// Attempt counts the transmissions BEFORE this one — Load already counted
-	// this attempt — so a first transmission arrives as 0 and the connector's
-	// prior-send lookup runs only on a real retry.
-	receipt, err := sender.Send(ctx, auth, connector.OutboundMessage{
-		To: del.Recipients, Cc: del.Cc,
-		Subject: del.Subject, Body: del.Body,
-		MessageID:           del.MessageID,
-		InReplyTo:           del.InReplyTo,
-		References:          del.References,
-		ListUnsubscribe:     del.ListUnsubscribe,
-		ListUnsubscribePost: rfc8058Post(del.ListUnsubscribe),
-		Attempt:             max(del.Attempts-1, 0),
-	})
+// transmit hands the message to the provider and records what came back. The
+// seam already carries the shape-specific half (sendseam.go), so what follows is
+// the same for a mail message and a channel one.
+func (d *Dispatcher) transmit(ctx context.Context, del Delivery, seam sendSeam) (Outcome, time.Duration, error) {
+	// At-most-once, for the seams that need it: a transmission whose outcome was
+	// never learned is never attempted a second time.
+	if outcome, wait, err := d.guardAtMostOnce(ctx, del, seam); outcome != outcomeUndecided {
+		return outcome, wait, err
+	}
+	receipt, err := seam.transmit(ctx)
 	if err != nil {
 		return d.classifySendFailure(ctx, del, err)
 	}
@@ -297,6 +321,13 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connecto
 			// receipt; overwriting it would replace a real one.
 			return OutcomeSkipped, 0, nil
 		}
+		if !seam.detectsPriorSend {
+			return d.parkTransmitted(ctx, del, receipt, err)
+		}
+		// Mail goes back on the ladder: the next attempt's prior-send lookup
+		// finds the message at the provider and answers from it rather than
+		// transmitting a second copy, so the receipt is recorded late instead of
+		// lost.
 		return OutcomeRetry, 0, fmt.Errorf("comms: recording the send receipt: %w", err)
 	}
 
@@ -320,18 +351,86 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, sender connecto
 	return OutcomeSent, 0, nil
 }
 
+// receiptUnrecordedReason is what a delivery the provider ACCEPTED records when
+// its receipt could not be written. It is the opposite fact to
+// unknownOutcomeReason and must never be confused with it: nothing here is
+// uncertain — the message went — so the sentence tells the operator the one
+// thing they must not do about it.
+const receiptUnrecordedReason = "the provider accepted this message and its receipt could not be recorded: " +
+	"it WAS sent, and the provider's own message id is kept on this delivery. " +
+	"Do not send it again — the recipient already has it"
+
+// parkTransmitted closes a delivery whose message is already with the provider
+// and whose receipt this attempt could not write.
+//
+// It exists for the seams whose retries cannot detect a prior send. For those,
+// returning the attempt to the ladder is not a delay but a LOSS: the next
+// attempt reads the in-flight marker, learns nothing about what happened, and
+// parks the delivery as an outcome nobody knows — a message the customer is
+// holding, durably recorded as never sent. Parking here instead states what is
+// definitely true and keeps the provider's message id, which after a failed
+// receipt is the only handle left on that message.
+func (d *Dispatcher) parkTransmitted(ctx context.Context, del Delivery, receipt connector.SendReceipt, cause error) (Outcome, time.Duration, error) {
+	if err := d.store.ParkTransmitted(ctx, del.ID, receiptUnrecordedReason, receipt.ProviderMessageID); err != nil {
+		if errors.Is(err, ErrTerminal) {
+			return OutcomeSkipped, 0, nil
+		}
+		// Nothing durable records this send now. The row stays pending with its
+		// marker standing, so the next attempt parks on the uncertainty rather
+		// than messaging the customer twice, and both causes reach the job log.
+		return OutcomeRetry, 0, errors.Join(cause, err)
+	}
+	// The cause goes to the LOG rather than back to the caller. The delivery is
+	// terminal — a returned error would fail a job whose work is done and put a
+	// closed row back on the ladder — and the reason column may not carry a
+	// database fault's own text (faultReason), so this is where an operator's
+	// diagnosis lives.
+	slog.ErrorContext(ctx, "comms: a transmitted message's receipt could not be recorded; the delivery is parked against it",
+		"err", cause, "delivery_id", del.ID, "provider_message_id", receipt.ProviderMessageID)
+	return OutcomeParked, 0, nil
+}
+
 // classifySendFailure turns a provider failure into a disposition using only
 // the shared sentinel vocabulary, so the provider's own text stops at the
 // connector boundary.
 //
-// There is deliberately no permanent-rejection branch. The Gmail connector
-// maps every non-throttled, non-2xx response to ErrUnreachable, so a refused
-// recipient is indistinguishable from an outage at this seam; a permanently
-// rejected recipient therefore burns the whole retry ladder before its job
-// exhausts and the delivery parks.
+// A permanent rejection is recognized only where the SEAM can prove it:
+// ErrRecipientUnreachable is reported by a provider that answers a refused
+// recipient differently from a refused credential, and it parks at once. The
+// Gmail connector cannot — it maps every non-throttled, non-2xx response to
+// ErrUnreachable, so a refused mail recipient is indistinguishable from an
+// outage there and still burns the whole retry ladder before its job exhausts
+// and the delivery parks.
 func (d *Dispatcher) classifySendFailure(ctx context.Context, del Delivery, err error) (Outcome, time.Duration, error) {
+	if errors.Is(err, connector.ErrSendOutcomeUnknown) {
+		// NEVER retried, and no shape test is needed to decide that: only a seam
+		// that cannot discover a prior send reports this class, and one that can
+		// is obliged to go and find out instead. The in-flight marker
+		// deliberately STAYS — it is the durable record that a message may
+		// already be with the customer, and the park reason is the only honest
+		// thing to tell the operator reading the row.
+		return d.park(ctx, del.ID, unknownOutcomeReason)
+	}
+	// Everything below is a DEFINITE answer from the provider, which proves
+	// nothing was transmitted — so the in-flight marker is retracted before the
+	// delivery goes back on the ladder. It is a no-op for a seam that never set
+	// one, which is what keeps this a single rule rather than a second branch on
+	// provider class.
+	if clearErr := d.store.ClearInFlight(ctx, del.ID); clearErr != nil && !errors.Is(clearErr, ErrTerminal) {
+		// The marker is still standing, so the next attempt will park rather
+		// than re-send. Both causes go back for the job log, and the delivery
+		// errs toward an unsent message — the direction this whole path is built
+		// to err in.
+		return d.retry(ctx, del.ID, errors.Join(err, clearErr))
+	}
 	if errors.Is(err, connector.ErrAuthRejected) {
-		return d.park(ctx, del.ID, "the provider rejected this mailbox's credential; reconnect the mailbox to resume sending")
+		return d.park(ctx, del.ID, "the provider rejected the credential this delivery transmits through; reconnect it to resume sending")
+	}
+	// Checked alongside the credential class, not after the ladder: the two are
+	// the pair an operator most easily confuses, and the whole value of telling
+	// them apart is that each row says which one it was.
+	if errors.Is(err, connector.ErrRecipientUnreachable) {
+		return d.park(ctx, del.ID, unreachableRecipientReason)
 	}
 	// Honour the provider's own interval when it named one: it knows when it
 	// will accept the next message, and guessing shorter earns another

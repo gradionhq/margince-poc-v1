@@ -142,11 +142,11 @@ runs the background sync.
 | `--graph-client-id` / `--graph-client-secret` | `MARGINCE_GRAPH_CLIENT_ID` / `…_SECRET` | api + worker | the Microsoft (Entra) app; same enablement shape for `/connectors/graph/*` |
 | `--graph-tenant` | `MARGINCE_GRAPH_TENANT` | api + worker | Microsoft identity tenant (default `common` — any organization) |
 | `--connector-state-key` | `MARGINCE_CONNECTOR_STATE_KEY` | api | HMAC key (≥32 bytes) signing the OAuth connect `state`; required for both connect flows |
-| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev) |
+| `--api-base-url` | `MARGINCE_API_BASE_URL` | api | the api's externally-reachable base for the OAuth callback `redirect_uri`; defaults to `--public-base-url`, set only when api and SPA are on different origins (e.g. dev). Messaging channels need NO public address of their own — Telegram ingress long-polls, so nothing is ever told where to reach this installation |
 | `--gmail-sync-interval` | — | worker | Gmail incremental-sync poll interval (default `2m`) |
 | `--gmail-pubsub-topic` | `MARGINCE_GMAIL_PUBSUB_TOPIC` | worker | Gmail Pub/Sub topic (`projects/<p>/topics/<t>`); enables the push-watch register+renew job (empty = poll only) |
 | `--gmail-watch-interval` / `--gmail-watch-renew-within` | — | worker | push-watch maintenance scan (`6h`) / renew this far ahead of the 7-day expiry (`48h`) |
-| `--gmail-push-token` | `MARGINCE_GMAIL_PUSH_TOKEN` | api | shared secret on the Pub/Sub push subscription URL; enables `POST /webhooks/gmail-push` (empty = route absent) |
+| `--gmail-push-token` | `MARGINCE_GMAIL_PUSH_TOKEN` | api | shared secret on the Pub/Sub push subscription URL; enables `POST /webhooks/gmail` (empty = route absent) |
 | `--gmail-push-audience` / `--gmail-push-service-account` | `MARGINCE_GMAIL_PUSH_AUDIENCE` / `…_SERVICE_ACCOUNT` | api | OIDC audience + signing service-account email; set both and the push webhook also verifies Google's OIDC token |
 | `--gmail-jwks-url` | `MARGINCE_GMAIL_JWKS_URL` | api | override Google's OIDC JWKS URL; test/dev only |
 

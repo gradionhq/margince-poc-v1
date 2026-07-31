@@ -9,7 +9,7 @@
 // outbound email is the activity row, which the activities module writes and
 // owns; comms holds only the state needed to get that message out and to say
 // honestly why it has not. Provider I/O lives in whichever connector implements
-// ports/connector.Sender — comms never speaks to Google.
+// ports/connector.EmailSender — comms never speaks to Google.
 //
 // Tables owned: comms_outbound.
 package comms
