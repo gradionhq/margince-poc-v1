@@ -26,76 +26,51 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Session pickup — 2026-07-30
 
-**The company-view rebuild is 6 of 7 PRs in.** #309 (composite read), #313
-(one-page view), #315 (evidence mark), #317 (account brief), #319 (next-step
-suggestions + Ask Margince) and #322 (the connections card) are merged. **PR 7
-is the last one in the arc.**
+**Every company now wears its face (#330).** The A55 logo lane resolves a
+company's mark from the site the deep read already crawls — og:image, then the
+declared icons, then `/favicon.ico` — normalizes it once to a square PNG at
+store time, and renders it on the company header, the company list, and the
+connections graph with the deterministic monogram as the floor. `worker
+siteread <url>` prints the chosen mark and every candidate it passed over with
+the reason; that is the loop for tuning it against a real site.
 
-The connections card is `GET /organizations/{id}/graph` in
-`internal/compose/org360/graph*.go` plus `frontend/src/screens/connections.tsx`,
-wired into the company rail between the people and deals cards. Its four review
-passes are worth reading before you extend it — the three decisions and three
-rules below all came out of them.
+Three things it left open, in priority order:
 
-**One class of bug the review round found, worth remembering.** The graph's
-person reads were gated by the ORDER its group list ran in: `readSeats` and
-`readRouteIn` inferred "the caller may read people" from whether the contacts
-group had already reported itself omitted. Reordering a slice literal would have
-turned a gated read into an ungated one. Every read now asks `auth.Require`
-itself and `signals.RouteInEdges` carries the person gate — which also closed
-the same gap in `Warmth`, which had only ever demanded `signal:read`. If you add
-a group to this read, gate it inside the read, not from the omitted set.
+- **Search hits carry no logo.** `SearchResult` would need `logo_url`, and the
+  search module cannot import people to spell the URL. That wants a
+  compose-injected seam, not a second spelling of the same path.
+- **Nothing purges a logo object**, because nothing hard-deletes an
+  organization row. The key is on the row (`organization.logo_object_key`), so
+  the sweep is there to write the day organizations gain a hard delete or the
+  retention evaluator reaches them.
+- **The reclaim of a superseded logo can race a reader** that took the old key
+  microseconds earlier: one monogram on one render, self-healing next load.
+  The offer-PDF path makes the same trade.
 
-**Three decisions PR 6 made that the scope line left open.** Read these before
-extending the card.
+Two deliberate spec deviations to reconcile upstream (P3): one stored 300×300
+variant instead of A55's sm/md/lg, and transparency preserved instead of
+background-flatten (the render chip supplies the backdrop, and a flattened
+white one breaks the dark theme).
 
-- **`related_organizations` is NOT an omittable group.** Parent, children and
-  partner companies need no grant beyond the organization read the endpoint
-  already demands, so they are row-scope pruned like every other node and can
-  never be withheld wholesale. Declaring a value nothing can emit would be
-  vocabulary a client had to handle and would never see.
-- **The intro path is reported only when its contact is already a node.** The
-  ranking is the warm room's own — `signals.RankRouteIn`, extracted from
-  `Warmth` in this PR so both callers share one spelling — so the card can never
-  name a DIFFERENT person than `GET /signals/{id}/intro-path`. When the route-in
-  contact's only seat is on a deal the card did not draw, the card says nothing
-  rather than promoting the next contact it happens to have.
-- **Stakeholder contacts have no cap of their own,** so `dropped_count` does not
-  speak for them. They arrive with the deals already capped, which bounds them.
-  A deal with an implausible number of stakeholders would grow the payload; if
-  that ever shows up, cap them and add to the count.
-- **A cap must count what the cap MEANS.** `graphOrgCap` is ten companies, but
-  the read first bounded itself by rows — and one company can attach many ways
-  (parent, reseller, referrer, co-seller, each recordable more than once), so it
-  filled the budget and starved the others. The cap now lives in the query and
-  picks distinct companies. Same trap waits for any group whose display unit is
-  not its row unit.
-- **The graph read is proportional to the account, on purpose.** The caps bound
-  the rows returned and the per-contact §4 fold — the part that grows fast — but
-  an exact `dropped_count` needs a count over each group's whole membership, so
-  the count is one index range scan per account. That trade is stated in the
-  contract rather than assumed; if it ever needs to change, the response shape
-  changes with it (a floor plus a flag), not the count quietly. The contract said
-  the opposite for two commits — #326 fixes that — because the correction went
-  into a Go comment while the published description kept the promise. A gap
-  documented where the reader cannot see it is not documented.
-- **Every group total rides the same statement as its rows.** `WithWorkspaceTx`
-  is Read Committed, so a total read in a second statement can be smaller than
-  the rows the first one returned, and `dropped_count` then goes negative
-  against the contract's own `minimum: 0`. If you add a capped group, count it
-  with `count(*) OVER ()` or a CTE, never with a follow-up `SELECT count(*)`.
+Read `internal/platform/imagenorm/svg.go` before touching the vector path: a
+self-referencing `<use>` in a favicon exhausts the goroutine stack, and a Go
+stack overflow is fatal — it kills the worker process, and River's panic
+recovery cannot catch it. `<use>` is refused outright for that reason.
 
-**Graph level 2 is still deferred.** The card does not replace
-`RecordContextPanel` (that panel is on the deal, person and lead screens, never
-on the company view — PR 6's scope line assumed otherwise).
+**The company-view rebuild is finished.** #309 (composite read), #313 (one-page
+view), #315 (evidence mark), #317 (account brief), #319 (next-step suggestions +
+Ask Margince) and #322 (the connections card, plus #326 correcting its contract)
+are all merged. There is no further PR in the arc; graph level 2 is deferred and
+unspecified. What the arc decided, and the four rules its review rounds
+produced, are in [STATUS-ARCHIVE.md](STATUS-ARCHIVE.md) — read them before
+extending the company view.
 
-**Two things worth knowing before touching the suggestion code.** The stall
-episode's monotonicity constraint is written at `stalledDeal.episode()` in
+The open questions the arc deliberately left are the bullets below: which deal
+edits count as "working" a stalled deal, the O(N) suggestion read, the uncapped
+`/ask` model call, and the `org_ask` corpus gap. The stall episode's
+monotonicity constraint is written at `stalledDeal.episode()` in
 `internal/compose/org360/suggestionreads.go`, with both rejected shapes and why
-each fails; changing what re-arms a dismissal means reading that first. And the
-open questions this arc deliberately did not answer alone are the STATUS bullets
-below — which deal edits count as "working" it, the O(N) suggestion read, the
-uncapped `/ask` model call, and the `org_ask` corpus gap.
+each fails; changing what re-arms a dismissal means reading that first.
 
 ## Pick up here
 

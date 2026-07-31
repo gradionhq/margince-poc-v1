@@ -31,6 +31,8 @@ type fakeSite struct {
 	sitemapCalls  int
 	pageErrors    map[string][]error
 	pageCalls     map[string]int
+	// assets are the site's binary assets by URL (logo candidates).
+	assets map[string][]byte
 	// mu guards fetched/onFetch: the production crawler fetches waves
 	// concurrently even though tests pin the wave to 1.
 	mu      sync.Mutex
@@ -42,6 +44,10 @@ type fakeSitePage struct {
 	text   string
 	links  []string
 	robots bool
+	// ogImage and icons are the visual identity this page declares, the
+	// input the logo resolve ranks over.
+	ogImage string
+	icons   []webread.IconRef
 }
 
 func (s *fakeSite) FetchPage(_ context.Context, rawURL string) (webread.Page, error) {
@@ -71,7 +77,24 @@ func (s *fakeSite) FetchPage(_ context.Context, rawURL string) (webread.Page, er
 	if page.robots {
 		return webread.Page{}, webread.ErrRobotsDisallowed
 	}
-	return webread.Page{URL: rawURL, Text: page.text, Links: page.links, Bytes: len(page.text)}, nil
+	return webread.Page{
+		URL: rawURL, Text: page.text, Links: page.links, Bytes: len(page.text),
+		OGImage: page.ogImage, Icons: page.icons,
+	}, nil
+}
+
+// FetchAsset serves the site's binary assets, so a test can drive the logo
+// resolve over the same in-memory site the crawl walks. An asset the fixture
+// never declared answers like a real 404 does.
+func (s *fakeSite) FetchAsset(_ context.Context, rawURL string) ([]byte, string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.fetched = append(s.fetched, rawURL)
+	asset, ok := s.assets[rawURL]
+	if !ok {
+		return nil, "", errors.New("fake site: asset answered 404")
+	}
+	return asset, "image/png", nil
 }
 
 func (s *fakeSite) FetchSitemap(context.Context, string) ([]string, error) {

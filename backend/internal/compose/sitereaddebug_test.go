@@ -11,13 +11,21 @@ package compose
 import (
 	"context"
 	"testing"
+
+	"github.com/gradionhq/margince/backend/internal/platform/webread"
 )
 
 func TestSiteReadDebugReportsPagesLanesAndProposal(t *testing.T) {
-	site := &fakeSite{pages: map[string]fakeSitePage{
-		seedURL:                {text: readable("Acme home.") + " Onboard your team in minutes, not weeks with our rollout playbooks."},
-		seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart."},
-	}}
+	site := &fakeSite{
+		pages: map[string]fakeSitePage{
+			seedURL: {
+				text:  readable("Acme home.") + " Onboard your team in minutes, not weeks with our rollout playbooks.",
+				icons: []webread.IconRef{{URL: seedURL + "/touch.png", Rel: webread.RelAppleTouchIcon, Sizes: "180x180"}},
+			},
+			seedURL + "/impressum": {text: readable("Impressum.") + " Acme Robotics GmbH, Werkstr. 1, 70435 Stuttgart."},
+		},
+		assets: map[string][]byte{seedURL + "/touch.png": logoFixture(t, 180, 180)},
+	}
 	brain := laneFake{
 		// Excerpt ids are global over the rank-sorted pages: the imprint
 		// leads, so s0 is its passage and s1 the home page's.
@@ -35,7 +43,7 @@ func TestSiteReadDebugReportsPagesLanesAndProposal(t *testing.T) {
 			SeedURL: seedURL, Brain: brain, FactBrain: brain, IncludePageText: true,
 			Progress: func(phase string, done, total int) { phases = append(phases, phase) },
 		},
-		testSiteCrawler(site), nil)
+		testSiteCrawler(site), nil, site)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
 	}
@@ -51,6 +59,18 @@ func TestSiteReadDebugReportsPagesLanesAndProposal(t *testing.T) {
 	}
 	if len(phases) < 2 {
 		t.Fatalf("progress must fire for crawl and pages: %v", phases)
+	}
+
+	// The logo lane runs off the seed page's declarations and reports what it
+	// chose, so the debug loop can be used to tune the chain against a real site.
+	if report.Logo.SourceURL != seedURL+"/touch.png" {
+		t.Fatalf("logo resolved to %q, want the declared apple-touch-icon", report.Logo.SourceURL)
+	}
+	if report.Logo.SourceSize != "180x180" || report.Logo.StoredBytes == 0 {
+		t.Fatalf("the report must state the source size and the stored size: %+v", report.Logo)
+	}
+	if len(report.Logo.Candidates) != 1 || report.Logo.Candidates[0].Outcome != logoOutcomeChosen {
+		t.Fatalf("candidates = %+v, want the chosen icon", report.Logo.Candidates)
 	}
 
 	byName := map[string]DebugField{}
@@ -99,7 +119,7 @@ func TestSiteReadDebugEmptyLanesReportCleanWithNoLaneError(t *testing.T) {
 
 	report, err := siteReadDebugRun(context.Background(),
 		SiteReadDebugOptions{SeedURL: seedURL, Brain: brain, FactBrain: brain},
-		testSiteCrawler(site), nil)
+		testSiteCrawler(site), nil, nil)
 	if err != nil {
 		t.Fatalf("siteReadDebugRun: %v", err)
 	}

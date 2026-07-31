@@ -6,6 +6,7 @@ import type { components } from "../api/schema";
 import { ifMatch } from "../api/version";
 import { navigate } from "../app/router";
 import {
+  Avatar,
   Badge,
   Button,
   DataTable,
@@ -340,7 +341,8 @@ export function CompaniesScreen() {
                 key: "name",
                 header: t("org.name"),
                 render: (org: Organization) => (
-                  <span>
+                  <span className="avatar-row">
+                    <Avatar name={org.display_name} src={org.logo_url} tinted />
                     <strong>{org.display_name}</strong>
                     {org.archived_at && (
                       <Badge tone="warn">{t("record.archived")}</Badge>
@@ -1314,6 +1316,7 @@ function CompanyShell({
   return (
     <RecordView
       name={org.display_name}
+      avatarSrc={org.logo_url}
       subtitle={companySubtitle(org)}
       zone={RECORD_ZONE}
       badges={<CompanyActionBadges org={org} />}
@@ -1440,6 +1443,7 @@ function CompanyOverview({
   return (
     <RecordView
       name={org.display_name}
+      avatarSrc={org.logo_url}
       subtitle={companySubtitle(org)}
       zone={RECORD_ZONE}
       badges={<CompanyActionBadges org={org} />}

@@ -10317,8 +10317,17 @@ type Organization struct {
 	Id             openapi_types.UUID    `json:"id"`
 	Industry       *string               `json:"industry,omitempty"`
 	LegalName      *string               `json:"legal_name,omitempty"`
-	MergedIntoId   *openapi_types.UUID   `json:"merged_into_id,omitempty"`
-	OwnerId        *openapi_types.UUID   `json:"owner_id,omitempty"`
+
+	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
+	// path for this record, cookie-authenticated and same-origin. The key is ABSENT
+	// entirely (not null) when no logo resolved, which is the common case and never an
+	// error: a client renders the deterministic monogram then, so it never shows a
+	// broken image or an empty slot.
+	// The stored object key is deliberately not exposed; it names a bucket path, and a
+	// client's business is the endpoint that streams the bytes.
+	LogoUrl      *string             `json:"logo_url,omitempty"`
+	MergedIntoId *openapi_types.UUID `json:"merged_into_id,omitempty"`
+	OwnerId      *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// ParentOrgId Single-level hierarchy FK; no cycles.
 	ParentOrgId *openapi_types.UUID `json:"parent_org_id,omitempty"`
@@ -10770,6 +10779,11 @@ type OrganizationGraphNode struct {
 
 	// Label The record's display name — the organization's, the person's full name, the deal's name.
 	Label string `json:"label"`
+
+	// LogoUrl The company node's resolved logo (A55), same value `Organization.logo_url` carries.
+	// Absent on an organization with no resolved logo and on every person or deal node —
+	// a client draws the node's monogram or its token-coloured circle instead.
+	LogoUrl *string `json:"logo_url,omitempty"`
 
 	// Root This node is the account the graph is centred on. Exactly one node carries
 	// `true`. Always present, because "is this the centre" is a fact about every
@@ -19108,6 +19122,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "legal_name")
 	}
 
+	if raw, found := object["logo_url"]; found {
+		err = json.Unmarshal(raw, &a.LogoUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'logo_url': %w", err)
+		}
+		delete(object, "logo_url")
+	}
+
 	if raw, found := object["merged_into_id"]; found {
 		err = json.Unmarshal(raw, &a.MergedIntoId)
 		if err != nil {
@@ -19281,6 +19303,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["legal_name"], err = json.Marshal(a.LegalName)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'legal_name': %w", err)
+		}
+	}
+
+	if a.LogoUrl != nil {
+		object["logo_url"], err = json.Marshal(a.LogoUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'logo_url': %w", err)
 		}
 	}
 
@@ -22216,6 +22245,9 @@ type ServerInterface interface {
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
+	// Stream an organization's logo image.
+	// (GET /organizations/{id}/logo)
+	GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this organization into a target (non-lossy).
 	// (POST /organizations/{id}/merge)
 	MergeOrganization(w http.ResponseWriter, r *http.Request, id Id, params MergeOrganizationParams)
@@ -23521,6 +23553,12 @@ func (_ Unimplemented) GetOrganizationGraph(w http.ResponseWriter, r *http.Reque
 // Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 // (GET /organizations/{id}/hierarchy-rollup)
 func (_ Unimplemented) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Stream an organization's logo image.
+// (GET /organizations/{id}/logo)
+func (_ Unimplemented) GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -31207,6 +31245,38 @@ func (siw *ServerInterfaceWrapper) GetOrganizationHierarchyRollup(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationLogo operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationLogo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationLogo(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergeOrganization operation middleware
 func (siw *ServerInterfaceWrapper) MergeOrganization(w http.ResponseWriter, r *http.Request) {
 
@@ -38340,6 +38410,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/logo", wrapper.GetOrganizationLogo)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/merge", wrapper.MergeOrganization)

@@ -23,6 +23,65 @@
 
 ## Landed arcs
 
+**The company-view rebuild, finished — six feature PRs (#309, #313, #315, #317,
+#319, #322) plus one follow-up (#326).** They turned the organization record page
+into one composite read with a one-page view over it: the 360 itself, the evidence
+mark, the standing account brief, next-step suggestions with Ask Margince, and
+finally the connections card. #326 is not a seventh feature — it corrects a false
+cost claim in the connections card's contract that missed #322's squash by one
+push. A seventh FEATURE PR was expected and turned out not to exist; the arc
+closed at six.
+
+The connections card is `GET /organizations/{id}/graph` in
+`internal/compose/org360/graph*.go` plus `frontend/src/screens/connections.tsx`,
+wired into the company rail between the people and deals cards. It went through
+four review passes, and the rules below are what they produced. They are worth
+reading before extending the company view, because each one is a trap the first
+version fell into.
+
+**Gate a group inside its own read, never from the omitted set.** The graph's
+person reads were gated by the ORDER its group list ran in: `readSeats` and
+`readRouteIn` inferred "the caller may read people" from whether the contacts
+group had already reported itself omitted. Reordering a slice literal would have
+turned a gated read into an ungated one. Every read now asks `auth.Require`
+itself and `signals.RouteInEdges` carries the person gate — which also closed the
+same gap in `Warmth`, which had only ever demanded `signal:read`.
+
+**A cap must count what the cap MEANS.** `graphOrgCap` is ten companies, but the
+read first bounded itself by rows — and one company can attach many ways (parent,
+reseller, referrer, co-seller, each recordable more than once), so it filled the
+budget and starved the others. The cap moved into the query and picks distinct
+companies. The same trap waits for any group whose display unit is not its row
+unit.
+
+**Every group total rides the same statement as its rows.** `WithWorkspaceTx` is
+Read Committed, so a total read in a second statement can be smaller than the
+rows the first one returned, and `dropped_count` then goes negative against the
+contract's own `minimum: 0`. A capped group is counted with `count(*) OVER ()` or
+a CTE, never with a follow-up `SELECT count(*)`.
+
+**A gap documented where the reader cannot see it is not documented.** The graph
+read is proportional to the account on purpose: the caps bound the rows returned
+and the per-contact §4 fold, but an exact `dropped_count` needs a count over each
+group's whole membership. One commit corrected the Go comment saying otherwise
+and left the published contract promising the opposite, so the honest account sat
+where no client reads it. #326 fixed the description.
+
+**Three decisions the arc made that its own scope line left open.**
+`related_organizations` is NOT an omittable group — parent, children and partner
+companies need no grant beyond the organization read the endpoint already
+demands, and declaring a value nothing can emit would be vocabulary a client had
+to handle and never see. The intro path is reported only when its contact is
+already a node, ranked by the warm room's own `signals.RankRouteIn` (extracted
+from `Warmth` so both callers share one spelling), so the card can never name a
+different person than `GET /signals/{id}/intro-path`. Stakeholder contacts have
+no cap of their own, so `dropped_count` does not speak for them — they arrive
+with the deals already capped, which bounds them.
+
+**Graph level 2 is deferred and unspecified.** The card does not replace
+`RecordContextPanel`; that panel is on the deal, person and lead screens, never
+on the company view, whatever the original scope line assumed.
+
 **The backfill import shows progress while a page runs (`feat/backfill-live-progress`, #307).**
 A run's counters only ever moved at page commit, and a Gmail page is 100
 messages — about 84 seconds against a real mailbox. So a user who had just
