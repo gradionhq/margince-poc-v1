@@ -63,9 +63,9 @@ below.
 
 | | certified | degraded | not_supported | cost |
 |---|---|---|---|---|
-| Gemini (incumbent, 🇺🇸) | 8 | 3 | 3 | $0.0299 |
+| Gemini (incumbent, 🇺🇸) | 8 | 4 | 2 | $0.0299 |
 | Mistral (🇪🇺, `ai-routing.openrouter.example.yaml`) | 7 | 2 | 5 | $0.0031 |
-| DeepSeek + GLM (🇨🇳, `…openrouter-cn.example.yaml`) | 5 | 4 | 5 | $0.0061 |
+| DeepSeek + GLM (🇨🇳, `…openrouter-cn.example.yaml`) | 5 | 5 | 4 | $0.0061 |
 
 Gemini is still the strongest and is ~10× the price of the EU rungs. No binding
 certifies the whole corpus. `offer_draft`, `summarize` and `site_extract` are
@@ -82,6 +82,15 @@ and both halves of why it survived are now measured rather than guessed:
 work, and **Gemini never fenced its JSON once in a full 14-task pass** (zero
 fence-parse errors, `reported_invalid: 0`). An unexercised lane plus an
 incumbent that never triggers the defect is exactly how a parser stays broken.
+
+`summarize` moved again when this branch rebased onto #333, which rewrote
+`orgbrief`'s own request builders: the fitness test
+(`TestEveryCommittedRecordNamesTheCurrentPromptVersion`) caught the committed
+records as stale, and re-certifying against the new prompt lifted every binding
+— Gemini 0.42 → **1.00** (`supported_degraded`), CN 0.67 → 0.75
+(`supported_degraded`), EU 0.00 → 0.67. So most of the citation-grounding
+weakness described below was the prompt, not the models, and #333 addressed it.
+That gate is the reason the numbers here describe what ships.
 
 With the fix in, Gemini and the candidate now fail `summarize` the SAME way —
 citation grounding, `reported_invalid: 0` on both (Gemini 0.42, candidate 0.00,

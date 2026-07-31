@@ -90,7 +90,7 @@ embeddings: { provider: gemini, model: gemini-embedding-001 }  # the default
 > because a non-MRL model behind vLLM 400s on it. On that provider the
 > configured width must EQUAL the model's native width. A binding that returns
 > another width fails loudly.
-
+>
 > **Not every `openai_compatible` vendor serves the embeddings lane.**
 > OpenRouter does — `/v1/embeddings`, with the catalog at
 > `GET /api/v1/embeddings/models` — while a chat-only vendor 404s. Bind
