@@ -179,20 +179,56 @@ func TestSelectablePassportsExcludesAnotherUsersPassport(t *testing.T) {
 	}
 }
 
-// The connector's deployment gate reaches this endpoint too: with the
-// connector undeclared, every /oauth/ path is absent, and this operation —
-// which cannot be unmounted from the generated /v1 router because its path
-// is /oauth/consent-request there too — has to answer the SAME 404 by being
-// shadowed in compose (compose/oauth_consent.go) rather than served. This is
-// the property Task 2's review flagged as missing: a session-authenticated
-// human must not still reach this read once an admin turns the connector
-// off.
-func TestConsentRequestIsAbsentWithTheConnectorOff(t *testing.T) {
-	e := setup(t)
-	e.bootstrapWorkspace(t)
-
-	status := e.call(t, "GET", "/v1/oauth/consent-request?client_id=whatever&scope=read", nil, nil, nil)
-	if status != http.StatusNotFound {
-		t.Fatalf("consent-request with the connector off → %d, want 404", status)
+// registerClientDirectly inserts a live oauth_client row over the owner
+// connection. The harness's normal path to a live client is POST
+// /oauth/register, but that endpoint is itself part of the connector's
+// gated route group — unavailable in exactly the deployment state (connector
+// off) a test needs a live client to probe.
+func registerClientDirectly(t *testing.T, e *env, clientID string) {
+	t.Helper()
+	ctx := context.Background()
+	var wsID string
+	if err := e.owner.QueryRow(ctx, `SELECT id FROM workspace WHERE slug = $1`, e.slug).Scan(&wsID); err != nil {
+		t.Fatalf("looking up the workspace: %v", err)
 	}
+	if _, err := e.owner.Exec(ctx,
+		`INSERT INTO oauth_client (workspace_id, client_id, client_name, redirect_uris)
+		 VALUES ($1, $2, 'directly registered', ARRAY['https://client.example/cb']::text[])`,
+		wsID, clientID); err != nil {
+		t.Fatalf("inserting a live oauth_client row: %v", err)
+	}
+}
+
+// This read follows the connector's deployment switch exactly like every
+// other /oauth/ path: a signed-in human asking about a client that
+// genuinely exists gets the real answer only while the connector is
+// declared, and the identical apperrors.ErrNotFound every absent /oauth/
+// path answers once it is not. Both halves probe the SAME client id,
+// inserted directly rather than through /oauth/register — that endpoint is
+// itself ungated only while the connector is on, so it cannot supply the
+// fixture for the off case — which keeps client existence constant and
+// leaves the connector switch as the only variable between them.
+func TestConsentRequestFollowsTheConnectorSwitch(t *testing.T) {
+	const clientID = "directly-registered-client"
+
+	t.Run("off", func(t *testing.T) {
+		e := setup(t)
+		e.bootstrapWorkspace(t)
+		registerClientDirectly(t, e, clientID)
+
+		status := e.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID+"&scope=read", nil, nil, nil)
+		if status != http.StatusNotFound {
+			t.Fatalf("consent-request for a live client, connector off → %d, want 404", status)
+		}
+	})
+
+	t.Run("on", func(t *testing.T) {
+		c := setupConnector(t)
+		registerClientDirectly(t, c.env, clientID)
+
+		status := c.call(t, "GET", "/v1/oauth/consent-request?client_id="+clientID+"&scope=read", nil, nil, nil)
+		if status != http.StatusOK {
+			t.Fatalf("consent-request for the same live client, connector on → %d, want 200", status)
+		}
+	})
 }
