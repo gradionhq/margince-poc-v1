@@ -509,7 +509,15 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
  * it was allowed to count: a null count means the caller lacks that grant,
  * which is not the same as zero, so those lines are absent rather than "0".
  */
-export function SinceLastVisit({ view }: Readonly<{ view: Organization360 }>) {
+export function SinceLastVisit({
+  view,
+  onOpenDecisions,
+}: Readonly<{
+  view: Organization360;
+  // Given, the proposals count opens the queue it counts. Absent, it stays a
+  // badge — the count is still true, it just has nowhere to send the reader.
+  onOpenDecisions?: () => void;
+}>) {
   const t = useT();
   const delta = view.since_last_visit;
   // Withheld or missing: the line is dropped rather than claiming nothing
@@ -524,24 +532,35 @@ export function SinceLastVisit({ view }: Readonly<{ view: Organization360 }>) {
   if (delta.deal_stage_moves) {
     lines.push(t("co.since.moves", { count: delta.deal_stage_moves }));
   }
-  if (delta.pending_proposals) {
-    lines.push(t("co.since.proposals", { count: delta.pending_proposals }));
-  }
+  const proposals = delta.pending_proposals
+    ? t("co.since.proposals", { count: delta.pending_proposals })
+    : null;
   const first = !delta.baseline_at;
+  const empty = lines.length === 0 && !proposals;
   return (
     <section className="card co-since">
       <SectionHeader title={t("co.since.title")} />
       {first && <p className="co-empty">{t("co.since.first")}</p>}
-      {!first && lines.length === 0 && (
-        <p className="co-empty">{t("co.since.nothing")}</p>
-      )}
-      {lines.length > 0 && (
+      {!first && empty && <p className="co-empty">{t("co.since.nothing")}</p>}
+      {!empty && (
         <p className="co-row-meta">
           {lines.map((line) => (
             <Badge key={line} tone="accent">
               {line}
             </Badge>
           ))}
+          {proposals &&
+            (onOpenDecisions ? (
+              <button
+                type="button"
+                className="co-since-open"
+                onClick={onOpenDecisions}
+              >
+                <Badge tone="accent">{proposals}</Badge>
+              </button>
+            ) : (
+              <Badge tone="accent">{proposals}</Badge>
+            ))}
         </p>
       )}
     </section>
@@ -555,9 +574,13 @@ export function SinceLastVisit({ view }: Readonly<{ view: Organization360 }>) {
 export function NextSteps({
   view,
   renderAction,
+  onOpenTask,
 }: Readonly<{
   view: Organization360;
   renderAction?: (step: NextStep) => ReactNode;
+  // Given, the subject opens the task where it is listed. Absent, it stays
+  // plain text rather than a button that goes nowhere.
+  onOpenTask?: (step: NextStep) => void;
 }>) {
   const t = useT();
   const { locale } = useLocale();
@@ -586,7 +609,17 @@ export function NextSteps({
         <ul className="co-list">
           {steps.map((step) => (
             <li key={step.activity_id} className="co-row">
-              <span>{step.subject}</span>
+              {onOpenTask ? (
+                <button
+                  type="button"
+                  className="co-rowlink"
+                  onClick={() => onOpenTask(step)}
+                >
+                  {step.subject}
+                </button>
+              ) : (
+                <span>{step.subject}</span>
+              )}
               <span className="co-row-meta">
                 {step.overdue && (
                   <Badge tone="danger">{t("co.next.overdue")}</Badge>
@@ -618,34 +651,108 @@ export function NextSteps({
   );
 }
 
+type Cited = Brief["sentences"][number]["evidence"][number];
+type CitedKind = Cited["entity_type"];
+
 /**
- * Citation links one record a brief sentence was written from.
- *
- * A citation the app cannot open is rendered as plain text, not as a button:
- * a clickable element that does nothing teaches the reader that citations do
- * not work, which costs more than the click it saves.
+ * A citation chip as it is rendered: either one openable record, or the count
+ * of records of one kind that have nowhere to open.
  */
-function Citation({
-  cited,
+export type CitationChip =
+  | { openable: true; entityType: CitedKind; entityId: string }
+  | { openable: false; entityType: CitedKind; count: number };
+
+/**
+ * citationChips turns a sentence's raw evidence into what a reader should see.
+ *
+ * Two reductions, both of which the raw list gets wrong. The same record cited
+ * twice is one source, not two. And several records of a kind the app cannot
+ * open are one statement about that kind — rendered one by one they became a
+ * run of identical unopenable labels ("activity activity activity"), which
+ * says nothing the count does not say better.
+ *
+ * Order is first-seen, so the chips follow the sentence's own reasoning.
+ */
+export function citationChips(
+  evidence: readonly Cited[],
+  openable: (entityType: CitedKind) => boolean,
+): CitationChip[] {
+  const chips: CitationChip[] = [];
+  const seen = new Set<string>();
+  const flatAt = new Map<CitedKind, number>();
+  for (const cited of evidence) {
+    const identity = `${cited.entity_type}:${cited.entity_id}`;
+    if (seen.has(identity)) {
+      continue;
+    }
+    seen.add(identity);
+    if (openable(cited.entity_type)) {
+      chips.push({
+        openable: true,
+        entityType: cited.entity_type,
+        entityId: cited.entity_id,
+      });
+      continue;
+    }
+    const at = flatAt.get(cited.entity_type);
+    if (at === undefined) {
+      flatAt.set(cited.entity_type, chips.length);
+      chips.push({ openable: false, entityType: cited.entity_type, count: 1 });
+      continue;
+    }
+    const chip = chips[at];
+    if (!chip.openable) {
+      chip.count += 1;
+    }
+  }
+  return chips;
+}
+
+/**
+ * Citations renders the chips for one sentence.
+ *
+ * A citation the app cannot open is rendered as a label, not as a button: a
+ * clickable element that does nothing teaches the reader that citations do not
+ * work, which costs more than the click it saves.
+ */
+function Citations({
+  evidence,
   onOpenRecord,
 }: Readonly<{
-  cited: Brief["sentences"][number]["evidence"][number];
+  evidence: readonly Cited[];
   onOpenRecord?: (entityType: string, entityId: string) => void;
 }>) {
   const t = useT();
-  const label = t(`co.brief.cite.${cited.entity_type}`);
-  const openable = onOpenRecord && ROUTABLE_CITATIONS.has(cited.entity_type);
-  if (!openable) {
-    return <span className="co-brief-cite-flat">{label}</span>;
+  const chips = citationChips(
+    evidence,
+    (entityType) => Boolean(onOpenRecord) && ROUTABLE_CITATIONS.has(entityType),
+  );
+  if (chips.length === 0) {
+    return null;
   }
   return (
-    <button
-      type="button"
-      className="co-brief-cite"
-      onClick={() => onOpenRecord(cited.entity_type, cited.entity_id)}
-    >
-      {label}
-    </button>
+    <span className="co-brief-cites">
+      {chips.map((chip) =>
+        chip.openable ? (
+          <button
+            key={`${chip.entityType}:${chip.entityId}`}
+            type="button"
+            className="co-brief-cite"
+            onClick={() => onOpenRecord?.(chip.entityType, chip.entityId)}
+          >
+            {t(`co.brief.cite.${chip.entityType}`)}
+          </button>
+        ) : (
+          <span key={chip.entityType} className="co-brief-cite-flat">
+            {chip.count === 1
+              ? t(`co.brief.cite.${chip.entityType}`)
+              : t(`co.brief.cite.${chip.entityType}.many`, {
+                  count: chip.count,
+                })}
+          </span>
+        ),
+      )}
+    </span>
   );
 }
 
@@ -686,13 +793,7 @@ function SentenceList({
         // biome-ignore lint/suspicious/noArrayIndexKey: the list is replaced wholesale on every read, never reordered in place
         <li key={index}>
           {sentence.text}
-          {sentence.evidence.map((cited) => (
-            <Citation
-              key={`${cited.entity_type}:${cited.entity_id}`}
-              cited={cited}
-              onOpenRecord={onOpenRecord}
-            />
-          ))}
+          <Citations evidence={sentence.evidence} onOpenRecord={onOpenRecord} />
         </li>
       ))}
     </ul>
@@ -734,7 +835,7 @@ const QUESTIONS: readonly Question[] = Object.keys({
  * the reader can open — and a text box that quietly answered from a subset
  * would look exactly like one that had searched everything.
  */
-export function AskCard({
+export function AskSection({
   orgId,
   enabled,
   onOpenRecord,
@@ -766,8 +867,8 @@ export function AskCard({
   // account with nothing to say — the same distinction every card here keeps.
   const readable = Array.isArray(answer?.sentences) ? answer : undefined;
   return (
-    <section className="card co-ask">
-      <SectionHeader title={t("co.ask.title")} />
+    <section className="co-part co-ask" aria-label={t("co.ask.title")}>
+      <h3 className="co-part-label">{t("co.ask.title")}</h3>
       <p className="co-ask-questions">
         {QUESTIONS.map((question) => (
           <Button
@@ -835,7 +936,7 @@ export function AskCard({
  * dismissal is theirs alone and is keyed on the evidence, so the same advice
  * stays gone while the situation holds and comes back when it changes.
  */
-export function SuggestionsCard({
+export function SuggestionsSection({
   orgId,
   view,
   onOpenRecord,
@@ -879,8 +980,8 @@ export function SuggestionsCard({
     return null;
   }
   return (
-    <section className="card co-suggest">
-      <SectionHeader title={t("co.suggest.title")} />
+    <section className="co-part co-suggest" aria-label={t("co.suggest.title")}>
+      <h3 className="co-part-label">{t("co.suggest.title")}</h3>
       <ul className="co-list">
         {suggestions.map((suggestion) => (
           <li key={suggestion.fingerprint} className="co-row">
@@ -892,13 +993,11 @@ export function SuggestionsCard({
               <span className="co-suggest-reason">{suggestion.reason}</span>
             </span>
             <span className="co-row-meta">
-              {suggestion.evidence.map((cited) => (
-                <Citation
-                  key={`${cited.entity_type}:${cited.entity_id}`}
-                  cited={cited}
-                  onOpenRecord={onOpenRecord}
-                />
-              ))}
+              <Citations
+                evidence={suggestion.evidence}
+                onOpenRecord={onOpenRecord}
+              />
+
               <Button
                 small
                 onClick={() => dismiss.mutate(suggestion.fingerprint)}
@@ -963,7 +1062,7 @@ export function useOrganizationBrief(id: string, enabled: boolean) {
  * records it was written from, and those are always records this reader can
  * open, because the brief was assembled under their own row scope.
  */
-export function BriefCard({
+export function BriefSection({
   orgId,
   enabled,
   onOpenRecord,
@@ -1000,8 +1099,8 @@ export function BriefCard({
   const readable = Array.isArray(brief?.sentences) ? brief : undefined;
   const unreadable = !query.isPending && !query.isError && !readable;
   return (
-    <section className="card co-brief">
-      <SectionHeader title={t("co.brief.title")} />
+    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
+      <h3 className="co-part-label">{t("co.brief.title")}</h3>
       {query.isPending && <Skeleton width="100%" height={40} />}
       {(query.isError || unreadable) && (
         <p className="co-restricted">{t("co.section.unavailable")}</p>

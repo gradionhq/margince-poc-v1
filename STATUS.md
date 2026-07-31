@@ -26,6 +26,22 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Session pickup — 2026-07-30
 
+**The company page's second pass fixed what the first one shipped broken.** The
+rebuild below delivered the surfaces; using it on a freshly created company
+showed six defects that all read as the product being wrong about the account:
+check-in tasks on an account with no deal, "27 decisions waiting" with nowhere
+to go, an Ask answer carrying raw UUIDs, a timeline that hid the contacts'
+emails, a composer whose result never appeared, and a page that re-columned
+itself as it loaded. What each one actually was, and the rule it produced, is in
+the PR for `feat/company-page`.
+
+Four contract additions went upstream as spec raises: the `GET /approvals`
+target filter (plus the `kind` param that was declared and never implemented),
+the graph's `user` node and `owns` / `in_contact_with` edges and `our_side`
+group, the narrowed reminder semantics (open-deal or active-lead eligibility
+plus an N-day creation grace), and the answer-shape rule that ids belong in
+evidence and never in prose.
+
 **Every company now wears its face (#330).** The A55 logo lane resolves a
 company's mark from the site the deep read already crawls — og:image, then the
 declared icons, then `/favicon.ico` — normalizes it once to a square PNG at
@@ -76,6 +92,21 @@ each fails; changing what re-arms a dismissal means reading that first.
 
 Open work, roughly in priority order.
 
+### Developer experience
+
+- **`make seed-dev` ignores `DEV_SLUG` and seeds the SHARED stack.** `make dev
+  DEV_SLUG=x` exists so two worktrees can run at once, and every neighbouring
+  target (`dev-fresh`, `dev-stop`, `dev-logs`, `mcp-inspector`) honours the
+  slug. `seed-dev` does not: `scripts/seed-dev.sh` defaults to
+  `API_BASE=http://localhost:8080` and `backend/Makefile`'s `seed-dev-db` uses
+  `DB_NAME`, which defaults to `margince`. So seeding an isolated stack writes
+  the demo records into whatever stack is on :8080 and into the shared
+  database, silently and successfully. This has already happened once to a
+  parallel session. The fix is to derive both from the slug the way the dev
+  script does, and to fail loudly when the named API is not the slug's own.
+  Workaround until then: `API_BASE=http://localhost:<slug api port>
+  ./scripts/seed-dev.sh` and `make -C backend seed-dev-db DB_NAME=margince_dev_<slug>`.
+
 ### Overlay→native cutover follow-ups (foundation#1179 shipped the lifecycle)
 
 The flip + ADR-0071 lifecycle (preflight gate, emergency cutover, retirement
@@ -107,6 +138,47 @@ lanes green. What it deliberately did NOT include, for whoever picks up next:
   and F3 (teardown partial-failure) stay unasserted — named spec gaps.
 
 ### Correctness and security
+
+- **The capture privacy boundary is written and never read.** `people/ensure.go`
+  stamps a connector-created person or organization `visibility='owner'` and
+  `quarantined_at`, and NOTHING reads either column: `platform/auth`'s
+  `OwnerPredicate`/`VisiblePredicate` know only `owner_id` and `record_grant`.
+  The spec means those rows to be visible to the capturing user alone until a
+  human promotes them (capture.md §"connector-created records",
+  ADR-0063 §7, threat-model D8). Today a rep who connects their mailbox makes
+  every imported email readable by their whole team the moment it lands,
+  because Rep and Manager both carry `row_scope=team`. The comment at the top
+  of `migrations/core/0095_person_org_visibility.up.sql` asserts the row-scope
+  clauses enforce it — that sentence is false and must be fixed together with
+  the gap, not before it.
+
+- **RLS has no row-scope backstop, which contradicts ADR-0039's own premise.**
+  `migrations/core/0014_rls.up.sql` emits exactly one policy per tenant table,
+  on `workspace_id`. Per-user visibility is entirely application-side. ADR-0039
+  §1 requires DB-level enforcement ("any visibility widening must live at the
+  DB enforcement point, not only in app code") and §2 requires the
+  `record_grant` clause in the RLS policy too. Neither exists. Listed as a
+  deliberate deferral (B-EP03.3b) in the README, but it is the deferral that
+  breaks the ADR it was deferred under.
+
+- **Three smaller visibility gaps, each a product decision rather than a bug.**
+  An activity with NO links is visible to every workspace member
+  (`platform/auth/rbac.go` `ActivityScopeClause`'s `NOT EXISTS` arm) — a
+  standalone private note is workspace-public and nothing says so. A task
+  assigned to me can be invisible to me, because `assignee_id` is not an arm of
+  that clause and the spec deliberately says assignment "confers an obligation,
+  not access" (activities-and-timeline.md) — spec-faithful, and still a hole in
+  "one queue of my tasks". And `policy.Merge` widens `row_scope` to the maximum
+  across roles, so granting anyone `read_only` (scope `all`) beside `rep`
+  silently makes them workspace-unbounded.
+
+- **Field-level masking is parsed and never enforced** (`identity/internal/policy`
+  says so itself; B-EP03.4). `deal.amount_minor` masked for Reps on records they
+  do not own is in the seed spec and does not exist.
+
+- **README is stale on record grants.** It lists "record grants (A52)" under not
+  built; they are fully built — migration, `identity/grants.go`, the handlers,
+  the `record_grant` arm of `VisiblePredicate`, and the audit verbs.
 
 - **Overlay: 45 of 49 pre-open-source review findings are still open.** The two
   Critical ones are fixed (the agent surface answering from native tables for an

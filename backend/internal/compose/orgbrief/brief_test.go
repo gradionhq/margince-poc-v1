@@ -16,6 +16,7 @@ package orgbrief
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -64,6 +65,30 @@ func TestFingerprintTracksTheAccountNotTheRecordVersion(t *testing.T) {
 	}
 	if changed == first {
 		t.Error("a deal changing stage left the fingerprint alone — the cached brief would describe the old pipeline")
+	}
+
+	// An open task's due date rides the fingerprint, so the answer that names
+	// it is rewritten when it moves. It is also what proves the cache turns
+	// over across the shape change that added the field: the same three tasks
+	// hash differently once they carry their dates, so no reader is served an
+	// answer written before the writer knew them.
+	undated := inputFixture()
+	undated.OpenTasks = []TaskIn{{ID: "77777777-7777-4777-8777-777777777777", Name: "Send the paperwork"}}
+	dated := inputFixture()
+	dated.OpenTasks = []TaskIn{{
+		ID: "77777777-7777-4777-8777-777777777777", Name: "Send the paperwork",
+		Due: "2026-07-21T09:00:00Z",
+	}}
+	withoutDue, err := Fingerprint(undated, "routing-1")
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	withDue, err := Fingerprint(dated, "routing-1")
+	if err != nil {
+		t.Fatalf("fingerprint: %v", err)
+	}
+	if withoutDue == withDue {
+		t.Error("a task's due date left the fingerprint alone — the cached answer would name no date")
 	}
 
 	// Re-pointing the lane rewrites briefs rather than leaving text
@@ -126,6 +151,53 @@ func TestParseBriefKeepsASentenceCitingTheAccount(t *testing.T) {
 	}
 	if len(kept) != 1 {
 		t.Fatalf("kept %d sentences, want the one about the account", len(kept))
+	}
+}
+
+// A record id in the prose is developer output, whatever the sentence says
+// around it, and the whole sentence goes: the id sits mid-clause, so cutting it
+// out leaves grammar the reader has to decode. The grounded sentence beside it
+// survives, which is what makes this a filter rather than a kill switch.
+func TestParseBriefDropsASentenceThatSpellsAnIDAtTheReader(t *testing.T) {
+	in := inputFixture()
+	dealID := in.OpenDeals[0].ID
+	kept, err := ParseBrief(`{"sentences":[
+	  {"text":"The retrofit deal (ID: `+dealID+`) has stalled.","evidence":[{"entity_type":"deal","entity_id":"`+dealID+`"}]},
+	  {"text":"The retrofit deal has stalled.","evidence":[{"entity_type":"deal","entity_id":"`+dealID+`"}]}
+	]}`, briefOrgID, in)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(kept) != 1 {
+		t.Fatalf("kept %d sentences, want only the one written for a reader: %+v", len(kept), kept)
+	}
+	if strings.Contains(kept[0].Text, dealID) {
+		t.Errorf("the surviving sentence spells the id: %q", kept[0].Text)
+	}
+}
+
+// The same record cited twice renders as two identical chips that go to the
+// same place. They collapse to one, in the order the reply cited them, so the
+// citation the sentence leads with stays the one the reader sees first.
+func TestParseBriefCollapsesRepeatedCitations(t *testing.T) {
+	in := inputFixture()
+	dealID, actID := in.OpenDeals[0].ID, in.Recent[0].ID
+	kept, err := ParseBrief(`{"sentences":[{"text":"The retrofit stalled after the last mail.","evidence":[
+	  {"entity_type":"deal","entity_id":"`+dealID+`"},
+	  {"entity_type":"activity","entity_id":"`+actID+`"},
+	  {"entity_type":"deal","entity_id":"`+dealID+`"}]}]}`, briefOrgID, in)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if len(kept) != 1 {
+		t.Fatalf("kept %d sentences, want the one grounded sentence", len(kept))
+	}
+	want := []Evidence{
+		{EntityType: citeDeal, EntityID: dealID},
+		{EntityType: citeActivity, EntityID: actID},
+	}
+	if !slices.Equal(kept[0].Evidence, want) {
+		t.Errorf("evidence = %+v, want the two distinct records in the order cited: %+v", kept[0].Evidence, want)
 	}
 }
 
@@ -246,7 +318,7 @@ func TestParseBriefDropsASentenceWithAnyUngroundedCitation(t *testing.T) {
 func TestParseBriefGroundsContactsAndTasks(t *testing.T) {
 	in := inputFixture()
 	in.Contacts = []NamedIn{{ID: "66666666-6666-4666-8666-666666666666", Name: "Dana Buyer"}}
-	in.OpenTasks = []NamedIn{{ID: "77777777-7777-4777-8777-777777777777", Name: "Send the paperwork"}}
+	in.OpenTasks = []TaskIn{{ID: "77777777-7777-4777-8777-777777777777", Name: "Send the paperwork"}}
 
 	kept, err := ParseBrief(
 		`{"sentences":[

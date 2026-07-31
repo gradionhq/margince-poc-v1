@@ -189,11 +189,29 @@ describe("log activity from a 360", () => {
     );
   });
 
-  it("reveals the due-date input only for a task and posts due_at", async () => {
+  it("keeps the due-date input's space for a note and enables it for a task", async () => {
+    stubApi({ "POST /activities": createdActivity });
+    render(<LogActivity entityType="organization" entityId="o1" />);
+    // The field stays in place for a note, disabled rather than hidden.
+    // Mounting it on the kind switch moved every control below it down
+    // mid-form.
+    const due = screen.getByLabelText("Due date", { selector: "input" });
+    expect(due.hasAttribute("disabled")).toBe(true);
+    // Reserved means VISIBLE-but-disabled. `hidden` is display:none, which
+    // collapses the row and reintroduces the reflow this test exists to stop.
+    expect(due.closest("div")?.hasAttribute("hidden")).toBe(false);
+    await userEvent.selectOptions(screen.getByLabelText("Type"), "task");
+    expect(
+      screen
+        .getByLabelText("Due date", { selector: "input" })
+        .hasAttribute("disabled"),
+    ).toBe(false);
+  });
+
+  it("posts due_at for a task", async () => {
     const captured: Captured[] = [];
     stubApi({ "POST /activities": createdActivity }, captured);
     render(<LogActivity entityType="organization" entityId="o1" />);
-    expect(screen.queryByLabelText("Due date")).toBeNull();
     await userEvent.selectOptions(screen.getByLabelText("Type"), "task");
     await userEvent.type(screen.getByLabelText("Due date"), "2026-07-10");
     await userEvent.type(screen.getByLabelText("Subject *"), "Send proposal");

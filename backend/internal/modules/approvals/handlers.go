@@ -12,6 +12,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -31,16 +32,12 @@ func pathID[K ids.EntityKind](id crmcontracts.Id) ids.ID[K] {
 }
 
 func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params crmcontracts.ListApprovalsParams) {
-	var status *string
-	if params.Status != nil {
-		s := string(*params.Status)
-		status = &s
+	in, invalid := listInput(params)
+	if invalid != nil {
+		httperr.Write(w, r, invalid)
+		return
 	}
-	limit := 50
-	if params.Limit != nil {
-		limit = *params.Limit
-	}
-	rows, err := h.svc.List(r.Context(), status, limit)
+	rows, page, err := h.svc.List(r.Context(), in)
 	if err != nil {
 		writeErr(w, r, err)
 		return
@@ -51,8 +48,45 @@ func (h Handlers) ListApprovals(w http.ResponseWriter, r *http.Request, params c
 	}
 	writeJSON(w, http.StatusOK, crmcontracts.ApprovalListResponse{
 		Data: data,
-		Page: crmcontracts.PageInfo{HasMore: false},
+		Page: pageInfo(page),
 	})
+}
+
+// pageInfo puts the store's page on the wire. next_cursor is omitted rather
+// than sent empty: an empty token is not a page a caller could ask for.
+func pageInfo(p storekit.Page) crmcontracts.PageInfo {
+	info := crmcontracts.PageInfo{HasMore: p.HasMore}
+	if p.NextCursor != "" {
+		info.NextCursor = &p.NextCursor
+	}
+	return info
+}
+
+// listInput binds the inbox query parameters, or answers the one validation
+// error this surface has: the target pair is a discriminated reference, so
+// half of it filters nothing a client could have meant — a type alone matches
+// every record of that type, an id alone every type carrying that id.
+func listInput(params crmcontracts.ListApprovalsParams) (ListInput, *httperr.DetailedError) {
+	in := ListInput{Kind: params.Kind}
+	if params.Status != nil {
+		status := string(*params.Status)
+		in.Status = &status
+	}
+	if params.Limit != nil {
+		in.Limit = *params.Limit
+	}
+	if params.Cursor != nil {
+		in.Cursor = *params.Cursor
+	}
+	if (params.TargetEntityType == nil) != (params.TargetEntityId == nil) {
+		return ListInput{}, httperr.Validation("target_entity_type", "requires_pair",
+			"filtering by target needs both target_entity_type and target_entity_id; supply both or neither")
+	}
+	if params.TargetEntityId != nil {
+		targetID := ids.UUID(*params.TargetEntityId)
+		in.TargetType, in.TargetID = params.TargetEntityType, &targetID
+	}
+	return in, nil
 }
 
 func (h Handlers) GetApproval(w http.ResponseWriter, r *http.Request, id crmcontracts.Id) {

@@ -476,3 +476,157 @@ func TestAnUnmeasuredRouteInIsNotAWarmPath(t *testing.T) {
 		t.Errorf("intro path %v reported for a contact with no measured relationship", *g.out.IntroPath)
 	}
 }
+
+// colleague registers one teammate's recorded contact with a drawn contact,
+// and counts them among the colleagues the cap chose from.
+func (g *graphAssembly) colleague(name string, contact ids.UUID) graphUser {
+	user := graphUser{userID: ids.NewV7(), displayName: name}
+	g.ourSide = append(g.ourSide, ourSideEdge{user: user, personID: contact})
+	g.ourSideTotal++
+	return user
+}
+
+// TestTheAccountOwnerWhoAlsoWroteIsOneNode: owning the account and having
+// emailed one of its people are two connections held by one colleague, so the
+// card must draw them as one node with two edges rather than as two people.
+func TestTheAccountOwnerWhoAlsoWroteIsOneNode(t *testing.T) {
+	g, orgID := newGraph(t)
+	contact := g.employee(t, "Dana Buyer", 60)
+	owner := graphUser{userID: ids.NewV7(), displayName: "Ada Rep"}
+	g.accountOwner = &owner
+	g.ourSide = []ourSideEdge{{user: owner, personID: contact.UUID}}
+	g.ourSideTotal = 1
+
+	g.placeContacts()
+	g.placeOurSide()
+
+	users := 0
+	for _, node := range g.out.Nodes {
+		if node.Kind == crmcontracts.OrganizationGraphNodeKindUser {
+			users++
+			if node.Label != owner.displayName {
+				t.Errorf("user node label is %q, want the member's display name %q", node.Label, owner.displayName)
+			}
+			if node.Detail != nil || node.Strength != nil || node.StrengthBucket != nil {
+				t.Errorf("user node carries record-shaped detail: detail=%v strength=%v bucket=%v",
+					node.Detail, node.Strength, node.StrengthBucket)
+			}
+		}
+	}
+	if users != 1 {
+		t.Errorf("placed %d user nodes, want 1 for a colleague holding two connections", users)
+	}
+	edges := map[crmcontracts.OrganizationGraphEdgeKind][2]ids.UUID{}
+	for _, edge := range g.out.Edges {
+		edges[edge.Kind] = [2]ids.UUID{ids.UUID(edge.From), ids.UUID(edge.To)}
+	}
+	if got := edges[crmcontracts.OrganizationGraphEdgeKindOwns]; got != [2]ids.UUID{owner.userID, orgID.UUID} {
+		t.Errorf("owns edge is %v, want %v -> %v", got, owner.userID, orgID)
+	}
+	if got := edges[crmcontracts.OrganizationGraphEdgeKindInContactWith]; got != [2]ids.UUID{owner.userID, contact.UUID} {
+		t.Errorf("in_contact_with edge is %v, want %v -> %v", got, owner.userID, contact)
+	}
+	if g.out.DroppedCount != 0 {
+		t.Errorf("dropped_count is %d, want 0 — one colleague had contact and was drawn", g.out.DroppedCount)
+	}
+}
+
+// TestTheInteractionReadCorrelatesOnlyAgainstDrawnContacts: the contact set
+// handed to readInContactWith is the one the card PLACED, never the wider one
+// it read. That is what makes the user cap mean what it says — a colleague
+// whose only contact the contact cap dropped must not take a user slot from a
+// colleague of a contact the card is showing — and it is why no
+// in_contact_with edge can dangle.
+//
+// A stakeholder on a drawn deal is a placed contact too: the card shows them,
+// so contact with them is a real way in.
+func TestTheInteractionReadCorrelatesOnlyAgainstDrawnContacts(t *testing.T) {
+	g, _ := newGraph(t)
+	kept := make([]ids.PersonID, 0, graphContactCap)
+	for i := range graphContactCap {
+		kept = append(kept, g.employee(t, "Kept", 100-i))
+	}
+	droppedContact := g.employee(t, "Dropped", 1)
+	deal := g.openDeal("Renewal", nil)
+	stakeholder := ids.From[ids.PersonKind](ids.NewV7())
+	g.seats = append(g.seats, graphSeat{
+		dealID: deal,
+		person: graphPersonEdge{personID: stakeholder, fullName: "Sam Sponsor"},
+	})
+
+	g.placeContacts()
+	g.placeDeals()
+
+	correlated := map[ids.UUID]bool{}
+	for _, personID := range g.drawnContactIDs() {
+		correlated[personID] = true
+	}
+	if correlated[droppedContact.UUID] {
+		t.Error("a contact the cap dropped is still correlated against; its colleagues would spend the user cap")
+	}
+	for _, contact := range kept {
+		if !correlated[contact.UUID] {
+			t.Errorf("drawn contact %s is not correlated against; a colleague of theirs would go undrawn", contact)
+		}
+	}
+	if !correlated[stakeholder.UUID] {
+		t.Errorf("stakeholder %s on a drawn deal is not correlated against", stakeholder)
+	}
+	if len(correlated) != len(kept)+1 {
+		t.Errorf("correlated against %d contacts, want the %d the card drew", len(correlated), len(kept)+1)
+	}
+}
+
+// TestTheUserDropCountRunsOverColleaguesWithContact: the owner is read outside
+// the cap and can never be dropped, so counting them in the total would make
+// dropped_count go NEGATIVE the moment an unassigned-elsewhere account drew one
+// — a response violating the contract's own minimum of 0.
+func TestTheUserDropCountRunsOverColleaguesWithContact(t *testing.T) {
+	g, _ := newGraph(t)
+	contact := g.employee(t, "Dana Buyer", 60)
+	owner := graphUser{userID: ids.NewV7(), displayName: "Ada Rep"}
+	g.accountOwner = &owner
+	for range 3 {
+		g.colleague("Colleague", contact.UUID)
+	}
+	// Twenty-five colleagues have touched this account; the cap chose three.
+	g.ourSideTotal = 25
+
+	g.placeContacts()
+	g.placeOurSide()
+
+	if g.out.DroppedCount != 22 {
+		t.Errorf("dropped_count is %d, want 22 — the colleagues the cap left out", g.out.DroppedCount)
+	}
+
+	// The owner alone, with nobody in contact: nothing was capped, so nothing
+	// is reported as dropped.
+	bare, _ := newGraph(t)
+	bare.accountOwner = &owner
+	bare.placeOurSide()
+	if bare.out.DroppedCount != 0 {
+		t.Errorf("dropped_count is %d for an account whose only connection is its owner, want 0",
+			bare.out.DroppedCount)
+	}
+}
+
+// TestOurSideVocabularyIsInTheContract: the node kind, both edge kinds and the
+// omitted-group name are values a client has to be able to receive. A value the
+// generated enum does not know is one a strict client rejects, and this card
+// would emit it anyway.
+func TestOurSideVocabularyIsInTheContract(t *testing.T) {
+	if !crmcontracts.OrganizationGraphNodeKindUser.Valid() {
+		t.Error("the user node kind is not a value the contract declares")
+	}
+	for _, kind := range []crmcontracts.OrganizationGraphEdgeKind{
+		crmcontracts.OrganizationGraphEdgeKindOwns,
+		crmcontracts.OrganizationGraphEdgeKindInContactWith,
+	} {
+		if !kind.Valid() {
+			t.Errorf("edge kind %q is not a value the contract declares", kind)
+		}
+	}
+	if !graphGroupOurSide.Valid() {
+		t.Errorf("omitted group %q is not a value the contract declares", graphGroupOurSide)
+	}
+}
