@@ -4002,6 +4002,30 @@ func (e OrganizationGraphEdgeKind) Valid() bool {
 	}
 }
 
+// Defines values for OrganizationGraphEdgeStrengthBucket.
+const (
+	OrganizationGraphEdgeStrengthBucketModerate OrganizationGraphEdgeStrengthBucket = "moderate"
+	OrganizationGraphEdgeStrengthBucketNone     OrganizationGraphEdgeStrengthBucket = "none"
+	OrganizationGraphEdgeStrengthBucketStrong   OrganizationGraphEdgeStrengthBucket = "strong"
+	OrganizationGraphEdgeStrengthBucketWeak     OrganizationGraphEdgeStrengthBucket = "weak"
+)
+
+// Valid indicates whether the value is a known member of the OrganizationGraphEdgeStrengthBucket enum.
+func (e OrganizationGraphEdgeStrengthBucket) Valid() bool {
+	switch e {
+	case OrganizationGraphEdgeStrengthBucketModerate:
+		return true
+	case OrganizationGraphEdgeStrengthBucketNone:
+		return true
+	case OrganizationGraphEdgeStrengthBucketStrong:
+		return true
+	case OrganizationGraphEdgeStrengthBucketWeak:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for OrganizationGraphNodeKind.
 const (
 	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
@@ -6722,16 +6746,16 @@ func (e ListCustomFieldsParamsObject) Valid() bool {
 
 // Defines values for ListCustomFieldsParamsStatus.
 const (
-	ListCustomFieldsParamsStatusActive  ListCustomFieldsParamsStatus = "active"
-	ListCustomFieldsParamsStatusRetired ListCustomFieldsParamsStatus = "retired"
+	Active  ListCustomFieldsParamsStatus = "active"
+	Retired ListCustomFieldsParamsStatus = "retired"
 )
 
 // Valid indicates whether the value is a known member of the ListCustomFieldsParamsStatus enum.
 func (e ListCustomFieldsParamsStatus) Valid() bool {
 	switch e {
-	case ListCustomFieldsParamsStatusActive:
+	case Active:
 		return true
-	case ListCustomFieldsParamsStatusRetired:
+	case Retired:
 		return true
 	default:
 		return false
@@ -10917,17 +10941,43 @@ type OrganizationGraphEdge struct {
 	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 	// the organization that records the edge to its counterparty.
 	// `owns` — `from` is the workspace member who owns the account.
-	// `in_contact_with` — `from` is the workspace member who has recorded interactions
-	// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-	// those interactions, so a task assigned to a teammate does not make one: an
-	// assignment is intent, a logged email is contact.
+	// `in_contact_with` — `from` is the workspace member who has been IN recorded
+	// interactions (email, call, meeting) with the contact at `to`. It is drawn from
+	// the recorded participants of those interactions, so it holds for
+	// connector-captured mail as well as manually logged activity. Being copied on a
+	// thread does not make one, and neither does a task assigned to a teammate: a cc
+	// is exposure and an assignment is intent, while a logged exchange is contact.
 	Kind OrganizationGraphEdgeKind `json:"kind"`
 
 	// Role The edge's role where it has one — an employment title, a stakeholder role
 	// (champion, economic_buyer, …). Null on the edges that carry none, which includes
 	// both `owns` and `in_contact_with`.
-	Role *string            `json:"role,omitempty"`
-	To   openapi_types.UUID `json:"to"`
+	Role *string `json:"role,omitempty"`
+
+	// Strength How warm this particular colleague's relationship with this contact is, 0–100,
+	// on `in_contact_with` edges only; null on every other kind, which describes a
+	// structural fact rather than a relationship.
+	//
+	// It is the per-user relationship strength (PO-F-3b): the same recency ×
+	// frequency × reciprocity arithmetic as the workspace-wide contact score, over
+	// only the interactions THIS colleague was in. It is deliberately not comparable
+	// by addition to the contact's own score — one answers "how warm is this contact
+	// to us", the other "to this person among us", and neither is derivable from the
+	// other.
+	//
+	// Computed at read from exact timestamps and counts, never stored, so it decays
+	// with the clock rather than with whenever a job last ran.
+	//
+	// Null also when the colleague and contact have no qualifying interaction in the
+	// scoring window, which is not the same as a zero — see `strength_bucket`.
+	Strength *int `json:"strength,omitempty"`
+
+	// StrengthBucket The display band for `strength`, so a surface renders the same words everywhere.
+	// `none` means no qualifying interaction at all and is shown as "no signal yet",
+	// never as a zero: "we have never spoken" and "we spoke and it went cold" are
+	// different facts about an account.
+	StrengthBucket *OrganizationGraphEdgeStrengthBucket `json:"strength_bucket,omitempty"`
+	To             openapi_types.UUID                   `json:"to"`
 }
 
 // OrganizationGraphEdgeKind `employment` — the account employs the person.
@@ -10938,11 +10988,19 @@ type OrganizationGraphEdge struct {
 // `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 // the organization that records the edge to its counterparty.
 // `owns` — `from` is the workspace member who owns the account.
-// `in_contact_with` — `from` is the workspace member who has recorded interactions
-// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
-// those interactions, so a task assigned to a teammate does not make one: an
-// assignment is intent, a logged email is contact.
+// `in_contact_with` — `from` is the workspace member who has been IN recorded
+// interactions (email, call, meeting) with the contact at `to`. It is drawn from
+// the recorded participants of those interactions, so it holds for
+// connector-captured mail as well as manually logged activity. Being copied on a
+// thread does not make one, and neither does a task assigned to a teammate: a cc
+// is exposure and an assignment is intent, while a logged exchange is contact.
 type OrganizationGraphEdgeKind string
+
+// OrganizationGraphEdgeStrengthBucket The display band for `strength`, so a surface renders the same words everywhere.
+// `none` means no qualifying interaction at all and is shown as "no signal yet",
+// never as a zero: "we have never spoken" and "we spoke and it went cold" are
+// different facts about an account.
+type OrganizationGraphEdgeStrengthBucket string
 
 // OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
 // and which contact is the way in. The contact is ranked exactly as

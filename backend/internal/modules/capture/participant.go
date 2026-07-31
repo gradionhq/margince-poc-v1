@@ -93,9 +93,16 @@ func insertParticipant(
 	personID *ids.PersonID,
 	address string,
 ) error {
+	// The user arm rides a SELECT over app_user for the same reason the logged
+	// path does: a principal's UserID need not name a workspace member, and
+	// the composite FK would reject it — failing an ingest we have already
+	// read off the wire, over a participant row that is a nicety rather than
+	// the point of the write.
 	_, err := tx.Exec(ctx, `
 		INSERT INTO activity_participant (workspace_id, activity_id, user_id, person_id, address, role)
-		VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, NULLIF($4, ''), $5)
+		SELECT NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, NULLIF($4, ''), $5
+		 WHERE $2::uuid IS NULL
+		    OR EXISTS (SELECT 1 FROM app_user u WHERE u.id = $2)
 		ON CONFLICT DO NOTHING`,
 		activityID, userID, personID, address, role)
 	return err
