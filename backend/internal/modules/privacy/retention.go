@@ -77,6 +77,10 @@ type RetentionService struct {
 	pool   *pgxpool.Pool
 	eraser *Eraser
 	log    *slog.Logger
+	// invalidateEdges keeps the relationship aggregates true as retention
+	// removes the interactions beneath them. Injected by compose; nil in a
+	// role that did not wire it, where the bus consumer is the fallback.
+	invalidateEdges EdgeInvalidator
 }
 
 // NewRetentionService wires the nightly evaluator. blob lets its erase
@@ -84,6 +88,41 @@ type RetentionService struct {
 // a deployment with no object store, where no attachment object can exist.
 func NewRetentionService(pool *pgxpool.Pool, blob blobstore.Store, log *slog.Logger) *RetentionService {
 	return &RetentionService{pool: pool, eraser: NewEraser(pool).WithBlobstore(blob), log: log}
+}
+
+// EdgeInvalidator re-folds the relationship aggregates an activity fed, inside
+// the caller's transaction.
+//
+// It is a SEAM rather than a call because the fold lives in the search module
+// and a module never imports a sibling; compose injects the real one. The
+// alternative — writing the fold a second time here — was tried and was wrong
+// in the way second copies are: it deleted the pairs that lost all their
+// evidence and left every surviving pair still counting the removed
+// interaction.
+type EdgeInvalidator func(ctx context.Context, tx pgx.Tx, activityID ids.UUID) error
+
+// WithEdgeInvalidator returns a service that keeps the relationship graph true
+// as retention removes the interactions under it, IN THE SAME TRANSACTION.
+//
+// Synchronous on purpose. The consumer also handles `retention.applied`, and
+// the recompute is idempotent so running twice costs nothing — but a bus is a
+// thing that can be behind, and "the aggregate is corrected unless the queue is
+// slow" is not a property worth having when the correction is a deletion
+// obligation. The event path is the backstop; this is the guarantee.
+func (s *RetentionService) WithEdgeInvalidator(fn EdgeInvalidator) *RetentionService {
+	out := *s
+	out.invalidateEdges = fn
+	return &out
+}
+
+// invalidateGraph runs the injected invalidator, if the role wired one. A role
+// that did not is not broken: the consumer still corrects the aggregate on the
+// next delivery.
+func (s *RetentionService) invalidateGraph(ctx context.Context, tx pgx.Tx, id ids.UUID) error {
+	if s.invalidateEdges == nil {
+		return nil
+	}
+	return s.invalidateEdges(ctx, tx, id)
 }
 
 // selectors name the records a (object_type, category) policy governs.
@@ -250,6 +289,9 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		switch pol.ObjectType + "/" + pol.Action {
 		case "activity/archive":
 			_, err = tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1`, id)
+			if err == nil {
+				err = s.invalidateGraph(ctx, tx, id)
+			}
 		case "activity/erase":
 			// Transcript free-text is the special-category risk; the
 			// record of the meeting stays, its content goes — including any
@@ -262,6 +304,9 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
+			}
+			if err == nil {
+				err = s.invalidateGraph(ctx, tx, id)
 			}
 			if err == nil {
 				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
