@@ -1444,7 +1444,12 @@ function StrengthPulse({
     <span>
       {t("co.pulse.strengthLead", { score: strength.score })}{" "}
       <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
-      {t("co.pulse.strengthTail", { count: strength.contact_count })}
+      {t(
+        strength.contact_count === 1
+          ? "co.pulse.strengthTail.one"
+          : "co.pulse.strengthTail.other",
+        { count: strength.contact_count },
+      )}
     </span>
   );
 }
@@ -1500,7 +1505,11 @@ function CompanyPage({
         <CompanyPulse
           org={org}
           view={view}
-          onOpenDecisions={() => setDecisionsOpen(true)}
+          // The chip opens the queue, so it appears only where the queue can:
+          // a count you cannot act on from here is a dead end.
+          onOpenDecisions={
+            tab === "overview" ? () => setDecisionsOpen(true) : undefined
+          }
         />
       }
       // The composer opens from a button rather than standing open above the
@@ -1618,7 +1627,10 @@ function CompanyPage({
           update={taskUpdate}
         />
       )}
-      {decisionsOpen && (
+      {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
+          Partner or History put a panel from one tab on top of another, and a
+          reader who switched tabs to get rid of it could not. */}
+      {decisionsOpen && tab === "overview" && (
         <CompanyApprovalsPanel
           orgId={org.id}
           view={view}

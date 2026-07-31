@@ -406,8 +406,8 @@ func gatePagePeople(parsed pageFactsReply, page crawlPage, idx snippetIndex, dro
 		}
 		// A lead nobody can contact is not a lead. The page has to have
 		// PRINTED an address: without one the proposal asks a human to
-		// confirm a name they then have no way to act on, and sixty-two of
-		// those buried the queue that real proposals share.
+		// confirm a name they then have no way to act on, and every one of
+		// those crowds the queue that real proposals share.
 		//
 		// This gates what we PROPOSE, not what a lead may be — a lead
 		// created by any other route may still carry no email (LEADS-DDL,

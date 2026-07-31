@@ -71,9 +71,12 @@ func (w *siteDeepReadWorker) autoApply(ctx context.Context, args SiteDeepReadArg
 		if matched {
 			continue
 		}
-		approvalID, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person)
+		approvalID, staged, err := w.stageSiteLead(ctx, args.SiteReadID, claim, person)
 		if err != nil {
 			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
+		}
+		if !staged {
+			continue
 		}
 		proposalIDs = append(proposalIDs, approvalID.UUID)
 	}

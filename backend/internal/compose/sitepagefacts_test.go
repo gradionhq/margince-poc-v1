@@ -449,8 +449,7 @@ func TestGatePageEntitiesJoinsALegalBlockContinuation(t *testing.T) {
 func TestATestimonialDoesNotBecomeALead(t *testing.T) {
 	// A home page's "what our clients say" wall names people who work
 	// ELSEWHERE, and filing them as contacts at the company whose site it is
-	// contradicts their own quoted job title on the same line. Reading one
-	// real site staged sixty-two of them.
+	// contradicts their own quoted job title on the same line.
 	//
 	// The published-email floor is what separates them from the founders and
 	// staff on the same pages, which are worth having: a company prints an

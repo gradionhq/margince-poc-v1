@@ -51,11 +51,68 @@ func teamDeepBrain() laneFake {
 	}
 }
 
+// reflowedTeamSite is the same team page after a redesign reprinted Anna's
+// name with different casing and spacing — the same person, respelled.
+func reflowedTeamSite() *fakeSite {
+	return &fakeSite{pages: map[string]fakeSitePage{
+		seedURL: {text: readable("Acme home.")},
+		seedURL + "/team": {text: readable("Team.") + " anna   MUSTER is our Chief Executive Officer. " +
+			"Reach her at anna@acme.example."},
+	}}
+}
+
+func reflowedTeamBrain() laneFake {
+	return laneFake{
+		profileReply: `{"fields":[]}`,
+		pageReplies: map[string]string{
+			seedURL + "/team": `{"facts":[],"people":[
+				{"n":"anna   MUSTER","r":"Chief Executive Officer","m":"anna@acme.example","e":"s0"}]}`,
+		},
+	}
+}
+
+// seedRequesterCanReadPeople gives the deep read's requester a REAL role
+// granting person/lead read, through the identity tables.
+//
+// The already-on-file probe runs under the requester's live grants, resolved
+// from role + role_assignment rather than from whatever permissions a test
+// context claims — that is the whole point of narrowing the worker's system
+// authority. Without a role row the requester can lend no scope, the probe is
+// skipped, and every published person is proposed.
+func seedRequesterCanReadPeople(t *testing.T, e *integration.Env, user ids.UUID) {
+	t.Helper()
+	ctx := context.Background()
+	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		var roleID ids.UUID
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO role (workspace_id, key, name, permissions)
+			 VALUES ($1, 'site_read_requester', 'Site Read Requester',
+			         '{"objects":{"person":{"read":true},"lead":{"read":true}},"row_scope":"all"}'::jsonb)
+			 RETURNING id`, e.WS).Scan(&roleID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx,
+			`INSERT INTO role_assignment (workspace_id, role_id, user_id) VALUES ($1, $2, $3)`,
+			e.WS, roleID, user)
+		return err
+	})
+	if err != nil {
+		t.Fatalf("granting the requester person/lead read: %v", err)
+	}
+}
+
 // runTeamDeepRead crawls acmeTeamSite with the people reply as the one
 // corpus answer and returns the finished dossier.
 func runTeamDeepRead(t *testing.T, e *integration.Env, org ids.UUID) (people.SiteRead, *approvals.Service) {
 	t.Helper()
-	worker, svc := newDeepReadTestWorker(e, acmeTeamSite(), teamDeepBrain())
+	return runTeamDeepReadOn(t, e, org, acmeTeamSite(), teamDeepBrain())
+}
+
+// runTeamDeepReadOn is runTeamDeepRead over a caller-chosen site and corpus
+// answer, for the reads that need the page to say something different.
+func runTeamDeepReadOn(t *testing.T, e *integration.Env, org ids.UUID, site *fakeSite, brain laneFake) (people.SiteRead, *approvals.Service) {
+	t.Helper()
+	worker, svc := newDeepReadTestWorker(e, site, brain)
 	read, args := startDeepRead(t, e, org)
 	if err := worker.run(context.Background(), args); err != nil {
 		t.Fatalf("run: %v", err)
@@ -135,10 +192,11 @@ func TestDeepReadTeamPageStagesOneThinSiteLeadPerPublishedPerson(t *testing.T) {
 func TestSiteLeadAcceptCapturesALeadIdempotentAcrossReReads(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	seedRequesterCanReadPeople(t, e, e.Rep1)
 	done, svc := runTeamDeepRead(t, e, org)
 
-	// Accepting Anna captures her as a LEAD via the Sink — with her
-	// published email; accepting Bernd proves the empty-email path.
+	// Accepting Anna captures her as a LEAD via the Sink, with her published
+	// email.
 	for _, id := range done.ProposalIDs {
 		if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](id), true, nil); err != nil {
 			t.Fatalf("accept %s: %v", id, err)
@@ -167,20 +225,97 @@ func TestSiteLeadAcceptCapturesALeadIdempotentAcrossReReads(t *testing.T) {
 			annaEmail, annaTitle, annaSource, annaCapturedBy)
 	}
 
-	// A FRESH read of the same site stages fresh proposals; accepting the
-	// same person again resolves to the same natural key — no second lead.
-	again, svc2 := runTeamDeepRead(t, e, org)
-	if len(again.ProposalIDs) != 1 {
-		t.Fatalf("re-read proposal_ids = %v, want the contactable person staged again", again.ProposalIDs)
-	}
-	if _, err := svc2.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](again.ProposalIDs[0]), true, nil); err != nil {
-		t.Fatalf("re-accept after re-read: %v", err)
+	// A FRESH read of the same site finds Anna on the page again — and asks
+	// nobody about her. She is on file now, so the question is already
+	// answered; re-staging it would spend a human decision on a confirmation
+	// that could only land on the lead row that already exists.
+	again, _ := runTeamDeepRead(t, e, org)
+	if len(again.ProposalIDs) != 0 {
+		t.Fatalf("re-read proposal_ids = %v, want none — Anna is already on file", again.ProposalIDs)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM lead`); n != 1 {
-		t.Fatalf("%d leads after re-accepting Anna from a re-read, want still 1 (same natural key)", n)
+		t.Fatalf("%d leads after the re-read, want still 1", n)
 	}
-	if n := e.WsCount(t, `SELECT count(*) FROM lead WHERE full_name = 'Anna Muster'`); n != 1 {
-		t.Fatalf("%d Anna leads after the re-read accept, want exactly 1", n)
+}
+
+// A person the workspace already reaches by email — captured months earlier
+// through the mail connector, long before any crawl — is not a decision: the
+// site read finds a name that is already a live contact and must not put it
+// back in front of a human.
+func TestAPersonAlreadyOnFileIsNotStagedAgain(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	seedRequesterCanReadPeople(t, e, e.Rep1)
+
+	ctx := e.As(e.Rep1, nil, integration.AdminPerms)
+	if _, err := e.People.CreatePerson(ctx, people.CreatePersonInput{
+		FullName: "Anna Muster",
+		Emails:   []people.PersonEmailInput{{Email: "anna@acme.example", EmailType: "work", IsPrimary: true}},
+		Source:   "email",
+	}); err != nil {
+		t.Fatalf("seeding the contact who already emails us: %v", err)
+	}
+
+	done, _ := runTeamDeepRead(t, e, org)
+	if done.Status != "done" {
+		t.Fatalf("dossier status = %q, want done — a fully known roster is not a failure", done.Status)
+	}
+	if len(done.ProposalIDs) != 0 {
+		t.Fatalf("proposal_ids = %v, want none — the page named nobody the workspace does not already have", done.ProposalIDs)
+	}
+}
+
+// Two reads before anyone decides leave ONE question, not two. The payload
+// carries the read id and the page's own reflowed passage, so every crawl
+// hashes differently; the proposal's identity is the person at the company,
+// and the newer staging supersedes the older one.
+func TestASecondReadSupersedesTheUndecidedFirst(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+
+	first, _ := runTeamDeepRead(t, e, org)
+	second, svc := runTeamDeepRead(t, e, org)
+	if len(first.ProposalIDs) != 1 || len(second.ProposalIDs) != 1 {
+		t.Fatalf("proposals = %v then %v, want one per read", first.ProposalIDs, second.ProposalIDs)
+	}
+	if first.ProposalIDs[0] == second.ProposalIDs[0] {
+		t.Fatalf("both reads named approval %s — the second read carries a fresh payload and must stage its own",
+			first.ProposalIDs[0])
+	}
+	live := e.WsCount(t, `SELECT count(*) FROM approval
+		 WHERE kind = 'site_lead' AND status = 'pending' AND expires_at > now()`)
+	if live != 1 {
+		t.Fatalf("%d live site_lead questions after two reads, want 1 — one Anna Muster, one decision", live)
+	}
+	// The identity is the natural key, so it survives the site reprinting the
+	// same person's name differently. A raw-name identity passes every
+	// assertion above and still stacks a second question here.
+	reflowed, _ := runTeamDeepReadOn(t, e, org, reflowedTeamSite(), reflowedTeamBrain())
+	if len(reflowed.ProposalIDs) != 1 {
+		t.Fatalf("reflowed re-read proposal_ids = %v, want its own fresh staging", reflowed.ProposalIDs)
+	}
+	live = e.WsCount(t, `SELECT count(*) FROM approval
+		 WHERE kind = 'site_lead' AND status = 'pending' AND expires_at > now()`)
+	if live != 1 {
+		t.Fatalf("%d live site_lead questions after the page reflowed her name, want 1 — casing and spacing are not a new person", live)
+	}
+
+	// The survivor is the newest one, and it still accepts. The reads it
+	// superseded do not: a superseded offer is expired, and deciding it would
+	// be acting on a question the inbox has already replaced.
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](second.ProposalIDs[0]), true, nil); err == nil {
+		t.Fatal("the superseded proposal still accepted, want it refused as expired")
+	}
+	if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms),
+		ids.From[ids.ApprovalKind](reflowed.ProposalIDs[0]), true, nil); err != nil {
+		t.Fatalf("accepting the surviving proposal: %v", err)
+	}
+	// One lead, under the name the page printed the FIRST time — the natural
+	// key the reflowed proposal was staged under is the one the accept lands
+	// on, so a respelling cannot mint a second Anna.
+	if n := e.WsCount(t, `SELECT count(*) FROM lead`); n != 1 {
+		t.Fatalf("%d leads after accepting the survivor of three reads, want exactly 1", n)
 	}
 }
 

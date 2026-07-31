@@ -32,11 +32,13 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/blobstore"
 	"github.com/gradionhq/margince/backend/internal/platform/webread"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/authz"
 )
 
 // SiteDeepReadArgs is one queued deep read. The args carry everything the
@@ -92,8 +94,13 @@ type siteDeepReadWorker struct {
 	// blob holds the normalized logo bytes. Nil is a worker role with no
 	// object store: it reads sites and resolves no logos, and every company
 	// keeps its monogram.
-	blob       blobstore.Store
-	approvals  *approvals.Service
+	blob      blobstore.Store
+	approvals *approvals.Service
+	// authority is identity's live RBAC resolver. The worker acts as a system
+	// principal, which sees every row; anything it decides ON BEHALF OF the
+	// requesting human has to be decided within THAT human's scope instead —
+	// see probeCtx.
+	authority  authz.Resolver
 	autoEnrich *capture.AutoEnrichStore
 	// settings answers the auto-enrich flag at CLAIM time. The sweep checks it
 	// too, but a job queued while the flag was on outlives that check: without
@@ -120,6 +127,7 @@ func newSiteDeepReadWorker(pool *pgxpool.Pool, brain, factBrain completer, log *
 		fetch:      fetcher,
 		blob:       blob,
 		approvals:  approvals.NewService(pool),
+		authority:  identity.NewService(pool),
 		autoEnrich: capture.NewAutoEnrichStore(pool),
 		settings:   capture.NewSettings(pool),
 		log:        log,
@@ -328,9 +336,12 @@ func (w *siteDeepReadWorker) stageProposals(ctx context.Context, readID ids.UUID
 		proposalIDs = []ids.UUID{approvalID.UUID}
 	}
 	for _, person := range mergedPeople {
-		approvalID, err := w.stageSiteLead(ctx, readID, claim, person)
+		approvalID, staged, err := w.stageSiteLead(ctx, readID, claim, person)
 		if err != nil {
 			return nil, fmt.Errorf("staging the %s lead: %w", person.Name, err)
+		}
+		if !staged {
+			continue
 		}
 		proposalIDs = append(proposalIDs, approvalID.UUID)
 	}
@@ -368,48 +379,6 @@ func (w *siteDeepReadWorker) stage(ctx context.Context, readID ids.UUID, claim p
 		JoinPending:    true,
 	})
 	return approvalID, err
-}
-
-// stageSiteLead records ONE published person as a thin "site_lead"
-// proposal: exactly what the site printed, nothing enriched. Each
-// person is decided on their own — accepting the CTO does not accept the
-// whole roster.
-func (w *siteDeepReadWorker) stageSiteLead(ctx context.Context, readID ids.UUID, claim people.SiteReadClaim, person sitePerson) (ids.ApprovalID, error) {
-	if claim.OrganizationID == nil {
-		return ids.ApprovalID{}, errors.New("site deep read: an unbound onboarding draft cannot stage a lead proposal")
-	}
-	in, err := siteLeadStageInput(readID, *claim.OrganizationID, claim.SeedURL, person)
-	if err != nil {
-		return ids.ApprovalID{}, err
-	}
-	in.JoinPending = true
-	approvalID, err := w.approvals.Stage(ctx, in)
-	return approvalID, err
-}
-
-func siteLeadStageInput(readID, organizationID ids.UUID, seedURL string, person sitePerson) (approvals.StageInput, error) {
-	proposedChange, err := json.Marshal(siteLeadProposal{
-		OrganizationID:  organizationID,
-		SiteReadID:      readID,
-		Name:            person.Name,
-		Role:            person.Role,
-		PublishedEmail:  person.PublishedEmail,
-		LinkedinURL:     person.LinkedinURL,
-		EvidenceSnippet: person.EvidenceSnippet,
-		SourceURL:       person.SourceURL,
-	})
-	if err != nil {
-		return approvals.StageInput{}, err
-	}
-	digest := sha256.Sum256(proposedChange)
-	return approvals.StageInput{
-		Kind:           siteLeadProposalKind,
-		ProposedChange: proposedChange,
-		DiffHash:       hex.EncodeToString(digest[:]),
-		TargetType:     enrichTargetType,
-		TargetID:       organizationID,
-		Summary:        fmt.Sprintf("Lead from %s: %s — %s", seedURL, person.Name, person.Role),
-	}, nil
 }
 
 // siteReadLegalEntities projects the gated census onto the dossier shape.

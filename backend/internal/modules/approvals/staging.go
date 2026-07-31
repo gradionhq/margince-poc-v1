@@ -68,27 +68,50 @@ type AnnouncedEvent struct {
 // emits approval.requested. It runs in the write shape every mutation
 // uses: approval row + audit row + event in one transaction.
 func (s *Service) Stage(ctx context.Context, in StageInput) (ids.ApprovalID, error) {
-	if len(in.Identity) > 0 {
-		if !in.JoinPending {
-			return ids.ApprovalID{}, errors.New("crmapprovals: Identity staging requires JoinPending")
-		}
-		canonical, err := canonicalIdentity(in.Identity, in.ProposedChange)
-		if err != nil {
-			return ids.ApprovalID{}, err
-		}
-		in.Identity = canonical
+	in, err := withCanonicalIdentity(in)
+	if err != nil {
+		return ids.ApprovalID{}, err
 	}
 	var id ids.ApprovalID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		var err error
 		if in.JoinPending {
 			id, err = s.stageOrJoinPendingInTx(ctx, tx, in)
 		} else {
-			id, err = s.StageInTx(ctx, tx, in)
+			id, err = s.insertProposalInTx(ctx, tx, in)
 		}
 		return err
 	})
 	return id, err
+}
+
+// StageOrJoinPendingInTx is Stage's joining path on the CALLER's transaction:
+// it joins a live identical proposal and supersedes a stale one under the same
+// logical identity, for a caller that stages inside a wider transaction of its
+// own. StageInTx is the create-always counterpart.
+func (s *Service) StageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.ApprovalID, error) {
+	in, err := withCanonicalIdentity(in)
+	if err != nil {
+		return ids.ApprovalID{}, err
+	}
+	return s.stageOrJoinPendingInTx(ctx, tx, in)
+}
+
+// withCanonicalIdentity validates and canonicalizes a staging's Identity,
+// spelled once for both entry points that honor one.
+func withCanonicalIdentity(in StageInput) (StageInput, error) {
+	if len(in.Identity) == 0 {
+		return in, nil
+	}
+	if !in.JoinPending {
+		return in, errors.New("crmapprovals: Identity staging requires JoinPending")
+	}
+	canonical, err := canonicalIdentity(in.Identity, in.ProposedChange)
+	if err != nil {
+		return in, err
+	}
+	in.Identity = canonical
+	return in, nil
 }
 
 // canonicalIdentity validates and canonicalizes a staging identity. It must
@@ -174,7 +197,7 @@ func (s *Service) stageOrJoinPendingInTx(ctx context.Context, tx pgx.Tx, in Stag
 	switch {
 	case err == nil:
 	case errors.Is(err, pgx.ErrNoRows):
-		if id, err = s.StageInTx(ctx, tx, in); err != nil {
+		if id, err = s.insertProposalInTx(ctx, tx, in); err != nil {
 			return ids.ApprovalID{}, err
 		}
 	default:
@@ -263,7 +286,23 @@ func resolveTargetVersion(ctx context.Context, tx pgx.Tx, in StageInput) (versio
 // uses it when another module's state transition creates the target the
 // proposal refers to, so the target and its separately governed follow-up
 // proposals cannot commit only halfway.
+//
+// It always CREATES a row. A caller that means to join a live identical
+// proposal or supersede a stale one under a logical identity wants
+// StageOrJoinPendingInTx instead, and is refused here rather than quietly
+// getting neither: an inert Identity looks exactly like a working one until
+// duplicate questions pile up in somebody's inbox weeks later.
 func (s *Service) StageInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.ApprovalID, error) {
+	if len(in.Identity) > 0 || in.JoinPending {
+		return ids.ApprovalID{}, errors.New(
+			"crmapprovals: StageInTx always creates a row — use StageOrJoinPendingInTx to join or supersede")
+	}
+	return s.insertProposalInTx(ctx, tx, in)
+}
+
+// insertProposalInTx is the raw insert every staging path lands on, whether it
+// arrived by joining, superseding, or straight creation.
+func (s *Service) insertProposalInTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.ApprovalID, error) {
 	p, ok := principal.Actor(ctx)
 	if !ok {
 		return ids.ApprovalID{}, errors.New("crmapprovals: no actor bound to context")

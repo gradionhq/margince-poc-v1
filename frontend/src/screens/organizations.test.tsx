@@ -1328,7 +1328,11 @@ describe("CompanyScreen — the account pulse line (P-4)", () => {
 
     // The number, the contact count, and the last touch all read off the one
     // composite response — no second round trip for the header.
-    await waitFor(() => expect(screen.getByText(/41/)).toBeTruthy());
+    // The score is matched with its own lead-in, not as a bare number: the
+    // brief below the header states elapsed days, so a plain /41/ matches
+    // whichever account age happens to equal the score on the day the suite
+    // runs.
+    await waitFor(() => expect(screen.getByText(/41 · via/)).toBeTruthy());
     expect(screen.getByText(/3 contacts/)).toBeTruthy();
     expect(screen.getByText(/Last touch/)).toBeTruthy();
   });

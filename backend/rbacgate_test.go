@@ -135,6 +135,7 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	"internal/modules/people:UpdateSiteReadDraft":             "worker-loop grounded-draft update on a still-running dossier, same seam as progress: admission happened at start and RLS scopes the versioned operational write",
 	"internal/modules/approvals:Stage":                        "staging is invoked BY an admitted mutation (the 🟡 path of a gated store call); the staging row records that actor",
 	"internal/modules/approvals:StageInTx":                    "transactional form of Stage used by an admitted compose orchestration; it records the same actor and differs only in commit ownership",
+	"internal/modules/approvals:StageOrJoinPendingInTx":       "StageInTx's joining twin, admitted the same way and by the same callers; it adds only the join-or-supersede decision over proposals of one kind against one target, never record data",
 	"internal/modules/approvals:StageUnlessDeclined":          "Stage with one added refusal — it declines to re-offer a proposal a human already rejected — so it is admitted exactly as Stage is, by the gated mutation that reached it; the extra read is of the offers this same proposal produced, never record data",
 	"internal/modules/approvals:HasPendingFor":                "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
 	"internal/modules/approvals:HasPendingKind":               "existence probe consumed by gated sibling flows (the sweep's duplicate check); returns no record data",
