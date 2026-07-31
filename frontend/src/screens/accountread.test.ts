@@ -351,45 +351,125 @@ describe("readAccount", () => {
     ).toBe(20);
   });
 
-  it("explains a low score with the traffic behind it", () => {
-    // The score is a 90-day engagement measure, not a verdict on whether a
-    // relationship exists. An account with a year of correspondence and two
-    // unanswered mails this quarter scores 2 — and reading that as "there is
-    // no relationship here" was simply false.
+  it("counts the contacts who have not replied, not one contact's traffic", () => {
+    // The organization's own strength object is the MAX contact's, not a
+    // total: quoting its outbound_90d as the account's traffic described
+    // three contacts with 2, 2 and 1 outbound as "2 messages out".
     const v = view({
-      strength: strength({
-        score: 2,
-        bucket: "weak",
-        last_interaction: daysAgo(13),
-        outbound_90d: 2,
-        inbound_90d: 0,
-      }),
+      strength: strength({ outbound_90d: 2, inbound_90d: 0 }),
+      people: {
+        data: [
+          contact({
+            person_id: "p1",
+            strength: {
+              score: 2,
+              bucket: "weak",
+              factors: FACTORS,
+              outbound_90d: 2,
+              inbound_90d: 0,
+            },
+          }),
+          contact({
+            person_id: "p2",
+            full_name: "Thomas Lohner",
+            strength: {
+              score: 2,
+              bucket: "weak",
+              factors: FACTORS,
+              outbound_90d: 2,
+              inbound_90d: 0,
+            },
+          }),
+          contact({
+            person_id: "p3",
+            full_name: "Markus Bueckle",
+            strength: {
+              score: 1,
+              bucket: "weak",
+              factors: FACTORS,
+              outbound_90d: 1,
+              inbound_90d: 0,
+            },
+          }),
+        ],
+        page: { has_more: false },
+      },
     });
     const found = readAccount(v, NOW).find((f) => f.id === "unanswered");
     expect(found?.key).toBe("co.read.unansweredMany");
-    expect(found?.params).toEqual({ count: 2, days: STRENGTH_WINDOW_DAYS });
+    expect(found?.params).toEqual({ count: 3, days: STRENGTH_WINDOW_DAYS });
   });
 
-  it("says nothing when they have answered inside the window", () => {
+  it("says nothing once any one of them has replied", () => {
     const v = view({
-      strength: strength({
-        last_interaction: daysAgo(3),
-        outbound_90d: 4,
-        inbound_90d: 2,
-      }),
+      people: {
+        data: [
+          contact({
+            person_id: "p1",
+            strength: {
+              score: 2,
+              bucket: "weak",
+              factors: FACTORS,
+              outbound_90d: 2,
+              inbound_90d: 0,
+            },
+          }),
+          contact({
+            person_id: "p2",
+            full_name: "Thomas Lohner",
+            strength: {
+              score: 30,
+              bucket: "warm",
+              factors: FACTORS,
+              outbound_90d: 2,
+              inbound_90d: 1,
+            },
+          }),
+        ],
+        page: { has_more: false },
+      },
     });
     expect(ids(v)).not.toContain("unanswered");
   });
 
-  it("says nothing when the window carried no traffic at all", () => {
-    // Silence in the window is what the last-contact line already reports;
-    // "0 messages out and nothing back" adds nothing and reads as an error.
+  it("makes no claim about everyone from a truncated contact list", () => {
     const v = view({
-      strength: strength({
-        last_interaction: daysAgo(200),
-        outbound_90d: 0,
-        inbound_90d: 0,
-      }),
+      people: {
+        data: [
+          contact({
+            person_id: "p1",
+            strength: {
+              score: 2,
+              bucket: "weak",
+              factors: FACTORS,
+              outbound_90d: 2,
+              inbound_90d: 0,
+            },
+          }),
+        ],
+        page: { has_more: true },
+      },
+    });
+    expect(ids(v)).not.toContain("unanswered");
+  });
+
+  it("says nothing when nothing was sent in the window", () => {
+    const v = view({
+      people: {
+        data: [
+          contact({
+            person_id: "p1",
+            strength: {
+              score: 0,
+              bucket: "dormant",
+              factors: FACTORS,
+              outbound_90d: 0,
+              inbound_90d: 0,
+            },
+          }),
+        ],
+        page: { has_more: false },
+      },
     });
     expect(ids(v)).not.toContain("unanswered");
   });

@@ -622,9 +622,9 @@ export const en = {
   "co.read.dealMovedOne": "One deal moved stage since your last visit.",
   "co.read.dealMovedMany": "{count} deals moved stage since your last visit.",
   "co.read.unansweredOne":
-    "One message out in the last {days} days, and nothing back.",
+    "You have written to one contact here in the last {days} days and had no reply.",
   "co.read.unansweredMany":
-    "{count} messages out in the last {days} days, and nothing back.",
+    "You have written to {count} contacts here in the last {days} days and none has replied.",
   "co.read.noContacts": "You do not know anyone at this account yet.",
   "co.read.singleThread":
     "Only {name} has ever engaged. Nobody else here has responded.",

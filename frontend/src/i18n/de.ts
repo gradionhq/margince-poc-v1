@@ -635,9 +635,9 @@ export const de = {
   "co.read.dealMovedMany":
     "{count} Deals haben seit deinem letzten Besuch die Phase gewechselt.",
   "co.read.unansweredOne":
-    "Eine Nachricht in den letzten {days} Tagen raus, zurück kam nichts.",
+    "Du hast in den letzten {days} Tagen einen Kontakt hier angeschrieben, ohne Antwort.",
   "co.read.unansweredMany":
-    "{count} Nachrichten in den letzten {days} Tagen raus, zurück kam nichts.",
+    "Du hast in den letzten {days} Tagen {count} Kontakte hier angeschrieben, keiner hat geantwortet.",
   "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
   "co.read.singleThread":
     "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",

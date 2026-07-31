@@ -281,35 +281,47 @@ function pipeline(view: Organization360): AccountFinding[] {
 }
 
 /**
- * exchange reports the traffic in the strength window: how much we sent, and
- * how much came back.
+ * exchange reports whether anyone at this account has answered us lately.
  *
- * These are the server's own counts (`outbound_90d` / `inbound_90d`), the
- * same ones the relationship score is built from, so a low score is EXPLAINED
- * on the page instead of asserted. Saying the window out loud is the point: an
- * account with a year of correspondence and nothing in the last quarter is a
- * real and useful state, and reading its low score as "there is no
- * relationship here" was simply false.
+ * The counts come from the PEOPLE section, one contact at a time. The
+ * organization's own strength object carries counts too, but they belong to
+ * the single strongest contact — org strength is the MAX over contacts, not a
+ * total — so quoting them as the account's traffic understates it: three
+ * contacts with 2, 2 and 1 outbound present as "2 messages out".
+ *
+ * What IS safe to say from per-contact numbers is the shape they all share.
+ * Every contact having nothing inbound makes "nobody here has replied" true
+ * without adding anything up, which also avoids the other trap: one mail sent
+ * to three people is three activity rows, so a sum would count it three times.
  */
 function exchange(view: Organization360): AccountFinding[] {
-  const strength = view.strength;
-  if (!strength || withheld(view, "strength")) {
+  const people = view.people;
+  if (!people || withheld(view, "people")) {
     return [];
   }
-  const out = strength.outbound_90d ?? 0;
-  const back = strength.inbound_90d ?? 0;
-  // Nothing at all in the window says nothing on its own; the last-contact
-  // line already carries how long it has been. Traffic in both directions is
-  // a conversation, and a conversation needs no line of its own.
-  if (out === 0 || back > 0) {
+  // A claim about everyone needs everyone. With contacts past this page, the
+  // twenty-sixth is exactly the one who replied.
+  if (people.page.has_more) {
+    return [];
+  }
+  const written = people.data.filter((c) => (c.strength.outbound_90d ?? 0) > 0);
+  if (written.length === 0) {
+    // Nothing sent in the window is what the last-contact line already
+    // reports; "nobody replied" to messages we never sent is not a finding.
+    return [];
+  }
+  if (written.some((c) => (c.strength.inbound_90d ?? 0) > 0)) {
     return [];
   }
   return [
     {
       id: "unanswered",
       tone: "risk",
-      key: out === 1 ? "co.read.unansweredOne" : "co.read.unansweredMany",
-      params: { count: out, days: STRENGTH_WINDOW_DAYS },
+      key:
+        written.length === 1
+          ? "co.read.unansweredOne"
+          : "co.read.unansweredMany",
+      params: { count: written.length, days: STRENGTH_WINDOW_DAYS },
     },
   ];
 }
