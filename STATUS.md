@@ -80,6 +80,58 @@ The client component and its hook were deleted rather than left mounted
 nowhere. `SentenceList`, `Citations` and `WrittenBy` survive: the Ask flow
 uses all three.
 
+## Open spec collision — the coverage matrix needs what the spec rules out
+
+The company page's agreed centrepiece is a coverage matrix: their buying
+committee as rows, our team as columns, cells by relationship strength. Reading
+the spec, that feature collides with three decisions rather than with one
+missing column.
+
+**There is no graph, on purpose.** `specs/subsystems/context-graph.md` defines
+the context graph as "a capability on the relational core, not a datastore",
+and its appendix says the chapter owns no tables, no operations and no events.
+`specs/product/scope.md` NEVER-10 puts a graph datastore out of V1.
+ADR-0021 calls the `relationship` edge set "near-bipartite" and names the
+excluded workload precisely: N-degree path-finding, and **warm-intro paths**,
+which it says would trip its own trigger (b) for reconsidering a graph store.
+
+**The model has nowhere to put the edge.** `relationship` (PO-DDL-7) has
+`person_id`, `organization_id`, `counterparty_org_id`, `deal_id`, `project_id`
+and no user column, so person↔person and user↔person are structurally
+impossible. `activity_link` (ACT-DDL-2) links to person/organization/deal/
+lead/project and has no user arm, so no email, call or meeting ever produces a
+stored edge between a workspace member and a contact. Meeting `attendee_emails`
+are accepted by the scheduling API and never persisted.
+
+**The strength formula is team-wide by design.** PO-F-3 is specced
+"workspace-wide (team-wide, not per-rep — AC-person-2)". A matrix needs a
+per-colleague × per-contact score, which no formula in the spec defines.
+
+**And the endpoint we were about to fix is not a spec feature.** A search of
+the whole spec tree for `/organizations/{id}/graph`, `in_contact_with` and
+`our_side` returns nothing: the connections card is POC-invented (#322,
+2026-07-30), and its "our side" edges were added a day later as a bug fix
+(#333) with no chapter, no AC id and no formula id. Its
+`captured_by = 'human:<uuid>'` join is the only "who on our side knows this
+contact" answer in the system, and under ADR-0063 capture it matches almost
+nothing.
+
+**Also worth knowing:** PO-F-3 reads only `kind IN ('email','call','meeting')`,
+so WhatsApp and Telegram — first-class activity kinds under ADR-0022 — feed no
+strength or warm-room computation at all. And leads are outside the graph
+entirely by design (`leads-and-qualification.md`: "a lead has no link into the
+organization graph").
+
+**The decision to take upstream**, not to make here: either the matrix is cut,
+or the spec gains an interaction-participant edge. The shape that would serve
+every channel at once is one row per participant per activity — which side they
+are on (`user_id` or `person_id`), their address, and their role (from / to /
+cc / attendee / organizer). Every channel already flows through one `activity`
+table, so one table would light up email, calendar, WhatsApp and Telegram
+together, and warm paths and the matrix fall out of it as queries. That is a
+schema addition, a capture change, a backfill, and a spec raise against
+ADR-0021 and NEVER-10. Contract-first: the spec decides first.
+
 ## Open defect — the graph cannot answer "who do I know here"
 
 The `in_contact_with` edge exists in the contract and is implemented
