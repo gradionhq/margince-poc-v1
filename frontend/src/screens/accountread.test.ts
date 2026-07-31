@@ -59,6 +59,10 @@ function organization(): Organization360["organization"] {
     workspace_id: "w1",
     display_name: "ScaleCommerce",
     version: 1,
+    source: "manual",
+    captured_by: "human:u1",
+    created_at: daysAgo(400),
+    updated_at: daysAgo(1),
   };
 }
 
@@ -71,8 +75,15 @@ type Activity = Activities["data"][number];
 function activity(over: Partial<Activity> = {}): Activity {
   return {
     id: "a1",
+    workspace_id: "w1",
     kind: "email",
     occurred_at: daysAgo(1),
+    is_done: false,
+    source: "gmail",
+    captured_by: "connector:gmail",
+    created_at: daysAgo(1),
+    updated_at: daysAgo(1),
+    version: 1,
     ...over,
   };
 }
