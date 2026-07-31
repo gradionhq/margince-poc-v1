@@ -169,12 +169,23 @@ func sarSections(pkg *SARPackage) []sarSection {
 		  WHERE ap.person_id = $1
 		     OR (ap.address IS NOT NULL AND ap.address IN (
 		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
+		// The same reach erasure uses: matched, or carrying their address, or
+		// bearing their name at an employer they actually work for. Art. 15
+		// owes what is HELD, and an unmatched ghost holds their name and
+		// employer just as surely as a confirmed one does.
 		{&pkg.LinkedInConnections, `SELECT full_name, position, company_name, connected_on,
 		       email, match_status, source, synced_at
-		   FROM linkedin_connection
-		  WHERE matched_person_id = $1
-		     OR (email IS NOT NULL AND email IN (
-		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
+		   FROM linkedin_connection g
+		  WHERE g.matched_person_id = $1
+		     OR (g.email IS NOT NULL AND g.email IN (
+		         SELECT lower(email) FROM person_email WHERE person_id = $1))
+		     OR (g.normalized_company IS NOT NULL
+		         AND g.normalized_name = (SELECT lower(f_unaccent(full_name)) FROM person WHERE id = $1)
+		         AND EXISTS (
+		             SELECT 1 FROM relationship r
+		              WHERE r.person_id = $1 AND r.kind = 'employment'
+		                AND r.archived_at IS NULL
+		                AND r.organization_id = g.matched_org_id))`},
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
 		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency

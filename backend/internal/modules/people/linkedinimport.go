@@ -42,11 +42,9 @@ import (
 // silently dropped — an import that quietly ignored half a file while
 // reporting success is worse than one that fails.
 type LinkedInImportResult struct {
-	Rows      int
-	Imported  int
-	Skipped   int
-	Suggested int
-	Confirmed int
+	Rows     int
+	Imported int
+	Skipped  int
 }
 
 // The header fields this importer reads, named so the alias table and the

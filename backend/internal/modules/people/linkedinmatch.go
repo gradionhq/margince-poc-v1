@@ -111,9 +111,12 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx) (int, error) {
 // same colleague, and offering that choice invites a wrong click.
 func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx) (int, error) {
 	tag, err := tx.Exec(ctx, `
-		WITH candidate AS (
-		    SELECT g.id AS ghost_id, p.id AS person_id,
-		           count(*) OVER (PARTITION BY g.id) AS matches
+		WITH pair AS (
+		    -- DISTINCT pairs FIRST. A contact with two live employment rows at
+		    -- one account (a role change recorded as a second row) joins twice
+		    -- and is still one candidate; counting the join rows would read
+		    -- that as an ambiguity and refuse a correct suggestion.
+		    SELECT DISTINCT g.id AS ghost_id, p.id AS person_id
 		      FROM linkedin_connection g
 		      JOIN person p
 		        ON p.archived_at IS NULL
@@ -138,6 +141,14 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx) (int, error)
 		            WHERE other.matched_person_id = p.id
 		              AND other.owner_user_id = g.owner_user_id
 		              AND other.match_status = 'confirmed')
+		),
+		candidate AS (
+		    -- Now the count is over distinct PEOPLE, which is what ambiguity
+		    -- means. (count(DISTINCT …) is not available as a window function
+		    -- in Postgres, hence the two steps rather than one.)
+		    SELECT ghost_id, person_id,
+		           count(*) OVER (PARTITION BY ghost_id) AS matches
+		      FROM pair
 		)
 		UPDATE linkedin_connection g
 		   SET matched_person_id = c.person_id,
@@ -259,6 +270,14 @@ func orgKeys(ctx context.Context, tx pgx.Tx) (map[string]ids.UUID, error) {
 // address book to the colleague's whole team.
 func OrganizationLinkedInReach(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID) (map[ids.UUID]int, error) {
 	if err := auth.Require(ctx, "organization", principal.ActionRead); err != nil {
+		return nil, err
+	}
+	// The row gate, not just the object grant. A reach count is a statement
+	// ABOUT an account — answering it for an account the caller cannot open
+	// discloses that the account exists, and does so through a side door that
+	// the account's own read path closes. 404-hiding, like every other
+	// single-record read.
+	if err := auth.EnsureVisible(ctx, tx, "organization", orgID.UUID); err != nil {
 		return nil, err
 	}
 	rows, err := tx.Query(ctx, `

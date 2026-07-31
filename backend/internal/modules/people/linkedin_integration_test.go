@@ -203,3 +203,43 @@ func (e *dedupeEnv) employ(t *testing.T, person ids.PersonID, org ids.Organizati
 		t.Fatalf("employing %s: %v", person, err)
 	}
 }
+
+func TestAnUnmatchedGhostStillNamesTheSubject(t *testing.T) {
+	e := setupDedupe(t)
+	org := e.seedOrgNamed(t, "Acme GmbH")
+	// Andreas is a contact at Acme. The export names him, but carries no
+	// address, so the matcher only SUGGESTS — it never confirms.
+	andreas := e.seedContact(t, "Andreas Müller")
+	e.employ(t, andreas, org)
+	e.importExport(t)
+	if _, err := e.store.MatchLinkedInConnections(e.as()); err != nil {
+		t.Fatalf("matching: %v", err)
+	}
+
+	// The ghost holds his name, employer and position — imported from a
+	// colleague's export without him ever being asked. An erasure that only
+	// swept CONFIRMED matches would leave all of it behind, and would do so
+	// while reporting the erasure complete.
+	status, _ := e.ghostStatus(t, "Andreas Müller")
+	if status != "suggested" {
+		t.Fatalf("the ghost is %q, want suggested — this test is no longer about the unconfirmed case", status)
+	}
+	var byName int
+	ctx := e.as()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*) FROM linkedin_connection g
+			 WHERE g.normalized_company IS NOT NULL
+			   AND g.normalized_name = (SELECT lower(f_unaccent(full_name)) FROM person WHERE id = $1)
+			   AND EXISTS (SELECT 1 FROM relationship r
+			                WHERE r.person_id = $1 AND r.kind = 'employment'
+			                  AND r.archived_at IS NULL AND r.organization_id = g.matched_org_id)`,
+			andreas).Scan(&byName)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if byName != 1 {
+		t.Errorf("the name+employer reach found %d ghosts for the subject, want 1 — "+
+			"erasure and Art. 15 both use this reach, so a miss here is data kept after we certified it destroyed", byName)
+	}
+}

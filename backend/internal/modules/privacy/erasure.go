@@ -208,6 +208,14 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 // It returns the wiped lead ids so the caller can tombstone each twin's
 // own audit spine.
 func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) ([]ids.UUID, error) {
+	// Read BEFORE the person row is anonymized below: the LinkedIn sweep at
+	// the end of this function matches on the subject's name, and by then the
+	// column holds the tombstone instead.
+	var subjectName string
+	if err := tx.QueryRow(ctx,
+		`SELECT coalesce(full_name, '') FROM person WHERE id = $1`, personID).Scan(&subjectName); err != nil {
+		return nil, err
+	}
 	personCustom, err := subjectCustomColumns(ctx, tx, "person")
 	if err != nil {
 		return nil, err
@@ -274,16 +282,33 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 	}
 	// A LinkedIn ghost (CG-DDL-2) can BE the subject: it holds their name,
 	// employer and — on CSV rows — their address, imported from a colleague's
-	// export without the subject ever being asked. That is precisely the data
-	// an Art. 17 request is about, and it is invisible to every other clause
-	// here because a ghost is not a person row.
+	// export without the subject ever being asked. That is exactly the data an
+	// Art. 17 request is about, and it is invisible to every other clause here
+	// because a ghost is not a person row.
 	//
-	// The row goes rather than being anonymized: unlike a participant row it
-	// records nothing about anybody else, so there is nothing left to keep.
+	// It deletes on SUGGESTION-GRADE evidence, not just on a confirmed match,
+	// and that asymmetry is deliberate. Matching errs toward caution because a
+	// wrong link attaches a stranger to a customer record. Deletion errs the
+	// other way, because the two mistakes do not cost the same: deleting one
+	// ghost too many costs a re-import of a file the colleague still has,
+	// while keeping one too few leaves a named person's data behind after we
+	// certified it destroyed.
+	//
+	// So: matched to them, or carrying their address, or bearing their name at
+	// an employer they actually work for — the same evidence that would have
+	// produced a suggestion.
 	if _, err := tx.Exec(ctx, `
-		DELETE FROM linkedin_connection
-		 WHERE matched_person_id = $1
-		    OR (email IS NOT NULL AND email = ANY($2))`, personID, emails); err != nil {
+		DELETE FROM linkedin_connection g
+		 WHERE g.matched_person_id = $1
+		    OR (g.email IS NOT NULL AND g.email = ANY($2))
+		    OR (g.normalized_company IS NOT NULL
+		        AND lower(f_unaccent($3)) = g.normalized_name
+		        AND EXISTS (
+		            SELECT 1 FROM relationship r
+		             WHERE r.person_id = $1 AND r.kind = 'employment'
+		               AND r.archived_at IS NULL
+		               AND r.organization_id = g.matched_org_id))`,
+		personID, emails, subjectName); err != nil {
 		return nil, err
 	}
 	// The interaction projection (CG-DDL-1) is derived, but derived from data
