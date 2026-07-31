@@ -9926,6 +9926,26 @@ type LeadListResponse struct {
 	Page PageInfo `json:"page"`
 }
 
+// LinkedInImportSummary What one import did, in the terms someone asked to trust it would check.
+// `skipped` is reported rather than hidden: a file half-ignored under a success
+// message is worse than a refusal.
+type LinkedInImportSummary struct {
+	// Confirmed Matched to a contact by exact email address, which is identity here.
+	Confirmed int `json:"confirmed"`
+
+	// Imported Rows stored (created or updated).
+	Imported int `json:"imported"`
+
+	// Rows Connection rows found in the file.
+	Rows int `json:"rows"`
+
+	// Skipped Rows with no usable name — they identify nobody.
+	Skipped int `json:"skipped"`
+
+	// Suggested Matched by name and employer — plausible, awaiting a human.
+	Suggested int `json:"suggested"`
+}
+
 // List A static membership set or a dynamic segment. Mirrors the `list` table.
 type List struct {
 	ArchivedAt *time.Time `json:"archived_at,omitempty"`
@@ -14503,6 +14523,12 @@ type ListListMembersParams struct {
 	Limit *Limit `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// ImportLinkedInConnectionsMultipartBody defines parameters for ImportLinkedInConnections.
+type ImportLinkedInConnectionsMultipartBody struct {
+	// File LinkedIn `Connections.csv`.
+	File openapi_types.File `json:"file"`
+}
+
 // ListOfferTemplatesParams defines parameters for ListOfferTemplates.
 type ListOfferTemplatesParams struct {
 	// Cursor Opaque keyset cursor from a prior response's `page.next_cursor`. The cursor encodes the
@@ -16443,6 +16469,9 @@ type CreateListJSONRequestBody = CreateListRequest
 
 // AddListMemberJSONRequestBody defines body for AddListMember for application/json ContentType.
 type AddListMemberJSONRequestBody = AddListMemberRequest
+
+// ImportLinkedInConnectionsMultipartRequestBody defines body for ImportLinkedInConnections for multipart/form-data ContentType.
+type ImportLinkedInConnectionsMultipartRequestBody ImportLinkedInConnectionsMultipartBody
 
 // CreateOfferTemplateJSONRequestBody defines body for CreateOfferTemplate for application/json ContentType.
 type CreateOfferTemplateJSONRequestBody = CreateOfferTemplateRequest
@@ -22626,6 +22655,9 @@ type ServerInterface interface {
 	// Get the current authenticated principal (user or agent).
 	// (GET /me)
 	GetCurrentPrincipal(w http.ResponseWriter, r *http.Request)
+	// Import your own LinkedIn connections export.
+	// (POST /me/linkedin-connections)
+	ImportLinkedInConnections(w http.ResponseWriter, r *http.Request)
 	// List offer templates (branded DE/EN PDF layouts), newest first.
 	// (GET /offer-templates)
 	ListOfferTemplates(w http.ResponseWriter, r *http.Request, params ListOfferTemplatesParams)
@@ -23862,6 +23894,12 @@ func (_ Unimplemented) AddListMember(w http.ResponseWriter, r *http.Request, id 
 // Get the current authenticated principal (user or agent).
 // (GET /me)
 func (_ Unimplemented) GetCurrentPrincipal(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Import your own LinkedIn connections export.
+// (POST /me/linkedin-connections)
+func (_ Unimplemented) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -30298,6 +30336,26 @@ func (siw *ServerInterfaceWrapper) GetCurrentPrincipal(w http.ResponseWriter, r 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.GetCurrentPrincipal(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ImportLinkedInConnections operation middleware
+func (siw *ServerInterfaceWrapper) ImportLinkedInConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ImportLinkedInConnections(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -39068,6 +39126,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/me", wrapper.GetCurrentPrincipal)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/me/linkedin-connections", wrapper.ImportLinkedInConnections)
 	})
 	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/offer-templates", wrapper.ListOfferTemplates)

@@ -508,6 +508,10 @@ func (stubs) GetCurrentPrincipal(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "GetCurrentPrincipal")
 }
 
+func (stubs) ImportLinkedInConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ImportLinkedInConnections")
+}
+
 func (stubs) ListOfferTemplates(w nethttp.ResponseWriter, r *nethttp.Request, params crmcontracts.ListOfferTemplatesParams) {
 	httperr.NotImplemented(w, r, "ListOfferTemplates")
 }

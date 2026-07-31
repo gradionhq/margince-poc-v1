@@ -4762,6 +4762,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/me/linkedin-connections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Import your own LinkedIn connections export.
+         * @description Upload the `Connections.csv` LinkedIn hands every member under
+         *     Settings → Data privacy → Get a copy of your data. No LinkedIn app or API
+         *     approval is involved: this is your own export, imported into your own network.
+         *
+         *     **The imported rows are not contacts.** They are graph substrate — they never
+         *     appear in search, lists, the people screens, or the assistant's record tools,
+         *     nothing can write to them, and no outreach can reach them. They exist to answer
+         *     one question: does anyone here already know someone at this company.
+         *
+         *     The network is yours. The owner is the authenticated caller, never a field in
+         *     the file, so nobody can attribute a stranger's connections to a colleague.
+         *
+         *     Re-importing a refreshed export updates rather than duplicates. Rows with no
+         *     usable name are counted as skipped rather than silently dropped — an import that
+         *     quietly ignored half a file while reporting success is worse than one that fails.
+         *
+         *     Matching runs after the import and follows the house dedupe rule: an exact email
+         *     match confirms automatically, name-plus-employer only suggests, and an ambiguous
+         *     name suggests nothing. Nothing here ever creates a person.
+         */
+        post: operations["importLinkedInConnections"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/attachments/{id}": {
         parameters: {
             query?: never;
@@ -6819,6 +6857,23 @@ export interface components {
              *     a client draws the node's monogram or its token-coloured circle instead.
              */
             logo_url?: string | null;
+        };
+        /**
+         * @description What one import did, in the terms someone asked to trust it would check.
+         *     `skipped` is reported rather than hidden: a file half-ignored under a success
+         *     message is worse than a refusal.
+         */
+        LinkedInImportSummary: {
+            /** @description Connection rows found in the file. */
+            rows: number;
+            /** @description Rows stored (created or updated). */
+            imported: number;
+            /** @description Rows with no usable name — they identify nobody. */
+            skipped: number;
+            /** @description Matched to a contact by exact email address, which is identity here. */
+            confirmed: number;
+            /** @description Matched by name and employer — plausible, awaiting a human. */
+            suggested: number;
         };
         /**
          * @description One edge, from the record that owns it to the record it points at. Both ends are
@@ -21287,6 +21342,39 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    importLinkedInConnections: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /**
+                     * Format: binary
+                     * @description LinkedIn `Connections.csv`.
+                     */
+                    file: string;
+                };
+            };
+        };
+        responses: {
+            /** @description What the import stored and what the matcher decided. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkedInImportSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
         };
     };

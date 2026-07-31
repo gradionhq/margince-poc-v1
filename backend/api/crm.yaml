@@ -7992,6 +7992,52 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /me/linkedin-connections:
+    post:
+      tags: [People]
+      operationId: importLinkedInConnections
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Import your own LinkedIn connections export.
+      description: |
+        Upload the `Connections.csv` LinkedIn hands every member under
+        Settings → Data privacy → Get a copy of your data. No LinkedIn app or API
+        approval is involved: this is your own export, imported into your own network.
+
+        **The imported rows are not contacts.** They are graph substrate — they never
+        appear in search, lists, the people screens, or the assistant's record tools,
+        nothing can write to them, and no outreach can reach them. They exist to answer
+        one question: does anyone here already know someone at this company.
+
+        The network is yours. The owner is the authenticated caller, never a field in
+        the file, so nobody can attribute a stranger's connections to a colleague.
+
+        Re-importing a refreshed export updates rather than duplicates. Rows with no
+        usable name are counted as skipped rather than silently dropped — an import that
+        quietly ignored half a file while reporting success is worse than one that fails.
+
+        Matching runs after the import and follows the house dedupe rule: an exact email
+        match confirms automatically, name-plus-employer only suggests, and an ambiguous
+        name suggests nothing. Nothing here ever creates a person.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary, description: 'LinkedIn `Connections.csv`.' }
+      responses:
+        '200':
+          description: What the import stored and what the matcher decided.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LinkedInImportSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+
   /attachments/{id}:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -10548,6 +10594,20 @@ components:
             The company node's resolved logo (A55), same value `Organization.logo_url` carries.
             Absent on an organization with no resolved logo and on every person or deal node —
             a client draws the node's monogram or its token-coloured circle instead.
+
+    LinkedInImportSummary:
+      type: object
+      description: |
+        What one import did, in the terms someone asked to trust it would check.
+        `skipped` is reported rather than hidden: a file half-ignored under a success
+        message is worse than a refusal.
+      required: [rows, imported, skipped, confirmed, suggested]
+      properties:
+        rows:      { type: integer, minimum: 0, description: 'Connection rows found in the file.' }
+        imported:  { type: integer, minimum: 0, description: 'Rows stored (created or updated).' }
+        skipped:   { type: integer, minimum: 0, description: 'Rows with no usable name — they identify nobody.' }
+        confirmed: { type: integer, minimum: 0, description: 'Matched to a contact by exact email address, which is identity here.' }
+        suggested: { type: integer, minimum: 0, description: 'Matched by name and employer — plausible, awaiting a human.' }
 
     OrganizationGraphEdge:
       type: object
