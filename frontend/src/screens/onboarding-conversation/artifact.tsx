@@ -242,6 +242,10 @@ function DossierBody(props: CompanyActArtifactProps) {
         onDeclineEntity={() => props.setField("legal_name", "")}
         voiceState="waiting"
         connectState="waiting"
+        // The pulse effect above can only find a row that is mounted, and a
+        // collapsed card mounts none — so the panel gets the named fields and
+        // opens the card that holds one before the effect goes looking.
+        highlightFields={props.highlight?.ids}
         factsSlot={
           read.facts.length > 0 ? (
             <FactsCard

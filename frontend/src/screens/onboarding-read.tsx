@@ -243,7 +243,7 @@ function WebsiteWorkbench(
         }}
         artifact={artifact}
       >
-        <div className="mw-thread" aria-live="polite">
+        <div className="mw-thread ob-read-thread" aria-live="polite">
           <AssistantBubble>
             <WebsiteStatusMessage
               mode={props.mode}

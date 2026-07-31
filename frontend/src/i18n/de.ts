@@ -1633,8 +1633,6 @@ export const de = {
     "Hallo, ich bin Margince. Ich richte dein CRM ein, indem ich lese, was über dein Unternehmen bereits belegt ist, und zeige zu allem eine Quelle.",
   "ob.conv.welcomeMember":
     "Hallo, ich bin Margince. Dein Team ist schon eingerichtet. Zwei kurze Schritte, dann bist du drin.",
-  "ob.conv.askUrl":
-    "Wo soll ich mit dem Lesen beginnen? Deine Website eignet sich am besten.",
   "ob.conv.read.started": "Ich lese jetzt {host}. Ich sage dir, was ich finde.",
   "ob.conv.read.pages": "Bisher gelesene Seiten: {pages}.",
   "ob.conv.read.learnedField": "{field} gelernt: {value}",
@@ -1740,7 +1738,6 @@ export const de = {
     "Letzter Schritt: Was darf ich erfassen, und zu welchem Zweck? Nichts ist standardmäßig aktiv.",
   "ob.conv.done": "Einrichtung abgeschlossen. Dein CRM ist bereit.",
   "ob.conv.composer": "Gib deine Website ein oder stell mir eine Frage",
-  "ob.conv.tellInstead": "Ich erzähle es dir lieber direkt",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Überspringen - ich trage es selbst ein",

@@ -4,7 +4,12 @@
 /** @vitest-environment jsdom */
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup, render as rtlRender, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render as rtlRender,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -40,6 +45,18 @@ afterEach(() => {
 
 const render = (ui: ReactNode) =>
   rtlRender(<LocaleProvider initial="en">{ui}</LocaleProvider>);
+
+// jsdom implements no AnimationEvent, so a chip's own animation ending has to be
+// dispatched as a plain bubbling event. The component listens natively, which is
+// why this reaches it at all — a JSX onAnimationEnd would not fire here.
+function endAnimation(chip: Element | null): void {
+  expect(chip).not.toBeNull();
+  if (chip !== null) {
+    act(() => {
+      chip.dispatchEvent(new Event("animationend", { bubbles: true }));
+    });
+  }
+}
 
 // The default jsdom stub answers "no preference"; a case that wants the reduced
 // path installs this one.
@@ -540,6 +557,63 @@ describe("FactSnippets", () => {
   it("renders nothing before the first fact arrives", () => {
     render(<FactSnippets facts={[]} />);
 
+    expect(document.querySelector(".ob-snips")).toBeNull();
+  });
+
+  it("gives every single-value fact its own chip, empty value_key and all", () => {
+    // A single-value fact carries no value_key by contract, so the key that
+    // separates chips has to be the server's composite identity. Keyed on
+    // value_key alone these three collide and only one chip mounts.
+    render(
+      <FactSnippets
+        facts={[
+          fact({ value_key: "", field: "phone", value: "+49 40 123456" }),
+          fact({ value_key: "", field: "location", value: "Hamburg" }),
+          fact({ value_key: "", field: "founded_year", value: "2011" }),
+        ]}
+      />,
+    );
+
+    expect(document.querySelectorAll(".ob-snip")).toHaveLength(3);
+    for (const value of ["+49 40 123456", "Hamburg", "2011"]) {
+      expect(screen.getByText(value)).toBeInTheDocument();
+    }
+  });
+
+  it("keeps a chip until its own animation ends, not until the next poll", () => {
+    const { rerender } = render(<FactSnippets facts={[facts[0]]} />);
+    const first = document.querySelector(".ob-snip");
+    expect(first).not.toBeNull();
+
+    // Extraction arrives in per-page batches. The chip already on screen is
+    // mid-fade and must survive the batch that lands beside it.
+    rerender(
+      <LocaleProvider initial="en">
+        <FactSnippets facts={facts} />
+      </LocaleProvider>,
+    );
+    expect(document.querySelectorAll(".ob-snip")).toHaveLength(3);
+    expect(document.querySelector(".ob-snip")).toBe(first);
+
+    // Its animation finishing is the only thing that retires it.
+    endAnimation(first);
+    expect(document.querySelectorAll(".ob-snip")).toHaveLength(2);
+  });
+
+  it("does not bring a faded chip back when the next poll repeats its fact", () => {
+    const { rerender } = render(<FactSnippets facts={facts} />);
+    for (const chip of [...document.querySelectorAll(".ob-snip")]) {
+      endAnimation(chip);
+    }
+    expect(document.querySelector(".ob-snips")).toBeNull();
+
+    // The wire returns the whole fact list on every poll; a chip that has had
+    // its turn must not flash again on the next one.
+    rerender(
+      <LocaleProvider initial="en">
+        <FactSnippets facts={[...facts]} />
+      </LocaleProvider>,
+    );
     expect(document.querySelector(".ob-snips")).toBeNull();
   });
 

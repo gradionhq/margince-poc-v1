@@ -24,6 +24,14 @@ type ConversationThreadProps = Readonly<{
   /** Local-dismiss for dismissible questions; absent = no escape offered. */
   onDismiss?: (questionId: string) => void;
   /**
+   * The act's opening turns, which the machine does not put in its thread but
+   * which are still part of the transcript. Inside the log for the same reason
+   * as `children`: a greeting mounted as a SIBLING of the scroller cannot
+   * shrink and cannot scroll away, so it permanently reduces the transcript
+   * window to whatever is left below it.
+   */
+  lead?: ReactNode;
+  /**
    * Conversation content that lives OUTSIDE the machine's thread (chat
    * replies, review cards, act controls) but must share the same scroll
    * region and screen-reader log — a second scroll container inside the
@@ -104,6 +112,7 @@ export function ConversationThread({
   pendingQuestionId,
   onAnswer,
   onDismiss,
+  lead,
   children,
 }: ConversationThreadProps) {
   const t = useT();
@@ -177,6 +186,7 @@ export function ConversationThread({
         scrollingProgrammatically.current = false;
       }}
     >
+      {lead}
       {entries.map((entry, index) => {
         if (entry.kind === "narration") {
           return (

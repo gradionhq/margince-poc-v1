@@ -148,6 +148,35 @@ describe("DossierCard", () => {
     expect(screen.getByText("Pick one")).toBeTruthy();
     expect(screen.queryByRole("button")).toBeNull();
   });
+
+  it("opens itself when the narration points at what it holds, and stays open", () => {
+    const { rerender } = render(
+      <DossierCard title="Company identity" count="3 fields">
+        <p>Example Holding GmbH</p>
+      </DossierCard>,
+    );
+    expect(screen.queryByText("Example Holding GmbH")).toBeNull();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <DossierCard title="Company identity" count="3 fields" revealed>
+          <p>Example Holding GmbH</p>
+        </DossierCard>
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("Example Holding GmbH")).toBeTruthy();
+
+    // The pulse is over, but the reader's attention was sent here — snapping
+    // the card shut behind them would undo the pointing.
+    rerender(
+      <LocaleProvider initial="en">
+        <DossierCard title="Company identity" count="3 fields">
+          <p>Example Holding GmbH</p>
+        </DossierCard>
+      </LocaleProvider>,
+    );
+    expect(screen.getByText("Example Holding GmbH")).toBeTruthy();
+  });
 });
 
 describe("StepBlock", () => {
@@ -401,6 +430,36 @@ describe("OnboardingLivePanel", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Review/ })).toBeNull();
+  });
+
+  it("mounts the named field's row, so the narration has something to point at", () => {
+    // The conversation says which field it just learned and the artifact pulses
+    // that row by its data-finding-id. A collapsed card mounts no rows, so
+    // without this the pulse has nothing to find and the pointing is silent.
+    render(
+      <OnboardingLivePanel
+        host="example.test"
+        done
+        read={read({
+          profile_fields: [
+            coldField("display_name", "Example"),
+            coldField("icp", "Mid-market ERP owners"),
+          ],
+        })}
+        entityChoice={null}
+        onConfirmEntity={vi.fn()}
+        onDeclineEntity={vi.fn()}
+        voiceState="waiting"
+        connectState="waiting"
+        highlightFields={["icp"]}
+      />,
+    );
+
+    expect(document.querySelector('[data-finding-id="icp"]')).not.toBeNull();
+    // Only the card that holds it opens; the rest stay shut.
+    expect(
+      document.querySelector('[data-finding-id="display_name"]'),
+    ).toBeNull();
   });
 
   it("counts the fields it renders rather than a fixed number", async () => {

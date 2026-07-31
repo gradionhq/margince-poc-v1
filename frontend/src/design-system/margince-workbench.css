@@ -63,7 +63,9 @@
   align-items: center;
   gap: 6px;
   padding: 5px var(--space-2) 5px 5px;
-  color: var(--textTertiary);
+  /* --textMeta, not --textTertiary: tokens.css names Meta the AA floor for
+     everything under 13px, and every label in this chrome is 9-11px. */
+  color: var(--textMeta);
   border: 1px solid transparent;
   border-radius: var(--r-full);
   font-family: var(--f-mono);
@@ -78,7 +80,7 @@
   width: 17px;
   height: 17px;
   place-items: center;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-full);
   background: var(--bgElevated);
@@ -86,10 +88,9 @@
   font-weight: 650;
 }
 
-.mw-step.is-done {
-  color: var(--textMeta);
-}
-
+/* Done carries no label colour of its own: at this size every label needs the
+   AA role, so what separates done from still-to-come is the FILLED numeral
+   below — a difference in shape, not one 2%-apart pair of greys. */
 .mw-step.is-done b {
   color: var(--textOnAccent);
   border-color: transparent;
@@ -130,7 +131,7 @@
 
 .mw-identity span {
   display: block;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-family: var(--f-mono);
   font-size: 9.5px;
   font-weight: 650;
@@ -226,12 +227,18 @@
 .mw-aistat-h,
 .mw-aistat-f {
   margin: 0;
-  color: var(--textTertiary);
+  color: var(--textMeta);
   font-family: var(--f-mono);
   font-size: 9.5px;
   font-weight: 650;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+/* The popover's subject is the machine, so its header reads the AI family
+   rather than the neutral meta role — the same distinction the chip makes. */
+.mw-aistat-h {
+  color: var(--aiText);
 }
 
 .mw-aistat-f {

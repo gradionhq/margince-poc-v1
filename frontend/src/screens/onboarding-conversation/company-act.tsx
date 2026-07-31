@@ -481,30 +481,27 @@ export function CompanyAct({
       }
     >
       <div className="mw-thread">
-        <NarrationBubble
-          entry={{
-            kind: "narration",
-            id: "greeting",
-            i18nKey: state.memberPath
-              ? "ob.conv.welcomeMember"
-              : "ob.conv.welcome",
-          }}
-        />
-        <NarrationBubble
-          entry={{ kind: "narration", id: "askurl", i18nKey: "ob.conv.askUrl" }}
-        />
-        {showManualChip && (
-          <div className="ob-conv-chips">
-            <Button small onClick={() => dispatch({ type: "MANUAL_CHOSEN" })}>
-              {t("ob.conv.tellInstead")}
-            </Button>
-          </div>
-        )}
         <ConversationThread
           entries={state.thread}
           pendingQuestionId={state.pendingQuestion?.id ?? null}
           onAnswer={handleAnswer}
           onDismiss={handleDismiss}
+          lead={
+            // The act's greeting. It belongs to the transcript, so it scrolls
+            // with it — the machine simply does not own it, because it is the
+            // same line whatever state the reader resumes into. The URL ask
+            // that used to sit beside it now lives on the gate, which is the
+            // only place it can still be answered.
+            <NarrationBubble
+              entry={{
+                kind: "narration",
+                id: "greeting",
+                i18nKey: state.memberPath
+                  ? "ob.conv.welcomeMember"
+                  : "ob.conv.welcome",
+              }}
+            />
+          }
         >
           <ConversationEntries
             entries={conversation.entries}

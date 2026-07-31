@@ -122,9 +122,16 @@ function AiRuntimeChip({
 }>) {
   const [pinned, setPinned] = useState(false);
   const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  // `dismissed` is what makes the toggle honest. Hover AND focus each open the
+  // popover, so clearing `pinned` alone cannot close it while the pointer or
+  // the keyboard focus is still on the chip — the button would look dead, and
+  // `aria-expanded` would never flip. Dismissal suppresses both inputs until
+  // the reader leaves and comes back, which is the next honest "show me again".
+  const [dismissed, setDismissed] = useState(false);
   const popoverId = useId();
   const wrapper = useRef<HTMLDivElement>(null);
-  const open = pinned || hovered;
+  const open = !dismissed && (pinned || hovered || focused);
 
   // Hover is tracked on the WRAPPER so the pointer can travel from the chip
   // onto the popover without it closing underneath. Native listeners rather
@@ -137,8 +144,14 @@ function AiRuntimeChip({
     if (!root) {
       return;
     }
-    const enter = () => setHovered(true);
-    const leave = () => setHovered(false);
+    const enter = () => {
+      setHovered(true);
+      setDismissed(false);
+    };
+    const leave = () => {
+      setHovered(false);
+      setDismissed(false);
+    };
     root.addEventListener("mouseenter", enter);
     root.addEventListener("mouseleave", leave);
     return () => {
@@ -147,21 +160,27 @@ function AiRuntimeChip({
     };
   }, []);
 
-  // A pinned popover has to close on Escape and on a click elsewhere, or it
-  // becomes a panel the reader cannot dismiss without guessing.
+  // An open popover has to close on Escape and on a click elsewhere, or it
+  // becomes a panel the reader cannot dismiss without guessing. Bound to `open`
+  // rather than to `pinned`: a popover held open by keyboard focus is exactly
+  // the one whose reader has no pointer to move away.
   useEffect(() => {
-    if (!pinned) {
+    if (!open) {
       return;
     }
+    const close = () => {
+      setPinned(false);
+      setDismissed(true);
+    };
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        setPinned(false);
+        close();
       }
     }
     function onPointerDown(event: PointerEvent) {
       const target = event.target;
       if (target instanceof Node && !wrapper.current?.contains(target)) {
-        setPinned(false);
+        close();
       }
     }
     document.addEventListener("keydown", onKeyDown);
@@ -170,7 +189,7 @@ function AiRuntimeChip({
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("pointerdown", onPointerDown);
     };
-  }, [pinned]);
+  }, [open]);
 
   const spend = runtime
     ? formatMicroUSD(runtime.estimated_cost_microusd, locale)
@@ -184,9 +203,18 @@ function AiRuntimeChip({
         aria-expanded={open}
         aria-controls={popoverId}
         aria-label={labels.chip}
-        onClick={() => setPinned(!pinned)}
-        onFocus={() => setHovered(true)}
-        onBlur={() => setHovered(false)}
+        onClick={() => {
+          // The press acts on what the reader SEES, not on the pin flag: a
+          // popover already open by hover or focus closes, a closed one pins.
+          setPinned(!open);
+          setDismissed(open);
+        }}
+        onFocus={() => setFocused(true)}
+        onBlur={() => {
+          setFocused(false);
+          // Leaving resets the suppression, so coming back opens again.
+          setDismissed(false);
+        }}
       >
         <i aria-hidden />
         <strong>{spend}</strong>

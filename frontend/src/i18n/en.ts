@@ -1606,7 +1606,6 @@ export const en = {
     "Hi, I am Margince. I set up your CRM by reading what is already true about your business, and I show a source for everything I keep.",
   "ob.conv.welcomeMember":
     "Hi, I am Margince. Your team is already set up. Two short steps and you are in.",
-  "ob.conv.askUrl": "Where should I start reading? Your website works best.",
   "ob.conv.read.started": "Reading {host} now. I will tell you what I find.",
   "ob.conv.read.pages": "Pages read so far: {pages}.",
   "ob.conv.read.learnedField": "Learned {field}: {value}",
@@ -1710,7 +1709,6 @@ export const en = {
     "Last step: what may I capture, and for which purpose? Nothing is on by default.",
   "ob.conv.done": "Setup complete. Your CRM is ready.",
   "ob.conv.composer": "Type your website address, or ask me a question",
-  "ob.conv.tellInstead": "I would rather tell you directly",
   "ob.conv.clarify.question": "{question}",
   "ob.conv.clarify.optionDetail": "{detail}",
   "ob.conv.clarify.dismiss": "Skip this - I will set it myself",

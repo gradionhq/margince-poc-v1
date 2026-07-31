@@ -235,3 +235,29 @@ describe("question card interactivity", () => {
     expect(dismiss.className).toContain("ob-conv-option-selected");
   });
 });
+
+describe("the lead", () => {
+  it("puts the act's opening turn inside the scrolling log, above the entries", () => {
+    // A greeting mounted as a SIBLING of the log cannot shrink and cannot
+    // scroll away, so it permanently reduces the transcript to what is left
+    // below it. Inside the log it is just the first turn.
+    render(
+      <LocaleProvider initial="en">
+        <ConversationThread
+          entries={[liveNarration]}
+          pendingQuestionId={null}
+          onAnswer={() => {}}
+          lead={<p>Hi, I am Margince.</p>}
+        />
+      </LocaleProvider>,
+    );
+
+    const log = screen.getByRole("log");
+    const lead = screen.getByText("Hi, I am Margince.");
+    expect(log.contains(lead)).toBe(true);
+    expect(
+      lead.compareDocumentPosition(screen.getByText(/Reading gradion\.com/)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+});

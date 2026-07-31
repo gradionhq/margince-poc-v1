@@ -1836,11 +1836,24 @@
   display: block;
   width: 100%;
 }
+/* The conversation column's body. It does NOT scroll: every act puts its turns
+   inside ConversationThread, which owns the transcript scroller and the
+   follow-the-latest behaviour that depends on being the element that scrolls.
+   An `overflow` here would make this the outer of two nested scrollers, and the
+   thread's own scroll handler would stop seeing the reader's scrolls.
+   `min-height: 0` is what lets the thread shrink inside it — without it a flex
+   item in a column floors at its content height and the column overflows. */
 .mw-thread {
   display: flex;
   flex: 1;
+  min-height: 0;
   flex-direction: column;
   gap: var(--space-4);
+  overflow: hidden;
+}
+/* The one column body with no ConversationThread inside it, so here the body
+   itself has to be the scroller. */
+.ob-read-thread {
   overflow: auto;
 }
 .mw-message-assistant {
@@ -2125,6 +2138,18 @@
 .mw-review .core-findings {
   margin-top: 0;
   box-shadow: none;
+}
+/* The workbench pane is the scroller the dossier's head sticks against, and the
+   pane pads its content. The head has to negate the pane's padding as well as
+   the panel's own, or content scrolls past it in the uncovered band. */
+.mw-artifact .ob-live {
+  --ob-live-bleed: calc(var(--ob-live-pad) + var(--space-6));
+}
+@media (max-width: 900px) {
+  /* The pane's padding steps down with it (margince-workbench.css). */
+  .mw-artifact .ob-live {
+    --ob-live-bleed: calc(var(--ob-live-pad) + var(--space-4));
+  }
 }
 .ob-company-review {
   margin-top: var(--space-6);

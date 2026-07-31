@@ -1,0 +1,129 @@
+// SPDX-License-Identifier: BUSL-1.1
+// SPDX-FileCopyrightText: 2026 Gradion
+
+/** @vitest-environment jsdom */
+import "@testing-library/jest-dom/vitest";
+
+import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  MarginceWorkbench,
+  type WorkbenchRuntimeLabels,
+} from "./margince-workbench";
+
+// The workbench chrome's own claims, as opposed to what the acts put inside it.
+// The one that needs proving is the runtime chip: hover and keyboard focus BOTH
+// open its popover, which is what makes closing it easy to get wrong — a press
+// that only clears the pin leaves the popover open under a focus that is still
+// there, and the button then looks dead.
+
+const LABELS: WorkbenchRuntimeLabels = {
+  configured: "Configured",
+  used: "Answered by",
+  route: "Route",
+  calls: "Calls",
+  tokens: "Tokens",
+  latency: "Latency",
+  estimatedCost: "Estimated cost",
+  partial: "Partial",
+  awaiting: "Shown after my first model call",
+  unavailable: "Not available yet",
+  chip: "What is answering, and what it costs",
+  answering: "Answering right now",
+  scope: "This run only",
+};
+
+afterEach(cleanup);
+
+function renderWorkbench() {
+  return render(
+    <MarginceWorkbench
+      state="working"
+      eyebrow="Margince"
+      title="Your company research AI"
+      status="Reading"
+      configured="ollama/gemma3"
+      locale="en"
+      runtimeLabels={LABELS}
+      steps={[
+        { label: "Read", state: "done" },
+        { label: "Confirm", state: "now" },
+        { label: "Voice", state: "todo" },
+      ]}
+    >
+      <p>Thread</p>
+    </MarginceWorkbench>,
+  );
+}
+
+describe("the runtime chip", () => {
+  it("toggles what the reader can see, not a pin flag behind it", async () => {
+    renderWorkbench();
+    const chip = screen.getByRole("button", { name: LABELS.chip });
+
+    // Tab moves focus onto the chip, which opens the popover on its own — the
+    // keyboard's equivalent of the pointer arriving.
+    await userEvent.tab();
+    expect(chip).toHaveFocus();
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+
+    // Every press now flips what is on screen. Focus has not moved, so if the
+    // press acted on a separate pin flag instead, the first one would appear to
+    // do nothing at all.
+    await userEvent.keyboard("[Space]");
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+    await userEvent.keyboard("[Space]");
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+    await userEvent.keyboard("[Space]");
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("closes on Escape when the keyboard is what opened it", async () => {
+    renderWorkbench();
+    const chip = screen.getByRole("button", { name: LABELS.chip });
+
+    await userEvent.tab();
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+
+    await userEvent.keyboard("{Escape}");
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("opens again after focus leaves and comes back", async () => {
+    renderWorkbench();
+    const chip = screen.getByRole("button", { name: LABELS.chip });
+
+    await userEvent.tab();
+    await userEvent.keyboard("{Escape}");
+    expect(chip).toHaveAttribute("aria-expanded", "false");
+
+    // Leaving resets the dismissal: a reader who tabs back is asking again.
+    chip.blur();
+    await userEvent.tab();
+    expect(chip).toHaveFocus();
+    expect(chip).toHaveAttribute("aria-expanded", "true");
+  });
+});
+
+describe("the step rail", () => {
+  it("states where the journey is without offering a control", () => {
+    renderWorkbench();
+
+    const rail = screen.getByRole("list");
+    const stops = [...rail.querySelectorAll("li")];
+    expect(stops.map((stop) => stop.textContent)).toEqual([
+      "1Read",
+      "2Confirm",
+      "3Voice",
+    ]);
+    // The machine decides what comes next, so no stop may look clickable.
+    expect(rail.querySelector("button")).toBeNull();
+    expect(rail.querySelector("a")).toBeNull();
+    expect(stops.map((stop) => stop.className)).toEqual([
+      "mw-step is-done",
+      "mw-step is-now",
+      "mw-step is-todo",
+    ]);
+  });
+});

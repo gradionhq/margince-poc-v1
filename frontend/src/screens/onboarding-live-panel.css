@@ -1,16 +1,21 @@
 /* The onboarding live panel: a sourced dossier that assembles itself in the
    right-hand pane. Structure and rhythm only — every colour reads a token.
 
-   The panel is the scroll container so its head can be sticky within it: a
-   sticky head inside a page-level scroll would pin to the viewport and drift
-   away from the pane it belongs to. */
+   The panel does NOT scroll itself. Its host pane is the scroller, and the head
+   sticks against that: an `overflow-y` here would make the panel the nearest
+   scrollport without ever overflowing (its height is content-driven inside an
+   auto-height pane), so `position: sticky` would resolve against a box that
+   never scrolls and the head would simply travel away with the content. One
+   scroller per column, and it is the pane. */
 .ob-live {
   --ob-live-pad: var(--space-4);
-  height: 100%;
-  overflow-y: auto;
-  /* No top padding: the sticky head occupies that band itself, and a scroll
-     container's top padding makes the sticky resting offset ambiguous across
-     engines — the head would sink by one pad the moment it stuck. */
+  /* How far the head reaches to touch the edges of the pane it sits in: this
+     panel's own padding, plus whatever the host adds (see .mw-artifact below).
+     A head that stops short of the edges lets content scroll past beside it. */
+  --ob-live-bleed: var(--ob-live-pad);
+  /* No top padding: the sticky head occupies that band itself, and a top pad
+     makes the sticky resting offset ambiguous across engines — the head would
+     sink by one pad the moment it stuck. */
   padding: 0 var(--ob-live-pad) var(--ob-live-pad);
   background: var(--bgCard);
   display: flex;
@@ -27,8 +32,8 @@
   position: sticky;
   top: 0;
   z-index: 1;
-  margin: 0 calc(var(--ob-live-pad) * -1);
-  padding: var(--space-4) var(--ob-live-pad);
+  margin: 0 calc(var(--ob-live-bleed) * -1);
+  padding: var(--space-4) var(--ob-live-bleed);
   background: var(--bgElevated);
   border-bottom: 1px solid var(--borderSubtle);
   box-shadow: var(--shadow-card);

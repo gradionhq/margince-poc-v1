@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { type FormEvent, useMemo, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { components } from "../api/schema";
 import {
   MarginceCoreScene,
@@ -350,11 +350,42 @@ export function ReadTheatre({
 // render path is a surface nobody can pin.
 const SNIPPET_SLOTS = 7;
 const SLOT_STEP = 3;
-// How many chips share the layer. Below the slot count, so no two on screen can
-// ever collide; each leaves the DOM as the facts array grows past it, which is
-// what ends its animation — no timer decides anything here.
-const SNIPPET_WINDOW = 4;
 const SNIPPET_CHARS = 32;
+
+/**
+ * A fact's identity as the server defines it. `value_key` alone is not one: it
+ * is empty for every single-value fact (a phone number, a founding year), so
+ * keying chips on it collides them, and React then reuses a chip that is
+ * already mid-fade instead of mounting a new one — the fact silently never
+ * appears.
+ */
+function snippetKey(fact: CompanySiteReadFact): string {
+  return `${fact.category}/${fact.field}/${fact.value_key}`;
+}
+
+type LiveSnippet = Readonly<{
+  key: string;
+  fact: CompanySiteReadFact;
+  slot: number;
+}>;
+
+// Which slot a newly arrived chip takes: the next one clear of every chip still
+// on screen, walking from a cursor that advances by a step coprime with the slot
+// count. Consecutive facts therefore land far apart, and the sequence is the
+// same in a story, in a test and on screen — `Math.random()` in a render path
+// is a surface nobody can pin. Returns null when the layer is full, and the
+// fact is then simply not shown: this is decoration over the column, and the
+// review that follows states every fact anyway.
+function freeSlot(live: readonly LiveSnippet[], cursor: number): number | null {
+  const taken = new Set(live.map((snippet) => snippet.slot));
+  for (let step = 0; step < SNIPPET_SLOTS; step += 1) {
+    const slot = (cursor + step * SLOT_STEP) % SNIPPET_SLOTS;
+    if (!taken.has(slot)) {
+      return slot;
+    }
+  }
+  return null;
+}
 
 function shortValue(value: string): string {
   const trimmed = value.trim();
@@ -385,27 +416,95 @@ function sourcePath(evidenceUrl: string): string | null {
  * read, and fades out. Under reduced motion there is nothing to show in place
  * of an animation whose whole content IS the animation, so the layer stands
  * down; the counts and the page strip carry the same information without it.
+ *
+ * A chip leaves when its OWN animation ends, not when the next poll arrives.
+ * Extraction lands in per-page batches, so deriving the layer from a window
+ * over `facts` would cut chips off mid-fade on the common path — and a batch of
+ * four would replace the whole layer in a single frame.
  */
 export function FactSnippets({
   facts,
 }: Readonly<{ facts: readonly CompanySiteReadFact[] }>) {
   const reduced = usePrefersReducedMotion();
-  if (reduced || facts.length === 0) {
+  const [live, setLive] = useState<readonly LiveSnippet[]>([]);
+  // Facts already given their turn. A chip that has faded out must not come
+  // back on the next poll, so admission is once per fact for the whole read.
+  const admitted = useRef<Set<string>>(new Set());
+  const cursor = useRef(0);
+  const layer = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (reduced) {
+      return;
+    }
+    let next = live;
+    for (const fact of facts) {
+      const key = snippetKey(fact);
+      if (admitted.current.has(key)) {
+        continue;
+      }
+      const slot = freeSlot(next, cursor.current);
+      if (slot === null) {
+        // The layer is full. Leave this fact and the ones behind it unadmitted,
+        // in order, so a later pass can still surface them once a chip ends.
+        break;
+      }
+      admitted.current.add(key);
+      cursor.current = (cursor.current + SLOT_STEP) % SNIPPET_SLOTS;
+      next = [...next, { key, fact, slot }];
+    }
+    if (next !== live) {
+      setLive(next);
+    }
+    // The layer itself is a dependency, not just `facts`: a chip ending frees a
+    // slot, and that is what gives a held-back fact its turn. This cannot loop —
+    // a pass that admits nothing calls no setter, and `admitted` only grows.
+  }, [facts, reduced, live]);
+
+  const showing = !reduced && live.length > 0;
+
+  // One delegated native listener on the layer rather than a handler per chip.
+  // Native for the reason artifact.tsx documents — and here for a second one:
+  // React does not deliver `animationend` to a JSX handler under jsdom, so a
+  // handler prop would make the chip's whole retirement path untestable.
+  useEffect(() => {
+    const root = layer.current;
+    if (!showing || !root) {
+      return;
+    }
+    const retire = (event: Event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      const key = target.dataset.snipKey;
+      if (key === undefined) {
+        return;
+      }
+      setLive((current) => current.filter((held) => held.key !== key));
+    };
+    root.addEventListener("animationend", retire);
+    return () => root.removeEventListener("animationend", retire);
+  }, [showing]);
+
+  if (!showing) {
     return null;
   }
-  const first = Math.max(0, facts.length - SNIPPET_WINDOW);
   return (
-    <div className="ob-snips" aria-hidden="true">
-      {facts.slice(first).map((fact, offset) => {
-        const path = sourcePath(fact.evidence_url);
+    <div className="ob-snips" aria-hidden="true" ref={layer}>
+      {live.map((snippet) => {
+        const path = sourcePath(snippet.fact.evidence_url);
         return (
           <span
-            key={fact.value_key}
+            key={snippet.key}
             className="ob-snip"
-            data-slot={((first + offset) * SLOT_STEP) % SNIPPET_SLOTS}
-            data-fact-category={fact.category}
+            data-snip-key={snippet.key}
+            data-slot={snippet.slot}
+            data-fact-category={snippet.fact.category}
           >
-            <span className="ob-snip-value">{shortValue(fact.value)}</span>
+            <span className="ob-snip-value">
+              {shortValue(snippet.fact.value)}
+            </span>
             {path === null ? null : <span className="ob-snip-src">{path}</span>}
           </span>
         );

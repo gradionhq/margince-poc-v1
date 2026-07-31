@@ -395,8 +395,8 @@
   }
 }
 /* Surfaces and fades IN PLACE — nothing travels across the column. The chip's
-   life is one animation, and it leaves the DOM when the facts array grows past
-   it, so no timer is deciding anything. */
+   life is ONE animation, and its end is what removes the chip: the duration
+   here is the whole clock, and no timer in the component duplicates it. */
 .ob-snip {
   position: absolute;
   max-width: 38%;

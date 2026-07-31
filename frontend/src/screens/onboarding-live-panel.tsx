@@ -2,7 +2,7 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { AlertTriangle, Check, ChevronDown, Circle } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useEffect, useId, useState } from "react";
 import type { components } from "../api/schema";
 import { Button } from "../design-system/atoms";
 import {
@@ -260,22 +260,35 @@ function CardGlyph({
  * The `needsDecision` variant is forced open and has no toggle: its header is
  * plain text, not a button, because this is the one card that may not be
  * dismissed unread.
+ *
+ * `revealed` is the narration pointing here. The conversation says which field
+ * it just learned and the artifact pulses that row — which cannot happen while
+ * the row is unmounted inside a collapsed card, so a card the narration names
+ * opens itself. It then STAYS open: snapping shut behind a reader whose
+ * attention was just directed into it would undo the pointing.
  */
 export function DossierCard({
   title,
   count,
   done,
   needsDecision,
+  revealed,
   children,
 }: Readonly<{
   title: string;
   count?: string;
   done?: boolean;
   needsDecision?: boolean;
+  revealed?: boolean;
   children: ReactNode;
 }>) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (revealed === true) {
+      setOpen(true);
+    }
+  }, [revealed]);
   const decision = needsDecision === true;
   const head = (
     <>
@@ -586,6 +599,7 @@ type WebsiteStepProps = Readonly<{
   onConfirmEntity: (value: string) => void;
   onDeclineEntity: () => void;
   factsSlot?: ReactNode;
+  highlightFields?: readonly string[];
 }>;
 
 function WebsiteStep({
@@ -594,6 +608,7 @@ function WebsiteStep({
   onConfirmEntity,
   onDeclineEntity,
   factsSlot,
+  highlightFields,
 }: WebsiteStepProps) {
   const t = useT();
   const { identity, positioning } = partitionFields(read.profile_fields);
@@ -601,6 +616,11 @@ function WebsiteStep({
   // number its body does not contain.
   const countFields = (fields: readonly PanelField[]) =>
     t("ob.live.countFields", { count: fields.length });
+  // Does the narration's finding live in THIS card? Asked per card rather than
+  // resolved centrally, because only the card knows which rows it renders.
+  const holdsHighlight = (fields: readonly PanelField[]) =>
+    highlightFields !== undefined &&
+    fields.some((field) => highlightFields.includes(field.field));
   return (
     <StepBlock n={1} title={t("ob.live.stepWebsite")} state="done">
       <div className="ob-live-cards">
@@ -614,6 +634,7 @@ function WebsiteStep({
           title={t("ob.live.cardIdentity")}
           count={countFields(identity)}
           done={identity.length > 0}
+          revealed={holdsHighlight(identity)}
         >
           {identity.map((field) => (
             <FieldRow field={field} key={field.field} />
@@ -623,6 +644,7 @@ function WebsiteStep({
           title={t("ob.live.cardPositioning")}
           count={countFields(positioning)}
           done={positioning.length > 0}
+          revealed={holdsHighlight(positioning)}
         >
           {positioning.map((field) => (
             <FieldRow field={field} key={field.field} />
@@ -676,6 +698,11 @@ export type OnboardingLivePanelProps = Readonly<{
   connectState: PendingStepState;
   /** The facts card, owned by the facts slice, in its place in step one. */
   factsSlot?: ReactNode;
+  /**
+   * The profile fields the conversation is pointing at right now. A card that
+   * holds one of them opens, so the row exists for the pulse to land on.
+   */
+  highlightFields?: readonly string[];
 }>;
 
 export function OnboardingLivePanel({
@@ -688,6 +715,7 @@ export function OnboardingLivePanel({
   voiceState,
   connectState,
   factsSlot,
+  highlightFields,
 }: OnboardingLivePanelProps) {
   // A finished read with no dossier behind it has nothing to disclose, so it
   // keeps the reading notice rather than opening empty cards.
@@ -716,6 +744,7 @@ export function OnboardingLivePanel({
             onConfirmEntity={onConfirmEntity}
             onDeclineEntity={onDeclineEntity}
             factsSlot={factsSlot}
+            highlightFields={highlightFields}
           />
           <PendingStep
             n={2}

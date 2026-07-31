@@ -1,10 +1,12 @@
 /*
  * The payoff grid — the emphatic moment of onboarding, and still one hairline.
  *
- * The gutters ARE the hairlines: the grid paints `--borderSubtle` and each cell
- * paints over it with a 1px gap, so six cells cost one border colour and no
- * per-cell rules that could disagree at the seams. Restraint is the whole
- * point — an emphatic moment made of visible haze reads as a demo.
+ * The hairline is a 1px ring on each cell, laid into a 1px gap. The obvious
+ * cheaper trick — paint the hairline colour on the CONTAINER and let the cells
+ * cover it — cannot be used here: a count with nothing to report is omitted
+ * rather than faked, so the grid legitimately runs short of a full row, and the
+ * container's colour would then show through the empty track as a solid grey
+ * block. Ringing the cells means an uncovered track is just the cell ground.
  *
  * Accent, not brand action: the cells sit on `--accentSurface` (the page-wash
  * step of the ramp) and the numbers stay `--textPrimary`. Green means the user
@@ -31,10 +33,10 @@
 .ob-payoff-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  /* The 1px gap plus the container's own background is the entire rule set —
-     see the file header. */
+  /* The gap the cells' rings meet in — see the file header for why the colour
+     is not here. */
   gap: 1px;
-  background: var(--borderSubtle);
+  background: var(--accentSurface);
   border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--borderSubtle));
   border-radius: var(--r-sm);
   /* Clips the cells' square corners to the container's radius. */
@@ -53,6 +55,10 @@
   gap: var(--space-1);
   padding: var(--space-4);
   background: var(--accentSurface);
+  /* A ring rather than a border, so it costs no layout and cannot shift the
+     digits inside the cell. The container's overflow clips it at the outer
+     edges, where its own border takes over. */
+  box-shadow: 0 0 0 1px var(--borderSubtle);
 }
 
 .ob-payoff-value {
@@ -154,5 +160,10 @@
   .ob-payoff-grid,
   .ob-payoff-next {
     forced-color-adjust: auto;
+  }
+  /* A forced palette drops box-shadow entirely, so the seams have to come back
+     as a real border for the grid to keep its structure. */
+  .ob-payoff-cell {
+    border: 1px solid CanvasText;
   }
 }
