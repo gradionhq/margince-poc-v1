@@ -1,0 +1,47 @@
+/*
+ * brand.css — the derived token layer.
+ *
+ * tokens.css is the canonical Ledger-Green palette (ADR-0040), mirrored verbatim
+ * from the spec so a drift shows up as a diff and tokens.test.ts fails. This
+ * sheet sits on top and adds only the roles the product needs that the canon
+ * does not name yet. Two rules keep it honest:
+ *
+ *   1. Everything here DERIVES from a canonical token via color-mix. No new
+ *      brand hex is invented, so the dark theme's accent lift carries through
+ *      every derived value automatically and there is nothing to re-declare per
+ *      theme. This is also what lets the file pass
+ *      check-ds-purity.sh, which excludes tokens.css and nothing else.
+ *   2. Anything that turns out to be load-bearing belongs upstream in the spec's
+ *      design-language, not here. This file is the staging area for that
+ *      conversation.
+ *
+ * Load order matters (WDS-GATE-4): tokens.css first, then this — wired in
+ * app.css.
+ */
+
+:root {
+  /* --- accent ramp -----------------------------------------------------
+   * The canon ships accent / accentLight / accentMed. The Core and the
+   * unauthenticated surface also need a tint below Light (page-level washes), a
+   * mid tone (the orb's lit body) and a pressed tone (hover on a filled
+   * control).
+   */
+  --accentSurface: color-mix(in srgb, var(--accent) 5%, var(--bgElevated));
+  --accentSoft: color-mix(in oklab, var(--accent) 68%, var(--overlayLight));
+  --accentDeep: color-mix(in oklab, var(--accent) 84%, var(--overlayDark));
+
+  /* The Core's LIGHT, and it exists because one tint could not do two jobs.
+   *
+   * The reference artifact paints the sphere with six different colours, and the
+   * port substituted --coreTint for all of them. That is right for the parts
+   * meant to be DARK (the outer drop shadow, the inner crescent, both of which
+   * want a deep green) and destroys the parts meant to be BRIGHT: the artifact's
+   * halo is a saturated mint, its bottom bounce-light is nearly white, and the
+   * feed motes glow. Rendered in the accent they all went grey and the sphere
+   * lost its light source.
+   *
+   * So: --coreTint is the shade, --coreLight is the light. Both derive from the
+   * accent, so a re-themed palette still moves the whole sphere together.
+   */
+  --coreLight: color-mix(in oklab, var(--accent) 52%, var(--overlayLight));
+}

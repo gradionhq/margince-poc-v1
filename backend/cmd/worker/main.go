@@ -171,7 +171,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("worker: blobstore: %w", err)
 	}
 	if blobConfigured {
-		_, _ = fmt.Fprintln(stdout, "worker retention erasing attachment objects (blobstore configured)")
+		_, _ = fmt.Fprintln(stdout, "worker storing site-read logos and erasing attachment objects (blobstore configured)")
 	}
 	retention := privacy.NewRetentionService(pool, blob, logger)
 	_, _ = fmt.Fprintf(stdout, "worker evaluating retention every %s\n", cfg.retentionInterval)
@@ -181,7 +181,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
-	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, stdout)
+	stopJobs, err := startJobRunner(ctx, pool, rdb, compose.OverlayBudgetConfig(deployCfg.EffectiveOverlayBudget()), logger, cfg, modelPath, blob, stdout)
 	if err != nil {
 		return err
 	}
@@ -261,7 +261,7 @@ func gmailWatchConfig(cfg workerConfig, gmailWired bool) compose.GmailWatchConfi
 	return w
 }
 
-func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, stdout io.Writer) (func(), error) {
+func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, overlayBudget overlaybudget.Config, logger *slog.Logger, cfg workerConfig, modelPath compose.ModelPath, blob blobstore.Store, stdout io.Writer) (func(), error) {
 	// The sweep registry is always live — the standing IMAP connector needs
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
@@ -341,6 +341,11 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 			MaxBytes: cfg.deepReadMaxBytes,
 			Wall:     cfg.deepReadWall,
 		},
+		// The same object store retention purges from: a deep read resolves
+		// the company's logo out of the site it just crawled and stores the
+		// normalized bytes here. Nil (no blobstore configured) leaves every
+		// company on its monogram — the read itself is unaffected.
+		Blobstore: blob,
 		// The embed-reindex worker registers regardless: without an embed
 		// lane (nil Embedder) a picked-up job fails clearly rather than
 		// sitting queued forever behind a job no one can work — the same

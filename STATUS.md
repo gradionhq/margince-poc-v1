@@ -26,6 +26,37 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Session pickup — 2026-07-30
 
+**Every company now wears its face (#330).** The A55 logo lane resolves a
+company's mark from the site the deep read already crawls — og:image, then the
+declared icons, then `/favicon.ico` — normalizes it once to a square PNG at
+store time, and renders it on the company header, the company list, and the
+connections graph with the deterministic monogram as the floor. `worker
+siteread <url>` prints the chosen mark and every candidate it passed over with
+the reason; that is the loop for tuning it against a real site.
+
+Three things it left open, in priority order:
+
+- **Search hits carry no logo.** `SearchResult` would need `logo_url`, and the
+  search module cannot import people to spell the URL. That wants a
+  compose-injected seam, not a second spelling of the same path.
+- **Nothing purges a logo object**, because nothing hard-deletes an
+  organization row. The key is on the row (`organization.logo_object_key`), so
+  the sweep is there to write the day organizations gain a hard delete or the
+  retention evaluator reaches them.
+- **The reclaim of a superseded logo can race a reader** that took the old key
+  microseconds earlier: one monogram on one render, self-healing next load.
+  The offer-PDF path makes the same trade.
+
+Two deliberate spec deviations to reconcile upstream (P3): one stored 300×300
+variant instead of A55's sm/md/lg, and transparency preserved instead of
+background-flatten (the render chip supplies the backdrop, and a flattened
+white one breaks the dark theme).
+
+Read `internal/platform/imagenorm/svg.go` before touching the vector path: a
+self-referencing `<use>` in a favicon exhausts the goroutine stack, and a Go
+stack overflow is fatal — it kills the worker process, and River's panic
+recovery cannot catch it. `<use>` is refused outright for that reason.
+
 **The company-view rebuild is finished.** #309 (composite read), #313 (one-page
 view), #315 (evidence mark), #317 (account brief), #319 (next-step suggestions +
 Ask Margince) and #322 (the connections card, plus #326 correcting its contract)
@@ -521,6 +552,31 @@ this build repo.
   0141), and `interfaces.md` §1 gains an optional `BackfillProgress` seam
   beside `Backfiller`/`Watcher`/`Sender`. Both are additive; neither changes
   what a committed run reports.
+- **ADR-0076 is cited all over the login surface and does not exist.** The
+  unauthenticated surface and the Core are built against it — `Decision 1`, `2`,
+  `5c`, `6` and `WDS-CORE-1..4` are quoted in `auth.css`, `auth-core.tsx`,
+  `auth.tsx`, `motion.ts`, `margince-core*` and `e2e/ac.spec.ts` — but
+  `specs/adr/` stops at ADR-0075, and nothing in the spec repo mentions the
+  number. The decisions are real and enforced by tests; the record was never
+  written, so nobody outside this repo can check the code still matches it. Worth
+  splitting when it is written: the layout and the Core's state vocabulary are
+  design decisions, `Decision 2`'s "only limits, never claims" is a
+  product/positioning commitment, `WDS-CORE-1/3/4` are engineering invariants, and
+  the WCAG parts of `Decision 6` are obligations to cite rather than clauses to
+  sign.
+- **The phone layout drops the identity region but keeps the disclosure, which
+  is a partial Decision 1 below 561px.** The login surface on a phone is the task
+  alone — one full-height card, the Core in its header beside the wordmark — and
+  `auth.css`'s ≤560 block hides `aside.auth-identity`. Tablet, 200% zoom and
+  desktop are unchanged. What no longer travels with the aside is the DISCLOSURE:
+  `PhoneDisclosure` carries the boundary statement in the task column at that
+  width, so a phone user, and every screen-reader user on one, is still told what
+  the system is and what it will not do. Exactly one of the two statements is in
+  the accessibility tree at any width, and the e2e case pins both directions
+  ("shows the identity region whole, or not at all"). Still open, and it is a
+  product call rather than a defect: the kicker, the scope line and the four
+  limits are absent on a phone, so what a phone is owed beyond the one sentence
+  is the question Decision 1 has to answer.
 - **The company view's new surfaces are build-side, not yet in the spec.**
   `GET /organizations/{id}/360`, `POST /organizations/{id}/view-ack`,
   `GET|POST /organizations/{id}/brief`, `POST /organizations/{id}/ask`,

@@ -147,6 +147,7 @@ var agentPolicies = map[string]agentPolicy{
 	"GET /v1/organizations":                                              {Op: "listOrganizations", Access: "tool", Tool: "search_records", RecordType: "organization", Tier: "auto_execute"},
 	"GET /v1/organizations/{id}":                                         {Op: "getOrganization", Access: "tool", Tool: "read_record", RecordType: "organization", Tier: "auto_execute"},
 	"GET /v1/organizations/{id}/brief":                                   {Op: "getOrganizationBrief", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
+	"GET /v1/organizations/{id}/logo":                                    {Op: "getOrganizationLogo", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/organizations/{id}/site-reads/{readId}":                     {Op: "getSiteRead", Access: "tool", Tool: "read_record", RecordType: "organization", Tier: "auto_execute"},
 	"GET /v1/overlay/owners":                                             {Op: "listOverlayOwners", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
 	"GET /v1/overlay/user-map":                                           {Op: "listOverlayUserMap", Access: "human-only", Tool: "", RecordType: "", Tier: ""},
