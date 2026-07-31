@@ -514,6 +514,14 @@ func TestTheRestoreGivesBackAReminderSomebodyHadTakenOver(t *testing.T) {
 	adopt(t, owner, reminded, "remind_at", quietSince)
 
 	applyCleanupMigration(t, owner)
+	// Without this the assertions below pass vacuously: a row 0148 never
+	// archived also reads "not archived" after the restore, and the suite
+	// would be green while 0149 did nothing at all.
+	for _, id := range []ids.UUID{assigned, reminded, untouched} {
+		if !isArchived(t, owner, id) {
+			t.Fatalf("0148 did not archive %s, so this suite is not testing what it claims", id)
+		}
+	}
 	applyRestoreMigration(t, owner)
 
 	if isArchived(t, owner, assigned) {
@@ -572,6 +580,13 @@ func TestTheRestorePairsEachReminderWithItsOwnAutomation(t *testing.T) {
 		"Time for a check-in — last touched 2026-06-16", "system", false)
 
 	applyCleanupMigration(t, owner)
+	// Same guard as its siblings: "stranded came back" only means anything
+	// once 0148 has been shown to have taken it away.
+	for _, id := range []ids.UUID{live, stranded} {
+		if !isArchived(t, owner, id) {
+			t.Fatalf("0148 did not archive %s, so this suite is not testing what it claims", id)
+		}
+	}
 	applyRestoreMigration(t, owner)
 
 	if !isArchived(t, owner, live) {
