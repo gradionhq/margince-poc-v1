@@ -66,8 +66,8 @@ func TestConnectValidatesTokenBeforePersistingAnything(t *testing.T) {
 func TestConnectRejectsAnInvalidTokenWith400(t *testing.T) {
 	f := newChannelFixture(t, nil)
 
-	rec, req := f.request(http.MethodPost, "/v1/channel-connections",
-		`{"provider":"telegram","botToken":"`+unknownToken+`"}`)
+	rec, req := f.connectRequest(
+		`{"provider":"telegram","botToken":"` + unknownToken + `"}`)
 	f.handlers.ConnectChannel(rec, req)
 
 	if rec.Code != http.StatusBadRequest {
@@ -116,8 +116,8 @@ func TestConnectRefusesABotWhoseWebhookPointsElsewhere(t *testing.T) {
 		t.Errorf("a conflicting connect sealed %d secret(s)", puts)
 	}
 
-	rec, req := f.request(http.MethodPost, "/v1/channel-connections",
-		`{"provider":"telegram","botToken":"`+token+`"}`)
+	rec, req := f.connectRequest(
+		`{"provider":"telegram","botToken":"` + token + `"}`)
 	f.handlers.ConnectChannel(rec, req)
 	if rec.Code != http.StatusConflict {
 		t.Fatalf("status %d, want 409 (body: %s)", rec.Code, rec.Body.String())
@@ -571,8 +571,8 @@ func TestConnectRefusesWhenTheInstallationHasNoPublicAddress(t *testing.T) {
 		t.Errorf("the refused connect wrote %d row(s)", n)
 	}
 
-	rec, req := f.request(http.MethodPost, "/v1/channel-connections",
-		`{"provider":"telegram","botToken":"`+token+`"}`)
+	rec, req := f.connectRequest(
+		`{"provider":"telegram","botToken":"` + token + `"}`)
 	f.handlers.ConnectChannel(rec, req)
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d, want 503 (body: %s)", rec.Code, rec.Body.String())

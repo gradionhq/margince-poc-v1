@@ -332,6 +332,46 @@ func TestSendMessageRefusesWhenNoBotIsBoundForTheChannel(t *testing.T) {
 	}
 }
 
+// An empty or whitespace-only body has nothing to transmit: Telegram refuses it
+// outright, so accepting one buys a timeline entry claiming the rep answered and
+// a delivery that can only walk the whole retry ladder before parking under a
+// reason naming nothing the operator can act on. The contract's minLength is
+// documentation — httperr.Decode performs no schema validation — so the refusal
+// has to be a Go guard, and it has to land before anything is written.
+func TestSendMessageRefusesAnEmptyBody(t *testing.T) {
+	c := setupChannelSend(t)
+
+	for _, body := range []string{"", "   \n\t "} {
+		var answer struct {
+			Details struct {
+				Errors []struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"errors"`
+			} `json:"details"`
+		}
+		status := c.call(t, "POST", "/v1/activities/"+c.activityID+"/send-message", anyMap{
+			"body": body, "consent_purpose": "transactional",
+		}, nil, &answer)
+
+		if status != http.StatusUnprocessableEntity {
+			t.Fatalf("reply with body %q → %d, want 422", body, status)
+		}
+		if len(answer.Details.Errors) == 0 || answer.Details.Errors[0].Code != "empty_message_body" {
+			t.Fatalf("reply with body %q answered %+v, want an empty_message_body validation error", body, answer.Details.Errors)
+		}
+		if detail := answer.Details.Errors[0].Message; !strings.Contains(detail, "type") {
+			t.Fatalf("refusal detail %q does not tell the rep what to do", detail)
+		}
+		if n := c.stagedChannelDeliveries(t); n != 0 {
+			t.Fatalf("%d deliveries staged behind an empty body %q, want 0", n, body)
+		}
+		if n := c.outboundActivities(t); n != 0 {
+			t.Fatalf("%d outbound activities logged behind an empty body %q, want 0", n, body)
+		}
+	}
+}
+
 // Consent is default-deny PER PURPOSE: the person granted `transactional` and
 // nothing else, so a reply sent under another purpose is suppressed with the
 // same 409 the mail path answers — the shape the composer relies on to keep the

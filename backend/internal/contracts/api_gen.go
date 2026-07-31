@@ -11999,7 +11999,9 @@ type SendEmailRequest struct {
 // and no Cc, and the recipient is resolved from the conversation being answered (see the
 // operation), never named by the caller.
 type SendMessageRequest struct {
-	// Body The (possibly edited) final message text that is sent.
+	// Body The (possibly edited) final message text that is sent. A messaging provider rejects a
+	// text-less message, so an empty or whitespace-only body is refused at request time
+	// (422 `empty_message_body`) rather than staged for a delivery that could only park.
 	Body string `json:"body"`
 
 	// ConsentPurpose The consent purpose this send falls under (e.g. `transactional`). The send is

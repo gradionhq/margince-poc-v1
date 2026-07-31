@@ -55,10 +55,15 @@ func (h Handlers) SendMessage(w http.ResponseWriter, r *http.Request, id crmcont
 }
 
 // writeChannelSendErr maps this path's own refusals, then hands everything else
-// to the shared mapping. All three are 422 and all three name what to do: the
-// caller pointed at the wrong kind of conversation, this workspace has no bot
-// bound, or the conversation does not reach exactly one person.
+// to the shared mapping. All four are 422 and all four name what to do: the
+// request carried no message, the caller pointed at the wrong kind of
+// conversation, this workspace has no bot bound, or the conversation does not
+// reach exactly one person.
 func writeChannelSendErr(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errEmptyMessageBody) {
+		httperr.Write(w, r, httperr.Validation("body", "empty_message_body", errEmptyMessageBody.Error()))
+		return
+	}
 	var wrongKind *NotAChannelConversationError
 	if errors.As(err, &wrongKind) {
 		httperr.Write(w, r, httperr.Validation("id", "not_a_channel_conversation", wrongKind.Error()))

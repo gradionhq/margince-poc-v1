@@ -8,8 +8,8 @@
 --
 -- The CHECK is what keeps "nullable" from meaning "optional". A row is
 -- mail-shaped or channel-shaped and never half of each: without it a mail
--- delivery could commit with no addressees and a channel delivery with no
--- recipient, and both would be discovered by the dispatcher at transmit time —
+-- delivery could commit carrying a subject line and a channel recipient
+-- together, and the dispatcher would meet a row neither transport can read —
 -- against a live provider, minutes after the writer that could have been told
 -- has gone.
 --
@@ -57,5 +57,12 @@ ALTER TABLE comms_outbound
        -- target. A channel row carrying either would be mail bookkeeping filed
        -- under a message that never had any.
        AND thread_key IS NULL
-       AND list_unsubscribe IS NULL)
+       AND list_unsubscribe IS NULL
+       -- A row still awaiting the dispatcher must name somewhere to send it.
+       -- The status qualifier is what lets the Art. 17 scrub empty the column
+       -- on a row whose delivery is already decided: it parks a pending row in
+       -- the SAME statement it blanks the recipient in, and a CHECK is
+       -- evaluated at statement end, so the parked row is what the constraint
+       -- sees. A row already sent keeps its status and passes untouched.
+       AND (channel_user_id <> '' OR status <> 'pending'))
   );

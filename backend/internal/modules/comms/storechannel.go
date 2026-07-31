@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -56,6 +57,13 @@ type StageChannelInput struct {
 // read "no consent" where the truth is "no recipient".
 var ErrNoChannelRecipient = errors.New("comms: a channel delivery needs a recipient account id")
 
+// ErrNoChannelBody marks a channel delivery staged with nothing to transmit.
+// A messaging provider refuses a text-less message, so a staged one can only
+// spend the whole retry ladder discovering that and then park under a reason
+// about the transport rather than about the message. Whitespace counts as
+// nothing: it is what an accidental send leaves in the composer.
+var ErrNoChannelBody = errors.New("comms: a channel delivery needs a message body")
+
 // StageChannelTx records one channel delivery inside the caller's transaction,
 // so the delivery and the activity it reports on commit together.
 //
@@ -71,6 +79,9 @@ func (s *Store) StageChannelTx(ctx context.Context, tx pgx.Tx, in StageChannelIn
 	}
 	if in.Recipient.ChannelUserID == "" {
 		return ids.UUID{}, ErrNoChannelRecipient
+	}
+	if strings.TrimSpace(in.Body) == "" {
+		return ids.UUID{}, ErrNoChannelBody
 	}
 	id := ids.NewV7()
 	if _, err := tx.Exec(ctx, `

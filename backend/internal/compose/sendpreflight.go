@@ -21,6 +21,8 @@ import (
 	"errors"
 	"slices"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
@@ -60,11 +62,46 @@ var _ mailboxGrants = (*capture.Registry)(nil)
 // reconnects, so a check that only asked "is something connected?" would pass all
 // of them and then park every send. For a bot there is no grant to ask about —
 // the token IS the authority — so the live binding is the whole answer.
+//
+// It also carries the one fact the registry cannot supply: whether this
+// DEPLOYMENT configured a mail app for the provider at all. A grant is the
+// user's, the app that transmits under it is the operator's, and a mailbox
+// whose app was never configured reports its send scope exactly as a working
+// one does — so without this the pre-flight admits a send that can only park.
 type mailboxAuthority struct {
 	grants mailboxGrants
+	// mailAppConfigured answers that deployment question. It is deliberately
+	// NOT "is a mail connector registered on this process role": the api
+	// self-gates its Gmail transport on a state key it does not need to
+	// transmit, so a deployment whose worker sends perfectly well has no
+	// api-side gmail connector — and keying the refusal on the role's registry
+	// would refuse every Gmail send there.
+	mailAppConfigured func(provider string) bool
 }
 
 var _ activities.SendAuthority = mailboxAuthority{}
+
+// mailAppConfigured is the Server's answer to that question. It reads the field
+// at CALL time rather than snapshotting it, so the two places that install the
+// pre-flight need no ordering rule against the option that records the fact.
+//
+// A provider with no field is not configured, which is also the only honest
+// answer: comms.SendScopeFor gives a send scope to gmail alone, so no other
+// provider reaches this at all.
+func (s *Server) mailAppConfigured(provider string) bool {
+	return provider == providerGmail && s.gmailAppConfigured
+}
+
+// installSendPreflight installs the pre-flight over whichever capture registry
+// the caller has just ensured exists — the SAME one the connect flow writes to,
+// never a second construction. Both installation sites go through here so the
+// registry and the deployment fact cannot be paired up two different ways.
+func installSendPreflight(s *Server, pool *pgxpool.Pool) {
+	WithSendAuthority(mailboxAuthority{
+		grants:            s.connectorHandlers.registry,
+		mailAppConfigured: s.mailAppConfigured,
+	})(s, pool)
+}
 
 func (m mailboxAuthority) SendCapable(ctx context.Context, provider string) (bool, error) {
 	actor, ok := principal.Actor(ctx)
@@ -86,6 +123,13 @@ func (m mailboxAuthority) SendCapable(ctx context.Context, provider string) (boo
 		// refuse every channel send: there is no capture_connection behind a
 		// workspace binding to find.
 		return m.grants.ChannelSendCapable(ctx, provider)
+	}
+	if !m.mailAppConfigured(provider) {
+		// No grant this user holds can transmit through an app the deployment
+		// does not have, so the grant is not even read: the answer is the same
+		// either way, and the refusal names the mailbox while the operator is
+		// still on the screen instead of parking the message later.
+		return false, nil
 	}
 	granted, err := m.grants.GrantedScopesFor(ctx, ids.From[ids.UserKind](actor.UserID), provider)
 	switch {

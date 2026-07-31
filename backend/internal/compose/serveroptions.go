@@ -141,7 +141,7 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		// asks about. WithGmailCapture below re-wires this same call over its
 		// own registry when the Google app is configured; until then this is
 		// the only place the channel branch gets to run at all.
-		WithSendAuthority(mailboxAuthority{grants: s.connectorHandlers.registry})(s, pool)
+		installSendPreflight(s, pool)
 	}
 }
 

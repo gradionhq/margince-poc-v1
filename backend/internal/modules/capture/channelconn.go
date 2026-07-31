@@ -137,11 +137,23 @@ var ErrChannelWebhookOwnedElsewhere = errors.New("capture: the bot's webhook is 
 // indistinguishable from a healthy channel nobody is messaging.
 var ErrChannelWebhookBaseUnset = errors.New("capture: no public webhook base URL is configured")
 
+// ErrChannelWiringIncomplete reports that this deployment composed no credential
+// custodian, so a bot token can neither be sealed nor destroyed. Like the base
+// URL above it is a DEPLOYMENT FACT an operator can act on, not an internal
+// fault, so it refuses by name (503) instead of the opaque 500 an untyped error
+// would become — which sends whoever is looking at the screen to a server log
+// they may not have.
+var ErrChannelWiringIncomplete = errors.New("capture: no credential custodian is composed for the channel surface")
+
 // ChannelStore owns channel_connection and its write shape. vault is the
 // custodian of both sealed values; api is the Telegram boundary; webhookBase is
-// this installation's externally-reachable origin. Each may be absent on a
-// process role that composes no channel surface, and every entry point that
-// needs one refuses loudly rather than proceeding half-wired.
+// this installation's externally-reachable origin.
+//
+// api is REQUIRED — every composition of this store supplies one, and a role
+// that serves no channel surface composes no store at all rather than a
+// client-less one. vault and webhookBase may be absent on a deployment that did
+// not configure them, and every entry point that needs one refuses by name
+// rather than proceeding half-wired.
 type ChannelStore struct {
 	pool        *pgxpool.Pool
 	vault       keyvault.Vault
@@ -150,11 +162,10 @@ type ChannelStore struct {
 	log         *slog.Logger
 }
 
-// NewChannelStore wires the channel-connection store. api and vault may be nil
-// on a role that serves reads only; webhookBase may be empty when the
-// deployment did not declare its origin — in both cases the mutating paths
-// refuse with a named, actionable error instead of writing a connection that
-// could never receive a delivery.
+// NewChannelStore wires the channel-connection store. vault may be nil and
+// webhookBase empty when the deployment configured neither — in both cases the
+// mutating paths refuse with a named, actionable error instead of writing a
+// connection that could never receive a delivery.
 func NewChannelStore(pool *pgxpool.Pool, vault keyvault.Vault, api telegram.API, webhookBase string, log *slog.Logger) *ChannelStore {
 	if log == nil {
 		log = slog.Default()
@@ -269,18 +280,16 @@ func (s *ChannelStore) Connect(ctx context.Context, req ConnectRequest) (Channel
 
 // requireConnectWiring refuses a connect this deployment cannot honestly
 // complete: an unimplemented provider, a missing vault (nothing could seal the
-// token), a missing Telegram boundary, or an unknown public origin. Each
-// refusal names what to fix — a connect that half-succeeds is the failure mode
-// this whole path is shaped to avoid.
+// token), or an unknown public origin. Each refusal names what to fix — a
+// connect that half-succeeds is the failure mode this whole path is shaped to
+// avoid.
 func (s *ChannelStore) requireConnectWiring(provider string) error {
 	if provider != ProviderTelegram {
 		return fmt.Errorf("channel provider %q is not implemented: %w", provider, apperrors.ErrConflict)
 	}
-	if s.api == nil {
-		return errors.New("capture: no Telegram client is composed — this process role serves no channel connect")
-	}
 	if s.vault == nil {
-		return errors.New("capture: no keyvault is configured — a bot token cannot be sealed")
+		return fmt.Errorf("configure a credential store for this installation, so a bot token can be sealed: %w",
+			ErrChannelWiringIncomplete)
 	}
 	if s.webhookBase == "" {
 		return fmt.Errorf("set --public-base-url (or --api-base-url when the api is on its own origin) to this installation's externally-reachable origin, so Telegram can be told where to deliver: %w",

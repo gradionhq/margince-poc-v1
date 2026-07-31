@@ -246,7 +246,8 @@ func (s *ChannelStore) Disconnect(ctx context.Context, id ids.UUID) error {
 		return err
 	}
 	if s.vault == nil {
-		return errors.New("capture: no keyvault is configured — a channel credential cannot be revoked")
+		return fmt.Errorf("configure a credential store for this installation, so the bot's sealed credentials can be destroyed: %w",
+			ErrChannelWiringIncomplete)
 	}
 	ws, ok := principal.WorkspaceID(ctx)
 	if !ok {
@@ -274,11 +275,6 @@ func (s *ChannelStore) Disconnect(ctx context.Context, id ids.UUID) error {
 // anything. Refusing the disconnect instead would leave the operator unable to
 // end a binding whenever Telegram is down, which is the worse failure.
 func (s *ChannelStore) revokeWebhook(ctx context.Context, ws ids.UUID, current channelRow) {
-	if s.api == nil {
-		s.log.WarnContext(ctx, "capture: no Telegram client is composed, so this channel's webhook registration was left in place — it delivers to an archived connection, which ingress refuses",
-			"connection", current.ID.String())
-		return
-	}
 	token, err := s.vault.Get(ctx, ids.From[ids.WorkspaceKind](ws), current.credentialRef)
 	if err != nil {
 		s.log.WarnContext(ctx, "capture: could not resolve a channel's bot token to revoke its webhook; the registration stays, delivering to an archived connection that ingress refuses",

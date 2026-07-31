@@ -42,69 +42,99 @@ func (s *stubGrants) ChannelSendCapable(context.Context, string) (bool, error) {
 	return s.channelBound, s.channelErr
 }
 
-// The pre-flight's four branches. Two of them decide whether a user is handed
-// an actionable 422 or a 202 for a message that can only park; the other two
-// are the honest hard cases — a principal with no mailbox to ask about, and a
-// lookup that could not answer at all.
-func TestMailboxAuthoritySendCapableBranches(t *testing.T) {
+// sendCapableCase is one pre-flight question and the answer it must give.
+type sendCapableCase struct {
+	name     string
+	ctx      context.Context
+	provider string
+	grants   *stubGrants
+	want     bool
+	wantErr  error
+	asks     int
+	// appMissing is the DEPLOYMENT fact: this installation configured no
+	// mail app for the provider, whatever the user's own grant says.
+	appMissing bool
+}
+
+// sendCapableCases is every branch the pre-flight has. Some decide whether a
+// user is handed an actionable 422 or a 202 for a message that can only park;
+// the rest are the honest hard cases — a principal with no mailbox to ask
+// about, a lookup that could not answer, and a deployment with no app to
+// transmit through. human is the acting principal the cases that need one share.
+func sendCapableCases(human context.Context) []sendCapableCase {
 	const sendScope = "https://www.googleapis.com/auth/gmail.send"
 	lookupDown := errors.New("connection reset by peer")
-	human := principal.WithActor(context.Background(), principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:x", UserID: ids.NewV7(),
-	})
-
-	for _, tc := range []struct {
-		name     string
-		ctx      context.Context
-		provider string
-		grants   *stubGrants
-		want     bool
-		wantErr  error
-		asks     int
-	}{
+	return []sendCapableCase{
 		{
 			"the grant holds the send scope", human, "gmail",
-			&stubGrants{granted: []string{"https://www.googleapis.com/auth/gmail.readonly", sendScope}}, true, nil, 1,
+			&stubGrants{granted: []string{"https://www.googleapis.com/auth/gmail.readonly", sendScope}}, true, nil, 1, false,
 		},
 		{
 			"a read-only grant cannot send", human, "gmail",
-			&stubGrants{granted: []string{"https://www.googleapis.com/auth/gmail.readonly"}}, false, nil, 1,
+			&stubGrants{granted: []string{"https://www.googleapis.com/auth/gmail.readonly"}}, false, nil, 1, false,
 		},
 		{
 			"no connection is a fact, not a fault", human, "gmail",
-			&stubGrants{err: capture.ErrNoConnection}, false, nil, 1,
+			&stubGrants{err: capture.ErrNoConnection}, false, nil, 1, false,
 		},
 		{
 			"a lookup that cannot answer must not answer", human, "gmail",
-			&stubGrants{err: lookupDown}, false, lookupDown, 1,
+			&stubGrants{err: lookupDown}, false, lookupDown, 1, false,
 		},
 		// Sending is a human act, so a principal with no app_user identity has
 		// no mailbox to pre-flight — and the lookup is never even asked.
-		{"a principal with no user identity", context.Background(), "gmail", &stubGrants{}, false, nil, 0},
+		{"a principal with no user identity", context.Background(), "gmail", &stubGrants{}, false, nil, 0, false},
 		// A provider that cannot transmit at all has no send scope to hold;
 		// asking capture about it would be asking the wrong question.
 		{
 			"a provider that cannot send at all", human, "imap",
-			&stubGrants{granted: []string{sendScope}}, false, nil, 0,
+			&stubGrants{granted: []string{sendScope}}, false, nil, 0, false,
 		},
 		// A bot token carries no OAuth scope, so the per-user grant lookup has
 		// nothing to say about it: the workspace binding is the whole answer,
 		// and asking the mailbox table is what would refuse every reply.
 		{
 			"a bound bot sends without any scope", human, "telegram",
-			&stubGrants{channelBound: true}, true, nil, 0,
+			&stubGrants{channelBound: true}, true, nil, 0, false,
 		},
 		{
 			"no bot bound is a fact, not a fault", human, "telegram",
-			&stubGrants{}, false, nil, 0,
+			&stubGrants{}, false, nil, 0, false,
 		},
 		{
 			"a channel lookup that cannot answer must not answer", human, "telegram",
-			&stubGrants{channelErr: lookupDown}, false, lookupDown, 0,
+			&stubGrants{channelErr: lookupDown}, false, lookupDown, 0, false,
 		},
-	} {
+		// The grant is the user's; the app that transmits it is the
+		// deployment's. A mailbox connected before the app was removed — or
+		// against an app this role's operator never configured — still reports
+		// the send scope, and every send under it can only park. The grant is
+		// not even asked: no answer it could give would change this one.
+		{
+			"a granted scope with no configured app cannot send", human, "gmail",
+			&stubGrants{granted: []string{sendScope}}, false, nil, 0, true,
+		},
+		// The channel half must not be caught by the mail app's absence: a bot
+		// is bound in a different table by a different flow, and a Telegram-only
+		// deployment configures no mail app at all.
+		{
+			"a bound bot sends on a deployment with no mail app", human, "telegram",
+			&stubGrants{channelBound: true}, true, nil, 0, true,
+		},
+	}
+}
+
+func TestMailboxAuthoritySendCapableBranches(t *testing.T) {
+	human := principal.WithActor(context.Background(), principal.Principal{
+		Type: principal.PrincipalHuman, ID: "human:x", UserID: ids.NewV7(),
+	})
+
+	for _, tc := range sendCapableCases(human) {
 		t.Run(tc.name, func(t *testing.T) {
-			authority := mailboxAuthority{grants: tc.grants}
+			authority := mailboxAuthority{
+				grants:            tc.grants,
+				mailAppConfigured: func(string) bool { return !tc.appMissing },
+			}
 
 			got, err := authority.SendCapable(tc.ctx, tc.provider)
 

@@ -59,8 +59,13 @@ CREATE UNIQUE INDEX uq_person_channel_identity
 
 -- The person's channel-identity read path, and what the person_id cascade
 -- delete above needs to avoid a sequential scan per deleted Person.
+--
+-- Unconditional, unlike the unique key above, because a PARTIAL index cannot
+-- serve a foreign key: the planner has no proof that a row about to be cascaded
+-- satisfies the predicate. Carrying the archived rows too costs one index entry
+-- per retired binding and lets ONE index answer both readers.
 CREATE INDEX idx_person_channel_identity_person
-  ON person_channel_identity (workspace_id, person_id) WHERE archived_at IS NULL;
+  ON person_channel_identity (workspace_id, person_id);
 
 CREATE TRIGGER trg_person_channel_identity_updated BEFORE UPDATE ON person_channel_identity
   FOR EACH ROW EXECUTE FUNCTION set_updated_at_bump_version();

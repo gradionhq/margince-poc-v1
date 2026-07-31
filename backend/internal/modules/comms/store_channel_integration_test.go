@@ -132,6 +132,59 @@ func TestStagingAChannelDeliveryWithNoRecipientIsRefused(t *testing.T) {
 	}
 }
 
+// A channel delivery with nothing to say is refused for the same reason and in
+// the same place. The provider rejects a text-less message, so a staged one can
+// only spend the whole retry ladder before parking — and the domain guard above
+// this store is not the only caller the row has to survive.
+func TestStagingAChannelDeliveryWithNoBodyIsRefused(t *testing.T) {
+	e := setupStore(t)
+	for _, body := range []string{"", "  \n "} {
+		activity := e.telegramActivity(t)
+		err := database.WithWorkspaceTx(e.ctx, e.store.pool, func(tx pgx.Tx) error {
+			_, err := e.store.StageChannelTx(e.ctx, tx, StageChannelInput{
+				ActivityID:     activity,
+				Provider:       "telegram",
+				Recipient:      connector.ChannelIdentity{Provider: "telegram", ChannelUserID: "770011"},
+				Body:           body,
+				ConsentPurpose: "transactional",
+			})
+			return err
+		})
+		if !errors.Is(err, ErrNoChannelBody) {
+			t.Fatalf("staging body %q: %v, want ErrNoChannelBody", body, err)
+		}
+	}
+}
+
+// A blank recipient is refused only while the row is still deliverable. The
+// distinction is the whole design of the predicate: a pending row with nowhere
+// to go is a delivery the dispatcher will pick up and fail, while a blank one
+// that is already terminal is what the Art. 17 scrub leaves behind — it empties
+// the account id rather than nulling it, because the column is also the shape
+// discriminator.
+func TestABlankPendingChannelRecipientIsRejectedByTheDatabase(t *testing.T) {
+	e := setupStore(t)
+	insert := func(status string) error {
+		_, err := e.owner.Exec(context.Background(), `
+			INSERT INTO comms_outbound
+			  (id, workspace_id, activity_id, user_id, provider, channel_user_id,
+			   body, consent_purpose, cc, references_chain, status)
+			VALUES ($1, $2, $3, $4, 'telegram', '', 'b', 'transactional', NULL, NULL, $5)`,
+			ids.NewV7(), e.ws, e.activity, e.user, status)
+		return err
+	}
+	if err := insert("pending"); err == nil {
+		t.Fatal("a pending channel delivery with a blank recipient was accepted; it can only fail at the provider")
+	}
+	// The scrub's own shape must still be writable, or an erasure would fail
+	// outright where it has to succeed.
+	for _, status := range []string{"parked", "sent"} {
+		if err := insert(status); err != nil {
+			t.Fatalf("a %s channel delivery with a scrubbed recipient was refused: %v", status, err)
+		}
+	}
+}
+
 // The SCHEMA refuses a half-and-half row independently of the writer, so a
 // second writer cannot reintroduce a delivery that is neither shape. The privacy
 // scrub depends on this too: it splits into a mail arm and a channel arm because

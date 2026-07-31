@@ -311,6 +311,17 @@ func newChannelFixtureWithoutPublicAddress(t *testing.T, api *fakeTelegram) *cha
 	return f
 }
 
+// withoutVault re-points the fixture at a store composed with no credential
+// custodian — a deployment that never configured a keyvault. It keeps the same
+// pool, so rows an earlier connect wrote are still there for the lifecycle paths
+// to reach.
+func (f *channelFixture) withoutVault(t *testing.T) {
+	t.Helper()
+	_, pool := setupCaptureDB(t)
+	f.store = capture.NewChannelStore(pool, nil, f.api, channelWebhookBase, nil)
+	f.handlers = capture.NewChannelHandlers(f.store)
+}
+
 // adminChannelContext binds the principal the HTTP middleware would: a human on
 // a full seat holding the admin grants for channel_connection.
 func adminChannelContext(ctx context.Context, ws, user ids.UUID) context.Context {
@@ -331,11 +342,14 @@ func adminChannelContext(ctx context.Context, ws, user ids.UUID) context.Context
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
-// request builds an in-context httptest request carrying the same principal the
-// store paths get, so the transport tests exercise the real handler rather than
-// a hand-rolled stand-in.
-func (f *channelFixture) request(method, target, body string) (*httptest.ResponseRecorder, *http.Request) {
-	req := httptest.NewRequest(method, target, strings.NewReader(body)).WithContext(f.ctx)
+// connectRequest builds an in-context POST to the connect endpoint carrying the
+// same principal the store paths get, so the transport tests exercise the real
+// handler rather than a hand-rolled stand-in.
+//
+// Connect is the only operation reachable this way: the surface's others take
+// their id from the router, which these tests do not mount.
+func (f *channelFixture) connectRequest(body string) (*httptest.ResponseRecorder, *http.Request) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/channel-connections", strings.NewReader(body)).WithContext(f.ctx)
 	req.Header.Set("Content-Type", "application/json")
 	return httptest.NewRecorder(), req
 }

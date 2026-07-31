@@ -176,6 +176,12 @@ func writeChannelErr(w http.ResponseWriter, r *http.Request, err error) {
 			Code:   "channel_public_base_url_unset",
 			Detail: "This installation does not know its own public address, so the provider cannot be told where to deliver. Set the public base URL and restart.",
 		})
+	case errors.Is(err, ErrChannelWiringIncomplete):
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusServiceUnavailable,
+			Code:   "channel_credentials_not_configured",
+			Detail: "This installation has no credential store configured, so a bot's token cannot be sealed or removed. Configure one and restart.",
+		})
 	case errors.Is(err, telegram.ErrUnreachable):
 		httperr.Write(w, r, &httperr.DetailedError{
 			Status: http.StatusBadGateway,

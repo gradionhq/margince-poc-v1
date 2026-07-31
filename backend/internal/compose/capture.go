@@ -439,6 +439,7 @@ func WithGraphCapture(c GraphConfig) Option {
 // WithKeyvault installs it unconditionally (comment below).
 func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
+		s.gmailAppConfigured = c.canSync() // the send pre-flight's fact, recorded before the gate below
 		// Without a vault the connect flow can't seal the refresh token, so
 		// mounting the endpoints would only fail at the callback — leave the
 		// surface its declared 501 instead. (WithKeyvault must precede this.)
@@ -465,7 +466,7 @@ func WithGmailCapture(c GmailConfig, cfg CaptureConfig) Option {
 		// line the mailbox half would keep answering off a registry with no
 		// Gmail connector. The channel half answers identically off either
 		// object: ChannelSendCapable is a pool query, not a connector lookup.
-		WithSendAuthority(mailboxAuthority{grants: s.connectorHandlers.registry})(s, pool)
+		installSendPreflight(s, pool)
 	}
 }
 

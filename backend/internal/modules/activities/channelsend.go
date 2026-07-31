@@ -27,6 +27,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 
@@ -140,6 +141,16 @@ func (e *NotAChannelConversationError) Error() string {
 	return "a " + e.Kind + " activity is not a messaging-channel conversation; reply on the channel the conversation was held on"
 }
 
+// errEmptyMessageBody refuses a reply with nothing in it. A messaging provider
+// rejects a text-less message, so accepting one buys a timeline entry saying the
+// rep answered plus a delivery that walks the entire retry ladder before parking
+// under a transport reason that names nothing the operator can act on.
+//
+// Whitespace counts as nothing, because whitespace is what an accidental send
+// leaves in the composer. The contract's minLength cannot carry this: nothing in
+// this stack validates a request against the schema.
+var errEmptyMessageBody = errors.New("a message needs something to say — type the reply, then send it")
+
 // ChannelRecipientError refuses a reply whose ONE recipient cannot be
 // determined: nobody on the conversation is reachable, or more than one is. Both
 // are refused before anything is staged, and both are the caller's to resolve —
@@ -174,8 +185,9 @@ func (e *ChannelRecipientError) Code() string {
 }
 
 // SendMessage runs the governed channel reply: anchor visibility → write grant →
-// wiring guards → channel pre-flight → recipient resolution → consent gate →
-// the outbound activity and its delivery, committed together in the write shape.
+// wiring guards → a message to send → channel pre-flight → recipient resolution →
+// consent gate → the outbound activity and its delivery, committed together in
+// the write shape.
 //
 // The ORDER is the invariant, and it is SendEmail's order for SendEmail's
 // reasons: AUTHORIZATION REFUSES BEFORE ANYTHING ELSE ANSWERS. A caller with no
@@ -208,6 +220,9 @@ func (s *Store) SendMessage(ctx context.Context, anchorID ids.ActivityID, in Sen
 	}
 	if s.reachability == nil {
 		return crmcontracts.Activity{}, errNoChannelReachability
+	}
+	if strings.TrimSpace(in.Body) == "" {
+		return crmcontracts.Activity{}, errEmptyMessageBody
 	}
 	provider := string(anchor.Kind)
 	if !IsChannelKind(provider) {
