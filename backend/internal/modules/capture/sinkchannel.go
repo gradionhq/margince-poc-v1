@@ -49,11 +49,35 @@ func (s *Sink) WithChannelEnsurer(ensurer ChannelCounterpartyEnsurer) *Sink {
 	return &c
 }
 
-// channelRecord reports whether a counterparty is identified by a channel
-// identity rather than an address. connector.Counterparty documents the two as
-// mutually exclusive; this is the one place capture asks which of them it holds.
-func channelRecord(cp connector.Counterparty) bool {
-	return cp.Email == "" && cp.ChannelIdentity.ChannelUserID != ""
+// counterpartyShape is how a record names its human. connector.Counterparty
+// documents an address and a channel identity as mutually exclusive, and this is
+// the one place capture asks which it holds — so the question is asked totally.
+// A two-term boolean answered "not a channel record" for a record carrying BOTH,
+// which then ran the mail ladder: the channel identity was never bound, and
+// because every mail gate keys off the address it produced no fault row either.
+// A silent misroute is the one outcome in this pipeline that leaves no
+// breadcrumb, so the malformed shape gets a name and is refused by the caller.
+type counterpartyShape int
+
+const (
+	shapeNone counterpartyShape = iota
+	shapeMail
+	shapeChannel
+	shapeAmbiguous
+)
+
+func counterpartyShapeOf(cp connector.Counterparty) counterpartyShape {
+	hasMail, hasChannel := cp.Email != "", cp.ChannelIdentity.ChannelUserID != ""
+	switch {
+	case hasMail && hasChannel:
+		return shapeAmbiguous
+	case hasChannel:
+		return shapeChannel
+	case hasMail:
+		return shapeMail
+	default:
+		return shapeNone
+	}
 }
 
 // decideChannelCounterparty settles a channel record's derivation, and unlike

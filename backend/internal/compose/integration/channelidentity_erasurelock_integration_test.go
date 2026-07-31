@@ -13,8 +13,14 @@ package integration
 // naming a subject whose person_channel_identity rows, the only handle every
 // later erasure and subject-access lane has on raw_capture, are gone for good.
 //
-// The erasure side is the half proved here; compose's own ingress suite proves
-// the delivery side takes the same lock.
+// The erasure side is the half proved here. The delivery side has TWO writers
+// and they are proved elsewhere, separately, because they are separate
+// transactions: the ingress edge that admits an update and writes raw_capture,
+// and Sink.Upsert, which commits the activity later. Locking only the edge
+// leaves the activity unguarded, which is the worse half — a raw row is at
+// least reachable by account, whereas an activity with no person link and no
+// counterparty_email is reachable by neither erasure selector. The activity
+// writer is pinned in telegram_sinkerasure_integration_test.go.
 
 import (
 	"context"

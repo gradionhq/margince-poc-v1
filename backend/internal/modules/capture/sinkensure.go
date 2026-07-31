@@ -130,7 +130,7 @@ func (s *Sink) decideCounterparty(ctx context.Context, tx pgx.Tx, rec connector.
 	// A channel record takes its own decision (sinkchannel.go) and does not
 	// enter the ladder below: every tier of it reads a mail address or a mail
 	// domain, and its deferral ledger is keyed on the address itself.
-	if channelRecord(cp) {
+	if counterpartyShapeOf(cp) == shapeChannel {
 		return s.decideChannelCounterparty(ctx), nil
 	}
 	row, decision, ok, err := s.derivationStart(ctx, tx, rec, activityID)
