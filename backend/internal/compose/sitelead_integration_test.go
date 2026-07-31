@@ -213,6 +213,9 @@ func TestSiteLeadStaysAcceptableAfterAnUnrelatedWriteToItsCompany(t *testing.T) 
 		t.Fatalf("touch the company: %v", err)
 	}
 
+	if len(done.ProposalIDs) == 0 {
+		t.Fatal("the read staged nothing, so this proves nothing about accepting after a write")
+	}
 	for _, id := range done.ProposalIDs {
 		if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms),
 			ids.From[ids.ApprovalKind](id), true, nil); err != nil {
@@ -220,14 +223,19 @@ func TestSiteLeadStaysAcceptableAfterAnUnrelatedWriteToItsCompany(t *testing.T) 
 		}
 	}
 
+	// One lead per accepted proposal. The count follows the fixture — the team
+	// page publishes an address for Anna alone — but what this pins is that
+	// none of them was refused: a version pin on the company would have failed
+	// the accept above and lost the lead here.
 	var leads int
 	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(context.Background(), `SELECT count(*) FROM lead`).Scan(&leads)
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if leads != 2 {
-		t.Fatalf("%d leads after accepting both, want 2 — the accept was refused and the lead lost", leads)
+	if leads != len(done.ProposalIDs) {
+		t.Fatalf("%d leads from %d accepted proposals — an accept was refused and its lead lost",
+			leads, len(done.ProposalIDs))
 	}
 }
 
