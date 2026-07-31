@@ -145,11 +145,9 @@ describe("readAccount", () => {
     });
     const single = readAccount(v, NOW).find((f) => f.id === "single-thread");
     expect(single?.params?.name).toBe("Christian Hagemeyer");
-    expect(single?.subject).toEqual({
-      kind: "person",
-      id: "p1",
-      label: "Christian Hagemeyer",
-    });
+    // No subject chip: the sentence already names them, and a chip repeating
+    // the name after it reads as a stutter.
+    expect(single?.subject).toBeUndefined();
   });
 
   it("names no champion gap on an account with no open deal", () => {

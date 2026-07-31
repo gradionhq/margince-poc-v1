@@ -33,7 +33,9 @@ export type AccountFinding = {
   key: MessageKey;
   params?: Record<string, string | number>;
   /**
-   * The record this finding is about, when there is exactly one.
+   * The record this finding is about, for the findings whose SENTENCE does not
+   * already name it. A line that reads "Dana Buyer is your only way in" needs
+   * no chip repeating "Dana Buyer" after it.
    *
    * It carries its own label, because the 360 already told us the name. An id
    * alone would make the brief resolve one record read per referenced finding,
@@ -215,11 +217,6 @@ function coverage(view: Organization360): AccountFinding[] {
       tone: "risk",
       key: "co.read.singleThread",
       params: { name: only.full_name },
-      subject: {
-        kind: "person",
-        id: only.person_id,
-        label: only.full_name,
-      },
     });
   } else if (contacts.length === 1) {
     out.push({
@@ -227,11 +224,6 @@ function coverage(view: Organization360): AccountFinding[] {
       tone: "risk",
       key: "co.read.oneContact",
       params: { name: contacts[0].full_name },
-      subject: {
-        kind: "person",
-        id: contacts[0].person_id,
-        label: contacts[0].full_name,
-      },
     });
   }
   // A champion is only meaningful against an open deal, so this stays quiet
@@ -270,7 +262,6 @@ function pipeline(view: Organization360): AccountFinding[] {
       tone: "risk",
       key: "co.read.stalled",
       params: { name: deal.name },
-      subject: { kind: "deal", id: deal.deal_id, label: deal.name },
     });
   }
   if (deals.data.length === 0) {
