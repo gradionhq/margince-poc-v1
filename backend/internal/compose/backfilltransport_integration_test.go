@@ -165,7 +165,7 @@ type backfillWireEnv struct {
 func setupBackfillWire(t *testing.T) *backfillWireEnv {
 	t.Helper()
 	e := integration.Setup(t)
-	applyRiverSchema(t)
+	integration.ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	registry := capture.NewRegistry(e.Pool, capture.NewSink(e.Pool), backfillAuthority{}, keyvault.NewMemory())
 	gm := &backfillFakeConnector{name: "gmail", messages: 25, pageSize: 10}

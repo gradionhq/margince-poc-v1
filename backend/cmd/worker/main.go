@@ -266,12 +266,13 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	// no deployment config; gmail joins it when the OAuth app is configured.
 	// The vault holds every connection's sealed credential (the standing
 	// flavors resolve through it), so it initializes here regardless. The
-	// SAME vault is the overlay reconcile poller's credential custodian
-	// (the only one that can resolve a connected workspace's sealed HubSpot
-	// token, overlay.DueOverlayConnections' CredentialRef) — resolved once,
-	// shared; when it is not configured, overlayVault is nil so an
-	// unconfigured deployment never fails worker boot over a poller it has
-	// no connected overlay workspace to run anyway.
+	// SAME vault is the credential custodian of the two pollers this role
+	// runs — the overlay reconcile (the only one that can resolve a connected
+	// workspace's sealed HubSpot token, overlay.DueOverlayConnections'
+	// CredentialRef) and the Telegram getUpdates poll (a bot's sealed token) —
+	// resolved once, shared; when it is not configured, configuredVault is nil
+	// so an unconfigured deployment never fails worker boot over pollers it has
+	// no connected workspace to run anyway.
 	vault, vaultConfigured, verr := keyvault.FromEnv(pool)
 	if verr != nil {
 		return nil, fmt.Errorf("worker: keyvault: %w", verr)
@@ -285,9 +286,9 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		Tenant:       cfg.graphTenant,
 	}, cfg.captureConfig).WithSyncInterval(cfg.gmailSyncInterval)
 	watchCfg := gmailWatchConfig(cfg, cfg.gmailAppWired())
-	overlayVault := vault
+	configuredVault := vault
 	if !vaultConfigured {
-		overlayVault = nil
+		configuredVault = nil
 	}
 
 	runner, err := compose.NewJobRunner(pool, logger, compose.JobRunnerConfig{
@@ -303,12 +304,21 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 		TimeScanInterval:  cfg.timeScanInterval,
 		GmailRegistry:     captureReg,
 		GmailWatch:        watchCfg,
+		// The Telegram ingest worker builds its Sink from this — the same
+		// suppression-list config every other capture path shares.
+		CaptureConfig: cfg.captureConfig,
+		// Telegram ingress pulls, so the WORKER role owns it end to end: the
+		// dispatcher and the poll jobs both need the vault that holds each bot's
+		// sealed token. Without a configured vault there is no token to unseal
+		// and the poller stays off by omission, the same posture the overlay
+		// poller takes one field below.
+		ChannelVault: configuredVault,
 		// The classify + enrich passes run only where a model is
 		// configured; without one both are absent by omission.
 		ClassifyBrain:        modelPath.CaptureClassify,
 		VerdictBrain:         modelPath.CaptureCounterpartyVerdict,
 		EnrichBrain:          modelPath.Enrich,
-		OverlayVault:         overlayVault,
+		OverlayVault:         configuredVault,
 		OverlayInterval:      cfg.overlayInterval,
 		OverlayBackfillLimit: cfg.overlayBackfillLimit,
 		// The poller's OVB meter records against the SAME Redis the relay
@@ -355,7 +365,7 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	if err := runner.Start(ctx); err != nil {
 		return nil, err
 	}
-	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, overlayVault))
+	_, _ = fmt.Fprintln(stdout, jobRunnerBanner(cfg, watchCfg, modelPath, configuredVault))
 	return func() {
 		// The run context is already cancelled at shutdown, so give the
 		// drain its own bounded window.
@@ -365,38 +375,6 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 			logger.Warn("stopping job runner", "err", err)
 		}
 	}, nil
-}
-
-// jobRunnerBanner is the one line an operator reads to see which lanes this
-// worker actually came up with — each one naming the configuration that
-// enabled it, or the reason it is off. Split out of startJobRunner so that
-// function stays the lane wiring rather than its prose.
-func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, overlayVault keyvault.Vault) string {
-	gmailWired := cfg.gmailAppWired()
-	providers := "imap"
-	if gmailWired {
-		providers += "+gmail"
-	}
-	if cfg.graphClientID != "" && cfg.graphClientSecret != "" {
-		providers += "+graph"
-	}
-	captureNote := fmt.Sprintf("capture sweep every %s: %s", cfg.gmailSyncInterval, providers)
-	switch {
-	case gmailWired && watchCfg.Topic != "":
-		captureNote = fmt.Sprintf("capture sweep every %s: %s, watch renew every %s", cfg.gmailSyncInterval, providers, cfg.gmailWatchInterval)
-	case gmailWired:
-		captureNote = fmt.Sprintf("capture sweep every %s: %s (watch off: no pubsub topic)", cfg.gmailSyncInterval, providers)
-	}
-	overlayNote := "overlay reconcile off (no keyvault configured)"
-	if overlayVault != nil {
-		overlayNote = fmt.Sprintf("overlay reconcile every %s", cfg.overlayInterval)
-	}
-	deepReadNote := "deep read on"
-	if modelPath.SiteExtract == nil {
-		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
-	}
-	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s, %s)",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, overlayNote, deepReadNote)
 }
 
 // selectModelPath resolves the model path: a routing config for real

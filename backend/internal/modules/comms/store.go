@@ -106,24 +106,69 @@ type StageInput struct {
 	ListUnsubscribe string // the Post header is derived from this, never stored
 }
 
-// Delivery is one staged message as the dispatcher sees it.
+// Delivery is one staged message as the dispatcher sees it, in EITHER shape:
+// the row is mail-shaped or channel-shaped and never half of each
+// (comms_outbound_shape, 0155).
+//
+// On a channel delivery the mail fields read as their ZERO VALUES rather than as
+// pointers, because a channel genuinely has no subject and no RFC822 identity —
+// there is no second fact for a nil to carry that an empty string does not
+// already say. ChannelUserID is the one exception, and its own comment says why.
+// IsChannel is the ONE spelling of "which shape is this".
 type Delivery struct {
-	ID              ids.UUID
-	ActivityID      ids.ActivityID
-	UserID          ids.UserID
-	Provider        string
-	MessageID       string
-	Recipients      []string
-	Cc              []string
-	Subject         string
-	Body            string
-	ConsentPurpose  string
+	ID         ids.UUID
+	ActivityID ids.ActivityID
+	UserID     ids.UserID
+	Provider   string
+	MessageID  string
+	Recipients []string
+	Cc         []string
+	Subject    string
+	Body       string
+	// ChannelUserID is the recipient's account id at the provider for a channel
+	// delivery, and NIL for a mail one.
+	//
+	// A pointer because NULL and empty are DIFFERENT facts on this column. NULL
+	// is the row declaring itself mail-shaped; empty is a channel delivery whose
+	// recipient a privacy scrub removed, emptying it exactly as it empties
+	// mail's address lists (privacy/deliveries.go) — the column is also the
+	// shape discriminator, so nulling it there would re-declare the row as mail
+	// with every mail column missing. Collapsed into one string, a scrubbed
+	// channel delivery would read as mail addressed to nobody.
+	ChannelUserID  *string
+	ConsentPurpose string
+	// InReplyTo names the message this one replies to, in the vocabulary of its
+	// own transport: an unbracketed RFC822 identity for mail, the provider's own
+	// message id for a channel. Empty starts an unanchored message either way.
 	InReplyTo       string
 	References      []string
 	ListUnsubscribe string
-	Status          string
-	Attempts        int
-	CreatedAt       time.Time
+	// InFlightAt is when a PREVIOUS attempt handed this delivery to the provider
+	// without recording what came back — nil when none did. It is set only on
+	// the shapes whose retries cannot detect a prior send
+	// (comms_outbound_inflight_is_channel, 0150), and reading it non-nil is what
+	// makes the difference between an unsent message and a second copy of one
+	// the customer already has.
+	InFlightAt *time.Time
+	Status     string
+	Attempts   int
+	CreatedAt  time.Time
+}
+
+// IsChannel reports whether this delivery leaves through a messaging channel
+// rather than mail. It reads the row's shape discriminator, which the schema
+// guarantees is present for exactly the channel-shaped rows.
+func (d Delivery) IsChannel() bool { return d.ChannelUserID != nil }
+
+// ChannelRecipient is the account id to deliver to: empty for a mail delivery,
+// and empty for a channel delivery a privacy scrub has emptied — which no gate
+// accepts as a recipient, so an erased subject cannot be messaged by a delivery
+// that outlived them.
+func (d Delivery) ChannelRecipient() string {
+	if d.ChannelUserID == nil {
+		return ""
+	}
+	return *d.ChannelUserID
 }
 
 // StageTx records one delivery inside the caller's transaction. user_id —
@@ -133,17 +178,13 @@ type Delivery struct {
 // id in that column. A principal with no app_user identity (system,
 // connector) cannot stage a delivery at all: sending is a human act.
 func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID, error) {
-	actor, err := storekit.Actor(ctx)
+	userID, err := stagingUser(ctx)
 	if err != nil {
 		return ids.UUID{}, err
-	}
-	if actor.UserID.IsZero() {
-		return ids.UUID{}, fmt.Errorf("comms: staging a delivery requires an authenticated app_user identity, got principal type %q", actor.Type)
 	}
 	if len(in.Recipients) == 0 && len(in.Cc) == 0 {
 		return ids.UUID{}, ErrNoAddressee
 	}
-	userID := ids.From[ids.UserKind](actor.UserID)
 
 	recipients, err := marshalList(in.Recipients)
 	if err != nil {
@@ -180,6 +221,26 @@ func (s *Store) StageTx(ctx context.Context, tx pgx.Tx, in StageInput) (ids.UUID
 	return id, nil
 }
 
+// stagingUser derives the sending identity from the authenticated principal on
+// ctx, exactly as storekit.CapturedBy stamps captured_by everywhere else. It is
+// shared by both staging shapes so neither can grow a caller-suppliable
+// override: a caller that could name an arbitrary user_id could stage a
+// delivery that later transmits through someone else's connection.
+//
+// A principal with no app_user identity (system, connector) cannot stage a
+// delivery at all: sending is a human act.
+func stagingUser(ctx context.Context) (ids.UserID, error) {
+	actor, err := storekit.Actor(ctx)
+	if err != nil {
+		return ids.UserID{}, err
+	}
+	if actor.UserID.IsZero() {
+		return ids.UserID{}, fmt.Errorf(
+			"comms: staging a delivery requires an authenticated app_user identity, got principal type %q", actor.Type)
+	}
+	return ids.From[ids.UserKind](actor.UserID), nil
+}
+
 // marshalList encodes one address or reference list as a JSON ARRAY, never
 // null. A nil Go slice marshals to null, and the column's shape constraint
 // refuses it for a reason worth restating here: null and [] decode to the same
@@ -205,6 +266,16 @@ func marshalList(values []string) ([]byte, error) {
 // It returns ErrTerminal for a delivery that already finished — or was never
 // staged in this workspace — which is how a redelivered job stops without
 // transmitting, rather than dereferencing a row that is not there.
+//
+// Every mail column is COALESCED because a channel-shaped row carries none of
+// them (comms_outbound_shape, 0155): the identity, the subject and the three
+// address/reference lists are all NULL there. Without the coalesces the very
+// first channel delivery fails at load time — a NULL into a Go string, and a
+// NULL jsonb into a decode — which is a delivery that can never leave and a
+// fault that names the scan rather than the shape. channel_user_id and
+// inflight_at are the two columns NOT coalesced: one is the shape discriminator
+// and the other says whether a prior attempt reached the provider, and for both
+// of them NULL is the answer this scan needs rather than a value to substitute.
 func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 	var d Delivery
 	var recipients, cc, refs []byte
@@ -213,13 +284,14 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 			UPDATE comms_outbound
 			   SET attempts = attempts + 1
 			 WHERE id = $1 AND status = 'pending'
-			RETURNING id, activity_id, user_id, provider, message_id, recipients, cc,
-			          subject, body, consent_purpose, coalesce(in_reply_to, ''),
-			          references_chain, coalesce(list_unsubscribe, ''), status,
-			          attempts, created_at`,
+			RETURNING id, activity_id, user_id, provider, coalesce(message_id, ''),
+			          coalesce(recipients, '[]'::jsonb), coalesce(cc, '[]'::jsonb),
+			          coalesce(subject, ''), body, channel_user_id, consent_purpose,
+			          coalesce(in_reply_to, ''), coalesce(references_chain, '[]'::jsonb),
+			          coalesce(list_unsubscribe, ''), inflight_at, status, attempts, created_at`,
 			id).Scan(&d.ID, &d.ActivityID, &d.UserID, &d.Provider, &d.MessageID,
-			&recipients, &cc, &d.Subject, &d.Body, &d.ConsentPurpose, &d.InReplyTo,
-			&refs, &d.ListUnsubscribe, &d.Status, &d.Attempts, &d.CreatedAt)
+			&recipients, &cc, &d.Subject, &d.Body, &d.ChannelUserID, &d.ConsentPurpose,
+			&d.InReplyTo, &refs, &d.ListUnsubscribe, &d.InFlightAt, &d.Status, &d.Attempts, &d.CreatedAt)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Delivery{}, ErrTerminal
@@ -253,6 +325,14 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 // it is best effort and reports nothing: a reconcile fault degrades to "receipt
 // recorded, one duplicate timeline row", which is exactly the behaviour that
 // existed before the re-key did.
+//
+// That reasoning covers MAIL, whose prior-send lookup makes a failed receipt
+// recoverable on the next attempt. It does not cover a transport that has none:
+// there, a failed receipt is unrecoverable by any later attempt, so the
+// dispatcher parks the delivery against the receipt (ParkTransmitted) instead of
+// returning it to the ladder. Either way the obligation this comment opens with
+// is the same one — a message the provider accepted may never end up recorded as
+// unsent.
 //
 // One transaction with the re-key under a savepoint is NOT the same guarantee,
 // which is why it is not what this does. A savepoint isolates a refused
@@ -292,6 +372,13 @@ func (s *Store) RecordSent(ctx context.Context, id ids.UUID, receipt connector.S
 // is durable. It reports ErrTerminal for a delivery a newer attempt already
 // closed, and a wrapped error for the one failure that IS the dispatcher's to
 // act on: a receipt that did not land at all.
+//
+// message_id is COALESCED for Load's reason: it is NULL on a channel row, and a
+// NULL into a Go string fails the scan — which would report a receipt as
+// unrecorded for a message the provider has already accepted, and send the
+// delivery back to a ladder that cannot tell it went. The staged identity that
+// comes back is then empty, which the reconcile reads as "nothing to re-key" —
+// the correct answer for a transport with no mail identity at all.
 func (s *Store) commitReceipt(ctx context.Context, id ids.UUID, receipt connector.SendReceipt) (ids.ActivityID, string, error) {
 	ctx, cancel := detachedWrite(ctx)
 	defer cancel()
@@ -299,11 +386,17 @@ func (s *Store) commitReceipt(ctx context.Context, id ids.UUID, receipt connecto
 	var activityID ids.ActivityID
 	var staged string
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// inflight_at is cleared with the receipt: the outcome is now KNOWN, and
+		// a sent row still carrying the marker would read as a transmission
+		// nobody could account for. It is already NULL on every mail row, so this
+		// is the one write that closes the marker rather than a shape-specific
+		// branch.
 		return tx.QueryRow(ctx, `
 			UPDATE comms_outbound
-			   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL
+			   SET status = 'sent', provider_message_id = $2, sent_at = $3, reason = NULL,
+			       inflight_at = NULL
 			 WHERE id = $1 AND status = 'pending'
-			RETURNING activity_id, message_id`,
+			RETURNING activity_id, coalesce(message_id, '')`,
 			id, receipt.ProviderMessageID, s.now().UTC()).Scan(&activityID, &staged)
 	})
 	if errors.Is(err, pgx.ErrNoRows) {

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // The dedupe parameters (PO-F-1/PO-F-2). Source constants, not runtime
@@ -49,32 +50,135 @@ type PersonCandidate struct {
 	// Emails are checked in full against the exact tier; every email on
 	// the candidate counts, not just the primary.
 	Emails []string
+	// Phones are E.164 keys for the phone exact lane; a number that does
+	// not normalize is no key at all and is dropped by the lane.
+	Phones []string
+	// ChannelIdentities are the messaging-channel keys (provider +
+	// channel user id) an inbound channel message arrives with.
+	ChannelIdentities []connector.ChannelIdentity
 	// CurrentPrimaryOrgID drives org_match = 1.0 when both sides share
 	// an employer. Nil when the candidate has no known employer yet.
 	CurrentPrimaryOrgID *ids.OrganizationID
 }
 
-// PersonMatch is PO-F-1's output: the decision plus the person it names.
-type PersonMatch struct {
+// PersonResolution is PO-F-1's output: the decision, the person it names,
+// and — when two exact lanes named DIFFERENT people — the rival that lost
+// the routing decision.
+//
+// It is a result type rather than a field bolted onto a plain match,
+// because a conflict has to be impossible to receive without noticing:
+// a new field compiles cleanly at every existing call site, a new return
+// type does not.
+type PersonResolution struct {
 	Decision   DedupeDecision
 	PersonID   ids.PersonID
 	Confidence float64
+	// MatchedLane names the exact lane that routed the decision, and is
+	// empty for every decision other than DecisionExactCollision. WHICH key
+	// matched is part of the answer, because a caller's exact policy differs
+	// per lane: a claimed address is the API create's 409, while a phone
+	// number households and switchboards share cannot refuse anything.
+	MatchedLane string
+	// Conflict is non-nil only when a later exact lane resolved to a
+	// different person than the routed one. It is a REPORT: this resolver
+	// writes nothing, and in particular never plants the routed lane's key
+	// on the rival — preferring a lane for routing merges nobody, writing
+	// keys across records is what merges people.
+	Conflict *LaneConflict
+}
+
+// LaneConflict names both sides of an exact-lane disagreement and which
+// lane spoke for each, so the caller's policy has the evidence it needs
+// without re-running the ladder.
+type LaneConflict struct {
+	RoutedTo, Rival       ids.PersonID
+	RoutedLane, RivalLane string
+}
+
+// The exact lanes, named for LaneConflict's evidence. Ladder order is
+// routing precedence: an established channel binding outranks a shared
+// address, which outranks a phone number households and switchboards
+// share.
+const (
+	laneChannelIdentity = "channel_identity"
+	laneEmail           = "email"
+	lanePhone           = "phone"
+)
+
+// exactLane is one lane's answer, in ladder order.
+type exactLane struct {
+	name     string
+	personID ids.PersonID
+	found    bool
 }
 
 // DedupePerson is PO-F-1, the single person-matching implementation —
 // "one dedupe implementation, not two". It reads; it never writes and
 // never merges. Callers map the decision onto their own policy.
-func DedupePerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonMatch, error) {
-	if hit, found, err := exactPersonByEmail(ctx, tx, c.Emails); err != nil || found {
-		return PersonMatch{Decision: DecisionExactCollision, PersonID: hit}, err
+func DedupePerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResolution, error) {
+	lanes, err := exactLanes(ctx, tx, c)
+	if err != nil {
+		return PersonResolution{}, err
+	}
+	if res, routed := routeExact(lanes); routed {
+		return res, nil
 	}
 	// A nameless captured contact never fuzzy-matches: with no name there
 	// is nothing to score, and org_match alone would collide every
 	// colleague onto one record.
 	if normalizeName(c.FullName) == "" {
-		return PersonMatch{Decision: DecisionNoMatch}, nil
+		return PersonResolution{Decision: DecisionNoMatch}, nil
 	}
 	return fuzzyPerson(ctx, tx, c)
+}
+
+// exactLanes runs every exact lane, in ladder order. All of them run even
+// once one has hit: a disagreement between two lanes is itself an answer
+// the caller needs, and only the rival lanes can report it. A lane whose
+// candidate keys are empty costs no query.
+func exactLanes(ctx context.Context, tx pgx.Tx, c PersonCandidate) ([]exactLane, error) {
+	channelHit, channelFound, err := exactPersonByChannelIdentity(ctx, tx, c.ChannelIdentities)
+	if err != nil {
+		return nil, err
+	}
+	emailHit, emailFound, err := exactPersonByEmail(ctx, tx, c.Emails)
+	if err != nil {
+		return nil, err
+	}
+	phoneHit, phoneFound, err := exactPersonByPhone(ctx, tx, c.Phones)
+	if err != nil {
+		return nil, err
+	}
+	return []exactLane{
+		{laneChannelIdentity, channelHit, channelFound},
+		{laneEmail, emailHit, emailFound},
+		{lanePhone, phoneHit, phoneFound},
+	}, nil
+}
+
+// routeExact picks the routed person deterministically — the first lane
+// that hit — and reports the first later lane that named someone else.
+// Routing is immediate and never deferred to a human: a message with
+// nowhere to land is worse than a message on the record whose binding was
+// established first.
+func routeExact(lanes []exactLane) (PersonResolution, bool) {
+	for i, lane := range lanes {
+		if !lane.found {
+			continue
+		}
+		res := PersonResolution{Decision: DecisionExactCollision, PersonID: lane.personID, MatchedLane: lane.name}
+		for _, rival := range lanes[i+1:] {
+			if rival.found && rival.personID != lane.personID {
+				res.Conflict = &LaneConflict{
+					RoutedTo: lane.personID, Rival: rival.personID,
+					RoutedLane: lane.name, RivalLane: rival.name,
+				}
+				break
+			}
+		}
+		return res, true
+	}
+	return PersonResolution{}, false
 }
 
 // exactPersonByEmail is PO-F-1 tier 1. Every candidate email is checked;
@@ -115,7 +219,7 @@ type personCandidateRow struct {
 // people sharing a name trigram or the candidate's employer — the
 // formula's own bound, so scoring stays inside the create budget instead
 // of walking the workspace.
-func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonMatch, error) {
+func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonResolution, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, p.full_name, r.organization_id, od.domain
 		  FROM person p
@@ -129,15 +233,15 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonMatch
 		        OR ($2::uuid IS NOT NULL AND r.organization_id = $2))`,
 		c.FullName, c.CurrentPrimaryOrgID)
 	if err != nil {
-		return PersonMatch{}, fmt.Errorf("dedupe person candidate set: %w", err)
+		return PersonResolution{}, fmt.Errorf("dedupe person candidate set: %w", err)
 	}
 	defer rows.Close()
 
-	best := PersonMatch{Decision: DecisionNoMatch}
+	best := PersonResolution{Decision: DecisionNoMatch}
 	for rows.Next() {
 		var row personCandidateRow
 		if err := rows.Scan(&row.id, &row.fullName, &row.orgID, &row.orgDomain); err != nil {
-			return PersonMatch{}, fmt.Errorf("scan person candidate: %w", err)
+			return PersonResolution{}, fmt.Errorf("scan person candidate: %w", err)
 		}
 		confidence := personConfidence(c, row)
 		// Equal confidence resolves to the lowest person id — a total
@@ -148,13 +252,13 @@ func fuzzyPerson(ctx context.Context, tx pgx.Tx, c PersonCandidate) (PersonMatch
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return PersonMatch{}, fmt.Errorf("drain person candidates: %w", err)
+		return PersonResolution{}, fmt.Errorf("drain person candidates: %w", err)
 	}
 	if best.Confidence >= dedupeReviewThreshold {
 		best.Decision = DecisionFuzzyReview
 		return best, nil
 	}
-	return PersonMatch{Decision: DecisionNoMatch}, nil
+	return PersonResolution{Decision: DecisionNoMatch}, nil
 }
 
 // personConfidence is the PO-F-1 score: weights sum to 1.0, so the

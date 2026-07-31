@@ -1,0 +1,50 @@
+# yaml-language-server: $schema=./ai-routing.schema.json
+# ai-routing.openrouter-cn.example.yaml — the CHINA rungs of
+# ai-routing.openrouter.example.yaml, bound as their own runnable file.
+#
+# The EU file lists these as commented one-line swaps, which is enough to change
+# a binding but not enough to certify one: `make e2e-ai` takes a routing FILE,
+# so measuring the China ladder as a ladder needs it bound. Read the EU file
+# first — the key, the base_url rule, the structured_outputs filter and the
+# residency caveat are all documented there and all apply here unchanged:
+#
+#   make e2e-ai MARGINCE_AI_ROUTING=$PWD/config/ai-routing.openrouter-cn.example.yaml
+#
+# Prices are USD per million tokens (in/out), read from the catalog on
+# 2026-07-31; `#n` is the model's rank on openrouter.ai/rankings by weekly
+# tokens. Every model here carries a seed price row in ai.SeedModelRates.
+profile: cloud_frontier
+
+tiers:
+  # deepseek-v4-flash serves both cheap rungs, the way the Gemini example puts
+  # gemini-3.1-flash-lite on both: one model is the cheap tier until a
+  # measurement says the rungs need to differ.
+  local_small:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: deepseek/deepseek-v4-flash      # CN · $0.14/$0.28 · 1.05M · #2
+
+  cheap_cloud:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: deepseek/deepseek-v4-flash      # CN · $0.14/$0.28 · 1.05M · #2
+
+  # premium serves site_extract first and its evidence gate demands verbatim
+  # quotes, so this rung is the strongest of the three rather than the cheapest.
+  # Certifying it self-judges (cert_judge's ladder is {premium, cheap_cloud}) —
+  # the same caveat the EU file carries.
+  premium:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: z-ai/glm-5.2                    # CN · $0.97/$3.04 · 1.05M · #5
+
+# embeddings — bge-m3 is 1024 native, the same width as the EU file's
+# mistral-embed-2312, so switching between the two files needs no dimensions
+# edit and no re-embed. The native-width rule is the EU file's §embeddings note:
+# this adapter never sends `dimensions`, so the configured value must EQUAL what
+# the model emits.
+embeddings:
+  provider: openai_compatible
+  base_url: https://openrouter.ai/api
+  model: baai/bge-m3                       # CN · $0.01 · 1024d · 8194 ctx
+  dimensions: 1024

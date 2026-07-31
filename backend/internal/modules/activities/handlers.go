@@ -34,6 +34,9 @@ type Handlers struct {
 	// (WithDelivery wires it), because a 202 for a message nothing will
 	// carry is a promise this surface cannot keep.
 	delivery DeliveryStager
+	// channelDelivery is the same seam for a messaging channel; nil fails
+	// closed for the same reason (WithChannelDelivery wires it).
+	channelDelivery ChannelDeliveryStager
 	// The public-booking capture seams; nil fails closed
 	// (WithPublicBooking wires them).
 	publicPeople  PersonEnsurer

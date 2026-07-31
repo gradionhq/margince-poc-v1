@@ -13,6 +13,8 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/capture/gmail"
 	"github.com/gradionhq/margince/backend/internal/modules/comms"
 )
@@ -22,9 +24,9 @@ import (
 // sibling), so SendScopeFor spells the string a second time and this is the
 // only place the two can be held against each other.
 func TestTheSendScopeCommsDemandsIsTheOneTheGmailConnectorRechecks(t *testing.T) {
-	scope, sends := comms.SendScopeFor("gmail")
-	if !sends {
-		t.Fatal("comms.SendScopeFor(\"gmail\") reports gmail cannot send; every staged Gmail delivery would park")
+	scope, capability := comms.SendScopeFor("gmail")
+	if capability != comms.SendsWithScope {
+		t.Fatalf("comms.SendScopeFor(\"gmail\") = %v, want SendsWithScope; a Gmail grant that is never scope-checked, or a delivery that always parks", capability)
 	}
 	if scope != gmail.SendScope {
 		t.Errorf("comms demands %q, the gmail connector re-checks %q — every send would park as ungranted", scope, gmail.SendScope)
@@ -38,5 +40,40 @@ func TestTheGmailConsentRequestsTheScopeTheSendPathDemands(t *testing.T) {
 	scope, _ := comms.SendScopeFor("gmail")
 	if !slices.Contains(gmailScopes, scope) {
 		t.Errorf("the Gmail consent requests %v, which does not include the send scope %q the dispatcher demands", gmailScopes, scope)
+	}
+}
+
+// The channel provider comms answers for must be the one capture connects. The
+// same silent-drift argument as the scope above, in the other direction: comms
+// spells "telegram" a second time because it may not import capture, and a
+// misspelling here reads a live bot as capture-only — every reply parks with
+// "provider cannot send messages", which is a connector limitation that does not
+// exist.
+func TestTheChannelProviderCommsCanSendForIsTheOneCaptureConnects(t *testing.T) {
+	scope, capability := comms.SendScopeFor(capture.ProviderTelegram)
+	if capability != comms.SendsWithoutScope {
+		t.Fatalf("comms.SendScopeFor(%q) = %v, want SendsWithoutScope", capture.ProviderTelegram, capability)
+	}
+	if scope != "" {
+		t.Errorf("a bot token has no OAuth grant to intersect, yet comms demands scope %q of it", scope)
+	}
+}
+
+// The THIRD spelling of the same provider name, and the same silent drift: the
+// reply operation reads its transport off the anchor activity's kind, and capture
+// files a Telegram update under that kind. A kind the reply path does not
+// recognise reads as "not a channel conversation", so every reply is refused with
+// a 422 about the wrong record — nothing parks, nothing logs, and no mail test
+// notices.
+func TestTheChannelKindTheReplyPathAnswersIsTheOneCaptureFilesUnder(t *testing.T) {
+	if !activities.IsChannelKind(capture.ProviderTelegram) {
+		t.Errorf("activities does not recognise %q as a channel conversation; every Telegram reply would be refused as the wrong kind of anchor",
+			capture.ProviderTelegram)
+	}
+	// And it is not a blanket yes: mail has its own send path, and admitting it
+	// here would route a mail reply through a transport with no address to send
+	// to.
+	if activities.IsChannelKind("email") {
+		t.Error("activities treats mail as a messaging channel; a mail anchor would resolve a channel recipient it has none of")
 	}
 }

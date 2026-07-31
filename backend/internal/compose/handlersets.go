@@ -10,6 +10,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
+	"github.com/gradionhq/margince/backend/internal/modules/capture"
 	"github.com/gradionhq/margince/backend/internal/modules/collections"
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/modules/customfields"
@@ -28,6 +29,7 @@ import (
 // alias carries its module's full method set.
 type (
 	authHandlers         = identity.Handlers
+	channelHandlers      = capture.ChannelHandlers
 	peopleHandlers       = people.Handlers
 	dealsHandlers        = deals.Handlers
 	activitiesHandlers   = activities.Handlers

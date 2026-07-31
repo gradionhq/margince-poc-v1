@@ -262,6 +262,10 @@ func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.Captu
 	if cfg.publicBaseURL != "" {
 		opts = append(opts, compose.WithPublicBaseURL(cfg.publicBaseURL))
 	}
+	// The channel-connection surface needs no public origin of its own: Telegram
+	// ingress polls, so nothing is ever told where to reach this installation.
+	// It must precede kvOpts below, which hands it the vault it seals with.
+	opts = append(opts, compose.WithChannelSurface())
 
 	blobOpts, err := blobstoreOptions(ctx, stdout)
 	if err != nil {

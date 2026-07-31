@@ -11,8 +11,19 @@ import type { MessageKey } from "../i18n/en";
 // surfaces stay on one definition rather than two copies drifting apart.
 
 type CaptureConnection = components["schemas"]["CaptureConnection"];
+type ChannelConnection = components["schemas"]["ChannelConnection"];
 
-export type ConnectorStatus = CaptureConnection["status"];
+// The mail providers (CaptureConnection) and the messaging-channel bot
+// (ChannelConnection) publish two different wire enums, but they share one
+// status vocabulary from here on. `pending` survives in the channel enum for a
+// generator reason the contract states, not a product one — no server produces it,
+// because a bot binding is polled and a connect either commits live or writes
+// nothing. It keeps its arms below because the switches are exhaustive over the
+// published type, and it is rendered as "needs a look" rather than as healthy in
+// case an older or foreign server ever sends one.
+export type ConnectorStatus =
+  | CaptureConnection["status"]
+  | ChannelConnection["status"];
 
 // The one scope that grants sending today. The server pre-flights a send
 // against this same string (comms.SendScopeFor), so the badge below and the
@@ -40,16 +51,20 @@ export function missingSendGrant(
   );
 }
 
-/** Each of the four contract statuses gets its own Badge tone. Collapsing
- *  reauth_required and error into the same tone is what made a dead mailbox
- *  and a merely-stale one indistinguishable at a glance. `disconnected` gets
- *  no tone (the shipped card's neutral, undecorated row). */
+/** Each contract status gets its own Badge tone. Collapsing reauth_required
+ *  and error into the same tone is what made a dead mailbox and a merely-
+ *  stale one indistinguishable at a glance. `disconnected` gets no tone (the
+ *  shipped card's neutral, undecorated row). `pending` reads as `warn`, the
+ *  same "needs a look" tone as reauth_required — never `success`: a row this
+ *  installation cannot produce must not be rendered as a healthy channel if an
+ *  older or foreign server ever sends one. */
 export function statusTone(
   status: ConnectorStatus,
 ): "success" | "warn" | "danger" | undefined {
   switch (status) {
     case "connected":
       return "success";
+    case "pending":
     case "reauth_required":
       return "warn";
     case "error":
@@ -64,6 +79,8 @@ export function statusLabel(status: ConnectorStatus): MessageKey {
   switch (status) {
     case "connected":
       return "connectors.statusConnected";
+    case "pending":
+      return "connectors.statusPending";
     case "reauth_required":
       return "connectors.statusReauth";
     case "error":

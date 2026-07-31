@@ -1,0 +1,51 @@
+{
+  "task": "draft_reply",
+  "provider": "openai_compatible",
+  "served_model": "mistralai/ministral-14b-2512",
+  "env_class": "cloud_frontier",
+  "prompt_version": "p66e66e8b45dbc7fccbc7d9a1d7b405f5",
+  "corpus_version": "v1",
+  "verdict": "certified",
+  "runs": 3,
+  "passed": 3,
+  "reliability": 1,
+  "reported_accepted": 3,
+  "reported_wrong_answer": 0,
+  "reported_invalid": 0,
+  "reported_abstained": 0,
+  "certified_scope": "full_invocation",
+  "context_applied": false,
+  "context_scopes": [
+    "positioning",
+    "sales",
+    "proof",
+    "market"
+  ],
+  "score_p50": 100,
+  "score_min": 100,
+  "latency_p50": 2508,
+  "latency_p95": 2685,
+  "mean_tokens": 580,
+  "mean_tokens_in": 407,
+  "mean_tokens_out": 173,
+  "mean_cached_tokens": 0,
+  "mean_cache_write_tokens": 0,
+  "est_cost_microusd": 116,
+  "judge_served_model": "mistralai/mistral-large-2512",
+  "self_judged": false,
+  "served_identity_source": "echo",
+  "ran_at": "2026-07-31T03:57:59Z",
+  "scenarios": [
+    {
+      "scenario": "reply_to_pricing_question",
+      "site": "reply",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    }
+  ]
+}

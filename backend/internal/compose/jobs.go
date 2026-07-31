@@ -22,6 +22,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/automation"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/deals"
 	"github.com/gradionhq/margince/backend/internal/modules/overlay"
 	"github.com/gradionhq/margince/backend/internal/modules/search"
@@ -150,6 +151,24 @@ type JobRunnerConfig struct {
 	TimeScanInterval  time.Duration
 	GmailRegistry     *capture.Registry
 	GmailWatch        GmailWatchConfig
+	// ChannelVault is the custodian of a channel connection's sealed bot token.
+	// Nil means this role registers no Telegram poller at all: a poll cannot
+	// authenticate without the token, so a dispatcher wired without a vault
+	// could only fail every job it enqueued. Declared by omission, the posture
+	// GmailRegistry and OverlayVault already take.
+	ChannelVault keyvault.Vault
+	// ChannelAPI is the Telegram Bot API seam the poller dials out through. Nil
+	// takes the real client, which is what every process role passes; the
+	// acceptance suites substitute a fake, because a poller left on the real
+	// client would reach api.telegram.org from a test run.
+	ChannelAPI telegram.API
+	// CaptureConfig is the deployment's capture suppression-list config
+	// (CAP-PARAM-5/6). The Telegram ingest worker needs it to build the
+	// IDENTICAL guarded Sink every other capture path shares
+	// (newCaptureSink) rather than a second, divergently-configured one —
+	// the zero value is the pinned baselines, so an unset field still
+	// yields a working (if unconfigured) Sink rather than none.
+	CaptureConfig CaptureConfig
 	// ClassifyBrain is the capture-classify model lane (the worker's
 	// modelPath.CaptureClassify). Nil = no AI configured — the label pass
 	// is absent by omission and mail simply stays unlabeled (honest no-op).
@@ -264,6 +283,14 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
 	river.AddWorker(workers, &idempotencyRetentionWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
+	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
+	// update in the same transaction as the raw capture row; the worker role only
+	// needs the worker registered,
+	// same posture as the deep-read and embed-reindex workers. Registered
+	// unconditionally: unlike Gmail/Graph, a channel connection carries its
+	// own per-connection credential (no deployment-wide OAuth app to gate
+	// on), so there is nothing to check for before wiring it up.
+	river.AddWorker(workers, newTelegramIngestWorker(pool, cfg.CaptureConfig, log))
 	// The embed-reindex job is not periodic — the api enqueues one job per
 	// confirmed reindex (embedreindextransport.go); the worker role only
 	// needs the worker registered, same posture as the deep-read worker
@@ -379,6 +406,10 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			&river.PeriodicJobOpts{RunOnStart: true},
 		))
 	}
+
+	// Telegram ingress PULLS (telegrampoll.go), and a poll needs the vault that
+	// holds the bot's sealed token — so a role without one registers neither half.
+	periodic = registerTelegramPoll(workers, periodic, pool, cfg.ChannelVault, cfg.ChannelAPI, log)
 
 	if cfg.GmailRegistry != nil {
 		river.AddWorker(workers, &captureDigestWorker{registry: cfg.GmailRegistry, pool: pool, log: log})

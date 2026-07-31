@@ -249,24 +249,13 @@ func TestSendEmailJobDeclaresAUsableLadder(t *testing.T) {
 // stubSenders and stubGrants are the capture boundary — a database — and the
 // only thing faked in the two suites below.
 type stubSenders struct {
-	sender  connector.Sender
+	sender  connector.EmailSender
 	granted []string
 	err     error
 }
 
-func (s stubSenders) SenderFor(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
+func (s stubSenders) SenderFor(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return s.sender, connector.Auth("cred"), s.granted, s.err
-}
-
-type stubGrants struct {
-	granted []string
-	err     error
-	calls   int
-}
-
-func (s *stubGrants) GrantedScopesFor(context.Context, ids.UserID, string) ([]string, error) {
-	s.calls++
-	return s.granted, s.err
 }
 
 // This is the branch that permanently destroys mail if it is read wrong: the
@@ -323,7 +312,7 @@ func TestCommsResolverPassesAResolvedMailboxThrough(t *testing.T) {
 
 type stubSender struct{}
 
-func (stubSender) Send(context.Context, connector.Auth, connector.OutboundMessage) (connector.SendReceipt, error) {
+func (stubSender) SendEmail(context.Context, connector.Auth, connector.EmailMessage) (connector.SendReceipt, error) {
 	return connector.SendReceipt{}, nil
 }
 
@@ -408,72 +397,5 @@ func TestCommsSeatsActiveSeatRefusesWithNoWorkspaceBound(t *testing.T) {
 	}
 	if active {
 		t.Fatal("ActiveSeat reported an active seat with no workspace bound to check it against")
-	}
-}
-
-// The pre-flight's four branches. Two of them decide whether a user is handed
-// an actionable 422 or a 202 for a message that can only park; the other two
-// are the honest hard cases — a principal with no mailbox to ask about, and a
-// lookup that could not answer at all.
-func TestMailboxAuthoritySendCapableBranches(t *testing.T) {
-	const sendScope = "https://www.googleapis.com/auth/gmail.send"
-	lookupDown := errors.New("connection reset by peer")
-	human := principal.WithActor(context.Background(), principal.Principal{
-		Type: principal.PrincipalHuman, ID: "human:x", UserID: ids.NewV7(),
-	})
-
-	for _, tc := range []struct {
-		name     string
-		ctx      context.Context
-		provider string
-		grants   *stubGrants
-		want     bool
-		wantErr  error
-		asks     int
-	}{
-		{
-			"the grant holds the send scope", human, "gmail",
-			&stubGrants{granted: []string{"https://www.googleapis.com/auth/gmail.readonly", sendScope}}, true, nil, 1,
-		},
-		{
-			"a read-only grant cannot send", human, "gmail",
-			&stubGrants{granted: []string{"https://www.googleapis.com/auth/gmail.readonly"}}, false, nil, 1,
-		},
-		{
-			"no connection is a fact, not a fault", human, "gmail",
-			&stubGrants{err: capture.ErrNoConnection}, false, nil, 1,
-		},
-		{
-			"a lookup that cannot answer must not answer", human, "gmail",
-			&stubGrants{err: lookupDown}, false, lookupDown, 1,
-		},
-		// Sending is a human act, so a principal with no app_user identity has
-		// no mailbox to pre-flight — and the lookup is never even asked.
-		{"a principal with no user identity", context.Background(), "gmail", &stubGrants{}, false, nil, 0},
-		// A provider that cannot transmit at all has no send scope to hold;
-		// asking capture about it would be asking the wrong question.
-		{
-			"a provider that cannot send at all", human, "imap",
-			&stubGrants{granted: []string{sendScope}}, false, nil, 0,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			authority := mailboxAuthority{grants: tc.grants, provider: tc.provider}
-
-			got, err := authority.SendCapable(tc.ctx)
-
-			if got != tc.want {
-				t.Fatalf("SendCapable = %v, want %v", got, tc.want)
-			}
-			switch {
-			case tc.wantErr != nil && !errors.Is(err, tc.wantErr):
-				t.Fatalf("SendCapable error = %v, want it to match %v", err, tc.wantErr)
-			case tc.wantErr == nil && err != nil:
-				t.Fatalf("SendCapable error = %v, want none", err)
-			}
-			if tc.grants.calls != tc.asks {
-				t.Fatalf("the grant lookup was asked %d time(s), want %d", tc.grants.calls, tc.asks)
-			}
-		})
 	}
 }

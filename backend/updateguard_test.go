@@ -129,10 +129,11 @@ var unguardedByIDUpdates = map[string]string{
 	"internal/modules/ai:persistBuildVersion":       "runs only inside CompleteBuild's transaction, under its voice_profile row lock (storekit.LockRow before the pre-read)",
 
 	// Writes that are race-free by their own shape.
-	"internal/modules/activities:insertActivityLinks": "deal.last_activity_at is a single-statement monotone max (greatest of stored and new) — the value is computed inside the UPDATE, never from a pre-read, so concurrent writers converge on the maximum",
-	"internal/modules/people:recomputeLeadScoreTx":    "derived-score write recomputed from committed facts; a lost race is last-writer-wins on a value the next recompute re-derives identically",
-	"internal/modules/privacy:anonymizeSubjectRows":   "terminal absolute write: the erasure overwrites the PII columns regardless of concurrent state, by design",
-	"internal/modules/privacy:apply":                  "terminal absolute writes: the retention sweep archives/anonymizes regardless of concurrent state, by design",
+	"internal/modules/activities:insertActivityLinks":     "deal.last_activity_at is a single-statement monotone max (greatest of stored and new) — the value is computed inside the UPDATE, never from a pre-read, so concurrent writers converge on the maximum",
+	"internal/modules/people:recomputeLeadScoreTx":        "derived-score write recomputed from committed facts; a lost race is last-writer-wins on a value the next recompute re-derives identically",
+	"internal/modules/capture:AdvanceChannelPollOffsetTx": "single-statement monotone cursor: the `poll_offset < $2` predicate IS the CAS, so a writer holding a lower offset than the row already carries matches zero rows and its advance is correctly dropped. A version guard would be wrong here — the poll cursor is not optimistically concurrent state an operator edits, and bumping version on it would fire the send path's binding fence on every inbound message (0151's trigger comment)",
+	"internal/modules/privacy:anonymizeSubjectRows":       "terminal absolute write: the erasure overwrites the PII columns regardless of concurrent state, by design",
+	"internal/modules/privacy:apply":                      "terminal absolute writes: the retention sweep archives/anonymizes regardless of concurrent state, by design",
 }
 
 // guardMarkers are the identifiers whose presence in the same function

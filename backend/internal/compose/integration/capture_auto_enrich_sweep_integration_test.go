@@ -51,7 +51,7 @@ func TestCaptureAutoEnrichSweepTriggersADeepReadForACapturedOrg(t *testing.T) {
 		t.Fatalf("seeding the captured org: %v", err)
 	}
 
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,

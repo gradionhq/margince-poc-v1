@@ -19,6 +19,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 // The suppressing tiers, each on its own: a free-mail domain is a person and
@@ -244,6 +245,13 @@ func resolveDispositionAged(t *testing.T, e *searchEnv, email, status string, ag
 type grantedSendGate struct{}
 
 func (grantedSendGate) RequireGrantedForEmails(context.Context, []string, string) error { return nil }
+
+// The channel spelling of the same verdict: one gate answers for both
+// transports, so a stub that granted one and not the other would let a suite
+// pass a send the real gate refuses.
+func (grantedSendGate) RequireGrantedForRecipients(context.Context, []connector.Recipient, string) error {
+	return nil
+}
 
 // discardSendStager accepts the delivery so the send commits. Transmission is
 // not what this suite proves; what the send WROTE is.

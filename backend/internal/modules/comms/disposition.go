@@ -65,10 +65,10 @@ func (d *Dispatcher) throttled(ctx context.Context, del Delivery, retryAfter tim
 	// this is the last rung exactly when no further one remains.
 	if del.Attempts >= d.maxAttempts-1 {
 		return d.park(ctx, del.ID, fmt.Sprintf(
-			"the provider is rate limiting this mailbox and the retry ladder is exhausted after %d attempts", del.Attempts,
+			"the provider is rate limiting this connection and the retry ladder is exhausted after %d attempts", del.Attempts,
 		))
 	}
-	if err := d.store.RecordFailure(ctx, del.ID, "waiting: the provider is rate limiting this mailbox"); err != nil {
+	if err := d.store.RecordFailure(ctx, del.ID, "waiting: the provider is rate limiting this connection"); err != nil {
 		if errors.Is(err, ErrTerminal) {
 			return OutcomeSkipped, 0, nil
 		}
@@ -125,8 +125,8 @@ var faultVocabulary = []struct {
 	sentinel error
 	reason   string
 }{
-	{connector.ErrRateLimited, faultPrefix + "the provider is rate limiting this mailbox"},
-	{connector.ErrAuthRejected, faultPrefix + "the provider rejected this mailbox's credential"},
+	{connector.ErrRateLimited, faultPrefix + "the provider is rate limiting this connection"},
+	{connector.ErrAuthRejected, faultPrefix + "the provider rejected the credential this delivery transmits through"},
 	{connector.ErrUnreachable, faultPrefix + "the provider could not be reached"},
 }
 

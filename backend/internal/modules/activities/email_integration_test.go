@@ -23,6 +23,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
 const (
@@ -31,10 +32,17 @@ const (
 )
 
 // stubConsentGate answers the suppression seam without a consent store, so a
-// test can drive the send path past (or into) the gate deliberately.
+// test can drive the send path past (or into) the gate deliberately. One gate
+// serves both transports, so the stub answers both spellings with the same
+// verdict — a stub that let them disagree could pass a send the real gate
+// refuses.
 type stubConsentGate struct{ err error }
 
 func (g stubConsentGate) RequireGrantedForEmails(context.Context, []string, string) error {
+	return g.err
+}
+
+func (g stubConsentGate) RequireGrantedForRecipients(context.Context, []connector.Recipient, string) error {
 	return g.err
 }
 
@@ -45,10 +53,20 @@ func (g stubConsentGate) RequireGrantedForEmails(context.Context, []string, stri
 type recordingConsentGate struct {
 	err       error
 	consulted bool
+	// recipients is what the channel spelling was asked about. A default-deny
+	// gate asked about nobody refuses nobody, so the send path must be provable
+	// to have named the resolved recipient rather than an empty list.
+	recipients []connector.Recipient
 }
 
 func (g *recordingConsentGate) RequireGrantedForEmails(context.Context, []string, string) error {
 	g.consulted = true
+	return g.err
+}
+
+func (g *recordingConsentGate) RequireGrantedForRecipients(_ context.Context, recipients []connector.Recipient, _ string) error {
+	g.consulted = true
+	g.recipients = recipients
 	return g.err
 }
 

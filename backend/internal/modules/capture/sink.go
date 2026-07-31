@@ -29,12 +29,13 @@ import (
 // Sink is the one connector.Sink implementation — the chokepoint every
 // captured record passes on its way into the domain.
 type Sink struct {
-	pool          *pgxpool.Pool
-	stager        MergeStager
-	exclusions    ExclusionRules
-	ensurer       CounterpartyEnsurer
-	freemail      *FreemailList
-	transactional *TransactionalList
+	pool           *pgxpool.Pool
+	stager         MergeStager
+	exclusions     ExclusionRules
+	ensurer        CounterpartyEnsurer
+	channelEnsurer ChannelCounterpartyEnsurer
+	freemail       *FreemailList
+	transactional  *TransactionalList
 }
 
 // fieldSourceSystem / fieldSourceID are the shared system_log detail keys for
@@ -106,6 +107,14 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// cannot claim to be another one.
 		return datasource.EntityRef{}, fmt.Errorf("capture: captured_by %q does not match the acting connector %q", rec.CapturedBy, actor.ID)
 	}
+	switch counterpartyShapeOf(rec.Counterparty) {
+	case shapeAmbiguous:
+		return datasource.EntityRef{}, ErrCounterpartyNamedTwice
+	case shapeHalfChannel:
+		return datasource.EntityRef{}, ErrChannelIdentityIncomplete
+	case shapeNone, shapeMail, shapeChannel:
+		// Well-formed; the channel arm is gated inside the transaction below.
+	}
 
 	// The RC-2 exclusion gate runs BEFORE any write — including the raw
 	// original — so an excluded (personal) message leaves ZERO rows
@@ -121,6 +130,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var activityCreated bool
 	var decision counterpartyDecision
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		// A channel record's account id IS personal data, and THIS transaction is
+		// the one that makes it durable — so the erasure is excluded here, under
+		// the account's own lock, and not only at the ingress edge that admitted
+		// the update. sinkchannel.go states what landing inside an erasure costs.
+		if err := s.refuseErasedChannelAccount(ctx, tx, rec.Counterparty); err != nil {
+			return err
+		}
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw
 			if !json.Valid(payload) {

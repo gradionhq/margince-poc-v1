@@ -39,6 +39,11 @@ import (
 // there could name a provider the send path never uses.
 const SendProvider = "gmail"
 
+// sourceManual is the provenance every send this system composes carries: a
+// human typed it here, whichever transport carried it out. Spelled once because
+// three write paths stamp it and `source` is read back as a vocabulary.
+const sourceManual = "manual"
+
 // unconfiguredMessageIDDomain is the right-hand side of a minted Message-ID
 // on an installation that never configured its public base URL. RFC 2606
 // reserves .invalid, so the identity stays syntactically valid and globally
@@ -111,38 +116,6 @@ type DeliveryRequest struct {
 	ListUnsubscribe string
 }
 
-// MailboxAuthority answers whether the acting user can actually send today.
-// Authority over transmission stays with the delivery path, which re-checks
-// the grant at the moment it sends; this answers the same question earlier,
-// so the common already-knowable failure — every mailbox connected before the
-// send grant existed holds read-only access — becomes a refusal the user can
-// act on instead of a 202 followed by a silently parked delivery.
-type MailboxAuthority interface {
-	// SendCapable reports whether the acting user holds a connected mailbox
-	// whose grant includes sending, not merely reading.
-	SendCapable(ctx context.Context) (bool, error)
-}
-
-// MailboxNotSendCapableError refuses a send this installation already knows
-// cannot leave. It maps to 422 with an actionable message: the fix is the
-// user's to make, and naming it is the whole point of checking early.
-type MailboxNotSendCapableError struct{}
-
-func (e *MailboxNotSendCapableError) Error() string {
-	return "reconnect your mailbox to enable sending"
-}
-
-// WithMailbox returns a store whose send path pre-flights the sender's
-// mailbox grant. The invariant: the pre-flight is advisory, and the delivery
-// path's authority check at transmission is what refuses. A store composed
-// without a mailbox authority therefore runs no pre-flight and accepts the
-// send, which is the correct reading of an advisory check that is absent.
-func (s *Store) WithMailbox(authority MailboxAuthority) *Store {
-	clone := *s
-	clone.mailbox = authority
-	return &clone
-}
-
 // MintMessageID generates the RFC822 message identity for one outbound
 // message, UNBRACKETED. It is minted before transmission because it serves
 // three purposes at once: the provider's retransmission-idempotency key,
@@ -187,8 +160,12 @@ func (s *Store) SendEmail(ctx context.Context, anchorID ids.ActivityID, in SendE
 	// consent gate for the same reason authorization does: a user who holds no
 	// send grant must get the refusal they can act on, not a verdict about the
 	// recipients' consent state.
-	if err := s.ensureMailboxCanSend(ctx); err != nil {
+	capable, err := s.canSend(ctx, SendProvider)
+	if err != nil {
 		return crmcontracts.Activity{}, err
+	}
+	if !capable {
+		return crmcontracts.Activity{}, &MailboxNotSendCapableError{}
 	}
 	if err := gate.RequireGrantedForEmails(ctx, in.Recipients, in.ConsentPurpose); err != nil {
 		return crmcontracts.Activity{}, err
@@ -270,7 +247,7 @@ func (m outboundMessage) activity(chain threading) LogActivityInput {
 		Body:         &m.recordedBody,
 		Direction:    &direction,
 		Links:        m.links,
-		Source:       "manual",
+		Source:       sourceManual,
 		SourceSystem: &sourceSystem,
 		SourceID:     &m.messageID,
 		ThreadKey:    chain.threadKey,
@@ -316,29 +293,6 @@ func inheritedLinks(anchor crmcontracts.Activity) []ActivityLinkInput {
 		links = append(links, ActivityLinkInput{EntityType: string(l.EntityType), EntityID: ids.UUID(l.EntityId)})
 	}
 	return links
-}
-
-// ensureMailboxCanSend runs the pre-flight described on MailboxAuthority.
-// It lives on the send path rather than in a transport because the MCP tool
-// surface reaches this method directly: a check in one handler is a check
-// half the callers skip.
-//
-// It is advisory by contract, not fail-closed like the two guards above:
-// authority over transmission belongs to the delivery path, which re-checks
-// the grant at the moment it sends. This answers earlier and in words the
-// user can act on; it never decides whether a message may go.
-func (s *Store) ensureMailboxCanSend(ctx context.Context) error {
-	if s.mailbox == nil {
-		return nil
-	}
-	capable, err := s.mailbox.SendCapable(ctx)
-	if err != nil {
-		return err
-	}
-	if !capable {
-		return &MailboxNotSendCapableError{}
-	}
-	return nil
 }
 
 // messageIDDomain is the right-hand side of every minted Message-ID: the
