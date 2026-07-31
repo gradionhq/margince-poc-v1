@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { components } from "../api/schema";
 import {
   MarginceCoreScene,
@@ -23,6 +30,17 @@ import "./onboarding-gate.css";
 // fraction, no percentage and no bar with a known end to be drawn from it.
 
 type CompanySiteRead = components["schemas"]["CompanySiteRead"];
+
+/**
+ * A read in flight, as the column needs it. One optional object rather than
+ * three optional props: a read without the host it is reading, or without the
+ * locale its counts are formatted in, is not a state this surface has.
+ */
+type GateScan = Readonly<{
+  read: CompanySiteRead;
+  host: string;
+  locale: string;
+}>;
 type CompanySiteReadFact = components["schemas"]["CompanySiteReadFact"];
 type CompanySiteReadPage = components["schemas"]["CompanySiteReadPage"];
 type AiRunSummary = components["schemas"]["AiRunSummary"];
@@ -61,6 +79,7 @@ export function OnboardingGate({
   running,
   notice,
   configuredModel,
+  scan,
   onSubmit,
   onManual,
 }: Readonly<{
@@ -68,6 +87,12 @@ export function OnboardingGate({
   running: boolean;
   notice?: GateNotice;
   configuredModel: string;
+  /**
+   * The read this column is watching, once one is running. Present or absent as
+   * a whole — the three values are only meaningful together, so there is no
+   * state where the column has a read but not the host it is reading.
+   */
+  scan?: GateScan;
   onSubmit: (host: string) => void;
   onManual: () => void;
 }>) {
@@ -75,6 +100,20 @@ export function OnboardingGate({
   const [website, setWebsite] = useState("");
   const [invalid, setInvalid] = useState(false);
   const named = name?.trim();
+
+  // The read replaces the tail of the SAME column rather than a second screen
+  // replacing this one — see GateColumn for why that is load-bearing.
+  if (scan !== undefined) {
+    return (
+      <GateColumn scan={scan}>
+        <TheatreTail
+          read={scan.read}
+          locale={scan.locale}
+          configuredModel={configuredModel}
+        />
+      </GateColumn>
+    );
+  }
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -93,15 +132,7 @@ export function OnboardingGate({
   };
 
   return (
-    <div className="ob-gate">
-      <MarginceCoreScene state={running ? "working" : "listening"} />
-      <h1 className="ob-gate-title">
-        {named
-          ? t("ob.gate.title", { name: named })
-          : t("ob.gate.titleAnonymous")}
-      </h1>
-      <p className="ob-gate-sub">{t("ob.gate.sub")}</p>
-
+    <GateColumn running={running} name={named}>
       <form className="ob-gate-form" onSubmit={submit}>
         <label className="sr-only" htmlFor="ob-gate-website">
           {t("ob.gate.field")}
@@ -163,6 +194,76 @@ export function OnboardingGate({
         <span>{t("ob.scan.transparency")}</span>
         <b>{configuredModel}</b>
       </p>
+    </GateColumn>
+  );
+}
+
+/**
+ * The column both faces share, and the reason they are one component.
+ *
+ * The Core, the headline and the promise sentence keep their positions in the
+ * tree from the first question through to the finished read; only the tail below
+ * them is replaced. Rendering the gate and the theatre as two components at the
+ * same position would make them different types there, so React would unmount
+ * one subtree and mount the other: the Core would tear down and rebuild its
+ * WebGL context, its float, breathe and sheen loops would all restart from
+ * phase 0, and the entrance would replay. The most important moment in the flow
+ * would flash and re-enter instead of continuing.
+ */
+function GateColumn({
+  scan,
+  running,
+  name,
+  children,
+}: Readonly<{
+  scan?: GateScan;
+  running?: boolean;
+  name?: string;
+  children: ReactNode;
+}>) {
+  const t = useT();
+  const counts = useMemo(
+    () => new Intl.NumberFormat(scan?.locale),
+    [scan?.locale],
+  );
+  const head: Readonly<{
+    core: MarginceCoreState;
+    title: string;
+    sub: string;
+  }> =
+    scan === undefined
+      ? {
+          core: running === true ? "working" : "listening",
+          title: name
+            ? t("ob.gate.title", { name })
+            : t("ob.gate.titleAnonymous"),
+          sub: t("ob.gate.sub"),
+        }
+      : {
+          core: coreStateFor(scan.read.status),
+          title: SETTLED.has(scan.read.status)
+            ? t("ob.scan.doneTitle", { host: scan.host })
+            : t("ob.scan.title", { host: scan.host }),
+          sub: SETTLED.has(scan.read.status)
+            ? t("ob.scan.doneSub", {
+                facts: counts.format(scan.read.facts.length),
+                fields: counts.format(scan.read.profile_fields.length),
+              })
+            : t("ob.scan.sub"),
+        };
+  return (
+    // The stage, not the column, is the snippet layer's containing block: the
+    // chips belong in the page margin BESIDE the 540px column, so positioning
+    // them against the column itself would confine the layer to the one strip of
+    // the page it has to stay out of.
+    <div className="ob-gate-stage">
+      {scan === undefined ? null : <FactSnippets facts={scan.read.facts} />}
+      <div className={`ob-gate${scan === undefined ? "" : " ob-scan"}`}>
+        <MarginceCoreScene state={head.core} />
+        <h1 className="ob-gate-title">{head.title}</h1>
+        <p className="ob-gate-sub">{head.sub}</p>
+        {children}
+      </div>
     </div>
   );
 }
@@ -260,6 +361,29 @@ export function ReadTheatre({
   locale: string;
   configuredModel: string;
 }>) {
+  return (
+    <GateColumn scan={{ read, host, locale }}>
+      <TheatreTail
+        read={read}
+        locale={locale}
+        configuredModel={configuredModel}
+      />
+    </GateColumn>
+  );
+}
+
+// The theatre's own regions — everything below the head the column already
+// draws. Split out so the gate can swap this in WITHOUT replacing the column
+// around it; GateColumn documents why that matters.
+function TheatreTail({
+  read,
+  locale,
+  configuredModel,
+}: Readonly<{
+  read: CompanySiteRead;
+  locale: string;
+  configuredModel: string;
+}>) {
   const t = useT();
   const counts = useMemo(() => new Intl.NumberFormat(locale), [locale]);
   const settled = SETTLED.has(read.status);
@@ -273,23 +397,7 @@ export function ReadTheatre({
   const skipped = read.pages.filter((page) => page.status === "skipped").length;
 
   return (
-    <div className="ob-gate ob-scan">
-      <FactSnippets facts={read.facts} />
-      <MarginceCoreScene state={coreStateFor(read.status)} />
-      <h1 className="ob-gate-title">
-        {settled
-          ? t("ob.scan.doneTitle", { host })
-          : t("ob.scan.title", { host })}
-      </h1>
-      <p className="ob-gate-sub">
-        {settled
-          ? t("ob.scan.doneSub", {
-              facts: counts.format(read.facts.length),
-              fields: counts.format(read.profile_fields.length),
-            })
-          : t("ob.scan.sub")}
-      </p>
-
+    <>
       {/* Fixed height, opacity-only crossfade: the phase changes in place. */}
       <p className="ob-scan-phase" aria-live="polite">
         {phase === null ? null : (
@@ -340,7 +448,7 @@ export function ReadTheatre({
             : costLine(t, runtime, locale)}
         </p>
       </div>
-    </div>
+    </>
   );
 }
 

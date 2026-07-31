@@ -44,8 +44,11 @@
 }
 
 /* --- the step rail ---------------------------------------------------- */
-/* Where the journey is, in five words. Flat text, not controls: the machine
-   decides what comes next, so a pill must not look clickable. */
+/* Where the journey is, in five words. Status, never controls: the machine
+   decides what comes next, so no stop may carry the fill, ring and pill
+   geometry of a real control — that recipe belongs to the buttons in the same
+   column, and hue alone is too thin a line between "you may press this" and
+   "this is where you are". State reads as label colour and numeral ring only. */
 
 .mw-steps {
   display: flex;
@@ -62,17 +65,25 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px var(--space-2) 5px 5px;
   /* --textMeta, not --textTertiary: tokens.css names Meta the AA floor for
      everything under 13px, and every label in this chrome is 9-11px. */
   color: var(--textMeta);
-  border: 1px solid transparent;
-  border-radius: var(--r-full);
   font-family: var(--f-mono);
   font-size: 10px;
   font-weight: 650;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+/* The hairline that makes five stops one rail. Drawn, not marked up: a
+   connector element would enter the accessibility tree as content between two
+   stops, and a screen reader would read the gaps. */
+.mw-step + .mw-step::before {
+  content: "";
+  width: 14px;
+  height: 1px;
+  flex: none;
+  background: var(--borderStrong);
 }
 
 .mw-step b {
@@ -99,8 +110,6 @@
 
 .mw-step.is-now {
   color: var(--textPrimary);
-  border-color: var(--accentMed);
-  background: var(--accentLight);
 }
 
 .mw-step.is-now b {
@@ -289,13 +298,18 @@
 
 /* --- right column: the artifact --------------------------------------- */
 
+/* The artifact sits in a trough, one step darker than the conversation it grew
+   out of. --bgPage against the conversation's --bgElevated is under 1% apart in
+   the light theme, so the split that carries the whole two-pane idea would read
+   as an accident of the border; --bgCard plus the strong border is a recess a
+   reader sees before they read a word of it. */
 .mw-artifact {
   min-width: 0;
   min-height: 0;
   padding: var(--space-6);
   overflow-y: auto;
-  border-left: 1px solid var(--borderSubtle);
-  background: var(--bgPage);
+  border-left: 1px solid var(--borderStrong);
+  background: var(--bgCard);
 }
 
 @keyframes mw-pulse {
@@ -324,10 +338,12 @@
     overflow: visible;
   }
 
+  /* Same seam, rotated: the trough edge stays the strong border when the split
+     becomes a stack, or the stacked panes lose the boundary the columns have. */
   .mw-artifact {
     padding: var(--space-4);
     overflow: visible;
-    border-top: 1px solid var(--borderSubtle);
+    border-top: 1px solid var(--borderStrong);
     border-left: 0;
   }
 }

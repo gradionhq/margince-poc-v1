@@ -6,7 +6,8 @@ import type { components } from "../../api/schema";
 import { useLocale } from "../../i18n";
 import { problemMessage } from "../common";
 import type { CompanyDraft } from "../onboarding";
-import { changeDraftField, MAX_SELECTED_FACTS, prefill } from "../onboarding";
+import { changeDraftField, prefill } from "../onboarding";
+import { defaultSelectedFactKeys } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
 import { toMachineQuestion } from "./company-proposal";
 import type {
@@ -140,12 +141,7 @@ export function useCompanyRead({
       if (next.draft_version > appliedReadVersion.current) {
         appliedReadVersion.current = next.draft_version;
         setDraft((current) => prefill(current, next.profile_fields));
-        setSelectedFactKeys(
-          [...new Set(next.facts.map((fact) => fact.value_key))].slice(
-            0,
-            MAX_SELECTED_FACTS,
-          ),
-        );
+        setSelectedFactKeys(defaultSelectedFactKeys(next.facts));
       }
       // Progress first, outcome second: the flush inside a terminal diff
       // drains every queued bubble before any terminal event is dispatched.
@@ -188,12 +184,7 @@ export function useCompanyRead({
       }
       return changeDraftField(prefilled, "website", adoptedRead.root_url);
     });
-    setSelectedFactKeys(
-      [...new Set(adoptedRead.facts.map((fact) => fact.value_key))].slice(
-        0,
-        MAX_SELECTED_FACTS,
-      ),
-    );
+    setSelectedFactKeys(defaultSelectedFactKeys(adoptedRead.facts));
     if (adoptedRead.status === "ready" || adoptedRead.status === "partial") {
       concludeFreshTerminal(adoptedRead);
     }

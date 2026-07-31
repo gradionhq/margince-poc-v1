@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { useEffect, useId, useRef, useState } from "react";
 import type { components } from "../api/schema";
+import { useT } from "../i18n";
+import type { MessageKey } from "../i18n/en";
 import { MarginceCoreScene, type MarginceCoreState } from "./margince-core";
 import "./margince-workbench.css";
 
@@ -88,16 +90,36 @@ export function MarginceWorkbench({
   );
 }
 
+// Each stop's state is a claim about the journey, and on screen only colour
+// carries it — so it is also said in words for anyone who cannot see the
+// colour. The vocabulary is the journey's own, shared with the live panel, so
+// the rail and the panel cannot describe the same step two different ways.
+const STEP_STATE_WORD: Readonly<Record<WorkbenchStep["state"], MessageKey>> = {
+  done: "ob.live.stateDone",
+  now: "ob.live.stateNow",
+  todo: "ob.live.stateWaiting",
+};
+
 // The rail states where the journey is without claiming a step is reachable:
-// a `todo` pill is inert text, never a link, because the machine — not the
+// a `todo` stop is inert text, never a link, because the machine — not the
 // rail — decides what comes next.
 function StepRail({ steps }: Readonly<{ steps: readonly WorkbenchStep[] }>) {
+  const t = useT();
   return (
-    <ol className="mw-steps">
+    // The explicit role survives `list-style: none`, which Safari otherwise
+    // treats as a licence to drop list semantics — and position in the list is
+    // the only thing telling a screen reader this is stop two of five.
+    // biome-ignore lint/a11y/noRedundantRoles: the role is what keeps the list a list in Safari/VoiceOver once the bullets are styled off.
+    <ol className="mw-steps" role="list">
       {steps.map((step, index) => (
-        <li key={step.label} className={`mw-step is-${step.state}`}>
+        <li
+          key={step.label}
+          className={`mw-step is-${step.state}`}
+          aria-current={step.state === "now" ? "step" : undefined}
+        >
           <b aria-hidden>{index + 1}</b>
           {step.label}
+          <span className="sr-only">{t(STEP_STATE_WORD[step.state])}</span>
         </li>
       ))}
     </ol>

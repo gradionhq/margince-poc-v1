@@ -212,6 +212,19 @@
   color: var(--accent);
 }
 
+/* The step being worked on right now. The ring around the numeral is what
+   separates it from a finished one: done fills, now haloes. Without these rules
+   an in-progress step is pixel-identical to no state at all. */
+.ob-live-step[data-state="now"] .ob-live-step-n {
+  border-color: var(--accentMed);
+  color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+
+.ob-live-step[data-state="now"] .ob-live-step-state {
+  color: var(--accent);
+}
+
 .ob-live-step-title {
   font-family: var(--f-display);
   font-size: 13px;
@@ -341,6 +354,15 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
   color: var(--warn);
 }
 
+/* The shared evidence chip is sized for full-width screens and breaks nothing
+   on its own. In this narrow pane an unbroken source URL would then be wider
+   than the column and make the whole panel scroll sideways, so the panel asks
+   the chip to wrap here rather than changing it for every other screen. */
+.ob-live .evidence-chip {
+  overflow-wrap: anywhere;
+  max-width: 100%;
+}
+
 /* ---- field rows --------------------------------------------------------- */
 
 .ob-live-field {
@@ -431,7 +453,32 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+}
+
+/* Three gaps, three voices. A skipped page is routine and must not shout; a page
+   that could not be read is a hole in the dossier and reads danger; a warning
+   about the read as a whole reads warn. One alarm colour for all three would
+   make a robots.txt skip indistinguishable from a failure. The label itself
+   states which in words — the colour only makes the difference scannable. */
+.ob-live-coverage[data-kind="skip"] .ob-live-coverage-label {
+  color: var(--textMeta);
+}
+
+.ob-live-coverage[data-kind="fail"] .ob-live-coverage-label {
+  color: var(--danger);
+}
+
+.ob-live-coverage[data-kind="warn"] .ob-live-coverage-label {
   color: var(--warn);
+}
+
+/* What was missed, in the reader's vocabulary. It leads the row; the URL below
+   it is corroboration for whoever wants the exact path. */
+.ob-live-coverage-name {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--textPrimary);
+  overflow-wrap: anywhere;
 }
 
 .ob-live-coverage-url {

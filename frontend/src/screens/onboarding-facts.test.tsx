@@ -17,6 +17,7 @@ import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
 import { MAX_SELECTED_FACTS } from "./onboarding";
 import {
+  defaultSelectedFactKeys,
   type FactSelection,
   FactsCard,
   FactTable,
@@ -95,6 +96,22 @@ const MANY = Array.from({ length: 120 }, (_, index) =>
     value_key: `company:location:${index}`,
     value: `Office ${index}`,
     confidence: 1 - index / 1000,
+  }),
+);
+
+// Confidence RISES with wire position, so "the first N on the wire" and "the N
+// most certain" name different facts throughout: a seed that trusted the wire
+// would tick the ten low-confidence facts at the head and drop the strongest
+// ones off the tail. More facts than the ceiling, so the cap has to choose too.
+const LOW_HEAD = 10;
+const RISING = Array.from({ length: MAX_SELECTED_FACTS + 15 }, (_, index) =>
+  fact({
+    value_key: `company:location:${index}`,
+    value: `Office ${index}`,
+    // The head sits under the shared low-confidence boundary; the tail climbs
+    // from it, most certain last.
+    confidence:
+      index < LOW_HEAD ? 0.1 + index / 100 : 0.5 + (index - LOW_HEAD) / 1000,
   }),
 );
 
@@ -254,6 +271,45 @@ describe("useFactSelection", () => {
   });
 });
 
+describe("defaultSelectedFactKeys", () => {
+  it("ticks every fact above the confidence boundary, most certain first", () => {
+    expect(defaultSelectedFactKeys(FACTS)).toEqual([
+      FOUNDED.value_key,
+      SERVICE.value_key,
+      SUPPORT.value_key,
+      INDUSTRY.value_key,
+    ]);
+  });
+
+  it("leaves a fact the scale calls low for the reader to decide", () => {
+    expect(defaultSelectedFactKeys([OUTCOME])).toEqual([]);
+  });
+
+  it("seeds by confidence rather than by wire order, and caps by confidence too", () => {
+    const keys = defaultSelectedFactKeys(RISING);
+    const strongest = RISING[RISING.length - 1];
+
+    expect(keys).toHaveLength(MAX_SELECTED_FACTS);
+    expect(keys[0]).toBe(strongest.value_key);
+    // Not one of the low-confidence facts the wire happened to send first.
+    for (const weak of RISING.slice(0, LOW_HEAD)) {
+      expect(keys).not.toContain(weak.value_key);
+    }
+    // The ceiling drops the least certain of the eligible facts, not the tail of
+    // the wire: the five weakest are out, everything above them is in.
+    expect(keys).not.toContain(RISING[LOW_HEAD + 4].value_key);
+    expect(keys).toContain(RISING[LOW_HEAD + 5].value_key);
+  });
+
+  it("opens a fresh read below the ceiling, with room left to add a fact", () => {
+    const keys = defaultSelectedFactKeys(FACTS);
+    render(<SelectionProbe facts={FACTS} initial={keys} />);
+
+    expect(screen.getByTestId("cap")).toHaveTextContent("false");
+    expect(screen.getByTestId("all")).toHaveTextContent("false");
+  });
+});
+
 describe("FactsCard", () => {
   it("names the fact in each row's checkbox label", () => {
     render(<CardHarness facts={FACTS} />);
@@ -281,6 +337,25 @@ describe("FactsCard", () => {
     expect(
       screen.getByRole("button", { name: "Signal 1" }),
     ).toBeInTheDocument();
+  });
+
+  it("marks the filter that is on, and only that one", async () => {
+    const user = userEvent.setup();
+    render(<CardHarness facts={FACTS} />);
+    const all = screen.getByRole("button", { name: "All 5" });
+    const offering = screen.getByRole("button", { name: "Offering 2" });
+
+    expect(all).toHaveAttribute("aria-pressed", "true");
+    expect(offering).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(offering);
+
+    // aria-pressed is what both the announcement and the committed inverse pill
+    // hang off, so the chip a reader hears and the chip they see are one fact.
+    expect(offering).toHaveAttribute("aria-pressed", "true");
+    expect(all).toHaveAttribute("aria-pressed", "false");
+    // The count sits inside the chip, so the pressed ground has to carry it too.
+    expect(within(offering).getByText("2")).toBeInTheDocument();
   });
 
   it("offers no dead end: a category with nothing in it cannot be filtered to", () => {

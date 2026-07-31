@@ -100,13 +100,30 @@
   cursor: pointer;
   transition: 0.14s ease;
 }
-.ob-facts-chip:hover:not(:disabled) {
+/* Hover excludes the pressed chip: a hover tint over the committed pill would
+   erase the one state the reader is looking for. */
+.ob-facts-chip:hover:not(:disabled):not([aria-pressed="true"]) {
   background: var(--bgHover);
 }
+/* Keyboard focus reads the same accent ring as the conversation's own chips,
+   not the browser's off-palette native outline. */
+.ob-facts-chip:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
+}
+/* The filter that is on is a full inverse pill, count included. A surface tint a
+   few percent off hover is not a state anybody can read.
+   The label reads --bgElevated rather than --textOnAccent because the ground IS
+   the theme's text colour: both flip together, so the inverse holds in dark as
+   well as light (in light the two tokens are the same white). */
 .ob-facts-chip[aria-pressed="true"] {
-  color: var(--textPrimary);
-  border-color: var(--borderStrong);
-  background: var(--bgCard);
+  color: var(--bgElevated);
+  border-color: var(--textPrimary);
+  background: var(--textPrimary);
+}
+.ob-facts-chip[aria-pressed="true"] b {
+  color: var(--bgElevated);
 }
 .ob-facts-chip:disabled {
   cursor: not-allowed;
@@ -232,6 +249,10 @@
   font-variant-numeric: tabular-nums;
   font-size: 10.5px;
   color: var(--textMeta);
+  /* Pinned to the row's right edge: the list is ordered BY confidence, and a
+     column of percentages that starts at a different x on every row cannot be
+     compared down. */
+  margin-left: auto;
 }
 .ob-facts-quote {
   color: var(--textMeta);
@@ -427,6 +448,12 @@
   font-family: var(--f-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* Header and cells share one right edge — tabular figures buy a reader nothing
+   until the digits line up. Two classes deep so it outranks the left-aligning
+   `.ob-facts-table th`. */
+.ob-facts-table .ob-facts-td-conf {
+  text-align: right;
 }
 .ob-facts-modal-foot {
   display: flex;

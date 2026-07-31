@@ -18,8 +18,6 @@
  */
 
 .ob-gate {
-  /* The snippet layer positions against this column. */
-  position: relative;
   width: min(540px, 100%);
   margin: 0 auto;
   min-height: 100vh;
@@ -55,7 +53,10 @@
   }
 }
 
-.ob-gate > *:not(.ob-snips) {
+/* The column assembles in reading order. Every child needs its own rung or it
+   arrives at delay 0 — ahead of the headline it belongs under, which reads as
+   the page landing in pieces rather than as one thing settling. */
+.ob-gate > * {
   animation: ob-gate-rise 0.6s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 .ob-gate-title {
@@ -67,6 +68,18 @@
 .ob-gate-form,
 .ob-scan-phase {
   animation-delay: 0.24s;
+}
+.ob-gate-alert,
+.ob-scan-strip {
+  animation-delay: 0.32s;
+}
+.ob-gate-alt,
+.ob-scan-counts {
+  animation-delay: 0.4s;
+}
+.ob-gate-ai,
+.ob-scan-cost {
+  animation-delay: 0.48s;
 }
 
 .ob-gate-title {
@@ -232,8 +245,13 @@
 /* The gate and the theatre are full-viewport stages, not cards on a page: the
    host page's own washes would sit behind a surface that already owns the
    whole screen. */
+/* The full-width surface the column sits on, and the snippet layer's containing
+   block: the chips live in the page margin BESIDE the column, so the box they
+   position against has to be the one that HAS margins. */
 .ob-gate-stage {
+  position: relative;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--bgElevated);
 }
 
@@ -399,7 +417,11 @@
    here is the whole clock, and no timer in the component duplicates it. */
 .ob-snip {
   position: absolute;
-  max-width: 38%;
+  /* Wide enough to read, never wider than the margin it lives in. The margin is
+     half of whatever the stage has left over after the column, less a gutter —
+     so the chip shrinks with the viewport instead of climbing onto the copy, and
+     there is no width at which it silently overlaps. */
+  max-width: min(230px, calc((100% - min(540px, 100%)) / 2 - var(--space-4)));
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -439,52 +461,41 @@
 /* Seven slots, claimed by a coprime step in the component: two chips on screen
    at the same time can never be given the same one.
 
-   The offsets clear the column rather than merely leaning out of it. A chip is
-   up to 38% of the column wide, so an inset of -12% left it sitting ON the
-   heading and the cost strip; -44% puts its inner edge at the column boundary,
-   which is what "beside the column, in the page margin" actually requires. The
-   two bottom slots also stay out of the 20–40% band, where the transparency
-   card lives. */
+   The slots are insets from the STAGE, so a chip hangs off the page edge and
+   grows inward, and the centred column is what it can never reach — the width
+   rule above guarantees that geometrically rather than by choosing offsets that
+   happen to clear it. Left and right alternate so the layer stays balanced with
+   only two or three chips alive. */
 .ob-snip[data-slot="0"] {
-  top: 4%;
-  left: -44%;
+  top: 6%;
+  left: var(--space-4);
 }
 .ob-snip[data-slot="1"] {
-  top: 18%;
-  right: -44%;
+  top: 20%;
+  right: var(--space-4);
 }
 .ob-snip[data-slot="2"] {
-  top: 36%;
-  left: -48%;
+  top: 40%;
+  left: var(--space-3);
 }
 .ob-snip[data-slot="3"] {
-  bottom: 12%;
-  right: -46%;
+  bottom: 18%;
+  right: var(--space-3);
 }
 .ob-snip[data-slot="4"] {
-  bottom: 2%;
-  left: -42%;
+  bottom: 6%;
+  left: var(--space-5);
 }
 .ob-snip[data-slot="5"] {
-  top: 54%;
-  right: -50%;
+  top: 58%;
+  right: var(--space-5);
 }
 .ob-snip[data-slot="6"] {
-  bottom: 44%;
-  left: -46%;
+  bottom: 40%;
+  left: var(--space-2);
 }
 
 /* ===== breakpoints ====================================================== */
-
-/* The floating layer needs genuine page margin beside a 540px column, and that
-   does not exist until roughly 1200px. Below it the chips are simply not drawn —
-   every fact they show is in the review regardless, so the honest degradation is
-   to omit the decoration rather than to overlap the copy with it. */
-@media (max-width: 1199px) {
-  .ob-snips {
-    display: none;
-  }
-}
 
 @media (max-width: 899px) {
   .ob-gate {
@@ -502,8 +513,10 @@
     /* 16px or iOS zooms the page on focus. */
     font-size: 16px;
   }
-  /* No room beside the column for a floating layer, and a chip over the copy is
-     worse than no chip: the facts are all in the review either way. */
+  /* Below this the column fills the stage, so the margin the chips live in is
+     gone and the width rule would shrink them to an unreadable sliver. A chip
+     over the copy is worse than no chip: every fact is in the review either
+     way, so the decoration is what gives way. */
   .ob-snips {
     display: none;
   }

@@ -15,7 +15,7 @@ import {
   normalizeUrl,
   onboardingDraftPayload,
 } from "../onboarding";
-import { OnboardingGate, ReadTheatre } from "../onboarding-gate";
+import { OnboardingGate } from "../onboarding-gate";
 import {
   ConversationEntries,
   conversationHistory,
@@ -404,39 +404,35 @@ export function CompanyAct({
 
   const presence = presenceFor(state, { read, readBroken });
 
-  // The gate and the read theatre are the company act's first two faces. They
-  // are full-screen and deliberately have no thread, no panel and no composer:
+  // The gate and the read theatre are the company act's first face. It is
+  // full-screen and deliberately has no thread, no panel and no composer:
   // before there is anything sourced to review, a two-column workbench would be
   // showing the reader an empty dossier and asking them to trust it.
   //
-  // The split follows the machine, not a local flag. `showManualChip` is true
-  // in exactly the states where no run is in flight, which is the same question
-  // the gate asks, so the two cannot drift apart.
-  if (state.phase === "co.reading" && state.activeReadId !== null && read) {
-    return (
-      <div className="ob-gate-stage">
-        <ReadTheatre
-          read={read}
-          host={normalizeUrl(read.root_url).host}
-          locale={locale}
-          configuredModel={configuredModel}
-        />
-      </div>
-    );
-  }
+  // ONE return for both, because they are one column — the read replaces the
+  // question below a Core and a headline that never move. Two returns would put
+  // two component types at the same position and remount everything between
+  // them; OnboardingGate's GateColumn documents what that costs.
+  //
+  // Which face shows follows the machine, not a local flag. `showManualChip` is
+  // true in exactly the states where no run is in flight, which is the same
+  // question the gate asks, so the two cannot drift apart.
+  const scanning =
+    state.phase === "co.reading" && state.activeReadId !== null && read
+      ? { read, host: normalizeUrl(read.root_url).host, locale }
+      : undefined;
 
-  if (showManualChip) {
+  if (scanning !== undefined || showManualChip) {
     return (
-      <div className="ob-gate-stage">
-        <OnboardingGate
-          name={me.data?.user.display_name}
-          running={startRead.isPending}
-          notice={gateNotice}
-          configuredModel={configuredModel}
-          onSubmit={startFromGate}
-          onManual={() => dispatch({ type: "MANUAL_CHOSEN" })}
-        />
-      </div>
+      <OnboardingGate
+        name={me.data?.user.display_name}
+        running={startRead.isPending}
+        notice={gateNotice}
+        configuredModel={configuredModel}
+        scan={scanning}
+        onSubmit={startFromGate}
+        onManual={() => dispatch({ type: "MANUAL_CHOSEN" })}
+      />
     );
   }
 

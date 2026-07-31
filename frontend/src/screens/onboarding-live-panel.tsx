@@ -12,7 +12,7 @@ import {
 } from "../design-system/trust";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { coldFieldLabel } from "./common";
+import { coldFieldLabel, namedSiteReadKind } from "./common";
 import { confidenceLevel } from "./inbox";
 import "./onboarding-live-panel.css";
 
@@ -411,9 +411,23 @@ export function PeopleCard({
   );
 }
 
+/**
+ * What kind of gap a coverage row is. A page the crawler chose not to fetch is
+ * routine housekeeping, a page it could not fetch is a hole in the read, and a
+ * warning is a caveat about the read as a whole — three different things a
+ * reader must be able to tell apart at a glance.
+ */
+type CoverageKind = "warn" | "skip" | "fail";
+
 type CoverageRow = Readonly<{
   id: string;
+  kind: CoverageKind;
   label: string;
+  /**
+   * Which page this was, when the read named one worth naming. Absent for a
+   * warning (no page) and for a kind that says nothing the label does not.
+   */
+  name?: string;
   url?: string;
   reason: string;
 }>;
@@ -433,21 +447,31 @@ function coverageRows(
     seq += 1;
     rows.push({
       id: `warning:${seq}`,
+      kind: "warn",
       label: t("ob.live.coverageWarning"),
       reason: warning,
     });
   }
-  const labels: ReadonlyArray<{ status: SitePage["status"]; key: MessageKey }> =
-    [
-      { status: "skipped", key: "ob.live.coverageSkipped" },
-      { status: "failed", key: "ob.live.coverageFailed" },
-    ];
-  for (const { status, key } of labels) {
+  const groups: ReadonlyArray<{
+    status: SitePage["status"];
+    kind: CoverageKind;
+    key: MessageKey;
+  }> = [
+    { status: "skipped", kind: "skip", key: "ob.live.coverageSkipped" },
+    { status: "failed", kind: "fail", key: "ob.live.coverageFailed" },
+  ];
+  for (const { status, kind, key } of groups) {
     for (const page of pages.filter((page) => page.status === status)) {
       seq += 1;
+      // The page's own kind is the reader's answer to "what did you miss?"; the
+      // URL alone makes them decode a path. When the wire names no kind, or
+      // names "other", the status label is already everything there is to say.
+      const named = namedSiteReadKind(page.kind);
       rows.push({
         id: `${status}:${seq}`,
+        kind,
         label: t(key),
+        name: named === undefined ? undefined : t(named),
         url: page.url,
         reason: page.reason ?? t("ob.scan.pageNoReason"),
       });
@@ -480,8 +504,14 @@ export function CoverageCard({
       ) : (
         <ul className="ob-live-rows">
           {rows.map((row) => (
-            <li className="ob-live-coverage" key={row.id}>
+            // data-kind carries the row's role to the stylesheet. The label
+            // beside it says the same thing in words, so the colour it selects
+            // is never the only signal.
+            <li className="ob-live-coverage" data-kind={row.kind} key={row.id}>
               <span className="ob-live-coverage-label">{row.label}</span>
+              {row.name !== undefined && (
+                <span className="ob-live-coverage-name">{row.name}</span>
+              )}
               {row.url !== undefined && (
                 <span className="ob-live-coverage-url">{row.url}</span>
               )}

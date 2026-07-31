@@ -201,6 +201,29 @@ describe("StepBlock", () => {
     expect(screen.getByText("Your writing voice")).toBeTruthy();
     expect(screen.getByText("in progress")).toBeTruthy();
     expect(screen.getByText("Voice body")).toBeTruthy();
+    // The state is on the block as data, not only in the sentence: the
+    // stylesheet reads it to tell an in-progress step from a finished one.
+    expect(
+      document.querySelector(".ob-live-step")?.getAttribute("data-state"),
+    ).toBe("now");
+  });
+
+  it("distinguishes a finished step from one in progress in the markup", () => {
+    render(
+      <>
+        <StepBlock n={1} title="Your website" state="done">
+          <p>Website body</p>
+        </StepBlock>
+        <StepBlock n={2} title="Your writing voice" state="now">
+          <p>Voice body</p>
+        </StepBlock>
+      </>,
+    );
+
+    const states = Array.from(document.querySelectorAll(".ob-live-step")).map(
+      (step) => step.getAttribute("data-state"),
+    );
+    expect(states).toEqual(["done", "now"]);
   });
 });
 
@@ -285,6 +308,60 @@ describe("CoverageCard", () => {
     expect(screen.getByText("https://example.test/jobs")).toBeTruthy();
     // A failed page with no stated reason says so rather than showing blank.
     expect(screen.getByText("no reason recorded")).toBeTruthy();
+  });
+
+  it("marks each gap with its own kind, so a skip is not painted as a failure", async () => {
+    render(<CoverageCard pages={pages} warnings={["Sitemap was empty"]} />);
+    await userEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    const kinds = Array.from(
+      document.querySelectorAll(".ob-live-coverage"),
+    ).map((row) => row.getAttribute("data-kind"));
+    // Warnings first, then skipped pages, then failed ones — and the three
+    // never collapse into one alarm.
+    expect(kinds).toEqual(["warn", "skip", "fail"]);
+  });
+
+  it("names which page was missed when the read says what kind it was", async () => {
+    render(
+      <CoverageCard
+        pages={[
+          {
+            url: "https://example.test/team",
+            status: "skipped",
+            kind: "team",
+            reason: "robots.txt disallows it",
+          },
+        ]}
+        warnings={[]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    // The page kind is what a reader can act on; the URL stays as the
+    // corroborating detail beside it.
+    expect(screen.getByText("Team")).toBeTruthy();
+    expect(screen.getByText("https://example.test/team")).toBeTruthy();
+    expect(screen.getByText("Skipped")).toBeTruthy();
+  });
+
+  it("falls back to the status label for a page kind that names nothing", async () => {
+    render(
+      <CoverageCard
+        pages={[
+          { url: "https://example.test/a", status: "skipped", kind: null },
+          { url: "https://example.test/b", status: "skipped", kind: "other" },
+        ]}
+        warnings={[]}
+      />,
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Review/ }));
+
+    // "Other" and an absent kind say nothing the status label does not, so no
+    // name line is rendered at all rather than one reading "Other".
+    expect(document.querySelectorAll(".ob-live-coverage")).toHaveLength(2);
+    expect(document.querySelector(".ob-live-coverage-name")).toBeNull();
+    expect(screen.getAllByText("Skipped")).toHaveLength(2);
   });
 
   it("says so plainly when nothing was skipped and nothing failed", async () => {
@@ -559,5 +636,11 @@ describe("OnboardingLivePanel", () => {
     expect(screen.getAllByRole("radio")).toHaveLength(2);
     // The voice step is in progress, so it names what is not built yet.
     expect(screen.getByText("not built yet")).toBeTruthy();
+    // And it is marked as in progress, not left in the same neutral state as a
+    // step nobody has reached.
+    const states = Array.from(document.querySelectorAll(".ob-live-step")).map(
+      (step) => step.getAttribute("data-state"),
+    );
+    expect(states).toEqual(["done", "now"]);
   });
 });

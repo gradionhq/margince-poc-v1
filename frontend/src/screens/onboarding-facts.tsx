@@ -181,6 +181,32 @@ function byConfidence(a: CompanySiteReadFact, b: CompanySiteReadFact): number {
   );
 }
 
+/**
+ * The keys a fresh read arrives with already ticked.
+ *
+ * A default selection is a JUDGEMENT, not a boast: a fact the shared confidence
+ * scale calls low is exactly the one a person has to look at, so it arrives
+ * unticked. What is left is taken most-certain-first, so when the contract
+ * ceiling bites it drops the least certain fact rather than whichever ones the
+ * read happened to emit last. Ordering here and the preview's ordering read the
+ * same comparator, so the saved set and the shown set cannot disagree.
+ */
+export function defaultSelectedFactKeys(
+  facts: readonly CompanySiteReadFact[],
+): string[] {
+  const keys = new Set<string>();
+  for (const fact of [...facts].sort(byConfidence)) {
+    if (keys.size >= MAX_SELECTED_FACTS) {
+      break;
+    }
+    if (confidenceLevel(fact.confidence) === "low") {
+      continue;
+    }
+    keys.add(fact.value_key);
+  }
+  return [...keys];
+}
+
 // The link text is the path, because two facts read off the same site differ
 // only there and the host is already in the href. A root URL shows its host,
 // and a value this cannot parse is shown verbatim rather than as an empty cell.
@@ -621,7 +647,9 @@ export function FactTable({
                   <th scope="col">{t("ob.facts.colCategory")}</th>
                   <th scope="col">{t("ob.facts.colFact")}</th>
                   <th scope="col">{t("ob.facts.colSource")}</th>
-                  <th scope="col">{t("ob.facts.colConfidence")}</th>
+                  <th scope="col" className="ob-facts-td-conf">
+                    {t("ob.facts.colConfidence")}
+                  </th>
                 </tr>
               </thead>
               <tbody>

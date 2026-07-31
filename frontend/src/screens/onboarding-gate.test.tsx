@@ -316,6 +316,48 @@ describe("OnboardingGate", () => {
   });
 });
 
+describe("the gate-to-read handoff", () => {
+  it("replaces the tail of one column instead of mounting a second screen", () => {
+    const { rerender } = render(
+      <OnboardingGate
+        running={false}
+        configuredModel={MODEL}
+        onSubmit={vi.fn()}
+        onManual={vi.fn()}
+      />,
+    );
+    const core = document.querySelector(".core");
+    const title = screen.getByRole("heading", { level: 1 });
+    expect(core).not.toBeNull();
+    expect(screen.getByLabelText(/Your website address/)).toBeInTheDocument();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <OnboardingGate
+          running={false}
+          configuredModel={MODEL}
+          scan={{ read: siteRead(), host: "gradion.com", locale: "en" }}
+          onSubmit={vi.fn()}
+          onManual={vi.fn()}
+        />
+      </LocaleProvider>,
+    );
+
+    // The SAME nodes, not equivalent ones. Identity is the whole assertion: a
+    // remounted Core rebuilds its WebGL context and restarts every loop it is
+    // mid-way through, so the flow's most important moment would flash and
+    // re-enter rather than carry on.
+    expect(document.querySelector(".core")).toBe(core);
+    expect(screen.getByRole("heading", { level: 1 })).toBe(title);
+    // Only the tail changed: the question is gone, the read's regions are there.
+    expect(screen.queryByLabelText(/Your website address/)).toBeNull();
+    expect(
+      screen.getByRole("list", { name: "Pages read so far" }),
+    ).toBeInTheDocument();
+    expect(title).toHaveTextContent("Reading gradion.com");
+  });
+});
+
 describe("ReadTheatre phase line", () => {
   const cases: ReadonlyArray<[string, Partial<CompanySiteRead>, string]> = [
     ["queued", { status: "queued", phase: null }, "Queued, starting shortly"],
