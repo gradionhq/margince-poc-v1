@@ -92,8 +92,9 @@ func NewOverlayHandlers(pool *pgxpool.Pool, vault keyvault.Vault, meter *overlay
 		WithIncumbentClassesTranslator(hubspot.IncumbentClassesFor).
 		WithIncumbentFactory(incumbent).
 		WithModeFlipObserver(onModeFlip).
+		WithFlipImportProbe(FlipImportProbe).
 		WithLogger(log)
-	return overlay.NewHandlers(svc)
+	return overlay.NewHandlers(svc).WithFlipRunner(newFlipRunner(pool, svc, ms, log))
 }
 
 // hubspotIncumbentFactory builds a live HubSpot adapter over one

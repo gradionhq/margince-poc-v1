@@ -11,6 +11,7 @@ package overlay
 // the same posture as every other declared-but-unimplemented surface.
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -21,19 +22,36 @@ import (
 
 // Handlers is the overlay module's transport surface (crm.yaml
 // /overlay/*): the incumbent connection lifecycle, mirror sync health,
-// budget, reconcile, and the read-mode→overlay flip. The admin user-map
+// budget, reconcile, and the overlay→native flip. The admin user-map
 // and owners-directory verbs live next door in handlers_usermap.go, on
-// this same type. svc backs every verb except the flip pair (branch 2),
-// which stays an explicit 501 until it lands regardless of whether svc
-// is set — a partially-wired Handlers never silently succeeds on an op
-// it doesn't yet serve.
+// this same type. svc backs every verb except the flip pair, which is
+// served by the injected FlipRunner (the flip orchestrates across the
+// migration engine and the native stores, so its wiring is compose's) —
+// and stays an explicit 501 while unwired: a partially-wired Handlers
+// never silently succeeds on an op it doesn't yet serve.
 type Handlers struct {
-	svc *Service
+	svc  *Service
+	flip FlipRunner
+}
+
+// FlipRunner is the flip pair's domain seam: compose implements it over
+// this module's preflight primitives (flipstate.go) plus the migration
+// engine, and injects it here — the module keeps the transport, compose
+// keeps the cross-module orchestration.
+type FlipRunner interface {
+	Preflight(ctx context.Context) (crmcontracts.OverlayFlipPreflight, error)
+	Execute(ctx context.Context, req crmcontracts.OverlayFlipRequest) (crmcontracts.OverlayFlipAccepted, error)
 }
 
 // NewHandlers constructs Handlers over svc.
 func NewHandlers(svc *Service) Handlers {
 	return Handlers{svc: svc}
+}
+
+// WithFlipRunner returns Handlers additionally serving the flip pair.
+func (h Handlers) WithFlipRunner(flip FlipRunner) Handlers {
+	h.flip = flip
+	return h
 }
 
 // GetOverlayConnection returns the workspace's overlay incumbent
@@ -131,6 +149,7 @@ func (h Handlers) GetOverlaySyncStatus(w http.ResponseWriter, r *http.Request) {
 // crmcontracts.OverlaySyncStatus.Objects with no per-field copy.
 type wireSyncObject = struct {
 	BackfillComplete *bool                                       `json:"backfillComplete,omitempty"` //nolint:tagliatelle // must match the generated OverlaySyncStatus.Objects element shape verbatim (crm.yaml's own camelCase)
+	FrozenForFlip    *bool                                       `json:"frozenForFlip,omitempty"`    //nolint:tagliatelle // see above
 	LastSyncedAt     *time.Time                                  `json:"lastSyncedAt,omitempty"`     //nolint:tagliatelle // see above
 	Object           *string                                     `json:"object,omitempty"`
 	State            *crmcontracts.OverlaySyncStatusObjectsState `json:"state,omitempty"`
@@ -146,9 +165,12 @@ func syncStatusToWire(objects []ObjectSyncStatus) crmcontracts.OverlaySyncStatus
 	}
 	wire := make([]wireSyncObject, len(objects))
 	for i, o := range objects {
-		object, lastSyncedAt, complete := o.Object, o.LastSyncedAt, o.BackfillComplete
+		object, lastSyncedAt, complete, frozen := o.Object, o.LastSyncedAt, o.BackfillComplete, o.FrozenForFlip
 		state := crmcontracts.OverlaySyncStatusObjectsState(o.State)
-		wire[i] = wireSyncObject{BackfillComplete: &complete, LastSyncedAt: &lastSyncedAt, Object: &object, State: &state}
+		wire[i] = wireSyncObject{
+			BackfillComplete: &complete, FrozenForFlip: &frozen,
+			LastSyncedAt: &lastSyncedAt, Object: &object, State: &state,
+		}
 	}
 	return crmcontracts.OverlaySyncStatus{Objects: &wire}
 }
@@ -228,14 +250,44 @@ func budgetToWire(b overlaybudget.Budget) crmcontracts.OverlayBudget {
 	}
 }
 
-// PreflightOverlayFlip dry-runs the read-mode→overlay flip's readiness
-// checks without executing it.
+// PreflightOverlayFlip dry-runs the overlay→native flip's readiness
+// checks without executing it (B-E18.26; OVA-WIRE-7).
 func (h Handlers) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
-	httperr.NotImplemented(w, r, "preflightOverlayFlip")
+	if h.flip == nil {
+		httperr.NotImplemented(w, r, "preflightOverlayFlip")
+		return
+	}
+	verdict, err := h.flip.Preflight(r.Context())
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusOK, verdict)
 }
 
-// ExecuteOverlayFlip executes the read-mode→overlay flip, queuing the
-// migration.
+// ExecuteOverlayFlip executes the overlay→native flip, running the
+// migration synchronously behind the 202 (B-E18.27; OVA-WIRE-8 — the
+// DisconnectOverlay precedent: complete, not queued).
 func (h Handlers) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
-	httperr.NotImplemented(w, r, "executeOverlayFlip")
+	if h.flip == nil {
+		httperr.NotImplemented(w, r, "executeOverlayFlip")
+		return
+	}
+	// The body is optional at the contract (an absent one is not a
+	// breaking change on a previously body-less op) but a flip without
+	// the typed phrase is refused all the same: an empty body decodes to
+	// the zero request, which the runner rejects with the same 422 the
+	// phrase gate answers.
+	var req crmcontracts.OverlayFlipRequest
+	if r.ContentLength != 0 {
+		if !httperr.Decode(w, r, &req) {
+			return
+		}
+	}
+	accepted, err := h.flip.Execute(r.Context(), req)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	httperr.WriteJSON(w, http.StatusAccepted, accepted)
 }
