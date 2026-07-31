@@ -121,3 +121,78 @@ func TestSelectablePassportsNarrowsToTheRequest(t *testing.T) {
 		t.Fatalf("granted = %v, want only [read] — the client asked for no more", granted)
 	}
 }
+
+// An expired passport is a dead credential, not a template — the
+// expires_at > now() clause has to hold with no other exclusion in play, or
+// a dropped `AND expires_at > now()` would pass every other test here
+// silently. Set into the past through the owner connection rather than
+// waiting on a real clock: the SQL predicate is judged against the
+// database's own now(), so backdating the row is the deterministic way to
+// put a passport on the wrong side of it.
+func TestSelectablePassportsExcludesAnExpiredPassport(t *testing.T) {
+	o := setupOAuth(t)
+	ctx := context.Background()
+
+	expired := o.mintPassport(t, "expired", []string{"read"})
+	if _, err := o.owner.Exec(ctx,
+		`UPDATE passport SET expires_at = now() - interval '1 minute' WHERE id = $1`, expired); err != nil {
+		t.Fatalf("backdating a passport's expiry: %v", err)
+	}
+
+	got := o.consentRequest(t, "read")
+	if len(got.Passports) != 0 {
+		t.Fatalf("passports = %v, want none — the only passport is expired", got.Passports)
+	}
+}
+
+// Another human's passport must never appear on THIS human's consent screen,
+// however completely it overlaps the request and however long it has left to
+// live — on_behalf_of = $1 is what stands between an agent and borrowing
+// authority nobody granted to it. The harness's only session is the
+// bootstrap admin's, and this suite has no way to sign in AS a second human
+// (that needs the password-reset flow's mailer, which lives in identity's own
+// unit tests, not this HTTP harness) — so the second user is minted through
+// the real admin invite endpoint, and their passport is inserted directly on
+// the owner connection, the same way the "bound" fixture above binds a grant.
+func TestSelectablePassportsExcludesAnotherUsersPassport(t *testing.T) {
+	o := setupOAuth(t)
+	ctx := context.Background()
+
+	var other struct {
+		ID string `json:"id"`
+	}
+	if status := o.call(t, "POST", "/v1/users", anyMap{
+		"email": "otherhuman@acme.test", "display_name": "Other Human", "role": "rep",
+	}, nil, &other); status != http.StatusCreated {
+		t.Fatalf("inviting a second user → %d", status)
+	}
+	if _, err := o.owner.Exec(ctx,
+		`INSERT INTO passport (workspace_id, on_behalf_of, granted_by, label, scopes, token_hash, expires_at)
+		 SELECT workspace_id, id, id, 'not mine', ARRAY['read']::text[], 'other-user-'||id, now() + interval '1 day'
+		 FROM app_user WHERE id = $1`, other.ID); err != nil {
+		t.Fatalf("minting a passport for the second user: %v", err)
+	}
+
+	got := o.consentRequest(t, "read")
+	if len(got.Passports) != 0 {
+		t.Fatalf("passports = %v, want none — this passport belongs to another user", got.Passports)
+	}
+}
+
+// The connector's deployment gate reaches this endpoint too: with the
+// connector undeclared, every /oauth/ path is absent, and this operation —
+// which cannot be unmounted from the generated /v1 router because its path
+// is /oauth/consent-request there too — has to answer the SAME 404 by being
+// shadowed in compose (compose/oauth_consent.go) rather than served. This is
+// the property Task 2's review flagged as missing: a session-authenticated
+// human must not still reach this read once an admin turns the connector
+// off.
+func TestConsentRequestIsAbsentWithTheConnectorOff(t *testing.T) {
+	e := setup(t)
+	e.bootstrapWorkspace(t)
+
+	status := e.call(t, "GET", "/v1/oauth/consent-request?client_id=whatever&scope=read", nil, nil, nil)
+	if status != http.StatusNotFound {
+		t.Fatalf("consent-request with the connector off → %d, want 404", status)
+	}
+}
