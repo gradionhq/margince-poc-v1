@@ -466,25 +466,38 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
  */
 export function TagsCard({
   view,
-  actions,
+  listAction,
+  tagAction,
 }: Readonly<{
   view?: Organization360;
-  actions?: ReactNode;
+  // One verb per SECTION, not one per card. The two halves are governed by
+  // different grants, so a caller who may read tags but not lists must be
+  // offered the tag verb and not the list one — the same rule the card
+  // already applies to what it displays.
+  listAction?: ReactNode;
+  tagAction?: ReactNode;
 }>) {
   const t = useT();
   const tags = view?.tags ?? [];
   const lists = view?.list_memberships ?? [];
+  const listState = sectionState(
+    view,
+    "list_memberships",
+    Boolean(view?.list_memberships),
+    lists.length,
+  );
+  const tagState = sectionState(view, "tags", Boolean(view?.tags), tags.length);
+  // Present means read and answered — ready or empty. A withheld section says
+  // the caller may not see it, and an unavailable one says nobody knows; a
+  // verb on either offers a write whose refusal would be the first the reader
+  // hears of the limit.
+  const shows = (state: SectionState) => state === "ready" || state === "empty";
   return (
     <section className="card co-card">
       <SectionHeader title={t("co.tags.title")} />
       <SectionPart
         label={t("co.tags.lists")}
-        state={sectionState(
-          view,
-          "list_memberships",
-          Boolean(view?.list_memberships),
-          lists.length,
-        )}
+        state={listState}
         emptyLabel={t("co.tags.noLists")}
       >
         <p className="co-row-meta">
@@ -497,7 +510,7 @@ export function TagsCard({
       </SectionPart>
       <SectionPart
         label={t("co.tags.tags")}
-        state={sectionState(view, "tags", Boolean(view?.tags), tags.length)}
+        state={tagState}
         emptyLabel={t("co.tags.noTags")}
       >
         <p className="co-row-meta">
@@ -506,7 +519,12 @@ export function TagsCard({
           ))}
         </p>
       </SectionPart>
-      {actions && <div className="co-card-actions">{actions}</div>}
+      {(shows(listState) || shows(tagState)) && (
+        <div className="co-card-actions">
+          {shows(tagState) && tagAction}
+          {shows(listState) && listAction}
+        </div>
+      )}
     </section>
   );
 }

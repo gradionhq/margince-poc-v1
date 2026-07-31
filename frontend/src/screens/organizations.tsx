@@ -1715,14 +1715,8 @@ function businessRail({
         <Disclosure summary={t("co.tags.title")}>
           <TagsCard
             view={view}
-            actions={
-              readOnly ? undefined : (
-                <>
-                  <TagAction orgId={org.id} />
-                  <ListAction orgId={org.id} />
-                </>
-              )
-            }
+            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
           />
         </Disclosure>
       </>

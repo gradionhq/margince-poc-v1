@@ -133,20 +133,21 @@ export function NewDealAction({
  */
 export function TagAction({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
-  const tags = useQuery({
-    queryKey: ["tags", "all"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/tags", { params: { query: {} } });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data.data;
-    },
-  });
 
   const addTag = async (values: Record<string, string>) => {
     const name = values.name.trim();
-    const existing = (tags.data ?? []).find(
+    // Read the tags AT SUBMIT, never from a cache the component loaded
+    // earlier. A first attempt that creates the tag and then fails to apply it
+    // leaves a tag the cached list does not have, so a retry would mint a
+    // second one under the same name — the duplicate this matching exists to
+    // prevent, produced by the retry itself.
+    const { data: known, error: readError } = await api.GET("/tags", {
+      params: { query: {} },
+    });
+    if (readError) {
+      throw new Error(problemMessage(readError, t));
+    }
+    const existing = known.data.find(
       (tag) => tag.name.trim().toLowerCase() === name.toLowerCase(),
     );
     let tagId = existing?.id;
@@ -195,22 +196,18 @@ export function TagAction({ orgId }: Readonly<{ orgId: string }>) {
  */
 export function ListAction({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
-  const lists = useQuery({
-    queryKey: ["lists", "organization"],
-    queryFn: async () => {
-      const { data, error } = await api.GET("/lists", {
-        params: { query: { entity_type: "organization" } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data.data;
-    },
-  });
 
   const addToList = async (values: Record<string, string>) => {
     const name = values.name.trim();
-    const existing = (lists.data ?? []).find(
+    // Read at submit, for the reason spelled out in TagAction: a retry after a
+    // half-completed attempt must find what that attempt created.
+    const { data: known, error: readError } = await api.GET("/lists", {
+      params: { query: { entity_type: "organization" } },
+    });
+    if (readError) {
+      throw new Error(problemMessage(readError, t));
+    }
+    const existing = known.data.find(
       (list) =>
         list.list_type === "static" &&
         list.name.trim().toLowerCase() === name.toLowerCase(),

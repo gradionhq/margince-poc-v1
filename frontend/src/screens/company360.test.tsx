@@ -262,6 +262,27 @@ describe("company view — the verbs that change a section", () => {
   });
 });
 
+it("offers the tag verb but not the list verb when only lists are withheld", async () => {
+  // The two halves of the card are governed separately, so one withheld
+  // grant must not take the other's verb with it — and must not offer a
+  // write whose refusal would be the first the reader hears of the limit.
+  stub(
+    view({
+      list_memberships: undefined,
+      sections_omitted: ["list_memberships"],
+    }),
+  );
+  renderCompany();
+
+  const card = await screen.findByRole("complementary", { name: "Business" });
+  expect(
+    await within(card).findByRole("button", { name: "Add tag" }),
+  ).toBeTruthy();
+  expect(
+    within(card).queryByRole("button", { name: "Add to list" }),
+  ).toBeNull();
+});
+
 describe("company view — consent is per purpose", () => {
   it("reads an all-unknown consent map as no permission, not as silence", async () => {
     stub(
