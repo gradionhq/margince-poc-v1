@@ -141,6 +141,28 @@ func TestParseBriefDropsSentencesCitingRecordsTheInputNeverCarried(t *testing.T)
 	}
 }
 
+// Some models wrap JSON in a ```json fence. Every other model-reply parser in
+// the tree reduces through ai.Unfence first; this one must too, or a provider
+// that fences loses the whole model lane to the deterministic floor and the
+// reader never learns why.
+func TestParseBriefReadsAFencedReply(t *testing.T) {
+	in := inputFixture()
+	fenced := "```json\n" +
+		`{"sentences":[{"text":"The retrofit deal has stalled.","evidence":[{"entity_type":"deal","entity_id":"11111111-1111-4111-8111-111111111111"}]}]}` +
+		"\n```"
+
+	kept, err := ParseBrief(fenced, briefOrgID, in)
+	if err != nil {
+		t.Fatalf("a fenced reply must parse: %v", err)
+	}
+	if len(kept) != 1 {
+		t.Fatalf("kept %d sentences, want the one grounded sentence", len(kept))
+	}
+	if !strings.Contains(kept[0].Text, "stalled") {
+		t.Errorf("kept the wrong sentence: %q", kept[0].Text)
+	}
+}
+
 // The account itself is always citable: it is the record the brief is about.
 func TestParseBriefKeepsASentenceCitingTheAccount(t *testing.T) {
 	kept, err := ParseBrief(

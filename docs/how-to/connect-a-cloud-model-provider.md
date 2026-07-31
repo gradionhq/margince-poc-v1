@@ -62,6 +62,13 @@ tiers:
 > re-seed from `config/ai-routing.example.yaml` (which is schema-validated in any
 > editor with a YAML language server — autocomplete, enum checks, hover docs).
 
+> **One key, every open-weight model:** `config/ai-routing.openrouter.example.yaml`
+> is a ready-made `openai_compatible` binding for OpenRouter, with three
+> candidates per tier ordered EU → China → USA and each filtered to models that
+> declare both `structured_outputs` and `tools`. Copy it over
+> `config/ai-routing.yaml`, or point one run at it with
+> `MARGINCE_AI_ROUTING=$PWD/config/ai-routing.openrouter.example.yaml`.
+
 ## 3. Bind the embeddings lane separately
 
 The embedding lane is bound apart from the chat tiers so retrieval survives a
@@ -74,14 +81,21 @@ embeddings: { provider: gemini, model: gemini-embedding-001 }  # the default
 # embeddings: { provider: fake }                               # offline dev
 ```
 
-> The retrieval store's column is a fixed **`vector(1024)`**, and cloud embedders
-> default wider (Gemini 3072, OpenAI 1536). The adapter pins the width — Gemini
-> via `outputDimensionality`, OpenAI via `dimensions` — so a cloud embedder drops
-> in without a schema change. A binding that returns another width fails loudly.
-
-> **`openai_compatible`'s `/embeddings` 404s on OpenRouter, Groq, and DeepSeek**
-> — they serve chat only. Bind `embeddings:` to a vendor that has the lane
-> (`gemini`, `openai`, Mistral) or a local model (`ollama` `bge-m3`).
+> The retrieval store's column is an unbounded **`vector`**, and `dimensions:`
+> on the embeddings binding declares the width it is populated under (default
+> 1536, ceiling 2000 — pgvector's own index limit). The **native** adapters pin
+> that width on the wire — `gemini` via `outputDimensionality`, `openai` via
+> `dimensions` — so a cloud embedder drops in at whatever width you ask for.
+> **`openai_compatible` does not**: it deliberately never sends `dimensions`,
+> because a non-MRL model behind vLLM 400s on it. On that provider the
+> configured width must EQUAL the model's native width. A binding that returns
+> another width fails loudly.
+>
+> **Not every `openai_compatible` vendor serves the embeddings lane.**
+> OpenRouter does — `/v1/embeddings`, with the catalog at
+> `GET /api/v1/embeddings/models` — while a chat-only vendor 404s. Bind
+> `embeddings:` to a vendor that has the lane (`gemini`, `openai`, Mistral,
+> OpenRouter) or a local model (`ollama` `bge-m3`).
 
 ## 4. Start the stack
 
@@ -124,6 +138,7 @@ cloud binding.
 | Boot error *"needs an api key — set X_API_KEY …"* | The bound cloud provider's key env var is unset. Export the one the error names (e.g. `GEMINI_API_KEY`). |
 | Boot error *"field api_key not found"* | You put an `api_key:` in the routing file — remove it; the key comes from the env var (see the table above). |
 | Boot error *"needs a base_url …"* | `openai_compatible` has no `base_url`. Add the vendor host root (no `/v1`). |
-| `http 404` on `/embeddings` | The `openai_compatible` vendor is chat-only. Rebind `embeddings:` to a lane-serving vendor or a local `bge-m3` (§3). |
+| `http 404` on `/embeddings` | That `openai_compatible` vendor is chat-only. Rebind `embeddings:` to a lane-serving vendor or a local `bge-m3` (§3). |
+| Embed error *"returned N vectors of width W, need 1×D"* | On `openai_compatible` the adapter never sends `dimensions`, so `dimensions:` must equal the model's NATIVE width (§3). Set it to `W`. |
 | Model 404 / *"model not found"* | A drifting `-latest` alias or a wrong id. Pin an explicit versioned model, or resolve it from the vendor's `/models` endpoint. |
 | Log says *"offline fake"* despite a cloud binding | `make dev` didn't flip into real routing — set any `ANTHROPIC_API_KEY` (§4) or run the api with `--ai-routing` directly. |
