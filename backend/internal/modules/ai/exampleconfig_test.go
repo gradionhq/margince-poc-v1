@@ -59,15 +59,28 @@ func TestTheDefaultExampleRoutingConfigDeclaresTheEUHostedPosture(t *testing.T) 
 	}
 }
 
-// The OpenRouter example brokers every call through a third-party inference
-// provider and sends no provider-routing preference, so it must not claim a
-// residency posture the request path cannot keep.
-func TestTheOpenRouterExampleDeclaresNoResidencyItCannotKeep(t *testing.T) {
-	cfg, err := LoadRoutingFile("../../../../config/ai-routing.openrouter.example.yaml")
+// An OpenRouter example brokers every call through a third-party inference
+// provider and sends no provider-routing preference, so none of them may claim
+// a residency posture the request path cannot keep. Derived from the tree, so a
+// further jurisdiction file inherits the rule instead of needing its own test.
+func TestNoOpenRouterExampleClaimsResidencyItCannotKeep(t *testing.T) {
+	const pattern = "../../../../config/ai-routing.openrouter*.example.yaml"
+	paths, err := filepath.Glob(pattern)
 	if err != nil {
-		t.Fatalf("config/ai-routing.openrouter.example.yaml no longer parses: %v", err)
+		t.Fatalf("globbing %s: %v", pattern, err)
 	}
-	if cfg.Profile != ProfileCloudFrontier {
-		t.Fatalf("openrouter example profile = %q, want %q", cfg.Profile, ProfileCloudFrontier)
+	if len(paths) == 0 {
+		t.Fatalf("%s matched no file; the OpenRouter examples moved and this gate went vacuous", pattern)
+	}
+	for _, path := range paths {
+		t.Run(filepath.Base(path), func(t *testing.T) {
+			cfg, err := LoadRoutingFile(path)
+			if err != nil {
+				t.Fatalf("%s no longer parses: %v", path, err)
+			}
+			if cfg.Profile != ProfileCloudFrontier {
+				t.Fatalf("%s profile = %q, want %q", path, cfg.Profile, ProfileCloudFrontier)
+			}
+		})
 	}
 }
