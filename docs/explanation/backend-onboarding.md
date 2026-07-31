@@ -27,7 +27,7 @@ re-explain what they already own.
 
 - **[reference/make-targets.md](../reference/make-targets.md)** — every `make` target.
 - **[reference/configuration.md](../reference/configuration.md)** — every flag and env var.
-- **[how-to/apply-migrations.md](../how-to/apply-migrations.md)**, **[mint-a-passport.md](../how-to/mint-a-passport.md)** → **[run-the-mcp-server.md](../how-to/run-the-mcp-server.md)** — common tasks.
+- **[how-to/apply-migrations.md](../how-to/apply-migrations.md)**, **[mint-a-passport.md](../how-to/mint-a-passport.md)** → **[connect-an-mcp-client.md](../how-to/connect-an-mcp-client.md)** — common tasks.
 
 ---
 
@@ -132,7 +132,7 @@ Four process roles, all assembled through `internal/compose`. Flags/env are tabl
   alongside one or more workers. River gives leader election, so worker replicas never double-run a
   job.
 - **`cmd/migrate`** — `up`/`down`, connects with the **owner** role (the app role never owns schema).
-- **`cmd/mcp`** — the governed agent tool surface over stdio or hosted HTTP.
+- The governed agent tool surface is served by `cmd/api` at `/mcp`; there is no separate MCP binary (SCR-9).
 
 ---
 

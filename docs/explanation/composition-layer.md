@@ -11,7 +11,7 @@ initializes and where things are wired. To *add* a feature that touches it, see
 - **The composite HTTP `Server`** — every module's handlers, shadowing the generated 501 stubs.
 - **The cross-module edges** — injected as small adapters, so no module imports a sibling.
 - **The datasource `Provider`** — the system-of-record seam the agent/MCP surface binds to.
-- **The MCP tool registry** — the one governed tool surface, shared by `cmd/mcp` and the REST agent gate.
+- **The MCP tool registry** — the one governed tool surface, shared by the `/mcp` transport and the REST agent gate.
 - **The background wiring** each binary needs — the River job runner, the Surface-B runner, the
   workflow engine, the capture registry.
 - **The per-role `Option`s** — how each binary customizes the wiring.
@@ -131,7 +131,7 @@ Each binary composes only what its role needs, all through this one layer:
 |---|---|---|
 | `New(pool, log, opts…)` | the api HTTP handler | `cmd/api` |
 | `NewProvider(pool)` | the `datasource.SystemOfRecordProvider` (people/deals/activities/reports) | the agent gate + MCP registry |
-| `NewRegistry(pool)` | the MCP tool registry | `cmd/mcp` + the REST agent gate |
+| `NewRegistry(pool)` | the MCP tool registry | the `/mcp` transport + the REST agent gate |
 | `NewJobRunner(pool, log, …)` | the River periodic jobs (close-date sweep, reconcile) | `cmd/worker` |
 | `NewRunnerService(pool, brain, retriever, log)` | the Surface-B reasoning runner | `cmd/worker` |
 | `NewWorkflowEngine(pool)` | the workflow dispatcher | `cmd/worker` |

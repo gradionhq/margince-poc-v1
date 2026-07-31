@@ -10,10 +10,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
 // The tool client sits outside the trust boundary: an error the sentinel
@@ -21,7 +24,7 @@ import (
 // generic message, and the real cause goes to the server-side log only.
 func TestExplainScrubsUnmappedErrors(t *testing.T) {
 	var logBuf bytes.Buffer
-	srv := NewStdioServer(nil, nil, "t", "0").
+	srv := NewDispatcher(nil, nil, "t", "0").
 		WithLogger(slog.New(slog.NewTextHandler(&logBuf, nil)))
 
 	secret := "pgx: password authentication failed for user margince_app at 10.7.0.5:5432"
@@ -42,7 +45,7 @@ func TestExplainScrubsUnmappedErrors(t *testing.T) {
 // guidance (and their safe, domain-authored detail) — scrubbing must not
 // flatten "a human must say yes" into "something broke".
 func TestExplainKeepsSentinelGuidance(t *testing.T) {
-	srv := NewStdioServer(nil, nil, "t", "0")
+	srv := NewDispatcher(nil, nil, "t", "0")
 	cases := []struct {
 		err  error
 		want string
@@ -71,7 +74,7 @@ func TestExplainKeepsSentinelGuidance(t *testing.T) {
 func TestCallScrubsBindFailures(t *testing.T) {
 	var logBuf bytes.Buffer
 	cause := errors.New("dial tcp 10.7.0.5:5432: connect: connection refused")
-	srv := NewStdioServer(nil, func(ctx context.Context) (context.Context, error) {
+	srv := NewDispatcher(nil, func(ctx context.Context) (context.Context, error) {
 		return nil, cause
 	}, "t", "0").WithLogger(slog.New(slog.NewTextHandler(&logBuf, nil)))
 
@@ -91,8 +94,79 @@ func TestCallScrubsBindFailures(t *testing.T) {
 	}
 }
 
+// tools/list must advertise only what the caller's passport scopes could
+// actually invoke. A surface that lists a tool the gate will refuse leaves the
+// client no way to learn the truth except to call and be denied.
+func TestToolListAdvertisesOnlyWhatTheCallersScopesAdmit(t *testing.T) {
+	registry := NewRegistry(nil, nil)
+	for name, scope := range map[string]principal.Scope{
+		"read_tool":  principal.ScopeRead,
+		"write_tool": principal.ScopeWrite,
+		"send_tool":  principal.ScopeSend,
+	} {
+		registry.Register(&fakeTool{spec: mcp.ToolSpec{
+			Name: name, RequiredScope: scope, Tier: mcp.TierAutoExecute,
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+		}})
+	}
+	s := NewDispatcher(registry, bindAuthenticated, "margince-crm", "test")
+
+	listed := func(ctx context.Context) []string {
+		resp := s.handle(ctx, rpcRequest{
+			JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: "tools/list",
+		})
+		result, ok := resp.Result.(map[string]any)
+		if !ok {
+			t.Fatalf("result = %#v", resp.Result)
+		}
+		tools, ok := result["tools"].([]map[string]any)
+		if !ok {
+			t.Fatalf("tools = %#v", result["tools"])
+		}
+		names := make([]string, 0, len(tools))
+		for _, tool := range tools {
+			name, _ := tool[fieldName].(string)
+			names = append(names, name)
+		}
+		slices.Sort(names)
+		return names
+	}
+
+	agentCtx := func(scopes ...principal.Scope) context.Context {
+		return principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalAgent, ID: "agent:night", Scopes: principal.NewScopeSet(scopes...),
+		})
+	}
+
+	for _, tc := range []struct {
+		name string
+		ctx  context.Context
+		want []string
+	}{
+		{"read only sees the read tool", agentCtx(principal.ScopeRead), []string{"read_tool"}},
+		{
+			"read+write sees both, not send",
+			agentCtx(principal.ScopeRead, principal.ScopeWrite),
+			[]string{"read_tool", "write_tool"},
+		},
+		// A human reaching the surface is bounded by RBAC at the store, not by
+		// a passport scope they never carry — filtering them would hide it all.
+		{"a human sees the whole surface", principal.WithActor(context.Background(), principal.Principal{
+			Type: principal.PrincipalHuman, ID: "human:ada",
+		}), []string{"read_tool", "send_tool", "write_tool"}},
+		// Fail closed: no principal means no scopes, so nothing is advertised.
+		{"an unauthenticated caller sees nothing", context.Background(), []string{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := listed(tc.ctx); !slices.Equal(got, tc.want) {
+				t.Fatalf("tools/list = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestInitializeNegotiatesTheClientsProtocolRevision(t *testing.T) {
-	s := NewStdioServer(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
+	s := NewDispatcher(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
 	for _, tc := range []struct{ name, requested, want string }{
 		{
 			"echoes a supported revision", supportedProtocolVersions[len(supportedProtocolVersions)-1],

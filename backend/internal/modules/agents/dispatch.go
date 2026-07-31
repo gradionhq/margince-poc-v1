@@ -3,24 +3,28 @@
 
 package agents
 
-// The A1 local MCP server: JSON-RPC 2.0 over stdio, one message per line
-// (the MCP stdio transport). It speaks the protocol subset a tools-only
-// server needs — initialize, tools/list, tools/call, ping — and dispatches
-// every call through the Registry, which means through the admission
-// auth. Tool failures travel IN-BAND as isError results (the agent should
-// read them and adapt); only malformed JSON-RPC is a protocol error.
+// The MCP method dispatcher: the protocol subset a tools-only server needs —
+// initialize, tools/list, tools/call, ping — with every call routed through
+// the Registry, which means through the admission gate. Tool failures travel
+// IN-BAND as isError results (the agent should read them and adapt); only
+// malformed JSON-RPC is a protocol error.
+//
+// It owns no transport. httpmcp.go builds one of these per handler and feeds
+// it decoded requests, so method dispatch, the tool surface and the
+// scrubbed-error rules are defined once rather than per transport. A second
+// transport, should one return, gets the same object and therefore cannot
+// answer a call differently.
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"slices"
 
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
@@ -50,6 +54,10 @@ const (
 	// fieldName is the "name" member of both serverInfo and a tools/list
 	// entry — the same identifier in both, so it stays one spelling.
 	fieldName = "name"
+	// fieldText is BOTH the content-block kind and the member carrying it in
+	// an MCP tool result ({"type":"text","text":…}) — one spelling for both,
+	// because a typo in either makes a result no client renders.
+	fieldText = "text"
 )
 
 // negotiateProtocolVersion answers the client's requested MCP revision when
@@ -70,8 +78,9 @@ func negotiateProtocolVersion(requested string) string {
 // reconnect.
 type Binder func(ctx context.Context) (context.Context, error)
 
-// StdioServer serves MCP over one in/out pipe pair.
-type StdioServer struct {
+// Dispatcher answers decoded MCP requests. It is transport-agnostic: the
+// caller owns framing and hands it one rpcRequest at a time.
+type Dispatcher struct {
 	registry *Registry
 	bind     Binder
 	name     string
@@ -82,13 +91,16 @@ type StdioServer struct {
 	log *slog.Logger
 }
 
-func NewStdioServer(registry *Registry, bind Binder, name, version string) *StdioServer {
-	return &StdioServer{registry: registry, bind: bind, name: name, version: version, log: slog.Default()}
+// NewDispatcher builds the dispatcher for one server identity. name and version
+// are what initialize reports as serverInfo.
+func NewDispatcher(registry *Registry, bind Binder, name, version string) *Dispatcher {
+	return &Dispatcher{registry: registry, bind: bind, name: name, version: version, log: slog.Default()}
 }
 
-// WithLogger routes server-side diagnostics to log (protocol traffic
-// owns stdout, so callers point this at stderr or a file).
-func (s *StdioServer) WithLogger(log *slog.Logger) *StdioServer {
+// WithLogger routes server-side diagnostics to log. They are kept away from
+// the tool client on purpose: it is an untrusted agent, so the true cause of a
+// failure goes here while the client sees only the scrubbed answer.
+func (s *Dispatcher) WithLogger(log *slog.Logger) *Dispatcher {
 	if log != nil {
 		s.log = log
 	}
@@ -114,44 +126,7 @@ type rpcResponse struct {
 	Error   *rpcError       `json:"error,omitempty"`
 }
 
-// Serve reads requests until EOF or ctx cancellation. Responses are
-// written in request order — the loop is sequential by design (an agent
-// session is a conversation, and the store serializes on the database
-// anyway).
-func (s *StdioServer) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	enc := json.NewEncoder(out)
-
-	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		line := scanner.Bytes()
-		if len(line) == 0 {
-			continue
-		}
-
-		var req rpcRequest
-		if err := json.Unmarshal(line, &req); err != nil {
-			if err := enc.Encode(rpcResponse{JSONRPC: jsonRPCVersion, Error: &rpcError{Code: -32700, Message: "parse error"}}); err != nil {
-				return err
-			}
-			continue
-		}
-		if req.ID == nil {
-			// A notification (notifications/initialized etc.) gets no
-			// response by JSON-RPC rule.
-			continue
-		}
-		if err := enc.Encode(s.handle(ctx, req)); err != nil {
-			return err
-		}
-	}
-	return scanner.Err()
-}
-
-func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
+func (s *Dispatcher) handle(ctx context.Context, req rpcRequest) rpcResponse {
 	resp := rpcResponse{JSONRPC: jsonRPCVersion, ID: req.ID}
 	switch req.Method {
 	case methodInitialize:
@@ -178,7 +153,7 @@ func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
 	case "ping":
 		resp.Result = map[string]any{}
 	case "tools/list":
-		resp.Result = map[string]any{"tools": s.toolList()}
+		resp.Result = map[string]any{"tools": s.toolList(ctx)}
 	case "tools/call":
 		resp.Result = s.call(ctx, req.Params)
 	case "resources/list":
@@ -197,10 +172,41 @@ func (s *StdioServer) handle(ctx context.Context, req rpcRequest) rpcResponse {
 	return resp
 }
 
-func (s *StdioServer) toolList() []map[string]any {
+// invocableByCaller reports whether the calling principal's passport scopes
+// would let it invoke spec at all. It mirrors the scope arm of auth.Gate.Admit
+// deliberately — a surface that advertises what the gate will refuse is a
+// surface that lies, and the client's only way to discover the truth is to
+// call and be denied.
+//
+// It answers the SCOPE axis only, which is what §5.7 promises. The seat
+// ceiling and object RBAC are re-derived per call through the authority seam
+// and are a named follow-up (§10.2); this filter must not pretend to enforce
+// them, and Registry.Invoke remains the authority for every one of them.
+//
+// A ctx with no principal shows nothing rather than everything: the caller of
+// a tools/list that never authenticated has no scopes, and an empty surface is
+// the honest answer.
+func invocableByCaller(ctx context.Context, spec mcp.ToolSpec) bool {
+	p, ok := principal.Actor(ctx)
+	if !ok {
+		return false
+	}
+	// Humans and the system principal do not ride the scope model — their
+	// authority is their RBAC, enforced at the store — so filtering them by a
+	// passport scope they never carry would hide the whole surface.
+	if p.Type != principal.PrincipalAgent {
+		return true
+	}
+	return p.Scopes.Has(spec.RequiredScope)
+}
+
+func (s *Dispatcher) toolList(ctx context.Context) []map[string]any {
 	specs := s.registry.Specs()
 	tools := make([]map[string]any, 0, len(specs))
 	for _, spec := range specs {
+		if !invocableByCaller(ctx, spec) {
+			continue
+		}
 		tier := "auto_execute (runs immediately)"
 		switch spec.Tier {
 		case mcp.TierConfirmationRequired:
@@ -227,7 +233,7 @@ func (s *StdioServer) toolList() []map[string]any {
 	return tools
 }
 
-func (s *StdioServer) call(ctx context.Context, params json.RawMessage) map[string]any {
+func (s *Dispatcher) call(ctx context.Context, params json.RawMessage) map[string]any {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -253,13 +259,13 @@ func (s *StdioServer) call(ctx context.Context, params json.RawMessage) map[stri
 	if err != nil {
 		return toolError(s.explain(p.Name, err))
 	}
-	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(out)}}}
+	return map[string]any{"content": []map[string]any{{"type": fieldText, fieldText: string(out)}}}
 }
 
 func toolError(msg string) map[string]any {
 	return map[string]any{
 		"isError": true,
-		"content": []map[string]any{{"type": "text", "text": msg}},
+		"content": []map[string]any{{"type": fieldText, fieldText: msg}},
 	}
 }
 
@@ -269,7 +275,7 @@ func toolError(msg string) map[string]any {
 // is an internal failure whose text (driver errors, hosts, wrap chains)
 // must not cross the trust boundary to the tool client: it surfaces
 // generically and the real cause is logged server-side.
-func (s *StdioServer) explain(tool string, err error) string {
+func (s *Dispatcher) explain(tool string, err error) string {
 	switch {
 	case errors.Is(err, apperrors.ErrRequiresApproval):
 		return "This is a confirm-first (🟡) action: it needs human approval before it runs. " +

@@ -211,18 +211,6 @@ credential this DSN names must be the same owner role `cmd/migrate` uses.
 Configured, it also gains the api's `/readyz` `customfields-schema-pool`
 probe.
 
-## cmd/mcp — the agent tool surface
-
-| Flag | Env | Default | Meaning |
-|---|---|---|---|
-| `--dsn` | `MARGINCE_DSN` | — (required) | Postgres DSN, runtime app role |
-| `--public-base-url` | `MARGINCE_PUBLIC_BASE_URL` | — | canonical external scheme+host for buyer-facing links (RFC 8058 unsubscribe / preference center); required for a marketing send through the `send_email` tool — without it that send refuses rather than emit a forgeable link |
-| `--listen` | — | — | serve the hosted A2 transport on this address instead of stdio |
-
-The stdio transport additionally requires the env var
-**`MARGINCE_PASSPORT_TOKEN`** (`mgp_…`, minted via `POST /v1/passports`).
-It is deliberately not a flag: argv is world-readable.
-
 ## cmd/migrate — schema migrations
 
 ```

@@ -329,7 +329,7 @@ Open work, roughly in priority order.
 
 - **`make seed-dev` ignores `DEV_SLUG` and seeds the SHARED stack.** `make dev
   DEV_SLUG=x` exists so two worktrees can run at once, and every neighbouring
-  target (`dev-fresh`, `dev-stop`, `dev-logs`, `mcp-inspector`) honours the
+  target (`dev-fresh`, `dev-stop`, `dev-logs`) honours the
   slug. `seed-dev` does not: `scripts/seed-dev.sh` defaults to
   `API_BASE=http://localhost:8080` and `backend/Makefile`'s `seed-dev-db` uses
   `DB_NAME`, which defaults to `margince`. So seeding an isolated stack writes

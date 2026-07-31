@@ -89,7 +89,7 @@ job graph, and the SonarCloud coverage flow — is documented in
 Four process-role binaries, all wired through
 `internal/compose`: `cmd/api` (HTTP; inline outbox relay behind
 `--inline-relay`, default true), `cmd/worker` (standalone relay),
-`cmd/migrate` (up|down), `cmd/mcp` (the A1 stdio server).
+`cmd/migrate` (up|down).
 
 MCP (Surface A1): mint a passport (`POST /v1/passports`, session-authed),
 then `MARGINCE_PASSPORT_TOKEN=mgp_… mcp --dsn …`
