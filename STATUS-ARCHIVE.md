@@ -23,6 +23,66 @@
 
 ## Landed arcs
 
+**The company page's second pass — PRs #351 and #352 (2026-07-31).** #351
+fixed defects a review of the page's rule engines found after the page had
+already merged. All were one failure: a sentence the reader can disprove from
+the rest of the same screen. Engagement was read off the relationship SCORE,
+which decays to zero near the window edge, so the brief said only one person
+had ever engaged while that contact's own row said "Answered"; the reach chips
+made all-time claims ("Not approached") from a 90-day window, printed above a
+timeline showing the approach; the overdue count came off page one and read as
+the total. `groupFacts` recomputed identity from the whole displayed value
+while the server already sends a normalized `value_key`, so two descriptions of
+one product stayed two rows — the collapse did nothing on the shape production
+sends. And `better()` ranked the offering field before human precedence, so a
+site read's `product` hid a human's `service`.
+
+The single-thread sentence took three passes to make true. It has to carry the
+WINDOW (the counts cover 90 days), the DIRECTION (a contact qualifies on
+outbound alone, so "in contact" would call unanswered mail a relationship), and
+the CHANNELS (the server counts email, calls and meetings only, so a contact's
+WhatsApp sits on the timeline contributing nothing).
+
+#352 gave the page verbs. New deal on the Deals card, Add tag and Add to list
+on Lists & tags, each under the section it changes. The tag and list actions
+take a typed NAME and create when it is new, because a pick-only control has
+nothing to offer on a fresh workspace — which is exactly when it is first
+needed. `SectionCard` gained an `actions` slot that renders only on a section
+that came back read and answered, so a caller whose grants withheld the deals
+is not offered a button to add one. `CreateAction` gained `stay`, for a create
+whose result is a PROPERTY of the record on screen: without it the tag create
+routed to `/companies/<taggable-id>`, a page that 404s.
+
+**The company page rework and the leads behind it — PRs #349 and #342
+(2026-07-31).** #349 fixed a defect that silently destroyed leads: accepting a
+staged `site_lead` failed with `version_skew` whenever anything had written to
+the pinned organization after staging, and because the decision commits before
+the effect runs, the approval was left approved-but-unredeemed with no lead
+created. The pin is now opt-in per approval kind — a lead read off a company's
+website is FILED under that company rather than being an operation on it, so
+its effect reads no organization row and has no version to guard. A fitness
+test holds that list against the kinds whose effects actually read their
+target.
+
+PR `#342` rebuilt the company detail page around a meeting brief that states what
+the account means rather than listing what it holds, made email bodies
+readable, grouped and deduplicated the facts wall, collapsed three overlapping
+people sections into one, and kept the rails mounted across tab switches. It
+also worked three defects in the site read's published-person lane. Two are
+closed: people already on file were re-proposed (fixed by a probe that runs
+under the REQUESTING HUMAN's grants, because answering it workspace-wide made
+the approval inbox an existence oracle for records the reader's row scope
+hides), and re-reads stacked duplicate questions (fixed by keying the
+approval's logical identity on the lead's natural key).
+
+The third is only narrowed, not closed. A published person must now carry an
+email address the page actually printed, which removed every testimonial lead
+observed in practice — none of them published an address. But the floor proves
+CONTACTABILITY, not affiliation: a testimonial that does print the quoted
+person's own address still becomes a lead filed under the wrong company. See
+STATUS.md for the open call. `approvals.StageInTx` now refuses an input carrying
+`Identity` or `JoinPending` instead of ignoring both silently.
+
 **The company-view rebuild, finished — six feature PRs (#309, #313, #315, #317,
 #319, #322) plus one follow-up (#326).** They turned the organization record page
 into one composite read with a one-page view over it: the 360 itself, the evidence

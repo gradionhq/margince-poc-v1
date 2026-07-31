@@ -278,18 +278,9 @@ func StrengthForOrgContacts(ctx context.Context, tx pgx.Tx, orgID ids.Organizati
 }
 
 // personScopePredicate is the caller's person row-scope predicate for a query
-// that aliases person as p, spelled once for the two batch reads below. An
-// unbounded caller gets the always-true predicate rather than an empty string,
-// so the SQL that embeds it needs only one shape.
+// that aliases person as p, spelled once for the two batch reads below.
 func personScopePredicate(ctx context.Context, arg func(any) int) (string, error) {
-	scope, err := auth.ScopeClauseFor(ctx, "person", "p", arg)
-	if err != nil {
-		return "", err
-	}
-	if scope == "" {
-		return "TRUE", nil
-	}
-	return scope, nil
+	return scopeOrAllRows(ctx, "person", "p", arg)
 }
 
 // StrengthForPeople computes §4 for an ARBITRARY contact set inside the

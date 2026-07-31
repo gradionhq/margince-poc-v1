@@ -31,14 +31,22 @@ const siteLeadProposalKind = "site_lead"
 // siteLeadProposal is the thin staged payload — exactly what the site
 // published, plus the provenance the accept effect and the inbox need.
 type siteLeadProposal struct {
-	OrganizationID  ids.UUID `json:"organization_id"`
-	SiteReadID      ids.UUID `json:"site_read_id"`
-	Name            string   `json:"name"`
-	Role            string   `json:"role"`
-	PublishedEmail  string   `json:"published_email,omitempty"`
-	LinkedinURL     string   `json:"linkedin_url,omitempty"`
-	EvidenceSnippet string   `json:"evidence_snippet"`
-	SourceURL       string   `json:"source_url"`
+	OrganizationID ids.UUID `json:"organization_id"`
+	SiteReadID     ids.UUID `json:"site_read_id"`
+	// NaturalKey is siteLeadSourceID for this person — the SAME key the accept
+	// effect captures the lead under, carried in the payload because the
+	// approval's logical identity has to be a field the payload contains
+	// (approvals.canonicalIdentity). It is what makes a re-read supersede the
+	// undecided proposal from the last read instead of stacking beside it, and
+	// it is normalized, so a page that reflows the name to "  anna   MUSTER "
+	// still resolves to one question.
+	NaturalKey      string `json:"natural_key"`
+	Name            string `json:"name"`
+	Role            string `json:"role"`
+	PublishedEmail  string `json:"published_email,omitempty"`
+	LinkedinURL     string `json:"linkedin_url,omitempty"`
+	EvidenceSnippet string `json:"evidence_snippet"`
+	SourceURL       string `json:"source_url"`
 }
 
 // sitePerson is one gate-surviving published person from a team page.

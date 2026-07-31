@@ -51,6 +51,12 @@ numbers appear here when releases start.
   the caller may not read is omitted and named in `sections_omitted`,
   never returned empty. `POST /organizations/{id}/view-ack` is the
   explicit, human-only, monotonic visit baseline those counts run against.
+- **Company page verbs**: the record page opens a deal on the company it is
+  showing (open stages only, the organization implied rather than asked for),
+  and applies a tag or a list membership by typed name, creating either when
+  the name is new. Each verb renders only on a section the caller's grants let
+  them read, and an already-applied tag or membership is treated as the asked-
+  for state rather than reported as a collision.
 - **Company connections**: `GET /organizations/{id}/graph` serves the
   account's one-hop neighbourhood as nodes and edges the client lays out —
   its contacts by employment (weighted by §4 strength), its open deals and

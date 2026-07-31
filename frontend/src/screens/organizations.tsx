@@ -50,10 +50,10 @@ import {
   PeopleCard,
   RECORD_ZONE,
   SignalsCard,
-  SinceLastVisit,
   TagsCard,
   useOrganization360,
 } from "./company360";
+import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
 import { TimelineActions } from "./compose";
 import { ConnectionsCard } from "./connections";
@@ -62,6 +62,7 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
+import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
 import { RecordHistoryTab } from "./history";
 import { confidenceLevel } from "./inbox";
 import {
@@ -72,6 +73,7 @@ import {
   useListQuery,
 } from "./listquery";
 import { LogActivityAction } from "./logactivity";
+import { MeetingBrief } from "./meetingbrief";
 import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
@@ -909,6 +911,38 @@ function derivedSource(
   };
 }
 
+// PROFILE_FIELD_LABELS names the profile fields as statements ABOUT a company.
+//
+// The same fields are asked of the reader during onboarding, where the second
+// person is right — "What do you sell?" is a question to us. On a prospect's
+// record that framing put the reader in the wrong chair: the page appeared to
+// be interviewing us about a company we are trying to sell to.
+const PROFILE_FIELD_LABELS: Record<string, MessageKey> = {
+  display_name: "co.profileField.display_name",
+  offer_summary: "co.profileField.offer_summary",
+  icp: "co.profileField.icp",
+  buying_center: "co.profileField.buying_center",
+  value_proposition: "co.profileField.value_proposition",
+  usp: "co.profileField.usp",
+  customer_pains: "co.profileField.customer_pains",
+  desired_outcomes: "co.profileField.desired_outcomes",
+  buying_intents: "co.profileField.buying_intents",
+  common_objections: "co.profileField.common_objections",
+  sales_motion: "co.profileField.sales_motion",
+  legal_name: "co.profileField.legal_name",
+  registered_address: "co.profileField.registered_address",
+  register_vat: "co.profileField.register_vat",
+  industry: "co.profileField.industry",
+  history: "co.profileField.history",
+};
+
+// The onboarding wording is the fallback, so a field added there still reads
+// as words rather than as a column name here.
+function profileFieldLabel(field: string, t: ReturnType<typeof useT>): string {
+  const key = PROFILE_FIELD_LABELS[field];
+  return key ? t(key) : coldFieldLabel(field, t);
+}
+
 function ProfileFieldRow({
   field,
   onOpenHistory,
@@ -917,7 +951,7 @@ function ProfileFieldRow({
   const { locale } = useLocale();
   return (
     <div className="co-field">
-      <span className="t-label">{coldFieldLabel(field.field, t)}</span>
+      <span className="t-label">{profileFieldLabel(field.field, t)}</span>
       <div>
         <EvidenceMark
           value={field.value}
@@ -955,10 +989,7 @@ function ProfileFieldsCard({
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader
-        title={t("org.firmographicsLegal")}
-        sub={t("org.evidenceOrOmit")}
-      />
+      <SectionHeader title={t("co.profile.title")} />
       <QueryStates query={fieldsQuery}>
         {fieldsQuery.data && fieldsQuery.data.length === 0 ? (
           <p className="t-caption">{t("org.firmographicsEmpty")}</p>
@@ -980,12 +1011,15 @@ function ProfileFieldsCard({
 // categories are omitted and an empty read renders nothing at all — the
 // profile card above already carries the region's honest empty state, so a
 // second "nothing here" would only be noise.
-const FACT_CATEGORY_ORDER = [
-  "company",
-  "offering",
-  "market",
-  "signal",
-] as const;
+//
+// Ordering and duplicate collapsing live in factview.ts; the category order
+// comes from there too, so the card has one source for what it draws.
+//
+// FACT_PREVIEW is how many rows of a category are shown before the reader asks
+// for the rest. A real account returns ninety-odd facts, and rendering them all
+// made this card taller than the page it sits beside — at which point nobody
+// reads any of it.
+const FACT_PREVIEW = 5;
 
 const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
   company: "org.factCategory.company",
@@ -1004,7 +1038,7 @@ function FactRow({
   const { locale } = useLocale();
   return (
     <div className="co-field">
-      <span className="t-label">{coldFieldLabel(fact.field, t)}</span>
+      <span className="t-label">{t(factFieldLabelKey(fact.field))}</span>
       <div>
         <EvidenceMark
           value={fact.value}
@@ -1012,6 +1046,40 @@ function FactRow({
           onOpenHistory={onOpenHistory}
         />
       </div>
+    </div>
+  );
+}
+
+// One category of facts. Only the first few rows are drawn until the reader
+// asks for the rest, and the count of what is hidden is on the button — a
+// truncated list with no number reads as "that is everything".
+function FactCategory({
+  group,
+  onOpenHistory,
+}: Readonly<{ group: FactGroup; onOpenHistory?: () => void }>) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  const hidden = group.facts.length - FACT_PREVIEW;
+  const shown = expanded ? group.facts : group.facts.slice(0, FACT_PREVIEW);
+  return (
+    <div className="co-facts-group">
+      <div className="t-label co-facts-heading">
+        {t(FACT_CATEGORY_LABELS[group.category])}
+      </div>
+      {shown.map((fact) => (
+        <FactRow
+          key={`${fact.field}:${fact.value_key}`}
+          fact={fact}
+          onOpenHistory={onOpenHistory}
+        />
+      ))}
+      {hidden > 0 && (
+        <Button small onClick={() => setExpanded(!expanded)}>
+          {expanded
+            ? t("co.facts.showLess")
+            : t("co.facts.showAll", { count: group.facts.length })}
+        </Button>
+      )}
     </div>
   );
 }
@@ -1056,26 +1124,13 @@ function FactsCard({
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <SectionHeader title={t("org.facts")} />
-      {FACT_CATEGORY_ORDER.map((category) => {
-        const group = facts.filter((fact) => fact.category === category);
-        if (group.length === 0) {
-          return null;
-        }
-        return (
-          <div key={category} style={{ marginBottom: 16 }}>
-            <div className="t-label" style={{ marginBottom: 8 }}>
-              {t(FACT_CATEGORY_LABELS[category])}
-            </div>
-            {group.map((fact) => (
-              <FactRow
-                key={`${fact.field}:${fact.value_key}`}
-                fact={fact}
-                onOpenHistory={onOpenHistory}
-              />
-            ))}
-          </div>
-        );
-      })}
+      {groupFacts(facts).map((group) => (
+        <FactCategory
+          key={group.category}
+          group={group}
+          onOpenHistory={onOpenHistory}
+        />
+      ))}
     </section>
   );
 }
@@ -1278,61 +1333,22 @@ function CompanyRecord({
     </div>
   );
 
-  if (tab === "partner" || tab === "history") {
-    return (
-      <CompanyShell org={org} view={assembled}>
-        {tabs}
-        {/* Overlay refuses the whole company page, not just its overview:
-            the partner extension and the field history are native records
-            the mirror does not hold, so switching tabs must not walk around
-            the refusal into reads that can only fail. */}
-        {overlay ? (
-          <OverlayFallback />
-        ) : tab === "partner" ? (
-          <PartnerTab organizationId={org.id} />
-        ) : (
-          <RecordHistoryTab kind="organization" id={org.id} />
-        )}
-      </CompanyShell>
-    );
-  }
+  // Every tab renders inside ONE page. Partner and History used to be a
+  // different component tree with no rails, so switching tab unmounted both
+  // side columns and every query behind them: the grid re-columned under the
+  // reader and the page refetched itself on the way back. Only the middle
+  // column's body changes now.
   return (
-    <CompanyOverview
+    <CompanyPage
       org={org}
       view={assembled}
       overlay={overlay}
       loading={view.isPending}
       failed={view.isError}
+      tab={tab}
       tabs={tabs}
       onOpenHistory={() => onTab("history")}
     />
-  );
-}
-
-// CompanyShell is the header-only frame the non-overview tabs render inside,
-// so the identity, pulse line and action bar stay put as the rep switches.
-function CompanyShell({
-  org,
-  view,
-  children,
-}: Readonly<{
-  org: Organization;
-  view?: Organization360View;
-  children: ReactNode;
-}>) {
-  return (
-    <RecordView
-      name={org.display_name}
-      avatarSrc={org.logo_url}
-      subtitle={companySubtitle(org)}
-      zone={RECORD_ZONE}
-      badges={<CompanyActionBadges org={org} />}
-      pulse={<CompanyPulse org={org} view={view} />}
-      timeline={[]}
-      timelineNotice={<span />}
-    >
-      {children}
-    </RecordView>
   );
 }
 
@@ -1429,20 +1445,31 @@ function StrengthPulse({
     <span>
       {t("co.pulse.strengthLead", { score: strength.score })}{" "}
       <EntityRef kind="person" id={strength.contributor_person_id} />{" "}
-      {t("co.pulse.strengthTail", { count: strength.contact_count })}
+      {t(
+        strength.contact_count === 1
+          ? "co.pulse.strengthTail.one"
+          : "co.pulse.strengthTail.other",
+        { count: strength.contact_count },
+      )}
     </span>
   );
 }
 
-// CompanyOverview is the page itself: identity and verbs at the top, then
-// three zones — what this company IS on the left, what is HAPPENING in the
-// middle, the BUSINESS around it on the right.
-function CompanyOverview({
+// CompanyPage is the page itself: identity and verbs at the top, then three
+// zones — what this company IS on the left, what is HAPPENING in the middle,
+// the BUSINESS around it on the right.
+//
+// All three tabs render here. The rails belong to the ACCOUNT, not to the
+// overview, so they stay mounted whichever tab is open and the reader keeps
+// the firmographics and the business context while reading the partner form
+// or the change history.
+function CompanyPage({
   org,
   view,
   overlay,
   loading,
   failed,
+  tab,
   tabs,
   onOpenHistory,
 }: Readonly<{
@@ -1454,6 +1481,7 @@ function CompanyOverview({
   // account is empty", because all three would otherwise draw the same
   // blank page and only one of them is a fact about the account.
   failed: boolean;
+  tab: CompanyTab;
   tabs: ReactNode;
   // An evidence mark's "full history" opens the record's History tab, which
   // is local state on this screen rather than a route — so the mark is
@@ -1478,7 +1506,11 @@ function CompanyOverview({
         <CompanyPulse
           org={org}
           view={view}
-          onOpenDecisions={() => setDecisionsOpen(true)}
+          // The chip opens the queue, so it appears only where the queue can:
+          // a count you cannot act on from here is a dead end.
+          onOpenDecisions={
+            tab === "overview" ? () => setDecisionsOpen(true) : undefined
+          }
         />
       }
       // The composer opens from a button rather than standing open above the
@@ -1490,9 +1522,18 @@ function CompanyOverview({
       rail={
         overlay ? undefined : (
           <>
+            {/* What this company is, in one card. Everything under it is the
+                EVIDENCE for that card, folded away: thirteen sections of equal
+                weight made the reader decide what mattered on every visit, and
+                the scraped facts are the part they need least often and that
+                takes the most room. */}
             <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
-            <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
-            <RelationshipsTab scope={{ organization_id: org.id }} />
+            <Disclosure summary={t("co.evidence.title")}>
+              <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+            </Disclosure>
+            <Disclosure summary={t("co.relationships.title")}>
+              <RelationshipsTab scope={{ organization_id: org.id }} />
+            </Disclosure>
             {/* One-off tools and configuration, folded away. Standing open
                 they carried the same weight as the facts a rep opens the page
                 for, and they are used a fraction as often. */}
@@ -1505,9 +1546,19 @@ function CompanyOverview({
           </>
         )
       }
-      aside={businessRail({ org, view, overlay, failed })}
+      aside={businessRail({
+        org,
+        view,
+        overlay,
+        failed,
+        readOnly: Boolean(org.archived_at),
+        t,
+      })}
+      // The timeline is the account's story and belongs to the overview. The
+      // Partner tab is a form and History has its own change list, so neither
+      // repeats it under itself.
       timeline={
-        view
+        tab === "overview"
           ? activityTimeline(timeline, (activity) => (
               <TimelineActions
                 activity={activity}
@@ -1515,13 +1566,25 @@ function CompanyOverview({
                 entityId={org.id}
               />
             ))
-          : []
+          : undefined
       }
       // In overlay mode the refusal is stated once, in the body: repeating it
       // over the timeline would read as two separate things being
       // unavailable rather than one page not being assembled.
+      // Asking sits UNDER the account's own story, not above it. It is a tool
+      // for when the page did not already answer the question, and standing
+      // between the brief and the timeline it took the place of content.
+      timelineFooter={
+        tab === "overview" ? (
+          <AssistantPanel
+            orgId={org.id}
+            enabled={!overlay}
+            onOpenRecord={openCitation}
+          />
+        ) : undefined
+      }
       timelineNotice={
-        overlay ? (
+        overlay || tab !== "overview" ? (
           <span />
         ) : (
           timelineNoticeFor(
@@ -1533,21 +1596,26 @@ function CompanyOverview({
       }
     >
       {tabs}
+      {/* Overlay refuses the whole company page, not one tab of it: the
+          partner extension and the field history are native records the
+          mirror does not hold, so switching tabs must not walk around the
+          refusal into reads that can only fail. */}
       {overlay && <OverlayFallback />}
-      {failed && <EmptyState>{t("co.partial")}</EmptyState>}
-      {view && (
-        <SinceLastVisit
-          view={view}
-          onOpenDecisions={() => setDecisionsOpen(true)}
-        />
+      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
+      {!overlay && tab === "history" && (
+        <RecordHistoryTab kind="organization" id={org.id} />
       )}
-      <AssistantPanel
-        orgId={org.id}
-        view={view}
-        enabled={!overlay}
-        onOpenRecord={openCitation}
-      />
-      {view && (
+      {tab === "overview" && failed && (
+        <EmptyState>{t("co.partial")}</EmptyState>
+      )}
+      {/* The brief leads: what this account looks like right now, before the
+          cards that report it field by field. It absorbed the standalone
+          "since your last visit" block, because two cards each claiming to
+          say what the state is made the reader arbitrate between them. */}
+      {tab === "overview" && view && (
+        <MeetingBrief view={view} orgId={org.id} onOpenRecord={openCitation} />
+      )}
+      {tab === "overview" && view && (
         <NextSteps
           view={view}
           onOpenTask={(step) => setOpenTaskId(step.activity_id)}
@@ -1567,7 +1635,10 @@ function CompanyOverview({
           update={taskUpdate}
         />
       )}
-      {decisionsOpen && (
+      {/* The decision queue belongs to the OVERVIEW. Leaving it standing over
+          Partner or History put a panel from one tab on top of another, and a
+          reader who switched tabs to get rid of it could not. */}
+      {decisionsOpen && tab === "overview" && (
         <CompanyApprovalsPanel
           orgId={org.id}
           view={view}
@@ -1601,11 +1672,19 @@ function businessRail({
   view,
   overlay,
   failed,
+  readOnly,
+  t,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
   failed: boolean;
+  // An archived company takes no new deals, tags or list rows, so it shows no
+  // verb that would only be refused.
+  readOnly: boolean;
+  // Passed rather than read: this assembles a tree, it is not a component,
+  // so it has no hook context of its own.
+  t: ReturnType<typeof useT>;
 }>): ReactNode {
   if (overlay) {
     return undefined;
@@ -1613,11 +1692,33 @@ function businessRail({
   if (view) {
     return (
       <>
+        {/* Who and what, in the order a rep about to reach out asks for them.
+            The connections graph and the filing metadata fold away: the graph
+            re-lists the people directly above it, and lists and tags are how
+            the account is filed rather than anything about the account. */}
         <PeopleCard view={view} />
-        <ConnectionsCard orgId={org.id} />
-        <DealsCard view={view} />
+        <DealsCard
+          view={view}
+          // The verb sits under the list it changes: a rep who has just read
+          // "no open deal on this account" is one click from opening one,
+          // rather than leaving for the board to re-find this company there.
+          actions={
+            readOnly ? undefined : (
+              <NewDealAction orgId={org.id} orgName={org.display_name} />
+            )
+          }
+        />
         <SignalsCard orgId={org.id} />
-        <TagsCard view={view} />
+        <Disclosure summary={t("co.connections.title")}>
+          <ConnectionsCard orgId={org.id} />
+        </Disclosure>
+        <Disclosure summary={t("co.tags.title")}>
+          <TagsCard
+            view={view}
+            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+          />
+        </Disclosure>
       </>
     );
   }
