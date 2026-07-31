@@ -36,22 +36,59 @@ Requiring the address to sit on the crawled site's own domain would close it,
 and would also drop staff who publish a personal address. That trade is a
 product call, not a bug fix, so it is raised rather than taken.
 
-## Upstream raise — listTags cannot be asked about one name
+## Open defect — Add tag ignores the tag catalog's overflow signal
 
-`GET /tags` takes no name filter and no cursor (crm.yaml `listTags`), so a
-client reads the catalog and matches locally against whatever one page
-returns — the server caps that at 1,000 rows.
+`GET /tags` is a BOUNDED VOCABULARY by design, not a paged list: the spec's
+contract calls it CAP-CATALOG (feedback/12) — up to 1000 entries, no cursor,
+and `page.has_more=true` is "the overflow governance signal, not a cursor".
 
-The company page's Add tag resolves a typed name to one tag, and it is the
-caller that pays for this: on a workspace holding more tags than the cap, an
-existing tag past the cap is not found, the create then collides with
-`uq_tag_name`, and the 409 cannot be resolved because the winner is not in the
-page either. The rep gets an error they cannot act on.
+The company page's Add tag reads that catalog and matches a typed name against
+it, and never looks at `page.has_more`. On a workspace over the cap it silently
+matches within the first 1000: an existing tag past the cap is not found, the
+create collides with `uq_tag_name`, and the 409 cannot be resolved because the
+winner is not in the page either — the rep gets an error they cannot act on.
 
-The reach is a name filter on `listTags` (or a create that answers with the
-colliding row), not a paging loop in the client. Raised rather than worked
-around; a workspace with more than a thousand tags is not the pilot's shape,
-so nothing here is blocked on it.
+**This needs no contract change, and an earlier note here wrongly proposed
+one.** The spec already says what to do with the overflow: surface it. When
+`has_more` is true and the name does not match, the honest answer is that the
+workspace's tag vocabulary is over its governed cap, not a silent create that
+may duplicate. Fix in `frontend/src/screens/companyactions.tsx` (`resolveTagId`).
+
+## Open — what the company page still gets wrong, seen in the browser
+
+Read on a real account (Habyt, 2026-07-31, `make dev`). The layout problem the
+rework set out to fix IS fixed: three calm columns, email bodies readable,
+disclosures holding the detail. What is left is judgment, and none of it is
+visible from a test.
+
+1. **The header pulse is still cryptic.** It reads `0 · via billing_apac of 1
+   contact`. This is the line the founder called out before the rework
+   ("2 · via X of 3 contacts"); only its plural was fixed. A bare score with no
+   label opens the record.
+2. **One fact, twice, on one screen.** The brief says "billing_apac is your
+   only way into this account" and the People card says "One contact only — the
+   account is single-threaded". Card soup returning in a new place.
+3. **A role mailbox is described as a person.** `billing_apac` is a shared
+   inbox; "your only way into this account" is a sentence about a human. The
+   page has no notion of a role address, so it treats one as a contact.
+4. **The brief reads as an inventory of absences.** On this account: last
+   contact 56 days ago, nothing scheduled, no open deal, nothing won. All true,
+   none actionable. A brief should say what to do about the account; the rules
+   currently only say what it lacks.
+5. **The profile card is a new wall.** Ten fields, every value a full
+   paragraph, all underlined so everything reads as a link. The facts wall was
+   collapsed and then rebuilt out of profile fields.
+
+## Open — the reindex banner is ops jargon on every page
+
+`Reindex needed / Review in settings` sits above every record, for every user.
+It reports that the search embedding index is stale — the configured embedding
+model differs from what is populated, or records are queued. That is an
+operator's concern, and the detail already lives in Settings → Data. It
+occupies the most prominent slot on the page for a reader who cannot act on it.
+
+Founder asked what it was on 2026-07-31; the answer was "search index status,
+admin only". Moving it into Settings is a small change nobody has taken.
 
 ## Open decision — the organization brief endpoint has no client
 
@@ -1052,6 +1089,47 @@ The open list below comes out of PR #91's three-lens review of branch 1b.
     mode, so no caller sets `req.Tools`; the native adapters currently reject a
     non-empty `Tools` loudly rather than map it to the Responses `tools` /
     Gemini `functionDeclarations` shapes.
+
+## Upstream spec raises owed from 2026-07-31
+
+Checked against `margince-foundation` at the end of the company-page work. Two
+candidates turned out NOT to need a spec change; three do. Nothing was edited in
+the spec repo — raises only (the architecture.md contract-first rule).
+
+**Needs no change — the spec already answers it:**
+
+- **`listTags` overflow.** Recorded here earlier as a contract gap wanting a
+  name filter. Wrong: `specs/contract/crm.yaml` defines it as CAP-CATALOG
+  (feedback/12) — a bounded vocabulary of 1000, no cursor, with
+  `page.has_more=true` as "the overflow governance signal, not a cursor". The
+  defect is entirely ours: the client ignores the signal. See the open defect
+  above.
+- **The opt-in approval pin (PR #349).** `approvals-and-concurrency.md:237`
+  already types `target_version` as "row version the diff was staged against |
+  null", so a kind carrying no pin is inside the contract as written.
+
+**Owed:**
+
+1. **State the RULE for which approval kinds carry a pin.** The schema allows
+   null; nothing says when null is correct. The rule this repo now enforces
+   (`approvals.TargetIsContextOnly`, held by a fitness test) is: a kind whose
+   effect never READS the pinned row carries no pin — a lead filed under a
+   company is not an operation on that company. That belongs in
+   `subsystems/approvals-and-concurrency.md` beside the field.
+2. **The published-person quality floor.** `subsystems/capture.md` (CAP-PARAM-7)
+   describes the auto-enrich lane staging `site_lead` but sets no floor on what
+   is worth staging. This repo now requires a name, a role, AND an email the
+   page printed — a lead nobody can contact asks a human to confirm a name they
+   cannot act on. Reading one real site staged 62 customer testimonials as
+   contacts at the company whose site it was. The floor, and the affiliation
+   gap it does NOT close (a testimonial that prints its own address), both need
+   a home in the spec.
+3. **Two `AC-company` copy defects, never raised.** AC-company-9's own pinned
+   string contains an em dash, which `quality/craftsmanship.md` VOICE-RULE-5
+   bans in user-facing copy — the AC is wrong, not the rule. And AC-company-4
+   and AC-company-9 assert absolutes ("You logged none of this", "Nothing here
+   was typed") that are false whenever a human note or a `source: human` field
+   exists; both should be conditional on the visible rows.
 
 ## Upstream spec reconciliation
 
