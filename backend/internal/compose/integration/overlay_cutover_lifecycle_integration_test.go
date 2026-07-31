@@ -123,7 +123,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 
 	// Native data and the audit spine survive retirement.
 	counts := f.nativeEstateRows(t)
-	for object, n := range map[string]int{"person": 2, "organization": 2, "deal": 2, "lead": 1, "activity": 1} {
+	for object, n := range map[string]int{"person": 3, "organization": 2, "deal": 2, "lead": 1, "activity": 1} {
 		if counts[object] != n {
 			t.Errorf("native %s rows after retirement = %d, want %d", object, counts[object], n)
 		}
@@ -170,7 +170,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 			t.Errorf("%s = %d, want %d", name, n, want)
 		}
 	}
-	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'hubspot:%'`, 2)
+	assertCount("reconstructed persons", `SELECT count(*) FROM person WHERE source LIKE 'hubspot:%'`, 3)
 	assertCount("reconstructed organizations", `SELECT count(*) FROM organization WHERE source LIKE 'hubspot:%'`, 2)
 	assertCount("reconstructed deals", `SELECT count(*) FROM deal WHERE source LIKE 'hubspot:%'`, 2)
 	assertCount("reconstructed leads", `SELECT count(*) FROM lead WHERE source_system = 'mirror:hubspot'`, 1)
@@ -196,7 +196,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("counting rebuilt persons by owner: %v", err)
 	}
-	if ownedByOperator != 2 {
+	if ownedByOperator != 3 {
 		t.Errorf("rebuilt persons owned by the operator = %d, want 2 — an unmapped owner must not leave the row workspace-visible", ownedByOperator)
 	}
 

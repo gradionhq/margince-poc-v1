@@ -290,6 +290,12 @@ func (w *flipWriters) ensureOrganization(ctx context.Context, row migration.Row)
 		s := string(band)
 		in.SizeBand = &s
 	}
+	// The company's domain is a TargetChild like the person's email:
+	// nested, and carried across rather than dropped (the store
+	// normalizes it, so no pre-cleaning here).
+	if domain := overlayOrgDomain(row.Fields); domain != "" {
+		in.Domains = []people.OrgDomainInput{{Domain: domain, IsPrimary: true}}
+	}
 	org, err := w.people.CreateOrganization(ctx, in)
 	if err != nil {
 		return migration.EnsureResult{}, fmt.Errorf("flip import: creating organization %s: %w", row.ExternalID, err)
@@ -318,7 +324,11 @@ func (w *flipWriters) ensurePerson(ctx context.Context, row migration.Row) (migr
 		Address:   flipAddress(row.Fields),
 		Source:    w.provenance(flipObjectPerson, row.ExternalID),
 	}
-	if email := strings.TrimSpace(fieldString(row.Fields, "person_email.email")); email != "" {
+	// The mapper lands a TargetChild under a NESTED map, never under its
+	// dotted To — so read it with the same helper the wire projection
+	// uses. A flat lookup silently returns "" and drops every contact's
+	// email (and with it the duplicate-email skip below).
+	if email := overlayPersonEmail(row.Fields); email != "" {
 		in.Emails = []people.PersonEmailInput{{Email: email, EmailType: "work", IsPrimary: true}}
 	}
 	person, err := w.people.CreatePerson(ctx, in)

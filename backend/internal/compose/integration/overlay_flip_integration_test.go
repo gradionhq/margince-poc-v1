@@ -179,14 +179,30 @@ func setupFlipEstate(t *testing.T) flipEstate {
 		rec.OwnerExternalID = "owner-1"
 		fakeInc.Seed(incumbentClass, rec)
 	}
-	seed(overlay.IncumbentClassCompanies, "organization", "org-1", map[string]any{"display_name": "BÄR Pharma"})
-	seed(overlay.IncumbentClassCompanies, "organization", "org-2", map[string]any{"display_name": "Gitex"})
+	// Child fields are seeded NESTED, the shape overlay.Apply actually
+	// lands them in (mapping.go's TargetChild) — a flat "person_email.email"
+	// key is a shape the mapper never produces, and seeding one would let
+	// a writer that reads it flat pass while dropping every real email.
+	seed(overlay.IncumbentClassCompanies, "organization", "org-1", map[string]any{
+		"display_name": "BÄR Pharma", "organization_domain": map[string]any{"domain": "baer-pharma.test"},
+	})
+	seed(overlay.IncumbentClassCompanies, "organization", "org-2", map[string]any{
+		"display_name": "Gitex", "organization_domain": map[string]any{"domain": "gitex.test"},
+	})
 	seed(overlay.IncumbentClassContacts, "person", "p-1", map[string]any{
-		"full_name": "Mor Anders", "first_name": "Mor", "last_name": "Anders", "person_email.email": "mor@baer-pharma.test",
+		"full_name": "Mor Anders", "first_name": "Mor", "last_name": "Anders",
+		"person_email": map[string]any{"email": "mor@baer-pharma.test"},
 	})
 	seed(overlay.IncumbentClassContacts, "person", "p-2", map[string]any{
-		"full_name": "Riya Patel", "person_email.email": "riya@gitex.test",
+		"full_name": "Riya Patel", "person_email": map[string]any{"email": "riya@gitex.test"},
 	})
+	// A contact the incumbent left unowned — the common case in a real
+	// portal, and the branch that must inherit the flip operator rather
+	// than landing ownerless (an ownerless native row is workspace-shared
+	// at every tier, while the mirror row was hidden from every seat).
+	unowned := fake.Rec("p-unowned", map[string]any{"full_name": "Unassigned Contact"})
+	unowned.ObjectClass = "person"
+	fakeInc.Seed(overlay.IncumbentClassContacts, unowned)
 	seed(overlay.IncumbentClassDeals, "deal", "d-open", map[string]any{
 		"name": "Packaging QA", "stage_id": "appointmentscheduled", "amount_minor": int64(21200000), "currency": "EUR",
 	})
@@ -329,8 +345,8 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	}
 	// The mirror stays readable on its last state — the estate reads
 	// still serve (fully readable, never partially migrated).
-	if rows, err := f.mirror.FlipRows(f.adminCtx, "person", 0, 10); err != nil || len(rows) != 2 {
-		t.Fatalf("mirror person rows after block = %d (%v), want 2 readable", len(rows), err)
+	if rows, err := f.mirror.FlipRows(f.adminCtx, "person", 0, 10); err != nil || len(rows) != 3 {
+		t.Fatalf("mirror person rows after block = %d (%v), want 3 readable", len(rows), err)
 	}
 
 	// The execute op is blocked with the flip-blocked sentinel.
@@ -375,7 +391,7 @@ func TestOverlayFlipPreflightBlocksHonestly(t *testing.T) {
 	for _, p := range *verdict.Parity {
 		parityByObject[p.Object] = p.WillCreate
 	}
-	want := map[string]int{"organization": 2, "person": 2, "deal": 2, "lead": 1, "activity": 1}
+	want := map[string]int{"organization": 2, "person": 3, "deal": 2, "lead": 1, "activity": 1}
 	for object, n := range want {
 		if parityByObject[object] != n {
 			t.Errorf("parity will_create[%s] = %d, want %d", object, parityByObject[object], n)
@@ -438,12 +454,12 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 
 	// Counts preserved (AC-OV-10 parity vs the frozen estate).
 	counts := f.nativeEstateRows(t)
-	for object, n := range map[string]int{"person": 2, "organization": 2, "deal": 2, "lead": 1, "activity": 1} {
+	for object, n := range map[string]int{"person": 3, "organization": 2, "deal": 2, "lead": 1, "activity": 1} {
 		if counts[object] != n {
 			t.Errorf("native %s rows = %d, want %d", object, counts[object], n)
 		}
 	}
-	if got := int64(2 + 2 + 2 + 1 + 1); *accepted.RecordsImported != got {
+	if got := int64(3 + 2 + 2 + 1 + 1); *accepted.RecordsImported != got {
 		t.Errorf("records_imported = %d, want %d", *accepted.RecordsImported, got)
 	}
 
@@ -474,6 +490,17 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		WHERE a.source_system = 'mirror:hubspot' AND p.source = 'hubspot:person:p-1'`)
 	assertOne("closed-won deal", `
 		SELECT count(*) FROM deal WHERE source = 'hubspot:deal:d-won' AND status = 'won'`)
+	// The child rows the mapper nests: a contact's email and a company's
+	// domain. Both were silently dropped by a flat read once, so they
+	// are pinned per-record rather than by count.
+	assertOne("imported person's email", `
+		SELECT count(*) FROM person_email pe
+		JOIN person p ON p.id = pe.person_id AND p.workspace_id = pe.workspace_id
+		WHERE p.source = 'hubspot:person:p-1' AND pe.email = 'mor@baer-pharma.test'`)
+	assertOne("imported organization's domain", `
+		SELECT count(*) FROM organization_domain od
+		JOIN organization o ON o.id = od.organization_id AND o.workspace_id = od.workspace_id
+		WHERE o.source = 'hubspot:organization:org-1' AND od.domain = 'baer-pharma.test'`)
 	// Owners survive the flip: every estate row named incumbent owner
 	// "owner-1", which mirror_user_map binds to the admin.
 	var ownedByAdmin int
@@ -481,8 +508,17 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 		return tx.QueryRow(f.adminCtx,
 			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id = $1`, f.adminID).Scan(&ownedByAdmin)
 	})
-	if ownedByAdmin != 2 {
-		t.Errorf("imported persons owned by the mapped admin = %d, want 2 — the mirror_user_map owner must survive the flip", ownedByAdmin)
+	if ownedByAdmin != 3 {
+		t.Errorf("imported persons owned by the admin = %d, want 3 — two by mirror_user_map, and the unowned one inheriting the operator", ownedByAdmin)
+	}
+	// Specifically: the unowned record is NOT ownerless.
+	var ownerless int
+	f.inWorkspaceTx(t, func(tx pgx.Tx) error {
+		return tx.QueryRow(f.adminCtx,
+			`SELECT count(*) FROM person WHERE source LIKE 'hubspot:%' AND owner_id IS NULL`).Scan(&ownerless)
+	})
+	if ownerless != 0 {
+		t.Errorf("%d imported person(s) landed ownerless — an ownerless native row is visible to every seat, which the mirror row was not", ownerless)
 	}
 
 	// The lifecycle ops fall back to mode_not_overlay, /me reports
@@ -501,8 +537,8 @@ func TestOverlayFlipFreshSyncExecute(t *testing.T) {
 	if code := e.call(t, "GET", "/v1/people", nil, nil, &people); code != http.StatusOK {
 		t.Fatalf("GET /v1/people after flip = %d", code)
 	}
-	if len(people.Data) != 2 {
-		t.Errorf("native people after flip = %d, want 2", len(people.Data))
+	if len(people.Data) != 3 {
+		t.Errorf("native people after flip = %d, want 3", len(people.Data))
 	}
 
 	// A second execute is refused: the flip is one-way (the lifecycle op
@@ -556,7 +592,7 @@ func TestOverlayFlipEmergencyCutover(t *testing.T) {
 		t.Fatalf("x_sor_mode after emergency cutover = %s, want native", mode)
 	}
 	counts := f.nativeEstateRows(t)
-	if counts["person"] != 2 || counts["deal"] != 2 {
+	if counts["person"] != 3 || counts["deal"] != 2 {
 		t.Errorf("estate after emergency cutover = %+v, want the last-known mirror imported", counts)
 	}
 }
@@ -629,8 +665,8 @@ func TestOverlayExportDownload(t *testing.T) {
 	// header — counted through the CSV reader, since a newline inside a
 	// quoted `fields` cell would inflate a line count and mask a
 	// dropped row.
-	if got := len(csvColumn(t, entries["overlay_mirror.csv"], "external_id")); got != 8 {
-		t.Errorf("overlay_mirror.csv has %d rows, want the 8 seeded mirror records", got)
+	if got := len(csvColumn(t, entries["overlay_mirror.csv"], "external_id")); got != 9 {
+		t.Errorf("overlay_mirror.csv has %d rows, want the 9 seeded mirror records", got)
 	}
 
 	// Exactly one audit row, and it satisfies the preflight's gate.
