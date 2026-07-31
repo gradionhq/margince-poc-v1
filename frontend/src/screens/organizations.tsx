@@ -1512,9 +1512,18 @@ function CompanyPage({
       rail={
         overlay ? undefined : (
           <>
+            {/* What this company is, in one card. Everything under it is the
+                EVIDENCE for that card, folded away: thirteen sections of equal
+                weight made the reader decide what mattered on every visit, and
+                the scraped facts are the part they need least often and that
+                takes the most room. */}
             <ProfileFieldsCard orgId={org.id} onOpenHistory={onOpenHistory} />
-            <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
-            <RelationshipsTab scope={{ organization_id: org.id }} />
+            <Disclosure summary={t("co.evidence.title")}>
+              <FactsCard orgId={org.id} onOpenHistory={onOpenHistory} />
+            </Disclosure>
+            <Disclosure summary={t("co.relationships.title")}>
+              <RelationshipsTab scope={{ organization_id: org.id }} />
+            </Disclosure>
             {/* One-off tools and configuration, folded away. Standing open
                 they carried the same weight as the facts a rep opens the page
                 for, and they are used a fraction as often. */}
@@ -1527,7 +1536,7 @@ function CompanyPage({
           </>
         )
       }
-      aside={businessRail({ org, view, overlay, failed })}
+      aside={businessRail({ org, view, overlay, failed, t })}
       // The timeline is the account's story and belongs to the overview. The
       // Partner tab is a form and History has its own change list, so neither
       // repeats it under itself.
@@ -1545,6 +1554,18 @@ function CompanyPage({
       // In overlay mode the refusal is stated once, in the body: repeating it
       // over the timeline would read as two separate things being
       // unavailable rather than one page not being assembled.
+      // Asking sits UNDER the account's own story, not above it. It is a tool
+      // for when the page did not already answer the question, and standing
+      // between the brief and the timeline it took the place of content.
+      timelineFooter={
+        tab === "overview" ? (
+          <AssistantPanel
+            orgId={org.id}
+            enabled={!overlay}
+            onOpenRecord={openCitation}
+          />
+        ) : undefined
+      }
       timelineNotice={
         overlay || tab !== "overview" ? (
           <span />
@@ -1576,13 +1597,6 @@ function CompanyPage({
           say what the state is made the reader arbitrate between them. */}
       {tab === "overview" && view && (
         <MeetingBrief view={view} orgId={org.id} onOpenRecord={openCitation} />
-      )}
-      {tab === "overview" && (
-        <AssistantPanel
-          orgId={org.id}
-          enabled={!overlay}
-          onOpenRecord={openCitation}
-        />
       )}
       {tab === "overview" && view && (
         <NextSteps
@@ -1638,11 +1652,15 @@ function businessRail({
   view,
   overlay,
   failed,
+  t,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
   failed: boolean;
+  // Passed rather than read: this assembles a tree, it is not a component,
+  // so it has no hook context of its own.
+  t: ReturnType<typeof useT>;
 }>): ReactNode {
   if (overlay) {
     return undefined;
@@ -1650,11 +1668,19 @@ function businessRail({
   if (view) {
     return (
       <>
+        {/* Who and what, in the order a rep about to reach out asks for them.
+            The connections graph and the filing metadata fold away: the graph
+            re-lists the people directly above it, and lists and tags are how
+            the account is filed rather than anything about the account. */}
         <PeopleCard view={view} />
-        <ConnectionsCard orgId={org.id} />
         <DealsCard view={view} />
         <SignalsCard orgId={org.id} />
-        <TagsCard view={view} />
+        <Disclosure summary={t("co.connections.title")}>
+          <ConnectionsCard orgId={org.id} />
+        </Disclosure>
+        <Disclosure summary={t("co.tags.title")}>
+          <TagsCard view={view} />
+        </Disclosure>
       </>
     );
   }

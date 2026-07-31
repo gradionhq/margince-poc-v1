@@ -626,6 +626,8 @@ export const de = {
   "co.people.missing": "Niemand hier ist dein {roles}.",
   "co.people.untriedHint": "{count} Personen hier wurden nie angesprochen.",
   "co.people.untriedHintOne": "Eine Person hier wurde nie angesprochen.",
+  "co.evidence.title": "Woher das stammt",
+  "co.relationships.title": "Verknüpfte Personen und Firmen",
   "co.tools.title": "Daten & Werkzeuge",
   "co.prep.title": "Bevor du mit ihnen sprichst",
   "co.prep.sparse":

@@ -615,6 +615,8 @@ export const en = {
   "co.people.missing": "Nobody here is your {roles}.",
   "co.people.untriedHint": "{count} people here have never been approached.",
   "co.people.untriedHintOne": "One person here has never been approached.",
+  "co.evidence.title": "Where this came from",
+  "co.relationships.title": "Linked people and companies",
   "co.tools.title": "Data & tools",
   "co.prep.title": "Before you talk to them",
   "co.prep.sparse":
