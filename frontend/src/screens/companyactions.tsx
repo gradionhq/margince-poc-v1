@@ -66,7 +66,7 @@ export function NewDealAction({
 
   const fields: CreateField[] = [
     { key: "name", label: "create.dealName", required: true },
-    { key: "amount", label: "create.amount", type: "number" },
+    { key: "amount", label: "create.amount", type: "number", step: "0.01" },
     {
       key: "currency",
       label: "create.currency",
@@ -95,8 +95,13 @@ export function NewDealAction({
         pipeline_id: pipeline.id,
         stage_id: values.stage_id,
         // The form takes major units; the wire is minor units.
+        //
+        // Amount and currency travel together or not at all — the server
+        // refuses a half-populated pair (amount_currency_pair), so sending a
+        // currency beside an empty amount 422s the field the form presents as
+        // optional.
         amount_minor: amount ? Math.round(Number(amount) * 100) : null,
-        currency: values.currency || "EUR",
+        currency: amount ? values.currency || "EUR" : null,
         organization_id: orgId,
         expected_close_date: values.expected_close_date || null,
         source: "manual",

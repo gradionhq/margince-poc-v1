@@ -251,13 +251,25 @@ describe("company view — the verbs that change a section", () => {
   it("offers no New deal on a section the caller may not read", async () => {
     // A caller who cannot read the deals has no business being offered a
     // button to add one, and the refusal must not be the first they hear of it.
-    stub(view({ deals: undefined, sections_omitted: ["deals"] }));
+    const fetched = stub(
+      view({ deals: undefined, sections_omitted: ["deals"] }),
+    );
     renderCompany();
 
     const card = await screen.findByRole("complementary", { name: "Business" });
     expect(
       within(card).getByText("Hidden — your role cannot read this"),
     ).toBeTruthy();
+    // The absent button alone would prove nothing: the verb also renders null
+    // while its pipeline read is in flight, so the assertion could pass on
+    // that transient state with the guard deleted. What pins the guard is
+    // that the verb never MOUNTED — it is the only thing on this page that
+    // reads /pipelines, so an unfetched /pipelines means the withheld section
+    // never rendered it.
+    await waitFor(() =>
+      expect(fetched.some((path) => path.endsWith("/360"))).toBe(true),
+    );
+    expect(fetched.some((path) => path.endsWith("/pipelines"))).toBe(false);
     expect(within(card).queryByRole("button", { name: "New deal" })).toBeNull();
   });
 });

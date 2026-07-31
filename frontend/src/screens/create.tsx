@@ -36,6 +36,9 @@ export type SubField = {
   required?: boolean;
   options?: CreateFieldOption[];
   placeholder?: string;
+  // Granularity for a number input. Omitted means the browser's default of 1,
+  // which rejects any fractional entry.
+  step?: string;
 };
 
 export type CreateField = {
@@ -69,6 +72,8 @@ export type CreateField = {
   // at prefill time (e.g. currency minor units → major units). Absent means
   // the raw value is stringified as-is.
   toInput?: (raw: unknown) => string;
+  // See SubField.step: a money field must declare its cents.
+  step?: string;
 };
 
 // The label a top-level field shows: the literal labelText wins; otherwise the
@@ -258,6 +263,9 @@ export function fieldControl(
     <TextInput
       id={fieldId}
       type={field.type ?? "text"}
+      // A bare number input steps by 1, so the browser refuses 14.60 before
+      // any handler sees it. A money field has to say it takes cents.
+      step={field.step}
       value={value}
       required={field.required}
       placeholder={field.placeholder}
