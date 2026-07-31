@@ -1937,8 +1937,9 @@ export const de = {
   "ob.facts.rowSave": "Diesen Fakt speichern: {fact}",
   "ob.facts.noMatch": "Zu dieser Suche passt nichts.",
   "ob.facts.empty":
-    "Noch keine Fakten. Sie erscheinen hier, während ich lese — jeder mit der Seite, von der er kommt.",
+    "Ich habe die Website gelesen, aber keine einzelnen Fakten daraus gezogen. Was ich gelernt habe, steht in den Abschnitten darüber — jeweils mit Quelle.",
   "ob.facts.close": "Fertig",
+  "ob.facts.closeTable": "Tabelle schließen",
   "ob.facts.capReached":
     "Du kannst bis zu {max} Fakten speichern. Nimm einen heraus, um Platz für einen anderen zu machen.",
 
@@ -1947,6 +1948,7 @@ export const de = {
   // Schnittstelle, und eine Zelle ohne Zahl sagt das, statt eine Null zu
   // zeigen, die wie ein Ergebnis aussieht.
   "ob.payoff.lead": "Vor wenigen Minuten war das eine leere Installation.",
+  "ob.payoff.leadResumed": "Das hier hat als leere Installation angefangen.",
   "ob.payoff.factsRead": "Fakten gelesen",
   "ob.payoff.factsConfirmed": "Fakten bestätigt",
   "ob.payoff.peopleFound": "Personen gefunden",

@@ -142,6 +142,47 @@ describe("why the reader is back at the gate", () => {
     );
   });
 
+  it("tells a returning reader what they already have", () => {
+    // A setup whose company was saved but whose read never happened resumes onto
+    // this gate. The recap the restore composed has no thread to appear in, so
+    // without this the reader is asked for a website with no sign that anything
+    // of theirs is already in there.
+    const state = withThread([
+      { kind: "narration", id: "0:recap:back", i18nKey: "ob.conv.recap.back" },
+      {
+        kind: "narration",
+        id: "1:recap:company",
+        i18nKey: "ob.conv.recap.company",
+        params: { name: "Gradion" },
+      },
+    ]);
+
+    expect(gateNoticeFor({ ...input, state })).toEqual({
+      tone: "resumed",
+      message: 'ob.conv.recap.company {"name":"Gradion"}',
+    });
+  });
+
+  it("puts what went wrong ahead of what the reader already has", () => {
+    // Both are in the thread. The failure is the newer news, and the recap must
+    // not bury it behind a reassuring sentence.
+    const state = withThread([
+      {
+        kind: "narration",
+        id: "1:recap:company",
+        i18nKey: "ob.conv.recap.company",
+        params: { name: "Gradion" },
+      },
+      {
+        kind: "narration",
+        id: "2:recap:read-failed",
+        i18nKey: "ob.conv.recap.readFailed",
+      },
+    ]);
+
+    expect(gateNoticeFor({ ...input, state })?.tone).toBe("error");
+  });
+
   it("ignores narration that is not there to explain an absent read", () => {
     const state = withThread([
       { kind: "narration", id: "1:welcome", i18nKey: "ob.conv.welcome" },

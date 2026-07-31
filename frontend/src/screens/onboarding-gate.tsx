@@ -69,8 +69,13 @@ type Translate = ReturnType<typeof useT>;
  * tell the reader to fix something that is not broken. The tone drives the
  * live-region role too, so the difference survives without colour.
  */
+/**
+ * Why the reader is at the gate rather than watching a read. The tone is what
+ * decides whether it announces as an alert or a status, so a resumed setup can
+ * never interrupt like a failure: only `error` is something that went wrong.
+ */
 export type GateNotice = Readonly<{
-  tone: "error" | "paused";
+  tone: "error" | "paused" | "resumed";
   message: string;
 }>;
 
@@ -181,12 +186,16 @@ export function OnboardingGate({
         </p>
       )}
 
-      <p className="ob-gate-alt">
-        {t("ob.gate.altPrompt")}
-        <button type="button" className="ob-gate-link" onClick={onManual}>
-          {t("ob.gate.altAction")}
-        </button>
-      </p>
+      {/* Withheld while a start is in flight, so choosing the manual path cannot
+          race a read that is already beginning. */}
+      {running ? null : (
+        <p className="ob-gate-alt">
+          {t("ob.gate.altPrompt")}
+          <button type="button" className="ob-gate-link" onClick={onManual}>
+            {t("ob.gate.altAction")}
+          </button>
+        </p>
+      )}
 
       {/* Named BEFORE the reader hands over their website, not after: which
           model is about to read it is part of the decision to let it. */}

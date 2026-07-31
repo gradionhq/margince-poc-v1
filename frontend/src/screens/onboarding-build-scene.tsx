@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { type CSSProperties, useEffect, useRef } from "react";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { usePrefersReducedMotion } from "../design-system/motion";
 import { useT } from "../i18n";
 import { Wordmark } from "./auth";
@@ -11,9 +11,10 @@ import "./onboarding-build-scene.css";
  * The beat between finishing setup and landing in the app.
  *
  * It exists so the workspace appears to be assembled rather than swapped in:
- * the product name arrives letter by letter, resolves into the real wordmark,
- * and the app's surfaces settle in behind it. Then `onDone` fires and the
- * caller navigates — this component never routes.
+ * the product name rises out of a blur letter by letter, resolves into the real
+ * wordmark, and the app's surfaces settle in behind it. The scene then dissolves
+ * instead of cutting, and `onDone` fires and the caller navigates — this
+ * component never routes.
  *
  * Two things keep a deliberate delay from becoming a trap:
  *  - it says what it is doing. A blocking full-screen scene that is silent to
@@ -31,6 +32,15 @@ import "./onboarding-build-scene.css";
  * timer, so a test drives the clock instead of sleeping on it.
  */
 export const BUILD_SCENE_DURATION_MS = 2400;
+
+/**
+ * The share of the duration spent leaving. The reader should arrive in the app
+ * through a dissolve rather than a cut, and that beat is part of the time the
+ * caller asked for instead of a wait bolted onto the end of it — which is also
+ * why the exit's length travels to the stylesheet as a fraction of the same
+ * duration rather than as a second number to keep in step.
+ */
+const EXIT_FRACTION = 0.14;
 
 export type BuildSceneProps = Readonly<{
   onDone: () => void;
@@ -77,6 +87,7 @@ export function BuildScene({
 }: BuildSceneProps) {
   const t = useT();
   const reduced = usePrefersReducedMotion();
+  const [leaving, setLeaving] = useState(false);
 
   // The callback is read through a ref so a parent passing an inline arrow
   // cannot restart the timer on every render — a scene that keeps rewinding
@@ -91,10 +102,22 @@ export function BuildScene({
       done.current();
       return;
     }
-    const timer = setTimeout(() => done.current(), durationMs);
+    // The handoff is the clock's, never the exit animation's. Hanging it off
+    // the dissolve finishing (an `animationend` a throttled tab or a platform
+    // that refuses the animation may never deliver) would leave the reader
+    // stranded on a full-screen scene; the exit only ever changes how the last
+    // fraction of an already-scheduled handoff looks.
+    const dissolve = setTimeout(
+      () => setLeaving(true),
+      Math.round(durationMs * (1 - EXIT_FRACTION)),
+    );
+    const handoff = setTimeout(() => done.current(), durationMs);
     // Cleared on unmount, or the callback navigates out from under whoever
     // took over the screen in the meantime.
-    return () => clearTimeout(timer);
+    return () => {
+      clearTimeout(dissolve);
+      clearTimeout(handoff);
+    };
   }, [reduced, durationMs]);
 
   if (reduced) {
@@ -103,10 +126,20 @@ export function BuildScene({
 
   const label = t("ob.enter.assembling");
   const word = t("shell.logoAria");
-  const vars: SceneVars = { "--obBuildMs": `${durationMs}ms` };
+  const vars: SceneVars = {
+    "--obBuildMs": `${durationMs}ms`,
+    // Rounded: a fraction of a duration is a float, and no frame is a
+    // millionth of a millisecond long.
+    "--obExitMs": `${Math.round(durationMs * EXIT_FRACTION)}ms`,
+  };
 
   return (
-    <div className="ob-build" role="status" aria-label={label} style={vars}>
+    <div
+      className={leaving ? "ob-build is-leaving" : "ob-build"}
+      role="status"
+      aria-label={label}
+      style={vars}
+    >
       <div className="ob-build-ghosts" aria-hidden="true">
         {GHOST_CARDS.map((rows, index) => (
           <GhostCard key={rows.join("-")} rows={rows} index={index} />

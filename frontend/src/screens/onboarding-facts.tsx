@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { components } from "../api/schema";
@@ -346,15 +346,22 @@ function SelectionTally({
 /**
  * The ceiling, stated. The region is always in the DOM so assistive tech is
  * already watching it when the reader hits the cap; empty, it collapses.
+ *
+ * The ceiling is ONE sentence, and more than one surface can be drawing it at
+ * the same moment — the preview card stays mounted behind the portalled table,
+ * and the thread's review card sits beside the artifact panel. Two live regions
+ * flipping on the same boundary read that sentence twice, so `live` says which
+ * notice owns the announcement; the others show the same text silently.
  */
-function CapNotice({
+export function CapNotice({
   atCap,
   locale,
-}: Readonly<{ atCap: boolean; locale: string }>) {
+  live = true,
+}: Readonly<{ atCap: boolean; locale: string; live?: boolean }>) {
   const t = useT();
   const counts = useCountFormat(locale);
   return (
-    <p className="ob-facts-cap" role="status">
+    <p className="ob-facts-cap" role={live ? "status" : undefined}>
       {atCap
         ? t("ob.facts.capReached", { max: counts.format(MAX_SELECTED_FACTS) })
         : ""}
@@ -362,9 +369,14 @@ function CapNotice({
   );
 }
 
-// The checkbox is genuinely disabled once the cap is reached rather than
-// silently doing nothing when pressed; CapNotice carries the reason.
-function saveDisabled(selection: FactSelection, selected: boolean): boolean {
+// The control is genuinely disabled once the cap is reached rather than
+// silently doing nothing when pressed; CapNotice carries the reason. Every
+// surface that offers a fact toggle asks this one question, so a checkbox in
+// the table and a card in the review grid refuse on the same terms.
+export function saveDisabled(
+  selection: FactSelection,
+  selected: boolean,
+): boolean {
   return !selected && selection.atCap;
 }
 
@@ -459,7 +471,9 @@ export function FactsCard({
         locale={locale}
       />
       <ProportionBar facts={facts} />
-      <CapNotice atCap={selection.atCap} locale={locale} />
+      {/* While the table is open it is the surface the reader is in, and the
+          card behind it is what `aria-modal` declares absent. */}
+      <CapNotice atCap={selection.atCap} locale={locale} live={!tableOpen} />
       <ul className="ob-facts-preview">
         {preview.map((fact) => (
           <PreviewRow
@@ -537,6 +551,48 @@ function FactTableRow({
   );
 }
 
+// Every control this dialog can hold: the close button, the search box, the
+// chips, the row checkboxes, the evidence links and the foot buttons. Disabled
+// controls are excluded because the ceiling disables unchosen checkboxes, and a
+// tab stop that cannot take focus would break the cycle.
+const FOCUSABLE =
+  'a[href], button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])';
+
+// The ring is the panel's own tree, filtered — walked in document order, which is
+// the order Tab moves in. A single querySelectorAll over the selector list above
+// would be shorter and would group its results per selector instead, putting the
+// wrong element at each end of the cycle.
+function tabRing(panel: HTMLElement): HTMLElement[] {
+  const stops: HTMLElement[] = [];
+  for (const node of panel.querySelectorAll("*")) {
+    if (node instanceof HTMLElement && node.matches(FOCUSABLE)) {
+      stops.push(node);
+    }
+  }
+  return stops;
+}
+
+// A Tab that would leave the panel wraps to the other end of the ring; focus that
+// is already outside is pulled back in rather than allowed to walk further,
+// because the wizard behind this dialog is not part of its tab ring.
+function containTab(panel: HTMLElement, event: KeyboardEvent): void {
+  const stops = tabRing(panel);
+  const first = stops.at(0);
+  const last = stops.at(-1);
+  if (first === undefined || last === undefined) {
+    return;
+  }
+  const edge = event.shiftKey ? first : last;
+  if (
+    panel.contains(document.activeElement) &&
+    document.activeElement !== edge
+  ) {
+    return;
+  }
+  event.preventDefault();
+  (event.shiftKey ? last : first).focus();
+}
+
 /**
  * Every fact, searchable, in a real table.
  *
@@ -561,6 +617,7 @@ export function FactTable({
   const [category, setCategory] = useState<CategoryFilter>(null);
   const [query, setQuery] = useState("");
   const search = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const rows = useMemo(
     () => matching(facts, category, query),
     [facts, category, query],
@@ -579,10 +636,17 @@ export function FactTable({
     };
   }, []);
 
+  // Escape closes, and Tab cycles within the panel: `aria-modal` tells assistive
+  // tech the rest of the document is not there, so focus that walked out would
+  // land on controls the reader can no longer perceive.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key === "Tab" && panel.current !== null) {
+        containTab(panel.current, event);
       }
     };
     globalThis.addEventListener("keydown", onKey);
@@ -601,15 +665,37 @@ export function FactTable({
   }, []);
 
   return createPortal(
-    <div className="ob-facts-scrim">
+    // Pressing the ground dismisses, the way every other dialog in the app
+    // does; the target check keeps a press inside the panel from closing it.
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop dismiss is the house Modal's shape; Escape is the keyboard path
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Escape is handled by the effect above
+    <div
+      className="ob-facts-scrim"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
       <div
+        ref={panel}
         role="dialog"
         aria-modal="true"
         aria-label={t("ob.facts.tableTitle")}
         className="ob-facts-modal"
       >
         <div className="ob-facts-modal-head">
-          <h2>{t("ob.facts.tableTitle")}</h2>
+          <div className="ob-facts-modal-title">
+            <h2>{t("ob.facts.tableTitle")}</h2>
+            <button
+              type="button"
+              className="ob-facts-x"
+              aria-label={t("ob.facts.closeTable")}
+              onClick={onClose}
+            >
+              <X aria-hidden="true" />
+            </button>
+          </div>
           <div className="ob-facts-searchrow">
             <label className="ob-facts-search">
               <Search aria-hidden="true" />

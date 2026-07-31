@@ -89,11 +89,13 @@
   }
 }
 
+/* The answers are set large enough that a four-pixel gap would read as one
+   wrapped paragraph rather than three separate answers. */
 .ob-live-summary {
   margin-top: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 
 .ob-live-summary-heading {
@@ -107,14 +109,20 @@
 }
 
 /* The three understanding rows stagger in: the record stating itself, one
-   line at a time. Nothing is gated on the animation finishing. */
+   line at a time. Nothing is gated on the animation finishing.
+
+   The answers are the largest text in the panel: they are the reader's own
+   words handed back, and every card title and field value below them is
+   support for them. Baseline alignment, not a nudged label, keeps the two
+   sizes sitting on one line. */
 .ob-live-summary-row {
   display: grid;
-  grid-template-columns: 72px 1fr;
+  grid-template-columns: 88px 1fr;
   gap: var(--space-2);
+  align-items: baseline;
   margin: 0;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 14.5px;
+  line-height: 1.4;
   animation: ob-live-rise 0.42s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
@@ -126,14 +134,12 @@
   animation-delay: 0.18s;
 }
 
+/* The labels only name which question each answer belongs to, so they whisper:
+   sentence case in the body face, because a mono uppercase label competes with
+   the answer beside it for the same attention. */
 .ob-live-summary-label {
-  font-family: var(--f-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--textTertiary);
-  padding-top: 2px;
+  font-size: 11.5px;
+  color: var(--textMeta);
 }
 
 .ob-live-summary-value {
@@ -267,6 +273,37 @@
   animation: ob-live-rise 0.36s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 
+/* The stack assembles top-down rather than appearing at once: each card rises
+   one beat after the one above it, which is what makes the dossier read as
+   something being written for the reader. The delays start after the head's own
+   summary has settled, and stop climbing at the fifth card — beyond that the
+   wait would cost more than the choreography buys. Written as delays only
+   (never a fresh `animation` shorthand), so the reduced-motion rule at the
+   bottom of this file still wins by dropping the animation name. */
+.ob-live-cards > .ob-live-card:nth-of-type(1) {
+  animation-delay: 0.34s;
+}
+
+.ob-live-cards > .ob-live-card:nth-of-type(2) {
+  animation-delay: 0.42s;
+}
+
+.ob-live-cards > .ob-live-card:nth-of-type(3) {
+  animation-delay: 0.5s;
+}
+
+.ob-live-cards > .ob-live-card:nth-of-type(4) {
+  animation-delay: 0.58s;
+}
+
+.ob-live-cards > .ob-live-card:nth-of-type(5) {
+  animation-delay: 0.66s;
+}
+
+.ob-live-cards > .ob-live-card:nth-of-type(n + 6) {
+  animation-delay: 0.74s;
+}
+
 .ob-live-card-head {
   display: flex;
   align-items: center;
@@ -357,25 +394,76 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
 /* The shared evidence chip is sized for full-width screens and breaks nothing
    on its own. In this narrow pane an unbroken source URL would then be wider
    than the column and make the whole panel scroll sideways, so the panel asks
-   the chip to wrap here rather than changing it for every other screen. */
+   the chip to wrap here rather than changing it for every other screen.
+   (The chip is shared with the audit log and the record History timelines —
+   everything it needs differently HERE is asked for here.)
+
+   The quote is corroboration for the value above it, not the row's content: at
+   full length every row in the dossier carries a paragraph and the stack can no
+   longer be scanned. Two lines is enough to recognise the sentence and decide
+   to read it — and the clamp is visual only, so the whole quote stays in the
+   DOM, selectable, copyable, and read out in full by a screen reader. Evidence
+   that becomes unreadable is indistinguishable from a value with no source. */
 .ob-live .evidence-chip {
   overflow-wrap: anywhere;
   max-width: 100%;
+  display: -webkit-inline-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 10.5px;
+  line-height: 1.5;
 }
 
 /* ---- field rows --------------------------------------------------------- */
 
+/* A field row is a key/value pair, not a label stacked on a value: one fixed
+   key column gives every value in the card the same left edge, so the card
+   reads as an auditable list that can be scanned straight down the value
+   column. The hairline is what keeps a pair together once a value wraps — with
+   only whitespace between rows, a three-line value reads as belonging to the
+   label under it as much as the one above it. */
 .ob-live-field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  display: grid;
+  grid-template-columns: 132px 1fr;
+  gap: 2px var(--space-3);
+  align-items: baseline;
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--borderSubtle);
 }
 
+/* The last row's hairline would draw a line just above the card's own edge. */
+.ob-live-field:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+/* Field rows carry their own rhythm — padding plus the hairline — so a gap
+   between them would leave every hairline floating in the middle of a gutter.
+   Other card bodies (people, coverage) keep the gap. */
+.ob-live-card-body:has(> .ob-live-field) {
+  gap: 0;
+}
+
+/* The confidence number sits at the end of the key column, beside the glyph it
+   quantifies. The column wraps rather than clipping: the meter states its level
+   in words as well as colour, and a long field label is allowed to take the
+   second line instead of squeezing the number off the row. */
 .ob-live-field-head {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2);
+  gap: 2px var(--space-1);
+  min-width: 0;
+}
+
+/* Meta-scale inside the key column: the meter is shared with wide screens where
+   it labels a row of its own, and at its own size it would spend the key column
+   on the word "high". */
+.ob-live-field-head .confidence {
+  font-size: 10.5px;
+  gap: var(--space-1);
 }
 
 .ob-live-field-label {
@@ -385,11 +473,17 @@ button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
 }
 
 .ob-live-field-pct {
+  margin-left: auto;
   font-family: var(--f-mono);
   font-variant-numeric: tabular-nums;
   font-size: 10.5px;
   color: var(--textMeta);
-  text-align: right;
+}
+
+/* Evidence corroborates the value, so it belongs under the value — column two,
+   not back under the label. */
+.ob-live-field > .evidence-chip {
+  grid-column: 2;
 }
 
 .ob-live-field-value {

@@ -213,6 +213,15 @@
   background: var(--warnBg);
 }
 
+/* Picking a setup back up is not a problem report. It wears the neutral card
+   surface so it reads as context for the question above it, and it announces as
+   a status rather than an alert. */
+.ob-gate-alert.is-resumed {
+  border-color: var(--borderStrong);
+  background: var(--bgCard);
+  color: var(--textMeta);
+}
+
 /* Which model is about to read the site, stated before the address is handed
    over. AI indigo, never the brand accent — this is disclosure, not an action. */
 .ob-gate-ai {
@@ -235,7 +244,17 @@
   text-transform: uppercase;
 }
 
+/* A routing label names every model the installation can reach, so it can be a
+   long sentence. Visual clamp only: two lines here, and the full string stays in
+   the DOM — this is the disclosure that says what is about to read your site, so
+   none of it may be thrown away. */
 .ob-gate-ai b {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  max-width: 100%;
   color: var(--textContent);
   font-family: var(--f-mono);
   font-size: 11px;

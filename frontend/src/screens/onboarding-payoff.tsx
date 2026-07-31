@@ -56,14 +56,23 @@ type CellSpec = Readonly<{
    * and there is nothing true to print in its place.
    */
   absentLabel?: MessageKey;
+  /**
+   * Whether the cell carries the argument rather than supporting it. What was
+   * read and what the reader confirmed ARE the claim the payoff makes; pages
+   * crawled and words sampled are evidence that the claim was earned. Marked
+   * on the cell rather than derived from its position, because a count with
+   * nothing to report is omitted — an `nth-child` rule would hand the emphasis
+   * to whichever cell happened to slide into second place.
+   */
+  argument?: true;
 }>;
 
 // Declaration order is render order. The array is the one place a cell exists;
 // the `CountName` key ties each row to the prop it reads, so a renamed count
 // fails to compile rather than silently rendering an empty cell.
 const CELLS: readonly CellSpec[] = [
-  { name: "factsRead", label: "ob.payoff.factsRead" },
-  { name: "factsConfirmed", label: "ob.payoff.factsConfirmed" },
+  { name: "factsRead", label: "ob.payoff.factsRead", argument: true },
+  { name: "factsConfirmed", label: "ob.payoff.factsConfirmed", argument: true },
   { name: "peopleFound", label: "ob.payoff.peopleFound" },
   { name: "profileFields", label: "ob.payoff.profileFields" },
   { name: "pagesRead", label: "ob.payoff.pagesRead" },
@@ -110,7 +119,12 @@ export function PayoffGrid({ counts, locale }: PayoffGridProps) {
           ) : null;
         }
         return (
-          <div className="ob-payoff-cell" key={cell.name}>
+          <div
+            className={
+              cell.argument ? "ob-payoff-cell is-argument" : "ob-payoff-cell"
+            }
+            key={cell.name}
+          >
             <dt className="ob-payoff-label">{t(cell.label)}</dt>
             <dd className="ob-payoff-value">{format.format(count)}</dd>
           </div>
@@ -120,9 +134,59 @@ export function PayoffGrid({ counts, locale }: PayoffGridProps) {
   );
 }
 
+/**
+ * How long the payoff may still say "minutes ago".
+ *
+ * Setup is resumable: the server keeps the wizard state, so someone can start
+ * on Tuesday and finish on Thursday. Half an hour is the outer edge of one
+ * sitting — inside it the empty install is the reader's own memory of a few
+ * minutes back, and the sentence lands. Past it the claim is about time nobody
+ * measured, and the payoff is the last screen that can afford to overstate:
+ * it is asking the reader to believe six numbers.
+ */
+export const PAYOFF_FRESH_WINDOW_MS = 30 * 60_000;
+
+/**
+ * Which of the two leads the payoff has earned.
+ *
+ * `nowMs` is a parameter rather than a `Date.now()` read inside the render, so
+ * the sentence is a pure function of two instants and a test decides both
+ * (the app's one clock is `format/now.ts#useNow`).
+ *
+ * Every case it cannot verify falls to the neutral lead, which is true
+ * regardless of when the setup ran: no start instant on the wire, an instant
+ * that will not parse, and an instant in the future — a browser clock behind
+ * the server's turns a genuinely fresh setup negative, and answering that with
+ * the timeless sentence costs a little colour instead of telling a lie.
+ */
+export function payoffLeadKey(
+  startedAt: string | null,
+  nowMs: number,
+): MessageKey {
+  if (startedAt === null) {
+    return "ob.payoff.leadResumed";
+  }
+  const startedMs = Date.parse(startedAt);
+  if (Number.isNaN(startedMs)) {
+    return "ob.payoff.leadResumed";
+  }
+  const elapsedMs = nowMs - startedMs;
+  return elapsedMs >= 0 && elapsedMs < PAYOFF_FRESH_WINDOW_MS
+    ? "ob.payoff.lead"
+    : "ob.payoff.leadResumed";
+}
+
 export type PayoffMessageProps = Readonly<{
   counts: PayoffCounts;
   locale: string;
+  /**
+   * `OnboardingState.created_at` — when this setup began. `null` when the
+   * wizard state is not in hand, which is an unknown elapsed time, not a
+   * fresh one.
+   */
+  startedAt: string | null;
+  /** Epoch ms, injected: nothing here reads a clock of its own. */
+  nowMs: number;
   onContinue: () => void;
 }>;
 
@@ -140,12 +204,14 @@ export type PayoffMessageProps = Readonly<{
 export function PayoffMessage({
   counts,
   locale,
+  startedAt,
+  nowMs,
   onContinue,
 }: PayoffMessageProps) {
   const t = useT();
   return (
     <section className="ob-payoff">
-      <p className="ob-payoff-lead">{t("ob.payoff.lead")}</p>
+      <p className="ob-payoff-lead">{t(payoffLeadKey(startedAt, nowMs))}</p>
       <PayoffGrid counts={counts} locale={locale} />
       <p className="ob-payoff-body">{t("ob.payoff.body")}</p>
       <ul className="ob-payoff-next">

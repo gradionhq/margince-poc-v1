@@ -283,6 +283,10 @@
   place-items: center;
   padding: var(--space-4);
   background: var(--overlayScrim);
+  /* The ground behind this dialog is the live read panel — still moving, still
+     full of text. Dimming alone leaves it legible enough to compete with the
+     table, so it is taken out of focus as well. */
+  backdrop-filter: blur(6px);
   animation: ob-facts-fade 0.18s ease both;
 }
 .ob-facts-modal {
@@ -294,7 +298,12 @@
   border: 1px solid var(--borderSubtle);
   border-radius: var(--r-lg);
   background: var(--bgElevated);
-  box-shadow: var(--shadow-pop);
+  /* A long, wide cast plus a tight contact shadow: this panel sits well off a
+     page that is itself elevated, so the card-scale --shadow-pop reads as
+     another layer of the wizard rather than as a sheet over it. */
+  box-shadow:
+    0 28px 60px -24px color-mix(in srgb, var(--textPrimary) 34%, transparent),
+    0 2px 6px color-mix(in srgb, var(--textPrimary) 6%, transparent);
   animation: ob-facts-rise 0.28s cubic-bezier(0.23, 1, 0.32, 1) both;
 }
 .ob-facts-modal-head {
@@ -303,6 +312,38 @@
   gap: var(--space-3);
   padding: var(--space-4);
   border-bottom: 1px solid var(--borderSubtle);
+}
+.ob-facts-modal-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+/* The dismiss the head owes a dialog this large: the foot's Done sits below a
+   table the reader may not have scrolled to the end of. */
+.ob-facts-x {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  margin-left: auto;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  color: var(--textContent);
+  cursor: pointer;
+}
+.ob-facts-x svg {
+  width: 14px;
+  height: 14px;
+}
+.ob-facts-x:hover {
+  background: var(--bgHover);
+}
+.ob-facts-x:focus-visible {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--accentLight);
 }
 .ob-facts-modal-head h2 {
   margin: 0;
@@ -518,6 +559,12 @@
 @media (max-width: 640px) {
   .ob-facts-chip {
     min-height: 44px;
+  }
+  /* A thumb needs the whole target, and the head has the room once the search
+     row stacks. */
+  .ob-facts-x {
+    width: 44px;
+    height: 44px;
   }
   .ob-facts-head,
   .ob-facts-foot,

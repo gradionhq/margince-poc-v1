@@ -1899,16 +1899,23 @@ export const en = {
   "ob.facts.colConfidence": "Confidence",
   "ob.facts.rowSave": "Save the fact: {fact}",
   "ob.facts.noMatch": "Nothing matches that search.",
+  // The card only mounts once the read has settled, so its empty state reports a
+  // finished search that found nothing — not one still in progress.
   "ob.facts.empty":
-    "No facts yet. Facts appear here as I read, each with the page it came from.",
+    "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.",
   "ob.facts.close": "Done",
+  "ob.facts.closeTable": "Close the table",
   "ob.facts.capReached":
     "You can save up to {max} facts. Clear one to make room for another.",
 
   // --- the payoff: what two minutes actually bought ----------------------
   // Counts, not congratulation. Every cell is a real number off the wire, and
   // a cell with no number says so rather than showing a zero that looks earned.
+  // Two leads for one moment. The first is only true when the install really was
+  // empty minutes ago; a setup picked up across days is the supported path, and
+  // the payoff above all else may not overstate.
   "ob.payoff.lead": "Minutes ago this was an empty install.",
+  "ob.payoff.leadResumed": "This started as an empty install.",
   "ob.payoff.factsRead": "facts read",
   "ob.payoff.factsConfirmed": "facts you confirmed",
   "ob.payoff.peopleFound": "people found",

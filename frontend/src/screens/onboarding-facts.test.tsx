@@ -15,7 +15,9 @@ import { type ReactNode, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
-import { MAX_SELECTED_FACTS } from "./onboarding";
+import { EMPTY_DRAFT, MAX_SELECTED_FACTS } from "./onboarding";
+import { CompanyStep } from "./onboarding-company-form";
+import { CompanyConfirmCard } from "./onboarding-conversation/confirm-card";
 import {
   defaultSelectedFactKeys,
   type FactSelection,
@@ -99,6 +101,11 @@ const MANY = Array.from({ length: 120 }, (_, index) =>
   }),
 );
 
+// The ceiling as the reader is told it, spelled once: the claim is that this
+// sentence reaches a screen reader exactly one time per surface stack.
+const CAP_SENTENCE =
+  "You can save up to 100 facts. Clear one to make room for another.";
+
 // Confidence RISES with wire position, so "the first N on the wire" and "the N
 // most certain" name different facts throughout: a seed that trusted the wire
 // would tick the ten low-confidence facts at the head and drop the strongest
@@ -171,6 +178,14 @@ function SelectionProbe({
 function keysOf(): string[] {
   const text = screen.getByTestId("keys").textContent ?? "";
   return text === "" ? [] : text.split(" ");
+}
+
+// The ceiling sentences a screen reader would actually be told about. Drawing the
+// sentence is not announcing it: only the copy carrying the live role speaks.
+function announcing(): HTMLElement[] {
+  return screen
+    .getAllByText(CAP_SENTENCE)
+    .filter((notice) => notice.getAttribute("role") === "status");
 }
 
 afterEach(cleanup);
@@ -415,7 +430,7 @@ describe("FactsCard", () => {
 
     expect(
       screen.getByText(
-        "No facts yet. Facts appear here as I read, each with the page it came from.",
+        "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.",
       ),
     ).toBeInTheDocument();
     expect(screen.queryByRole("checkbox")).not.toBeInTheDocument();
@@ -568,6 +583,66 @@ describe("FactTable", () => {
     ).toBeDisabled();
   });
 
+  it("cycles Tab inside the panel instead of letting focus walk out", async () => {
+    const { user } = await openTable();
+    const dialog = within(screen.getByRole("dialog"));
+    const close = dialog.getByRole("button", { name: "Close the table" });
+    const done = dialog.getByRole("button", { name: "Done" });
+
+    // The panel claims modality with aria-modal, so the tab ring has to end
+    // where the dialog ends: the last stop leads back to the first, not out into
+    // a wizard the reader's assistive tech no longer exposes.
+    done.focus();
+    await user.tab();
+    expect(close).toHaveFocus();
+
+    await user.tab({ shift: true });
+    expect(done).toHaveFocus();
+  });
+
+  it("closes on a press on the ground behind it, not on one inside the panel", async () => {
+    const { user } = await openTable();
+    const dialog = screen.getByRole("dialog");
+    const scrim = dialog.parentElement;
+
+    await user.click(dialog);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    if (scrim instanceof HTMLElement) {
+      await user.click(scrim);
+    }
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("closes on the head's own close control and returns focus to the opener", async () => {
+    const { user, opener } = await openTable();
+
+    await user.click(screen.getByRole("button", { name: "Close the table" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it("announces the ceiling once, though both surfaces show it", async () => {
+    const { user } = await openTable(MANY);
+    const dialog = within(screen.getByRole("dialog"));
+
+    await user.click(dialog.getByRole("button", { name: "Select all" }));
+
+    // The card stays mounted behind the portal, so the sentence is drawn twice
+    // — but only the dialog's copy is a live region, or a screen reader would
+    // hear the ceiling twice on one press.
+    expect(screen.getAllByText(CAP_SENTENCE)).toHaveLength(2);
+    expect(announcing()).toHaveLength(1);
+    expect(dialog.getByText(CAP_SENTENCE)).toHaveAttribute("role", "status");
+
+    await user.keyboard("{Escape}");
+
+    // Closed, the card is the only surface left and takes the announcement back.
+    expect(screen.getAllByText(CAP_SENTENCE)).toHaveLength(1);
+    expect(announcing()).toHaveLength(1);
+  });
+
   it("closes through the callback it was given, not by unmounting itself", async () => {
     const onClose = vi.fn();
     const user = userEvent.setup();
@@ -580,6 +655,141 @@ describe("FactTable", () => {
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
+
+// The two surfaces that pick facts outside the fact table — the thread's review
+// card and the edit form — go through the same selection model, so the contract
+// ceiling is one rule with one explanation rather than a number re-typed per
+// call site.
+describe("the other fact-picking surfaces", () => {
+  const AT_CAP = MANY.slice(0, MAX_SELECTED_FACTS).map(
+    (item) => item.value_key,
+  );
+  const BEYOND = MANY[MAX_SELECTED_FACTS];
+
+  function ConfirmHarness({ initial }: Readonly<{ initial: string[] }>) {
+    const [keys, setKeys] = useState<readonly string[]>(initial);
+    return (
+      <>
+        <CompanyConfirmCard
+          proposal={{ ready: true, fields: [], facts: MANY }}
+          draft={EMPTY_DRAFT}
+          answers={[]}
+          comparisons={[]}
+          pendingQuestionId={null}
+          selectedFactKeys={keys}
+          setSelectedFactKeys={setKeys}
+          missingRequired={[]}
+          onAnswerClarify={vi.fn()}
+          onDismissClarify={vi.fn()}
+          onAcceptAll={vi.fn()}
+          pending={false}
+          authorizing={false}
+          error={null}
+          onEditDirectly={vi.fn()}
+        />
+        <output data-testid="keys">{keys.join(" ")}</output>
+      </>
+    );
+  }
+
+  function FormHarness({ initial }: Readonly<{ initial: string[] }>) {
+    const [keys, setKeys] = useState<readonly string[]>(initial);
+    return (
+      <>
+        <CompanyStep
+          draft={EMPTY_DRAFT}
+          setField={vi.fn()}
+          onPickEntity={vi.fn()}
+          read={readWith(MANY)}
+          saved={false}
+          saveError={null}
+          missingRequired={[]}
+          selectedFactKeys={keys}
+          setSelectedFactKeys={setKeys}
+          onFieldBlur={vi.fn()}
+        />
+        <output data-testid="keys">{keys.join(" ")}</output>
+      </>
+    );
+  }
+
+  it("refuses a fact past the ceiling on the review card, and says why", async () => {
+    const user = userEvent.setup();
+    render(<ConfirmHarness initial={AT_CAP} />);
+    const refused = screen.getByRole("button", { name: /Office 100(?!\d)/ });
+
+    expect(refused).toBeDisabled();
+    expect(screen.getByText(CAP_SENTENCE)).toBeInTheDocument();
+
+    await user.click(refused);
+
+    expect(keysOf()).toHaveLength(MAX_SELECTED_FACTS);
+    expect(keysOf()).not.toContain(BEYOND.value_key);
+  });
+
+  it("takes the refusal back on the review card once a fact is cleared", async () => {
+    const user = userEvent.setup();
+    render(<ConfirmHarness initial={AT_CAP} />);
+
+    await user.click(screen.getByRole("button", { name: /Office 0(?!\d)/ }));
+
+    expect(keysOf()).toHaveLength(MAX_SELECTED_FACTS - 1);
+    expect(keysOf()).not.toContain(MANY[0].value_key);
+    expect(screen.queryByText(CAP_SENTENCE)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /Office 100(?!\d)/ }),
+    ).toBeEnabled();
+  });
+
+  it("refuses a fact past the ceiling on the edit form, and says why", async () => {
+    const user = userEvent.setup();
+    render(<FormHarness initial={AT_CAP} />);
+    const refused = screen.getByRole("button", { name: /Office 100(?!\d)/ });
+
+    expect(refused).toBeDisabled();
+    expect(screen.getByText(CAP_SENTENCE)).toBeInTheDocument();
+
+    await user.click(refused);
+
+    expect(keysOf()).toHaveLength(MAX_SELECTED_FACTS);
+    expect(keysOf()).not.toContain(BEYOND.value_key);
+  });
+
+  it("writes the form's own toggle into the same key list", async () => {
+    const user = userEvent.setup();
+    render(<FormHarness initial={[]} />);
+
+    await user.click(screen.getByRole("button", { name: /Office 3(?!\d)/ }));
+
+    expect(keysOf()).toEqual([MANY[3].value_key]);
+  });
+});
+
+// The read the edit form needs to offer facts at all: the fact list is the only
+// part of it under test, so everything else is the read's empty shape.
+function readWith(
+  facts: readonly CompanySiteReadFact[],
+): components["schemas"]["CompanySiteRead"] {
+  return {
+    id: "11111111-1111-4111-8111-111111111111",
+    target_kind: "onboarding",
+    root_url: "https://acme.test",
+    status: "ready",
+    status_code: null,
+    status_detail: null,
+    next_attempt_at: null,
+    pages: [],
+    profile_fields: [],
+    facts: [...facts],
+    comparisons: [],
+    people: [],
+    warnings: [],
+    draft_version: 1,
+    proposal_hash: "hash",
+    created_at: "2026-07-01T09:00:00Z",
+    updated_at: "2026-07-01T09:05:00Z",
+  };
+}
 
 // The table on its own, so Escape can be observed as a callback rather than as
 // the card's state change.

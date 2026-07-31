@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
 import type { MarginceCoreState } from "../../design-system/margince-core";
@@ -40,6 +41,42 @@ export function useConfiguredModel(): string {
   return configuredModelLabel(profile.data, t("ob.ai.runtimeUnavailable"), t);
 }
 
+/**
+ * Whether the workbench appearing right now is the FIRST one of this setup.
+ *
+ * Each act mounts its own shell, so the entrance animation replayed on every act
+ * change: the rail, the brand line, the orb and the runtime chip — the parts that
+ * are meant to be the stable frame — faded and rose again each time the reader
+ * moved forward. The shell cannot remember this itself, because it is exactly
+ * what unmounts; the scope sits above the act switch, which does not.
+ * What is shared is a mutable box, not a boolean: the answer has to flip when a
+ * SHELL appears, and the company act opens on the full-screen gate, so anything
+ * keyed on the scope's own mount would already have flipped before the first
+ * workbench ever rendered.
+ */
+const WorkbenchShown = createContext<{ current: boolean }>({ current: false });
+
+export function WorkbenchEntranceScope({
+  children,
+}: Readonly<{ children: ReactNode }>) {
+  const shown = useRef(false);
+  return (
+    <WorkbenchShown.Provider value={shown}>{children}</WorkbenchShown.Provider>
+  );
+}
+
+// Frozen per mount in state, not recomputed per render: the shell re-renders on
+// every poll, and an entrance that evaluated again would drop its own class
+// mid-animation.
+function useFirstWorkbench(): boolean {
+  const shown = useContext(WorkbenchShown);
+  const [first] = useState(() => !shown.current);
+  useEffect(() => {
+    shown.current = true;
+  }, [shown]);
+  return first;
+}
+
 export function ConversationWorkbench({
   core,
   progress,
@@ -60,6 +97,7 @@ export function ConversationWorkbench({
   const t = useT();
   const { locale } = useLocale();
   const configured = useConfiguredModel();
+  const first = useFirstWorkbench();
   // Built here rather than per act, so four acts cannot drift into four
   // different ideas of where the journey is.
   const steps: WorkbenchStep[] = railStops(railState.memberPath).map(
@@ -73,7 +111,11 @@ export function ConversationWorkbench({
     // are for the boxed single-column steps, and both fight a full-viewport
     // two-column surface. ob-workbench-panel stays — entries.tsx resolves the
     // composer through it, so it is a behavioural contract, not just a hook.
-    <section className="ob-panel ob-workbench-panel">
+    //
+    // ob-panel carries nothing but the entrance, so it is worn once: the
+    // workspace assembles when it first appears, and thereafter the frame is
+    // simply there while the acts change inside it.
+    <section className={`ob-workbench-panel${first ? " ob-panel" : ""}`}>
       <MarginceWorkbench
         state={core}
         progress={progress}

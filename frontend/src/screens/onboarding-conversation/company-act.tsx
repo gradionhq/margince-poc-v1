@@ -393,15 +393,6 @@ export function CompanyAct({
     };
   }
 
-  // The manual path stays offered before any read and again whenever the
-  // machine parked back in co.reading with the run retired (failed,
-  // deferred, or the poll-failure fallback) — never while a POST is in
-  // flight, so choosing manual cannot race a read that is about to start.
-  const showManualChip =
-    !startRead.isPending &&
-    (state.phase === "co.intro" ||
-      (state.phase === "co.reading" && state.activeReadId === null));
-
   const presence = presenceFor(state, { read, readBroken });
 
   // The gate and the read theatre are the company act's first face. It is
@@ -409,24 +400,34 @@ export function CompanyAct({
   // before there is anything sourced to review, a two-column workbench would be
   // showing the reader an empty dossier and asking them to trust it.
   //
-  // ONE return for both, because they are one column — the read replaces the
-  // question below a Core and a headline that never move. Two returns would put
-  // two component types at the same position and remount everything between
+  // ONE return for both faces, because they are one column — the read replaces
+  // the question below a Core and a headline that never move. Two returns would
+  // put two component types at the same position and remount everything between
   // them; OnboardingGate's GateColumn documents what that costs.
   //
-  // Which face shows follows the machine, not a local flag. `showManualChip` is
-  // true in exactly the states where no run is in flight, which is the same
-  // question the gate asks, so the two cannot drift apart.
+  // The condition is the whole span before there is anything to review, and
+  // NOTHING else: an in-flight POST or an unarrived first snapshot are both just
+  // "still waiting", so they keep the screen the reader is already on. Deriving
+  // it from whether the manual escape is offered — which is suppressed while a
+  // start is in flight — is what used to drop the reader onto an empty workbench
+  // for the length of one request.
+  const beforeReview =
+    state.phase === "co.intro" || state.phase === "co.reading";
   const scanning =
     state.phase === "co.reading" && state.activeReadId !== null && read
       ? { read, host: normalizeUrl(read.root_url).host, locale }
       : undefined;
+  // A run the machine owns whose first snapshot has not arrived: the Core keeps
+  // working and the question stays put rather than the column changing shape
+  // twice in half a second.
+  const awaitingRead =
+    state.phase === "co.reading" && state.activeReadId !== null && !read;
 
-  if (scanning !== undefined || showManualChip) {
+  if (beforeReview) {
     return (
       <OnboardingGate
         name={me.data?.user.display_name}
-        running={startRead.isPending}
+        running={startRead.isPending || awaitingRead}
         notice={gateNotice}
         configuredModel={configuredModel}
         scan={scanning}

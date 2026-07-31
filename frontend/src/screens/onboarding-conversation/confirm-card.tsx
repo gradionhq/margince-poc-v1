@@ -2,10 +2,11 @@ import { Check, Circle, Sparkles } from "lucide-react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
 import { EvidenceChip, ProvenanceTag } from "../../design-system/trust";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 import { coldFieldLabel } from "../common";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
-import { groundingOf, MAX_SELECTED_FACTS } from "../onboarding";
+import { groundingOf } from "../onboarding";
+import { CapNotice, saveDisabled, useFactSelection } from "../onboarding-facts";
 import type { ClarifyAnswer } from "./company-proposal";
 import {
   evidencedFields,
@@ -60,8 +61,17 @@ function humanOnlyRows(
 
 export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
   const t = useT();
+  const { locale } = useLocale();
   const fields = evidencedFields(props.proposal.fields);
   const facts = props.proposal.facts ?? [];
+  // The contract ceiling on `selected_fact_keys` is the selection model's to
+  // enforce, wherever a fact is picked: this card's toggles and the fact table's
+  // checkboxes write the same key list, so they refuse on the same terms.
+  const factSelection = useFactSelection(
+    facts,
+    props.selectedFactKeys,
+    props.setSelectedFactKeys,
+  );
   const openQuestions = (props.proposal.open_questions ?? []).filter(
     (question) =>
       question.id !== props.pendingQuestionId &&
@@ -132,28 +142,21 @@ export function CompanyConfirmCard(props: CompanyConfirmCardProps) {
             </span>
           </summary>
           <p className="ob-sub">{t("ob.factsSub")}</p>
+          {/* The artifact panel beside this thread draws the same ceiling and
+              owns announcing it; a second live region on the same boundary
+              would read the sentence twice. */}
+          <CapNotice atCap={factSelection.atCap} locale={locale} live={false} />
           <div className="fact-grid">
             {facts.map((fact) => {
-              const selected = props.selectedFactKeys.includes(fact.value_key);
-              const selectionFull =
-                !selected &&
-                props.selectedFactKeys.length >= MAX_SELECTED_FACTS;
+              const selected = factSelection.isSelected(fact);
               return (
                 <button
                   key={`${fact.field}:${fact.value_key}`}
                   type="button"
                   className={`fact-card ${selected ? "selected" : ""}`}
                   aria-pressed={selected}
-                  disabled={selectionFull}
-                  onClick={() =>
-                    props.setSelectedFactKeys(
-                      selected
-                        ? props.selectedFactKeys.filter(
-                            (key) => key !== fact.value_key,
-                          )
-                        : [...props.selectedFactKeys, fact.value_key],
-                    )
-                  }
+                  disabled={saveDisabled(factSelection, selected)}
+                  onClick={() => factSelection.toggle(fact)}
                 >
                   <span className="fact-check">
                     {selected ? <Check aria-hidden /> : <Circle aria-hidden />}

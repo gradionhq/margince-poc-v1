@@ -246,14 +246,12 @@ function DossierBody(props: CompanyActArtifactProps) {
         // collapsed card mounts none — so the panel gets the named fields and
         // opens the card that holds one before the effect goes looking.
         highlightFields={props.highlight?.ids}
+        // Always mounted, empty or not: the card owns the sentence that says a
+        // finished read pulled no separate facts out, and a missing card would
+        // leave the reader to guess whether the read found nothing or the
+        // dossier lost a section.
         factsSlot={
-          read.facts.length > 0 ? (
-            <FactsCard
-              facts={read.facts}
-              selection={selection}
-              locale={locale}
-            />
-          ) : undefined
+          <FactsCard facts={read.facts} selection={selection} locale={locale} />
         }
       />
       <Button small variant="ghost" onClick={() => props.onSwitchMode("edit")}>

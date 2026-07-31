@@ -13,6 +13,8 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { components } from "../api/schema";
 import { LocaleProvider } from "../i18n";
+import { EMPTY_DRAFT } from "./onboarding";
+import { CompanyActArtifact } from "./onboarding-conversation/artifact";
 import {
   CoverageCard,
   DossierCard,
@@ -244,6 +246,16 @@ describe("FieldRow", () => {
     render(<FieldRow field={field({ value: "  " })} />);
 
     expect(screen.getByText("—")).toBeTruthy();
+  });
+
+  it("keeps the quote a child of the row, where the value column can hold it", () => {
+    // The row is a key/value grid and the quote is placed in the value column
+    // by being a child of the row itself. Wrapped in anything, it lands back
+    // under the label and the pairing the grid draws comes apart.
+    render(<FieldRow field={field()} />);
+
+    const chip = document.querySelector(".evidence-chip");
+    expect(chip?.parentElement?.classList.contains("ob-live-field")).toBe(true);
   });
 
   it("renders no evidence chip when the evidence has no source to cite", () => {
@@ -642,5 +654,76 @@ describe("OnboardingLivePanel", () => {
       (step) => step.getAttribute("data-state"),
     );
     expect(states).toEqual(["done", "now"]);
+  });
+});
+
+// The panel's production host, exercised for one thing only: which cards the
+// dossier is composed of. Everything else about the artifact is covered where
+// it lives.
+describe("CompanyActArtifact", () => {
+  function artifact(site: CompanySiteRead) {
+    return (
+      <CompanyActArtifact
+        mode="dossier"
+        manual={false}
+        read={site}
+        draft={EMPTY_DRAFT}
+        setField={vi.fn()}
+        onPickEntity={vi.fn()}
+        selectedFactKeys={[]}
+        setSelectedFactKeys={vi.fn()}
+        missingRequired={[]}
+        highlight={null}
+        onSwitchMode={vi.fn()}
+        onConfirm={vi.fn()}
+        confirmPending={false}
+        confirmDisabled={false}
+        saveError={null}
+      />
+    );
+  }
+
+  const NO_FACTS_FOUND =
+    "I read the site but pulled no separate facts out of it. What I did learn is in the sections above, each with its source.";
+
+  it("still shows the facts card when a finished read extracted nothing", () => {
+    // Honest degradation only reaches the reader if the card is there to say
+    // it: omitting the card leaves a settled read looking identical to a
+    // dossier that lost a section.
+    render(
+      artifact(
+        read({
+          profile_fields: [coldField("display_name", "Example")],
+          facts: [],
+        }),
+      ),
+    );
+
+    expect(screen.getByRole("heading", { name: "Facts" })).toBeTruthy();
+    expect(screen.getByText(NO_FACTS_FOUND)).toBeTruthy();
+  });
+
+  it("shows the facts themselves when the read did extract some", () => {
+    render(
+      artifact(
+        read({
+          facts: [
+            {
+              category: "company",
+              field: "location",
+              value: "Berlin",
+              value_key: "company:location:berlin",
+              evidence_snippet: "Our workshop sits in Berlin",
+              evidence_url: "https://example.test",
+              confidence: 0.8,
+            },
+          ],
+        }),
+      ),
+    );
+
+    expect(screen.getByRole("heading", { name: "Facts" })).toBeTruthy();
+    expect(screen.getByText("Berlin")).toBeTruthy();
+    expect(screen.queryByText(NO_FACTS_FOUND)).toBeNull();
   });
 });

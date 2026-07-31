@@ -22,6 +22,7 @@ import { ResultsAct } from "./results-act";
 import type { WizardPersistInput } from "./use-wizard-state";
 import { useWizardStatePersist } from "./use-wizard-state";
 import { VoiceAct } from "./voice-act";
+import { WorkbenchEntranceScope } from "./workbench";
 
 // The conversational onboarding shell — THE onboarding experience: one pure
 // machine owns where the conversation is, and each act renders inside the
@@ -296,45 +297,50 @@ export function OnboardingConversationScreen() {
 
   return (
     <div className="ob-page ob-conv-page">
-      {state.act === "company" && (
-        <CompanyAct
-          state={state}
-          dispatch={dispatch}
-          profile={existing.data ?? null}
-          persist={persist}
-          adoptedRead={
-            persistedRead.data != null &&
-            persistedRead.data.id === state.activeReadId
-              ? persistedRead.data
-              : null
-          }
-        />
-      )}
-      {state.act === "voice" && (
-        <VoiceAct
-          state={state}
-          dispatch={dispatch}
-          initialSummary={voice.data?.summary ?? null}
-        />
-      )}
-      {state.act === "results" && (
-        <ResultsAct
-          state={state}
-          dispatch={dispatch}
-          profile={existing.data ?? null}
-          voiceBuilt={voiceBuilt}
-          corpusWords={voice.data?.summary?.total_words ?? null}
-        />
-      )}
-      {(state.act === "connect" || state.act === "done") && (
-        <ConnectAct
-          state={state}
-          dispatch={dispatch}
-          persist={persist}
-          outcome={route.id === "connect" ? route.id2 : undefined}
-          returningProvider={route.id === "connect" ? route.id3 : undefined}
-        />
-      )}
+      {/* Above the act switch on purpose: this is the one level that survives an
+          act change, so it is the only place that can know whether the workbench
+          frame has already introduced itself. */}
+      <WorkbenchEntranceScope>
+        {state.act === "company" && (
+          <CompanyAct
+            state={state}
+            dispatch={dispatch}
+            profile={existing.data ?? null}
+            persist={persist}
+            adoptedRead={
+              persistedRead.data != null &&
+              persistedRead.data.id === state.activeReadId
+                ? persistedRead.data
+                : null
+            }
+          />
+        )}
+        {state.act === "voice" && (
+          <VoiceAct
+            state={state}
+            dispatch={dispatch}
+            initialSummary={voice.data?.summary ?? null}
+          />
+        )}
+        {state.act === "results" && (
+          <ResultsAct
+            state={state}
+            dispatch={dispatch}
+            profile={existing.data ?? null}
+            voiceBuilt={voiceBuilt}
+            corpusWords={voice.data?.summary?.total_words ?? null}
+          />
+        )}
+        {(state.act === "connect" || state.act === "done") && (
+          <ConnectAct
+            state={state}
+            dispatch={dispatch}
+            persist={persist}
+            outcome={route.id === "connect" ? route.id2 : undefined}
+            returningProvider={route.id === "connect" ? route.id3 : undefined}
+          />
+        )}
+      </WorkbenchEntranceScope>
     </div>
   );
 }

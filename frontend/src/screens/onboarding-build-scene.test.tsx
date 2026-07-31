@@ -79,6 +79,52 @@ describe("BuildScene", () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 
+  it("dissolves over the last stretch of its duration, then hands off on the clock", () => {
+    vi.useFakeTimers();
+    const onDone = vi.fn();
+    withLocale(<BuildScene onDone={onDone} durationMs={1200} />);
+    const scene = screen.getByRole("status", {
+      name: "Assembling your workspace",
+    });
+
+    expect(scene).not.toHaveClass("is-leaving");
+
+    // 0.86 of the duration: the exit starts inside the time the caller asked
+    // for, so leaving costs the reader nothing extra.
+    act(() => {
+      vi.advanceTimersByTime(1032);
+    });
+    expect(scene).toHaveClass("is-leaving");
+    expect(onDone).not.toHaveBeenCalled();
+
+    // No animation event is ever dispatched here, and the handoff still lands:
+    // the dissolve cannot strand a reader on a full-screen scene.
+    act(() => {
+      vi.advanceTimersByTime(168);
+    });
+    expect(onDone).toHaveBeenCalledTimes(1);
+  });
+
+  it("stays silent when the caller moves on mid-dissolve", () => {
+    vi.useFakeTimers();
+    const onDone = vi.fn();
+    const { unmount } = withLocale(
+      <BuildScene onDone={onDone} durationMs={1200} />,
+    );
+
+    // Past the start of the exit, before the handoff: the window in which the
+    // scene is already leaving and could still navigate.
+    act(() => {
+      vi.advanceTimersByTime(1100);
+    });
+    unmount();
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
   it("skips the scene entirely under reduced motion, completing immediately", () => {
     stubReducedMotion(true);
     vi.useFakeTimers();

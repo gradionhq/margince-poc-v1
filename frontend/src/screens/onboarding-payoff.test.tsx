@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
 import {
+  PAYOFF_FRESH_WINDOW_MS,
   type PayoffCounts,
   PayoffGrid,
   PayoffMessage,
@@ -29,6 +30,17 @@ const full: PayoffCounts = {
 function withLocale(ui: ReactNode, locale: "en" | "de" = "en") {
   return render(<LocaleProvider initial={locale}>{ui}</LocaleProvider>);
 }
+
+// The instant the payoff is read at. Both ends of the elapsed-time comparison
+// are the test's own numbers — the component takes `nowMs` as a prop, so no
+// case here depends on the machine's clock.
+const NOW_MS = Date.parse("2026-07-31T12:00:00Z");
+
+function startedAgo(ms: number): string {
+  return new Date(NOW_MS - ms).toISOString();
+}
+
+const MINUTE_MS = 60_000;
 
 // The cell a label belongs to: the <dt> and its <dd> are the only children of
 // the cell element, so the parent's text is "label + value".
@@ -77,6 +89,31 @@ describe("PayoffGrid", () => {
     expect(screen.queryByText("voice not trained yet")).not.toBeInTheDocument();
   });
 
+  it("marks the two facts that carry the argument, and only those", () => {
+    const { container } = withLocale(<PayoffGrid counts={full} locale="en" />);
+
+    // What was read and what the reader confirmed lead; the four counts that
+    // support them do not compete with them for the eye.
+    const led = [...container.querySelectorAll(".ob-payoff-cell.is-argument")];
+    expect(led.map((cell) => cell.textContent)).toEqual([
+      "facts read1,284",
+      "facts you confirmed42",
+    ]);
+  });
+
+  it("keeps the emphasis on the leading fact when an earlier cell is omitted", () => {
+    // Position cannot carry the emphasis: a grid missing its first count would
+    // hand it to whichever cell slid up into the gap.
+    const { container } = withLocale(
+      <PayoffGrid counts={{ ...full, factsRead: null }} locale="en" />,
+    );
+
+    const led = [...container.querySelectorAll(".ob-payoff-cell.is-argument")];
+    expect(led.map((cell) => cell.textContent)).toEqual([
+      "facts you confirmed42",
+    ]);
+  });
+
   it("omits a cell whose number never existed rather than filling it in", () => {
     // `pages_read` is optional on the wire, and there is no honest copy for its
     // absence — so the grid is one cell shorter instead of one guess longer.
@@ -92,7 +129,13 @@ describe("PayoffGrid", () => {
 describe("PayoffMessage", () => {
   it("frames the grid with the lead, the body and both deferrals, each naming its exit", () => {
     withLocale(
-      <PayoffMessage counts={full} locale="en" onContinue={vi.fn()} />,
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(4 * MINUTE_MS)}
+        nowMs={NOW_MS}
+        onContinue={vi.fn()}
+      />,
     );
 
     expect(
@@ -106,10 +149,105 @@ describe("PayoffMessage", () => {
     expect(screen.getByText(/Settings → People/)).toBeInTheDocument();
   });
 
+  // Setup is resumable, so "minutes ago" is a claim about elapsed time and the
+  // payoff is the one screen that cannot afford to overstate. Each case fixes
+  // both instants itself.
+  it("says minutes ago when the setup really did start minutes ago", () => {
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(PAYOFF_FRESH_WINDOW_MS - MINUTE_MS)}
+        nowMs={NOW_MS}
+        onContinue={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Minutes ago this was an empty install."),
+    ).toBeInTheDocument();
+  });
+
+  it("drops the time claim for a setup finished in a later session", () => {
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(2 * 24 * 60 * MINUTE_MS)}
+        nowMs={NOW_MS}
+        onContinue={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("This started as an empty install."),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Minutes ago this was an empty install."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops the time claim the moment the fresh window has passed", () => {
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(PAYOFF_FRESH_WINDOW_MS)}
+        nowMs={NOW_MS}
+        onContinue={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("This started as an empty install."),
+    ).toBeInTheDocument();
+  });
+
+  it("drops the time claim when there is no start instant to check", () => {
+    // An unknown elapsed time is not a short one, and the neutral sentence is
+    // true whenever the setup ran.
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={null}
+        nowMs={NOW_MS}
+        onContinue={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("This started as an empty install."),
+    ).toBeInTheDocument();
+  });
+
+  it("drops the time claim when the start instant is ahead of the reader's clock", () => {
+    // Server and browser disagreeing is not evidence of freshness.
+    withLocale(
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(-MINUTE_MS)}
+        nowMs={NOW_MS}
+        onContinue={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("This started as an empty install."),
+    ).toBeInTheDocument();
+  });
+
   it("hands control back through onContinue", async () => {
     const onContinue = vi.fn();
     withLocale(
-      <PayoffMessage counts={full} locale="en" onContinue={onContinue} />,
+      <PayoffMessage
+        counts={full}
+        locale="en"
+        startedAt={startedAgo(4 * MINUTE_MS)}
+        nowMs={NOW_MS}
+        onContinue={onContinue}
+      />,
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Understood" }));

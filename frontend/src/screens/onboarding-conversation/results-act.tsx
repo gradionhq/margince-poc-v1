@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { api } from "../../api/client";
 import type { components } from "../../api/schema";
+import { useNow } from "../../format/now";
 import { useLocale, useT } from "../../i18n";
 import { problemMessage } from "../common";
 import type { PayoffCounts } from "../onboarding-payoff";
@@ -35,6 +36,15 @@ type ResultsActProps = Readonly<{
   corpusWords: number | null;
 }>;
 
+// Everything the payoff needs from the server: the counts, and when this setup
+// began. The start instant decides which lead the payoff has earned — setup is
+// resumable, so "minutes ago" is a claim that has to be checked rather than
+// assumed.
+type PayoffFacts = Readonly<{
+  counts: PayoffCounts;
+  startedAt: string | null;
+}>;
+
 // What the setup actually produced, counted from the server's own records.
 //
 // The confirmed profile is the authority for what was kept — its `fields` and
@@ -42,10 +52,10 @@ type ResultsActProps = Readonly<{
 // record of the work that produced them (pages crawled, people proposed). Any
 // count whose source is missing stays null, and the grid omits that cell rather
 // than printing a zero the reader did not earn.
-function usePayoffCounts(
+function usePayoffFacts(
   profile: CompanyProfile | null,
   corpusWords: number | null,
-): PayoffCounts {
+): PayoffFacts {
   const wizard = useQuery({
     queryKey: ["onboarding-conv-state"],
     queryFn: loadWizardState,
@@ -73,13 +83,18 @@ function usePayoffCounts(
 
   const dossier = read.data ?? null;
   return {
-    factsRead: dossier?.facts.length ?? null,
-    factsConfirmed:
-      profile?.facts?.length ?? wizard.data?.selected_fact_keys.length ?? null,
-    peopleFound: dossier?.people.length ?? null,
-    profileFields: profile?.fields?.length ?? null,
-    pagesRead: dossier?.pages_read ?? null,
-    voiceWords: corpusWords,
+    counts: {
+      factsRead: dossier?.facts.length ?? null,
+      factsConfirmed:
+        profile?.facts?.length ??
+        wizard.data?.selected_fact_keys.length ??
+        null,
+      peopleFound: dossier?.people.length ?? null,
+      profileFields: profile?.fields?.length ?? null,
+      pagesRead: dossier?.pages_read ?? null,
+      voiceWords: corpusWords,
+    },
+    startedAt: wizard.data?.created_at ?? null,
   };
 }
 
@@ -92,7 +107,11 @@ export function ResultsAct({
 }: ResultsActProps) {
   const t = useT();
   const { locale } = useLocale();
-  const counts = usePayoffCounts(profile, corpusWords);
+  const { counts, startedAt } = usePayoffFacts(profile, corpusWords);
+  // Pinned at mount (a zero interval takes no ticks): the lead is one sentence
+  // the reader is in the middle of, and a sentence that rewrites itself while
+  // they read it is worse than one that ages by a minute.
+  const nowMs = useNow(0);
   return (
     <ConversationWorkbench
       core={presenceFor(state).core}
@@ -151,6 +170,8 @@ export function ResultsAct({
           <PayoffMessage
             counts={counts}
             locale={locale}
+            startedAt={startedAt}
+            nowMs={nowMs}
             onContinue={() => dispatch({ type: "RESULTS_CONTINUE" })}
           />
         </ConversationThread>

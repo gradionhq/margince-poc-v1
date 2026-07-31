@@ -460,6 +460,34 @@ describe("the conversational company act", () => {
     ).toBeTruthy();
   });
 
+  it("lets the workbench frame introduce itself once, not once per act", async () => {
+    stubApi();
+    render(<OnboardingScreen />);
+
+    await submitWebsite();
+    const accept = (await screen.findByRole("button", {
+      name: /Accept all/,
+    })) as HTMLButtonElement;
+    await waitFor(() => {
+      expect(accept.disabled).toBe(false);
+    });
+    // The frame's entrance is the class the animation hangs off, and it is worn
+    // by the first shell of the setup.
+    expect(document.querySelector(".ob-workbench-panel")?.className).toContain(
+      "ob-panel",
+    );
+
+    await userEvent.click(accept);
+    await screen.findByText(/Want me to learn how you write\?/);
+
+    // The next act mounts its own shell. The rail, the brand line, the orb and
+    // the runtime chip are already on screen by now — they are the frame, so
+    // re-entering would make the reader's step forward look like a page load.
+    expect(
+      document.querySelector(".ob-workbench-panel")?.className,
+    ).not.toContain("ob-panel");
+  });
+
   it("persists wizard state on read start so the proposal endpoint can join", async () => {
     const calls = stubApi();
     render(<OnboardingScreen />);

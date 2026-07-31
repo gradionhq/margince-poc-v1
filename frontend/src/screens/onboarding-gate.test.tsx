@@ -316,6 +316,36 @@ describe("OnboardingGate", () => {
   });
 });
 
+describe("the gate while a start is in flight", () => {
+  it("withholds the manual escape, so it cannot race the read beginning", () => {
+    const { rerender } = render(
+      <OnboardingGate
+        running={false}
+        configuredModel={MODEL}
+        onSubmit={vi.fn()}
+        onManual={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /Enter the details yourself/ }),
+    ).toBeInTheDocument();
+
+    rerender(
+      <LocaleProvider initial="en">
+        <OnboardingGate
+          running
+          configuredModel={MODEL}
+          onSubmit={vi.fn()}
+          onManual={vi.fn()}
+        />
+      </LocaleProvider>,
+    );
+    expect(
+      screen.queryByRole("button", { name: /Enter the details yourself/ }),
+    ).toBeNull();
+  });
+});
+
 describe("the gate-to-read handoff", () => {
   it("replaces the tail of one column instead of mounting a second screen", () => {
     const { rerender } = render(
