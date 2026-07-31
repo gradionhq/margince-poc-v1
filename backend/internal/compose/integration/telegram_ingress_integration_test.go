@@ -224,7 +224,7 @@ func TestAC_TG_4_RedeliveryYieldsExactlyOneActivity(t *testing.T) {
 	// The cursor never advanced, so Telegram sends the identical batch again.
 	c.rewindPollCursor(t, 0)
 	c.api.hold(u.body(t))
-	c.pollNow(t, sub)
+	c.pollNow(t, sub, u.updateID+1)
 
 	if n := c.rawCaptures(t, u.updateID); n != 1 {
 		t.Fatalf("%d raw captures for a re-delivered update_id, want 1", n)

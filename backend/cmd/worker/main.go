@@ -377,38 +377,6 @@ func startJobRunner(ctx context.Context, pool *pgxpool.Pool, rdb *redis.Client, 
 	}, nil
 }
 
-// jobRunnerBanner is the one line an operator reads to see which lanes this
-// worker actually came up with — each one naming the configuration that
-// enabled it, or the reason it is off. Split out of startJobRunner so that
-// function stays the lane wiring rather than its prose.
-func jobRunnerBanner(cfg workerConfig, watchCfg compose.GmailWatchConfig, modelPath compose.ModelPath, overlayVault keyvault.Vault) string {
-	gmailWired := cfg.gmailAppWired()
-	providers := "imap"
-	if gmailWired {
-		providers += "+gmail"
-	}
-	if cfg.graphClientID != "" && cfg.graphClientSecret != "" {
-		providers += "+graph"
-	}
-	captureNote := fmt.Sprintf("capture sweep every %s: %s", cfg.gmailSyncInterval, providers)
-	switch {
-	case gmailWired && watchCfg.Topic != "":
-		captureNote = fmt.Sprintf("capture sweep every %s: %s, watch renew every %s", cfg.gmailSyncInterval, providers, cfg.gmailWatchInterval)
-	case gmailWired:
-		captureNote = fmt.Sprintf("capture sweep every %s: %s (watch off: no pubsub topic)", cfg.gmailSyncInterval, providers)
-	}
-	overlayNote := "overlay reconcile off (no keyvault configured)"
-	if overlayVault != nil {
-		overlayNote = fmt.Sprintf("overlay reconcile every %s", cfg.overlayInterval)
-	}
-	deepReadNote := "deep read on"
-	if modelPath.SiteExtract == nil {
-		deepReadNote = "deep read degraded: no model path, queued reads will fail (configure --ai-routing)"
-	}
-	return fmt.Sprintf("worker running River jobs (close-date every %s, reconcile every %s, time-scan every %s, %s, %s, %s)",
-		cfg.closeDateInterval, cfg.reconcileInterval, cfg.timeScanInterval, captureNote, overlayNote, deepReadNote)
-}
-
 // selectModelPath resolves the model path: a routing config for real
 // deployments, the offline fake behind an explicit dev flag, or the
 // zero path — the runner and the embed lane simply don't start without

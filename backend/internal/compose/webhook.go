@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 // SPDX-FileCopyrightText: 2026 Gradion
 
-// The shared webhook chassis Gmail's push and Telegram's callback both sit
-// on (design §6.5): one route shape, one admission sequence — method guard,
+// The shared webhook chassis provider callbacks sit on: one route shape, one
+// admission sequence — method guard,
 // constant-time secret comparison, an optional second verifier, a bounded
 // body read — and one response discipline. What differs between providers
 // (secret granularity, payload durability, routing key) stays in each
@@ -35,7 +35,7 @@ type Disposition int
 
 const (
 	// Accepted means the delivery was understood and acted on; the
-	// caller's OnAccept status closes it out (Telegram 200, Gmail 204).
+	// caller's OnAccept status closes it out (Gmail answers 204).
 	Accepted Disposition = iota
 	// Poison means the delivery arrived but could not be understood or
 	// acted on, and the fault is ours to inspect, not the provider's to
@@ -52,16 +52,14 @@ const (
 // chassis owns admission and response discipline, Handle owns everything
 // provider-specific (payload shape, durability, routing).
 type WebhookSpec struct {
-	// Provider names the webhook in logs (e.g. "gmail", "telegram").
+	// Provider names the webhook in logs (for example, "gmail").
 	Provider string
 	// MaxBody bounds the request body the chassis will read, so an
 	// unauthenticated public endpoint cannot be used to exhaust memory.
 	MaxBody int64
 	// Secret returns the expected and presented shared secret for this
-	// request (an operator token in the query string for Gmail, a
-	// per-connection secret in the X-Telegram-Bot-Api-Secret-Token header
-	// for Telegram) — compared in constant time regardless of which shape
-	// it came from.
+	// request (for example, an operator token in Gmail's query string) —
+	// compared in constant time regardless of which shape it came from.
 	Secret func(*http.Request) (want, got string)
 	// Verify is an optional second admission factor layered on top of the
 	// secret (Gmail's Google-signed OIDC bearer); nil skips it — the

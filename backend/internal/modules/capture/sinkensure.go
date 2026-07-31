@@ -403,8 +403,14 @@ func (s *Sink) logEnsureFault(ctx context.Context, rec connector.NormalizedRecor
 	detail := map[string]any{
 		fieldReason:       "counterparty_ensure_failed",
 		fieldSourceSystem: rec.NaturalKey.SourceSystem,
-		fieldSourceID:     rec.NaturalKey.SourceID,
 		"error":           cause.Error(),
+	}
+	// A Telegram private-chat natural key embeds the customer's account id.
+	// This fault can be recorded after an erasure committed between capture and
+	// the asynchronous ensure, so retaining the key here would recreate the
+	// identifier the suppression gate just kept out of the domain rows.
+	if rec.Counterparty.ChannelIdentity.Provider == "" {
+		detail[fieldSourceID] = rec.NaturalKey.SourceID
 	}
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		_, logErr := storekit.LogSystem(ctx, tx, "capture_ensure_fault", detail)

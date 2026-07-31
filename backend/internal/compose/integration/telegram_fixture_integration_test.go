@@ -392,18 +392,40 @@ func (u telegramUpdate) account() string { return fmt.Sprintf("%d", u.senderID) 
 func (c *telegramEnv) arrive(t *testing.T, sub <-chan *river.Event, u telegramUpdate) {
 	t.Helper()
 	c.api.hold(u.body(t))
-	c.pollNow(t, sub)
+	c.pollNow(t, sub, u.updateID+1)
 }
 
-// pollNow runs one poll of this connection and waits for it to finish.
-func (c *telegramEnv) pollNow(t *testing.T, sub <-chan *river.Event) {
+// pollNow runs one poll of this connection and waits until its cursor proves
+// that the update it was asked to collect committed. A runner also starts the
+// leader-elected sweep, whose empty poll can complete after this method enqueues
+// its own job; waiting for a completion event by kind alone would mistake that
+// unrelated poll for the batch this test just handed to Telegram.
+func (c *telegramEnv) pollNow(t *testing.T, sub <-chan *river.Event, wantOffset int64) {
 	t.Helper()
 	if err := c.inserter.Enqueue(context.Background(), compose.TelegramPollArgs{
 		Workspace: c.ws, ConnectionID: c.conn.ID.String(),
 	}, nil); err != nil {
 		t.Fatalf("enqueueing a poll: %v", err)
 	}
-	awaitJobKind(t, sub, compose.TelegramPollArgs{}.Kind())
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	for {
+		// Checked before blocking: the enqueue above dedupes into any poll already
+		// in flight (per-bot uniqueness), and that poll's completion event may have
+		// been consumed by an earlier await — the cursor itself is the durable
+		// evidence, the event only says when to look again.
+		if c.pollCursor(t) >= wantOffset {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for poll cursor to reach %d: %v", wantOffset, ctx.Err())
+		case ev := <-sub:
+			if ev == nil || ev.Job == nil || ev.Job.Kind != (compose.TelegramPollArgs{}).Kind() {
+				continue
+			}
+		}
+	}
 }
 
 // pollCursor is the offset the next poll will ask from. Advancing it IS the

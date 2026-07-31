@@ -283,9 +283,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	river.AddWorker(workers, &followUpReconcileWorker{reconciler: NewFollowUpReconciler(pool, log)})
 	river.AddWorker(workers, &timeScanWorker{scanner: NewTimeScanner(pool, log)})
 	river.AddWorker(workers, &idempotencyRetentionWorker{sweeper: NewIdempotencyRetentionSweeper(pool, log)})
-	// The Telegram ingest job is not periodic — the webhook enqueues one per
-	// accepted update (telegramwebhook.go), in the same transaction as the
-	// raw capture row; the worker role only needs the worker registered,
+	// The Telegram ingest job is not periodic — a poll enqueues one per accepted
+	// update in the same transaction as the raw capture row; the worker role only
+	// needs the worker registered,
 	// same posture as the deep-read and embed-reindex workers. Registered
 	// unconditionally: unlike Gmail/Graph, a channel connection carries its
 	// own per-connection credential (no deployment-wide OAuth app to gate

@@ -135,9 +135,9 @@ func eraseChannelIdentities(ctx context.Context, tx pgx.Tx, identities []channel
 // Both payload shapes below are matched because both land in raw_capture
 // under the SAME source_system: capture/telegram's Normalize reads the sender
 // from message.from.id for an ordinary message, and ParseMembership reads it
-// from my_chat_member.chat.id for a block/unblock report — the webhook
-// persists the raw update before anything classifies which kind it is
-// (compose/telegramwebhook.go), so an unerased row of either shape would
+// from my_chat_member.chat.id for a block/unblock report — the poller persists
+// the raw update before the ingest worker classifies which kind it is, so an
+// unerased row of either shape would
 // still resolve back onto this subject's account.
 //
 // The membership arm reads the CHAT and not new_chat_member.user, which is

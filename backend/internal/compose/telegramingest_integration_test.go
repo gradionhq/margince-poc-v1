@@ -15,6 +15,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -155,6 +156,9 @@ func TestIngestWorkerTreatsAUniqueViolationAsRetryable(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("Work returned nil — a unique violation must propagate so River redelivers, not be swallowed")
+	}
+	if strings.Contains(err.Error(), "42:1001:7") {
+		t.Errorf("the persisted River error contains the Telegram natural key %q", "42:1001:7")
 	}
 	if !storekit.IsUniqueViolation(err) {
 		t.Errorf("got %v, want an error still classifiable as a unique violation (the worker rewrapped rather than propagated it)", err)

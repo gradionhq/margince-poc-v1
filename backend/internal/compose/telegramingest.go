@@ -182,8 +182,7 @@ func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records 
 			// Fields type into a zero-valued activity: a captured message with
 			// no body, no direction and no occurrence time, committed as though
 			// it were real. Failing names the type instead.
-			return fmt.Errorf("telegram_ingest: update %s carries %T, want telegram.ActivityFields",
-				rec.NaturalKey.SourceID, rec.Fields)
+			return fmt.Errorf("telegram_ingest: normalized record carries %T, want telegram.ActivityFields", rec.Fields)
 		}
 		rec.Fields = capture.ActivityFields{
 			Kind: fields.Kind, Body: fields.Body, OccurredAt: fields.OccurredAt, Direction: fields.Direction,
@@ -203,7 +202,10 @@ func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records 
 				w.log.InfoContext(actorCtx, "telegram_ingest: refused a record naming an erased channel account")
 				continue
 			}
-			return fmt.Errorf("telegram_ingest: capturing update %s: %w", rec.NaturalKey.SourceID, err)
+			// River persists returned job errors. A Telegram natural key contains
+			// the private-chat id, which is the customer's account id, so it must
+			// not leave this worker even when capture itself failed.
+			return fmt.Errorf("telegram_ingest: capturing an update: %w", err)
 		}
 	}
 	return nil
