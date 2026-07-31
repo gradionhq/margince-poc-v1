@@ -130,12 +130,12 @@ func consentFragment(t *testing.T, location string) url.Values {
 	return params
 }
 
-// authorize drives the consent flow: the GET hands the browser to the consent
-// screen and mints nothing (a GET must never mint a code — OAuth CSRF), the
-// nonce-bound POST is the consent, and the redirect carries the code.
-func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
+// armConsent drives the authorize GET and returns the form the consent screen
+// must POST back — the request's own parameters plus the nonce the redirect
+// armed. A GET mints nothing (it must never: OAuth CSRF), so this is only half
+// the flow.
+func (o *oauthEnv) armConsent(t *testing.T, extra url.Values) url.Values {
 	t.Helper()
-	q := o.authorizeQuery(extra)
 	status, location, body, _ := o.authorizeRawFollow(t, extra)
 	if status != http.StatusFound {
 		t.Fatalf("consent redirect → %d %s", status, body)
@@ -144,12 +144,19 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	if nonce == "" {
 		t.Fatalf("the consent redirect carries no nonce: %q", location)
 	}
-
 	form := url.Values{}
-	for k, vs := range q {
+	for k, vs := range o.authorizeQuery(extra) {
 		form[k] = vs
 	}
 	form.Set("consent", nonce)
+	return form
+}
+
+// postConsent posts one consent decision with redirects DISABLED, so the
+// redirect toward the client — or the refusal that replaces it — is the
+// assertion target rather than whatever it points at.
+func (o *oauthEnv) postConsent(t *testing.T, form url.Values) (status int, location, body string) {
+	t.Helper()
 	post, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -162,16 +169,54 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 		t.Fatal(err)
 	}
 	defer closeBody(t, resp)
-	if resp.StatusCode != http.StatusFound {
-		refusal, err := io.ReadAll(resp.Body)
-		if err != nil {
-			t.Fatalf("reading the refused consent POST's body: %v", err)
-		}
-		t.Fatalf("consent POST → %d %s", resp.StatusCode, refusal)
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the consent POST's body: %v", err)
 	}
-	granted, err := url.Parse(resp.Header.Get("Location"))
+	return resp.StatusCode, resp.Header.Get("Location"), string(raw)
+}
+
+// requestedScopes is the passport vocabulary a scope parameter names, which is
+// what a passport minted to be LENT against that request has to carry. It
+// mirrors the server's own parse: offline_access asks for the connection's
+// lifetime rather than authority over a record, so it is never a passport
+// scope, and a request naming no access scope at all defaults to read exactly
+// as identity's parseOAuthScopes does.
+func requestedScopes(scope string) []string {
+	var scopes []string
+	for _, sc := range strings.Fields(scope) {
+		if sc != "offline_access" {
+			scopes = append(scopes, sc)
+		}
+	}
+	if len(scopes) == 0 {
+		return []string{"read"}
+	}
+	return scopes
+}
+
+// authorize drives the whole consent flow the way a human does: the GET hands
+// the browser to the consent screen, the human LENDS one of their own
+// passports, and the nonce-bound POST is the consent whose redirect carries the
+// code.
+//
+// The lent passport is minted carrying exactly the scopes this request asked
+// for, so the intersection the connection receives is the request itself — a
+// caller asserting on a granted scope set is judged against the same set it
+// always was. A test that needs the two to differ mints its own passport and
+// lends it through approveWithPassport.
+func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
+	t.Helper()
+	form := o.armConsent(t, extra)
+	form.Set("passport_id", o.mintPassport(t, "lent to the night agent", requestedScopes(form.Get("scope"))))
+
+	status, location, body := o.postConsent(t, form)
+	if status != http.StatusFound {
+		t.Fatalf("consent POST → %d %s", status, body)
+	}
+	granted, err := url.Parse(location)
 	if err != nil || granted.Query().Get("code") == "" || granted.Query().Get("state") != "night-state" {
-		t.Fatalf("redirect malformed: %q", resp.Header.Get("Location"))
+		t.Fatalf("redirect malformed: %q", location)
 	}
 	return granted.Query().Get("code")
 }

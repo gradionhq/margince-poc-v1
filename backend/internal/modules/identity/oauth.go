@@ -305,16 +305,55 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code, err := randomToken()
+	// Deny is answered to the CLIENT, not to the browser: RFC 6749 §4.1.2.1
+	// says the client learns access_denied at its own redirect_uri with its
+	// state echoed, so it stops waiting instead of hanging on a tab the human
+	// closed. It is judged AFTER the nonce check — a forged deny is still a
+	// forgery — and mints nothing: no grant, no code.
+	if r.PostForm.Get("deny") != "" {
+		redirectToClient(w, r, req, url.Values{"error": {"access_denied"}})
+		return
+	}
+
+	// The human LENDS one of their own passports rather than granting scopes ad
+	// hoc, so the code carries the INTERSECTION of that passport's authority and
+	// the client's request — never wider than either one. lendableScopes states
+	// why that intersection is re-computed here instead of taken from the form.
+	granted, lendable, err := h.svc.lendableScopes(r.Context(), id, req.Scopes, r.PostForm.Get("passport_id"))
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
 	}
-	// The marker's durable home is oauth_grant.refresh_allowed, and no grant
-	// exists until the code is redeemed — so offline_access rides in this
-	// unconstrained scopes column to survive the round trip instead of dying
-	// here. The exchange re-derives the boolean from it and strips it before
-	// any scope reaches the passport (oauth_token.go).
+	if !lendable {
+		oauthError(w, http.StatusBadRequest, "invalid_request",
+			"select one of your own live passports to lend this client")
+		return
+	}
+	req.Scopes = granted
+
+	code, err := h.mintAuthorizationCode(r, req, id)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	redirectToClient(w, r, req, url.Values{"code": {code}})
+}
+
+// mintAuthorizationCode writes the single-use code the consent produced and
+// returns the plaintext courier the client will redeem; only its hash is
+// stored. The scopes it records are the ones the human actually lent — the
+// intersection, never the client's request.
+//
+// The offline_access marker's durable home is oauth_grant.refresh_allowed, and
+// no grant exists until the code is redeemed — so it rides in this
+// unconstrained scopes column to survive the round trip instead of dying here.
+// The exchange re-derives the boolean from it and strips it before any scope
+// reaches the passport (oauth_token.go).
+func (h Handlers) mintAuthorizationCode(r *http.Request, req authorizeRequest, id Identity) (string, error) {
+	code, err := randomToken()
+	if err != nil {
+		return "", err
+	}
 	storedScopes := req.Scopes
 	if req.Offline {
 		storedScopes = append(append([]string{}, req.Scopes...), scopeOfflineAccess)
@@ -330,21 +369,9 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		return err
 	})
 	if err != nil {
-		httperr.Write(w, r, err)
-		return
+		return "", err
 	}
-
-	location, _ := url.Parse(req.RedirectURI)
-	params := location.Query()
-	params.Set("code", code)
-	if req.State != "" {
-		params.Set("state", req.State)
-	}
-	location.RawQuery = params.Encode()
-	// Not an open redirect: the target was matched EXACTLY against the
-	// client's registered redirect_uris above; an unregistered URI never
-	// reaches this line.
-	http.Redirect(w, r, location.String(), http.StatusFound) // #nosec G710
+	return code, nil
 }
 
 var (

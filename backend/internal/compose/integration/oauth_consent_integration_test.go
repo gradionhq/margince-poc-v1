@@ -281,6 +281,138 @@ func cookieValue(t *testing.T, setCookies []*http.Cookie, name string) string {
 	return ""
 }
 
+// approve is one consent decision that LENDS a named passport: the GET arms the
+// nonce, the POST names the passport, and the caller judges the answer. Spelled
+// once so the success and refusal helpers below cannot drift apart in how they
+// drive it.
+func (o *oauthEnv) approve(t *testing.T, extra url.Values, passportID string) (status int, location, body string) {
+	t.Helper()
+	form := o.armConsent(t, extra)
+	form.Set("passport_id", passportID)
+	return o.postConsent(t, form)
+}
+
+// approveWithPassport lends a passport the CALLER minted and returns the code
+// the client's redirect carries — so a test can lend authority WIDER than the
+// request and assert on what the connection actually receives.
+func (o *oauthEnv) approveWithPassport(t *testing.T, extra url.Values, passportID string) string {
+	t.Helper()
+	status, location, body := o.approve(t, extra, passportID)
+	if status != http.StatusFound {
+		t.Fatalf("consent POST → %d %s", status, body)
+	}
+	granted, err := url.Parse(location)
+	if err != nil || granted.Query().Get("code") == "" {
+		t.Fatalf("redirect malformed: %q", location)
+	}
+	return granted.Query().Get("code")
+}
+
+// approveRaw is approveWithPassport without the success assertion, for a caller
+// whose subject IS the refusal — the fatal "want 302" would abort the test
+// before its own assertion ran.
+func (o *oauthEnv) approveRaw(t *testing.T, extra url.Values, passportID string) (int, string) {
+	t.Helper()
+	status, _, body := o.approve(t, extra, passportID)
+	return status, body
+}
+
+// denyRaw is the human refusing. RFC 6749 §4.1.2.1 answers the CLIENT at its
+// own redirect_uri, so the status and Location are the whole observable outcome
+// — there is no code to hand back.
+func (o *oauthEnv) denyRaw(t *testing.T, extra url.Values) (int, string) {
+	t.Helper()
+	form := o.armConsent(t, extra)
+	form.Set("deny", "1")
+	status, location, _ := o.postConsent(t, form)
+	return status, location
+}
+
+// The connection receives the INTERSECTION of the lent passport's scopes and
+// the client's request — never the passport's full authority, and never more
+// than the client asked for (I1). Both directions are asserted, because only
+// one of them is new: capping at the request was already true of the ad-hoc
+// grant this replaces, while capping at the LENT passport is the property that
+// did not exist before and the one a regression would silently drop.
+func TestApproveGrantsTheIntersectionOfPassportAndRequest(t *testing.T) {
+	o := setupOAuth(t)
+	passport := o.mintPassport(t, "broad", []string{"read", "write", "send"})
+
+	code := o.approveWithPassport(t, url.Values{"scope": {"read write"}}, passport)
+	status, body := o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusOK {
+		t.Fatalf("token → %d %v", status, body)
+	}
+	if scope, _ := body["scope"].(string); scope != "read write" {
+		t.Fatalf("granted scope = %q, want %q", scope, "read write")
+	}
+	// The lent passport is UNTOUCHED: the connection got its own credential, so
+	// revoking the connection must not kill the human's REST credential (I3).
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM passport WHERE id = $1 AND revoked_at IS NULL AND oauth_grant_id IS NULL`,
+		passport)
+
+	// A passport NARROWER than the request lends only what it carries. The
+	// assertion is on the minted credential's own scopes column, not on what
+	// the client asked for: a code row that stored the request instead of the
+	// intersection would hand this connection a write it was never lent.
+	narrow := o.mintPassport(t, "narrow", []string{"read"})
+	code = o.approveWithPassport(t, url.Values{"scope": {"read write"}}, narrow)
+	status, body = o.exchange(t, url.Values{"code": {code}})
+	if status != http.StatusOK {
+		t.Fatalf("token → %d %v", status, body)
+	}
+	if scope, _ := body["scope"].(string); scope != "read" {
+		t.Fatalf("granted scope = %q, want %q: the lent passport carries no write", scope, "read")
+	}
+	minted, _ := body["access_token"].(string)
+	assertOwnerCount(t, o, 1,
+		`SELECT count(*) FROM passport WHERE token_hash = $1 AND scopes = ARRAY['read']::text[]`,
+		sha256Hex(minted))
+}
+
+// A passport the human may not lend cannot be lent, even by a hand-made POST:
+// the list was rendered seconds ago and the check must be re-run (I2).
+func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
+	o := setupOAuth(t)
+	revoked := o.mintPassport(t, "revoked", []string{"read"})
+	o.revokePassport(t, revoked)
+
+	status, body := o.approveRaw(t, url.Values{"scope": {"read"}}, revoked)
+
+	if status != http.StatusBadRequest {
+		t.Fatalf("approve with a revoked passport → %d %s, want 400", status, body)
+	}
+	if !strings.Contains(body, "invalid_request") {
+		t.Fatalf("body %q should refuse as invalid_request", body)
+	}
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+}
+
+// Deny is a first-class answer: the client is TOLD, per RFC 6749 §4.1.2.1,
+// rather than left hanging on a closed tab.
+func TestDenyRedirectsToTheClientWithAccessDenied(t *testing.T) {
+	o := setupOAuth(t)
+	o.mintPassport(t, "unused", []string{"read"})
+
+	status, location := o.denyRaw(t, url.Values{"scope": {"read"}})
+
+	if status != http.StatusFound {
+		t.Fatalf("deny → %d, want 302", status)
+	}
+	if !strings.HasPrefix(location, oauthRedirect) {
+		t.Fatalf("Location = %q, want the client's redirect_uri", location)
+	}
+	if !strings.Contains(location, "error=access_denied") {
+		t.Fatalf("Location = %q must carry error=access_denied", location)
+	}
+	// state is echoed or the client cannot correlate the refusal with its request.
+	if !strings.Contains(location, "state=night-state") {
+		t.Fatalf("Location = %q must echo state", location)
+	}
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+}
+
 // The authorize GET hands the browser to the SPA and mints nothing. The params
 // ride in the FRAGMENT, which is never sent to a server — so client_id, state
 // and the PKCE challenge stay out of api access logs.

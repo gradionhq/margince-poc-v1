@@ -101,6 +101,58 @@ func (s *Service) SelectablePassports(
 	return out, nil
 }
 
+// lendableScopes re-resolves the passport a consent POST offered to lend and
+// answers with what the connection would actually receive: that passport's
+// authority intersected with what the client requested.
+//
+// The lend is re-queried rather than taken at the form's word. The list the
+// browser rendered is seconds old, so every selectability condition — this
+// human's own passport, alive, not already bound to a connection, overlapping
+// the request — is judged again against live rows; a passport revoked in
+// another tab must not still be lendable. lendable is false for a passport_id
+// naming anything not on that live list, a malformed id included.
+func (s *Service) lendableScopes(
+	ctx context.Context, id Identity, requested []string, rawID string,
+) (granted []string, lendable bool, err error) {
+	want := make([]principal.Scope, 0, len(requested))
+	for _, scope := range requested {
+		want = append(want, principal.Scope(scope))
+	}
+	options, err := s.SelectablePassports(ctx, id, want)
+	if err != nil {
+		return nil, false, err
+	}
+	lent, ok := findOption(options, rawID)
+	if !ok {
+		return nil, false, nil
+	}
+	granted = make([]string, 0, len(lent.Granted))
+	for _, scope := range lent.Granted {
+		granted = append(granted, string(scope))
+	}
+	return granted, true, nil
+}
+
+// findOption resolves the passport_id a consent POST carried against the
+// options that same request just re-queried, so a lend is only ever accepted
+// for a passport still on the live list.
+//
+// A malformed id refuses exactly like an unknown one: the value arrives from a
+// form, and parsing is where that boundary is crossed — an unparseable id must
+// never reach the comparison as a zero value, which would match a zero option.
+func findOption(options []ConsentOption, rawID string) (ConsentOption, bool) {
+	id, err := ids.ParseAs[ids.PassportKind](rawID)
+	if err != nil {
+		return ConsentOption{}, false
+	}
+	for _, option := range options {
+		if option.ID == id {
+			return option, true
+		}
+	}
+	return ConsentOption{}, false
+}
+
 // liveClient resolves client_id to the name a consent screen may show. An
 // unknown, disabled, or soft-deleted client all read as apperrors.ErrNotFound
 // — the same answer for all three, because which one it is would tell a
