@@ -107,7 +107,11 @@ func (h Reads) GetDealCoverage(w http.ResponseWriter, r *http.Request, id crmcon
 		if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 			return err
 		}
-		if err := auth.EnsureVisible(ctx, tx, "deal", dealID.UUID); err != nil {
+		// EnsureVisibleLive, not EnsureVisible: the latter returns early for an
+		// unbounded caller without probing, so an unknown or archived deal id
+		// answered 200 with an empty coverage payload instead of 404. Existence
+		// is not disclosed — and neither is non-existence confirmed.
+		if err := auth.EnsureVisibleLive(ctx, tx, "deal", dealID.UUID); err != nil {
 			return err
 		}
 		coverage, err := CoverageFor(ctx, tx, dealID, now)

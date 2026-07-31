@@ -140,7 +140,11 @@ func requireVisibleDeal(ctx context.Context, tx pgx.Tx, dealID ids.UUID) error {
 	if err := auth.Require(ctx, "deal", principal.ActionRead); err != nil {
 		return err
 	}
-	return auth.EnsureVisible(ctx, tx, "deal", dealID)
+	// Live probe, matching the HTTP path exactly: EnsureVisible skips its
+	// existence check for an unbounded caller, so an unknown deal would answer
+	// an empty coverage picture rather than a refusal — through the agent as
+	// readily as through the URL.
+	return auth.EnsureVisibleLive(ctx, tx, "deal", dealID)
 }
 
 // networkUserNames resolves colleague names for one answer. The roster is
