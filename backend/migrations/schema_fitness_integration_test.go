@@ -335,6 +335,15 @@ var rowScopedFKDecisions = map[string]string{
 	// the activity whose body it just read — never from a request body.
 	"person_signature_enrich_state.person_id":   "server-derived: stamped by the enrich pass from its own row-scoped candidate query",
 	"person_signature_enrich_state.activity_id": "server-derived: stamped by the enrich pass from the activity that candidate query returned",
+	// The interaction participants (ACT-DDL-3): neither id is ever carried on
+	// a request body. Capture mints the activity in the same transaction and
+	// resolves the counterparty through the ensure chokepoint's own row-scoped
+	// lookup; a manual activity takes its person from a link the activities
+	// store already put through auth.EnsureLinkTarget. Reads inherit the
+	// activity's own visibility (the link walk), so a participant row never
+	// discloses an activity its reader could not already open.
+	"activity_participant.activity_id": "child row: written only beside the activity itself, inside the transaction that mints it",
+	"activity_participant.person_id":   "server-derived: the counterparty the ensure chokepoint resolved, or a link the activities store already gated",
 }
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
