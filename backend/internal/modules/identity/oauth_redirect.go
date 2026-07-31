@@ -21,9 +21,17 @@ import (
 
 // validRedirectURI admits https anywhere and plain http only on
 // loopback (native-app dev flows).
+//
+// A query is allowed — a client may legitimately register one — but only one
+// this server can reproduce verbatim when it delivers a response there. An
+// undecodable query is refused HERE, where a client developer sees it at
+// registration, rather than at the redirect that follows a human's consent.
 func validRedirectURI(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || u.Fragment != "" {
+		return false
+	}
+	if _, err := url.ParseQuery(u.RawQuery); err != nil {
 		return false
 	}
 	switch u.Scheme {
@@ -63,34 +71,73 @@ func isLoopbackHost(host string) bool {
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
 }
 
-// redirectToClient answers the CLIENT at its own registered redirect_uri. Both
-// answers a consent decision can produce come through here — the code on
-// approval, RFC 6749 §4.1.2.1's access_denied on refusal — so neither can
-// forget to echo state, without which a client cannot correlate the answer with
-// the request it made.
-//
-// The answer is MERGED into whatever query the registered URI already carries
-// rather than appended behind a second '?': a registered redirect legitimately
-// may have one.
+// redirectToClient answers the CLIENT at its own redirect_uri. Both answers a
+// consent decision can produce come through here — the code on approval, RFC
+// 6749 §4.1.2.1's access_denied on refusal — so neither can forget to echo
+// state, without which a client cannot correlate the answer with the request it
+// made.
 func redirectToClient(w http.ResponseWriter, r *http.Request, req authorizeRequest, answer url.Values) {
+	location, err := clientResponseURI(req, answer)
+	if err != nil {
+		httperr.Write(w, r, err)
+		return
+	}
+	// Not an open redirect: the target was matched against the client's
+	// registered redirect_uris in validateAuthorize; an unregistered URI never
+	// reaches this line.
+	http.Redirect(w, r, location, http.StatusFound) // #nosec G710
+}
+
+// responseParams is every parameter an authorization RESPONSE is made of (RFC
+// 6749 §4.1.2 and §4.1.2.1). Each is deleted from the redirect_uri's own query
+// before the answer is applied, so all of them in the delivered Location come
+// from this server and none from the URI the client presented.
+//
+// Success and error are DISJOINT responses in the RFC, and a client reads
+// whichever it looks for first: a `code` sitting beside an `error` — or a
+// `state` the client never sent — makes it act on an answer nobody gave. This
+// is not merely a registration mistake either. redirectURIMatches compares
+// scheme, host and path only, so for a loopback client the presented URI's
+// query is never validated and a preset response parameter is reachable by
+// whoever composes the authorize request.
+var responseParams = []string{"code", "error", "error_description", "error_uri", "state"}
+
+// clientResponseURI is the absolute Location one authorization response is
+// delivered at: the client's redirect_uri carrying our answer, its own query
+// otherwise preserved, and nothing of its own that could be mistaken for part
+// of the answer.
+func clientResponseURI(req authorizeRequest, answer url.Values) (string, error) {
 	location, err := url.Parse(req.RedirectURI)
 	if err != nil {
 		// validateAuthorize matched this against a redirect_uri that already
 		// parsed at registration, so an unparseable one here is this server
 		// contradicting itself rather than anything the caller sent.
-		httperr.Write(w, r, fmt.Errorf("oauth: registered redirect_uri does not parse: %w", err))
-		return
+		return "", fmt.Errorf("oauth: redirect_uri does not parse: %w", err)
 	}
-	params := location.Query()
+	// A query we cannot parse is refused rather than delivered: the alternative
+	// is silently dropping the pair that failed to decode, which hands the
+	// client a callback URL it did not register. validRedirectURI refuses such
+	// a registration, so this is the closed door behind that one.
+	params, err := url.ParseQuery(location.RawQuery)
+	if err != nil {
+		return "", fmt.Errorf("oauth: redirect_uri query does not parse: %w", err)
+	}
+	for _, name := range responseParams {
+		params.Del(name)
+	}
 	for key, list := range answer {
 		params[key] = list
 	}
+	// An absent state means NO state parameter, not an empty one: a client that
+	// sent none must not be handed one to compare against.
 	if req.State != "" {
 		params.Set("state", req.State)
 	}
 	location.RawQuery = params.Encode()
-	// Not an open redirect: the target was matched EXACTLY against the
-	// client's registered redirect_uris in validateAuthorize; an unregistered
-	// URI never reaches this line.
-	http.Redirect(w, r, location.String(), http.StatusFound) // #nosec G710
+	// validRedirectURI refuses a fragment at registration; the same rule holds
+	// at delivery, so a fragment smuggled onto a presented loopback URI cannot
+	// ride into the Location. URL.String() emits a fragment only when Fragment
+	// is set, which is why clearing that one field is enough.
+	location.Fragment = ""
+	return location.String(), nil
 }

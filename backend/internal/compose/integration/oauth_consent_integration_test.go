@@ -302,7 +302,7 @@ func (o *oauthEnv) approveWithPassport(t *testing.T, extra url.Values, passportI
 		t.Fatalf("consent POST → %d %s", status, body)
 	}
 	granted, err := url.Parse(location)
-	if err != nil || granted.Query().Get("code") == "" {
+	if err != nil || granted.Query().Get("code") == "" || granted.Query().Get("state") != "night-state" {
 		t.Fatalf("redirect malformed: %q", location)
 	}
 	return granted.Query().Get("code")
@@ -329,11 +329,10 @@ func (o *oauthEnv) denyRaw(t *testing.T, extra url.Values) (int, string) {
 }
 
 // The connection receives the INTERSECTION of the lent passport's scopes and
-// the client's request — never the passport's full authority, and never more
-// than the client asked for (I1). Both directions are asserted, because only
-// one of them is new: capping at the request was already true of the ad-hoc
-// grant this replaces, while capping at the LENT passport is the property that
-// did not exist before and the one a regression would silently drop.
+// the client's request (I1). Both ceilings are asserted separately, because
+// either one alone would pass a server that enforced only the other: a request
+// narrower than the passport must cap at the request, and a passport narrower
+// than the request must cap at the passport.
 func TestApproveGrantsTheIntersectionOfPassportAndRequest(t *testing.T) {
 	o := setupOAuth(t)
 	passport := o.mintPassport(t, "broad", []string{"read", "write", "send"})
@@ -386,7 +385,11 @@ func TestApproveRefusesAnUnlendablePassport(t *testing.T) {
 	if !strings.Contains(body, "invalid_request") {
 		t.Fatalf("body %q should refuse as invalid_request", body)
 	}
-	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+	// The refusal has to come BEFORE anything durable exists. The code row is
+	// what a consent POST can write, so it is what must be absent — a lend check
+	// that ran after the code was minted would leave a row carrying the full
+	// requested scopes for a passport that may not be lent at all.
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
 }
 
 // Deny is a first-class answer: the client is TOLD, per RFC 6749 §4.1.2.1,
@@ -410,7 +413,12 @@ func TestDenyRedirectsToTheClientWithAccessDenied(t *testing.T) {
 	if !strings.Contains(location, "state=night-state") {
 		t.Fatalf("Location = %q must echo state", location)
 	}
-	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_grant`)
+	// A refusal is not a quiet approval: the redirect carries no code, and no
+	// code row was written for one to be drawn from later.
+	if strings.Contains(location, "code=") {
+		t.Fatalf("Location = %q carries a code although the human refused", location)
+	}
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
 }
 
 // The authorize GET hands the browser to the SPA and mints nothing. The params
