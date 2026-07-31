@@ -107,12 +107,13 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 		// cannot claim to be another one.
 		return datasource.EntityRef{}, fmt.Errorf("capture: captured_by %q does not match the acting connector %q", rec.CapturedBy, actor.ID)
 	}
-	if counterpartyShapeOf(rec.Counterparty) == shapeAmbiguous {
-		// A counterparty is named by an address OR by a channel identity. Left
-		// to the mail ladder, a record carrying both binds no channel identity
-		// and records no fault, so the misroute is invisible; refusing it names
-		// the malformed record instead.
-		return datasource.EntityRef{}, errors.New("capture: a counterparty is named by an address or by a channel identity, never both")
+	switch counterpartyShapeOf(rec.Counterparty) {
+	case shapeAmbiguous:
+		return datasource.EntityRef{}, ErrCounterpartyNamedTwice
+	case shapeHalfChannel:
+		return datasource.EntityRef{}, ErrChannelIdentityIncomplete
+	case shapeNone, shapeMail, shapeChannel:
+		// Well-formed; the channel arm is gated inside the transaction below.
 	}
 
 	// The RC-2 exclusion gate runs BEFORE any write — including the raw
@@ -129,34 +130,12 @@ func (s *Sink) Upsert(ctx context.Context, rec connector.NormalizedRecord) (data
 	var activityCreated bool
 	var decision counterpartyDecision
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// A channel record's account id IS personal data, and THIS transaction
-		// is the one that makes it durable — so this is where the erasure has to
-		// be excluded, not only at the ingress edge that admitted the update.
-		// The eraser holds the same advisory lock across its purge and its
-		// suppression arming, so taking it here means an inbound record lands
-		// either wholly before the erasure or wholly after it, never inside.
-		//
-		// Landing inside it is not a near miss: the activity would commit after
-		// the erasure certified the subject scrubbed, and with no person link
-		// and no counterparty_email it is reachable by neither erasure selector
-		// afterwards — so no later erasure, SAR or retention pass could ever
-		// find it. The ensure that runs after this commit probes suppression
-		// too, but it runs too late to stop the row and its refusal is a no-op.
-		if counterpartyShapeOf(rec.Counterparty) == shapeChannel {
-			ci := rec.Counterparty.ChannelIdentity
-			if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
-				{Provider: ci.Provider, ChannelUserID: ci.ChannelUserID},
-			}); err != nil {
-				return err
-			}
-			suppressed, err := storekit.ChannelIdentitySuppressed(ctx, tx, ci.Provider, ci.ChannelUserID)
-			if err != nil {
-				return err
-			}
-			if suppressed {
-				return fmt.Errorf("capture: %s/%s names an erased channel account: %w",
-					rec.NaturalKey.SourceSystem, rec.NaturalKey.SourceID, connector.ErrSkip)
-			}
+		// A channel record's account id IS personal data, and THIS transaction is
+		// the one that makes it durable — so the erasure is excluded here, under
+		// the account's own lock, and not only at the ingress edge that admitted
+		// the update. sinkchannel.go states what landing inside an erasure costs.
+		if err := s.refuseErasedChannelAccount(ctx, tx, rec.Counterparty); err != nil {
+			return err
 		}
 		if len(rec.Raw) > 0 {
 			payload := rec.Raw

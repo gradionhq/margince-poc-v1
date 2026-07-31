@@ -187,10 +187,13 @@ func TestTheSinkIsUnaffectedByALockOnAnotherAccount(t *testing.T) {
 	}
 }
 
-// A counterparty is named by an address OR by a channel identity. A record
-// carrying both used to be classified as mail, which bound no channel identity
-// and — because every mail gate keys off the address — recorded no fault
-// either, making the misroute the one capture outcome with no breadcrumb.
+// A counterparty is named by an address OR by a channel identity. Classifying a
+// record carrying both as mail binds no channel identity and, because every mail
+// gate keys off the address, records no fault either — the one capture outcome
+// with no breadcrumb. No in-tree producer emits this shape, so these two cases
+// are the only thing holding the gate up and they assert the specific refusal:
+// "some error occurred" would keep passing if the gate were deleted and an
+// unrelated fault took its place.
 func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
 	e := Setup(t)
 
@@ -198,10 +201,29 @@ func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
 	rec.Counterparty.Email = "someone@example.com"
 
 	_, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec)
-	if err == nil {
-		t.Fatal("Upsert accepted a counterparty carrying both an address and a channel identity; want a refusal")
+	if !errors.Is(err, capture.ErrCounterpartyNamedTwice) {
+		t.Fatalf("Upsert returned %v, want ErrCounterpartyNamedTwice", err)
 	}
 	if n := activityBodyCount(t, e, "named twice"); n != 0 {
 		t.Errorf("%d activities were committed for a malformed counterparty; want 0", n)
+	}
+}
+
+// Half a channel identity is refused too, and for a sharper reason than symmetry:
+// Provider is hashed into both the advisory lock key and the suppression key, so
+// a provider-less identity would lock and probe a key space the eraser never
+// touches — the erasure gate would pass while an erasure was mid-purge.
+func TestTheSinkRefusesHalfAChannelIdentity(t *testing.T) {
+	e := Setup(t)
+
+	rec := inboundChannelRecord("20305", "half an identity")
+	rec.Counterparty.ChannelIdentity.Provider = ""
+
+	_, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec)
+	if !errors.Is(err, capture.ErrChannelIdentityIncomplete) {
+		t.Fatalf("Upsert returned %v, want ErrChannelIdentityIncomplete", err)
+	}
+	if n := activityBodyCount(t, e, "half an identity"); n != 0 {
+		t.Errorf("%d activities were committed for an unqualified channel identity; want 0", n)
 	}
 }

@@ -14,7 +14,12 @@ package capture
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
+	"github.com/jackc/pgx/v5"
+
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/datasource"
@@ -51,12 +56,12 @@ func (s *Sink) WithChannelEnsurer(ensurer ChannelCounterpartyEnsurer) *Sink {
 
 // counterpartyShape is how a record names its human. connector.Counterparty
 // documents an address and a channel identity as mutually exclusive, and this is
-// the one place capture asks which it holds — so the question is asked totally.
-// A two-term boolean answered "not a channel record" for a record carrying BOTH,
-// which then ran the mail ladder: the channel identity was never bound, and
-// because every mail gate keys off the address it produced no fault row either.
-// A silent misroute is the one outcome in this pipeline that leaves no
-// breadcrumb, so the malformed shape gets a name and is refused by the caller.
+// the one place capture asks which it holds — so the question is total rather
+// than a boolean. A record carrying BOTH is malformed: classifying it as mail
+// would bind no channel identity and, because every mail gate keys off the
+// address, would record no fault either, making it the one capture outcome that
+// leaves no breadcrumb at all. The exhaustive switch is what keeps that case
+// impossible to reach by omission.
 type counterpartyShape int
 
 const (
@@ -64,20 +69,79 @@ const (
 	shapeMail
 	shapeChannel
 	shapeAmbiguous
+	shapeHalfChannel
 )
 
+// A channel identity needs BOTH halves, and shapeChannel means both are present.
+// Provider is not cosmetic: it is hashed into the advisory lock key and the
+// suppression key, so a provider-less identity would lock and probe a different
+// key space than the eraser's and the gate below would pass while the eraser was
+// mid-purge — the mutex would be decorative. people's ensure refuses the same
+// half-identity; refusing it here keeps the two in step.
 func counterpartyShapeOf(cp connector.Counterparty) counterpartyShape {
-	hasMail, hasChannel := cp.Email != "", cp.ChannelIdentity.ChannelUserID != ""
+	hasMail := cp.Email != ""
+	provider, account := cp.ChannelIdentity.Provider, cp.ChannelIdentity.ChannelUserID
 	switch {
-	case hasMail && hasChannel:
+	case hasMail && (provider != "" || account != ""):
 		return shapeAmbiguous
-	case hasChannel:
+	case provider != "" && account != "":
 		return shapeChannel
+	case provider != "" || account != "":
+		return shapeHalfChannel
 	case hasMail:
 		return shapeMail
 	default:
 		return shapeNone
 	}
+}
+
+// ErrCounterpartyNamedTwice refuses a record naming its human both by an address
+// and by a channel identity. ErrChannelIdentityIncomplete refuses half a channel
+// identity. Both are sentinels rather than bare errors so the refusal can be
+// asserted on, and so a caller can tell a malformed record from an
+// infrastructural failure.
+var (
+	ErrCounterpartyNamedTwice    = errors.New("capture: a counterparty is named by an address or by a channel identity, never both")
+	ErrChannelIdentityIncomplete = errors.New("capture: a channel identity needs both a provider and a channel account id")
+)
+
+// refuseErasedChannelAccount excludes an Art. 17 erasure from the transaction
+// that makes a channel record durable. The eraser holds the same advisory lock
+// across its purge and its suppression arming, so taking it here means an
+// inbound record lands either wholly before the erasure or wholly after it,
+// never inside.
+//
+// Landing inside it is not a near miss. The activity would commit after the
+// erasure certified the subject scrubbed, and with no person link and no
+// counterparty_email it matches neither erasure selector afterwards — so no
+// later erasure, subject-access or retention pass could ever find it, while the
+// erasure's own audit tombstone records a clean scrub. The probe in people's
+// EnsureChannelCounterparty runs after this commit and its refusal is mapped to
+// nil by design, so it is the second gate and cannot be the only one.
+//
+// The refusal deliberately names NO identifier. For a channel record the
+// natural key embeds the account id itself (a private chat's id is the user's
+// own id), so naming it would re-state in a log exactly what the erasure
+// removed — the sibling mail guards can quote their natural key because a
+// message-id is not the subject.
+func (s *Sink) refuseErasedChannelAccount(ctx context.Context, tx pgx.Tx, cp connector.Counterparty) error {
+	if counterpartyShapeOf(cp) != shapeChannel {
+		return nil
+	}
+	ci := cp.ChannelIdentity
+	if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
+		{Provider: ci.Provider, ChannelUserID: ci.ChannelUserID},
+	}); err != nil {
+		return err
+	}
+	suppressed, err := storekit.ChannelIdentitySuppressed(ctx, tx, ci.Provider, ci.ChannelUserID)
+	if err != nil {
+		return err
+	}
+	if suppressed {
+		return fmt.Errorf("capture: the record's channel account is on the erasure suppression list: %w", connector.ErrSkip)
+	}
+	return nil
 }
 
 // decideChannelCounterparty settles a channel record's derivation, and unlike

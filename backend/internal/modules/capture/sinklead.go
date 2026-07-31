@@ -44,9 +44,14 @@ func (s *Sink) captureLead(ctx context.Context, tx pgx.Tx, rec connector.Normali
 	// An address is the only identifier this path can be given: LeadFields
 	// carries no channel identity, because a channel identity is a
 	// person-resolution key and a lead is not a person (ADR-0008 — leads
-	// graduate). So the channel twin of this probe has nothing to guard here;
-	// it guards the path a channel record does take, people's
-	// EnsureChannelCounterparty.
+	// graduate). So the channel twin of this probe has nothing to guard here; it
+	// guards the path a channel record does take: Sink.Upsert's own transaction
+	// (sinkchannel.go), under the account's advisory lock, with people's
+	// EnsureChannelCounterparty probing again after that commit.
+	//
+	// Note the "natural key names the skip" rule above holds for THIS path only:
+	// a mail natural key is a message-id, whereas a channel record's embeds the
+	// account id itself, so the channel refusal names no identifier at all.
 	if fields.Email != "" {
 		suppressed, err := storekit.EmailSuppressed(ctx, tx, fields.Email)
 		if err != nil {

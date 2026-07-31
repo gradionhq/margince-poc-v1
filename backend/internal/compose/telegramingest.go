@@ -153,6 +153,20 @@ func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records 
 			Kind: fields.Kind, Body: fields.Body, OccurredAt: fields.OccurredAt, Direction: fields.Direction,
 		}
 		if _, err := w.sink.Upsert(actorCtx, rec); err != nil {
+			if errors.Is(err, connector.ErrSkip) {
+				// A deliberate refusal, counted like Normalize's above and like
+				// every other connector's — not a fault. The Sink refuses a
+				// record naming an account on the erasure suppression list, and
+				// returning that as a job error would retry it, fail the retry
+				// differently once the raw row is purged, and leave an operator
+				// a permanently errored job that reads like an outage.
+				//
+				// The log names the job, never the record: a channel record's
+				// natural key embeds the account id, which is precisely what the
+				// erasure removed.
+				w.log.InfoContext(actorCtx, "telegram_ingest: refused a record naming an erased channel account")
+				continue
+			}
 			return fmt.Errorf("telegram_ingest: capturing update %s: %w", rec.NaturalKey.SourceID, err)
 		}
 	}
