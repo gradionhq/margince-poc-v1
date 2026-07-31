@@ -223,8 +223,8 @@ function Cards({ view }: Readonly<{ view: View }>) {
   return (
     <StoryProviders>
       <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
-        <MeetingBrief view={view} now={STORY_NOW} />
-        <AssistantPanel orgId="o-1" view={view} enabled />
+        <MeetingBrief view={view} orgId="o-1" now={STORY_NOW} />
+        <AssistantPanel orgId="o-1" enabled />
         <NextSteps view={view} />
         <PeopleCard view={view} />
         <DealsCard view={view} />

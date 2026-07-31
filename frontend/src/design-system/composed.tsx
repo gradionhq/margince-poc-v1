@@ -234,6 +234,16 @@ export type TimelineEntry = {
   // already pruned to what the reader may see.
   via?: ReactNode;
   /**
+   * Which way it went, when the record knows: `outbound` is us reaching out,
+   * `inbound` is them coming back.
+   *
+   * A single undifferentiated stream reads as "things happened here" and hides
+   * the one shape a rep is looking for before they reach out — whether the last
+   * few moves were all ours. Absent on kinds that have no direction (a note, a
+   * task), which render exactly as before.
+   */
+  direction?: "inbound" | "outbound" | null;
+  /**
    * What the message actually said.
    *
    * A timeline of subject lines is a list of things you cannot read: the rep
@@ -432,17 +442,26 @@ function TimelineText({ text }: Readonly<{ text: string }>) {
   );
 }
 
+// directionClass tracks the row to one side of the spine: ours or theirs.
+function directionClass(direction: TimelineEntry["direction"]): string {
+  if (direction === "outbound") {
+    return "tl-out";
+  }
+  return direction === "inbound" ? "tl-in" : "";
+}
+
 function TimelineList({
   entries,
   zone,
 }: Readonly<{ entries: TimelineEntry[]; zone: string }>) {
   const { locale } = useLocale();
+  const t = useT();
   return (
     <ul className="timeline">
       {entries.map((entry) => {
         const Icon = TIMELINE_ICON[entry.kind];
         return (
-          <li key={entry.id}>
+          <li key={entry.id} className={directionClass(entry.direction)}>
             <span className="tl-icon">
               <Icon aria-hidden />
             </span>
@@ -450,6 +469,15 @@ function TimelineList({
               <span className="tl-title">{entry.title}</span>
               {entry.body && <TimelineText text={entry.body} />}
               <span className="tl-meta">
+                {/* The direction is said in words as well as drawn, so it does
+                    not depend on telling two accent colours apart. */}
+                {entry.direction && (
+                  <span className="tl-direction">
+                    {entry.direction === "outbound"
+                      ? t("timeline.sent")
+                      : t("timeline.received")}
+                  </span>
+                )}
                 <span>{formatDate(entry.atIso, locale, zone)}</span>
                 <ProvenanceTag provenance={entry.provenance} />
                 {entry.via}

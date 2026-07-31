@@ -1,9 +1,6 @@
-import type { components } from "../api/schema";
 import { Badge, SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { AskSection, BriefSection, SuggestionsSection } from "./company360";
-
-type Organization360 = components["schemas"]["Organization360"];
+import { AskSection, BriefSection } from "./company360";
 
 /**
  * AssistantPanel is everything Margince has to say about this account, in one
@@ -22,12 +19,10 @@ type Organization360 = components["schemas"]["Organization360"];
  */
 export function AssistantPanel({
   orgId,
-  view,
   enabled,
   onOpenRecord,
 }: Readonly<{
   orgId: string;
-  view?: Organization360;
   enabled: boolean;
   onOpenRecord?: (entityType: string, entityId: string) => void;
 }>) {
@@ -37,19 +32,16 @@ export function AssistantPanel({
   }
   return (
     <section className="card co-assistant">
+      {/* The disclosure is the badge. The sentence beside it explained the
+          panel's own epistemology to a reader who came here to sell
+          something, which is the UI talking about itself. */}
       <SectionHeader title={t("co.assistant.title")} />
       <p className="co-assistant-disclosure">
         <Badge tone="ai">{t("co.assistant.aiTag")}</Badge>
-        <span className="t-caption">{t("co.assistant.sub")}</span>
       </p>
       <BriefSection
         orgId={orgId}
         enabled={enabled}
-        onOpenRecord={onOpenRecord}
-      />
-      <SuggestionsSection
-        orgId={orgId}
-        view={view}
         onOpenRecord={onOpenRecord}
       />
       <AskSection orgId={orgId} enabled={enabled} onOpenRecord={onOpenRecord} />

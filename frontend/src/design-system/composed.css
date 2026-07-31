@@ -423,3 +423,27 @@
 .tl-text-toggle:hover {
   text-decoration: underline;
 }
+
+/* Two tracks on one spine: what we sent, and what came back. The rail colour
+   is the fast read; .tl-direction says the same thing in words, so the
+   distinction never rests on telling two hues apart. */
+.timeline > li.tl-out,
+.timeline > li.tl-in {
+  border-inline-start: 2px solid transparent;
+  padding-inline-start: var(--space-3);
+}
+
+.timeline > li.tl-out {
+  border-inline-start-color: var(--accentMed);
+}
+
+.timeline > li.tl-in {
+  border-inline-start-color: var(--borderStrong);
+}
+
+.tl-direction {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+}

@@ -3,6 +3,7 @@ import { navigate } from "../app/router";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
 import { type AccountFinding, readAccount } from "./accountread";
+import { SuggestionsSection } from "./company360";
 import "./meetingbrief.css";
 
 type Organization360 = components["schemas"]["Organization360"];
@@ -23,11 +24,15 @@ type Organization360 = components["schemas"]["Organization360"];
  */
 export function MeetingBrief({
   view,
+  orgId,
+  onOpenRecord,
   // The clock is a parameter so the quiet-account rule can be tested against a
   // fixed instant rather than whenever the suite happens to run.
   now = new Date(),
 }: Readonly<{
   view: Organization360;
+  orgId: string;
+  onOpenRecord?: (entityType: string, entityId: string) => void;
   now?: Date;
 }>) {
   const t = useT();
@@ -47,7 +52,7 @@ export function MeetingBrief({
 
   return (
     <section className="card co-prep">
-      <SectionHeader title={t("co.prep.title")} sub={t("co.prep.sub")} />
+      <SectionHeader title={t("co.prep.title")} />
       {findings.length === 0 ? (
         <p className="co-empty">{t("co.prep.sparse")}</p>
       ) : (
@@ -80,6 +85,15 @@ export function MeetingBrief({
       )}
       {/* The way into the decision queue stays in the header pulse, one line
           above. Repeating it here gave the same count two buttons. */}
+      {/* What to do about it, in the same block that said what it is. These
+          were two cards: one describing the account and one advising on it,
+          each with its own heading, so the reader had to carry the reading
+          from the first into the second themselves. */}
+      <SuggestionsSection
+        orgId={orgId}
+        view={view}
+        onOpenRecord={onOpenRecord}
+      />
       <p className="co-prep-foot">
         {firstVisit && <span className="t-caption">{t("co.since.first")}</span>}
         {partial && <span className="t-caption">{t("co.prep.withheld")}</span>}

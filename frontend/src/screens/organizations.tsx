@@ -910,6 +910,38 @@ function derivedSource(
   };
 }
 
+// PROFILE_FIELD_LABELS names the profile fields as statements ABOUT a company.
+//
+// The same fields are asked of the reader during onboarding, where the second
+// person is right — "What do you sell?" is a question to us. On a prospect's
+// record that framing put the reader in the wrong chair: the page appeared to
+// be interviewing us about a company we are trying to sell to.
+const PROFILE_FIELD_LABELS: Record<string, MessageKey> = {
+  display_name: "co.profileField.display_name",
+  offer_summary: "co.profileField.offer_summary",
+  icp: "co.profileField.icp",
+  buying_center: "co.profileField.buying_center",
+  value_proposition: "co.profileField.value_proposition",
+  usp: "co.profileField.usp",
+  customer_pains: "co.profileField.customer_pains",
+  desired_outcomes: "co.profileField.desired_outcomes",
+  buying_intents: "co.profileField.buying_intents",
+  common_objections: "co.profileField.common_objections",
+  sales_motion: "co.profileField.sales_motion",
+  legal_name: "co.profileField.legal_name",
+  registered_address: "co.profileField.registered_address",
+  register_vat: "co.profileField.register_vat",
+  industry: "co.profileField.industry",
+  history: "co.profileField.history",
+};
+
+// The onboarding wording is the fallback, so a field added there still reads
+// as words rather than as a column name here.
+function profileFieldLabel(field: string, t: ReturnType<typeof useT>): string {
+  const key = PROFILE_FIELD_LABELS[field];
+  return key ? t(key) : coldFieldLabel(field, t);
+}
+
 function ProfileFieldRow({
   field,
   onOpenHistory,
@@ -918,7 +950,7 @@ function ProfileFieldRow({
   const { locale } = useLocale();
   return (
     <div className="co-field">
-      <span className="t-label">{coldFieldLabel(field.field, t)}</span>
+      <span className="t-label">{profileFieldLabel(field.field, t)}</span>
       <div>
         <EvidenceMark
           value={field.value}
@@ -956,10 +988,7 @@ function ProfileFieldsCard({
 
   return (
     <section className="card" style={{ marginBottom: 16 }}>
-      <SectionHeader
-        title={t("org.firmographicsLegal")}
-        sub={t("org.evidenceOrOmit")}
-      />
+      <SectionHeader title={t("co.profile.title")} />
       <QueryStates query={fieldsQuery}>
         {fieldsQuery.data && fieldsQuery.data.length === 0 ? (
           <p className="t-caption">{t("org.firmographicsEmpty")}</p>
@@ -1545,11 +1574,12 @@ function CompanyPage({
           cards that report it field by field. It absorbed the standalone
           "since your last visit" block, because two cards each claiming to
           say what the state is made the reader arbitrate between them. */}
-      {tab === "overview" && view && <MeetingBrief view={view} />}
+      {tab === "overview" && view && (
+        <MeetingBrief view={view} orgId={org.id} onOpenRecord={openCitation} />
+      )}
       {tab === "overview" && (
         <AssistantPanel
           orgId={org.id}
-          view={view}
           enabled={!overlay}
           onOpenRecord={openCitation}
         />

@@ -341,6 +341,7 @@ export function activityTimeline(
     // timeline of unreadable subject lines was a rendering choice, not a
     // limit of what the page knew.
     body: activity.body,
+    direction: activity.direction,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by),
     actions: renderActions?.(activity),

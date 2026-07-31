@@ -773,7 +773,7 @@ describe("CompanyScreen — profile fields card (B5)", () => {
     render(<CompanyScreen id="o-1" />);
 
     await waitFor(() =>
-      expect(screen.getByText("Value proposition")).toBeTruthy(),
+      expect(screen.getByText("What they promise")).toBeTruthy(),
     );
     expect(screen.getByText("Fleet retrofits without downtime")).toBeTruthy();
     // The value carries ONE affordance now: an evidence mark on the value
