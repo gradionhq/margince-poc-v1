@@ -225,12 +225,18 @@ function coverage(view: Organization360): AccountFinding[] {
   // own row, which reads the same counts, would then say "Answered" one line
   // under a brief saying nobody but Alice engaged.
   //
-  // Two things the SENTENCE has to carry, or it claims more than the counts
-  // support. The window: these cover the last STRENGTH_WINDOW_DAYS, so "has
-  // ever engaged" is disproved by an account whose committee wrote four months
-  // ago. And the direction: a contact qualifies on OUTBOUND alone, so "has
-  // been in contact" would describe mail we sent at someone who never answered
-  // as a relationship. What the records show is recorded contact, either way.
+  // Three things the SENTENCE has to carry, or it claims more than the counts
+  // support — and the timeline right below it is where a reader would catch
+  // each one.
+  //
+  // The window: these cover the last STRENGTH_WINDOW_DAYS, so "has ever
+  // engaged" is disproved by an account whose committee wrote four months ago.
+  // The direction: a contact qualifies on OUTBOUND alone, so "has been in
+  // contact" would call mail we sent at someone who never answered a
+  // relationship. And the CHANNELS: the server counts email, calls and
+  // meetings only (people/strength.go strengthKinds), so a second contact's
+  // WhatsApp or Telegram sits on the timeline while contributing nothing here.
+  // Naming the three channels is what keeps the line true beside that row.
   const engaged = contacts.filter(
     (c) =>
       (c.strength.inbound_90d ?? 0) > 0 || (c.strength.outbound_90d ?? 0) > 0,
