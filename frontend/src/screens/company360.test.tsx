@@ -114,6 +114,31 @@ function stub(three60: unknown, status = 200) {
       if (pathname.endsWith("/organizations/o-1")) {
         return jsonResponse(org);
       }
+      if (pathname.endsWith("/pipelines")) {
+        // One default pipeline with one OPEN stage — enough for a deal
+        // created from this page to have somewhere to land.
+        return jsonResponse({
+          data: [
+            {
+              id: "pl-1",
+              workspace_id: "w-1",
+              name: "Sales",
+              is_default: true,
+              stages: [
+                {
+                  id: "st-1",
+                  pipeline_id: "pl-1",
+                  name: "Qualify",
+                  position: 1,
+                  semantic: "open",
+                  probability: 10,
+                },
+              ],
+            },
+          ],
+          page: emptyPage,
+        });
+      }
       return jsonResponse({ data: [], page: emptyPage });
     }),
   );
@@ -202,6 +227,38 @@ describe("company view — withheld sections", () => {
 
     await screen.findByRole("complementary", { name: "Business" });
     expect(screen.queryByText(/Nobody here is your/)).toBeNull();
+  });
+});
+
+describe("company view — the verbs that change a section", () => {
+  it("offers New deal on an account with no open deal", async () => {
+    // The empty state is exactly where a create verb belongs: a rep who has
+    // just read "no open deal on this account" is one click from opening one.
+    stub(view());
+    renderCompany();
+
+    const card = await screen.findByRole("complementary", { name: "Business" });
+    expect(
+      within(card).getByText("No open deal on this account."),
+    ).toBeTruthy();
+    // Awaited: the verb appears once the pipeline read resolves, because a
+    // deal needs somewhere to land before the page offers to open one.
+    expect(
+      await within(card).findByRole("button", { name: "New deal" }),
+    ).toBeTruthy();
+  });
+
+  it("offers no New deal on a section the caller may not read", async () => {
+    // A caller who cannot read the deals has no business being offered a
+    // button to add one, and the refusal must not be the first they hear of it.
+    stub(view({ deals: undefined, sections_omitted: ["deals"] }));
+    renderCompany();
+
+    const card = await screen.findByRole("complementary", { name: "Business" });
+    expect(
+      within(card).getByText("Hidden — your role cannot read this"),
+    ).toBeTruthy();
+    expect(within(card).queryByRole("button", { name: "New deal" })).toBeNull();
   });
 });
 

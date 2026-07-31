@@ -217,12 +217,21 @@ export function SectionCard({
   state,
   emptyLabel,
   footer,
+  actions,
   children,
 }: Readonly<{
   title: string;
   state: SectionState;
   emptyLabel: string;
   footer?: ReactNode;
+  // Verbs that CHANGE this section, under everything that describes it.
+  //
+  // They render whenever the section is present — including when it is empty,
+  // which is the state a create verb most belongs to. They do NOT render on a
+  // withheld or unavailable section: a caller who may not read the deals has
+  // no business being offered a button to add one, and a section that failed
+  // to load cannot say whether the write would even make sense.
+  actions?: ReactNode;
   children: ReactNode;
 }>) {
   const present = state === "ready" || state === "empty";
@@ -233,6 +242,7 @@ export function SectionCard({
         {children}
       </SectionPart>
       {present && footer}
+      {present && actions && <div className="co-card-actions">{actions}</div>}
     </section>
   );
 }
@@ -368,7 +378,15 @@ function ConsentChip({ consent }: Readonly<{ consent: Contact["consent"] }>) {
 }
 
 /** DealsCard lists the open pipeline plus the two lifetime figures. */
-export function DealsCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function DealsCard({
+  view,
+  actions,
+}: Readonly<{
+  view?: Organization360;
+  // The verbs that change this section, rendered under it. Absent on an
+  // archived record, which takes no new deals.
+  actions?: ReactNode;
+}>) {
   const t = useT();
   const { locale } = useLocale();
   const deals = view?.deals;
@@ -394,6 +412,10 @@ export function DealsCard({ view }: Readonly<{ view?: Organization360 }>) {
           </p>
         )
       }
+      // The verb sits under the section it changes, and renders whatever the
+      // section's own state is: "no open deal on this account" is exactly the
+      // reading that should be one click from opening one.
+      actions={actions}
     >
       <ul className="co-list">
         {(deals?.data ?? []).map((deal) => (
@@ -442,7 +464,13 @@ function DealRow({ deal }: Readonly<{ deal: Deal360 }>) {
  * caller who could read tags but not lists was told "not on any list, and no
  * tags applied", which was false about the half nobody had answered for.
  */
-export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
+export function TagsCard({
+  view,
+  actions,
+}: Readonly<{
+  view?: Organization360;
+  actions?: ReactNode;
+}>) {
   const t = useT();
   const tags = view?.tags ?? [];
   const lists = view?.list_memberships ?? [];
@@ -478,6 +506,7 @@ export function TagsCard({ view }: Readonly<{ view?: Organization360 }>) {
           ))}
         </p>
       </SectionPart>
+      {actions && <div className="co-card-actions">{actions}</div>}
     </section>
   );
 }

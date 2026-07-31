@@ -124,11 +124,18 @@ export function useCreateRecord<Created extends { id: string }>({
   invalidate,
   screen,
   onDone,
+  stay = false,
 }: Readonly<{
   create: (values: Record<string, string>, rows?: FormRows) => Promise<Created>;
   invalidate: string;
   screen: string;
   onDone: () => void;
+  // `stay` keeps the reader where they are instead of opening what was just
+  // created. It is for creates whose result is a PROPERTY of the record on
+  // screen — a tag on this company, a list this company now belongs to —
+  // rather than a record worth visiting. Without it those creates route to
+  // `screen` with the new row's id, which is not an id that screen can load.
+  stay?: boolean;
 }>) {
   const queryClient = useQueryClient();
   return useMutation({
@@ -142,7 +149,9 @@ export function useCreateRecord<Created extends { id: string }>({
     onSuccess: (created) => {
       queryClient.invalidateQueries({ queryKey: [invalidate] });
       onDone();
-      navigate({ screen, id: created.id });
+      if (!stay) {
+        navigate({ screen, id: created.id });
+      }
     },
   });
 }
@@ -158,6 +167,7 @@ export function CreateAction<Created extends { id: string }>({
   screen,
   startOpen = false,
   resolveExisting,
+  stay = false,
 }: Readonly<{
   label: string;
   fields: CreateField[];
@@ -165,6 +175,9 @@ export function CreateAction<Created extends { id: string }>({
   invalidate: string;
   screen: string;
   startOpen?: boolean;
+  // See useCreateRecord: keep the reader on this record when what was created
+  // belongs TO it rather than being somewhere to go.
+  stay?: boolean;
   // Duplicate (409) dedupe: given the problem's code + collided record id,
   // builds the route to that record. Absent screens simply never show the
   // "view existing" link.
@@ -175,6 +188,7 @@ export function CreateAction<Created extends { id: string }>({
     create,
     invalidate,
     screen,
+    stay,
     onDone: () => setCreating(false),
   });
   const existing =
