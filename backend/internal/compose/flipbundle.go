@@ -173,14 +173,12 @@ func reconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 		return migration.Report{}, err
 	}
 	runs := migration.NewRunStore(pool)
-	run, err := runs.Create(ctx, migration.CreateRunInput{
-		Connector: migration.ConnectorBundle,
-		SourceRef: exportFormat,
-		Source:    "bundle:reconstruction",
-	})
-	if err != nil {
-		return migration.Report{}, err
-	}
+	// Everything that can still fail happens BEFORE the run row exists.
+	// Only the engine needs a run id, so an early return here cannot
+	// strand a row at `running` with an empty error column — a state
+	// nothing resumes and nothing clears, and one indistinguishable from
+	// a reconstruction still in progress.
+	//
 	// The bundle's owner map names app_users of the workspace it was
 	// exported FROM. Reconstruction may land in a different tenant whose
 	// user set differs, and an owner_id pointing at a stranger would be
@@ -195,16 +193,25 @@ func reconstructFromBundle(ctx context.Context, pool *pgxpool.Pool, bundle []byt
 	if err != nil {
 		return migration.Report{}, err
 	}
+	assocs, err := contents.source.Associations(ctx)
+	if err != nil {
+		return migration.Report{}, err
+	}
+
+	run, err := runs.Create(ctx, migration.CreateRunInput{
+		Connector: migration.ConnectorBundle,
+		SourceRef: exportFormat,
+		Source:    "bundle:reconstruction",
+	})
+	if err != nil {
+		return migration.Report{}, err
+	}
 	// unresolvedOwnerEmails, not nil: this path never resolves an owner
 	// email (owners come from the bundle's own map), and a fail-loud
 	// placeholder beats a nil-interface panic if that stops being true.
 	writers := newFlipWriters(pool, overlay.NewMirrorStore(pool, unresolvedOwnerEmails{}), contents.incumbent).
 		forRun(run.ID, operator).
 		WithOwnerMap(owners)
-	assocs, err := contents.source.Associations(ctx)
-	if err != nil {
-		return migration.Report{}, err
-	}
 	writers.SetAssociations(assocs)
 	return migration.NewEngine(runs, writers).Run(ctx, run.ID, contents.source)
 }
@@ -276,7 +283,10 @@ func bundleMirrorRow(raw map[string]any) (migration.Row, string, error) {
 	class := bundleString(raw, "object_class")
 	ext := bundleString(raw, "external_id")
 	if class == "" || ext == "" {
-		return migration.Row{}, "", fmt.Errorf("reconstruction: a mirror row is missing object_class/external_id: %v", raw)
+		// Never echo the row: it is a customer record, and the fields it
+		// DOES carry are names, emails and addresses. What identifies the
+		// problem is which key is missing, which is all this says.
+		return migration.Row{}, "", fmt.Errorf("reconstruction: a mirror row is missing object_class/external_id (object_class=%q, external_id present: %t)", class, ext != "")
 	}
 	row := migration.Row{ExternalID: ext}
 	if fields, ok := raw["fields"].(map[string]any); ok {

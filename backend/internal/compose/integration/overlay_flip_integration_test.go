@@ -144,7 +144,15 @@ func setupFlipEstate(t *testing.T) flipEstate {
 	if status := e.call(t, "GET", "/v1/me", nil, nil, &me); status != http.StatusOK {
 		t.Fatalf("/me = %d", status)
 	}
-	adminID, err := ids.Parse(me["user"].(anyMap)["id"].(string))
+	user, ok := me["user"].(anyMap)
+	if !ok {
+		t.Fatalf("/me carried no user object: %v", me)
+	}
+	rawID, ok := user["id"].(string)
+	if !ok {
+		t.Fatalf("/me user carried no id string: %v", user)
+	}
+	adminID, err := ids.Parse(rawID)
 	if err != nil {
 		t.Fatalf("parsing admin id: %v", err)
 	}
