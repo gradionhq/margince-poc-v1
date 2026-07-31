@@ -38,6 +38,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/ai"
 	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/modules/capture"
+	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -89,10 +90,14 @@ func newDeepReadTestWorker(e *integration.Env, site *fakeSite, brain completer) 
 	svc.WithEffect(deepReadProposalKind, deepReadAcceptEffect(svc, e.People))
 	svc.WithEffect(siteLeadProposalKind, siteLeadAcceptEffect(svc, newCaptureSink(e.Pool, CaptureConfig{})))
 	return &siteDeepReadWorker{
-		people:     e.People,
-		crawler:    testSiteCrawler(site),
-		extract:    evidenceExtractor{brain: brain, factBrain: brain},
-		approvals:  svc,
+		people:    e.People,
+		crawler:   testSiteCrawler(site),
+		extract:   evidenceExtractor{brain: brain, factBrain: brain},
+		approvals: svc,
+		// The real resolver, not a stub: the already-on-file probe runs under
+		// the REQUESTER's live grants, and a stub would let the tests pass
+		// while production asked the question with the wrong authority.
+		authority:  identity.NewService(e.Pool),
 		autoEnrich: capture.NewAutoEnrichStore(e.Pool),
 		settings:   capture.NewSettings(e.Pool),
 		log:        slog.New(slog.NewTextHandler(io.Discard, nil)),

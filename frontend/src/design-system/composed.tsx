@@ -8,6 +8,7 @@ import {
   StickyNote,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { Avatar, Badge } from "./atoms";
@@ -232,6 +233,28 @@ export type TimelineEntry = {
   // The records this entry is about, as the backend's links[] reports them —
   // already pruned to what the reader may see.
   via?: ReactNode;
+  /**
+   * Which way it went, when the record knows: `outbound` is us reaching out,
+   * `inbound` is them coming back.
+   *
+   * A single undifferentiated stream reads as "things happened here" and hides
+   * the one shape a rep is looking for before they reach out — whether the last
+   * few moves were all ours. Absent on kinds that have no direction (a note, a
+   * task), which render exactly as before.
+   */
+  direction?: "inbound" | "outbound" | null;
+  /**
+   * What the message actually said.
+   *
+   * A timeline of subject lines is a list of things you cannot read: the rep
+   * knows an email happened and still has to leave for their mail client to
+   * find out what was in it. The body rides along in the same composite read
+   * the row came from, so showing it costs nothing.
+   *
+   * Legitimately absent on a row whose body was erased under retention or an
+   * Art. 17 request, which is why this is optional rather than empty string.
+   */
+  body?: string | null;
 };
 
 const TIMELINE_ICON = {
@@ -279,7 +302,11 @@ export function RecordView({
   // to the single column every existing caller already renders.
   rail?: ReactNode;
   aside?: ReactNode;
-  timeline: TimelineEntry[];
+  // The entries, or undefined when this view has NO timeline at all. The
+  // distinction is the same one every card on a record page keeps: absent is
+  // not empty. `[]` renders the section with its honest "nothing logged yet";
+  // undefined omits the section, for a view whose body is not a history.
+  timeline?: TimelineEntry[];
   // Controls above the timeline list (filters), and below it (load more).
   timelineHeader?: ReactNode;
   timelineFooter?: ReactNode;
@@ -316,12 +343,16 @@ export function RecordView({
         )}
         <div className="record-main">
           {children}
-          <section aria-label={t("record.timeline")}>
-            <h2 className="t-sub">{t("record.timeline")}</h2>
-            {timelineHeader}
-            {timelineNotice ?? <TimelineList entries={timeline} zone={zone} />}
-            {timelineFooter}
-          </section>
+          {timeline && (
+            <section aria-label={t("record.timeline")}>
+              <h2 className="t-sub">{t("record.timeline")}</h2>
+              {timelineHeader}
+              {timelineNotice ?? (
+                <TimelineList entries={timeline} zone={zone} />
+              )}
+              {timelineFooter}
+            </section>
+          )}
         </div>
         {aside && (
           <aside className="record-aside" aria-label={t("record.business")}>
@@ -347,23 +378,106 @@ function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
   return undefined;
 }
 
+/**
+ * TimelineText is the message itself, two lines by default and the whole of it
+ * on request.
+ *
+ * Two lines is enough to recognise a thread; the full text is one click away
+ * rather than one application away. Collapsed by default because a timeline
+ * where every row is a full email is a mailbox, and the point of the row is
+ * still the sequence.
+ */
+function TimelineText({ text }: Readonly<{ text: string }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  // Whether the clamp is actually cutting the text off, measured rather than
+  // guessed. Counting characters was wrong in the one direction that matters:
+  // the clamp is two VISUAL lines at whatever width the column happens to be,
+  // so a message short enough to look safe still wrapped past it in a narrow
+  // column, got clipped by CSS, and — having failed the character test — was
+  // given no way to expand. Text the reader could not reach.
+  const [clipped, setClipped] = useState(false);
+  const bodyRef = useRef<HTMLSpanElement>(null);
+  const trimmed = text.trim();
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    // Nothing to measure while expanded: scrollHeight equals clientHeight, and
+    // re-measuring there would drop the control that collapses it again. Empty
+    // text renders nothing, so there is nothing that could be clipped.
+    if (!el || open || !trimmed) {
+      return;
+    }
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // The column is resizable, so a width change can start or stop the
+    // clipping. Guarded because jsdom has no ResizeObserver.
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, trimmed]);
+
+  if (!trimmed) {
+    return null;
+  }
+  return (
+    <span className="tl-text">
+      <span ref={bodyRef} className={open ? "tl-text-full" : "tl-text-clamp"}>
+        {trimmed}
+      </span>
+      {(clipped || open) && (
+        <button
+          type="button"
+          className="tl-text-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? t("timeline.textLess") : t("timeline.textMore")}
+        </button>
+      )}
+    </span>
+  );
+}
+
+// directionClass tracks the row to one side of the spine: ours or theirs.
+function directionClass(direction: TimelineEntry["direction"]): string {
+  if (direction === "outbound") {
+    return "tl-out";
+  }
+  return direction === "inbound" ? "tl-in" : "";
+}
+
 function TimelineList({
   entries,
   zone,
 }: Readonly<{ entries: TimelineEntry[]; zone: string }>) {
   const { locale } = useLocale();
+  const t = useT();
   return (
     <ul className="timeline">
       {entries.map((entry) => {
         const Icon = TIMELINE_ICON[entry.kind];
         return (
-          <li key={entry.id}>
+          <li key={entry.id} className={directionClass(entry.direction)}>
             <span className="tl-icon">
               <Icon aria-hidden />
             </span>
             <span className="tl-body">
               <span className="tl-title">{entry.title}</span>
+              {entry.body && <TimelineText text={entry.body} />}
               <span className="tl-meta">
+                {/* The direction is said in words as well as drawn, so it does
+                    not depend on telling two accent colours apart. */}
+                {entry.direction && (
+                  <span className="tl-direction">
+                    {entry.direction === "outbound"
+                      ? t("timeline.sent")
+                      : t("timeline.received")}
+                  </span>
+                )}
                 <span>{formatDate(entry.atIso, locale, zone)}</span>
                 <ProvenanceTag provenance={entry.provenance} />
                 {entry.via}

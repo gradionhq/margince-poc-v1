@@ -15,6 +15,13 @@ import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemMessage } from "./common";
 import "./company360.css";
+import {
+  byReach,
+  missingRoles,
+  reachLabelKey,
+  reachOf,
+  roleLabelKey,
+} from "./coverage";
 import { EntityRef } from "./entityref";
 
 // The company view's data layer and its right-rail cards.
@@ -239,11 +246,26 @@ export function SectionCard({
  */
 export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
-  const contacts = view?.people?.data ?? [];
-  const openDeals = view?.deals?.data ?? [];
-  const hasChampion = contacts.some((c) =>
-    c.deal_roles.some((role) => role.role === "champion"),
+  const contacts = [...(view?.people?.data ?? [])].sort(byReach);
+  const truncated = Boolean(view?.people?.page.has_more);
+  const dealsReadable =
+    Boolean(view?.deals) && view != null && !omitted(view, "deals");
+  const openDealIds = new Set(
+    dealsReadable ? (view?.deals?.data ?? []).map((deal) => deal.deal_id) : [],
   );
+  // Every way the committee picture can be partial, in one flag. An empty
+  // `contacts` means "nobody" only when the section was actually READ: a
+  // people section the grants withheld, or one this response never carried,
+  // leaves the same empty array and would otherwise report both roles missing
+  // from data the page never had. Deals past their first page hide the roles
+  // held on them the same way.
+  const committeeIncomplete =
+    truncated ||
+    !view?.people ||
+    omitted(view, "people") ||
+    Boolean(view?.deals?.page.has_more);
+  const missing = missingRoles(contacts, openDealIds, committeeIncomplete);
+  const untried = contacts.filter((c) => reachOf(c) === "untried");
   return (
     <SectionCard
       title={t("co.people.title")}
@@ -260,25 +282,40 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
           <ContactRow key={contact.person_id} contact={contact} />
         ))}
       </ul>
-      {contacts.length === 1 && (
+      {contacts.length === 1 && !truncated && (
         <p className="co-callout">
           <Badge tone="warn">{t("co.people.singleThread")}</Badge>
         </p>
       )}
-      {openDeals.length > 0 &&
-        !hasChampion &&
-        view &&
-        !omitted(view, "deals") && (
-          <p className="co-callout">
-            <Badge tone="warn">{t("co.people.championGap")}</Badge>
-          </p>
-        )}
+      {/* Who is missing, not only who is present. On an account where every
+          known contact has gone quiet, the person nobody has written to is the
+          only move left that is not a fourth follow-up. */}
+      {untried.length > 0 && (
+        <p className="co-callout">
+          <Badge tone="accent">
+            {untried.length === 1
+              ? t("co.people.untriedHintOne")
+              : t("co.people.untriedHint", { count: untried.length })}
+          </Badge>
+        </p>
+      )}
+      {missing.length > 0 && (
+        <p className="co-callout">
+          <Badge tone="warn">
+            {t("co.people.missing", {
+              roles: missing.map((role) => t(roleLabelKey(role))).join(" / "),
+            })}
+          </Badge>
+        </p>
+      )}
     </SectionCard>
   );
 }
 
 function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
+  const t = useT();
   const roles = contact.deal_roles.map((role) => role.role).filter(Boolean);
+  const reach = reachOf(contact);
   return (
     <li className="co-row">
       <button
@@ -290,8 +327,10 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
       </button>
       <span className="co-row-meta">
         {contact.title && <span>{contact.title}</span>}
-        <Badge tone={strengthTone(contact.strength.bucket)}>
-          {contact.strength.score}
+        {/* Where this person stands with us. "No reply" and "never asked"
+            looked identical in this list and call for opposite next moves. */}
+        <Badge tone={reach === "answered" ? "success" : undefined}>
+          {t(reachLabelKey(reach))}
         </Badge>
         {roles.map((role) => (
           <Badge key={role}>{role}</Badge>
@@ -300,20 +339,6 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
       </span>
     </li>
   );
-}
-
-// strengthTone maps the server's bucket onto a badge tone. The bucket is
-// the server's word; nothing here re-derives a band from the score.
-function strengthTone(
-  bucket: Contact["strength"]["bucket"],
-): "success" | "accent" | undefined {
-  if (bucket === "strong") {
-    return "success";
-  }
-  if (bucket === "warm") {
-    return "accent";
-  }
-  return undefined;
 }
 
 /**
@@ -501,69 +526,6 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
         ))}
       </ul>
     </SectionCard>
-  );
-}
-
-/**
- * SinceLastVisit is the "what changed" line. It reports only the dimensions
- * it was allowed to count: a null count means the caller lacks that grant,
- * which is not the same as zero, so those lines are absent rather than "0".
- */
-export function SinceLastVisit({
-  view,
-  onOpenDecisions,
-}: Readonly<{
-  view: Organization360;
-  // Given, the proposals count opens the queue it counts. Absent, it stays a
-  // badge — the count is still true, it just has nowhere to send the reader.
-  onOpenDecisions?: () => void;
-}>) {
-  const t = useT();
-  const delta = view.since_last_visit;
-  // Withheld or missing: the line is dropped rather than claiming nothing
-  // changed. "Nothing new" is a fact this page would not have.
-  if (!delta || omitted(view, "since_last_visit")) {
-    return null;
-  }
-  const lines: string[] = [];
-  if (delta.new_activities > 0) {
-    lines.push(t("co.since.activities", { count: delta.new_activities }));
-  }
-  if (delta.deal_stage_moves) {
-    lines.push(t("co.since.moves", { count: delta.deal_stage_moves }));
-  }
-  const proposals = delta.pending_proposals
-    ? t("co.since.proposals", { count: delta.pending_proposals })
-    : null;
-  const first = !delta.baseline_at;
-  const empty = lines.length === 0 && !proposals;
-  return (
-    <section className="card co-since">
-      <SectionHeader title={t("co.since.title")} />
-      {first && <p className="co-empty">{t("co.since.first")}</p>}
-      {!first && empty && <p className="co-empty">{t("co.since.nothing")}</p>}
-      {!empty && (
-        <p className="co-row-meta">
-          {lines.map((line) => (
-            <Badge key={line} tone="accent">
-              {line}
-            </Badge>
-          ))}
-          {proposals &&
-            (onOpenDecisions ? (
-              <button
-                type="button"
-                className="co-since-open"
-                onClick={onOpenDecisions}
-              >
-                <Badge tone="accent">{proposals}</Badge>
-              </button>
-            ) : (
-              <Badge tone="accent">{proposals}</Badge>
-            ))}
-        </p>
-      )}
-    </section>
   );
 }
 
@@ -1031,110 +993,6 @@ export function SuggestionsSection({
             ? ` ${dismiss.error.message}`
             : null}
         </p>
-      )}
-    </section>
-  );
-}
-
-/** useOrganizationBrief reads the standing brief for this account. */
-export function useOrganizationBrief(id: string, enabled: boolean) {
-  return useQuery({
-    queryKey: ["organization-brief", id],
-    enabled,
-    queryFn: async () => {
-      const { data, error } = await api.GET("/organizations/{id}/brief", {
-        params: { path: { id } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-  });
-}
-
-/**
- * BriefCard leads the middle column with the account in a few sentences.
- *
- * Two things are always visible, because a reader deciding how much to
- * trust a sentence needs both: WHO wrote it — a model, or the deterministic
- * fallback — and whether it is still current. Every sentence carries the
- * records it was written from, and those are always records this reader can
- * open, because the brief was assembled under their own row scope.
- */
-export function BriefSection({
-  orgId,
-  enabled,
-  onOpenRecord,
-}: Readonly<{
-  orgId: string;
-  enabled: boolean;
-  onOpenRecord?: (entityType: string, entityId: string) => void;
-}>) {
-  const t = useT();
-  const { locale } = useLocale();
-  const query = useOrganizationBrief(orgId, enabled);
-  const client = useQueryClient();
-  const refresh = useMutation({
-    mutationFn: async () => {
-      const { data, error } = await api.POST("/organizations/{id}/brief", {
-        params: { path: { id: orgId } },
-      });
-      if (error) {
-        throw new Error(problemMessage(error));
-      }
-      return data;
-    },
-    onSuccess: (data) =>
-      client.setQueryData(["organization-brief", orgId], data),
-  });
-
-  if (!enabled) {
-    return null;
-  }
-  const brief: Brief | undefined = query.data;
-  // A payload without sentences is a brief this build cannot read, not an
-  // account with nothing to say about it — the same distinction every other
-  // card on this page keeps.
-  const readable = Array.isArray(brief?.sentences) ? brief : undefined;
-  const unreadable = !query.isPending && !query.isError && !readable;
-  return (
-    <section className="co-part co-brief" aria-label={t("co.brief.title")}>
-      <h3 className="co-part-label">{t("co.brief.title")}</h3>
-      {query.isPending && <Skeleton width="100%" height={40} />}
-      {(query.isError || unreadable) && (
-        <p className="co-restricted">{t("co.section.unavailable")}</p>
-      )}
-      {readable && (
-        <>
-          <SentenceList
-            sentences={readable.sentences}
-            onOpenRecord={onOpenRecord}
-          />
-          <p className="co-row-meta">
-            <WrittenBy by={readable.generated_by} />
-            <span>
-              {t("co.brief.generatedAt", {
-                when: formatDate(readable.generated_at, locale, RECORD_ZONE),
-              })}
-            </span>
-            <Button
-              small
-              onClick={() => refresh.mutate()}
-              disabled={refresh.isPending}
-            >
-              {t("co.brief.refresh")}
-            </Button>
-            {/* A refresh that failed must say so: the button re-enabling on
-                its own reads as "done", and the reader would take the brief
-                in front of them for the refreshed one. */}
-            {refresh.isError && (
-              <span className="co-restricted">
-                {t("co.brief.refreshFailed")}
-              </span>
-            )}
-          </p>
-        </>
       )}
     </section>
   );

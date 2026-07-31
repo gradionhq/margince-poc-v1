@@ -11,6 +11,7 @@ import (
 
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
+	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
 	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
@@ -46,6 +47,22 @@ func (s *Store) WithFieldCatalog(catalog fieldcatalog.Reader) *Store {
 
 func (s *Store) tx(ctx context.Context, fn func(pgx.Tx) error) error {
 	return database.WithWorkspaceTx(ctx, s.pool, fn)
+}
+
+// scopeAllRows is the row-scope predicate for an actor bounded by nothing.
+// ScopeClauseFor yields the EMPTY clause for them, which is not valid SQL on
+// its own, so every caller that embeds a scope in a larger WHERE needs this
+// substitute. The site read's system worker is one such actor.
+const scopeAllRows = "TRUE"
+
+// scopeOrAllRows renders one table's row-scope clause as a predicate that
+// always composes into a larger WHERE.
+func scopeOrAllRows(ctx context.Context, table, alias string, arg func(any) int) (string, error) {
+	clause, err := auth.ScopeClauseFor(ctx, table, alias, arg)
+	if err != nil || clause != "" {
+		return clause, err
+	}
+	return scopeAllRows, nil
 }
 
 func uuidPtr(id *ids.UUID) *openapi_types.UUID {

@@ -12,6 +12,127 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
+## Fixed — staged leads could not be accepted (merged 2026-07-31)
+
+Accepting a staged `site_lead` failed with `version_skew` whenever anything had
+written to the pinned organization after staging, and the lead was then
+unrecoverable: the decision commits before the effect runs, so a failed accept
+left the approval `approved` but unredeemed. Auto-enrich and accepting the
+deep-read bundle both wrote the org's profile fields, which made every sibling
+lead from that read un-acceptable.
+
+Fixed in PR #349: the pin is now opt-in per approval kind. A `site_lead` is
+FILED under a company rather than being an operation on it, so its effect never
+reads the organization row and has no version to guard —
+`approvals.TargetIsContextOnly` names the kinds that opt out, and a fitness
+test holds the list against the kinds whose effects actually read their target.
+
+The same class still applies to `capture_counterparty`, whose pinned `activity`
+version is bumped by the classify pass
+(`activities/capturelabel.go:77-81`) — that one has a different cause and is
+still open.
+
+## Open decision — the organization brief endpoint has no client
+
+`GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
+removed from the company page because what it produced restated the screen:
+on a live account its two sentences were "you currently have three contacts
+recorded for this account" and "there is one open task due on August 1, 2026",
+both of which the reader could already see, under a heading that promised a
+reading of the account.
+
+The endpoint, its store and `compose/orgbrief` are untouched. Either the
+sentences it generates need to be worth a card of their own — the research on
+account pages says a generated summary must answer a NAMED question and cite
+its source, not narrate the record — or the endpoint should be retired. Not a
+call to make from the frontend.
+
+The client component and its hook were deleted rather than left mounted
+nowhere. `SentenceList`, `Citations` and `WrittenBy` survive: the Ask flow
+uses all three.
+
+## Open spec collision — the coverage matrix needs what the spec rules out
+
+The company page's agreed centrepiece is a coverage matrix: their buying
+committee as rows, our team as columns, cells by relationship strength. Reading
+the spec, that feature collides with three decisions rather than with one
+missing column.
+
+**There is no graph, on purpose.** `specs/subsystems/context-graph.md` defines
+the context graph as "a capability on the relational core, not a datastore",
+and its appendix says the chapter owns no tables, no operations and no events.
+`specs/product/scope.md` NEVER-10 puts a graph datastore out of V1.
+ADR-0021 calls the `relationship` edge set "near-bipartite" and names the
+excluded workload precisely: N-degree path-finding, and **warm-intro paths**,
+which it says would trip its own trigger (b) for reconsidering a graph store.
+
+**The model has nowhere to put the edge.** `relationship` (PO-DDL-7) has
+`person_id`, `organization_id`, `counterparty_org_id`, `deal_id`, `project_id`
+and no user column, so person↔person and user↔person are structurally
+impossible. `activity_link` (ACT-DDL-2) links to person/organization/deal/
+lead/project and has no user arm, so no email, call or meeting ever produces a
+stored edge between a workspace member and a contact. Meeting `attendee_emails`
+are accepted by the scheduling API and never persisted.
+
+**The strength formula is team-wide by design.** PO-F-3 is specced
+"workspace-wide (team-wide, not per-rep — AC-person-2)". A matrix needs a
+per-colleague × per-contact score, which no formula in the spec defines.
+
+**And the endpoint we were about to fix is not a spec feature.** A search of
+the whole spec tree for `/organizations/{id}/graph`, `in_contact_with` and
+`our_side` returns nothing: the connections card is POC-invented (#322,
+2026-07-30), and its "our side" edges were added a day later as a bug fix
+(#333) with no chapter, no AC id and no formula id. Its
+`captured_by = 'human:<uuid>'` join is the only "who on our side knows this
+contact" answer in the system, and under ADR-0063 capture it matches almost
+nothing.
+
+**Also worth knowing:** PO-F-3 reads only `kind IN ('email','call','meeting')`,
+so WhatsApp and Telegram — first-class activity kinds under ADR-0022 — feed no
+strength or warm-room computation at all. And leads are outside the graph
+entirely by design (`leads-and-qualification.md`: "a lead has no link into the
+organization graph").
+
+**The decision to take upstream**, not to make here: either the matrix is cut,
+or the spec gains an interaction-participant edge. The shape that would serve
+every channel at once is one row per participant per activity — which side they
+are on (`user_id` or `person_id`), their address, and their role (from / to /
+cc / attendee / organizer). Every channel already flows through one `activity`
+table, so one table would light up email, calendar, WhatsApp and Telegram
+together, and warm paths and the matrix fall out of it as queries. That is a
+schema addition, a capture change, a backfill, and a spec raise against
+ADR-0021 and NEVER-10. Contract-first: the spec decides first.
+
+## Open defect — the graph cannot answer "who do I know here"
+
+The `in_contact_with` edge exists in the contract and is implemented
+(`compose/org360/graphourside.go`), but it is joined on who TYPED the activity:
+
+```sql
+JOIN app_user u ON a.captured_by = 'human:' || u.id::text
+```
+
+Connector-captured mail carries `captured_by = 'connector:gmail'`, so the join
+never matches and no edge is drawn. In a product whose premise is that capture
+means nobody types anything, the condition excludes essentially all real data:
+on a live account with three contacts and a year of correspondence, the graph
+returns only `owns` and `employment`, and "who on our side has a way in" is
+unanswerable.
+
+The authorship the edge wants is on the row already: `direction`
+(`migrations/core/0008_activity.up.sql:21`) says which way the mail went, and
+`counterparty_email` (`migrations/core/0123`) says who the other end was. The
+edge should be derived from the mailbox the activity came through and its
+participants, not from who entered it.
+
+Related contract gap: `counterparty_email` is stored and used by the capture
+sweeps but is not on the `Activity` schema, so no client can see who a
+captured mail was actually with. `direction` IS on the wire and unused by the
+UI today.
+
+Both block the coverage matrix (their buying committee × our team, cells by
+relationship strength) agreed as the company page's centrepiece.
+
 ## Where this is
 
 Margince's **WP0 foundation + WP1 core spine** are built and green:
@@ -25,6 +146,36 @@ The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
 ## Session pickup — 2026-07-31
+
+**The site read stopped proposing leads nobody asked for.** Three defects in
+the published-person lane closed on `feat/company-page-wow-slice`:
+
+- **Testimonials became leads.** A home or about page's "what our clients say"
+  wall names people who work elsewhere, and they were filed as contacts at the
+  company whose site it is. The floor is now a published email address —
+  `dropNoPublishedEmail` in `compose/sitepagefacts.go` — which is what
+  separates the quoted customer from the founder on the same page. Reading one
+  real site had staged 62 of these.
+- **People already on file were re-proposed.** `people.Store.EmailAlreadyOnFile`
+  (`modules/people/emailonfile.go`) probes live person and lead rows before
+  staging. It runs under the REQUESTING HUMAN's live grants, never the
+  worker's system authority: the answer decides whether a proposal reaches an
+  inbox, so a workspace-wide answer would let a rep point a read at a page of
+  addresses and learn which ones exist on records their row scope hides. See
+  `probeCtx` in `compose/siteleadstage.go`.
+- **Re-reads stacked duplicate questions.** The staged payload carries the read
+  id and the page's reflowed passage, so the diff hash differed per read. The
+  staging now declares a logical identity — the lead's natural key — so a
+  re-read supersedes its own undecided proposal. `approvals.StageInTx` now
+  REFUSES an input carrying `Identity` or `JoinPending` instead of silently
+  ignoring both, and `StageOrJoinPendingInTx` is the door that honors them.
+
+**Still open in this area:** the email floor proves contactability, not
+affiliation. A testimonial that prints the quoted person's own address
+(`jane@client.example` on our site) still becomes a lead filed under the wrong
+company. Requiring the address to sit on the crawled site's own domain would
+close it, at the cost of dropping staff who publish a personal address —
+a product call, not a bug fix. Raised here rather than decided.
 
 **A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
 binds OpenRouter through the generic `openai_compatible` adapter, with three
