@@ -7,42 +7,42 @@
   "corpus_version": "v1",
   "verdict": "not_supported",
   "runs": 12,
-  "passed": 0,
-  "reliability": 0,
-  "reported_accepted": 0,
-  "reported_wrong_answer": 0,
-  "reported_invalid": 12,
-  "reported_abstained": 0,
+  "passed": 1,
+  "reliability": 0.08333333333333333,
+  "reported_accepted": 1,
+  "reported_wrong_answer": 3,
+  "reported_invalid": 0,
+  "reported_abstained": 8,
   "certified_scope": "full_invocation",
   "context_applied": false,
   "context_scopes": [
     "identity"
   ],
-  "score_p50": 95,
+  "score_p50": 85,
   "score_min": 0,
-  "latency_p50": 2793,
-  "latency_p95": 4719,
-  "mean_tokens": 851,
-  "mean_tokens_in": 586,
-  "mean_tokens_out": 265,
+  "latency_p50": 3159,
+  "latency_p95": 4670,
+  "mean_tokens": 848,
+  "mean_tokens_in": 590,
+  "mean_tokens_out": 258,
   "mean_cached_tokens": 0,
   "mean_cache_write_tokens": 0,
-  "est_cost_microusd": 170,
+  "est_cost_microusd": 169,
   "judge_served_model": "mistralai/mistral-large-2512",
   "self_judged": false,
   "served_identity_source": "echo",
-  "ran_at": "2026-07-31T03:18:32Z",
+  "ran_at": "2026-07-31T03:30:02Z",
   "scenarios": [
     {
       "scenario": "ask_meeting_prep_stays_silent_about_a_withheld_section",
       "site": "org_ask",
       "verdict": "not_supported",
       "runs": 3,
-      "passed": 0,
-      "reported_accepted": 0,
+      "passed": 1,
+      "reported_accepted": 1,
       "reported_wrong_answer": 0,
-      "reported_invalid": 3,
-      "reported_abstained": 0
+      "reported_invalid": 0,
+      "reported_abstained": 2
     },
     {
       "scenario": "ask_whats_open_answers_the_pipeline_not_the_history",
@@ -52,8 +52,8 @@
       "passed": 0,
       "reported_accepted": 0,
       "reported_wrong_answer": 0,
-      "reported_invalid": 3,
-      "reported_abstained": 0
+      "reported_invalid": 0,
+      "reported_abstained": 3
     },
     {
       "scenario": "brief_stays_silent_about_a_withheld_section",
@@ -63,8 +63,8 @@
       "passed": 0,
       "reported_accepted": 0,
       "reported_wrong_answer": 0,
-      "reported_invalid": 3,
-      "reported_abstained": 0
+      "reported_invalid": 0,
+      "reported_abstained": 3
     },
     {
       "scenario": "brief_names_the_stalled_deal_and_the_last_touch",
@@ -73,8 +73,8 @@
       "runs": 3,
       "passed": 0,
       "reported_accepted": 0,
-      "reported_wrong_answer": 0,
-      "reported_invalid": 3,
+      "reported_wrong_answer": 3,
+      "reported_invalid": 0,
       "reported_abstained": 0
     }
   ]

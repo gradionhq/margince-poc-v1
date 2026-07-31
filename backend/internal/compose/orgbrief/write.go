@@ -174,7 +174,11 @@ func ParseBrief(text, orgID string, in Input) ([]Sentence, error) {
 	var reply struct {
 		Sentences []Sentence `json:"sentences"`
 	}
-	if err := json.Unmarshal([]byte(strings.TrimSpace(text)), &reply); err != nil {
+	// ai.Unfence, not a bare TrimSpace: a model that wraps its JSON in a
+	// ```json fence is answering correctly, and every other model-reply parser
+	// in the tree reduces through the same helper. Trimming whitespace alone
+	// drops the whole model lane to the deterministic floor on those providers.
+	if err := json.Unmarshal([]byte(ai.Unfence(text)), &reply); err != nil {
 		return nil, fmt.Errorf("parse the brief reply: %w", err)
 	}
 	return keepGroundedSentences(reply.Sentences, orgID, in), nil

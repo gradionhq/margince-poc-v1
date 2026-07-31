@@ -41,23 +41,44 @@ $0.0031 total, records committed under `aicert/records/`. Eight certified
 (`brief_ranking`, `capture_classify`, `cert_judge`, `cold_start`,
 `draft_reply`, `enrich`, `rate_extract`, `site_fact_extract`), one
 `supported_degraded` (`capture_counterparty_verdict`, 0.89), five
-`not_supported` (`summarize` 0.00, `agent_loop` 0.50, `offer_draft` 0.73,
+`not_supported` (`summarize` 0.08, `agent_loop` 0.50, `offer_draft` 0.73,
 `site_extract` 0.75, `voice_build` 0.78). On `cold_start/company_message` this
 binding beats the shipped Gemini default, which is only `supported_degraded`
 there.
 
-**Every failure is validator-side, not taste.** The judge liked the answers
-(median 90–100 on four of the five); what failed is the site's own contract:
+Certifying a second vendor is what surfaced the `orgbrief` unfencing bug
+below: Gemini does not fence its JSON, so a parser that could not read a
+fenced reply looked correct for as long as one provider was the only one
+measured.
 
-- **`summarize` fails 12/12 as INVALID** — the one to fix first, because it is
-  a single defect with a clear shape. The model writes a display name where the
-  evidence schema requires an entity UUID (`"entity_id": "Nordwind Logistik
-  AG"`), sometimes in the very reply that gets a sibling reference right.
-  Nothing about the summary prose is wrong; the reference is.
+**Every failure is validator-side, not taste.** The judge liked the answers
+(median 85–100); what failed is the site's own contract. One of those turned
+out to be OUR bug:
+
+- **`orgbrief.ParseBrief` never unfenced (FIXED here).** It was the only
+  model-reply parser in the tree reducing through a bare `strings.TrimSpace`
+  instead of `ai.Unfence`, so a model that wraps its JSON in a ```json fence
+  lost the entire `summarize` model lane to the deterministic floor —
+  12/12 runs `invalid` on `parse the brief reply: invalid character '`'`.
+  A sweep of all 30 `json.Unmarshal` sites confirmed this was the last one
+  (the remaining non-unfencing parses are SSE `data:` frames, an uploaded
+  transcript file and a recorded HTTP body — none is a model reply).
+  `ai.Unfence` is a no-op on unfenced JSON, so Gemini is unaffected. After the
+  fix `summarize` reports `invalid` 12 → **0**.
+- **`summarize` still fails on citation grounding** (0.08, 8 abstained /
+  3 wrong): the model writes a display name where the evidence schema requires
+  an entity UUID (`"entity_id": "Nordwind Logistik AG"`), so
+  `keepGroundedSentences` correctly drops every sentence and the brief
+  abstains. That is a model capability gap on this task, not a defect — the
+  fence bug was hiding it.
 - **`agent_loop` (3 accepted / 3 wrong of 6)** and **`offer_draft`** (8/3/1 of
   15) split down the middle, so both are a coin-flip rather than a consistent
   behaviour — read them with `RUNS=5` before drawing a conclusion.
-- **`site_extract` and `voice_build`** sit at 0.75/0.78.
+  `offer_draft` also blows a scenario's 300-token cap (451–600 answer tokens).
+- **`site_extract` and `voice_build`** sit at 0.75/0.78. `site_extract`'s
+  failure is over-eager extraction: it fills `legal_name`/`register_vat`/
+  `registered_address` on a crawl the scenario says grounds no value, where an
+  abstention was wanted.
 
 Three caveats on the numbers themselves:
 
