@@ -153,6 +153,10 @@ describe("readAccount", () => {
     });
     const single = readAccount(v, NOW).find((f) => f.id === "single-thread");
     expect(single?.params?.name).toBe("Christian Hagemeyer");
+    // The counts are windowed, so the sentence carries the window. Without it
+    // the line reads as an all-time claim that an account whose committee
+    // wrote to us four months ago disproves.
+    expect(single?.params?.days).toBe(STRENGTH_WINDOW_DAYS);
     // No subject chip: the sentence already names them, and a chip repeating
     // the name after it reads as a stutter.
     expect(single?.subject).toBeUndefined();

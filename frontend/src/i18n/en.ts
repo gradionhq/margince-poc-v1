@@ -629,7 +629,7 @@ export const en = {
     "You have written to {count} contacts here in the last {days} days and none has replied.",
   "co.read.noContacts": "You do not know anyone at this account yet.",
   "co.read.singleThread":
-    "Only {name} has ever engaged. Nobody else here has responded.",
+    "Only {name} has been in contact in the last {days} days.",
   "co.read.oneContact": "{name} is your only way into this account.",
   "co.read.noChampion.one": "No champion is named on the open deal.",
   "co.read.noChampion.other": "No champion is named on any of the open deals.",

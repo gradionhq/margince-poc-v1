@@ -223,7 +223,11 @@ function coverage(view: Organization360): AccountFinding[] {
   // score is a decayed function of recency, frequency and reciprocity, so a
   // real reply near the edge of the window rounds to zero — and the contact's
   // own row, which reads the same counts, would then say "Answered" one line
-  // under a brief saying nobody but Alice ever engaged.
+  // under a brief saying nobody but Alice engaged.
+  //
+  // The counts cover the last STRENGTH_WINDOW_DAYS, so the SENTENCE has to say
+  // so. "Only Dana has ever engaged" is an all-time claim, and the account
+  // whose whole committee wrote to us four months ago disproves it.
   const engaged = contacts.filter(
     (c) =>
       (c.strength.inbound_90d ?? 0) > 0 || (c.strength.outbound_90d ?? 0) > 0,
@@ -234,7 +238,7 @@ function coverage(view: Organization360): AccountFinding[] {
       id: "single-thread",
       tone: "risk",
       key: "co.read.singleThread",
-      params: { name: only.full_name },
+      params: { name: only.full_name, days: STRENGTH_WINDOW_DAYS },
     });
   } else if (contacts.length === 1) {
     out.push({

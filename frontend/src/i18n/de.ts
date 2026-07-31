@@ -642,7 +642,7 @@ export const de = {
     "Du hast in den letzten {days} Tagen {count} Kontakte hier angeschrieben, keiner hat geantwortet.",
   "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
   "co.read.singleThread":
-    "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",
+    "Nur {name} hatte in den letzten {days} Tagen Kontakt.",
   "co.read.oneContact": "{name} ist dein einziger Zugang zu diesem Account.",
   "co.read.noChampion.one": "Am offenen Deal ist kein Champion benannt.",
   "co.read.noChampion.other":
