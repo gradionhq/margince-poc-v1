@@ -131,33 +131,79 @@ export function NewDealAction({
  * Matching is case-insensitive on the trimmed name, because "VIP" and "vip"
  * are one tag to everyone except the database.
  */
+/**
+ * resolveTagId turns a typed name into the id of the ONE tag that carries it,
+ * creating it when the workspace has none.
+ *
+ * Two collisions are resolved rather than reported, because neither is
+ * something the rep did or can act on:
+ *
+ *   - the read finds nothing but the create answers 409, meaning somebody
+ *     created the same name in between. tag names are unique per workspace
+ *     (uq_tag_name on lower(name)), so THEIR row is the asked-for tag;
+ *   - the name matches case-insensitively, because "VIP" and "vip" are one
+ *     tag to everyone except the database.
+ *
+ * The catalog is read at call time, never from a cache the component loaded
+ * earlier: a first attempt that created the tag and then failed to apply it
+ * leaves a tag no snapshot knows about, so a retry would mint a second one.
+ */
+async function resolveTagId(
+  name: string,
+  t: ReturnType<typeof useT>,
+): Promise<string> {
+  const matching = (tags: readonly { id: string; name: string }[]) =>
+    tags.find((tag) => tag.name.trim().toLowerCase() === name.toLowerCase())
+      ?.id;
+
+  const { data: known, error: readError } = await api.GET("/tags", {
+    params: { query: {} },
+  });
+  if (readError) {
+    throw new Error(problemMessage(readError, t));
+  }
+  const existing = matching(known.data);
+  if (existing) {
+    return existing;
+  }
+
+  const { data, error, response } = await api.POST("/tags", { body: { name } });
+  if (response.status !== 409) {
+    if (error) {
+      throw new Error(problemMessage(error, t));
+    }
+    return data.id;
+  }
+
+  const { data: after, error: afterError } = await api.GET("/tags", {
+    params: { query: {} },
+  });
+  if (afterError) {
+    throw new Error(problemMessage(afterError, t));
+  }
+  const winner = matching(after.data);
+  if (!winner) {
+    // A 409 with no row carrying the name means the collision was about
+    // something other than the name, and this function has no answer for it.
+    throw new Error(problemMessage(error, t));
+  }
+  return winner;
+}
+
+/**
+ * TagAction puts a tag on this company, creating the tag when the name is new.
+ *
+ * One field, one name typed. Splitting it into "pick an existing tag" and
+ * "make a new one" makes the rep answer a question about the workspace's tag
+ * table before they can answer the one they actually have — and on a fresh
+ * workspace the pick-only version has nothing to offer, so the control
+ * disappears exactly when it is first needed.
+ */
 export function TagAction({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
 
   const addTag = async (values: Record<string, string>) => {
-    const name = values.name.trim();
-    // Read the tags AT SUBMIT, never from a cache the component loaded
-    // earlier. A first attempt that creates the tag and then fails to apply it
-    // leaves a tag the cached list does not have, so a retry would mint a
-    // second one under the same name — the duplicate this matching exists to
-    // prevent, produced by the retry itself.
-    const { data: known, error: readError } = await api.GET("/tags", {
-      params: { query: {} },
-    });
-    if (readError) {
-      throw new Error(problemMessage(readError, t));
-    }
-    const existing = known.data.find(
-      (tag) => tag.name.trim().toLowerCase() === name.toLowerCase(),
-    );
-    let tagId = existing?.id;
-    if (!tagId) {
-      const { data, error } = await api.POST("/tags", { body: { name } });
-      if (error) {
-        throw new Error(problemMessage(error, t));
-      }
-      tagId = data.id;
-    }
+    const tagId = await resolveTagId(values.name.trim(), t);
     const { data, error, response } = await api.POST("/tags/{id}/apply", {
       params: { path: { id: tagId } },
       body: { entity_type: "organization", entity_id: orgId },
@@ -201,6 +247,13 @@ export function ListAction({ orgId }: Readonly<{ orgId: string }>) {
     const name = values.name.trim();
     // Read at submit, for the reason spelled out in TagAction: a retry after a
     // half-completed attempt must find what that attempt created.
+    //
+    // This narrows the race; it does not close it. `list` carries no
+    // uniqueness on its name (unlike `tag`, which has uq_tag_name), so two
+    // people typing the same new list name at the same moment get two lists
+    // and no server error to resolve them. Closing it needs a constraint or a
+    // find-or-create endpoint, neither of which a client can supply. The
+    // damage is a duplicate list a human can merge, not a lost membership.
     const { data: known, error: readError } = await api.GET("/lists", {
       params: { query: { entity_type: "organization" } },
     });
