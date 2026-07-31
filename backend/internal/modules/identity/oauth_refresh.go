@@ -120,6 +120,11 @@ func (s *Service) rotateRefreshToken(ctx context.Context, in refreshRequest) (Is
 		issued, refresh, reused, err = s.rotateRefreshTokenTx(ctx, tx, in)
 		return err
 	})
+	// The error arm MUST stay first. `reused` only means "the cascade committed"
+	// when the transaction itself committed; reading it before the error would
+	// answer a failed COMMIT with invalid_grant — the client sees a refusal, the
+	// operator sees no error, and the revoke that rolled back leaves the stolen
+	// chain live and renewable.
 	switch {
 	case err != nil:
 		return IssuedPassport{}, "", err
@@ -129,14 +134,18 @@ func (s *Service) rotateRefreshToken(ctx context.Context, in refreshRequest) (Is
 	return issued, refresh, nil
 }
 
-// rotateRefreshTokenTx is rotateRefreshToken's body, inside the caller's
-// transaction. It is a named function rather than a closure so the lock order
-// its correctness rests on reads at one nesting level.
+// rotateRefreshTokenTx spends the presented token and reissues under the
+// caller's transaction, taking the grant lock before the refresh row — the
+// order oauth_grant.go pins and revokeGrantTx takes too.
 //
-// The `reused` return is separate from the error deliberately: a detected reuse
-// has to COMMIT the revoke cascade it just performed, so it cannot travel as an
-// error, and the caller answers the refusal once the transaction is safely
-// closed.
+// `reused` travels BESIDE the error, not as one, because a detected reuse has
+// to COMMIT the revoke cascade it just performed: an error return would roll
+// that cascade back and leave the stolen chain alive and renewable.
+//
+// It is therefore only actionable when the transaction COMMITTED. A commit
+// failure means the cascade rolled back, so it must surface as that error and
+// never as a refusal — see the caller's switch, which reads the error arm
+// first for exactly this reason.
 func (s *Service) rotateRefreshTokenTx(
 	ctx context.Context, tx pgx.Tx, in refreshRequest,
 ) (issued IssuedPassport, refresh string, reused bool, err error) {

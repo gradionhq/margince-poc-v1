@@ -32,11 +32,6 @@ import (
 // slowest legitimate call dies mid-response.
 const mcpCallDeadline = 150 * time.Second
 
-// headerContentType is named once so the three places this transport sets a
-// response media type cannot drift to a misspelling that silently stops being
-// the header it means.
-const headerContentType = "Content-Type"
-
 // sessionKey identifies one live MCP session. The session id ALONE is
 // deliberately not enough to act on (DESIGN §10.4): every request
 // re-authenticates via the Bearer passport, which is where authority
@@ -186,12 +181,12 @@ func writeRPCResponse(w http.ResponseWriter, r *http.Request, resp rpcResponse) 
 		return
 	}
 	if strings.Contains(r.Header.Get("Accept"), "text/event-stream") {
-		w.Header().Set(headerContentType, "text/event-stream")
+		w.Header().Set("Content-Type", "text/event-stream")
 		//craft:ignore swallowed-errors a failed write means the client hung up — there is no channel left to report on
 		_, _ = w.Write([]byte("data: " + string(body) + "\n\n"))
 		return
 	}
-	w.Header().Set(headerContentType, "application/json")
+	w.Header().Set("Content-Type", "application/json")
 	//craft:ignore swallowed-errors a failed write of the JSON-RPC result means the client hung up
 	_, _ = w.Write(body)
 }
@@ -261,7 +256,7 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		// authorization server. DELETE authenticates exactly like POST —
 		// there is no unauthenticated teardown path.
 		w.Header().Set("WWW-Authenticate", h.challenge(r))
-		w.Header().Set(headerContentType, "application/json")
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
 		//craft:ignore swallowed-errors a failed write of the 401 body means the client hung up — there is no channel left to report on
 		_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid_token"})

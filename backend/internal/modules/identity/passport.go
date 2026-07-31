@@ -176,7 +176,7 @@ type PassportRow struct {
 // own; the admin role sees the workspace's (the same authority split
 // RevokePassport enforces).
 func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow, error) {
-	isAdmin := id.hasRole("admin")
+	isAdmin := id.hasRole(roleAdmin)
 	var out []PassportRow
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		query := `SELECT id, label, scopes, created_at, expires_at, revoked_at
@@ -229,9 +229,15 @@ func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID id
 	})
 }
 
-// revokePassportTx is RevokePassport's body, inside the caller's transaction.
-// It is a named function rather than a closure so the cascade order it depends
-// on — grant lock first, this row second — reads at one nesting level.
+// revokePassportTx performs the revoke inside the caller's transaction: the
+// grant cascade first (revokeGrantTx takes the grant lock as its own first
+// act), this passport row second. That order is what keeps one death from
+// being audited twice — the cascade has already retired and emitted for this
+// row by the time the conditional UPDATE below runs.
+//
+// It requires an actor already bound on ctx: the audit rows it writes resolve
+// their principal from there, and it fails closed rather than writing an
+// unattributed revocation.
 func (s *Service) revokePassportTx(
 	ctx context.Context, tx pgx.Tx, id Identity, passportID ids.PassportID,
 ) error {
@@ -249,7 +255,7 @@ func (s *Service) revokePassportTx(
 	}
 	// Another user's passport reads as absent, not forbidden —
 	// existence-hiding matches the row-scope convention.
-	if onBehalfOf != id.UserID && !id.hasRole("admin") {
+	if onBehalfOf != id.UserID && !id.hasRole(roleAdmin) {
 		return apperrors.ErrNotFound
 	}
 	if revokedAt != nil && grantID == nil {
