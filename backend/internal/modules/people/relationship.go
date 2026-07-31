@@ -125,13 +125,15 @@ func scanRelationship(r pgx.Row) (relationshipRow, error) {
 
 // relationshipEndpointScope renders "every non-null endpoint is
 // visible": one EXISTS per endpoint table under the caller's own/team
-// predicate. Unbounded actors carry no clause.
+// predicate. Only a caller unbounded over EVERY endpoint table carries no
+// clause — person and organization hold capture privacy, so that is the
+// system principal alone.
 func relationshipEndpointScope(ctx context.Context, alias string, arg func(any) int) (string, error) {
 	actor, ok := principal.Actor(ctx)
 	if !ok {
 		return "", errors.New("crmpeople: no actor bound to context")
 	}
-	if auth.Unbounded(actor) {
+	if auth.UnboundedFor(actor, "person", "organization", "deal", projectObjectName) {
 		return "", nil
 	}
 	var clauses []string

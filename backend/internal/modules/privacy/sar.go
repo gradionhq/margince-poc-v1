@@ -69,7 +69,7 @@ func AssembleSAR(ctx context.Context, pool *pgxpool.Pool, personID ids.PersonID)
 	}
 	var pkg SARPackage
 	err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-		if err := auth.EnsureVisible(ctx, tx, "person", personID.UUID); err != nil {
+		if err := auth.EnsureVisibleForSubjectRights(ctx, tx, "person", personID.UUID); err != nil {
 			return err
 		}
 		sections := sarSections(&pkg)

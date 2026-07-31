@@ -17,13 +17,16 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
 // LinkTargetVisibleClause answers, for ONE activity_link row, whether the
 // record it points at is visible under the caller's row scope. An empty
-// string means an unbounded caller, for whom every target is visible.
+// string means a caller for whom every target is visible — which, since
+// person and organization carry capture privacy, is the system principal
+// alone.
 //
 // It exists because "may I read this activity" and "may I be told what this
 // activity is about" are different questions. The activity gate above is an
@@ -40,25 +43,61 @@ func LinkTargetVisibleClause(ctx context.Context, alias string, arg func(any) in
 	if err != nil {
 		return "", err
 	}
-	if Unbounded(p) {
+	if UnboundedFor(p, linkTargetTables...) {
 		return "", nil
 	}
 	return linkTargetVisible(p, alias, arg), nil
 }
 
+// The row-scoped record types, named once. Several of these appear in
+// half a dozen table-name positions across the package, and a typo in any
+// of them silently renders a predicate that matches nothing.
+const (
+	tablePerson       = "person"
+	tableOrganization = "organization"
+	tableDeal         = "deal"
+	tableLead         = "lead"
+	tableProject      = "project"
+)
+
+// linkTargetTables names every record type an activity_link points at, in
+// the order the disjunction below walks them. Both this projection and the
+// activity gate in rbac.go decide whether they may skip their clause by
+// asking UnboundedFor over this set, so a record type that gains capture
+// privacy tightens both at once.
+var linkTargetTables = []string{tablePerson, tableOrganization, tableDeal, tableLead, tableProject}
+
 // linkTargetVisible renders the per-arm "this link's target is visible"
 // disjunction over activity_link's polymorphic columns.
 func linkTargetVisible(p principal.Principal, alias string, arg func(any) int) string {
-	person := VisiblePredicate(p, "person", arg)
-	organization := VisiblePredicate(p, "organization", arg)
-	deal := VisiblePredicate(p, "deal", arg)
-	lead := VisiblePredicate(p, "lead", arg)
-	project := VisiblePredicate(p, "project", arg)
-	return fmt.Sprintf(`(
-	      (%[1]s.person_id IS NOT NULL AND EXISTS (SELECT 1 FROM person sp WHERE sp.id = %[1]s.person_id AND %[2]s))
-	   OR (%[1]s.organization_id IS NOT NULL AND EXISTS (SELECT 1 FROM organization so WHERE so.id = %[1]s.organization_id AND %[3]s))
-	   OR (%[1]s.deal_id IS NOT NULL AND EXISTS (SELECT 1 FROM deal sd WHERE sd.id = %[1]s.deal_id AND %[4]s))
-	   OR (%[1]s.lead_id IS NOT NULL AND EXISTS (SELECT 1 FROM lead sl WHERE sl.id = %[1]s.lead_id AND %[5]s))
-	   OR (%[1]s.project_id IS NOT NULL AND EXISTS (SELECT 1 FROM project spr WHERE spr.id = %[1]s.project_id AND %[6]s)))`,
-		alias, person("sp"), organization("so"), deal("sd"), lead("sl"), project("spr"))
+	arms := make([]string, 0, len(linkTargetTables))
+	for _, t := range []struct{ column, table, probe string }{
+		{"person_id", tablePerson, "sp"},
+		{"organization_id", tableOrganization, "so"},
+		{"deal_id", tableDeal, "sd"},
+		{"lead_id", tableLead, "sl"},
+		{"project_id", tableProject, "spr"},
+	} {
+		arms = append(arms, linkTargetArm(alias, t.column, t.table, t.probe,
+			VisiblePredicate(p, t.table, arg)(t.probe)))
+	}
+	return "(\n\t      " + strings.Join(arms, "\n\t   OR ") + ")"
+}
+
+// linkTargetArm renders one arm of that disjunction. A predicate of TRUE —
+// the caller reads every row of that table — collapses the arm to the
+// column test alone: the composite FK already guarantees the target row
+// exists, so the EXISTS could only confirm what TRUE already said.
+//
+// Dropping it is not a micro-optimization. The walk runs per candidate
+// row, and the search branch runs it across a whole FTS result set: an
+// all-scope reader was paying five correlated joins to be told yes five
+// times, which measured as a 6x regression on the search_fts perf budget
+// the moment capture privacy stopped exempting them from the walk.
+func linkTargetArm(alias, column, table, probe, predicate string) string {
+	if predicate == "TRUE" {
+		return fmt.Sprintf(`%s.%s IS NOT NULL`, alias, column)
+	}
+	return fmt.Sprintf(`(%[1]s.%[2]s IS NOT NULL AND EXISTS (SELECT 1 FROM %[3]s %[4]s WHERE %[4]s.id = %[1]s.%[2]s AND %[5]s))`,
+		alias, column, table, probe, predicate)
 }
