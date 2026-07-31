@@ -589,6 +589,8 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
+  "timeline.textMore": "Read it",
+  "timeline.textLess": "Show less",
   "co.prep.title": "Before you talk to them",
   "co.prep.sub":
     "Read off this account's own records. Every line names what it is based on.",

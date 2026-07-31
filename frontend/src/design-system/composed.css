@@ -382,3 +382,44 @@
 .auth-error {
   margin-bottom: 12px;
 }
+
+/* The message under a timeline row. Two lines by default: enough to recognise
+   a thread, without turning the account's history into a mailbox. */
+.tl-text {
+  display: block;
+  margin-top: var(--space-1);
+}
+
+.tl-text-clamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  color: var(--textMeta);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tl-text-full {
+  display: block;
+  white-space: pre-wrap;
+  color: var(--textPrimary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.tl-text-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-top: var(--space-1);
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.tl-text-toggle:hover {
+  text-decoration: underline;
+}

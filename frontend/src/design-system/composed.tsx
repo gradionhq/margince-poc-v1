@@ -8,6 +8,7 @@ import {
   StickyNote,
 } from "lucide-react";
 import type { ReactNode } from "react";
+import { useState } from "react";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { Avatar, Badge } from "./atoms";
@@ -232,6 +233,18 @@ export type TimelineEntry = {
   // The records this entry is about, as the backend's links[] reports them —
   // already pruned to what the reader may see.
   via?: ReactNode;
+  /**
+   * What the message actually said.
+   *
+   * A timeline of subject lines is a list of things you cannot read: the rep
+   * knows an email happened and still has to leave for their mail client to
+   * find out what was in it. The body rides along in the same composite read
+   * the row came from, so showing it costs nothing.
+   *
+   * Legitimately absent on a row whose body was erased under retention or an
+   * Art. 17 request, which is why this is optional rather than empty string.
+   */
+  body?: string | null;
 };
 
 const TIMELINE_ICON = {
@@ -355,6 +368,42 @@ function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
   return undefined;
 }
 
+/**
+ * TimelineText is the message itself, two lines by default and the whole of it
+ * on request.
+ *
+ * Two lines is enough to recognise a thread; the full text is one click away
+ * rather than one application away. Collapsed by default because a timeline
+ * where every row is a full email is a mailbox, and the point of the row is
+ * still the sequence.
+ */
+function TimelineText({ text }: Readonly<{ text: string }>) {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return null;
+  }
+  // Only offer the toggle when there is more to see. A short note that already
+  // fits would otherwise get a control that changes nothing.
+  const long = trimmed.length > 160 || trimmed.includes("\n");
+  return (
+    <span className="tl-text">
+      <span className={open ? "tl-text-full" : "tl-text-clamp"}>{trimmed}</span>
+      {long && (
+        <button
+          type="button"
+          className="tl-text-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? t("timeline.textLess") : t("timeline.textMore")}
+        </button>
+      )}
+    </span>
+  );
+}
+
 function TimelineList({
   entries,
   zone,
@@ -371,6 +420,7 @@ function TimelineList({
             </span>
             <span className="tl-body">
               <span className="tl-title">{entry.title}</span>
+              {entry.body && <TimelineText text={entry.body} />}
               <span className="tl-meta">
                 <span>{formatDate(entry.atIso, locale, zone)}</span>
                 <ProvenanceTag provenance={entry.provenance} />

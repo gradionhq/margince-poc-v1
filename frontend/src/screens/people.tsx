@@ -337,6 +337,10 @@ export function activityTimeline(
     id: activity.id,
     kind: timelineKind(activity.kind),
     title: timelineTitle(activity),
+    // The body is already in the composite read this row came from, so a
+    // timeline of unreadable subject lines was a rendering choice, not a
+    // limit of what the page knew.
+    body: activity.body,
     atIso: activity.occurred_at,
     provenance: provenanceOf(activity.captured_by),
     actions: renderActions?.(activity),

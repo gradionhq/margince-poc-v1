@@ -600,6 +600,8 @@ export const de = {
   "co.connections.group.intro_path": "der warme Einstieg",
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
+  "timeline.textMore": "Lesen",
+  "timeline.textLess": "Weniger",
   "co.prep.title": "Bevor du mit ihnen sprichst",
   "co.prep.sub":
     "Aus den Daten dieses Accounts gelesen. Jede Zeile nennt ihre Grundlage.",
