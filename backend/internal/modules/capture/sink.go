@@ -215,6 +215,14 @@ func (s *Sink) captureActivity(ctx context.Context, tx pgx.Tx, rec connector.Nor
 	if err := s.linkActivity(ctx, tx, id, rec.Links); err != nil {
 		return datasource.EntityRef{}, false, counterpartyDecision{}, err
 	}
+	// Who was in it (ACT-DDL-3). Stamped here, beside the links, because the
+	// connector principal bound to THIS context is the only place the mailbox
+	// owner is known — every consumer downstream sees an activity whose
+	// captured_by reads `connector:gmail` and cannot recover the human behind
+	// it. The participant rows are the record of that fact.
+	if err := stampCaptureParticipants(ctx, tx, id, actorUserID(ctx), fields.Direction, rec.Counterparty.Email); err != nil {
+		return datasource.EntityRef{}, false, counterpartyDecision{}, err
+	}
 	// Capture-audit minimization (ADR-0072/A118): the after-image is
 	// metadata-only, never the subject/body (capturedActivityAuditImage).
 	auditID, err := storekit.Audit(ctx, tx, "create", "activity", id.UUID, nil, capturedActivityAuditImage(rec, fields))

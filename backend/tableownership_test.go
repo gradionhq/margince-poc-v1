@@ -96,8 +96,12 @@ var tableOwners = map[string]string{
 	// activities
 	"activity":      "internal/modules/activities",
 	"activity_link": "internal/modules/activities",
-	"attachment":    "internal/modules/activities",
-	"booking_page":  "internal/modules/activities",
+	// ACT-DDL-3: who was in the interaction. It belongs beside activity and
+	// activity_link for the same reason they belong together — it is part of
+	// what an activity IS, not a graph artifact derived from one.
+	"activity_participant": "internal/modules/activities",
+	"attachment":           "internal/modules/activities",
+	"booking_page":         "internal/modules/activities",
 	// approvals (workspace_signing_key backs the approval-token JWS)
 	"approval":              "internal/modules/approvals",
 	"workspace_signing_key": "internal/modules/approvals",
@@ -220,13 +224,14 @@ var crossStoreWrites = map[string]string{
 	// single transaction — the primary aggregate owns the single-tx
 	// cross-aggregate write, because a merge that could half-commit its
 	// relinks would corrupt referential history.
-	"internal/modules/people:deal":           "merge/promote relink deal FK rows in the single transaction",
-	"internal/modules/people:project":        "org merge re-anchors the merged-away company's projects onto the survivor in the same transaction (PROJ-LIFE-4) — the anchor is NOT NULL ... ON DELETE RESTRICT, so a project cannot stay behind, and leaving it turns the survivor's deals un-editable against the deal_project_same_org trigger",
-	"internal/modules/people:activity_link":  "merge/promote relink timeline links in the single transaction",
-	"internal/modules/people:list_member":    "merge relinks list memberships (and archive purges them) in the single transaction",
-	"internal/modules/people:taggable":       "merge relinks tag rows (and archive purges them) in the single transaction",
-	"internal/modules/people:person_consent": "merge carries the survivor's consent state in the single transaction",
-	"internal/modules/people:consent_event":  "merge re-points the append-only consent proof log in the single transaction",
+	"internal/modules/people:deal":                 "merge/promote relink deal FK rows in the single transaction",
+	"internal/modules/people:project":              "org merge re-anchors the merged-away company's projects onto the survivor in the same transaction (PROJ-LIFE-4) — the anchor is NOT NULL ... ON DELETE RESTRICT, so a project cannot stay behind, and leaving it turns the survivor's deals un-editable against the deal_project_same_org trigger",
+	"internal/modules/people:activity_link":        "merge/promote relink timeline links in the single transaction",
+	"internal/modules/people:activity_participant": "capture records the counterparty by ADDRESS because no person exists yet — the creation gate runs after that transaction commits, and for a suppressed sender never runs at all. linkActivityToPerson is the one chokepoint every ensure path reaches AND the one that has already settled the person against a merge, so naming that party is the same write, on the same row, in the same transaction as the link",
+	"internal/modules/people:list_member":          "merge relinks list memberships (and archive purges them) in the single transaction",
+	"internal/modules/people:taggable":             "merge relinks tag rows (and archive purges them) in the single transaction",
+	"internal/modules/people:person_consent":       "merge carries the survivor's consent state in the single transaction",
+	"internal/modules/people:consent_event":        "merge re-points the append-only consent proof log in the single transaction",
 
 	// activities maintains the deal-timeline denormalization where the
 	// activity lands: deal.last_activity_at moves in the same transaction
@@ -245,10 +250,11 @@ var crossStoreWrites = map[string]string{
 	// capture is the ONE connector.Sink (interfaces.md §1): one transaction
 	// per inbound record writes raw original + normalized domain row, so a
 	// crash can never keep evidence without the record or vice versa.
-	"internal/modules/capture:activity":      "the connector sink materializes the normalized activity in the same transaction as its raw_capture original",
-	"internal/modules/capture:activity_link": "the connector sink links the materialized activity in the same ingest transaction",
-	"internal/modules/capture:lead":          "the connector sink materializes inbound leads in the same transaction as their raw_capture original",
-	"internal/modules/capture:workspace":     "capture settings toggle the workspace's own capture_auto_enrich config column (CAP-PARAM-7, ADR-0072) — a single-column workspace-config write, audit-only, the same shape overlay's x_sor_mode flip uses",
+	"internal/modules/capture:activity":             "the connector sink materializes the normalized activity in the same transaction as its raw_capture original",
+	"internal/modules/capture:activity_link":        "the connector sink links the materialized activity in the same ingest transaction",
+	"internal/modules/capture:activity_participant": "the connector principal is the ONLY place the mailbox owner is known (capture_connection is per-user-per-provider); by the time any other module sees the activity its captured_by reads connector:gmail and the human behind it is unrecoverable, so the participant rows commit in the same ingest transaction as the activity they describe",
+	"internal/modules/capture:lead":                 "the connector sink materializes inbound leads in the same transaction as their raw_capture original",
+	"internal/modules/capture:workspace":            "capture settings toggle the workspace's own capture_auto_enrich config column (CAP-PARAM-7, ADR-0072) — a single-column workspace-config write, audit-only, the same shape overlay's x_sor_mode flip uses",
 
 	// deals' archive purges the archived deal's collection memberships in
 	// the same transaction — a dangling list/tag row would resurrect the
