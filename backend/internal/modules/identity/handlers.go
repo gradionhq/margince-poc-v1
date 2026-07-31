@@ -40,6 +40,12 @@ type Handlers struct {
 	// sleeping. Nil in production.
 	resetSendStarted func()
 
+	// oidc is the configured federated sign-in provider (A107/ADR-0061 §6);
+	// nil means the installation configured none — the two OIDC endpoints
+	// answer 404 and the capabilities probe lists no provider, so the login
+	// screen draws no button it cannot honor.
+	oidc *OIDCLogin
+
 	// The unauthenticated endpoints carry their own throttles: login
 	// attempts cost a full Argon2 verification each and reset requests
 	// cost the operator an outbound mail. Fixed windows, in-process
@@ -48,6 +54,7 @@ type Handlers struct {
 	loginPerIP    *ratelimit.Limiter // 30/min per client IP
 	resetPerEmail *ratelimit.Limiter // 3/hour per (email, IP)
 	resetPerIP    *ratelimit.Limiter // 30/hour per client IP
+	oidcPerIP     *ratelimit.Limiter // 30/min per client IP — each start costs a provider round-trip and a state row
 
 	// sorMode answers whether the caller's workspace reads from an
 	// incumbent overlay mirror, so /me can tell the client its
@@ -67,6 +74,7 @@ func NewHandlers(svc *Service) Handlers {
 		loginPerIP:    ratelimit.New(30, time.Minute),
 		resetPerEmail: ratelimit.New(3, time.Hour),
 		resetPerIP:    ratelimit.New(30, time.Hour),
+		oidcPerIP:     ratelimit.New(30, time.Minute),
 	}
 }
 
@@ -130,7 +138,16 @@ func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
 		Label string `json:"label"`
-	}, 0)
+	}, 0, 1)
+	if h.oidc != nil {
+		// Listed because the flow behind it is wired, not because a provider
+		// is named in configuration: h.oidc exists only once the composition
+		// root built a usable relying party.
+		caps.OidcProviders = append(caps.OidcProviders, struct {
+			Key   string `json:"key"`
+			Label string `json:"label"`
+		}{Key: h.oidc.key, Label: h.oidc.label})
+	}
 	httperr.WriteJSON(w, http.StatusOK, caps)
 }
 

@@ -6333,6 +6333,21 @@ func (e CapturedByKind) Valid() bool {
 	}
 }
 
+// Defines values for OidcProvider.
+const (
+	Google OidcProvider = "google"
+)
+
+// Valid indicates whether the value is a known member of the OidcProvider enum.
+func (e OidcProvider) Valid() bool {
+	switch e {
+	case Google:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ListActivitiesParamsKind.
 const (
 	Call     ListActivitiesParamsKind = "call"
@@ -12935,6 +12950,9 @@ type IncludeArchived = bool
 // Limit defines model for Limit.
 type Limit = int
 
+// OidcProvider defines model for OidcProvider.
+type OidcProvider string
+
 // Sort defines model for Sort.
 type Sort = string
 
@@ -13260,6 +13278,18 @@ type ListAuditLogParams struct {
 // RequestPasswordResetJSONBody defines parameters for RequestPasswordReset.
 type RequestPasswordResetJSONBody struct {
 	Email openapi_types.Email `json:"email"`
+}
+
+// CompleteOidcLoginParams defines parameters for CompleteOidcLogin.
+type CompleteOidcLoginParams struct {
+	// Code Provider authorization code (absent when the human denied consent).
+	Code *string `form:"code,omitempty" json:"code,omitempty"`
+
+	// State The single-use binding minted by `start`; must match the handle cookie.
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// Error Set instead of `code` when the human denied consent or the provider refused.
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
 }
 
 // ResetPasswordJSONBody defines parameters for ResetPassword.
@@ -21888,6 +21918,12 @@ type ServerInterface interface {
 	// End the current session and clear the cookie.
 	// (POST /auth/logout)
 	Logout(w http.ResponseWriter, r *http.Request)
+	// Provider redirect target — completes federated sign-in and opens a session.
+	// (GET /auth/oidc/{provider}/callback)
+	CompleteOidcLogin(w http.ResponseWriter, r *http.Request, provider OidcProvider, params CompleteOidcLoginParams)
+	// Begin federated sign-in — redirect to the provider's authorization endpoint.
+	// (GET /auth/oidc/{provider}/start)
+	StartOidcLogin(w http.ResponseWriter, r *http.Request, provider OidcProvider)
 	// Redeem a reset token and set a new password.
 	// (POST /auth/reset-password)
 	ResetPassword(w http.ResponseWriter, r *http.Request)
@@ -22839,6 +22875,18 @@ func (_ Unimplemented) Login(w http.ResponseWriter, r *http.Request) {
 // End the current session and clear the cookie.
 // (POST /auth/logout)
 func (_ Unimplemented) Logout(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Provider redirect target — completes federated sign-in and opens a session.
+// (GET /auth/oidc/{provider}/callback)
+func (_ Unimplemented) CompleteOidcLogin(w http.ResponseWriter, r *http.Request, provider OidcProvider, params CompleteOidcLoginParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Begin federated sign-in — redirect to the provider's authorization endpoint.
+// (GET /auth/oidc/{provider}/start)
+func (_ Unimplemented) StartOidcLogin(w http.ResponseWriter, r *http.Request, provider OidcProvider) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25797,6 +25845,100 @@ func (siw *ServerInterfaceWrapper) Logout(w http.ResponseWriter, r *http.Request
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.Logout(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteOidcLogin operation middleware
+func (siw *ServerInterfaceWrapper) CompleteOidcLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider OidcProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params CompleteOidcLoginParams
+
+	// ------------- Optional query parameter "code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "code", r.URL.Query(), &params.Code, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "code"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "code", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "state" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "state", r.URL.Query(), &params.State, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "state"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "state", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "error" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "error", r.URL.Query(), &params.Error, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "error"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "error", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteOidcLogin(w, r, provider, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StartOidcLogin operation middleware
+func (siw *ServerInterfaceWrapper) StartOidcLogin(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "provider" -------------
+	var provider OidcProvider
+
+	err = runtime.BindStyledParameterWithOptions("simple", "provider", chi.URLParam(r, "provider"), &provider, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "provider", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartOidcLogin(w, r, provider)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -38053,6 +38195,12 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/logout", wrapper.Logout)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/oidc/{provider}/callback", wrapper.CompleteOidcLogin)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/auth/oidc/{provider}/start", wrapper.StartOidcLogin)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/auth/reset-password", wrapper.ResetPassword)

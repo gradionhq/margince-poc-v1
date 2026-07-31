@@ -88,16 +88,72 @@ func TestParseValidatesFailClosed(t *testing.T) {
 		"email without smtp":      "version: 1\nemail: { enabled: true, from_address: a@b.co }\n",
 		"smtp port out of range":  "version: 1\nemail: { enabled: true, from_address: a@b.co, smtp: { host: h, port: 70000 } }\n",
 		"password auth disabled":  "version: 1\nauth: { password: { enabled: false } }\n",
-		"unknown context rollout": "version: 1\ncompany_context: { rollout: everything }\n",
-		"ovb cap at ceiling":      "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 4, cap: 4 }, rest: { ceiling: 100000, cap: 90000 } } }\n",
-		"ovb cap above ceiling":   "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 4 }, rest: { ceiling: 100000, cap: 100001 } } }\n",
-		"ovb zero cap":            "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 0 }, rest: { ceiling: 100000, cap: 90000 } } }\n",
-		"ovb warn not below shed": "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 4 }, rest: { ceiling: 100000, cap: 90000 }, warn_fraction: 0.95, shed_fraction: 0.90 } }\n",
-		"ovb shed above one":      "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 4 }, rest: { ceiling: 100000, cap: 90000 }, warn_fraction: 0.7, shed_fraction: 1.5 } }\n",
+		// Federated sign-in, fail-closed (A107 §14): a half-configured provider
+		// is a boot error, never a button that dead-ends a human.
+		"oidc unsupported issuer":  "version: 1\nauth: { oidc: { enabled: true, issuer: https://login.microsoftonline.com, client_id: c, client_secret_file: /run/s } }\n",
+		"oidc without client id":   "version: 1\nauth: { oidc: { enabled: true, issuer: https://accounts.google.com, client_secret_file: /run/s } }\n",
+		"oidc without secret file": "version: 1\nauth: { oidc: { enabled: true, issuer: https://accounts.google.com, client_id: c } }\n",
+		"oidc inline secret":       "version: 1\nauth: { oidc: { enabled: true, issuer: https://accounts.google.com, client_id: c, client_secret: shhh } }\n",
+		"oidc domain with an at":   "version: 1\nauth: { oidc: { enabled: true, issuer: https://accounts.google.com, client_id: c, client_secret_file: /run/s, allowed_domains: [ada@example.com] } }\n",
+		"oidc domain without dot":  "version: 1\nauth: { oidc: { enabled: true, issuer: https://accounts.google.com, client_id: c, client_secret_file: /run/s, allowed_domains: [localhost] } }\n",
+		"unknown context rollout":  "version: 1\ncompany_context: { rollout: everything }\n",
+		"ovb cap at ceiling":       "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 4, cap: 4 }, rest: { ceiling: 100000, cap: 90000 } } }\n",
+		"ovb cap above ceiling":    "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 4 }, rest: { ceiling: 100000, cap: 100001 } } }\n",
+		"ovb zero cap":             "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 0 }, rest: { ceiling: 100000, cap: 90000 } } }\n",
+		"ovb warn not below shed":  "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 4 }, rest: { ceiling: 100000, cap: 90000 }, warn_fraction: 0.95, shed_fraction: 0.90 } }\n",
+		"ovb shed above one":       "version: 1\noverlay_budget: { hubspot: { search: { ceiling: 5, cap: 4 }, rest: { ceiling: 100000, cap: 90000 }, warn_fraction: 0.7, shed_fraction: 1.5 } }\n",
 	}
 	for name, doc := range cases {
 		if _, err := Parse([]byte(doc)); err == nil {
 			t.Errorf("%s: parsed without error", name)
+		}
+	}
+}
+
+func TestOIDCConfigurationDrivesTheProviderKeyAndSecretFile(t *testing.T) {
+	secret := filepath.Join(t.TempDir(), "google-client-secret")
+	if err := os.WriteFile(secret, []byte("the-client-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Parse([]byte("version: 1\nauth:\n  password: { enabled: false }\n  oidc:\n" +
+		"    enabled: true\n    issuer: https://accounts.google.com\n" +
+		"    client_id: margince.apps.googleusercontent.com\n" +
+		"    client_secret_file: " + secret + "\n    allowed_domains: [gradion.com]\n"))
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	// Password may be switched off ONLY because a configured provider can
+	// carry the installation — the same document without oidc is refused
+	// above.
+	if cfg.Auth.PasswordEnabled() {
+		t.Error("auth.password.enabled=false did not take effect")
+	}
+	// The key is DERIVED from the issuer, so the two can never disagree.
+	if got := cfg.Auth.OIDC.ProviderKey(); got != "google" {
+		t.Errorf("provider key = %q, want google", got)
+	}
+	got, err := cfg.Auth.OIDC.ClientSecret()
+	if err != nil {
+		t.Fatalf("ClientSecret: %v", err)
+	}
+	// Read from the file reference, trailing newline trimmed — a secret that
+	// carries the editor's newline authenticates nothing.
+	if got != "the-client-secret" {
+		t.Errorf("client secret = %q, want the file's trimmed contents", got)
+	}
+}
+
+func TestOIDCSecretFileMustExistAndCarrySomething(t *testing.T) {
+	empty := filepath.Join(t.TempDir(), "empty-secret")
+	if err := os.WriteFile(empty, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, cfg := range map[string]OIDC{
+		"missing file": {ClientSecretFile: filepath.Join(t.TempDir(), "absent")},
+		"empty file":   {ClientSecretFile: empty},
+	} {
+		if _, err := cfg.ClientSecret(); err == nil {
+			t.Errorf("%s: read a usable secret", name)
 		}
 	}
 }

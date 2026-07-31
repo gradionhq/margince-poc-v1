@@ -152,6 +152,14 @@ func (stubs) Logout(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "Logout")
 }
 
+func (stubs) CompleteOidcLogin(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.OidcProvider, params crmcontracts.CompleteOidcLoginParams) {
+	httperr.NotImplemented(w, r, "CompleteOidcLogin")
+}
+
+func (stubs) StartOidcLogin(w nethttp.ResponseWriter, r *nethttp.Request, provider crmcontracts.OidcProvider) {
+	httperr.NotImplemented(w, r, "StartOidcLogin")
+}
+
 func (stubs) ResetPassword(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ResetPassword")
 }

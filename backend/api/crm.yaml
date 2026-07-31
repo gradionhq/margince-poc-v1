@@ -343,6 +343,91 @@ paths:
               schema: { $ref: '#/components/schemas/Problem' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  # ---------- Federated sign-in (A107/ADR-0061 §6: OIDC, never bare OAuth) ----------
+  # "Sign in with Google" is OpenID Connect: authorization code + PKCE S256, server-side
+  # code exchange, full ID-token validation, and a permanent `(issuer, subject)` binding —
+  # email is only the one-time claim allowlist, because a provider can change it. Distinct
+  # from BOTH other OAuth uses here: `/oauth/*` mints agent passports for an
+  # already-signed-in human, and connector OAuth authorizes a mailbox. Neither signs a
+  # human in. A federated login NEVER creates an account: it binds to an existing local
+  # user or it is refused (JIT provisioning is out of scope). Both operations are browser
+  # navigations, not XHR — the SPA sends the human to `start`, the provider returns to
+  # `callback`, and both answer 302. A provider is listed in `GET /auth/capabilities` only
+  # when its end-to-end flow is wired and healthy.
+  /auth/oidc/{provider}/start:
+    parameters:
+      - $ref: '#/components/parameters/OidcProvider'
+    get:
+      tags: [Identity]
+      operationId: startOidcLogin
+      security: []   # pre-auth endpoint — the flow it starts is what authenticates
+      x-agent-access: human-only
+      summary: Begin federated sign-in — redirect to the provider's authorization endpoint.
+      description: |
+        Mints the per-attempt state, nonce, and PKCE verifier, binds them to the initiating
+        browser with a short-lived `SameSite=Lax` handle cookie (the provider returns on a
+        cross-site top-level navigation, which a `Strict` cookie would not survive), and
+        redirects to the provider's discovered authorization endpoint with
+        `code_challenge_method=S256`. Rate-limited per client IP. A provider that is not
+        configured is 404 — an unconfigured provider discloses nothing about the
+        installation's auth posture beyond what `/auth/capabilities` already says.
+      responses:
+        '302':
+          description: Redirect to the provider's authorization endpoint.
+          headers:
+            Location: { schema: { type: string } }
+            Set-Cookie:
+              schema: { type: string }
+              description: 'crm_oidc=<handle>; HttpOnly; Secure; SameSite=Lax; Path=/v1/auth/oidc; Max-Age=600'
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429':
+          description: Rate-limited.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /auth/oidc/{provider}/callback:
+    parameters:
+      - $ref: '#/components/parameters/OidcProvider'
+    get:
+      tags: [Identity]
+      operationId: completeOidcLogin
+      security: []   # provider→CRM redirect; the state row + handle cookie bind the flow
+      x-agent-access: human-only
+      summary: Provider redirect target — completes federated sign-in and opens a session.
+      description: |
+        Consumes the single-use state (row + handle cookie must agree), exchanges the code
+        server-side with the PKCE verifier, and validates the ID token in full: RS256
+        signature against the cached JWKS, `iss`, `aud`, `azp` where present, `exp`/`iat`,
+        the stored `nonce`, and `email_verified`. It then resolves the user by
+        `(issuer, subject)`; with no binding yet, the verified email must match exactly one
+        active local user that has no binding for this issuer, and the binding is written
+        once and audited. An already-bound identity is never silently relinked, and no
+        account is ever created. On success it mints the same opaque session as password
+        login and sets `crm_session`.
+
+        **Always 302** — the human is in a browser, so a failure returns to the login screen
+        with a bounded `sso_error` code (`denied`, `expired`, `rejected`, `unverified_email`,
+        `domain_not_allowed`, `not_linked`, `provider_unavailable`) rather than a JSON dead
+        end. `not_linked` covers BOTH "no local user holds this address" and "that user is
+        already bound to a different provider account" — one neutral answer, because
+        separating them would confirm which addresses exist. The operator's `system_log`
+        keeps the distinction. No token, code, or claim set reaches the client or the logs.
+      parameters:
+        - { name: code, in: query, schema: { type: string }, description: Provider authorization code (absent when the human denied consent). }
+        - { name: state, in: query, schema: { type: string }, description: The single-use binding minted by `start`; must match the handle cookie. }
+        - { name: error, in: query, schema: { type: string }, description: Set instead of `code` when the human denied consent or the provider refused. }
+      responses:
+        '302':
+          description: |
+            Redirect into the app — signed in with `crm_session` set, or back to the login
+            screen carrying a bounded `sso_error`.
+          headers:
+            Location: { schema: { type: string } }
+            Set-Cookie:
+              schema: { type: string }
+              description: 'crm_session=<token> on success; the crm_oidc handle is cleared either way.'
+
   # ------------------------------ /passports --------------------------------
   /passports:
     get:
@@ -8306,6 +8391,16 @@ components:
         submission. `gmail`/`gcal` = Google mail+calendar, `graph` = Microsoft 365 (Outlook via
         Graph), `imap` = the self-hostable IMAP engine. WhatsApp/Telegram connect is the
         messaging-channels surface, not this one.
+    OidcProvider:
+      name: provider
+      in: path
+      required: true
+      schema: { type: string, enum: [google] }
+      description: |
+        The federated sign-in provider key, matching `oidc_providers[].key` in
+        `GET /auth/capabilities` (A107/ADR-0061 §6). Enumerated rather than free text so a
+        typo cannot address a provider the installation never configured. Whether the key is
+        SERVED is a deployment fact; being listed here is not a promise that it is enabled.
     Id:
       name: id
       in: path

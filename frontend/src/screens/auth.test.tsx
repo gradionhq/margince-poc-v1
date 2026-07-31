@@ -424,14 +424,91 @@ describe("federated sign-in", () => {
     });
     expect(microsoft.disabled).toBe(true);
     expect(microsoft.classList.contains("is-unavailable")).toBe(true);
-    // Inert, and that is the point of the switch: it draws the design, it does
-    // not invent a redirect. Clicking must neither navigate nor hit the wire.
+    // The preview draws the REAL buttons: clicking one leaves for the real
+    // start endpoint. Against an installation that configured no provider that
+    // endpoint answers 404 — an honest outcome the switch does not dress up.
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
     const calls = stubApi({ password: true, password_reset: true }, () =>
       ok(200),
     );
     await userEvent.click(google);
+    // A navigation, never an XHR: the flow's whole point is leaving this origin.
     expect(calls).toEqual([]);
-    expect(google).toBeTruthy();
+    expect(assign).toHaveBeenCalledWith("/v1/auth/oidc/google/start");
+  });
+
+  it("hands the browser to the server-owned start endpoint, encoding the served key", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    const calls = stubApi(
+      {
+        password: true,
+        password_reset: true,
+        // A key with a character that must not land raw in a path. A real
+        // installation's key is `google`; the encoding is what stops the
+        // server's answer from being read as path structure.
+        oidc_providers: [{ key: "corp/sso", label: "Anmeldung über Werk-IT" }],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Anmeldung über Werk-IT" }),
+    );
+    expect(assign).toHaveBeenCalledWith("/v1/auth/oidc/corp%2Fsso/start");
+    expect(calls).toEqual([]);
+  });
+
+  // The return half: the callback always redirects (crm.yaml: completeOidcLogin),
+  // so every failure arrives as one bounded code on the login screen.
+  it("renders a returned sso_error, scrubs it from the URL, and clears it on the next attempt", async () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      search: "?sso_error=not_linked",
+      hash: "",
+      origin: "http://localhost",
+    });
+    vi.stubGlobal("history", { ...window.history, replaceState });
+    stubApi({ password: true, password_reset: true }, () =>
+      ok(401, { title: "unauthorized", detail: "invalid email or password" }),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("That account can't sign in here");
+    // Scrubbed, so a reload is a fresh sign-in screen rather than the same
+    // refusal again.
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/");
+
+    // The next attempt replaces the message rather than stacking beside it.
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
+    await userEvent.type(screen.getByLabelText("Password"), "hunter2{enter}");
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain(
+        "We couldn't sign you in",
+      ),
+    );
+  });
+
+  it("ignores an sso_error code outside the contract's vocabulary", async () => {
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      // The query string is attacker-supplied. An unknown code must draw
+      // nothing — echoing it would let a link put chosen text on this screen.
+      search: "?sso_error=<script>Call+this+number",
+      hash: "",
+      origin: "http://localhost",
+    });
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    await screen.findByLabelText("Email");
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   // The product path, asserted as a property rather than assumed. A real server

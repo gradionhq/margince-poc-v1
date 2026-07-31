@@ -11,6 +11,7 @@ package compose
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -43,6 +44,22 @@ func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
 	return func(s *Server, _ *pgxpool.Pool) {
 		s.authHandlers = s.WithPasswordReset(m, publicBaseURL)
 	}
+}
+
+// WithOIDCLogin wires federated sign-in (A107/ADR-0061 §6) onto the
+// identity surface. The relying party is built HERE, at option-build time,
+// so an unusable provider configuration fails the boot rather than shipping
+// a login button that dead-ends the first human to click it. Without this
+// option the two OIDC endpoints answer 404 and the capabilities probe lists
+// no provider, so the login screen draws no button at all.
+func WithOIDCLogin(cfg identity.OIDCLoginConfig) (Option, error) {
+	login, err := identity.NewOIDCLogin(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("federated sign-in: %w", err)
+	}
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithOIDCLogin(login)
+	}, nil
 }
 
 // WithBusReady adds the event-bus probe to /readyz. The api role passes

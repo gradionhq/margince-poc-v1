@@ -253,6 +253,51 @@ injects bounded context into declared AI tasks; `onboarding` additionally enable
 the five-step first-run flow. The default is `onboarding`. Moving backward is a
 reversible operational kill switch and never deletes confirmed company data.
 
+### Federated sign-in (`auth.oidc`)
+
+"Sign in with Google" is **OpenID Connect**, and it is separate from both other
+OAuth uses here: `/oauth/*` mints agent passports for an already-signed-in
+human, and connector OAuth authorizes a mailbox. Neither signs a human in.
+Enable it only when the provider's OAuth client exists — the login screen
+renders exactly the methods `GET /auth/capabilities` reports, so a provider is
+listed only once its flow is wired.
+
+| field | required | effect |
+|---|---|---|
+| `enabled` | — | off by default. Off means the two `/auth/oidc/*` endpoints answer 404 and the capability lists no provider, so the login screen draws no button. |
+| `issuer` | yes | the discovery origin, `https://accounts.google.com`. Endpoints and JWKS come from the provider's discovery document, so a rotation needs no config change. The provider **key** (`google`) is derived from this, so key and issuer can never disagree. |
+| `client_id` | yes | the OAuth client id. |
+| `client_secret_file` | yes | path to the client secret (OPS-CFG-3 — a file reference, mode `0600`, never an inline value). The exchange is server-side, so a confidential client is required. |
+| `allowed_domains` | — | bare domains (`gradion.com`) that may sign in. Enforced against Google's own verified `hd` claim where present, falling back to the verified email's domain — never string-parsing alone. Empty means no domain restriction, which is not an open door: the flow binds only to an **existing** local user. |
+| `label` | — | the button copy, served verbatim to the login screen (default `Continue with Google`). |
+
+`auth.password.enabled: false` is refused unless `auth.oidc.enabled` is true —
+disabling the last method would brick every human sign-in (A107 §14).
+
+Enabling it also requires `--public-base-url`; the redirect target is derived
+from configuration, never from a request `Host`. Register this exact redirect
+URI at the provider:
+
+```
+<--api-base-url, or --public-base-url when unset>/v1/auth/oidc/google/callback
+```
+
+In `make dev` those are `http://localhost:8080` (the SPA, which proxies `/v1`)
+and `http://localhost:18080` (the api) respectively — so the dev redirect URI is
+`http://localhost:18080/v1/auth/oidc/google/callback`, the same api-origin
+convention the Gmail/Graph connector callbacks use.
+
+**A federated login never creates an account.** The provider's verified email
+must match an existing active or invited local user with no binding for this
+issuer; that first match writes a permanent `(issuer, subject)` binding (and
+activates an invited human — the §11 pending-admin shape), and every later
+sign-in resolves through the subject, because a provider can change an address.
+An already-bound identity is never silently relinked. Every refusal returns to
+the login screen with one bounded `sso_error` code; `not_linked` deliberately
+covers both "no such user" and "already bound elsewhere", so the screen cannot
+be used to probe which addresses exist. The operator's `system_log` keeps the
+distinction.
+
 ### Rates
 
 The `rates:` block configures the admin **"Refresh from sources"** jobs (worker

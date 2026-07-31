@@ -23,6 +23,33 @@ bootstrap_admin:
   # match scripts/seed-dev.sh — change both together if you change them.
   password_file: config/margince-admin-password
 
+# Authentication methods (optional; email+password is on by default).
+#
+# Federated sign-in is OpenID Connect, not bare OAuth, and it NEVER creates an
+# account: the verified Google address must match a local user, and from the
+# first match on that human is identified by the provider's stable subject. Turn
+# it on only once the Google Cloud OAuth client exists, because the login screen
+# renders exactly the methods that work — and register this exact redirect URI
+# there (dev, where Vite serves the app on :8080 and proxies /v1):
+#
+#   http://localhost:8080/v1/auth/oidc/google/callback
+#
+# The api also needs --public-base-url (http://localhost:8080 in dev): the
+# redirect target is derived from it, never from a request Host.
+# auth:
+#   oidc:
+#     enabled: true
+#     issuer: https://accounts.google.com
+#     client_id: xxxxxxxx.apps.googleusercontent.com
+#     # Mode 0600, gitignored, never inline (OPS-CFG-3).
+#     client_secret_file: config/margince-google-client-secret
+#     # Optional. With one domain the provider's account chooser is narrowed to
+#     # it; enforcement uses Google's own verified `hd` claim, not the address.
+#     allowed_domains: [gradion.com]
+#   # Turning password login off is refused unless oidc.enabled is true.
+#   password:
+#     enabled: true
+
 # AI runtime posture (optional). Uncomment to turn on Layer-3 AI payload capture
 # (ai_call_payload) — OFF by default because it stores special-category-adjacent
 # content that then ages under the retention engine and the Art. 17 erasure

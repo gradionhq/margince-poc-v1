@@ -248,25 +248,6 @@ type ConsentPurpose struct {
 	DoubleOptIn bool   `yaml:"double_opt_in"`
 }
 
-// Auth selects the enabled authentication methods. Password login
-// defaults to enabled; OIDC arrives with its complete flow (ADR-0061 §6)
-// and has no configuration surface until then — strict decoding makes a
-// premature `oidc:` block a boot error rather than a silent no-op.
-type Auth struct {
-	Password PasswordAuth `yaml:"password"`
-}
-
-// PasswordAuth is the email+password method's switch.
-type PasswordAuth struct {
-	Enabled *bool `yaml:"enabled"`
-}
-
-// PasswordEnabled defaults to true: an installation without an `auth`
-// section authenticates by email + password.
-func (a Auth) PasswordEnabled() bool {
-	return a.Password.Enabled == nil || *a.Password.Enabled
-}
-
 // Email configures the outbound transactional-email transport
 // (A74/ADR-0056). Its first consumer is password-reset delivery; when
 // disabled the forgot-password flow is absent rather than broken.
@@ -359,11 +340,16 @@ func (c Config) validate() error {
 			return err
 		}
 	}
-	if !c.Auth.PasswordEnabled() {
-		// Fail closed (A107 §14): password login is the only implemented
-		// method — disabling it would brick every human sign-in. The
-		// switch becomes meaningful when OIDC ships its complete flow.
-		return errors.New("deployconfig: auth.password.enabled=false would disable the only implemented login method — refused until another method (OIDC) exists")
+	if c.Auth.OIDC.Enabled {
+		if err := c.Auth.OIDC.validate(); err != nil {
+			return err
+		}
+	}
+	if !c.Auth.PasswordEnabled() && !c.Auth.OIDC.Enabled {
+		// Fail closed (A107 §14): disabling the last method would brick
+		// every human sign-in. Password may be switched off only once a
+		// configured OIDC provider can carry the installation.
+		return errors.New("deployconfig: auth.password.enabled=false would disable the only enabled login method — enable auth.oidc first")
 	}
 	if err := c.Seeds.validate(); err != nil {
 		return err

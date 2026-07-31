@@ -1846,6 +1846,27 @@ export const en = {
     "Too many sign-in attempts. Wait a moment and try again.",
   "auth.errUnreachable":
     "Margince couldn't be reached. Check your connection and try again.",
+  // The federated sign-in return states — one line per `sso_error` code the
+  // callback can redirect back with (crm.yaml: completeOidcLogin). Each says
+  // what happened and what to do; none of them names a claim, a token or a
+  // provider internal, because none of that is actionable by the person
+  // reading it. `notLinked` is deliberately one message for both "no such
+  // user" and "already bound elsewhere": the server does not tell them apart
+  // either, so that an address cannot be probed from this screen.
+  "auth.ssoDenied":
+    "Sign-in was cancelled. You can try again or use a password.",
+  "auth.ssoExpired":
+    "That sign-in took too long, or was started in another window. Try again.",
+  "auth.ssoRejected":
+    "Your provider didn't complete the sign-in. Try again, or use a password.",
+  "auth.ssoUnverifiedEmail":
+    "Your provider hasn't verified that email address. Verify it there, then sign in again.",
+  "auth.ssoDomainNotAllowed":
+    "That account isn't from a domain this organization allows. Use your work account.",
+  "auth.ssoNotLinked":
+    "That account can't sign in here. Ask an administrator to add it, or use a password.",
+  "auth.ssoProviderUnavailable":
+    "Your sign-in provider couldn't be reached. Try again, or use a password.",
   "auth.retry": "Try again",
   "auth.noticeSignedOut": "You have been signed out.",
   "auth.noticeSessionExpired":

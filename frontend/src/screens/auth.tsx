@@ -90,6 +90,10 @@ export function AuthScreen({
     const token = resetTokenFromLocation();
     return token ? { kind: "reset", token } : { kind: "login" };
   });
+  // Read ONCE, at mount, because reading it also scrubs it from the URL: a
+  // later render must not find an empty query string and clear the message
+  // the person is still reading.
+  const [ssoError] = useState(ssoErrorFromLocation);
   const [authPhase, setAuthPhase] = useState<AuthPhase>("idle");
   usePageTitle(t("auth.pageTitle"));
 
@@ -169,6 +173,7 @@ export function AuthScreen({
                availability field, so only the preview layer can mark a provider
                (app/ui-preview.ts). */
             unavailableProviders={previewedUnavailableProviders()}
+            returnedSsoError={ssoError}
             onForgot={() => setView({ kind: "forgot" })}
           />
         </>
@@ -464,24 +469,58 @@ function ProviderLabel({
   );
 }
 
-// startFederatedSignIn is the hand-off itself, and today it is deliberately
-// inert.
+// startFederatedSignIn hands the browser to the server-owned OIDC flow
+// (crm.yaml: startOidcLogin). A full-page navigation, not a fetch: the whole
+// point of the flow is that it leaves this origin for the provider and comes
+// back to the callback with a session cookie already set, which no XHR can do.
 //
-// The real flow is a full-page redirect to the provider and back to a callback
-// route. crm.yaml documents NEITHER path — `AuthCapabilities.oidc_providers`
-// ("empty until the OIDC flow ships") is the only OIDC thing in the contract —
-// so there is no endpoint to send the browser to, and composing a start URL out
-// of the provider key would be inventing a wire this build cannot honour.
-//
-// No USER reaches it in this build, and that is the honest part rather than a
-// loose end: the server serves `oidc_providers: []`, so `ProviderButtons`
-// renders nothing and no user can meet this (§19). The seeded story, the seeded
-// e2e case and the `VITE_UI_PREVIEW_OIDC` preview build are review fixtures for
-// the DESIGN — the preview draws the buttons and they land here, which is to say
-// they do nothing, deliberately and visibly. When the flow ships, this function
-// is the one thing that changes — the markup, the copy and the capability gate
-// are already right.
-function startFederatedSignIn(_providerKey: string): void {}
+// The key is the server's own, straight from /auth/capabilities, and it is
+// encoded rather than trusted as a path segment — the value arrives over the
+// wire and a path is not the place to find out it was something else.
+function startFederatedSignIn(providerKey: string): void {
+  globalThis.location?.assign(
+    `/v1/auth/oidc/${encodeURIComponent(providerKey)}/start`,
+  );
+}
+
+// The bounded `sso_error` vocabulary the callback redirects back with
+// (crm.yaml: completeOidcLogin), mapped onto the copy for each. A code that is
+// not in this table is IGNORED rather than rendered: the query string is
+// attacker-supplied, and echoing an unknown value would let a link put chosen
+// text on the sign-in screen.
+const SSO_ERROR_MESSAGES: Readonly<Record<string, MessageKey>> = {
+  denied: "auth.ssoDenied",
+  expired: "auth.ssoExpired",
+  rejected: "auth.ssoRejected",
+  unverified_email: "auth.ssoUnverifiedEmail",
+  domain_not_allowed: "auth.ssoDomainNotAllowed",
+  not_linked: "auth.ssoNotLinked",
+  provider_unavailable: "auth.ssoProviderUnavailable",
+};
+
+// ssoErrorFromLocation reads the callback's `?sso_error=` and scrubs it from
+// the address bar, so a reload is a fresh sign-in screen rather than the same
+// failure again. Returns the message key, never the raw code.
+function ssoErrorFromLocation(): MessageKey | null {
+  if (typeof globalThis.location === "undefined") {
+    return null;
+  }
+  const code = new URLSearchParams(globalThis.location.search).get("sso_error");
+  if (!code) {
+    return null;
+  }
+  const search = new URLSearchParams(globalThis.location.search);
+  search.delete("sso_error");
+  const query = search.toString();
+  globalThis.history?.replaceState?.(
+    null,
+    "",
+    globalThis.location.pathname +
+      (query ? `?${query}` : "") +
+      globalThis.location.hash,
+  );
+  return SSO_ERROR_MESSAGES[code] ?? null;
+}
 
 function LoginForm({
   onAuthed,
@@ -489,6 +528,7 @@ function LoginForm({
   resetAvailable,
   providers,
   unavailableProviders,
+  returnedSsoError,
   onForgot,
 }: Readonly<{
   onAuthed: () => void | Promise<void>;
@@ -498,6 +538,8 @@ function LoginForm({
   providers: OidcProviders;
   /** Preview-only; empty in the product. See `ProviderButtons`. */
   unavailableProviders: ReadonlySet<string>;
+  /** A federated sign-in that came back refused; null on a plain visit. */
+  returnedSsoError: MessageKey | null;
   onForgot: () => void;
 }>) {
   const t = useT();
@@ -507,6 +549,10 @@ function LoginForm({
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsLock, setCapsLock] = useState(false);
+  // The returned failure is state, not a fixed prop: the next attempt — by
+  // password or by provider — replaces it, and a stale message next to a
+  // fresh error would be two answers to one question.
+  const [ssoError, setSsoError] = useState(returnedSsoError);
   const emailRef = useRef<HTMLInputElement>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
@@ -564,10 +610,15 @@ function LoginForm({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     if (ready && !login.isPending) {
+      setSsoError(null);
       onPhase("signing-in");
       login.mutate();
     }
   };
+
+  // A credential failure outranks the returned provider failure: it is the
+  // newer event and the one the person just caused.
+  const errorKey = login.isError ? loginErrorKey(login.error) : ssoError;
 
   return (
     <form className="auth-card" onSubmit={submit}>
@@ -577,7 +628,10 @@ function LoginForm({
         providers={providers}
         disabled={login.isPending}
         unavailable={unavailableProviders}
-        onSelect={startFederatedSignIn}
+        onSelect={(providerKey) => {
+          setSsoError(null);
+          startFederatedSignIn(providerKey);
+        }}
       />
       <div className="auth-fields">
         <Field id={emailId} label={t("auth.email")} icon={<Mail aria-hidden />}>
@@ -637,9 +691,9 @@ function LoginForm({
           />
         </Field>
       </div>
-      {login.isError && (
+      {errorKey && (
         <div className="auth-error" role="alert" tabIndex={-1} ref={errorRef}>
-          <p className="ae-t">{t(loginErrorKey(login.error))}</p>
+          <p className="ae-t">{t(errorKey)}</p>
         </div>
       )}
       <div className="auth-actions">

@@ -37,7 +37,30 @@ var publicRequests = map[string]map[string]bool{
 }
 
 func isPublicRequest(r *http.Request) bool {
-	return publicRequests[r.URL.Path][r.Method]
+	return publicRequests[r.URL.Path][r.Method] || isOIDCLoginRequest(r)
+}
+
+// isOIDCLoginRequest matches the two federated sign-in navigations
+// (/v1/auth/oidc/{provider}/start|callback, GET). They are session-less by
+// construction — start is what a not-yet-authenticated human clicks, and
+// the callback arrives on a cross-site redirect that carries no session
+// cookie at all. The state cookie plus its single-use database row are the
+// callback's binding; the handler refuses anything else.
+func isOIDCLoginRequest(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	// Match EXACTLY one provider segment, so no deeper path can inherit the
+	// session exemption (the connector-callback rule, same reasoning).
+	rest, ok := strings.CutPrefix(r.URL.Path, "/v1/auth/oidc/")
+	if !ok {
+		return false
+	}
+	provider, action, found := strings.Cut(rest, "/")
+	if !found || provider == "" || strings.Contains(provider, "/") {
+		return false
+	}
+	return action == "start" || action == "callback"
 }
 
 // isConnectorOAuthCallback matches the capture-connector OAuth redirect
