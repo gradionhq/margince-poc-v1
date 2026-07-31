@@ -10,15 +10,14 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 )
 
 // What the code exchange leaves behind when a connector asked to stay
 // connected (§5.4): a grant that can revoke the whole connection, its first
-// refresh token stored as a hash, and a consent screen that disclosed the
-// renewal before any of it was written. Without offline_access none of it
+// refresh token stored as a hash, and a consent flow that carried the renewal
+// request to the human before any of it was written. Without offline_access none of it
 // exists — a client must not be handed a long-lived credential it never asked
 // to store.
 
@@ -150,36 +149,32 @@ func TestCodeExchangeAfterTheHumanIsDeactivatedIssuesNoGrant(t *testing.T) {
 	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_refresh_token`)
 }
 
-func TestConsentFormDisclosesTheRenewalRequest(t *testing.T) {
+// The renewal request has to survive the hand-off to the consent screen, which
+// is the server's whole remaining share of disclosing it: the screen can only
+// tell the human about a self-renewing connection if the redirect carries
+// offline_access, and the consent POST only re-derives the Offline marker from
+// the scope it sends back. It must equally never claim a renewal nobody asked
+// for. (That the screen then shows it apart from the scope list — never as an
+// item in it, where a human reads it as a permission over records rather than
+// over the connection's lifetime — is asserted by the screen's own test.)
+func TestAuthorizeCarriesTheRenewalRequestToTheConsentScreen(t *testing.T) {
 	o := setupOAuth(t)
 
-	status, body := o.authorizeRaw(t, url.Values{"scope": {"read offline_access"}})
-	if status != http.StatusOK {
-		t.Fatalf("consent form → %d %s", status, body)
+	status, location, body, _ := o.authorizeRawFollow(t, url.Values{"scope": {"read offline_access"}})
+	if status != http.StatusFound {
+		t.Fatalf("authorize → %d %s, want 302", status, body)
 	}
-	if !strings.Contains(body, "without asking again") {
-		t.Fatalf("consent form never discloses the renewal request: %s", body)
-	}
-	// And it discloses it BELOW the scope list, not as an item in it: a bullet
-	// under "requests the scopes:" is indistinguishable from a permission, and
-	// offline_access is authority over the connection's lifetime rather than
-	// over any record.
-	scopeList := strings.Index(body, "</ul>")
-	disclosure := strings.Index(body, "without asking again")
-	if scopeList < 0 {
-		t.Fatalf("consent form renders no scope list: %s", body)
-	}
-	if disclosure < scopeList {
-		t.Fatalf("the renewal disclosure sits inside the scope list, where a human reads it as a permission: %s", body)
+	if got := consentFragment(t, location).Get("scope"); got != "read offline_access" {
+		t.Fatalf("fragment scope = %q, want %q: dropping it drops the client's refresh request in silence", got, "read offline_access")
 	}
 
 	// A request that did not ask to stay connected must not claim it did.
-	status, body = o.authorizeRaw(t, url.Values{"scope": {"read"}})
-	if status != http.StatusOK {
-		t.Fatalf("consent form → %d %s", status, body)
+	status, location, body, _ = o.authorizeRawFollow(t, url.Values{"scope": {"read"}})
+	if status != http.StatusFound {
+		t.Fatalf("authorize → %d %s, want 302", status, body)
 	}
-	if strings.Contains(body, "without asking again") {
-		t.Fatalf("consent form claims a renewal nobody requested: %s", body)
+	if got := consentFragment(t, location).Get("scope"); got != "read" {
+		t.Fatalf("fragment scope = %q, want %q: no renewal was requested", got, "read")
 	}
 }
 

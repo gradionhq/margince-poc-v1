@@ -22,7 +22,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -113,35 +112,44 @@ func (o *oauthEnv) authorizeRaw(t *testing.T, extra url.Values) (int, string) {
 	return resp.StatusCode, string(body)
 }
 
-// authorize drives the consent flow: GET renders the approval form (a
-// GET must never mint a code — OAuth CSRF), the nonce-bound POST is
-// the consent, and the redirect carries the code.
+// consentFragment reads the authorize redirect's fragment parameters — the
+// hand-off the SPA consent screen parses, the consent nonce among them. A
+// fragment is never transmitted to a server, which is why the nonce rides
+// there: the cookie holding its counterpart is Path=/oauth/authorize, so no
+// endpoint the screen can call ever receives it.
+func consentFragment(t *testing.T, location string) url.Values {
+	t.Helper()
+	_, fragment, found := strings.Cut(location, "#/oauth-consent?")
+	if !found {
+		t.Fatalf("authorize did not redirect to the consent screen: %q", location)
+	}
+	params, err := url.ParseQuery(fragment)
+	if err != nil {
+		t.Fatalf("parsing the consent fragment %q: %v", fragment, err)
+	}
+	return params
+}
+
+// authorize drives the consent flow: the GET hands the browser to the consent
+// screen and mints nothing (a GET must never mint a code — OAuth CSRF), the
+// nonce-bound POST is the consent, and the redirect carries the code.
 func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	t.Helper()
 	q := o.authorizeQuery(extra)
-	req, err := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
-	if err != nil {
-		t.Fatal(err)
+	status, location, body, _ := o.authorizeRawFollow(t, extra)
+	if status != http.StatusFound {
+		t.Fatalf("consent redirect → %d %s", status, body)
 	}
-	resp, err := o.client.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	body, _ := io.ReadAll(resp.Body)
-	closeBody(t, resp)
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("consent form → %d %s", resp.StatusCode, body)
-	}
-	nonce := regexp.MustCompile(`name="consent" value="([^"]+)"`).FindSubmatch(body)
-	if nonce == nil {
-		t.Fatalf("consent form carries no nonce: %s", body)
+	nonce := consentFragment(t, location).Get("consent")
+	if nonce == "" {
+		t.Fatalf("the consent redirect carries no nonce: %q", location)
 	}
 
 	form := url.Values{}
 	for k, vs := range q {
 		form[k] = vs
 	}
-	form.Set("consent", string(nonce[1]))
+	form.Set("consent", nonce)
 	post, err := http.NewRequest(http.MethodPost, o.ts.URL+"/oauth/authorize", strings.NewReader(form.Encode()))
 	if err != nil {
 		t.Fatal(err)
@@ -149,20 +157,23 @@ func (o *oauthEnv) authorize(t *testing.T, extra url.Values) string {
 	post.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	defer func() { o.client.CheckRedirect = nil }()
-	resp, err = o.client.Do(post)
+	resp, err := o.client.Do(post)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer closeBody(t, resp)
 	if resp.StatusCode != http.StatusFound {
-		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("consent POST → %d %s", resp.StatusCode, body)
+		refusal, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("reading the refused consent POST's body: %v", err)
+		}
+		t.Fatalf("consent POST → %d %s", resp.StatusCode, refusal)
 	}
-	location, err := url.Parse(resp.Header.Get("Location"))
-	if err != nil || location.Query().Get("code") == "" || location.Query().Get("state") != "night-state" {
+	granted, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil || granted.Query().Get("code") == "" || granted.Query().Get("state") != "night-state" {
 		t.Fatalf("redirect malformed: %q", resp.Header.Get("Location"))
 	}
-	return location.Query().Get("code")
+	return granted.Query().Get("code")
 }
 
 // closeBody closes a response body and fails the test on a dirty close —
@@ -264,16 +275,22 @@ func TestOAuthConsentGateBlocksSilentAuthorization(t *testing.T) {
 		"redirect_uri": {oauthRedirect}, "scope": {"read"},
 		"code_challenge": {o.challenge()}, "code_challenge_method": {"S256"},
 	}
-	// GET answers the form, never a redirect carrying a code.
+	// GET answers with the consent screen, never a redirect carrying a code.
 	req, _ := http.NewRequest(http.MethodGet, o.ts.URL+"/oauth/authorize?"+q.Encode(), nil)
+	o.client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	resp, err := o.client.Do(req)
+	o.client.CheckRedirect = nil
 	if err != nil {
 		t.Fatal(err)
 	}
 	closeBody(t, resp)
-	if resp.StatusCode != http.StatusOK || resp.Header.Get("Location") != "" {
-		t.Fatalf("GET authorize → %d %q, want the consent form, never a code", resp.StatusCode, resp.Header.Get("Location"))
+	location := resp.Header.Get("Location")
+	if resp.StatusCode != http.StatusFound || !strings.HasPrefix(location, "/#/oauth-consent?") {
+		t.Fatalf("GET authorize → %d %q, want the consent screen, never a code", resp.StatusCode, location)
 	}
+	// The redirect goes to the screen, not toward the client — and there is
+	// nothing to carry there yet: a GET mints no code.
+	assertOwnerCount(t, o, 0, `SELECT count(*) FROM oauth_authorization_code`)
 	// A consent POST without the armed nonce (the cross-site forgery
 	// shape) is refused.
 	form := url.Values{}

@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"net/http"
 	"net/url"
 	"slices"
@@ -205,11 +204,11 @@ func (h Handlers) validateAuthorize(r *http.Request, q url.Values) (authorizeReq
 	return req, "", ""
 }
 
-// oauthConsentForm (GET) shows the human WHAT is asking for WHICH
-// authority and arms the consent nonce. It never mints a code: a GET
-// riding an existing session must not be able to authorize anything —
-// a DCR-registered client luring a signed-in admin onto this URL would
-// otherwise silently borrow their authority (OAuth CSRF).
+// oauthConsentForm (GET) validates the request, arms the consent nonce
+// and hands the browser to the consent screen. It never mints a code: a
+// GET riding an existing session must not be able to authorize anything
+// — a DCR-registered client luring a signed-in admin onto this URL
+// would otherwise silently borrow their authority (OAuth CSRF).
 func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
 	if _, ok := identityFrom(r.Context()); !ok {
 		httperr.Unauthorized(w, r, "authorization requires the signed-in human whose authority the agent will borrow")
@@ -230,47 +229,45 @@ func (h Handlers) oauthConsentForm(w http.ResponseWriter, r *http.Request) {
 		MaxAge: 300, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode,
 	})
 
-	var page strings.Builder
-	page.WriteString(`<!doctype html><meta charset="utf-8"><title>Authorize access</title>` +
-		`<body style="font-family:system-ui;max-width:32rem;margin:4rem auto">` +
-		`<h1>Authorize access</h1><p><strong>`)
-	page.WriteString(template.HTMLEscapeString(req.ClientName))
-	page.WriteString(`</strong> requests the scopes:</p><ul>`)
-	for _, scope := range req.Scopes {
-		page.WriteString("<li>" + template.HTMLEscapeString(scope) + "</li>")
+	// The consent SCREEN lives in the SPA; this endpoint stays where discovery
+	// advertises it and keeps doing the work only the server can: validate the
+	// request and arm the consent nonce. The params ride in the FRAGMENT, which
+	// browsers never transmit — so client_id, state and the PKCE challenge do
+	// not enter api access logs or any intermediary's.
+	//
+	// A relative Location is deliberate: the SPA and this api share an origin
+	// (the SPA reads its own API base from location.origin), so naming a host
+	// here would add configuration that could only ever disagree with reality.
+	//
+	// The nonce rides here too. The cookie above is Path=/oauth/authorize, so no
+	// endpoint the SPA can call ever receives it — the screen gets its half of the
+	// double-submit pair from the fragment, and the POST must still present both.
+	params := url.Values{
+		"response_type": {oauthResponseTypeCode}, oauthParamClientID: {req.ClientID},
+		"redirect_uri": {req.RedirectURI}, "scope": {formScope(req)},
+		"code_challenge": {req.CodeChallenge}, "code_challenge_method": {"S256"},
+		oauthParamResource: {req.Resource}, "state": {req.State},
+		"consent": {nonce},
 	}
-	page.WriteString(`</ul>`)
-	// offline_access is not authority over any record — it is authority over the
-	// connection's LIFETIME, which the exchange records as the grant's
-	// refresh_allowed. It must still be disclosed, because that audit row
-	// asserts the human approved a self-renewing connection, so the screen they
-	// approved has to have said so. It is disclosed BELOW the scope list and
-	// never as an item in it: inside "requests the scopes:" a human cannot tell
-	// it apart from a permission, which is the one presentation ruled out.
+	http.Redirect(w, r, "/#/oauth-consent?"+params.Encode(), http.StatusFound)
+}
+
+// formScope is the scope string the consent screen must POST back. It re-adds
+// offline_access — never a passport scope, and never presented as one — so the
+// POST re-derives the same Offline marker; without it the round trip through the
+// screen would silently drop the client's refresh request.
+//
+// offline_access is not authority over any record but over the connection's
+// LIFETIME, which the exchange records as the grant's refresh_allowed. That
+// audit row asserts the human approved a self-renewing connection, so the
+// screen has to disclose it — apart from the scope list, never as an item in
+// it, where a human cannot tell it apart from a permission.
+func formScope(req authorizeRequest) string {
+	scope := strings.Join(req.Scopes, " ")
 	if req.Offline {
-		page.WriteString(`<p>This connection will stay connected without asking again, renewing access until you revoke it.</p>`)
+		return strings.TrimSpace(scope + " " + scopeOfflineAccess)
 	}
-	page.WriteString(`<form method="post" action="/oauth/authorize">`)
-	// The hidden "scope" field re-adds offline_access (never shown in the
-	// <ul> above, and never a passport scope) so the POST that follows
-	// re-derives the same Offline marker — without it, the round trip
-	// through this form would silently drop the client's refresh request.
-	formScope := strings.Join(req.Scopes, " ")
-	if req.Offline {
-		formScope = strings.TrimSpace(formScope + " " + scopeOfflineAccess)
-	}
-	for name, value := range map[string]string{
-		"response_type": oauthResponseTypeCode, oauthParamClientID: req.ClientID, "redirect_uri": req.RedirectURI,
-		"scope": formScope, "code_challenge": req.CodeChallenge,
-		"code_challenge_method": "S256", oauthParamResource: req.Resource, "state": req.State,
-		"consent": nonce,
-	} {
-		page.WriteString(`<input type="hidden" name="` + template.HTMLEscapeString(name) +
-			`" value="` + template.HTMLEscapeString(value) + `">`)
-	}
-	page.WriteString(`<button type="submit">Approve</button></form></body>`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_, _ = w.Write([]byte(page.String()))
+	return scope
 }
 
 // oauthAuthorize (POST) is the consent decision: same-site by header,
