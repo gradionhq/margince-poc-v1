@@ -145,6 +145,7 @@ export function VoiceAct({ state, dispatch, initialSummary }: VoiceActProps) {
     <ConversationWorkbench
       core={presence.core}
       progress={presence.progress}
+      railState={state}
       status={t(
         state.phase === "vo.building"
           ? "ob.conv.voice.statusBuilding"

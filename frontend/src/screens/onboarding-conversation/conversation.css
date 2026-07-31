@@ -8,25 +8,31 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  gap: var(--space-3);
+  gap: var(--space-4);
   overflow-y: auto;
-  padding: var(--space-4);
+  padding: var(--space-2) 0;
 }
 
 .ob-conv-narration {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
-  max-width: 44rem;
+  max-width: 80%;
+  width: fit-content;
 }
 
+/* The asymmetric corner is what tells you who spoke, and it survives a
+ * greyscale screenshot in a way a fill colour does not: the AI's bubble is
+ * notched at the top LEFT, towards its speaker mark, and the reader's is
+ * notched at the bottom right. Nothing about who said what rests on colour. */
 .ob-conv-narration p {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--bgCard);
-  border-radius: var(--r-md);
+  padding: 13px var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--space-1) var(--r-lg) var(--r-lg) var(--r-lg);
+  background: var(--bgElevated);
   color: var(--textContent);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  font: 400 0.875rem / 1.55 var(--f-body);
 }
 
 .ob-conv-speaker {
@@ -74,17 +80,18 @@
   justify-content: flex-end;
   gap: var(--space-2);
   align-self: flex-end;
-  max-width: 40rem;
+  max-width: 80%;
+  width: fit-content;
   color: var(--textSecondary);
 }
 
 .ob-conv-user p {
   margin: 0;
-  padding: var(--space-2) var(--space-3);
-  background: var(--accentLight);
-  border-radius: var(--r-md);
-  color: var(--textPrimary);
-  font: 400 0.9375rem / 1.5 var(--f-body);
+  padding: 11px 15px;
+  border-radius: var(--r-md) var(--r-lg) var(--space-1) var(--r-lg);
+  background: var(--accent);
+  color: var(--textOnAccent);
+  font: 500 0.875rem / 1.55 var(--f-body);
 }
 
 .ob-conv-user svg {

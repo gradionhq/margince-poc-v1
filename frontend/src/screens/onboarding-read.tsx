@@ -237,6 +237,9 @@ function WebsiteWorkbench(
           partial: t("ob.ai.partialEstimate"),
           awaiting: t("ob.ai.awaitingModel"),
           unavailable: t("ob.ai.notAvailableYet"),
+          chip: t("ob.ai.runtimeChip"),
+          answering: t("ob.ai.answeringNow"),
+          scope: t("ob.ai.runScope"),
         }}
         artifact={artifact}
       >

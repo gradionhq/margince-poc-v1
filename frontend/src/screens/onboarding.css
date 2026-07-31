@@ -1829,14 +1829,12 @@
 }
 
 /* The workbench is Margince's reusable interaction pattern: identity and
-   runtime stay fixed while conversation and the reviewable artifact move. */
+   runtime stay fixed while conversation and the reviewable artifact move.
+   During setup it is full-bleed — see margince-workbench.css for why a centred
+   card would misframe the surface as a dismissible dialog. */
 .ob-workbench-panel {
-  width: min(1180px, calc(100vw - 48px));
-  min-height: calc(100vh - 176px);
-  margin-inline: calc((100% - min(1180px, calc(100vw - 48px))) / 2);
-}
-.ob-workbench-panel::before {
-  opacity: 0.55;
+  display: block;
+  width: 100%;
 }
 .mw-thread {
   display: flex;
@@ -1984,11 +1982,14 @@
 .mw-read-activity b {
   color: var(--textPrimary);
 }
+/* Pinned to the bottom of the conversation column: `flex: none` so a long
+   thread scrolls behind it instead of squeezing the place you type. */
 .mw-composer {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: var(--space-2);
-  margin-top: var(--space-4);
+  flex: none;
+  margin-top: var(--space-2);
   padding-top: var(--space-4);
   border-top: 1px solid var(--borderSubtle);
 }

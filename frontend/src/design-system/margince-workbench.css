@@ -1,39 +1,71 @@
+/*
+ * The Margince workbench: the two-column working surface onboarding runs in.
+ * Left is the conversation — where the AI says what it did and asks what it
+ * cannot decide. Right is the artifact — the record assembling itself, with a
+ * source on every value.
+ *
+ * It is full-viewport rather than a centred card, and that is the design
+ * argument: during setup this IS the application, so a card floating on a page
+ * would frame it as a dialog the reader could dismiss. The two panes scroll
+ * independently, and neither one scrolls the page.
+ *
+ * Copy never lives here — it comes from the i18n catalogs.
+ */
+
 .mw-shell {
-  width: min(1180px, 100%);
-  margin: auto;
+  height: 100vh;
   overflow: hidden;
-  border: 1px solid var(--borderSubtle);
-  border-radius: var(--r-lg);
   background: var(--bgElevated);
-  box-shadow: var(--shadow-pop);
 }
 
-.mw-header {
+.mw-body {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  height: 100%;
+  min-height: 0;
+}
+
+.mw-body.has-artifact {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+}
+
+/* --- left column: the conversation ----------------------------------- */
+
+.mw-conversation {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--space-6);
-  color: var(--railIconActive);
+  padding: var(--space-6) var(--space-6) var(--space-4);
+  overflow: hidden;
   background:
-    radial-gradient(circle at 8% 50%, var(--aiMed), transparent 24%),
-    linear-gradient(110deg, var(--railTop), var(--railBottom));
+    linear-gradient(var(--bgElevated), var(--bgElevated)) padding-box,
+    radial-gradient(circle at 8% -4%, var(--aiLight), transparent 46%);
 }
 
-.mw-core {
-  /* Sizing through the Core's documented custom properties: WDS-CORE-1 allows a
-     caller to size the primitive and nothing else. A `width` here would fight
-     `width: var(--coreSize)` inside it. */
-  --coreSize: 72px;
-  --coreGlass: 60px;
-  min-width: 72px;
+/* --- the step rail ---------------------------------------------------- */
+/* Where the journey is, in five words. Flat text, not controls: the machine
+   decides what comes next, so a pill must not look clickable. */
+
+.mw-steps {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-.mw-identity span,
-.mw-configured span,
-.mw-runtime span {
-  display: block;
+.mw-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px var(--space-2) 5px 5px;
   color: var(--textTertiary);
+  border: 1px solid transparent;
+  border-radius: var(--r-full);
   font-family: var(--f-mono);
   font-size: 10px;
   font-weight: 650;
@@ -41,29 +73,95 @@
   text-transform: uppercase;
 }
 
+.mw-step b {
+  display: grid;
+  width: 17px;
+  height: 17px;
+  place-items: center;
+  color: var(--textTertiary);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-full);
+  background: var(--bgElevated);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.mw-step.is-done {
+  color: var(--textMeta);
+}
+
+.mw-step.is-done b {
+  color: var(--textOnAccent);
+  border-color: transparent;
+  background: var(--accent);
+}
+
+.mw-step.is-now {
+  color: var(--textPrimary);
+  border-color: var(--accentMed);
+  background: var(--accentLight);
+}
+
+.mw-step.is-now b {
+  color: var(--accent);
+  border-color: var(--accentMed);
+}
+
+/* --- the brand line --------------------------------------------------- */
+
+.mw-brand {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+  padding-bottom: var(--space-4);
+  border-bottom: 1px solid var(--borderSubtle);
+}
+
+.mw-core {
+  /* Sizing through the Core's documented custom properties: WDS-CORE-1 allows a
+     caller to size the primitive and nothing else. A `width` here would fight
+     `width: var(--coreSize)` inside it. */
+  --coreSize: 38px;
+  --coreGlass: 31px;
+  min-width: 38px;
+}
+
+.mw-identity span {
+  display: block;
+  color: var(--textTertiary);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
 .mw-identity h1 {
-  margin: var(--space-1) 0 0;
+  margin: 2px 0 0;
+  color: var(--textPrimary);
   font-family: var(--f-display);
-  font-size: 22px;
+  font-size: 16px;
   font-weight: 560;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.018em;
 }
 
 .mw-identity p {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin: var(--space-1) 0 0;
-  color: var(--railIconHover);
-  font-size: 12px;
+  gap: 6px;
+  margin: 2px 0 0;
+  color: var(--textMeta);
+  font-size: 11.5px;
 }
 
 .mw-identity i {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
+  flex: none;
   border-radius: var(--r-full);
   background: var(--aiText);
-  box-shadow: 0 0 12px var(--aiText);
 }
 
 .mw-identity i[data-state="working"] {
@@ -71,108 +169,124 @@
 }
 
 .mw-identity i[data-state="success"] {
-  background: var(--online);
-  box-shadow: 0 0 12px var(--online);
+  background: var(--success);
 }
 
 .mw-identity i[data-state="error"] {
   background: var(--danger);
-  box-shadow: 0 0 12px var(--danger);
 }
 
-.mw-configured {
-  max-width: 370px;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--railHover);
-  border-radius: var(--r-md);
-  background: var(--railHover);
+/* --- the runtime chip ------------------------------------------------- */
+/* The AI-authorship family, never the brand accent: this says "the machine
+   did this and here is the bill", which is not a user action. */
+
+.mw-aistat {
+  position: relative;
+  flex: none;
 }
 
-.mw-configured span {
-  color: var(--railIcon);
+.mw-aistat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px var(--space-2);
+  border: 1px solid var(--aiMed);
+  border-radius: var(--r-full);
+  background: var(--aiLight);
+  cursor: pointer;
 }
 
-.mw-configured strong {
-  display: block;
-  margin-top: var(--space-1);
-  color: var(--railIconActive);
+.mw-aistat-btn i {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-full);
+  background: var(--aiText);
+}
+
+.mw-aistat-btn strong {
+  color: var(--aiText);
   font-family: var(--f-mono);
   font-size: 11px;
-  line-height: 1.4;
-  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
 
-.mw-runtime {
+.mw-aistat-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  width: min(340px, 78vw);
+  padding: var(--space-3);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-pop);
+}
+
+.mw-aistat-h,
+.mw-aistat-f {
+  margin: 0;
+  color: var(--textTertiary);
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.mw-aistat-f {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--borderSubtle);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.mw-aistat-rows {
+  margin: var(--space-2) 0 0;
+}
+
+.mw-aistat-r {
   display: grid;
-  grid-template-columns:
-    minmax(0, 1.5fr) minmax(0, 1.4fr)
-    repeat(4, minmax(86px, 0.7fr));
-  border-bottom: 1px solid var(--borderSubtle);
-  background: color-mix(in srgb, var(--aiLight) 45%, var(--bgElevated));
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: var(--space-2);
+  padding: 5px 0;
+  border-top: 1px solid var(--borderSubtle);
 }
 
-.mw-runtime > div {
-  min-width: 0;
-  padding: var(--space-3) var(--space-4);
-  border-right: 1px solid var(--borderSubtle);
+.mw-aistat-r:first-child {
+  border-top: 0;
 }
 
-.mw-runtime > div:last-child {
-  border-right: 0;
+.mw-aistat-r dt {
+  color: var(--textMeta);
+  font-size: 11px;
 }
 
-.mw-runtime strong {
-  display: block;
-  margin-top: var(--space-1);
-  overflow: hidden;
+.mw-aistat-r dd {
+  margin: 0;
   color: var(--textPrimary);
   font-family: var(--f-mono);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.mw-runtime > div:nth-child(-n + 2) strong {
-  overflow: visible;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
   overflow-wrap: anywhere;
-  text-overflow: clip;
-  white-space: normal;
 }
 
-.mw-runtime span {
-  color: var(--textMeta);
-}
-
-.mw-runtime small {
+.mw-aistat-r dd small {
   display: block;
   margin-top: 2px;
   color: var(--warn);
-  font-size: 9px;
+  font-family: var(--f-body);
+  font-size: 9.5px;
 }
 
-.mw-body {
-  display: grid;
-  min-height: 560px;
-}
-
-.mw-body.has-artifact {
-  grid-template-columns: minmax(340px, 0.82fr) minmax(440px, 1.18fr);
-}
-
-.mw-conversation {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  padding: var(--space-6);
-  background:
-    linear-gradient(var(--bgElevated), var(--bgElevated)) padding-box,
-    radial-gradient(circle at 10% 0, var(--aiLight), transparent 42%);
-}
+/* --- right column: the artifact --------------------------------------- */
 
 .mw-artifact {
   min-width: 0;
-  padding: var(--space-4);
-  overflow: auto;
+  min-height: 0;
+  padding: var(--space-6);
+  overflow-y: auto;
   border-left: 1px solid var(--borderSubtle);
   background: var(--bgPage);
 }
@@ -183,64 +297,46 @@
   }
 }
 
+/* Narrow: the artifact stops being a column and becomes the section below the
+   conversation. Both panes then scroll with the page rather than themselves —
+   two independent scrollers inside one phone screen is a trap. */
 @media (max-width: 900px) {
+  .mw-shell,
+  .mw-body {
+    height: auto;
+    overflow: visible;
+  }
+
   .mw-body.has-artifact {
     grid-template-columns: 1fr;
   }
 
+  .mw-conversation {
+    min-height: 100vh;
+    padding: var(--space-4);
+    overflow: visible;
+  }
+
   .mw-artifact {
+    padding: var(--space-4);
+    overflow: visible;
     border-top: 1px solid var(--borderSubtle);
     border-left: 0;
   }
 }
 
-@media (min-width: 901px) {
-  .mw-body.has-artifact {
-    height: clamp(480px, calc(100vh - 282px), 680px);
-    min-height: 0;
-  }
-
-  .mw-body.has-artifact .mw-conversation,
-  .mw-body.has-artifact .mw-artifact {
-    min-height: 0;
-  }
-
-  .mw-body.has-artifact .mw-conversation {
-    overflow: hidden;
-  }
-}
-
 @media (max-width: 640px) {
-  .mw-header {
+  .mw-brand {
     grid-template-columns: auto minmax(0, 1fr);
-    padding: var(--space-3) var(--space-4);
   }
 
-  .mw-core {
-    --coreSize: 56px;
-    --coreGlass: 46px;
-    min-width: 56px;
-  }
-
-  .mw-configured {
+  .mw-aistat {
     grid-column: 1 / -1;
-    max-width: none;
   }
 
-  .mw-runtime {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .mw-runtime > div:nth-child(even) {
-    border-right: 0;
-  }
-
-  .mw-runtime > div:nth-child(-n + 4) {
-    border-bottom: 1px solid var(--borderSubtle);
-  }
-
-  .mw-conversation {
-    padding: var(--space-4);
+  .mw-aistat-pop {
+    right: auto;
+    left: 0;
   }
 }
 
