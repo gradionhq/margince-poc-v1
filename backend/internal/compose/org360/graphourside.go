@@ -112,55 +112,54 @@ func (g *graphAssembly) readAccountOwner() error {
 // readInContactWith reads which colleagues have REAL recorded contact with the
 // account's people, and with whom.
 //
-// Real contact means an interaction: an email, a call or a meeting. A task or
-// a note is not one — a task assigned to a colleague is intent, and the card
-// would claim a relationship nobody has had. For the same reason the colleague
-// is the activity's AUTHOR (captured_by), not its assignee, and the match is
-// against the `human:<uuid>` provenance stamp alone, so a connector-captured or
-// agent-captured row contributes no edge to anyone. The author also has to
-// still work here (liveMemberWhere): captured_by outlives the person.
+// It reads the interaction projection (CG-DDL-1), which is folded from the
+// participant rows capture stamps — who was actually IN each conversation.
 //
-// The activity row-scope clause applies: an edge derived from an activity the
-// caller cannot read would disclose the fact of contact, which is the same
-// disclosure the timeline refuses.
+// What it replaced is worth stating, because the failure was invisible. This
+// used to match `a.captured_by = 'human:' || u.id::text` on the activity row.
+// Connector-captured mail is stamped `connector:gmail`, so the overwhelming
+// majority of a real workspace's timeline matched nothing and this group came
+// back empty — on precisely the accounts with the most correspondence. A rep
+// opening a busy account saw "nobody here has been in touch", and there was no
+// error anywhere to suggest otherwise.
 //
-// The cap picks distinct USERS in the query — most recent contact first — and
-// the distinct-user total rides the SAME statement as the rows. Two statements
-// would each take their own Read Committed snapshot, so a concurrent interaction
-// between them could make dropped_count NEGATIVE, a response violating the
-// contract's own `minimum: 0`.
+// Real contact still means a real exchange: the projection counts only direct
+// participant roles, so a cc never becomes a connection, and a task or a note
+// is not an interaction at all.
+//
+// On gating: the contacts passed in are the ones the card has already PLACED,
+// which means they have already passed the person row-scope gate — and capture
+// privacy with it, so an unpromoted contact cannot appear here. The old query
+// additionally carried the activity scope clause; it is subsumed rather than
+// dropped. An activity's visibility derives from its links, so an activity
+// linked to a person the caller can see is one the caller can read under the
+// same any-link rule the timeline uses. There is no edge here whose underlying
+// activity the caller could not open.
+//
+// The cap picks distinct USERS — most recent contact first — and the
+// distinct-user total rides the SAME statement as the rows. Two statements
+// would each take their own snapshot, so a concurrent interaction between them
+// could make dropped_count NEGATIVE, a response violating the contract's own
+// `minimum: 0`.
 func (g *graphAssembly) readInContactWith(contactIDs []ids.UUID) error {
 	if len(contactIDs) == 0 {
 		return nil // no contacts to have been in touch with
 	}
-	var args []any
-	arg := func(v any) int { args = append(args, v); return len(args) }
-	contactsPos := arg(contactIDs)
-	activityScope, err := auth.ActivityScopeClause(g.ctx, "a", arg)
-	if err != nil {
-		return err
-	}
-	if activityScope == "" {
-		activityScope = scopeAll
-	}
 	rows, err := g.tx.Query(g.ctx, fmt.Sprintf(`
 		WITH touch AS (
-			SELECT u.id AS user_id, u.display_name, l.person_id, a.occurred_at
-			FROM activity a
-			JOIN activity_link l ON l.activity_id = a.id
-			                    AND l.entity_type = 'person' AND l.person_id = ANY($%[1]d)
-			JOIN app_user u ON a.captured_by = 'human:' || u.id::text AND `+liveMemberWhere+`
-			WHERE a.archived_at IS NULL AND a.kind IN ('email','call','meeting') AND (%[2]s)
+			SELECT u.id AS user_id, u.display_name, e.person_id, e.last_at
+			FROM graph_interaction_edge e
+			JOIN app_user u ON u.id = e.user_id AND `+liveMemberWhere+`
+			WHERE e.person_id = ANY($1)
 		), colleagues AS (
-			SELECT user_id, max(occurred_at) AS last_touch FROM touch GROUP BY user_id
+			SELECT user_id, max(last_at) AS last_touch FROM touch GROUP BY user_id
 		), chosen AS (
-			SELECT user_id FROM colleagues ORDER BY last_touch DESC, user_id LIMIT %[3]d
+			SELECT user_id FROM colleagues ORDER BY last_touch DESC, user_id LIMIT %d
 		)
-		SELECT DISTINCT touch.user_id, touch.display_name, touch.person_id,
+		SELECT touch.user_id, touch.display_name, touch.person_id,
 		       (SELECT count(*) FROM colleagues)
 		FROM touch JOIN chosen ON chosen.user_id = touch.user_id
-		ORDER BY touch.user_id, touch.person_id`,
-		contactsPos, activityScope, graphUserCap), args...)
+		ORDER BY touch.user_id, touch.person_id`, graphUserCap), contactIDs)
 	if err != nil {
 		return err
 	}
