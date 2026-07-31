@@ -77,6 +77,8 @@ type flipWriters struct {
 	// mirror_user_map — the reconstruction path's map comes out of the
 	// bundle, because a clean instance has no mirror rows to read.
 	ownerOverride map[string]ids.UUID
+	// ownerCache memoizes live mirror_user_map lookups for the run.
+	ownerCache map[string]ids.UUID
 }
 
 // WithOwnerMap resolves owners from an explicit incumbent-user → app-user
@@ -212,40 +214,6 @@ func (w *flipWriters) Ensure(ctx context.Context, object string, row migration.R
 	default:
 		return migration.EnsureResult{}, fmt.Errorf("flip import: %q is not an importable object", object)
 	}
-}
-
-// resolveOwner maps the row's incumbent owner id onto the mapped
-// app_user. An owner that does not map —
-// or a row that names none at all — imports under the flip OPERATOR,
-// disclosed: an ownerless native row is workspace-shared at every tier,
-// while the mirror row it came from was hidden from every seat.
-func (w *flipWriters) resolveOwner(ctx context.Context, row migration.Row, object string) (*ids.UserID, string, error) {
-	raw := strings.TrimSpace(row.OwnerExternalID)
-	if raw == "" {
-		// No incumbent owner at all: the mirror row was hidden from every
-		// seat (the fail-closed NULL-owner rule), so it inherits the
-		// operator rather than becoming a workspace-shared native row.
-		return w.operator, fmt.Sprintf("%s %s: the incumbent record names no owner; imported under the flip operator rather than left workspace-visible", object, row.ExternalID), nil
-	}
-	var id ids.UUID
-	var found bool
-	if w.ownerOverride != nil {
-		id, found = w.ownerOverride[raw]
-	} else {
-		var err error
-		id, found, err = w.ms.ResolveMirrorOwner(ctx, raw)
-		if err != nil {
-			return nil, "", err
-		}
-	}
-	if !found {
-		// Inherited by the operator, not left ownerless: an ownerless
-		// native row is visible to every seat, while the mirror row it
-		// came from was hidden from all of them.
-		return w.operator, fmt.Sprintf("%s %s: incumbent owner %s has no user mapping; imported under the flip operator rather than left workspace-visible", object, row.ExternalID, raw), nil
-	}
-	owner := ids.From[ids.UserKind](id)
-	return &owner, "", nil
 }
 
 func flipAddress(fields map[string]any) *crmcontracts.Address {

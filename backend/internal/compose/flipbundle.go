@@ -283,10 +283,12 @@ func bundleMirrorRow(raw map[string]any) (migration.Row, string, error) {
 	class := bundleString(raw, "object_class")
 	ext := bundleString(raw, "external_id")
 	if class == "" || ext == "" {
-		// Never echo the row: it is a customer record, and the fields it
-		// DOES carry are names, emails and addresses. What identifies the
-		// problem is which key is missing, which is all this says.
-		return migration.Row{}, "", fmt.Errorf("reconstruction: a mirror row is missing object_class/external_id (object_class=%q, external_id present: %t)", class, ext != "")
+		// Never echo any of the row: it is a customer record, and even
+		// object_class is untrusted bundle content. Which key is absent
+		// is the whole diagnosis, so that is all this says.
+		return migration.Row{}, "", fmt.Errorf(
+			"reconstruction: a mirror row is missing its identity (object_class present: %t, external_id present: %t)",
+			class != "", ext != "")
 	}
 	row := migration.Row{ExternalID: ext}
 	if fields, ok := raw["fields"].(map[string]any); ok {

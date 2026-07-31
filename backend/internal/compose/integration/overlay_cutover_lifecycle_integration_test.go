@@ -197,7 +197,7 @@ func TestOverlayCutoverRetirementAndReconstruction(t *testing.T) {
 		t.Fatalf("counting rebuilt persons by owner: %v", err)
 	}
 	if ownedByOperator != 3 {
-		t.Errorf("rebuilt persons owned by the operator = %d, want 2 — an unmapped owner must not leave the row workspace-visible", ownedByOperator)
+		t.Errorf("rebuilt persons owned by the operator = %d, want 3 — an unmapped owner must not leave the row workspace-visible", ownedByOperator)
 	}
 
 	// The incumbent still untouched after reconstruction — the rebuild
