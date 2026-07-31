@@ -24,6 +24,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -384,7 +385,21 @@ func seedTaskRow(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, source str
 // namespace rather than restated here.
 func applyCleanupMigration(t *testing.T, owner *pgx.Conn) {
 	t.Helper()
-	const version = "0148"
+	applyCoreMigration(t, owner, "0148")
+}
+
+// applyRestoreMigration runs the shipped 0149 up-migration, which gives back
+// the reminders 0148 archived that nothing in the workspace will re-mint.
+func applyRestoreMigration(t *testing.T, owner *pgx.Conn) {
+	t.Helper()
+	applyCoreMigration(t, owner, "0149")
+}
+
+// applyCoreMigration runs one shipped core migration's own SQL against the
+// fixture rows, loaded from the embedded namespace rather than restated here —
+// the migration is what these suites assert on.
+func applyCoreMigration(t *testing.T, owner *pgx.Conn, version string) {
+	t.Helper()
 	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading the core migration namespace: %v", err)
@@ -410,4 +425,134 @@ func isArchived(t *testing.T, owner *pgx.Conn, id ids.UUID) bool {
 		t.Fatalf("reading the archival state of activity %s: %v", id, err)
 	}
 	return archived
+}
+
+// 0148 archives every outstanding generated reminder on the reasoning that the
+// corrected scan re-mints the ones that are still deserved. That holds only
+// where the automation still runs, and 0148 never checked. 0149 gives back the
+// rows nothing will bring back on its own.
+
+// seedReminderAutomation inserts one clock automation in the given enabled
+// state, so a suite can express "this workspace still runs reminders" and
+// "this workspace paused them".
+func seedReminderAutomation(t *testing.T, owner *pgx.Conn, ws ids.UUID, key string, enabled bool) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
+		 VALUES ($1, $2, $3, $3, '{"schedule":"clock"}', '{"kind":"create_task"}', '{}'::jsonb, $4)`,
+		ids.NewV7(), ws, key, enabled); err != nil {
+		t.Fatalf("seeding the %s automation (enabled=%v): %v", key, enabled, err)
+	}
+}
+
+// seedUser inserts one workspace member, so a task can be assigned to a real
+// row (assignee_id carries a foreign key).
+func seedUser(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO app_user (id, workspace_id, email, display_name)
+		 VALUES ($1, $2, $3, 'Reminder Owner')`,
+		id, ws, fmt.Sprintf("owner-%s@restore.test", id)); err != nil {
+		t.Fatalf("seeding the workspace member: %v", err)
+	}
+	return id
+}
+
+// adopt makes a generated task somebody's own work, the way a person does:
+// assigning it, or setting a reminder on it.
+func adopt(t *testing.T, owner *pgx.Conn, id ids.UUID, column string, value any) {
+	t.Helper()
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE activity SET `+column+` = $2 WHERE id = $1`, id, value); err != nil {
+		t.Fatalf("setting %s on task %s: %v", column, id, err)
+	}
+}
+
+func TestTheRestoreGivesBackRemindersNothingWillReMint(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+
+	// This workspace paused its reminders, so the corrected scan never runs
+	// here and 0148's re-mint argument does not apply to a single row.
+	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", false)
+	stranded := seedTaskRow(t, owner, e.WS,
+		"Check in — no activity since 2026-06-16", "system", false)
+	strandedCadence := seedTaskRow(t, owner, e.WS,
+		"Time for a check-in — last touched 2026-06-16", "system", false)
+
+	applyCleanupMigration(t, owner)
+	for _, id := range []ids.UUID{stranded, strandedCadence} {
+		if !isArchived(t, owner, id) {
+			t.Fatalf("0148 did not archive %s, so this suite is not testing what it claims", id)
+		}
+	}
+
+	applyRestoreMigration(t, owner)
+	for _, id := range []ids.UUID{stranded, strandedCadence} {
+		if isArchived(t, owner, id) {
+			t.Errorf("reminder %s stayed archived in a workspace whose automation is paused — nothing will ever mint it again", id)
+		}
+	}
+}
+
+func TestTheRestoreGivesBackAReminderSomebodyHadTakenOver(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+
+	// Reminders DO still run here, so 0148's re-mint argument holds for an
+	// untouched row — but a re-mint is a new row, without the assignee or the
+	// date the person chose.
+	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", true)
+	assigned := seedTaskRow(t, owner, e.WS,
+		"Check in — no activity since 2026-06-16", "system", false)
+	reminded := seedTaskRow(t, owner, e.WS,
+		"Check in — no activity since 2026-06-16", "system", false)
+	untouched := seedTaskRow(t, owner, e.WS,
+		"Check in — no activity since 2026-06-16", "system", false)
+	adopt(t, owner, assigned, "assignee_id", seedUser(t, owner, e.WS))
+	adopt(t, owner, reminded, "remind_at", quietSince)
+
+	applyCleanupMigration(t, owner)
+	applyRestoreMigration(t, owner)
+
+	if isArchived(t, owner, assigned) {
+		t.Error("a reminder assigned to somebody stayed archived; the re-mint would not carry the assignee")
+	}
+	if isArchived(t, owner, reminded) {
+		t.Error("a reminder somebody set a reminder on stayed archived; the re-mint would not carry the date they chose")
+	}
+	// The whole point of 0148 stands for a row the scan will genuinely
+	// reconsider: it stays archived rather than coming back twice.
+	if !isArchived(t, owner, untouched) {
+		t.Error("an untouched reminder in a live workspace came back, so the corrected scan will mint a duplicate beside it")
+	}
+}
+
+func TestTheRestoreLeavesADeliberateHumanArchiveAlone(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+
+	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", false)
+	dismissed := seedTaskRow(t, owner, e.WS,
+		"Check in — no activity since 2026-06-16", "system", false)
+	adopt(t, owner, dismissed, "assignee_id", seedUser(t, owner, e.WS))
+	// A person archived this one through the store, which writes the audit
+	// row 0148's raw SQL never does. That entry is what tells the two apart.
+	if _, err := owner.Exec(context.Background(),
+		`UPDATE activity SET archived_at = now() WHERE id = $1`, dismissed); err != nil {
+		t.Fatalf("archiving the task: %v", err)
+	}
+	if _, err := owner.Exec(context.Background(),
+		`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
+		 VALUES ($1, 'human', 'human:x', 'archive', 'activity', $2)`,
+		e.WS, dismissed); err != nil {
+		t.Fatalf("recording the human archive: %v", err)
+	}
+
+	applyRestoreMigration(t, owner)
+
+	if !isArchived(t, owner, dismissed) {
+		t.Error("a reminder a person deliberately archived was handed back to them")
+	}
 }
