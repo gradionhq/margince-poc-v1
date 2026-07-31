@@ -1,4 +1,4 @@
--- 0148: the durable consent behind a remote MCP connection — the grant the
+-- 0150: the durable consent behind a remote MCP connection — the grant the
 -- human approved once, the rotating refresh tokens minted under it, and the
 -- client-lifecycle columns that let an admin switch a connection off.
 --
