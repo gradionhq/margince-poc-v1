@@ -370,11 +370,16 @@ func TestOrganizationGraphTransportServesANativeWorkspace(t *testing.T) {
 	if ids.UUID(body.RootId) != org.UUID {
 		t.Errorf("root_id = %v, want %v", body.RootId, org)
 	}
-	if len(body.Nodes) != 1 {
-		t.Fatalf("nodes = %d for a bare account, want just the root", len(body.Nodes))
+	// An account with no contacts, deals or partners still has an owner, so the
+	// bare graph is the root plus the one user node the owns edge needs.
+	if len(body.Nodes) != 2 {
+		t.Fatalf("nodes = %d for a bare account, want the root and its owner", len(body.Nodes))
 	}
 	if body.Nodes[0].Label != "Acme" {
 		t.Errorf("root label = %q, want Acme", body.Nodes[0].Label)
+	}
+	if body.Nodes[1].Kind != crmcontracts.OrganizationGraphNodeKindUser {
+		t.Errorf("second node kind = %q, want the account owner's user node", body.Nodes[1].Kind)
 	}
 	// The three collection fields are always arrays on the wire: a client that
 	// had to handle null for "none" would branch on it in three places.

@@ -87,6 +87,10 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	const noActivityDays = 5
 	staleTouch := time.Now().AddDate(0, 0, -(noActivityDays + 8))
 	seedGenuineTouch(t, owner, e.WS, dealID, "call", staleTouch)
+	// The deal itself must predate the threshold too — activities.
+	// LastTouchBefore holds a record younger than the cutoff out of the
+	// candidate set, and SeedDeal stamps created_at with the real now().
+	backdateCreatedAt(t, owner, "deal", dealID, staleTouch)
 
 	seedTaskCreatePermission(t, owner, e.WS, sam)
 	seedOwnedNoActivityReminder(t, owner, e.WS, sam, noActivityDays)

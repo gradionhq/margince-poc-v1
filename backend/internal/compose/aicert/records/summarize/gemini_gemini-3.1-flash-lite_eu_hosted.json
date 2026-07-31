@@ -1,0 +1,81 @@
+{
+  "task": "summarize",
+  "provider": "gemini",
+  "served_model": "gemini-3.1-flash-lite",
+  "env_class": "eu_hosted",
+  "prompt_version": "p39568013232f83c1b88b1b13651478d8",
+  "corpus_version": "v1",
+  "verdict": "supported_degraded",
+  "runs": 12,
+  "passed": 12,
+  "reliability": 1,
+  "reported_accepted": 12,
+  "reported_wrong_answer": 0,
+  "reported_invalid": 0,
+  "reported_abstained": 0,
+  "certified_scope": "full_invocation",
+  "context_applied": false,
+  "context_scopes": [
+    "identity"
+  ],
+  "score_p50": 100,
+  "score_min": 33,
+  "latency_p50": 1091,
+  "latency_p95": 1586,
+  "mean_tokens": 822,
+  "mean_tokens_in": 636,
+  "mean_tokens_out": 185,
+  "mean_cached_tokens": 0,
+  "mean_cache_write_tokens": 0,
+  "est_cost_microusd": 436,
+  "judge_served_model": "gemini-3.5-flash",
+  "self_judged": false,
+  "served_identity_source": "response",
+  "ran_at": "2026-07-31T06:24:18Z",
+  "scenarios": [
+    {
+      "scenario": "ask_meeting_prep_stays_silent_about_a_withheld_section",
+      "site": "org_ask",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    },
+    {
+      "scenario": "ask_whats_open_answers_the_pipeline_not_the_history",
+      "site": "org_ask",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    },
+    {
+      "scenario": "brief_stays_silent_about_a_withheld_section",
+      "site": "org_brief",
+      "verdict": "supported_degraded",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    },
+    {
+      "scenario": "brief_names_the_stalled_deal_and_the_last_touch",
+      "site": "org_brief",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    }
+  ]
+}

@@ -44,6 +44,7 @@ const (
 	graphGroupContacts  = crmcontracts.OrganizationGraphGroupsOmitted("contacts")
 	graphGroupDeals     = crmcontracts.OrganizationGraphGroupsOmitted("deals")
 	graphGroupIntroPath = crmcontracts.OrganizationGraphGroupsOmitted("intro_path")
+	graphGroupOurSide   = crmcontracts.OrganizationGraphGroupsOmitted("our_side")
 )
 
 // How many nodes of each capped group one graph carries. The card is a
@@ -52,10 +53,15 @@ const (
 //
 // Stakeholder contacts have no cap of their own: they arrive with the deals
 // already capped above, so the deal cap bounds them.
+// graphUserCap counts USERS, not edges: one teammate can have emailed five of
+// the account's contacts, and a row budget would let them fill it while the
+// nine other colleagues who touched the account went undrawn. It is chosen in
+// SQL for the same reason graphOrgCap is.
 const (
 	graphContactCap = 15
 	graphDealCap    = 10
 	graphOrgCap     = 10
+	graphUserCap    = 10
 )
 
 // graphScanCap bounds the ONE read whose display order this code cannot push
@@ -148,6 +154,11 @@ type graphAssembly struct {
 	signalID  *ids.UUID
 	strengths map[ids.PersonID]people.RelationshipStrength
 
+	// Our side of the account: who owns it, and which colleagues have actually
+	// been in contact with its people.
+	accountOwner *graphUser
+	ourSide      []ourSideEdge
+
 	// The true size of each capped group, counted over the same predicate the
 	// read used. dropped_count is derived from these rather than from the rows
 	// in hand, so a read bounded by graphScanCap still reports the whole
@@ -155,6 +166,10 @@ type graphAssembly struct {
 	employeeTotal int
 	openDealTotal int
 	relatedTotal  int
+	// ourSideTotal counts the colleagues WITH RECORDED CONTACT only. The
+	// account owner is read separately and is never capped, so counting them
+	// here would let dropped_count fall below zero once the owner is drawn.
+	ourSideTotal int
 }
 
 // graphPersonEdge is one employment edge: who, and what they do here.
@@ -180,13 +195,28 @@ type graphSeat struct {
 	role   *string
 }
 
-// build reads every group, scores the people once, then places the nodes.
+// graphUser is one member of THIS workspace — someone on our side of the
+// account, carrying only the name a colleague is recognized by.
+type graphUser struct {
+	userID      ids.UUID
+	displayName string
+}
+
+// ourSideEdge is one colleague's recorded contact with one of the account's
+// people: who on our side, and whom they were in touch with.
+type ourSideEdge struct {
+	user     graphUser
+	personID ids.UUID
+}
+
+// build reads the account's own groups, scores the people once, places them,
+// and only then reads our side of the account against the contacts it placed.
 //
-// Every read happens before any placement, and every gate is asked inside the
-// read it belongs to — so the order of the slice below decides only which
-// group is NAMED first in groups_omitted, never what a caller is allowed to
-// see. The related organizations are read here too, outside the group loop,
-// because they have no grant of their own to be refused for.
+// Every gate is asked inside the read it belongs to, so the order below decides
+// which group is NAMED first in groups_omitted and which rows our side is
+// correlated against — never what a caller is allowed to see. The related
+// organizations are read outside the group loop, because they have no grant of
+// their own to be refused for.
 func (g *graphAssembly) build() error {
 	for _, group := range []struct {
 		name crmcontracts.OrganizationGraphGroupsOmitted
@@ -210,6 +240,16 @@ func (g *graphAssembly) build() error {
 	g.placeContacts()
 	g.placeDeals()
 	g.placeRelated(related)
+	// Our side reads LAST, after the contact nodes exist. Its user cap picks
+	// distinct colleagues in SQL, so the set it picks over has to be final: run
+	// against the contacts merely READ, the cap could spend a slot on a
+	// colleague whose only contact the contact cap then dropped, and
+	// placeOurSide would discard them again — leaving our_side and its
+	// dropped_count describing people the graph does not show.
+	if err := g.group(graphGroupOurSide, g.readOurSide); err != nil {
+		return err
+	}
+	g.placeOurSide()
 	g.markIntroPath()
 	return nil
 }

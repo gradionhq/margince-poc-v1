@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gradionhq/margince/backend/internal/modules/approvals"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -161,7 +162,9 @@ func stageWonAdvance(t *testing.T, e *mcpEnv, c *mcpClient) (ids.UUID, map[strin
 func exerciseApprovalLoop(t *testing.T, e *mcpEnv, c *mcpClient, dealID ids.UUID, winArgs map[string]any, approvalID ids.ApprovalID) {
 	t.Helper()
 	// The staged item sits in the human inbox.
-	pending, err := e.approvalsSvc.List(e.humanCtx, strPtr("pending"), 50)
+	pending, _, err := e.approvalsSvc.List(e.humanCtx, approvals.ListInput{
+		Status: strPtr("pending"), Limit: 50,
+	})
 	if err != nil || len(pending) != 1 {
 		t.Fatalf("inbox: %v (%d items)", err, len(pending))
 	}
@@ -173,7 +176,10 @@ func exerciseApprovalLoop(t *testing.T, e *mcpEnv, c *mcpClient, dealID ids.UUID
 	strangerCtx := principal.WithCorrelationID(principal.WithActor(e.wsCtx, principal.Principal{
 		Type: principal.PrincipalHuman, ID: "human:stranger", UserID: ids.NewV7(),
 	}), ids.NewV7())
-	if leaked, err := e.approvalsSvc.List(strangerCtx, strPtr("pending"), 50); err != nil || len(leaked) != 0 {
+	leaked, _, err := e.approvalsSvc.List(strangerCtx, approvals.ListInput{
+		Status: strPtr("pending"), Limit: 50,
+	})
+	if err != nil || len(leaked) != 0 {
 		t.Fatalf("C3: low-priv inbox leaked %d items (err=%v), want 0", len(leaked), err)
 	}
 	if _, err := e.approvalsSvc.Get(strangerCtx, approvalID); !errors.Is(err, apperrors.ErrNotFound) {

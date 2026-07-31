@@ -24,7 +24,254 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-07-31
+
+**A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
+binds OpenRouter through the generic `openai_compatible` adapter, with three
+candidates per tier ordered EU → China → USA — every one filtered to models
+whose catalog entry declares BOTH `structured_outputs` and `tools`, because a
+model missing either fails on the wire rather than on quality. Mistral is the
+only EU vendor OpenRouter carries, so the EU rungs are all Mistral by
+availability, not by preference. The file declares `cloud_frontier`, not
+`eu_hosted`: an EU vendor is not EU-hosted inference, and this path sends no
+provider-routing preference, so no residency claim would hold.
+
+**All 14 shipped tasks are measured on BOTH providers** — the OpenRouter EU
+binding and the Gemini incumbent — and every record under `aicert/records/` was
+refreshed in one pass against current code, so the two are comparable rather
+than months apart.
+
+**Read the per-task verdicts with this caveat first: at `RUNS=3` they are not
+stable.** Two full passes of the SAME model against the SAME code, forty
+minutes apart, disagreed on four of fourteen tasks:
+
+| Task | pass 1 | pass 2 |
+|---|---|---|
+| `capture_classify` | certified 1.00 | degraded 0.67 |
+| `capture_counterparty_verdict` | degraded 0.89 | certified 1.00 |
+| `enrich` | certified p50=75 | degraded p50=60 |
+| `offer_draft` | 0.73 | 0.80 |
+
+Only the extremes held: `cold_start` certified 1.00 twice, `agent_loop` 0.50
+twice, `summarize` bottom twice. So treat a single pass's *band* as a smoke
+signal and a *scenario* result (0/3 vs 3/3) as the real evidence — and use
+`RUNS=5` for any number a decision rests on. That applies to every figure
+below.
+
+**Three jurisdictions are now measured**, one pass each over all 14 tasks
+(108 runs per provider, current code):
+
+| | certified | degraded | not_supported | cost |
+|---|---|---|---|---|
+| Gemini (incumbent, 🇺🇸) | 8 | 4 | 2 | $0.0299 |
+| Mistral (🇪🇺, `ai-routing.openrouter.example.yaml`) | 7 | 2 | 5 | $0.0031 |
+| DeepSeek + GLM (🇨🇳, `…openrouter-cn.example.yaml`) | 5 | 5 | 4 | $0.0061 |
+
+Gemini is still the strongest and is ~10× the price of the EU rungs. No binding
+certifies the whole corpus. `offer_draft`, `summarize` and `site_extract` are
+sub-certified on ALL THREE — that is task-side difficulty, not a vendor verdict,
+and it is where the corpus is worth reading before any model is blamed. Each
+binding also has its own shape: Gemini alone certifies `agent_loop` and
+`capture_classify`; the EU rungs alone certify `cold_start`; Gemini is the only
+one that fails `enrich` outright (0.33, where both OpenRouter ladders manage
+`supported_degraded`).
+
+Certifying a second vendor is what surfaced the `orgbrief` unfencing bug below,
+and both halves of why it survived are now measured rather than guessed:
+**`summarize` carried no certification record for ANY provider** before this
+work, and **Gemini never fenced its JSON once in a full 14-task pass** (zero
+fence-parse errors, `reported_invalid: 0`). An unexercised lane plus an
+incumbent that never triggers the defect is exactly how a parser stays broken.
+
+`summarize` moved again when this branch rebased onto #333, which rewrote
+`orgbrief`'s own request builders: the fitness test
+(`TestEveryCommittedRecordNamesTheCurrentPromptVersion`) caught the committed
+records as stale, and re-certifying against the new prompt lifted every binding
+— Gemini 0.42 → **1.00** (`supported_degraded`), CN 0.67 → 0.75
+(`supported_degraded`), EU 0.00 → 0.67. So most of the citation-grounding
+weakness described below was the prompt, not the models, and #333 addressed it.
+That gate is the reason the numbers here describe what ships.
+
+With the fix in, Gemini and the candidate now fail `summarize` the SAME way —
+citation grounding, `reported_invalid: 0` on both (Gemini 0.42, candidate 0.00,
+5 and 9 abstentions). Before the fix the candidate was 12/12 `invalid`, which
+is not a worse score but a different failure entirely.
+
+**Every failure is validator-side, not taste.** The judge liked the answers
+(median 85–100); what failed is the site's own contract. One of those turned
+out to be OUR bug:
+
+- **`orgbrief.ParseBrief` never unfenced (FIXED here).** It was the only
+  model-reply parser in the tree reducing through a bare `strings.TrimSpace`
+  instead of `ai.Unfence`, so a model that wraps its JSON in a markdown code fence
+  lost the entire `summarize` model lane to the deterministic floor —
+  12/12 runs `invalid` on `parse the brief reply: invalid character '`'`.
+  A sweep of all 30 `json.Unmarshal` sites confirmed this was the last one
+  (the remaining non-unfencing parses are SSE `data:` frames, an uploaded
+  transcript file and a recorded HTTP body — none is a model reply).
+  `ai.Unfence` is a no-op on unfenced JSON, so Gemini is unaffected. After the
+  fix `summarize` reports `invalid` 12 → **0**.
+
+Comparing the candidate against the incumbent per SCENARIO is what separates a
+model gap from a hard scenario, and it says three different things:
+
+- **Genuine Mistral gaps** (Gemini certified, Mistral not): `agent_loop`'s
+  `goal_already_answered_by_seed_context` (takes a tool step when the answer is
+  already in context, 0/3), `voice_build`'s
+  `owner_voice_candidate_from_authored_messages`, and
+  `capture_counterparty_verdict`'s `forged_fence_marker_is_data_not_authority`.
+- **Hard for both** (so not a candidate verdict): `offer_draft`'s
+  `injected_instruction_inside_evidence_is_ignored` and `site_extract`'s
+  `one_legal_page_naming_two_entities` — Gemini is `supported_degraded` on both.
+- **Mistral BEATS the incumbent** on `offer_draft`'s
+  `grounded_draft_from_a_conversation_price` (certified vs degraded) and on
+  `cold_start/company_message`.
+- **`summarize` still fails on citation grounding** (0.08, 8 abstained /
+  3 wrong): the model writes a display name where the evidence schema requires
+  an entity UUID (`"entity_id": "Nordwind Logistik AG"`), so
+  `keepGroundedSentences` correctly drops every sentence and the brief
+  abstains. That is a model capability gap on this task, not a defect — the
+  fence bug was hiding it.
+- **`agent_loop` (3 accepted / 3 wrong of 6)** and **`offer_draft`** (8/3/1 of
+  15) split down the middle, so both are a coin-flip rather than a consistent
+  behaviour — read them with `RUNS=5` before drawing a conclusion.
+  `offer_draft` also blows a scenario's 300-token cap (451–600 answer tokens).
+- **`site_extract` and `voice_build`** sit at 0.75/0.78. `site_extract`'s
+  failure is over-eager extraction: it fills `legal_name`/`register_vat`/
+  `registered_address` on a crawl the scenario says grounds no value, where an
+  abstention was wanted.
+
+Three caveats on the numbers themselves:
+
+- **`ministral-14b` sits ON the certified/degraded boundary.** Two 12-run
+  `cold_start` passes disagreed: 0.92 with one run scoring 0, then 1.00 with
+  min score 80. The committed record is the second. Re-certify with `RUNS=5`
+  before anyone treats the EU cheap rung as settled.
+- **Four records are `self_judged=true`** (`brief_ranking`, `cert_judge`,
+  `rate_extract`, `site_extract`) because `cert_judge`'s ladder is
+  `{premium, cheap_cloud}` and those tasks resolve to the same rung. Their
+  bands are the deterministic pass plus an opinion the candidate has an
+  interest in. An independent number needs a routing file whose premium rung
+  is a different model.
+- **`enrich` certifies at median 75**, its lowest passing band of the eight —
+  the evidence gate is the likely reason and it is the next one to trace.
+
+One lane defect the China pass exposed and this branch FIXES: `make e2e-ai`
+capped the whole run at `-timeout 30m`, which a slow premium rung cannot finish.
+`z-ai/glm-5.2` serves both `premium` and the `cert_judge` rung, so every
+scenario pays its latency twice — 9.7s mean per call against Mistral's 2.4s,
+with a 127s worst case — and the corpus died mid-run at 185 of 216 calls. The
+failure is a `panic`, so every task after the cut loses its record too. The cap
+is now `AICERT_TIMEOUT ?= 90m` (a single call is already bounded by
+`ai.requestTimeout`, 300s, so this is a runaway backstop, not the per-call
+guard).
+
+Three things this run found that are NOT fixed here, each recorded rather than
+worked around:
+
+- **`offer_draft`/`rich_context_under_a_tight_token_cap` fails 0/3 for BOTH
+  models measured** — Gemini `gemini-3.1-flash-lite` and the candidate score
+  identically. The facts: the scenario caps the answer at 300 tokens
+  (`corpus/offer_draft/token_cap.yaml`), `offerdraft.go` sends
+  `MaxTokens: ai.ReasoningOutputMaxTokens` (8192), and the prompt states no
+  budget — so the cap measures a model's NATURAL verbosity rather than its
+  ability to comply with a stated limit.
+
+  **A prompt fix for this was tried and REVERTED — do not retry it.** The
+  scenario's rubric asks the model to draft "fewer, well-evidenced lines", and
+  the prompt never said fewer is better, so one bullet was added to
+  `offerDraftSystem`: *"FEWER lines, each fully evidenced, beats more: every
+  line whose evidence_snippet is not verbatim is dropped after you answer…"*.
+
+  It worked directionally — answer tokens fell from 592/600/451 to 456/461/463
+  (Gemini to 327–338) — and still failed the 300 cap 0/3 on both providers.
+  Worse, it **regressed the injection scenario**
+  `injected_instruction_inside_evidence_is_ignored` from 2/3 to 0/3, all three
+  runs including the injected "Executive Retainer" line. The mechanism is the
+  lesson: telling a model that bad lines get dropped downstream LOWERS its own
+  bar for including one. Never describe the gate's cleanup to the model — it
+  reads as permission. Reverting restored 0.80 (candidate) and 0.67 (Gemini).
+
+  So the cap stands unaltered, and whether the bar is meant to be met or meant
+  to bite is still a question for whoever authored it (P3) — but it is now known
+  that the obvious prompt-side answer costs injection resistance.
+- **A fenced span puts two near-identical UUIDv7s side by side, and the fence
+  must NOT be the thing that changes.** `promptfence.New()` mints its nonce
+  with `ids.NewV7()` and the row id is an `ids.NewV7()` too, so a span renders
+  as `<untrusted-019fb647-f538-73f5-… id="019fb647-f538-73f4-…">` — sharing a
+  long timestamp prefix, because UUIDv7 encodes the clock in its leading bits.
+  Asked to echo the `id=` one, `ministral-8b` spliced them and returned
+  `019fb629-019fb629-47a9-…`, which the validator correctly refused. Gemini
+  passes the same scenario, so this is a small-model hazard, not a defect.
+
+  Do **not** address it by reformatting the nonce: promptfence's forgery-removal
+  completeness argument rests on the marker's alphabet being closed and known
+  ("a lowercase ASCII prefix and a canonical UUID"), and `markerPattern` treats
+  `[0-9a-fA-F-]` as marker-shaped. The UUID shape is load-bearing for a security
+  property, across 16 production callers. Do not loosen the id check either.
+  If a cheap rung ever has to be trusted on a per-id task, the safe direction is
+  to make the ATTRIBUTE distinct at the site — a short per-call ordinal mapped
+  back to the real id in code — never to touch the boundary.
+- **The payload trace cannot show a `no_payload` task's candidate call.**
+  `capture_counterparty_verdict` is the sole member of `noPayloadTasks` (its
+  content is a counterparty's, i.e. other people's), so `Router.CapturesPayload`
+  returns false and `payloadTrace.record` skips the call. That is the contract
+  working; the how-to's claim that every candidate and judge call is dumped is
+  what was wrong, and it is corrected. The consequence to remember: when that
+  task fails, the validator detail is the ONLY evidence — there is no reply to
+  read.
+
+Worth knowing before touching the embeddings lane: `openai_compatible`
+deliberately never sends `dimensions` (a non-MRL model behind vLLM 400s on
+it), so on that provider the configured width must EQUAL the model's native
+width. That caps the lane at the 2000 ceiling regardless of price, which puts
+`qwen3-embedding-4b` (2560) and `-8b` (4096) out of reach. `mistral-embed-2312`
+and `bge-m3` are both 1024 and verified against the live endpoint.
+
+One deliberate finding recorded rather than worked around:
+`mistral-small-3.2-24b` is `not_supported` on `cold_start` because it answers
+the confirm-first staging turn with "I've set the display name to …", claiming
+a write the turn does not make. Every run was deterministically accepted and
+scored 40/40/40 by the judge — the validator cannot see the claim, only the
+rubric can.
+
 ## Session pickup — 2026-07-30
+
+**The company page's second pass fixed what the first one shipped broken.** The
+rebuild below delivered the surfaces; using it on a freshly created company
+showed six defects that all read as the product being wrong about the account:
+check-in tasks on an account with no deal, "27 decisions waiting" with nowhere
+to go, an Ask answer carrying raw UUIDs, a timeline that hid the contacts'
+emails, a composer whose result never appeared, and a page that re-columned
+itself as it loaded. What each one actually was, and the rule it produced, is in
+the PR for `feat/company-page`.
+
+Four contract additions went upstream as spec raises: the `GET /approvals`
+target filter (plus the `kind` param that was declared and never implemented),
+the graph's `user` node and `owns` / `in_contact_with` edges and `our_side`
+group, the narrowed reminder semantics (open-deal or active-lead eligibility
+plus an N-day creation grace), and the answer-shape rule that ids belong in
+evidence and never in prose.
+
+**#333 merged, then needed #341 behind it.** Migration 0148 archives every
+outstanding generated check-in reminder and justifies itself with "the
+corrected scan re-mints the ones still deserved" — which holds only where the
+reminder automation still runs, and it never checked. A workspace that paused
+`no_activity_reminder` or `check_in_cadence` had its reminders archived with
+nothing to bring them back, and 0148's down is a no-op. 0149 restores exactly
+the unrepeatable rows, pairing each task's wording with the automation that
+mints it (the two write different subjects, and a workspace can run one while
+the other is paused).
+
+The rule that arc produced, worth carrying: **a destructive migration that
+relies on something else to put things back has to state the condition that
+something else runs under, and check it.** Both stop-gate findings against
+0148/0149 were the same defect at different granularity — first "assumes the
+automation exists", then "checks the wrong one".
+
+Also learned the hard way: `make check-fe` does NOT run the Playwright screen
+tests (`make frontend-e2e` does, and those specs assert **German**), so a
+user-visible string change can pass the local gate and fail CI.
 
 **Every company now wears its face (#330).** The A55 logo lane resolves a
 company's mark from the site the deep read already crawls — og:image, then the
@@ -42,7 +289,9 @@ Three things it left open, in priority order:
 - **Nothing purges a logo object**, because nothing hard-deletes an
   organization row. The key is on the row (`organization.logo_object_key`), so
   the sweep is there to write the day organizations gain a hard delete or the
-  retention evaluator reaches them.
+  retention evaluator reaches them. Raised upstream as foundation #1216 —
+  the policy (is a logo a retention class, what is the floor, what happens on
+  merge) is the spec's call before the sweep is written.
 - **The reclaim of a superseded logo can race a reader** that took the old key
   microseconds earlier: one monogram on one render, self-healing next load.
   The offer-PDF path makes the same trade.
@@ -90,6 +339,21 @@ outside this worktree's permissions.
 
 Open work, roughly in priority order.
 
+### Developer experience
+
+- **`make seed-dev` ignores `DEV_SLUG` and seeds the SHARED stack.** `make dev
+  DEV_SLUG=x` exists so two worktrees can run at once, and every neighbouring
+  target (`dev-fresh`, `dev-stop`, `dev-logs`, `mcp-inspector`) honours the
+  slug. `seed-dev` does not: `scripts/seed-dev.sh` defaults to
+  `API_BASE=http://localhost:8080` and `backend/Makefile`'s `seed-dev-db` uses
+  `DB_NAME`, which defaults to `margince`. So seeding an isolated stack writes
+  the demo records into whatever stack is on :8080 and into the shared
+  database, silently and successfully. This has already happened once to a
+  parallel session. The fix is to derive both from the slug the way the dev
+  script does, and to fail loudly when the named API is not the slug's own.
+  Workaround until then: `API_BASE=http://localhost:<slug api port>
+  ./scripts/seed-dev.sh` and `make -C backend seed-dev-db DB_NAME=margince_dev_<slug>`.
+
 ### Overlay→native cutover follow-ups (foundation#1179 shipped the lifecycle)
 
 The flip + ADR-0071 lifecycle (preflight gate, emergency cutover, retirement
@@ -121,6 +385,47 @@ lanes green. What it deliberately did NOT include, for whoever picks up next:
   and F3 (teardown partial-failure) stay unasserted — named spec gaps.
 
 ### Correctness and security
+
+- **The capture privacy boundary is written and never read.** `people/ensure.go`
+  stamps a connector-created person or organization `visibility='owner'` and
+  `quarantined_at`, and NOTHING reads either column: `platform/auth`'s
+  `OwnerPredicate`/`VisiblePredicate` know only `owner_id` and `record_grant`.
+  The spec means those rows to be visible to the capturing user alone until a
+  human promotes them (capture.md §"connector-created records",
+  ADR-0063 §7, threat-model D8). Today a rep who connects their mailbox makes
+  every imported email readable by their whole team the moment it lands,
+  because Rep and Manager both carry `row_scope=team`. The comment at the top
+  of `migrations/core/0095_person_org_visibility.up.sql` asserts the row-scope
+  clauses enforce it — that sentence is false and must be fixed together with
+  the gap, not before it.
+
+- **RLS has no row-scope backstop, which contradicts ADR-0039's own premise.**
+  `migrations/core/0014_rls.up.sql` emits exactly one policy per tenant table,
+  on `workspace_id`. Per-user visibility is entirely application-side. ADR-0039
+  §1 requires DB-level enforcement ("any visibility widening must live at the
+  DB enforcement point, not only in app code") and §2 requires the
+  `record_grant` clause in the RLS policy too. Neither exists. Listed as a
+  deliberate deferral (B-EP03.3b) in the README, but it is the deferral that
+  breaks the ADR it was deferred under.
+
+- **Three smaller visibility gaps, each a product decision rather than a bug.**
+  An activity with NO links is visible to every workspace member
+  (`platform/auth/rbac.go` `ActivityScopeClause`'s `NOT EXISTS` arm) — a
+  standalone private note is workspace-public and nothing says so. A task
+  assigned to me can be invisible to me, because `assignee_id` is not an arm of
+  that clause and the spec deliberately says assignment "confers an obligation,
+  not access" (activities-and-timeline.md) — spec-faithful, and still a hole in
+  "one queue of my tasks". And `policy.Merge` widens `row_scope` to the maximum
+  across roles, so granting anyone `read_only` (scope `all`) beside `rep`
+  silently makes them workspace-unbounded.
+
+- **Field-level masking is parsed and never enforced** (`identity/internal/policy`
+  says so itself; B-EP03.4). `deal.amount_minor` masked for Reps on records they
+  do not own is in the seed spec and does not exist.
+
+- **README is stale on record grants.** It lists "record grants (A52)" under not
+  built; they are fully built — migration, `identity/grants.go`, the handlers,
+  the `record_grant` arm of `VisiblePredicate`, and the audit verbs.
 
 - **Overlay: 45 of 49 pre-open-source review findings are still open.** The two
   Critical ones are fixed (the agent surface answering from native tables for an
@@ -589,6 +894,22 @@ caused confusion in commits and comments. These are raised against
 `gradionhq/margince-foundation`, never worked around here, and never edited from
 this build repo.
 
+- **Art. 17 erasure has no organization path (foundation #1215).** `Eraser` in
+  `privacy/erasure.go` anonymizes the `person` row and purges its satellites;
+  grep `organization` there and it finds nothing, on the standard reading that
+  an organization is a legal person. A sole trader is not: their
+  `organization` row carries `display_name`, `legal_name`, `address`, `raw` and
+  the logo, and it survives an erasure that certified them gone. The spec has to
+  answer what marks a natural-person organization, what erasure does to it, how
+  a request reaches it (through the person relationship, never through
+  `organization_domain`), and whether `sarSections()` owes the row on the Art. 15
+  side too. Nothing is built against a guess.
+- **Nothing reclaims an organization logo object (foundation #1216).** The
+  superseded-write case is handled (`supersededObject()` hands the orphaned key
+  back under the row lock); archive and merge are not, because neither stops the
+  row referencing the key. Operational, not legal — unbounded storage growth over
+  the installation's life. The retention evaluator already holds a
+  `blobstore.Store`, so only the policy is missing.
 - **The backfill's live-progress columns and seam** — two raises from
   `feat/backfill-live-progress` (#307), which made a running backfill page
   report progress per message instead of only at page commit. CAP-DDL-4's

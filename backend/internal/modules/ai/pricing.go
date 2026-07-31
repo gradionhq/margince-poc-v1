@@ -134,6 +134,37 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// live sheet the same way the gpt-5-mini row above asks for.
 		rate(providerGemini, "gemini-embedding-001", 150_000, 0, 0, 0),
 
+		// OpenRouter, reached through the generic openai_compatible adapter
+		// (config/ai-routing.openrouter.example.yaml). Read from that broker's
+		// own catalog — https://openrouter.ai/api/v1/models, per-token prices
+		// scaled by 1e12 — on 2026-07-31. Every model the example names is
+		// here, the commented jurisdiction alternates included: the file
+		// presents them as one-line swaps, and a swap must not silently turn
+		// the cost report UNPRICED. No entry publishes a cache-WRITE price, so
+		// that column is 0 throughout.
+		//
+		// These rows are keyed on the GENERIC provider name, because that is
+		// what a call on this adapter reports. An operator who points
+		// openai_compatible at a different broker serving the same model id
+		// inherits OpenRouter's price and should correct the row the same
+		// fx_rate-style way they'd correct any other.
+		rate(providerOpenAICompatible, "mistralai/ministral-8b-2512", 150_000, 150_000, 15_000, 0),
+		rate(providerOpenAICompatible, "mistralai/ministral-14b-2512", 200_000, 200_000, 20_000, 0),
+		rate(providerOpenAICompatible, "mistralai/mistral-small-3.2-24b-instruct", 100_000, 300_000, 10_000, 0),
+		rate(providerOpenAICompatible, "mistralai/mistral-large-2512", 500_000, 1_500_000, 50_000, 0),
+		rate(providerOpenAICompatible, "deepseek/deepseek-v4-flash", 140_000, 280_000, 28_000, 0),
+		rate(providerOpenAICompatible, "z-ai/glm-5.2", 966_000, 3_036_000, 179_400, 0),
+		rate(providerOpenAICompatible, "nvidia/nemotron-3-ultra-550b-a55b", 600_000, 3_600_000, 200_000, 0),
+		rate(providerOpenAICompatible, "openai/gpt-oss-20b", 30_000, 130_000, 30_000, 0),
+		// gpt-oss-120b publishes no cached-input price, unlike its 20b
+		// sibling; 0 here is "no cache discount", and the uncached input rate
+		// is what a call actually pays.
+		rate(providerOpenAICompatible, "openai/gpt-oss-120b", 37_000, 170_000, 0, 0),
+		// Embedding lanes have no output and no cache — only input is nonzero.
+		rate(providerOpenAICompatible, "mistralai/mistral-embed-2312", 100_000, 0, 0, 0),
+		rate(providerOpenAICompatible, "baai/bge-m3", 10_000, 0, 0, 0),
+		rate(providerOpenAICompatible, "openai/text-embedding-3-small", 20_000, 0, 0, 0),
+
 		// Local/offline providers: explicit zero rows so a local deployment
 		// prices as an honest 0, never "unpriced". Keyed on each provider's
 		// own unbound-tier default model id (selectbrain.go) — an operator

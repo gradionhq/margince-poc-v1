@@ -6769,9 +6769,18 @@ export interface components {
         OrganizationGraphNode: {
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            kind: "organization" | "person" | "deal";
-            /** @description The record's display name — the organization's, the person's full name, the deal's name. */
+            /**
+             * @description `organization`, `person` and `deal` are the account's own records.
+             *     `user` is a member of THIS workspace — someone on our side who is connected to the
+             *     account. A user node carries its display name as the `label` and nothing else:
+             *     `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+             *     because §4 measures our relationship with the account's people, not with each
+             *     other. `intro_path` is a plain boolean and is never sent as null on any node —
+             *     a client reads its absence as "not on the warm-intro path".
+             * @enum {string}
+             */
+            kind: "organization" | "person" | "deal" | "user";
+            /** @description The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name. */
             label: string;
             /**
              * @description This node is the account the graph is centred on. Exactly one node carries
@@ -6782,14 +6791,15 @@ export interface components {
             /**
              * @description One short line of context the node cannot be read without: a contact's title,
              *     or a deal's stage name. Null when the record has none on file, and always null
-             *     on an organization — how a related company is attached is the EDGE's kind, and
-             *     saying it twice would let the two disagree.
+             *     on an organization or a user — how a related company is attached, and how a
+             *     teammate is connected, is the EDGE's kind, and saying it twice would let the two
+             *     disagree.
              */
             detail?: string | null;
             /**
              * @description The person's §4 relationship strength, for weighting the node. Null for an
-             *     organization or a deal, which have no relationship of their own, and for a
-             *     contact whose strength this caller's person scope did not resolve.
+             *     organization, a deal or a user, none of which have a relationship of their own,
+             *     and for a contact whose strength this caller's person scope did not resolve.
              */
             strength?: number | null;
             /**
@@ -6828,12 +6838,18 @@ export interface components {
              *     points at it; the account points at each child).
              *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
              *     the organization that records the edge to its counterparty.
+             *     `owns` — `from` is the workspace member who owns the account.
+             *     `in_contact_with` — `from` is the workspace member who has recorded interactions
+             *     (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+             *     those interactions, so a task assigned to a teammate does not make one: an
+             *     assignment is intent, a logged email is contact.
              * @enum {string}
              */
-            kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with";
+            kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with" | "owns" | "in_contact_with";
             /**
              * @description The edge's role where it has one — an employment title, a stakeholder role
-             *     (champion, economic_buyer, …). Null on the edges that carry none.
+             *     (champion, economic_buyer, …). Null on the edges that carry none, which includes
+             *     both `owns` and `in_contact_with`.
              */
             role?: string | null;
         };
@@ -6885,11 +6901,16 @@ export interface components {
              *     this" instead of "there is none". `contacts` withheld also withholds
              *     `deal_stakeholder` edges and the intro path, because both name a person.
              *
+             *     `our_side` is the workspace members connected to the account — the owner and the
+             *     teammates who have interacted with its contacts. It needs BOTH the person and the
+             *     activity grant, because each of its edges names a contact and is derived from a
+             *     recorded interaction; either one missing withholds the whole group.
+             *
              *     The parent, child and partner organizations are not a group here: they need no
              *     grant beyond the organization read this whole endpoint already demands, so they
              *     are row-scope pruned like every other node and can never be withheld wholesale.
              */
-            groups_omitted: ("contacts" | "deals" | "intro_path")[];
+            groups_omitted: ("contacts" | "deals" | "intro_path" | "our_side")[];
             intro_path?: components["schemas"]["OrganizationGraphIntroPath"];
         };
         /**
@@ -17316,6 +17337,18 @@ export interface operations {
                 status?: "pending" | "approved" | "rejected";
                 /** @description Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight). */
                 kind?: string;
+                /**
+                 * @description Filter to the approvals staged against ONE record, together with `target_entity_id`.
+                 *     The two are a discriminated reference and only mean something as a pair, so supplying
+                 *     one without the other is a 422 rather than a filter that quietly matches every record
+                 *     of a type or every type of an id.
+                 *
+                 *     A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+                 *     existence-hiding the record's own read gives.
+                 */
+                target_entity_type?: string;
+                /** @description The record the staged actions act on. Requires `target_entity_type`. */
+                target_entity_id?: string;
             };
             header?: never;
             path?: never;
@@ -17334,6 +17367,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getApproval: {

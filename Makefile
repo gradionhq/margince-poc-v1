@@ -320,10 +320,14 @@ COSIGN_IMAGE ?= gcr.io/projectsigstore/cosign@sha256:c77247c92f4dfea851c70555738
 DOCKER_SBOM  := docker run --rm -v "$(CURDIR)":/src -w /src
 SYFT         ?= $(DOCKER_SBOM) $(SYFT_IMAGE)
 GRANT        ?= $(DOCKER_SBOM) $(GRANT_IMAGE)
-# cosign's image runs as uid 65532, which cannot create files in the invoking
-# user's sboms/ dir through the bind mount — run it as root (syft's image does).
+# cosign's image defaults to uid 65532, which owns neither the bind-mounted
+# sboms/ dir nor a writable HOME — run it as the invoking user so the *.cosign.bundle
+# files it writes (mode 0600) are owned by that user and stay readable to whatever
+# consumes them next (CI's upload-artifact runs as the same non-root runner). HOME
+# points at the gitignored .tmp so cosign's sigstore/TUF cache has somewhere to land.
 # The OIDC env vars are ambient in CI (id-token: write).
-COSIGN       ?= $(DOCKER_SBOM) -u 0 -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
+COSIGN_HOME  := .tmp/cosign-home
+COSIGN       ?= $(DOCKER_SBOM) -u $(shell id -u):$(shell id -g) -e HOME=/src/$(COSIGN_HOME) -e SIGSTORE_ID_TOKEN -e ACTIONS_ID_TOKEN_REQUEST_URL -e ACTIONS_ID_TOKEN_REQUEST_TOKEN $(COSIGN_IMAGE)
 # Scan a clean export of committed HEAD, so host state (node_modules, .env, IDE
 # files) never leaks into the SBOM and .gitignore stays the single authority.
 SBOM_SRC     := .tmp/sbom-src
@@ -350,6 +354,7 @@ sbom:
 
 ## sbom-sign — keyless-sign each generated SBOM with cosign (writes *.cosign.bundle; needs an OIDC token).
 sbom-sign:
+	@mkdir -p $(COSIGN_HOME)
 	@for f in $(SBOM_FILES); do \
 	  echo "signing $$f"; \
 	  $(COSIGN) sign-blob --yes --bundle "$$f.cosign.bundle" "$$f" || exit 1; \

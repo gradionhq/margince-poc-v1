@@ -21,6 +21,7 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
+	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -69,28 +70,6 @@ func linkScope(ctx context.Context, alias string, arg func(any) int) (string, er
 	return clause, nil
 }
 
-// orgLinkedActivityExists is the ONE spelling of "this activity reaches the
-// account", for a query that aliases activity as a.
-//
-// A task or a message belongs to a company through any of three links — its own,
-// its deal's, or the contact it is about — and three readers need that walk: the
-// next-steps section here, and the two suggestion reads. Spelling it once is what
-// keeps them from drifting apart, the same reason openDealsWhere exists: a fourth
-// link added to the model reaches every reader, or none of them.
-//
-// orgPos is the bind position carrying the organization id; the caller registers
-// it once and every arm reads the same one.
-func orgLinkedActivityExists(orgPos int) string {
-	return fmt.Sprintf(`EXISTS (
-		    SELECT 1 FROM activity_link l
-		    LEFT JOIN deal d ON d.id = l.deal_id
-		    LEFT JOIN relationship r ON r.person_id = l.person_id AND r.kind = 'employment'
-		      AND r.ended_at IS NULL AND r.archived_at IS NULL
-		    WHERE l.activity_id = a.id
-		      AND (l.organization_id = $%[1]d OR d.organization_id = $%[1]d OR r.organization_id = $%[1]d))`,
-		orgPos)
-}
-
 // nextStepsSection reads the account's open tasks in the order a rep works
 // them: overdue first, then dated, then undated. A task reaches the
 // account through any of its links — the task itself, its deal, or the
@@ -136,7 +115,7 @@ func nextStepsSection(ctx context.Context, tx pgx.Tx, orgID ids.OrganizationID, 
 		  AND %[2]s
 		ORDER BY (a.due_at IS NULL), a.due_at, a.id
 		LIMIT %[5]d`,
-		activityScope, orgLinkedActivityExists(orgPos), linkVisible, personVisible, sectionLimit+1), args...)
+		activityScope, activities.OrgLinkedActivityExists(orgPos), linkVisible, personVisible, sectionLimit+1), args...)
 	if err != nil {
 		return nil, crmcontracts.PageInfo{}, err
 	}

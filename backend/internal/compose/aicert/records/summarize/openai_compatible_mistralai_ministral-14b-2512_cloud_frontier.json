@@ -1,0 +1,81 @@
+{
+  "task": "summarize",
+  "provider": "openai_compatible",
+  "served_model": "mistralai/ministral-14b-2512",
+  "env_class": "cloud_frontier",
+  "prompt_version": "p39568013232f83c1b88b1b13651478d8",
+  "corpus_version": "v1",
+  "verdict": "not_supported",
+  "runs": 12,
+  "passed": 8,
+  "reliability": 0.6666666666666666,
+  "reported_accepted": 8,
+  "reported_wrong_answer": 1,
+  "reported_invalid": 0,
+  "reported_abstained": 3,
+  "certified_scope": "full_invocation",
+  "context_applied": false,
+  "context_scopes": [
+    "identity"
+  ],
+  "score_p50": 85,
+  "score_min": 50,
+  "latency_p50": 4041,
+  "latency_p95": 6900,
+  "mean_tokens": 929,
+  "mean_tokens_in": 644,
+  "mean_tokens_out": 284,
+  "mean_cached_tokens": 0,
+  "mean_cache_write_tokens": 0,
+  "est_cost_microusd": 185,
+  "judge_served_model": "mistralai/mistral-large-2512",
+  "self_judged": false,
+  "served_identity_source": "echo",
+  "ran_at": "2026-07-31T06:25:38Z",
+  "scenarios": [
+    {
+      "scenario": "ask_meeting_prep_stays_silent_about_a_withheld_section",
+      "site": "org_ask",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    },
+    {
+      "scenario": "ask_whats_open_answers_the_pipeline_not_the_history",
+      "site": "org_ask",
+      "verdict": "not_supported",
+      "runs": 3,
+      "passed": 0,
+      "reported_accepted": 0,
+      "reported_wrong_answer": 1,
+      "reported_invalid": 0,
+      "reported_abstained": 2
+    },
+    {
+      "scenario": "brief_stays_silent_about_a_withheld_section",
+      "site": "org_brief",
+      "verdict": "supported_degraded",
+      "runs": 3,
+      "passed": 2,
+      "reported_accepted": 2,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 1
+    },
+    {
+      "scenario": "brief_names_the_stalled_deal_and_the_last_touch",
+      "site": "org_brief",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    }
+  ]
+}
