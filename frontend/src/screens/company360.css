@@ -255,3 +255,12 @@
 .co-facts-heading {
   margin-bottom: var(--space-2);
 }
+
+/* Verbs under the section they change: spaced off the content above so they
+   read as an action strip rather than another row of the list. */
+.co-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

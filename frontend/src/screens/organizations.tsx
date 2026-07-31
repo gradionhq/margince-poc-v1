@@ -53,6 +53,7 @@ import {
   TagsCard,
   useOrganization360,
 } from "./company360";
+import { ListAction, NewDealAction, TagAction } from "./companyactions";
 import { CompanyApprovalsPanel, DecisionsChip } from "./companyapprovals";
 import { TimelineActions } from "./compose";
 import { ConnectionsCard } from "./connections";
@@ -1545,7 +1546,14 @@ function CompanyPage({
           </>
         )
       }
-      aside={businessRail({ org, view, overlay, failed, t })}
+      aside={businessRail({
+        org,
+        view,
+        overlay,
+        failed,
+        readOnly: Boolean(org.archived_at),
+        t,
+      })}
       // The timeline is the account's story and belongs to the overview. The
       // Partner tab is a form and History has its own change list, so neither
       // repeats it under itself.
@@ -1664,12 +1672,16 @@ function businessRail({
   view,
   overlay,
   failed,
+  readOnly,
   t,
 }: Readonly<{
   org: Organization;
   view?: Organization360View;
   overlay: boolean;
   failed: boolean;
+  // An archived company takes no new deals, tags or list rows, so it shows no
+  // verb that would only be refused.
+  readOnly: boolean;
   // Passed rather than read: this assembles a tree, it is not a component,
   // so it has no hook context of its own.
   t: ReturnType<typeof useT>;
@@ -1685,13 +1697,27 @@ function businessRail({
             re-lists the people directly above it, and lists and tags are how
             the account is filed rather than anything about the account. */}
         <PeopleCard view={view} />
-        <DealsCard view={view} />
+        <DealsCard
+          view={view}
+          // The verb sits under the list it changes: a rep who has just read
+          // "no open deal on this account" is one click from opening one,
+          // rather than leaving for the board to re-find this company there.
+          actions={
+            readOnly ? undefined : (
+              <NewDealAction orgId={org.id} orgName={org.display_name} />
+            )
+          }
+        />
         <SignalsCard orgId={org.id} />
         <Disclosure summary={t("co.connections.title")}>
           <ConnectionsCard orgId={org.id} />
         </Disclosure>
         <Disclosure summary={t("co.tags.title")}>
-          <TagsCard view={view} />
+          <TagsCard
+            view={view}
+            tagAction={readOnly ? undefined : <TagAction orgId={org.id} />}
+            listAction={readOnly ? undefined : <ListAction orgId={org.id} />}
+          />
         </Disclosure>
       </>
     );
