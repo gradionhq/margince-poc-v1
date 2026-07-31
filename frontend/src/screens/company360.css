@@ -245,3 +245,13 @@
   margin-bottom: var(--space-3);
   color: var(--textMeta);
 }
+
+/* Facts read from the site. The rhythm is tighter than the profile card above
+   because these are scanned, not read: the reader is looking for one thing. */
+.co-facts-group {
+  margin-bottom: var(--space-4);
+}
+
+.co-facts-heading {
+  margin-bottom: var(--space-2);
+}

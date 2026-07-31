@@ -61,6 +61,7 @@ import { CustomFieldsCard } from "./customfields.card";
 import { useObjectCustomFields } from "./customfields.form";
 import { EditAction } from "./edit";
 import { EntityRef } from "./entityref";
+import { type FactGroup, factFieldLabelKey, groupFacts } from "./factview";
 import { RecordHistoryTab } from "./history";
 import { confidenceLevel } from "./inbox";
 import {
@@ -980,12 +981,15 @@ function ProfileFieldsCard({
 // categories are omitted and an empty read renders nothing at all — the
 // profile card above already carries the region's honest empty state, so a
 // second "nothing here" would only be noise.
-const FACT_CATEGORY_ORDER = [
-  "company",
-  "offering",
-  "market",
-  "signal",
-] as const;
+//
+// Ordering and duplicate collapsing live in factview.ts; the category order
+// comes from there too, so the card has one source for what it draws.
+//
+// FACT_PREVIEW is how many rows of a category are shown before the reader asks
+// for the rest. A real account returns ninety-odd facts, and rendering them all
+// made this card taller than the page it sits beside — at which point nobody
+// reads any of it.
+const FACT_PREVIEW = 5;
 
 const FACT_CATEGORY_LABELS: Record<OrganizationFact["category"], MessageKey> = {
   company: "org.factCategory.company",
@@ -1004,7 +1008,7 @@ function FactRow({
   const { locale } = useLocale();
   return (
     <div className="co-field">
-      <span className="t-label">{coldFieldLabel(fact.field, t)}</span>
+      <span className="t-label">{t(factFieldLabelKey(fact.field))}</span>
       <div>
         <EvidenceMark
           value={fact.value}
@@ -1012,6 +1016,40 @@ function FactRow({
           onOpenHistory={onOpenHistory}
         />
       </div>
+    </div>
+  );
+}
+
+// One category of facts. Only the first few rows are drawn until the reader
+// asks for the rest, and the count of what is hidden is on the button — a
+// truncated list with no number reads as "that is everything".
+function FactCategory({
+  group,
+  onOpenHistory,
+}: Readonly<{ group: FactGroup; onOpenHistory?: () => void }>) {
+  const t = useT();
+  const [expanded, setExpanded] = useState(false);
+  const hidden = group.facts.length - FACT_PREVIEW;
+  const shown = expanded ? group.facts : group.facts.slice(0, FACT_PREVIEW);
+  return (
+    <div className="co-facts-group">
+      <div className="t-label co-facts-heading">
+        {t(FACT_CATEGORY_LABELS[group.category])}
+      </div>
+      {shown.map((fact) => (
+        <FactRow
+          key={`${fact.field}:${fact.value_key}`}
+          fact={fact}
+          onOpenHistory={onOpenHistory}
+        />
+      ))}
+      {hidden > 0 && (
+        <Button small onClick={() => setExpanded(!expanded)}>
+          {expanded
+            ? t("co.facts.showLess")
+            : t("co.facts.showAll", { count: group.facts.length })}
+        </Button>
+      )}
     </div>
   );
 }
@@ -1056,26 +1094,13 @@ function FactsCard({
   return (
     <section className="card" style={{ marginBottom: 16 }}>
       <SectionHeader title={t("org.facts")} />
-      {FACT_CATEGORY_ORDER.map((category) => {
-        const group = facts.filter((fact) => fact.category === category);
-        if (group.length === 0) {
-          return null;
-        }
-        return (
-          <div key={category} style={{ marginBottom: 16 }}>
-            <div className="t-label" style={{ marginBottom: 8 }}>
-              {t(FACT_CATEGORY_LABELS[category])}
-            </div>
-            {group.map((fact) => (
-              <FactRow
-                key={`${fact.field}:${fact.value_key}`}
-                fact={fact}
-                onOpenHistory={onOpenHistory}
-              />
-            ))}
-          </div>
-        );
-      })}
+      {groupFacts(facts).map((group) => (
+        <FactCategory
+          key={group.category}
+          group={group}
+          onOpenHistory={onOpenHistory}
+        />
+      ))}
     </section>
   );
 }
