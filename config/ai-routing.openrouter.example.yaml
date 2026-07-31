@@ -45,17 +45,36 @@ tiers:
     # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2
     # model: openai/gpt-oss-20b                      # US · $0.03/$0.13 · 131k
 
+  # Measured on cold_start (`make e2e-ai TASK=cold_start`, 3 runs/scenario,
+  # judged by the premium rung). ministral-14b sits ON the certified/degraded
+  # boundary and moves between passes: one 12-run pass came back
+  # supported_degraded (reliability 0.92, one run scored 0), the next
+  # certified (1.00, min score 80 — the committed record). Read it as
+  # "passes, not comfortably"; re-certify with RUNS=5 before trusting it in
+  # production. deepseek-v4-flash certified at 1.00 for less money, so the EU
+  # rung here is the best-measured EU model, not the best measured model.
   cheap_cloud:
     provider: openai_compatible
     base_url: https://openrouter.ai/api
-    model: mistralai/mistral-small-3.2-24b-instruct  # EU · $0.10/$0.30 · 256k
-    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2
+    model: mistralai/ministral-14b-2512              # EU · $0.20/$0.20 · 262k · certified (boundary)
+    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2 · certified
     # model: openai/gpt-oss-120b                     # US · $0.037/$0.17 · 131k
+    # model: mistralai/mistral-small-3.2-24b-instruct  # EU · $0.10/$0.30 · 256k — cheaper, but
+    #   not_supported on cold_start: it answers the confirm-first staging turn with
+    #   "I've set the display name to …", claiming a write this turn does not make.
+    #   Deterministically accepted every run, scored 40/40/40 by the judge.
 
   # premium serves the deep site read's extraction FIRST (site_extract is
   # premium-first in tasks.go) and its evidence gate demands verbatim quotes,
   # so a cheap model here does not fail — it comes back thin. Judge a
   # candidate with `make -C backend e2e-siteread` before you trust it.
+  #
+  # cert_judge's own ladder is {premium, cheap_cloud}, so certifying THIS rung
+  # grades it with itself and the run reports self_judged=true. That does not
+  # change the verdict, but read the score as the deterministic pass plus an
+  # opinion the candidate has an interest in. For an independent premium
+  # number, certify against a routing file whose premium rung is a different
+  # model.
   premium:
     provider: openai_compatible
     base_url: https://openrouter.ai/api

@@ -149,6 +149,7 @@ func SeedModelRates(effective time.Time) []ModelRate {
 		// inherits OpenRouter's price and should correct the row the same
 		// fx_rate-style way they'd correct any other.
 		rate(providerOpenAICompatible, "mistralai/ministral-8b-2512", 150_000, 150_000, 15_000, 0),
+		rate(providerOpenAICompatible, "mistralai/ministral-14b-2512", 200_000, 200_000, 20_000, 0),
 		rate(providerOpenAICompatible, "mistralai/mistral-small-3.2-24b-instruct", 100_000, 300_000, 10_000, 0),
 		rate(providerOpenAICompatible, "mistralai/mistral-large-2512", 500_000, 1_500_000, 50_000, 0),
 		rate(providerOpenAICompatible, "deepseek/deepseek-v4-flash", 140_000, 280_000, 28_000, 0),
