@@ -26,11 +26,18 @@ import (
 // people. Without it the card answers "who works there" and leaves out the
 // half a rep opens it for — which of us already has a way in.
 //
-// It carries BOTH its gates itself. Every edge names one of the account's
-// contacts, so it is a person read; every interaction edge is derived from an
-// activity, so it is an activity read too. Neither is inferred from whether
-// another group reported itself omitted — a group list reordered for any
-// reason must not be able to turn a gated read into an ungated one.
+// It carries BOTH its gates itself, and asks for them up front rather than per
+// edge, because the group is one answer: an interaction edge names one of the
+// account's contacts, so the group is a person read, and every one of those
+// edges is derived from an activity, so it is an activity read too. The owner
+// edge names the organization the caller is already reading and a colleague
+// from the workspace roster, so it needs neither grant of its own — it is held
+// to the same pair because a partial answer to "who here is connected" is a
+// misleading one.
+//
+// Neither gate is inferred from whether another group reported itself omitted:
+// a group list reordered for any reason must not be able to turn a gated read
+// into an ungated one.
 func (g *graphAssembly) readOurSide() error {
 	if err := auth.Require(g.ctx, "person", principal.ActionRead); err != nil {
 		return err
