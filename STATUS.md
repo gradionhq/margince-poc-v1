@@ -12,54 +12,25 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
-## Open defect — staged leads cannot be accepted, and accepting loses them
+## Fixed — staged leads could not be accepted (merged 2026-07-31)
 
-**Severity: leads are silently discarded. Fix before anything else on the
-approvals surface.**
+Accepting a staged `site_lead` failed with `version_skew` whenever anything had
+written to the pinned organization after staging, and the lead was then
+unrecoverable: the decision commits before the effect runs, so a failed accept
+left the approval `approved` but unredeemed. Auto-enrich and accepting the
+deep-read bundle both wrote the org's profile fields, which made every sibling
+lead from that read un-acceptable.
 
-Accepting a staged lead always fails with `version_skew` ("This record changed
-since it was staged — re-stage it before deciding"). Rejecting works. The lead
-is then unrecoverable: the decision commits *before* the effect runs
-(`approvals/decide.go:83-92`), so a failed accept leaves the approval
-`approved` but unredeemed, no lead created, and a retry answers "Already
-decided". The "Re-read" link the UI offers is the only path that works.
+Fixed in PR #349: the pin is now opt-in per approval kind. A `site_lead` is
+FILED under a company rather than being an operation on it, so its effect never
+reads the organization row and has no version to guard —
+`approvals.TargetIsContextOnly` names the kinds that opt out, and a fitness
+test holds the list against the kinds whose effects actually read their target.
 
-**Mechanism.** Staging pins the target row's `version`
-(`approvals/staging.go:251-282`, `resolveTargetVersion`), and redemption
-compares that pin against the live row (`approvals/redeem.go:119-132`). For a
-`site_lead` the pinned target is the **organization**
-(`compose/deepread.go:390-412`), and every `UPDATE organization` bumps
-`version` through the shared trigger (`migrations/core/0001_foundation.up.sql:27-33`).
-Two writes guarantee the mismatch:
-
-- Auto-enrich stages the leads and then, in the same worker run, writes the
-  org's profile fields (`compose/deepreadautoapply.go:56-96` →
-  `people/coldstartprofile.go:243`). The pin is stale before a human ever sees
-  the lead.
-- In the human lane, accepting the deep-read bundle writes those same fields
-  (`compose/deepreadaccept.go:49-51`), which makes **every sibling `site_lead`
-  from that read** permanently un-acceptable.
-
-Nothing lowers a version again, so the pin can never match. The same class of
-bug hits `capture_counterparty`, whose pinned `activity` version is bumped by
-the classify pass (`activities/capturelabel.go:77-81`).
-
-**Why the pin is wrong here, not just mistimed.** `resolveTargetVersion`
-attaches a pin to *any* staging that names a pinnable target type, whether or
-not the effect reads that row. Creating a lead does not depend on the
-organization's profile fields at all, so the check is guarding a dependency
-that does not exist.
-
-**Two candidate fixes, both needing a decision:** make the pin opt-in per
-approval kind (only kinds whose effect actually reads the pinned row), or run
-the effect inside the decision transaction so a failed redemption rolls the
-decision back instead of stranding it. The second also fixes the
-lead-loss half, which the first does not.
-
-**Test gap.** Nothing asserts "accept after an unrelated write to the pinned
-target". `compose/sitelead_integration_test.go` stages leads with no fields, so
-`ApplyDeepRead` never runs; `compose/deepread_integration_test.go` only ever
-decides the bundle, never a sibling lead after it.
+The same class still applies to `capture_counterparty`, whose pinned `activity`
+version is bumped by the classify pass
+(`activities/capturelabel.go:77-81`) — that one has a different cause and is
+still open.
 
 ## Open decision — the organization brief endpoint has no client
 
