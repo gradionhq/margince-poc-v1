@@ -34,8 +34,7 @@ import (
 // ungatedEntryPoints are the ratified auth-free store/service methods.
 var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales for the fitness gate, not credentials
 	// Reached only from worker sweeps, approvals effect executors, or a
-	// service that owns the gate above them — audited one by one when the
-	// matcher widened to suffix receivers and first saw them.
+	// service that owns the gate above them. Each entry states which.
 	"internal/modules/ai:CostReport":                   "aggregates the workspace's OWN ai_call rows under RLS and returns totals, never a record; the cost surface above it takes the grant",
 	"internal/modules/ai:DueDeferredBuilds":            "worker sweep: walks the fleet workspace-by-workspace for builds to re-offer, under the system principal — no human actor exists to gate",
 	"internal/modules/ai:RateFor":                      "reads the provider rate card (model pricing), not tenant data — it returns no record and there is no object to grant on",
