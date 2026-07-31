@@ -225,9 +225,12 @@ function coverage(view: Organization360): AccountFinding[] {
   // own row, which reads the same counts, would then say "Answered" one line
   // under a brief saying nobody but Alice engaged.
   //
-  // The counts cover the last STRENGTH_WINDOW_DAYS, so the SENTENCE has to say
-  // so. "Only Dana has ever engaged" is an all-time claim, and the account
-  // whose whole committee wrote to us four months ago disproves it.
+  // Two things the SENTENCE has to carry, or it claims more than the counts
+  // support. The window: these cover the last STRENGTH_WINDOW_DAYS, so "has
+  // ever engaged" is disproved by an account whose committee wrote four months
+  // ago. And the direction: a contact qualifies on OUTBOUND alone, so "has
+  // been in contact" would describe mail we sent at someone who never answered
+  // as a relationship. What the records show is recorded contact, either way.
   const engaged = contacts.filter(
     (c) =>
       (c.strength.inbound_90d ?? 0) > 0 || (c.strength.outbound_90d ?? 0) > 0,
