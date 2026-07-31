@@ -732,3 +732,52 @@ describe("password-disabled installation", () => {
     expect(screen.getByLabelText("Password")).toBeTruthy();
   });
 });
+
+describe("sso_error is bounded and survives a repeated initializer", () => {
+  // React may run a state initializer more than once. The read is pure and the
+  // scrub is an effect, so the message cannot be consumed before it lands.
+  it("keeps the message when the initializer runs twice", async () => {
+    const replaceState = vi.fn();
+    vi.stubGlobal("location", {
+      ...window.location,
+      pathname: "/",
+      search: "?sso_error=denied",
+      hash: "",
+      origin: "http://localhost",
+    });
+    vi.stubGlobal("history", { ...window.history, replaceState });
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+
+    // Two renders of the screen: the second stands in for the extra
+    // initializer call, and must still find the code in the URL.
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Sign-in was cancelled",
+    );
+    cleanup();
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect((await screen.findByRole("alert")).textContent).toContain(
+      "Sign-in was cancelled",
+    );
+    expect(replaceState).toHaveBeenCalledWith(null, "", "/");
+  });
+
+  // A crafted callback URL must not reach the translator through a key every
+  // object literal inherits.
+  it("ignores prototype-inherited keys", async () => {
+    for (const code of ["constructor", "__proto__", "toString"]) {
+      vi.stubGlobal("location", {
+        ...window.location,
+        pathname: "/",
+        search: `?sso_error=${code}`,
+        hash: "",
+        origin: "http://localhost",
+      });
+      stubApi({ password: true, password_reset: false }, () => ok(200));
+      render(<AuthScreen onAuthed={vi.fn()} />);
+      await screen.findByLabelText("Email");
+      expect(screen.queryByRole("alert"), code).toBeNull();
+      cleanup();
+    }
+  });
+});

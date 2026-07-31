@@ -259,12 +259,12 @@ reversible operational kill switch and never deletes confirmed company data.
 OAuth uses here: `/oauth/*` mints agent passports for an already-signed-in
 human, and connector OAuth authorizes a mailbox. Neither signs a human in.
 Enable it only when the provider's OAuth client exists — the login screen
-renders exactly the methods `GET /auth/capabilities` reports, so a provider is
+renders exactly the methods `GET /v1/auth/capabilities` reports, so a provider is
 listed only once its flow is wired.
 
 | field | required | effect |
 |---|---|---|
-| `enabled` | — | off by default. Off means the two `/auth/oidc/*` endpoints answer 404 and the capability lists no provider, so the login screen draws no button. |
+| `enabled` | — | off by default. Off means the two `/v1/auth/oidc/*` endpoints answer 404 and the capability lists no provider, so the login screen draws no button. |
 | `issuer` | yes | the discovery origin, `https://accounts.google.com`. Endpoints and JWKS come from the provider's discovery document, so a rotation needs no config change. The provider **key** (`google`) is derived from this, so key and issuer can never disagree. |
 | `client_id` | yes | the OAuth client id. |
 | `client_secret_file` | yes | path to the client secret (OPS-CFG-3 — a file reference, mode `0600`, never an inline value). The exchange is server-side, so a confidential client is required. |
@@ -278,7 +278,7 @@ Enabling it also requires `--public-base-url`; the redirect target is derived
 from configuration, never from a request `Host`. Register this exact redirect
 URI at the provider:
 
-```
+```text
 <--api-base-url, or --public-base-url when unset>/v1/auth/oidc/google/callback
 ```
 

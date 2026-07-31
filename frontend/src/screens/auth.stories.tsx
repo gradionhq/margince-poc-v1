@@ -80,7 +80,8 @@ export const ConfiguredHybrid: Story = {
  * component renders nothing for an empty list. Seeding it here reviews the design
  * without claiming the build can complete the flow. The same block can be put on
  * the running app for a walkthrough with `VITE_UI_PREVIEW_OIDC=1 pnpm dev` — same
- * override discipline, same inert buttons (`app/ui-preview.ts`).
+ * override discipline (`app/ui-preview.ts`); the buttons are the real ones and
+ * navigate to the real start endpoint, which 404s where no provider is configured.
  *
  * The password form is still there and still complete — it is the fallback door,
  * which is why the divider labels IT rather than the buttons above.

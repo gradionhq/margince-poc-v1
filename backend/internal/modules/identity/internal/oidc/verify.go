@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"slices"
 	"strings"
 	"time"
@@ -49,17 +50,21 @@ type Identity struct {
 
 // idTokenClaims is the claim subset this validation reads.
 type idTokenClaims struct {
-	Issuer        string          `json:"iss"`
-	Subject       string          `json:"sub"`
-	Audience      json.RawMessage `json:"aud"`
-	AuthorizedTo  string          `json:"azp"`
-	ExpiresAt     int64           `json:"exp"`
-	IssuedAt      int64           `json:"iat"`
-	Nonce         string          `json:"nonce"`
-	Email         string          `json:"email"`
-	EmailVerified *bool           `json:"email_verified"`
-	Name          string          `json:"name"`
-	HostedDomain  string          `json:"hd"`
+	Issuer       string          `json:"iss"`
+	Subject      string          `json:"sub"`
+	Audience     json.RawMessage `json:"aud"`
+	AuthorizedTo string          `json:"azp"`
+	// NumericDate is a JSON number that RFC 7519 §2 explicitly permits to
+	// carry a fraction, so these are decoded as floats and truncated. Read as
+	// int64 a compliant provider's sub-second timestamp would fail the whole
+	// claim-set decode and read as a malformed token.
+	ExpiresAt     float64 `json:"exp"`
+	IssuedAt      float64 `json:"iat"`
+	Nonce         string  `json:"nonce"`
+	Email         string  `json:"email"`
+	EmailVerified *bool   `json:"email_verified"`
+	Name          string  `json:"name"`
+	HostedDomain  string  `json:"hd"`
 }
 
 // jwsHeader is the protected header. `crit` is read only to refuse it: a
@@ -176,13 +181,13 @@ func (p *Provider) validateProvenance(claims idTokenClaims) error {
 // recent enough to be THIS sign-in rather than a replayed old one.
 func (p *Provider) validateFreshness(claims idTokenClaims) error {
 	now := p.now()
-	if claims.ExpiresAt == 0 || !now.Add(-clockSkew).Before(time.Unix(claims.ExpiresAt, 0)) {
+	if claims.ExpiresAt == 0 || !now.Add(-clockSkew).Before(numericDate(claims.ExpiresAt)) {
 		return fmt.Errorf("%w: token has expired", ErrTokenInvalid)
 	}
 	if claims.IssuedAt == 0 {
 		return fmt.Errorf("%w: token carries no issued-at", ErrTokenInvalid)
 	}
-	issuedAt := time.Unix(claims.IssuedAt, 0)
+	issuedAt := numericDate(claims.IssuedAt)
 	if issuedAt.After(now.Add(clockSkew)) {
 		return fmt.Errorf("%w: token is issued in the future", ErrTokenInvalid)
 	}
@@ -212,6 +217,13 @@ func validateSubjectBinding(claims idTokenClaims, expectedNonce string) error {
 		return ErrEmailUnverified
 	}
 	return nil
+}
+
+// numericDate converts a JWT NumericDate (seconds since the epoch, possibly
+// fractional) to an instant.
+func numericDate(seconds float64) time.Time {
+	whole, frac := math.Modf(seconds)
+	return time.Unix(int64(whole), int64(frac*float64(time.Second)))
 }
 
 // jwsPayload carries the two decoded halves the caller needs after the

@@ -213,8 +213,9 @@ export interface paths {
          *     signature against the cached JWKS, `iss`, `aud`, `azp` where present, `exp`/`iat`,
          *     the stored `nonce`, and `email_verified`. It then resolves the user by
          *     `(issuer, subject)`; with no binding yet, the verified email must match exactly one
-         *     active local user that has no binding for this issuer, and the binding is written
-         *     once and audited. An already-bound identity is never silently relinked, and no
+         *     active or invited local user that has no binding for this issuer, and the binding is
+         *     written once, audited, and activates an invited user (the §11 pending-administrator
+         *     shape). An already-bound identity is never silently relinked, and no
          *     account is ever created. On success it mints the same opaque session as password
          *     login and sets `crm_session`.
          *

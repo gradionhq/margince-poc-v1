@@ -130,7 +130,9 @@ func isLoopbackIssuer(issuer string) bool {
 	if err != nil || u.Scheme != "http" {
 		return false
 	}
-	return u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "[::1]"
+	// Hostname() strips the brackets an IPv6 authority carries, so the
+	// comparison is against the bare address.
+	return u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost" || u.Hostname() == "::1"
 }
 
 // Issuer is the configured discovery origin — the value stored alongside
@@ -199,9 +201,17 @@ func (p *Provider) AuthCodeURL(ctx context.Context, req AuthRequest, hostedDomai
 		// parameter the browser could have rewritten.
 		q.Set("hd", hostedDomainHint)
 	}
-	sep := "?"
-	if strings.Contains(doc.AuthorizationEndpoint, "?") {
-		sep = "&"
+	// Merged through url.Parse rather than concatenated: an endpoint that
+	// already carries a query keeps it, and one carrying a fragment cannot
+	// swallow the whole authorization request into a browser-only fragment.
+	endpoint, err := url.Parse(doc.AuthorizationEndpoint)
+	if err != nil {
+		return "", fmt.Errorf("%w: authorization endpoint is not a URL", ErrProviderUnavailable)
 	}
-	return doc.AuthorizationEndpoint + sep + q.Encode(), nil
+	existing := endpoint.Query()
+	for key, values := range q {
+		existing[key] = values
+	}
+	endpoint.RawQuery = existing.Encode()
+	return endpoint.String(), nil
 }

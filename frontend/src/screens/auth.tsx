@@ -90,10 +90,11 @@ export function AuthScreen({
     const token = resetTokenFromLocation();
     return token ? { kind: "reset", token } : { kind: "login" };
   });
-  // Read ONCE, at mount, because reading it also scrubs it from the URL: a
-  // later render must not find an empty query string and clear the message
-  // the person is still reading.
+  // Read into state, then scrub the address bar in an effect. Splitting the
+  // two is what makes the read safe to repeat: the message survives however
+  // many times React runs the initializer, and the URL is cleaned exactly once.
   const [ssoError] = useState(ssoErrorFromLocation);
+  useEffect(scrubSsoErrorFromLocation, []);
   const [authPhase, setAuthPhase] = useState<AuthPhase>("idle");
   usePageTitle(t("auth.pageTitle"));
 
@@ -515,9 +516,10 @@ const SSO_ERROR_MESSAGES: Readonly<Record<string, MessageKey>> = {
   provider_unavailable: "auth.ssoProviderUnavailable",
 };
 
-// ssoErrorFromLocation reads the callback's `?sso_error=` and scrubs it from
-// the address bar, so a reload is a fresh sign-in screen rather than the same
-// failure again. Returns the message key, never the raw code.
+// ssoErrorFromLocation reads the callback's `?sso_error=` and returns the
+// message key for it, never the raw code. Pure by design: React may run a state
+// initializer more than once, so a read that also mutated history could consume
+// the code on the first call and hand the second call nothing.
 function ssoErrorFromLocation(): MessageKey | null {
   if (typeof globalThis.location === "undefined") {
     return null;
@@ -526,7 +528,25 @@ function ssoErrorFromLocation(): MessageKey | null {
   if (!code) {
     return null;
   }
+  // Own properties only: `constructor` and `__proto__` resolve on any object
+  // literal, so a crafted callback URL would otherwise hand the translator a
+  // function instead of falling through to "render nothing".
+  return Object.hasOwn(SSO_ERROR_MESSAGES, code)
+    ? SSO_ERROR_MESSAGES[code]
+    : null;
+}
+
+// scrubSsoErrorFromLocation removes the spent code from the address bar, so a
+// reload is a fresh sign-in screen rather than the same refusal again. Called
+// from an effect, after the read above has been committed to state.
+function scrubSsoErrorFromLocation(): void {
+  if (typeof globalThis.location === "undefined") {
+    return;
+  }
   const search = new URLSearchParams(globalThis.location.search);
+  if (!search.has("sso_error")) {
+    return;
+  }
   search.delete("sso_error");
   const query = search.toString();
   globalThis.history?.replaceState?.(
@@ -536,7 +556,6 @@ function ssoErrorFromLocation(): MessageKey | null {
       (query ? `?${query}` : "") +
       globalThis.location.hash,
   );
-  return SSO_ERROR_MESSAGES[code] ?? null;
 }
 
 function LoginForm({

@@ -752,3 +752,126 @@ func TestDiscoveryFailureIsNotRetriedOnEveryRequest(t *testing.T) {
 		t.Errorf("provider was dialled %d times in total, want 2 (one per window)", attempts)
 	}
 }
+
+func TestIsLoopbackIssuerAcceptsIPv6WithoutBrackets(t *testing.T) {
+	// url.URL.Hostname() strips the brackets an IPv6 authority carries, so a
+	// bracket-shaped comparison would never match and a loopback test issuer
+	// on ::1 would be refused as non-https.
+	for _, issuer := range []string{"http://[::1]", "http://[::1]:8080", "http://127.0.0.1:9000", "http://localhost:8080"} {
+		if !isLoopbackIssuer(issuer) {
+			t.Errorf("isLoopbackIssuer(%q) = false, want true", issuer)
+		}
+	}
+	for _, issuer := range []string{"http://accounts.example.test", "https://[::1]", "http://[::2]", "http://169.254.169.254"} {
+		if isLoopbackIssuer(issuer) {
+			t.Errorf("isLoopbackIssuer(%q) = true, want false", issuer)
+		}
+	}
+}
+
+func TestAuthCodeURLPreservesTheEndpointsOwnQueryAndRefusesToHideInAFragment(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	p := issuer.provider(t)
+	// A provider is free to publish an authorization endpoint that already
+	// carries a query — and one carrying a fragment must not swallow the whole
+	// authorization request into a browser-only part the provider never sees.
+	doc, err := p.discover(context.Background())
+	if err != nil {
+		t.Fatalf("discovery: %v", err)
+	}
+	doc.AuthorizationEndpoint = issuer.server.URL + "/authorize?tenant=acme#section"
+	p.doc = &doc
+
+	raw, err := p.AuthCodeURL(context.Background(), AuthRequest{State: "s", Nonce: "n", Verifier: "v"}, "")
+	if err != nil {
+		t.Fatalf("AuthCodeURL: %v", err)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		t.Fatalf("parsing the authorization url: %v", err)
+	}
+	if got := parsed.Query().Get("tenant"); got != "acme" {
+		t.Errorf("the endpoint's own query was dropped (tenant = %q)", got)
+	}
+	if got := parsed.Query().Get("state"); got != "s" {
+		t.Errorf("state = %q, want it in the query rather than the fragment", got)
+	}
+	if strings.Contains(parsed.Fragment, "state") {
+		t.Errorf("fragment = %q, want the authorization parameters out of it", parsed.Fragment)
+	}
+}
+
+func TestVerifyIDTokenAcceptsFractionalNumericDates(t *testing.T) {
+	issuer := newFakeIssuer(t)
+	// RFC 7519 §2 permits a NumericDate to carry a fraction. Read as an
+	// integer, a compliant provider's sub-second timestamps would fail the
+	// whole claim-set decode and read as a malformed token.
+	issuer.claimOverride = map[string]any{
+		"exp": float64(fixedNow.Add(time.Hour).Unix()) + 0.75,
+		"iat": float64(fixedNow.Add(-time.Minute).Unix()) + 0.25,
+	}
+	p := issuer.provider(t)
+
+	if _, err := p.ExchangeAndVerify(context.Background(), "the-code", "the-verifier", testNonce); err != nil {
+		t.Fatalf("a token with fractional exp/iat was refused: %v", err)
+	}
+}
+
+func TestExchangeTreatsThrottlingAsWeatherAndBoundsTheBody(t *testing.T) {
+	t.Run("429 is the provider asking for backoff, not a bad authorization", func(t *testing.T) {
+		issuer := newFakeIssuer(t)
+		issuer.tokenStatus = http.StatusTooManyRequests
+		p := issuer.provider(t)
+
+		_, err := p.ExchangeAndVerify(context.Background(), "the-code", "the-verifier", testNonce)
+		// Grouped with stale codes and wrong credentials it would tell the human
+		// to stop trying, when a fresh attempt is exactly what works.
+		if !errors.Is(err, ErrProviderUnavailable) {
+			t.Fatalf("err = %v, want ErrProviderUnavailable", err)
+		}
+		if errors.Is(err, ErrAuthorizationRejected) {
+			t.Error("a throttled endpoint was classified as a refused authorization")
+		}
+	})
+
+	t.Run("an oversized body is refused, not silently truncated", func(t *testing.T) {
+		huge := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.HasSuffix(r.URL.Path, "openid-configuration") {
+				writeJSON(w, map[string]any{
+					"issuer": "ISSUER", "authorization_endpoint": "ISSUER/authorize",
+					"token_endpoint": "ISSUER/token", "jwks_uri": "ISSUER/jwks",
+				})
+				return
+			}
+			// A COMPLETE JSON object, then padding past the cap: without an
+			// explicit bound the object alone would decode and pass as the
+			// whole response.
+			_, _ = w.Write([]byte(`{"id_token":"a.b.c"}` + strings.Repeat(" ", maxBodyBytes+16)))
+		}))
+		t.Cleanup(huge.Close)
+
+		p, err := New(Config{
+			Issuer: huge.URL, ClientID: testClientID, ClientSecret: "s",
+			RedirectURI: "http://localhost:8080/cb", HTTPClient: huge.Client(),
+			Now: func() time.Time { return fixedNow },
+		})
+		if err != nil {
+			t.Fatalf("building the relying party: %v", err)
+		}
+		// Point discovery at this server's own endpoints (the fixture above
+		// serves a placeholder issuer, so the document is written directly).
+		p.doc = &discoveryDocument{
+			Issuer: huge.URL, AuthorizationEndpoint: huge.URL + "/authorize",
+			TokenEndpoint: huge.URL + "/token", JWKSURI: huge.URL + "/jwks",
+		}
+		p.docUntil = fixedNow.Add(time.Hour)
+
+		_, err = p.ExchangeAndVerify(context.Background(), "the-code", "the-verifier", testNonce)
+		if !errors.Is(err, ErrProviderUnavailable) {
+			t.Fatalf("err = %v, want ErrProviderUnavailable", err)
+		}
+		if !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("err = %v, want it to name the exceeded bound", err)
+		}
+	})
+}

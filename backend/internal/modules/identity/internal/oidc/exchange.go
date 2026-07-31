@@ -70,7 +70,21 @@ func (p *Provider) postToken(ctx context.Context, endpoint string, form url.Valu
 	}
 	//craft:ignore swallowed-errors best-effort close of a fully-read response body; the exchange outcome is decided below
 	defer func() { _ = resp.Body.Close() }()
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	// One byte past the cap, so an oversized body is DETECTED rather than
+	// silently truncated: LimitReader stops with a plain EOF, and a JSON object
+	// that happens to be complete before the cut would otherwise pass as the
+	// whole response.
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes+1))
+	if len(body) > maxBodyBytes {
+		return "", fmt.Errorf("%w: token response exceeds %d bytes", ErrProviderUnavailable, maxBodyBytes)
+	}
+	// A throttled token endpoint is weather, not a bad authorization: the
+	// provider is up and asking for backoff, and a fresh attempt works. Grouping
+	// it with stale codes and wrong client credentials would tell the human to
+	// stop trying.
+	if resp.StatusCode == http.StatusTooManyRequests {
+		return "", fmt.Errorf("%w: token endpoint is rate-limiting this client", ErrProviderUnavailable)
+	}
 	if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 		return "", fmt.Errorf("%w: token endpoint answered %d (%s)", ErrAuthorizationRejected, resp.StatusCode, oauthErrorCode(body))
 	}
@@ -79,8 +93,9 @@ func (p *Provider) postToken(ctx context.Context, endpoint string, form url.Valu
 	}
 	if readErr != nil {
 		// A truncated body whose prefix happens to be valid JSON must never
-		// pass as a complete token response.
-		return "", fmt.Errorf("%w: reading token response", ErrProviderUnavailable)
+		// pass as a complete token response. The cause is wrapped: an operator
+		// debugging a half-drained response needs to see what cut it short.
+		return "", fmt.Errorf("%w: reading token response: %w", ErrProviderUnavailable, readErr)
 	}
 	var parsed tokenResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {

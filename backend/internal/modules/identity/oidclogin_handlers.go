@@ -105,7 +105,12 @@ func NewOIDCLogin(cfg OIDCLoginConfig) (*OIDCLogin, error) {
 	}
 	domains := make([]string, 0, len(cfg.AllowedDomains))
 	for _, domain := range cfg.AllowedDomains {
-		domains = append(domains, strings.ToLower(strings.TrimSpace(domain)))
+		// A blank entry is dropped rather than kept as "": it would make the
+		// single-domain hint send `hd=` and, worse, could not match any real
+		// claim, so one stray line would refuse every account.
+		if normalized := strings.ToLower(strings.TrimSpace(domain)); normalized != "" {
+			domains = append(domains, normalized)
+		}
 	}
 	return &OIDCLogin{
 		key:            cfg.ProviderKey,
@@ -331,6 +336,9 @@ func (l *OIDCLogin) domainAllowed(external oidc.Identity) bool {
 		}
 		claimed = domain
 	}
+	// Lowered HERE as well as at the claim, so the comparison holds whatever a
+	// provider returns and does not depend on a normalization two files away.
+	claimed = strings.ToLower(claimed)
 	for _, allowed := range l.allowedDomains {
 		if claimed == allowed {
 			return true

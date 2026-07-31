@@ -33,7 +33,7 @@ describe("VITE_UI_PREVIEW_OIDC", () => {
     }
   });
 
-  it("substitutes two inert providers when explicitly enabled", () => {
+  it("substitutes two providers when explicitly enabled", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     for (const value of ["1", "true"]) {
       vi.stubEnv("VITE_UI_PREVIEW_OIDC", value);
