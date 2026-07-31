@@ -10,7 +10,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { AuthScreen, AvailabilityScreen } from "./auth";
+import { AuthScreen, AvailabilityScreen, ProviderButtons } from "./auth";
 
 // The unauthenticated surface (A107/ADR-0061 §12): login is the default —
 // no signup mode, no workspace field, no tenant selector on the wire — and
@@ -20,6 +20,11 @@ import { AuthScreen, AvailabilityScreen } from "./auth";
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // The UI-preview switch is read from import.meta.env at the call, so a case
+  // that turns it on must not leak into the next one — the default-off surface
+  // is what every other case in this file asserts.
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
   window.location.hash = "";
 });
 
@@ -36,8 +41,16 @@ const render = (ui: ReactNode) => {
 
 // stubApi answers GET /auth/capabilities from `capabilities` and records
 // every other call for the test to assert on.
+//
+// `oidc_providers` defaults to [] — the running installation's own answer while
+// the OIDC flow has not shipped (§19), and what keeps every case below asserting
+// a surface with no federated block. A test that wants one passes it.
 function stubApi(
-  capabilities: { password: boolean; password_reset: boolean },
+  capabilities: {
+    password: boolean;
+    password_reset: boolean;
+    oidc_providers?: ReadonlyArray<{ key: string; label: string }>;
+  },
   respond: (request: Request) => Response | Promise<Response>,
   profile: Response = ok(200, {
     name: "Margince",
@@ -54,7 +67,7 @@ function stubApi(
       const request = input instanceof Request ? input : new Request(input);
       if (new URL(request.url).pathname.endsWith("/auth/capabilities")) {
         return new Response(
-          JSON.stringify({ ...capabilities, oidc_providers: [] }),
+          JSON.stringify({ oidc_providers: [], ...capabilities }),
           { status: 200, headers: { "Content-Type": "application/json" } },
         );
       }
@@ -90,9 +103,20 @@ describe("AuthScreen login", () => {
     render(<AuthScreen onAuthed={vi.fn()} />);
 
     expect(screen.getByText("Margince · AI system")).toBeTruthy();
+    // The statement is TYPED now (ADR-0076 Decision 5), so the visible layer
+    // holds a partial string for the first second and there are three nodes
+    // carrying this sentence. Assert on the `.sr-only` one: it is what a screen
+    // reader is handed, it is complete on the first render, and reading the
+    // visible layer instead would be asserting on a race.
     expect(
       screen.getByText(
         "I can only use your context after Margince verifies that it's you.",
+        { selector: ".sr-only" },
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
       ),
     ).toBeTruthy();
     expect(await screen.findByText("Configured")).toBeTruthy();
@@ -110,7 +134,7 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    expect(await screen.findByLabelText("Email address")).toBeTruthy();
+    expect(await screen.findByLabelText("Email")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeTruthy();
     expect(screen.queryByText("Configured")).toBeNull();
   });
@@ -123,12 +147,11 @@ describe("AuthScreen login", () => {
     render(<AuthScreen onAuthed={onAuthed} />);
 
     expect(screen.queryByLabelText(/workspace/i)).toBeNull();
-    expect(screen.queryByText(/create/i)).toBeNull();
+    expect(
+      screen.queryByText(/create (your )?workspace|create one|sign up/i),
+    ).toBeNull();
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     // Enter inside the real <form> submits — no button click needed.
     await userEvent.type(
       screen.getByLabelText("Password"),
@@ -148,10 +171,7 @@ describe("AuthScreen login", () => {
     const probe = vi.fn().mockRejectedValue(new Error("session rejected"));
     const { container } = render(<AuthScreen onAuthed={probe} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(
       screen.getByLabelText("Password"),
       "correct-horse-battery{enter}",
@@ -162,8 +182,7 @@ describe("AuthScreen login", () => {
     );
     expect(probe).toHaveBeenCalledOnce();
     expect(
-      container.querySelector<HTMLElement>(".auth-experience")?.dataset
-        .authPhase,
+      container.querySelector<HTMLElement>(".auth-surface")?.dataset.authPhase,
     ).toBe("error");
   });
 
@@ -176,17 +195,14 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "wrong{enter}");
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain(
       "We couldn't sign you in. Check your email and password and try again.",
     );
-    expect(screen.getByLabelText("Email address")).toHaveProperty(
+    expect(screen.getByLabelText("Email")).toHaveProperty(
       "value",
       "ada@example.com",
     );
@@ -200,10 +216,7 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
 
     const alert = await screen.findByRole("alert");
@@ -218,10 +231,7 @@ describe("AuthScreen login", () => {
     );
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(screen.getByLabelText("Password"), "whatever{enter}");
 
     const alert = await screen.findByRole("alert");
@@ -235,10 +245,7 @@ describe("AuthScreen login", () => {
     window.location.hash = "#/deals/d-42";
     render(<AuthScreen onAuthed={vi.fn()} />);
 
-    await userEvent.type(
-      screen.getByLabelText("Email address"),
-      "ada@example.com",
-    );
+    await userEvent.type(screen.getByLabelText("Email"), "ada@example.com");
     await userEvent.type(
       screen.getByLabelText("Password"),
       "correct-horse-battery{enter}",
@@ -265,13 +272,268 @@ describe("AuthScreen login", () => {
   it("hides the forgot-password link when the capability is off, shows it when on", async () => {
     stubApi({ password: true, password_reset: false }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
-    await screen.findByLabelText("Email address");
+    await screen.findByLabelText("Email");
     expect(screen.queryByText("Forgot password?")).toBeNull();
     cleanup();
 
     stubApi({ password: true, password_reset: true }, () => ok(200));
     render(<AuthScreen onAuthed={vi.fn()} />);
     expect(await screen.findByText("Forgot password?")).toBeTruthy();
+  });
+
+  // The reset UI-preview switch (app/ui-preview.ts), on the screen. The capability
+  // is `false` in both halves — the running installation's own answer, since it
+  // has no mailer — so the switch is the only difference, which is the property
+  // this pair exists to pin.
+  it("draws the forgot-password link on a false capability only under the UI-preview switch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(screen.queryByText("Forgot password?")).toBeNull();
+    cleanup();
+
+    vi.stubEnv("VITE_UI_PREVIEW_RESET", "1");
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(await screen.findByText("Forgot password?")).toBeTruthy();
+  });
+
+  // §12: the two fields keep their VISIBLE labels, which is where this build
+  // deliberately parts company with the reference artifact — it names its fields
+  // with a placeholder and an aria-label. A placeholder is not a label: it
+  // disappears the moment the field has content (WCAG 3.3.2). The bordered shell
+  // must not quietly move the accessible name onto itself either.
+  it("names both fields with a real label, not a placeholder", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    for (const name of ["Email", "Password"]) {
+      const field = await screen.findByLabelText(name);
+      expect(field.tagName).toBe("INPUT");
+      // The accessible name comes from the <label>, so it survives typing.
+      expect(field.getAttribute("aria-label")).toBeNull();
+    }
+  });
+
+  // §6.7: the legal line states that ACCESS is restricted — never that data is
+  // safe, encrypted, sovereign or compliant, because those are outcome claims the
+  // installation's own configuration can contradict (VOICE-RULE-7).
+  it("states that access is restricted, and nothing about the data", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(
+      await screen.findByText("Access to this organization is restricted."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(/encrypted|compliant|sovereign|your data is safe/i),
+    ).toBeNull();
+    // Server paths, not app routes: both documents have to be readable BEFORE
+    // anyone authenticates, so they cannot sit behind the SPA router.
+    expect(screen.getByRole("link", { name: "Terms" })).toHaveProperty(
+      "pathname",
+      "/legal/terms",
+    );
+    expect(screen.getByRole("link", { name: "Privacy" })).toHaveProperty(
+      "pathname",
+      "/legal/privacy",
+    );
+  });
+});
+
+// §19/§11, and now the markup exists — so the gate has to be the CAPABILITY
+// rather than the absence of a component. Both directions, because only ever
+// testing the empty case is what let the block go unbuilt for so long.
+/**
+ * The text that NAMES a provider button.
+ *
+ * A button carrying the phone layout's short brand word has two label spans: an
+ * `.sr-only` copy of the served label, which is what assistive tech reads, and an
+ * `aria-hidden` visible one. A button whose served label has no recognised brand
+ * word has a single span and no `.sr-only` copy. Reading whichever exists is how
+ * these tests assert the name without depending on which layout the button was
+ * rendered for.
+ */
+function nameSource(button: HTMLElement): string | undefined {
+  const name =
+    button.querySelector(".sr-only") ??
+    button.querySelector(".auth-social-label");
+  return name?.textContent ?? undefined;
+}
+
+describe("federated sign-in", () => {
+  it("offers a provider only when the installation serves one", async () => {
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(
+      screen.queryByRole("button", { name: "Continue with Google" }),
+    ).toBeNull();
+    expect(screen.queryByText("or with email")).toBeNull();
+    cleanup();
+
+    stubApi(
+      {
+        password: true,
+        password_reset: true,
+        oidc_providers: [
+          { key: "google", label: "Continue with Google" },
+          { key: "microsoft", label: "Continue with Microsoft" },
+        ],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(
+      await screen.findByRole("button", { name: "Continue with Google" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Continue with Microsoft" }),
+    ).toBeTruthy();
+    // The divider labels the PASSWORD path below it, not the buttons above.
+    expect(screen.getByText("or with email")).toBeTruthy();
+  });
+
+  // The UI-preview switch (app/ui-preview.ts), on the screen rather than on the
+  // pure function. Both positions, and the OFF one is the assertion that matters:
+  // every other case in this file runs with the var unset, so the default is
+  // pinned by the whole suite — this pair pins that the switch is what changes it
+  // and that nothing else does.
+  it("draws the federated block on the real empty capability only under the UI-preview switch", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    await screen.findByLabelText("Email");
+    expect(
+      screen.queryByRole("button", { name: "Continue with Google" }),
+    ).toBeNull();
+    cleanup();
+
+    vi.stubEnv("VITE_UI_PREVIEW_OIDC", "1");
+    // Same stub, same empty `oidc_providers` the running server serves — the
+    // override is presentation, so the wire is identical in both halves.
+    stubApi({ password: true, password_reset: true }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    const google = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Continue with Google",
+    });
+    expect(google.disabled).toBe(false);
+    // The same switch marks the SECOND provider not-yet-available, so the preview
+    // shows both halves of the design rather than two identical buttons.
+    const microsoft = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Continue with Microsoft",
+    });
+    expect(microsoft.disabled).toBe(true);
+    expect(microsoft.classList.contains("is-unavailable")).toBe(true);
+    // Inert, and that is the point of the switch: it draws the design, it does
+    // not invent a redirect. Clicking must neither navigate nor hit the wire.
+    const calls = stubApi({ password: true, password_reset: true }, () =>
+      ok(200),
+    );
+    await userEvent.click(google);
+    expect(calls).toEqual([]);
+    expect(google).toBeTruthy();
+  });
+
+  // The product path, asserted as a property rather than assumed. A real server
+  // can never mark a provider — `oidc_providers[]` items are `{ key, label }` with
+  // no availability field — so on the shipped surface every button an
+  // installation serves is live and unannotated. This is the case that fails if
+  // the preview marker ever leaks into the default render.
+  it("leaves every served provider enabled and unannotated, with no unavailable set", async () => {
+    stubApi(
+      {
+        password: true,
+        password_reset: true,
+        oidc_providers: [
+          { key: "google", label: "Continue with Google" },
+          { key: "microsoft", label: "Continue with Microsoft" },
+        ],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    for (const label of ["Continue with Google", "Continue with Microsoft"]) {
+      const button = await screen.findByRole<HTMLButtonElement>("button", {
+        name: label,
+      });
+      expect(button.disabled).toBe(false);
+      // The accessible name is the server's label and nothing else. The role
+      // query above already proves it — `name` matches the COMPUTED name, which
+      // skips the `aria-hidden` copy. What is left to pin is the other half of
+      // the same promise: no words of ours reach that name, and the short brand
+      // word the phone layout shows is always the installation's own substring.
+      expect(nameSource(button)).toBe(label);
+      const brand = button.querySelector(".auth-social-brand")?.textContent;
+      if (brand) {
+        expect(label).toContain(brand);
+      }
+    }
+    expect(document.querySelector(".is-unavailable")).toBeNull();
+  });
+
+  // The preview marker (app/ui-preview.ts), on the component that renders it.
+  // Passing the set explicitly rather than through the env switch is deliberate:
+  // this case is about what the MARKUP does with a marked key, and the switch is
+  // pinned where it lives.
+  it("renders a marked provider as disabled without touching its label", async () => {
+    render(
+      <ProviderButtons
+        providers={[
+          { key: "google", label: "Continue with Google" },
+          { key: "microsoft", label: "Continue with Microsoft" },
+        ]}
+        unavailable={new Set(["microsoft"])}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    // The state is `disabled` plus a class the stylesheet draws, and the
+    // accessible name is left as the installation's own string. That is the
+    // assertion worth pinning: the marker must not append copy to somebody
+    // else's label, so an unrecognised provider on a real installation could
+    // never have words we wrote spliced onto the words they wrote.
+    const microsoft = await screen.findByRole<HTMLButtonElement>("button", {
+      name: "Continue with Microsoft",
+    });
+    expect(microsoft.disabled).toBe(true);
+    expect(microsoft.classList.contains("is-unavailable")).toBe(true);
+    // What names the button, not its raw text: the phone layout's short brand
+    // word is `aria-hidden` beside an `.sr-only` copy of the served label. What
+    // must never happen is a word of OURS reaching the name.
+    expect(nameSource(microsoft)).toBe("Continue with Microsoft");
+
+    // Only the marked one. The other provider is offered exactly as it would be
+    // on an installation that serves it.
+    const google = screen.getByRole<HTMLButtonElement>("button", {
+      name: "Continue with Google",
+    });
+    expect(google.disabled).toBe(false);
+  });
+
+  it("renders nothing at all for an empty capability", () => {
+    const { container } = render(
+      <ProviderButtons providers={[]} onSelect={vi.fn()} />,
+    );
+    expect(container.textContent).toBe("");
+  });
+
+  // The label is the installation's string. A frontend that composed it from the
+  // key would render "Continue with corp-sso" for a provider it does not know,
+  // and the button still has to work for that provider — which is why the mark
+  // falls back to a neutral icon rather than the block disappearing.
+  it("renders an unrecognised provider with its own label and reports its key", async () => {
+    const chosen: string[] = [];
+    render(
+      <ProviderButtons
+        providers={[{ key: "corp-sso", label: "Anmeldung über Werk-IT" }]}
+        onSelect={(key) => chosen.push(key)}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Anmeldung über Werk-IT" }),
+    );
+    expect(chosen).toEqual(["corp-sso"]);
   });
 });
 
@@ -284,7 +546,7 @@ describe("AuthScreen forgot password", () => {
 
     await userEvent.click(await screen.findByText("Forgot password?"));
     await userEvent.type(
-      screen.getByLabelText("Email address"),
+      screen.getByLabelText("Email"),
       "ada@example.com{enter}",
     );
 
@@ -353,6 +615,6 @@ describe("AvailabilityScreen", () => {
     render(<AvailabilityScreen kind="installation" onRetry={vi.fn()} />);
     expect(screen.getByText("Installation not ready")).toBeTruthy();
     // No credential fields: this is not a login problem.
-    expect(screen.queryByLabelText("Email address")).toBeNull();
+    expect(screen.queryByLabelText("Email")).toBeNull();
   });
 });

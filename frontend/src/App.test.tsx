@@ -179,7 +179,7 @@ describe("auth boundary states (login spec §4)", () => {
     vi.stubGlobal("fetch", probe(401));
     mount();
     expect(
-      await screen.findByRole("heading", { name: "Welcome back" }),
+      await screen.findByRole("heading", { name: "Sign in to Margince" }),
     ).toBeTruthy();
   });
 
@@ -189,7 +189,7 @@ describe("auth boundary states (login spec §4)", () => {
     expect(
       await screen.findByText("Margince couldn't be reached"),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("Email address")).toBeNull();
+    expect(screen.queryByLabelText("Email")).toBeNull();
   });
 
   it("renders installation-unavailable on 503 and retry re-probes /me", async () => {

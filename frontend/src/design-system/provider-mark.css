@@ -1,0 +1,14 @@
+/*
+ * The provider mark's box, and nothing about its colour.
+ *
+ * The colours are in `provider-mark.tsx` as each company's own literal fills,
+ * which is the one sanctioned exception to the token rule. Sizing them here
+ * keeps the one thing that IS ours to decide out of the marks themselves, so a
+ * caller that needs a different size sets `--providerMarkSize` rather than
+ * editing an SVG.
+ */
+.provider-mark {
+  width: var(--providerMarkSize, 17px);
+  height: var(--providerMarkSize, 17px);
+  flex: none;
+}

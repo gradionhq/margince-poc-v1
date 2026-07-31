@@ -1815,14 +1815,31 @@ export const en = {
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
   "auth.pageTitle": "Sign in · Margince",
-  "auth.loginTitle": "Welcome back",
-  "auth.loginSub": "Sign in so I can work with your context and permissions.",
+  "auth.loginTitle": "Sign in to Margince",
+  // Short declaratives rather than one comma-joined sentence (VOICE-RULE-1):
+  // each clause is a separate fact about the installation, and a reader who
+  // stops after the first has still read a true sentence. Two of them, not
+  // three — "Margince runs on your own server" is a claim about the product,
+  // and someone at a login screen is here to get in. What is left is the
+  // provisioning fact (A97, invite-only): what to do when there is no sign-up
+  // link.
+  "auth.loginSub":
+    "Accounts come from your administrator. There is no self-signup.",
   "auth.coreDisclosure": "Margince · AI system",
   "auth.coreBoundary":
     "I can only use your context after Margince verifies that it's you.",
+  // The scope of the context the statement above is about. Bounded on purpose:
+  // "nothing else" is what keeps it a limit rather than a list of capabilities,
+  // which is what the artifact's version of this line was.
+  "auth.coreScope":
+    "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
   "auth.corePermission": "I use your permissions.",
   "auth.coreCites": "I cite what I find.",
   "auth.coreWaits": "I wait before taking external action.",
+  // The fourth limit. The mockup's five became four, and one that did not
+  // travel says why: "enriches records from sources it names" is a capability
+  // claim, and ADR-0076 Decision 2 admits only limits. This one is a limit.
+  "auth.coreMarks": "I mark every value I wrote.",
   "auth.coreConfigured": "Configured",
   "auth.coreUnconfigured": "AI not configured",
   "auth.coreStillWorks": "The CRM still works.",
@@ -1838,12 +1855,31 @@ export const en = {
   "auth.coreProviderOpenAI": "OpenAI",
   "auth.coreProviderCompatible": "compatible provider",
   "auth.coreProviderVllm": "vLLM",
-  "auth.email": "Email address",
-  "auth.emailPlaceholder": "name@example.com",
+  // The shortest label that still names the field (VOICE-RULE-1), pinned by the
+  // login spec §7.1/§7.2 (Amendment 4) and reconciling
+  // single-organization-auth-concept.md §12, which already drew "Email".
+  "auth.email": "Email",
+  // A placeholder is an EXAMPLE, never an instruction and never the label
+  // again. "Enter your email" in a placeholder is a label that disappears.
+  "auth.emailPlaceholder": "you@company.com",
   "auth.password": "Password",
+  "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
+  "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // Labels the password path, not the provider buttons above it: where the
+  // installation runs SSO, the form beneath this divider is the fallback door.
+  "auth.orWithEmail": "or with email",
+  // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
+  // keeps `workspace` internal and §7.3 removed it from authentication. And the
+  // line states that ACCESS is restricted, never that data is safe, encrypted or
+  // compliant — VOICE-RULE-7 rules those out here, because they are outcome
+  // claims the installation's own configuration can contradict, on the screen a
+  // CISO reads on the way in.
+  "auth.legalProtected": "Access to this organization is restricted.",
+  "auth.legalTerms": "Terms",
+  "auth.legalPrivacy": "Privacy",
   "auth.signIn": "Sign in",
   "auth.signingIn": "Signing in…",
   "auth.failed": "That didn't work",
@@ -1865,14 +1901,17 @@ export const en = {
     "This Margince installation isn't ready to sign you in. An operator needs to complete or repair the setup.",
   "auth.forgotLink": "Forgot password?",
   "auth.forgotTitle": "Reset your password",
+  // Two sentences, sentence-cased, with no dash. VOICE-RULE-5 forbids an em or
+  // en dash anywhere in user-facing copy, and a lowercase opening mid-surface
+  // reads as a fragment rather than as a sentence. Same for auth.resetSub.
   "auth.forgotSub":
-    "enter your email — if it has an account, a reset link is on its way",
+    "Enter your email. If it has an account, a reset link is on its way.",
   "auth.sendResetLink": "Send reset link",
   "auth.forgotSentTitle": "Check your inbox",
   "auth.forgotSentBody":
     "If that address has an account, a reset link is on its way. It expires in one hour.",
   "auth.resetTitle": "Choose a new password",
-  "auth.resetSub": "your reset link checks out — set the new password below",
+  "auth.resetSub": "Your link is valid. Choose a new password.",
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",

@@ -36,6 +36,12 @@ type ObjectSyncStatus struct {
 	LastSyncedAt     time.Time
 	State            string
 	BackfillComplete bool
+	// FrozenForFlip marks a mirror held still by a pending overlay→native
+	// flip (flipstate.go's seal). While it is set the sweep skips this
+	// workspace entirely, so staleness grows on purpose — saying so here
+	// is the difference between "sync is paused for the cutover" and a
+	// mirror that merely looks idle.
+	FrozenForFlip bool
 }
 
 // SyncStatus states (overlay_mirror.sync_state's CHECK vocabulary,
@@ -152,12 +158,20 @@ func (s *Service) SyncStatus(ctx context.Context) ([]ObjectSyncStatus, error) {
 		}
 		rows.Close()
 
+		// The freeze is workspace-level: one read fills every entry.
+		var frozen bool
+		if err := tx.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM overlay_sync_state WHERE mirror_frozen_at IS NOT NULL)`,
+		).Scan(&frozen); err != nil {
+			return fmt.Errorf("overlay: reading the flip freeze for sync status: %w", err)
+		}
 		for i := range out {
 			complete, err := s.backfillCompleteFor(ctx, tx, out[i].Object)
 			if err != nil {
 				return err
 			}
 			out[i].BackfillComplete = complete
+			out[i].FrozenForFlip = frozen
 		}
 		return nil
 	})

@@ -90,6 +90,11 @@ func writeStoreErr(w http.ResponseWriter, r *http.Request, err error) {
 		httperr.Write(w, r, httperr.Validation(missing.Field, "required", missing.Error()))
 		return
 	}
+	var reserved *ReservedSourceSystemError
+	if errors.As(err, &reserved) {
+		httperr.Write(w, r, httperr.Validation("source_system", "reserved_source_system", reserved.Error()))
+		return
+	}
 	var dedupeInput *DedupeInputError
 	if errors.As(err, &dedupeInput) {
 		httperr.Write(w, r, httperr.Validation(dedupeInput.Field, "invalid", dedupeInput.Error()))
