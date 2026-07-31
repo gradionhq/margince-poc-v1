@@ -12,14 +12,18 @@ import { api } from "../api/client";
 import { Button } from "../design-system/atoms";
 import { useT } from "../i18n";
 import type { MessageKey } from "../i18n/en";
-import { BackfillPanel } from "./backfill";
 import { problemMessage, throwProblem } from "./common";
 import { imapErrorMessage } from "./imap-connect-form";
+import { OnboardingBackread } from "./onboarding-backread";
 
 // The provider connect panels: real inbox capture, one panel per provider.
 // The conversational connect act renders them in the artifact panel behind
 // the per-purpose consent turn; connecting stays value-before-permission
 // and the panels never claim a connection the server did not confirm.
+//
+// A confirmed OAuth connection hands straight to the backread step: access
+// granted is not history read, and the two are asked separately — the grant
+// costs nothing, reading the history spends budget.
 
 // The OAuth outcomes that no retry can clear: the provider refused the grant,
 // or its API was never enabled for this deployment. Keyed off the server's
@@ -241,7 +245,15 @@ export function OAuthReturnPanel({
           <span className="trustpill" style={{ marginTop: "var(--space-3)" }}>
             <ShieldCheck aria-hidden /> {t("ob.s4.connectLive")}
           </span>
-          <BackfillPanel provider={live.provider} />
+          {/* The mailbox is live, so the step is not finished yet: how far back
+              to read it is the next question, and the backread owns the exit
+              from here — its own leave controls finish onboarding, whether or
+              not a read is running. */}
+          <OnboardingBackread
+            provider={live.provider}
+            initial={live.backfill}
+            onFinish={(skipped) => void onComplete(skipped)}
+          />
         </>
       )}
       {!connections.isPending && !live && (
@@ -250,13 +262,15 @@ export function OAuthReturnPanel({
           body={t("ob.s4.connectRetry")}
         />
       )}
-      <Button
-        variant="primary"
-        style={{ marginTop: "var(--space-4)" }}
-        onClick={() => void onComplete(false)}
-      >
-        {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
-      </Button>
+      {live === undefined && (
+        <Button
+          variant="primary"
+          style={{ marginTop: "var(--space-4)" }}
+          onClick={() => void onComplete(false)}
+        >
+          {t("ob.s4.enterCrm")} <ArrowRight aria-hidden />
+        </Button>
+      )}
     </div>
   );
 }

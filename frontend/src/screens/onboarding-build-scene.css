@@ -1,0 +1,220 @@
+/*
+ * The handoff scene.
+ *
+ * Every delay here is a FRACTION of `--obBuildMs`, the duration the component
+ * was given, so the choreography compresses or stretches with the prop instead
+ * of drifting out of step with it. The fractions in order:
+ *
+ *   0.00–0.53  letters land, one every 0.035
+ *   0.12–0.44  ghost cards settle behind, one every 0.08
+ *   0.56–0.70  letters crossfade out
+ *   0.60–0.82  the real wordmark crossfades in
+ *   0.10       the subline appears and stays
+ *
+ * Nothing here reserves a place for a screen reader: the surrounding
+ * `role="status"` is named by the subline's own sentence, and the letters are
+ * `aria-hidden` in the markup.
+ *
+ * There is deliberately no `prefers-reduced-motion` block. The component
+ * renders nothing at all under that preference — the end state of a decorative
+ * pause is having passed it — so there is no animation left here to disable.
+ */
+
+.ob-build {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: repeat(2, auto);
+  align-content: center;
+  justify-items: center;
+  gap: var(--space-6);
+  padding: 48px var(--space-6);
+  background:
+    radial-gradient(
+      760px 520px at 50% 32%,
+      color-mix(in srgb, var(--coreLight) 34%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 5%, var(--bgElevated)) 0%,
+      var(--bgElevated) 100%
+    );
+}
+
+/* ===== the app, settling in behind ====================================== */
+/* Silhouettes, not a preview: hairlines and blank rows, no text, no numbers.
+   Held behind the mark and pushed out of the way of it. */
+.ob-build-ghosts {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: center;
+  gap: var(--space-4);
+  padding: 0 8vw;
+  /* Present, never legible — this is depth, not content. */
+  opacity: 0.5;
+  filter: blur(1px);
+}
+.ob-build-ghost {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  box-shadow: var(--shadow-card);
+  animation: ob-build-ghost-in calc(var(--obBuildMs) * 0.32)
+    calc(var(--obBuildMs) * (0.12 + 0.08 * var(--obGhost)))
+    cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+/* The outer two sit lower, so the three read as a spread rather than a row. */
+.ob-build-ghost:not(:nth-child(2)) {
+  margin-top: 44px;
+}
+/* The width of each bar comes from the component's own table — see the note
+   there on why the widths are the bars' identity too. */
+.ob-build-ghost-row {
+  height: 8px;
+  border-radius: var(--r-full);
+  background: var(--borderSubtle);
+}
+/* The first bar reads as a card's title. */
+.ob-build-ghost-row:first-child {
+  background: var(--borderStrong);
+}
+@keyframes ob-build-ghost-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===== the mark ========================================================= */
+/* One cell holding both states, so the crossfade cannot move the layout: the
+   typed word and the wordmark occupy the same grid area and the box keeps the
+   taller of the two heights. */
+.ob-build-mark {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  min-height: 56px;
+}
+.ob-build-mark > * {
+  grid-area: 1 / 1;
+}
+
+.ob-build-letters {
+  display: flex;
+  font-family: var(--f-display);
+  font-size: clamp(30px, 6vw, 46px);
+  font-weight: 500;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--textPrimary);
+  animation: ob-build-letters-out calc(var(--obBuildMs) * 0.14)
+    calc(var(--obBuildMs) * 0.56) ease both;
+}
+.ob-build-letter {
+  display: inline-block;
+  animation: ob-build-letter-in calc(var(--obBuildMs) * 0.28)
+    calc(var(--obBuildMs) * 0.035 * var(--obLetter))
+    cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+@keyframes ob-build-letter-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes ob-build-letters-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* The product's real wordmark (the shared <Wordmark>: two PNGs, theme-swapped
+   by auth.css, one accessible name on the container). It is in the DOM from the
+   first frame — only its paint waits — so its name is available to assistive
+   tech immediately. */
+.ob-build-wordmark {
+  display: grid;
+  place-items: center;
+  animation: ob-build-mark-in calc(var(--obBuildMs) * 0.22)
+    calc(var(--obBuildMs) * 0.6) cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+.ob-build-wordmark img {
+  width: 196px;
+  max-width: 62vw;
+  height: auto;
+}
+@keyframes ob-build-mark-in {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ===== what is happening ================================================ */
+.ob-build-sub {
+  position: relative;
+  z-index: 1;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  text-align: center;
+  color: var(--textMeta);
+  animation: ob-build-sub-in calc(var(--obBuildMs) * 0.24)
+    calc(var(--obBuildMs) * 0.1) cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+@keyframes ob-build-sub-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Below the three-column spread the ghosts stop reading as surfaces and start
+   reading as clutter behind the word. */
+@media (max-width: 720px) {
+  .ob-build-ghosts {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0 12vw;
+  }
+  /* One card, centred — the same one that sits centred at width. */
+  .ob-build-ghost:not(:nth-child(2)) {
+    display: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .ob-build-ghosts {
+    /* A silhouette that survives a forced palette is just a box in the way. */
+    display: none;
+  }
+}

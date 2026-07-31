@@ -6,6 +6,7 @@ import { Button } from "../../design-system/atoms";
 import { useT } from "../../i18n";
 import type { MessageKey } from "../../i18n/en";
 import { EMPTY_DRAFT } from "../onboarding";
+import { BuildScene } from "../onboarding-build-scene";
 import {
   ImapConnectPanel,
   OAuthConnectPanel,
@@ -66,6 +67,7 @@ export function ConnectAct({
   const [provider, setProvider] = useState<Provider | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [finishFailed, setFinishFailed] = useState(false);
+  const [entering, setEntering] = useState(false);
 
   const finish = async (skipped: boolean) => {
     setFinishing(true);
@@ -84,12 +86,20 @@ export function ConnectAct({
       return;
     }
     dispatch({ type: "CONNECT_DONE" });
-    navigate({ screen: "home" });
+    // Completion is recorded, so the handoff can take its beat: the build scene
+    // navigates when it is done. It resolves immediately under reduced motion,
+    // so nobody is held behind an animation they asked not to see.
+    setEntering(true);
   };
+
+  if (entering) {
+    return <BuildScene onDone={() => navigate({ screen: "home" })} />;
+  }
 
   return (
     <ConversationWorkbench
       core={presenceFor(state).core}
+      railState={state}
       status={t("ob.ai.ready")}
       artifact={
         <div className="mw-review ob-conv-artifact">
@@ -176,25 +186,29 @@ export function ConnectAct({
                     {t(providerLabels[key])}
                   </Button>
                 ))}
-                <Button
-                  small
-                  variant="ghost"
-                  disabled={finishing}
-                  onClick={() => void finish(true)}
-                >
-                  {t("ob.conv.connect.skip")}
-                </Button>
+                {/* Once consent has returned, "skip connecting" is no longer a
+                    true option — a mailbox is connected (or its confirmation
+                    failed and a provider chip is the retry), and recording the
+                    step as skipped would persist a fact that isn't so. The
+                    artifact panel owns the exit from there: the backread's own
+                    leave controls, or its confirm-failure button. */}
+                {outcome !== "ok" && (
+                  <Button
+                    small
+                    variant="ghost"
+                    disabled={finishing}
+                    onClick={() => void finish(true)}
+                  >
+                    {t("ob.conv.connect.skip")}
+                  </Button>
+                )}
               </div>
             </>
           )}
           {state.phase === "cn.done" && (
             <div className="ob-conv-chips">
-              <Button
-                small
-                variant="primary"
-                onClick={() => navigate({ screen: "home" })}
-              >
-                {t("ob.s4.enterCrm")}
+              <Button small variant="primary" onClick={() => setEntering(true)}>
+                {t("ob.enter.cta")}
               </Button>
             </div>
           )}

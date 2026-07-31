@@ -12,7 +12,10 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
-import { ImapConnectPanel } from "./onboarding-connect-panels";
+import {
+  ImapConnectPanel,
+  OAuthReturnPanel,
+} from "./onboarding-connect-panels";
 import { installFetchStub, jsonResponse } from "./story-utils";
 
 // The onboarding IMAP panel (G-10): the wizard's connect step for the one
@@ -182,6 +185,35 @@ describe("ImapConnectPanel", () => {
     expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["connectors"] });
   });
 
+  it("never offers a history read for IMAP, which has no backfiller behind it", async () => {
+    const backreadCalls: string[] = [];
+    installFetchStub({
+      "POST /connectors/imap/connect": () =>
+        jsonResponse({
+          connection: {
+            id: "c1",
+            provider: "imap",
+            status: "connected",
+            scopes: [],
+          },
+        }),
+      "POST /connectors/imap/backfill/preview": () => {
+        backreadCalls.push("preview");
+        return jsonResponse({ code: "connector_unsupported" }, 422);
+      },
+    });
+    render(
+      <ImapConnectPanel onComplete={vi.fn().mockResolvedValue(undefined)} />,
+    );
+    await fillValidForm();
+    await userEvent.click(
+      screen.getByRole("button", { name: /connect mailbox/i }),
+    );
+    await screen.findByText(/mailbox connected/i);
+    expect(screen.queryByText(/How far back should I read/)).toBeNull();
+    expect(backreadCalls).toEqual([]);
+  });
+
   it("skips the step without ever contacting the server", async () => {
     const calls: unknown[] = [];
     installFetchStub({
@@ -204,5 +236,83 @@ describe("ImapConnectPanel", () => {
     );
     expect(onComplete).toHaveBeenCalledWith(true);
     expect(calls.length).toBe(0);
+  });
+});
+
+// The confirmed OAuth connection hands to the backread step: the grant is not
+// the history read, and the roster row the panel already holds carries the run,
+// so a read in progress shows with no second request and no second start.
+describe("OAuthReturnPanel handing off to the backread", () => {
+  const rosterWith = (backfill?: Record<string, unknown>) => () =>
+    jsonResponse({
+      data: [
+        {
+          id: "g1",
+          provider: "gmail",
+          status: "connected",
+          scopes: ["read"],
+          ...(backfill ? { backfill } : {}),
+        },
+      ],
+    });
+
+  it("seeds a running read from the roster row rather than re-reading it", async () => {
+    const statusReads: string[] = [];
+    installFetchStub({
+      "GET /connectors": rosterWith({
+        state: "running",
+        estimated_messages: 400,
+        counts: { messages_scanned: 120 },
+      }),
+      "GET /connectors/gmail/backfill": () => {
+        statusReads.push("gmail");
+        return jsonResponse({ state: "running" });
+      },
+    });
+    render(<OAuthReturnPanel outcome="ok" onComplete={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Reading your mailbox" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("120 of about 400 messages")).toBeInTheDocument();
+    expect(statusReads).toEqual([]);
+    // The backread owns the exit while it runs; a second "enter" button beside
+    // it would finish the step without the read's own leave copy.
+    expect(
+      screen.queryByRole("button", { name: /enter your crm/i }),
+    ).toBeNull();
+  });
+
+  it("asks for the window when the mailbox has no read yet", async () => {
+    installFetchStub({
+      "GET /connectors": rosterWith({ state: "none" }),
+      "POST /connectors/gmail/backfill/preview": () =>
+        jsonResponse({
+          window: "6m",
+          estimated_messages: 4820,
+          computed_at: "2026-07-31T09:00:00Z",
+        }),
+    });
+    render(<OAuthReturnPanel outcome="ok" onComplete={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "How far back should I read?",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByText("About 4,820 messages in that window."),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the plain exit when no connection could be confirmed", async () => {
+    installFetchStub({ "GET /connectors": () => jsonResponse({ data: [] }) });
+    render(<OAuthReturnPanel outcome="ok" onComplete={vi.fn()} />);
+
+    await screen.findByText("We couldn't confirm the connection.");
+    expect(
+      screen.getByRole("button", { name: /enter your crm/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/How far back should I read/)).toBeNull();
   });
 });
