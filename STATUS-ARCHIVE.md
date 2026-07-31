@@ -31,10 +31,10 @@ the effect runs, the approval was left approved-but-unredeemed with no lead
 created. The pin is now opt-in per approval kind — a lead read off a company's
 website is FILED under that company rather than being an operation on it, so
 its effect reads no organization row and has no version to guard. A fitness
-test holds the opt-out list against the kinds whose effects actually read their
+test holds that list against the kinds whose effects actually read their
 target.
 
-#342 rebuilt the company detail page around a meeting brief that states what
+PR `#342` rebuilt the company detail page around a meeting brief that states what
 the account means rather than listing what it holds, made email bodies
 readable, grouped and deduplicated the facts wall, collapsed three overlapping
 people sections into one, and kept the rails mounted across tab switches. It
