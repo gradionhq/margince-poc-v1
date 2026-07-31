@@ -32,7 +32,7 @@ func TestDownloadOverlayExportRefusesBeforeStreaming(t *testing.T) {
 	// which is itself the assertion that nothing streams past a refusal.
 	h := overlayExportHandlers{writer: NewExportWriter(nil), log: slog.New(slog.DiscardHandler)}
 
-	t.Run("a seat without the overlay_connection grant", func(t *testing.T) {
+	t.Run("a seat with read-only overlay_connection access", func(t *testing.T) {
 		user := ids.NewV7()
 		w := httptest.NewRecorder()
 		h.DownloadOverlayExport(w, exportRequest(principal.Principal{

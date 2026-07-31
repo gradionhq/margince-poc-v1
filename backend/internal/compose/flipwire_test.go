@@ -201,3 +201,20 @@ func TestExportCutoffNeverFallsBackToAMeaninglessZero(t *testing.T) {
 		t.Errorf("cutoff = %v, want the newer sweep %v", got, rows)
 	}
 }
+
+func TestExportGateProvesNothingWithoutAWatermark(t *testing.T) {
+	// A workspace that has neither mirrored a row nor completed a sweep
+	// offers no instant to compare an export against. The cutoff is zero,
+	// and the gate must read that as "no export proven" — comparing
+	// against it would clear on any export in the workspace's history.
+	if got := exportCutoff(overlay.FlipChecks{}); !got.IsZero() {
+		t.Errorf("cutoff = %v, want the zero time on a workspace with no watermark at all", got)
+	}
+	exported, err := (&flipRunner{}).exportSince(t.Context(), time.Time{})
+	if err != nil {
+		t.Fatalf("exportSince: %v", err)
+	}
+	if exported {
+		t.Error("a zero cutoff reported an export as proven; every historical export would clear the gate")
+	}
+}

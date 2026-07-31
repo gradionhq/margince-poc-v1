@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -194,8 +195,18 @@ func TestIdentityMapIsIdempotentAndTenantFenced(t *testing.T) {
 	if _, found, err := s.LookupIdentity(ctxB, "hubspot", "person", "p-1"); err != nil || found {
 		t.Fatalf("workspace B resolved workspace A's identity (found=%v, err=%v)", found, err)
 	}
-	if err := s.RecordIdentity(ctxB, run.ID, "hubspot", "person", "p-9", ids.NewV7()); err == nil {
+	// Rejected AND existence-hiding: a bare constraint error would tell
+	// workspace B that A's run id is real, which is the thing row scope
+	// is supposed to withhold.
+	err = s.RecordIdentity(ctxB, run.ID, "hubspot", "person", "p-9", ids.NewV7())
+	if err == nil {
 		t.Fatal("recording an identity against ANOTHER workspace's run must be rejected by the database")
+	}
+	if !errors.Is(err, apperrors.ErrNotFound) {
+		t.Errorf("cross-workspace RecordIdentity err = %v, want ErrNotFound", err)
+	}
+	if strings.Contains(err.Error(), "import_record_map") || strings.Contains(err.Error(), "_on_update_import_run") {
+		t.Errorf("err %q names the database shape it was rejected by", err)
 	}
 }
 

@@ -73,6 +73,14 @@ func exportCutoff(checks overlay.FlipChecks) time.Time {
 // bundle writer's own (export.go); a bundle older than the mirror's
 // last change no longer captures the estate the flip will migrate.
 func (f *flipRunner) exportSince(ctx context.Context, since time.Time) (bool, error) {
+	if since.IsZero() {
+		// Neither a mirrored row nor a successful sweep: there is no
+		// instant an export could be newer than, and `occurred_at >= 0001`
+		// would match every export ever written — including one taken
+		// before the incumbent was connected at all. Nothing is proven, so
+		// the gate reports nothing proven.
+		return false, nil
+	}
 	var ok bool
 	err := database.WithWorkspaceTx(ctx, f.pool, func(tx pgx.Tx) error {
 		return tx.QueryRow(ctx, `

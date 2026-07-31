@@ -77,9 +77,20 @@ func (f *flipRunner) claimFlip(ctx context.Context) (func(), error) {
 	return func() {
 		once.Do(func() {
 			if _, err := conn.Exec(context.WithoutCancel(ctx), `SELECT pg_advisory_unlock($1)`, key); err != nil {
-				// The lock dies with the connection anyway; log rather
-				// than mask the flip's own outcome.
-				f.log.Warn("overlay flip: releasing the flip claim failed", "err", err)
+				// A session-level lock lives exactly as long as its
+				// session, and Release hands this connection back to the
+				// pool with that session intact — so a failed unlock would
+				// leave the claim held by an idle pooled connection and
+				// wedge every later flip in this workspace. Destroy the
+				// session instead; the lock cannot outlive it. Logged, not
+				// returned, so it never masks the flip's own outcome.
+				f.log.Warn("overlay flip: releasing the flip claim failed; closing the connection so the claim cannot outlive it", "err", err)
+				if hijacked := conn.Hijack(); hijacked != nil {
+					if cerr := hijacked.Close(context.WithoutCancel(ctx)); cerr != nil {
+						f.log.Warn("overlay flip: closing the hijacked flip-claim connection failed", "err", cerr)
+					}
+				}
+				return
 			}
 			conn.Release()
 		})

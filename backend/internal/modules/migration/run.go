@@ -229,6 +229,13 @@ func (s *RunStore) RecordIdentity(ctx context.Context, runID RunID, sourceSystem
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, $3, $4, $5)
 			ON CONFLICT (workspace_id, source_system, object, external_id) DO NOTHING`,
 			sourceSystem, object, externalID, nativeID, runID)
+		if storekit.IsForeignKeyViolation(err) {
+			// The composite FK is the row-scope boundary here: the run id
+			// belongs to another workspace. That is a scope miss, so it
+			// answers like every other one — not found, rather than a
+			// constraint name telling the caller the run exists elsewhere.
+			return fmt.Errorf("import run %s: %w", runID, apperrors.ErrNotFound)
+		}
 		if err != nil {
 			return fmt.Errorf("migration: recording the %s %s identity: %w", object, externalID, err)
 		}
