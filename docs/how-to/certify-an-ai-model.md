@@ -201,6 +201,14 @@ make e2e-ai TASK=enrich          # trace is ON by default
 Every candidate **and** judge call is dumped to a JSONL file under the
 repo-root `.tmp/aicert/` (gitignored), and the path is printed to stdout:
 
+> **Except a `no_payload` task**, whose content the contract forbids retaining
+> whatever the capture posture says (`ai.NoPayload`; today that is
+> `capture_counterparty_verdict`, which judges a counterparty's own message —
+> other people's data). Its calls carry no payload, so the trace has no line
+> for them and the run's `WARN … did not pass its validator/caps gate` detail
+> is the only evidence of what went wrong. That is the prohibition working, not
+> a gap to widen.
+
 ```text
 aicert: payload trace → /…/margince-next/.tmp/aicert/aicert-trace-20260719T054005Z.jsonl
 ```

@@ -47,9 +47,10 @@ binding beats the shipped Gemini default, which is only `supported_degraded`
 there.
 
 Certifying a second vendor is what surfaced the `orgbrief` unfencing bug
-below: Gemini does not fence its JSON, so a parser that could not read a
-fenced reply looked correct for as long as one provider was the only one
-measured.
+below, and the reason it survived is checkable rather than a guess:
+**`summarize` carried no certification record for ANY provider** before this
+run. Its model lane had never been exercised by the lane at all, so a parser
+that could not read a fenced reply had nothing to fail against.
 
 **Every failure is validator-side, not taste.** The judge liked the answers
 (median 85–100); what failed is the site's own contract. One of those turned
@@ -65,6 +66,21 @@ out to be OUR bug:
   transcript file and a recorded HTTP body — none is a model reply).
   `ai.Unfence` is a no-op on unfenced JSON, so Gemini is unaffected. After the
   fix `summarize` reports `invalid` 12 → **0**.
+
+Comparing the candidate against the incumbent per SCENARIO is what separates a
+model gap from a hard scenario, and it says three different things:
+
+- **Genuine Mistral gaps** (Gemini certified, Mistral not): `agent_loop`'s
+  `goal_already_answered_by_seed_context` (takes a tool step when the answer is
+  already in context, 0/3), `voice_build`'s
+  `owner_voice_candidate_from_authored_messages`, and
+  `capture_counterparty_verdict`'s `forged_fence_marker_is_data_not_authority`.
+- **Hard for both** (so not a candidate verdict): `offer_draft`'s
+  `injected_instruction_inside_evidence_is_ignored` and `site_extract`'s
+  `one_legal_page_naming_two_entities` — Gemini is `supported_degraded` on both.
+- **Mistral BEATS the incumbent** on `offer_draft`'s
+  `grounded_draft_from_a_conversation_price` (certified vs degraded) and on
+  `cold_start/company_message`.
 - **`summarize` still fails on citation grounding** (0.08, 8 abstained /
   3 wrong): the model writes a display name where the evidence schema requires
   an entity UUID (`"entity_id": "Nordwind Logistik AG"`), so
@@ -94,6 +110,48 @@ Three caveats on the numbers themselves:
   is a different model.
 - **`enrich` certifies at median 75**, its lowest passing band of the eight —
   the evidence gate is the likely reason and it is the next one to trace.
+
+Three things this run found that are NOT fixed here, each recorded rather than
+worked around:
+
+- **`offer_draft`/`rich_context_under_a_tight_token_cap` fails 0/3 for BOTH
+  models measured** — Gemini `gemini-3.1-flash-lite` and the candidate score
+  identically. The facts: the scenario caps the answer at 300 tokens
+  (`corpus/offer_draft/token_cap.yaml`), `offerdraft.go` sends
+  `MaxTokens: ai.ReasoningOutputMaxTokens` (8192), and the prompt states no
+  budget — so the cap measures a model's NATURAL verbosity rather than its
+  ability to comply with a stated limit.
+
+  Whether that is the intent is a question for whoever authored it, not one to
+  settle by editing the cap: an efficiency bar nothing currently clears is real
+  information, and raising it to make the scenario green would delete that
+  signal. Left exactly as it is, deliberately. Worth asking upstream (P3)
+  whether the bar is meant to be met or meant to bite.
+- **A fenced span puts two near-identical UUIDv7s side by side, and the fence
+  must NOT be the thing that changes.** `promptfence.New()` mints its nonce
+  with `ids.NewV7()` and the row id is an `ids.NewV7()` too, so a span renders
+  as `<untrusted-019fb647-f538-73f5-… id="019fb647-f538-73f4-…">` — sharing a
+  long timestamp prefix, because UUIDv7 encodes the clock in its leading bits.
+  Asked to echo the `id=` one, `ministral-8b` spliced them and returned
+  `019fb629-019fb629-47a9-…`, which the validator correctly refused. Gemini
+  passes the same scenario, so this is a small-model hazard, not a defect.
+
+  Do **not** address it by reformatting the nonce: promptfence's forgery-removal
+  completeness argument rests on the marker's alphabet being closed and known
+  ("a lowercase ASCII prefix and a canonical UUID"), and `markerPattern` treats
+  `[0-9a-fA-F-]` as marker-shaped. The UUID shape is load-bearing for a security
+  property, across 16 production callers. Do not loosen the id check either.
+  If a cheap rung ever has to be trusted on a per-id task, the safe direction is
+  to make the ATTRIBUTE distinct at the site — a short per-call ordinal mapped
+  back to the real id in code — never to touch the boundary.
+- **The payload trace cannot show a `no_payload` task's candidate call.**
+  `capture_counterparty_verdict` is the sole member of `noPayloadTasks` (its
+  content is a counterparty's, i.e. other people's), so `Router.CapturesPayload`
+  returns false and `payloadTrace.record` skips the call. That is the contract
+  working; the how-to's claim that every candidate and judge call is dumped is
+  what was wrong, and it is corrected. The consequence to remember: when that
+  task fails, the validator detail is the ONLY evidence — there is no reply to
+  read.
 
 Worth knowing before touching the embeddings lane: `openai_compatible`
 deliberately never sends `dimensions` (a non-MRL model behind vLLM 400s on
