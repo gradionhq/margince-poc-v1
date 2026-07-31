@@ -56,13 +56,20 @@ function withheld(view: Organization360, section: Section): boolean {
   return (view.sections_omitted ?? []).includes(section);
 }
 
-/** daysBetween counts whole days, floored, so "13 days ago" never reads as 14. */
+/**
+ * daysBetween counts whole days, floored, so "13 days ago" never reads as 14.
+ *
+ * Never negative. A timestamp in the future is a real state — clock skew
+ * between the server and this browser, or an imported activity dated ahead —
+ * and "last contact was -1 days ago" is not a sentence. Zero reads as today,
+ * which is what a future timestamp means to a reader.
+ */
 function daysBetween(from: string, now: Date): number {
   const then = new Date(from).getTime();
   if (Number.isNaN(then)) {
     return 0;
   }
-  return Math.floor((now.getTime() - then) / 86_400_000);
+  return Math.max(0, Math.floor((now.getTime() - then) / 86_400_000));
 }
 
 /**
@@ -235,8 +242,16 @@ function coverage(view: Organization360): AccountFinding[] {
   // The role must be held on one of THOSE deals: a champion on a deal that
   // closed last year says nothing about the one open now, and counting them
   // hid the gap on exactly the accounts that have it.
+  //
+  // And it needs ALL of them. With open deals past this page, a champion held
+  // on one this response did not list reads as a champion nobody holds — the
+  // same truncation trap the contact set has, on the other axis.
   const openDeals = view.deals?.data ?? [];
-  if (openDeals.length > 0 && !withheld(view, "deals")) {
+  const dealsComplete =
+    !withheld(view, "deals") &&
+    !view.deals?.page.has_more &&
+    openDeals.length > 0;
+  if (dealsComplete) {
     const openIds = new Set(openDeals.map((deal) => deal.deal_id));
     const hasChampion = contacts.some((c) =>
       c.deal_roles.some(
@@ -244,7 +259,14 @@ function coverage(view: Organization360): AccountFinding[] {
       ),
     );
     if (!hasChampion) {
-      out.push({ id: "no-champion", tone: "risk", key: "co.read.noChampion" });
+      out.push({
+        id: "no-champion",
+        tone: "risk",
+        key:
+          openDeals.length === 1
+            ? "co.read.noChampion.one"
+            : "co.read.noChampion.other",
+      });
     }
   }
   return out;

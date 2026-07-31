@@ -608,7 +608,7 @@ export const de = {
   "co.profileField.register_vat": "Register / USt-IdNr.",
   "co.profileField.industry": "Branche",
   "co.profileField.history": "Historie",
-  "co.profile.title": "Was diese Firma macht",
+  "co.profile.title": "Firmenprofil",
   "co.reach.answered": "Antwortet",
   "co.reach.silent": "Keine Antwort",
   "co.reach.untried": "Nie angesprochen",
@@ -643,7 +643,9 @@ export const de = {
   "co.read.singleThread":
     "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",
   "co.read.oneContact": "{name} ist dein einziger Zugang zu diesem Account.",
-  "co.read.noChampion": "Am offenen Deal ist kein Champion benannt.",
+  "co.read.noChampion.one": "Am offenen Deal ist kein Champion benannt.",
+  "co.read.noChampion.other":
+    "An keinem der offenen Deals ist ein Champion benannt.",
   "co.read.stalled": "{name} kommt nicht voran.",
   "co.read.noOpenDeal": "Kein offener Deal, und bisher nichts gewonnen.",
   "co.read.noOpenDealCustomer":

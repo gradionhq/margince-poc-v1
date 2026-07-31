@@ -50,15 +50,22 @@ function deals(over: Partial<Deals> = {}): Deals {
   };
 }
 
+// The organization is spelled out rather than cast into shape: a cast would
+// hide a field the schema later requires, and these builders exist so a
+// contract change breaks the tests instead of passing through them.
+function organization(): Organization360["organization"] {
+  return {
+    id: "o1",
+    workspace_id: "w1",
+    display_name: "ScaleCommerce",
+    version: 1,
+  };
+}
+
 function view(over: Partial<Organization360> = {}): Organization360 {
   return {
     as_of: NOW.toISOString(),
-    organization: {
-      id: "o1",
-      workspace_id: "w1",
-      display_name: "ScaleCommerce",
-      version: 1,
-    } as Organization360["organization"],
+    organization: organization(),
     sections_omitted: [],
     ...over,
   };
@@ -133,6 +140,49 @@ describe("readAccount", () => {
       }),
     });
     expect(ids(v)).toContain("no-champion");
+  });
+
+  it("says nothing about a champion when open deals run past this page", () => {
+    // The champion may be named on a deal this response did not carry, so
+    // "nobody is champion" is a claim this read cannot make. Silence is the
+    // only honest output — a false gap sends a rep into a call to fix
+    // something that is not broken.
+    const v = view({
+      people: { data: [contact()], page: { has_more: false } },
+      deals: deals({
+        data: [
+          { deal_id: "d1", name: "Pilot", status: "open", stalled: false },
+        ],
+        page: { has_more: true },
+      }),
+    });
+    expect(ids(v)).not.toContain("no-champion");
+  });
+
+  it("speaks of one open deal or several, never 'the deal' for both", () => {
+    const one = view({
+      people: { data: [contact()], page: { has_more: false } },
+      deals: deals({
+        data: [
+          { deal_id: "d1", name: "Pilot", status: "open", stalled: false },
+        ],
+      }),
+    });
+    expect(readAccount(one, NOW).find((f) => f.id === "no-champion")?.key).toBe(
+      "co.read.noChampion.one",
+    );
+    const several = view({
+      people: { data: [contact()], page: { has_more: false } },
+      deals: deals({
+        data: [
+          { deal_id: "d1", name: "Pilot", status: "open", stalled: false },
+          { deal_id: "d2", name: "Rollout", status: "open", stalled: false },
+        ],
+      }),
+    });
+    expect(
+      readAccount(several, NOW).find((f) => f.id === "no-champion")?.key,
+    ).toBe("co.read.noChampion.other");
   });
 
   it("distinguishes a never-customer from a customer with nothing open", () => {

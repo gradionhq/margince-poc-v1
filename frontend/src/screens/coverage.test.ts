@@ -90,6 +90,13 @@ describe("missingRoles", () => {
     expect(missingRoles([contact()], open, true)).toEqual([]);
   });
 
+  it("makes no claim from an empty contact set the caller could not read", () => {
+    // Withheld and truncated arrive here identically — an empty array — so the
+    // caller collapses both into `incomplete`. Reporting every role missing
+    // from contacts nobody read is the failure this guards.
+    expect(missingRoles([], open, true)).toEqual([]);
+  });
+
   it("reports no gap on an account with no open deal", () => {
     // A committee gap is a statement about a deal. With nothing running there
     // is no committee to be short of.

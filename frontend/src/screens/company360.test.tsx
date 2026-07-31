@@ -173,6 +173,36 @@ describe("company view — withheld sections", () => {
       within(card).queryByText("Hidden — your role cannot read this"),
     ).toBeNull();
   });
+
+  it("reports no committee gap when the people section was withheld", async () => {
+    // The gap is computed from the contact list, and a withheld section
+    // arrives as the same empty array an account with no contacts does.
+    // Reading "nobody here is your champion" off contacts the caller was
+    // never allowed to see states a fact about data the page does not have.
+    stub(
+      view({
+        people: undefined,
+        sections_omitted: ["people"],
+        deals: {
+          data: [
+            {
+              deal_id: "d-1",
+              name: "Pilot",
+              status: "open",
+              stalled: false,
+            },
+          ],
+          page: emptyPage,
+          won_lifetime: { amount_minor: 0, currency: "EUR" },
+          lost_count: 0,
+        },
+      }),
+    );
+    renderCompany();
+
+    await screen.findByRole("complementary", { name: "Business" });
+    expect(screen.queryByText(/Nobody here is your/)).toBeNull();
+  });
 });
 
 describe("company view — consent is per purpose", () => {

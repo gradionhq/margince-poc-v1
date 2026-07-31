@@ -90,16 +90,22 @@ export function roleLabelKey(role: CommitteeRole): MessageKey {
  * account's OPEN deals.
  *
  * Scoped to open deals because a champion on a deal that closed last year says
- * nothing about the one running now. Returns nothing at all when the contact
- * list is truncated: the twenty-sixth contact is exactly where the missing
- * champion would be.
+ * nothing about the one running now.
+ *
+ * `incomplete` says the caller could not see the whole picture — contacts past
+ * the first page, contacts withheld by the reader's grants, or open deals past
+ * their own first page. It returns nothing at all in that case, because "nobody
+ * is champion" is a claim about EVERY contact on EVERY open deal: the
+ * twenty-sixth contact is exactly where the champion would be, and a role held
+ * on a deal this page did not list reads as a role nobody holds. A partial
+ * answer here is worse than none — the reader cannot tell which one they got.
  */
 export function missingRoles(
   contacts: readonly Contact[],
   openDealIds: ReadonlySet<string>,
-  truncated: boolean,
+  incomplete: boolean,
 ): CommitteeRole[] {
-  if (truncated || openDealIds.size === 0) {
+  if (incomplete || openDealIds.size === 0) {
     return [];
   }
   const held = new Set<string>();

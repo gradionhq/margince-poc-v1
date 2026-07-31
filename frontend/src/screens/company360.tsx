@@ -253,7 +253,18 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   const openDealIds = new Set(
     dealsReadable ? (view?.deals?.data ?? []).map((deal) => deal.deal_id) : [],
   );
-  const missing = missingRoles(contacts, openDealIds, truncated);
+  // Every way the committee picture can be partial, in one flag. An empty
+  // `contacts` means "nobody" only when the section was actually READ: a
+  // people section the grants withheld, or one this response never carried,
+  // leaves the same empty array and would otherwise report both roles missing
+  // from data the page never had. Deals past their first page hide the roles
+  // held on them the same way.
+  const committeeIncomplete =
+    truncated ||
+    !view?.people ||
+    omitted(view, "people") ||
+    Boolean(view?.deals?.page.has_more);
+  const missing = missingRoles(contacts, openDealIds, committeeIncomplete);
   const untried = contacts.filter((c) => reachOf(c) === "untried");
   return (
     <SectionCard

@@ -597,7 +597,7 @@ export const en = {
   "co.profileField.register_vat": "Register / VAT ID",
   "co.profileField.industry": "Industry",
   "co.profileField.history": "History",
-  "co.profile.title": "What this company does",
+  "co.profile.title": "Company profile",
   "co.reach.answered": "Answered",
   "co.reach.silent": "No reply",
   "co.reach.untried": "Not approached",
@@ -630,7 +630,8 @@ export const en = {
   "co.read.singleThread":
     "Only {name} has ever engaged. Nobody else here has responded.",
   "co.read.oneContact": "{name} is your only way into this account.",
-  "co.read.noChampion": "No champion is named on the open deal.",
+  "co.read.noChampion.one": "No champion is named on the open deal.",
+  "co.read.noChampion.other": "No champion is named on any of the open deals.",
   "co.read.stalled": "{name} has stalled.",
   "co.read.noOpenDeal": "No open deal, and nothing won here yet.",
   "co.read.noOpenDealCustomer":
