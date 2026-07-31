@@ -32,7 +32,9 @@ const noAction = () => undefined;
 function frame(counts: PayoffCounts) {
   return (
     <StoryProviders>
-      <div style={{ maxWidth: 620, padding: 24 }}>
+      {/* The width the payoff actually gets inside the conversation column,
+          so the grid wraps here the way it wraps in the flow. */}
+      <div style={{ maxWidth: "620px", padding: "var(--space-6)" }}>
         <PayoffMessage counts={counts} locale="en" onContinue={noAction} />
       </div>
     </StoryProviders>
