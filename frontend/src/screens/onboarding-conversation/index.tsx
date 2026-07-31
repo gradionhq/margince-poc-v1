@@ -41,7 +41,7 @@ const voiceProbeSteps = new Set<OnboardingState["step"]>([
   "connect",
 ]);
 
-async function loadWizardState(): Promise<OnboardingState | null> {
+export async function loadWizardState(): Promise<OnboardingState | null> {
   const { data, error, response } = await api.GET("/onboarding/state");
   if (error) {
     if (response.status === 404) {
@@ -323,6 +323,7 @@ export function OnboardingConversationScreen() {
           dispatch={dispatch}
           profile={existing.data ?? null}
           voiceBuilt={voiceBuilt}
+          corpusWords={voice.data?.summary?.total_words ?? null}
         />
       )}
       {(state.act === "connect" || state.act === "done") && (

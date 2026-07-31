@@ -296,9 +296,7 @@ describe("restore into the conversational shell", () => {
     stubApi();
     render(<OnboardingScreen />);
 
-    expect(
-      await screen.findByText(/Where should I start reading\?/),
-    ).toBeTruthy();
+    expect(await screen.findByLabelText(/Your website address/)).toBeTruthy();
     expect(screen.queryByText(/Welcome back/)).toBeNull();
   });
 
@@ -380,7 +378,7 @@ describe("restore into the conversational shell", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText(/You skipped the voice profile\./)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Understood" })).toBeTruthy();
   });
 
   it("continuing out of the results act checkpoints step connect", async () => {
@@ -391,7 +389,7 @@ describe("restore into the conversational shell", () => {
     render(<OnboardingScreen />);
 
     await userEvent.click(
-      await screen.findByRole("button", { name: "Continue" }),
+      await screen.findByRole("button", { name: "Understood" }),
     );
 
     expect(
@@ -520,7 +518,7 @@ describe("reload adoption of a persisted read", () => {
       await screen.findByText(/My earlier read of gradion\.com did not finish/),
     ).toBeTruthy();
     expect(
-      await screen.findByRole("textbox", { name: /Type your website address/ }),
+      await screen.findByRole("textbox", { name: /Your website address/ }),
     ).toBeTruthy();
     expect(screen.queryByText(/Accept all/)).toBeNull();
   });
@@ -528,6 +526,20 @@ describe("reload adoption of a persisted read", () => {
 
 describe("finishing the connect act", () => {
   it("persists completion BEFORE navigating; a failed write is narrated and retryable", async () => {
+    // The handoff plays a build scene before it navigates. This case is about
+    // the ordering — completion recorded first, navigation only after — so it
+    // takes the reduced-motion path, where the scene resolves on its first
+    // commit. The scene's own timing is pinned in onboarding-build-scene.test.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("prefers-reduced-motion"),
+      media: query,
+      onchange: null,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+      addListener: () => undefined,
+      removeListener: () => undefined,
+      dispatchEvent: () => false,
+    }));
     const options: StubOptions = {
       state: stateRow({ path: "member", step: "connect" }),
       company: savedProfile,

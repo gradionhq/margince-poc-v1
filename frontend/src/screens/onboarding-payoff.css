@@ -1,0 +1,158 @@
+/*
+ * The payoff grid — the emphatic moment of onboarding, and still one hairline.
+ *
+ * The gutters ARE the hairlines: the grid paints `--borderSubtle` and each cell
+ * paints over it with a 1px gap, so six cells cost one border colour and no
+ * per-cell rules that could disagree at the seams. Restraint is the whole
+ * point — an emphatic moment made of visible haze reads as a demo.
+ *
+ * Accent, not brand action: the cells sit on `--accentSurface` (the page-wash
+ * step of the ramp) and the numbers stay `--textPrimary`. Green means the user
+ * acts, and a count is not a control.
+ */
+
+.ob-payoff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Prose, not a heading — the step owning this screen holds the h1. */
+.ob-payoff-lead {
+  font-family: var(--f-display);
+  font-size: 22px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: -0.022em;
+  text-wrap: balance;
+  color: var(--textPrimary);
+}
+
+.ob-payoff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* The 1px gap plus the container's own background is the entire rule set —
+     see the file header. */
+  gap: 1px;
+  background: var(--borderSubtle);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--borderSubtle));
+  border-radius: var(--r-sm);
+  /* Clips the cells' square corners to the container's radius. */
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.ob-payoff-cell {
+  min-width: 0;
+  display: flex;
+  /* `<dt>` before `<dd>` in the DOM (a description list is not negotiable),
+     number above label on screen. Reversing the column is what lets both be
+     true at once. */
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  background: var(--accentSurface);
+}
+
+.ob-payoff-value {
+  margin: 0;
+  font-family: var(--f-mono);
+  /* Every one of these is a number that differs per installation, so the
+     columns line up on the digits rather than on the glyph widths. */
+  font-variant-numeric: tabular-nums;
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--textPrimary);
+}
+
+.ob-payoff-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  /* --textMeta is the AA floor role for anything under 13px. */
+  color: var(--textMeta);
+}
+
+/* A cell with no number to report. Set as a sentence rather than as a figure:
+   it is a statement about what was not done, and dressing it in the number's
+   type would make an absence look like a measurement. */
+.ob-payoff-note {
+  margin: 0;
+  align-self: center;
+  font-family: var(--f-body);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--textMeta);
+}
+.ob-payoff-cell.is-absent {
+  justify-content: center;
+}
+
+.ob-payoff-body {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--textContent);
+}
+
+/* The two deferrals. Each names its own exit inside its translated sentence,
+   so the well holds prose and never a path assembled from parts. */
+.ob-payoff-next {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgCard);
+}
+.ob-payoff-next li {
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--textContent);
+}
+
+.ob-payoff-actions {
+  display: flex;
+}
+.ob-payoff-actions .btn {
+  min-height: 44px;
+}
+
+/* Six cells stay six cells: two columns rather than a dropped row. */
+@media (max-width: 760px) {
+  .ob-payoff-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .ob-payoff-lead {
+    font-size: 19px;
+  }
+  .ob-payoff-cell {
+    padding: var(--space-3);
+  }
+  .ob-payoff-value {
+    font-size: 23px;
+  }
+  .ob-payoff-actions .btn {
+    /* A finger's target spans the column at this width. */
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+@media (forced-colors: active) {
+  .ob-payoff-grid,
+  .ob-payoff-next {
+    forced-color-adjust: auto;
+  }
+}
