@@ -219,14 +219,35 @@ function coverage(view: Organization360): AccountFinding[] {
     return [{ id: "no-contacts", tone: "risk", key: "co.read.noContacts" }];
   }
   const out: AccountFinding[] = [];
-  const engaged = contacts.filter((c) => c.strength.score > 0);
+  // Engagement is counted from the traffic itself, not from the score. The
+  // score is a decayed function of recency, frequency and reciprocity, so a
+  // real reply near the edge of the window rounds to zero — and the contact's
+  // own row, which reads the same counts, would then say "Answered" one line
+  // under a brief saying nobody but Alice engaged.
+  //
+  // Three things the SENTENCE has to carry, or it claims more than the counts
+  // support — and the timeline right below it is where a reader would catch
+  // each one.
+  //
+  // The window: these cover the last STRENGTH_WINDOW_DAYS, so "has ever
+  // engaged" is disproved by an account whose committee wrote four months ago.
+  // The direction: a contact qualifies on OUTBOUND alone, so "has been in
+  // contact" would call mail we sent at someone who never answered a
+  // relationship. And the CHANNELS: the server counts email, calls and
+  // meetings only (people/strength.go strengthKinds), so a second contact's
+  // WhatsApp or Telegram sits on the timeline while contributing nothing here.
+  // Naming the three channels is what keeps the line true beside that row.
+  const engaged = contacts.filter(
+    (c) =>
+      (c.strength.inbound_90d ?? 0) > 0 || (c.strength.outbound_90d ?? 0) > 0,
+  );
   if (engaged.length === 1 && contacts.length > 1) {
     const only = engaged[0];
     out.push({
       id: "single-thread",
       tone: "risk",
       key: "co.read.singleThread",
-      params: { name: only.full_name },
+      params: { name: only.full_name, days: STRENGTH_WINDOW_DAYS },
     });
   } else if (contacts.length === 1) {
     out.push({
@@ -356,8 +377,13 @@ function commitments(view: Organization360): AccountFinding[] {
   if (!steps || withheld(view, "next_steps")) {
     return [];
   }
+  // Both claims below are about the WHOLE commitment list, and this section
+  // carries only its first page. A count taken from it reads as the total —
+  // "25 commitments are overdue" when 26 are — and "no next step" is a claim
+  // about a list whose remainder was never sent.
+  const complete = !view.next_steps?.page.has_more;
   const overdue = steps.filter((step) => step.overdue);
-  if (overdue.length > 0) {
+  if (overdue.length > 0 && complete) {
     return [
       {
         id: "overdue",
@@ -368,7 +394,7 @@ function commitments(view: Organization360): AccountFinding[] {
       },
     ];
   }
-  if (steps.length === 0) {
+  if (steps.length === 0 && complete) {
     return [{ id: "no-next-step", tone: "risk", key: "co.read.noNextStep" }];
   }
   return [];

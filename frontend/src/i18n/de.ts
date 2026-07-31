@@ -609,6 +609,7 @@ export const de = {
   "co.profileField.industry": "Branche",
   "co.profileField.history": "Historie",
   "co.profile.title": "Firmenprofil",
+  "co.reach.window": "Kontaktstatus der letzten 90 Tage",
   "co.reach.answered": "Antwortet",
   "co.reach.silent": "Keine Antwort",
   "co.reach.untried": "Nie angesprochen",
@@ -641,7 +642,7 @@ export const de = {
     "Du hast in den letzten {days} Tagen {count} Kontakte hier angeschrieben, keiner hat geantwortet.",
   "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
   "co.read.singleThread":
-    "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",
+    "Nur bei {name} sind in den letzten {days} Tagen E-Mails, Anrufe oder Termine erfasst.",
   "co.read.oneContact": "{name} ist dein einziger Zugang zu diesem Account.",
   "co.read.noChampion.one": "Am offenen Deal ist kein Champion benannt.",
   "co.read.noChampion.other":
