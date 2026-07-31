@@ -511,95 +511,32 @@ describe("company view — figures that outlive the list they sit under", () => 
   });
 });
 
-describe("company view — the account brief", () => {
-  it("says which of the two wrote it, and never leaves that implied", async () => {
-    briefBody = {
-      organization_id: "o-1",
-      generated_at: "2026-06-01T09:00:00Z",
-      generated_by: "deterministic",
-      sentences: [
-        {
-          text: "Fleet retrofit has stalled.",
-          evidence: [{ entity_type: "deal", entity_id: "d-1" }],
-        },
-      ],
-    };
-    stub(view());
-    renderCompany();
-
-    await waitFor(() =>
-      expect(screen.getByText("Fleet retrofit has stalled.")).toBeTruthy(),
-    );
-    // The deterministic floor and a model-written brief are not
-    // interchangeable, and a reader weighing a sentence needs to know which.
-    expect(screen.getByText("Assembled from your records")).toBeTruthy();
-    expect(screen.queryByText("Written by Margince")).toBeNull();
-    // Each sentence carries the record it was written from.
-    expect(screen.getByRole("button", { name: "deal" })).toBeTruthy();
-  });
-
-  it("names a model-written brief as model-written", async () => {
-    briefBody = {
-      organization_id: "o-1",
-      generated_at: "2026-06-01T09:00:00Z",
-      generated_by: "model",
-      sentences: [
-        {
-          text: "Two open deals.",
-          evidence: [{ entity_type: "organization", entity_id: "o-1" }],
-        },
-      ],
-    };
-    stub(view());
-    renderCompany();
-
-    await waitFor(() =>
-      expect(screen.getByText("Written by Margince")).toBeTruthy(),
-    );
-    expect(screen.getByText("Two open deals.")).toBeTruthy();
-    expect(screen.queryByText("Assembled from your records")).toBeNull();
-  });
-
-  it("reports a payload it cannot read as unreadable, not as an empty brief", async () => {
-    briefBody = { data: [], page: emptyPage };
-    stub(view());
-    renderCompany();
-
-    const card = await waitFor(() => {
-      const section = screen.getByText("Account brief").closest("section");
-      if (!section) {
-        throw new Error("the brief card has no section wrapper");
-      }
-      // Waits for the read to finish, so "unreadable" is asserted about a
-      // settled query rather than about one still in flight.
-      within(section).getByText(/Could not be loaded/);
-      return section;
-    });
-    expect(within(card).getByText(/Could not be loaded/)).toBeTruthy();
-  });
-});
-
 // The company page's own affordances: what it says is waiting, and what a
 // reader can do about it without leaving the account.
 
-describe("company view — the citations under a sentence", () => {
+describe("company view — the citations under a finding", () => {
+  // The chips are shared by every grounded surface on this page. They are
+  // exercised through the advice the brief carries, which is where a reader
+  // meets them now that the standing summary card is gone.
+  const suggestion = (evidence: unknown[]) => ({
+    kind: "no_reply" as const,
+    fingerprint: "f-1",
+    reason: "You reached out 13 days ago and nobody has come back.",
+    evidence,
+  });
+
   it("collapses several sources of one unopenable kind into one counted chip", async () => {
-    briefBody = {
-      organization_id: "o-1",
-      generated_at: "2026-06-01T09:00:00Z",
-      generated_by: "deterministic",
-      sentences: [
-        {
-          text: "3 open tasks, the earliest due 17 Jul 2026.",
-          evidence: [
+    stub(
+      view({
+        suggestions: [
+          suggestion([
             { entity_type: "activity", entity_id: "a-1" },
             { entity_type: "activity", entity_id: "a-2" },
             { entity_type: "activity", entity_id: "a-3" },
-          ],
-        },
-      ],
-    };
-    stub(view());
+          ]),
+        ],
+      }),
+    );
     renderCompany();
     // Not "activityactivityactivity": one chip that says how many.
     await waitFor(() => expect(screen.getByText("3 activities")).toBeTruthy());
@@ -607,21 +544,16 @@ describe("company view — the citations under a sentence", () => {
   });
 
   it("counts one record cited twice as one source", async () => {
-    briefBody = {
-      organization_id: "o-1",
-      generated_at: "2026-06-01T09:00:00Z",
-      generated_by: "deterministic",
-      sentences: [
-        {
-          text: "One task is open.",
-          evidence: [
+    stub(
+      view({
+        suggestions: [
+          suggestion([
             { entity_type: "activity", entity_id: "a-1" },
             { entity_type: "activity", entity_id: "a-1" },
-          ],
-        },
-      ],
-    };
-    stub(view());
+          ]),
+        ],
+      }),
+    );
     renderCompany();
     await waitFor(() => expect(screen.getByText("activity")).toBeTruthy());
     expect(screen.queryByText("2 activities")).toBeNull();

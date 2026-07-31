@@ -544,7 +544,7 @@ export const de = {
   "approval.kind.org_name_promotion": "Account umbenennen",
   "approval.kind.fx_rate_proposal": "Wechselkurse aktualisieren",
   "approval.kind.ai_model_rate_proposal": "Modellpreise aktualisieren",
-  "co.assistant.title": "Was Margince sieht",
+  "co.assistant.title": "Diesen Account befragen",
   "co.assistant.aiTag": "KI-gestützt",
   "co.decisions.open": "{count} offene prüfen",
   "co.decisions.title": "Offene Entscheidungen",
@@ -626,8 +626,6 @@ export const de = {
     "Teile dieses Accounts sind für dich nicht sichtbar. Diese Einschätzung ist deshalb unvollständig.",
   "co.read.lastTouch": "Der letzte Kontakt war vor {days} Tagen.",
   "co.read.lastTouchOne": "Der letzte Kontakt war gestern.",
-  "co.read.shallow":
-    "Die Namen sind erfasst, eine echte Beziehung besteht hier aber noch nicht.",
   "co.read.neverTouched": "Mit diesem Account hatte bisher niemand Kontakt.",
   "co.read.newActivityOne": "Ein neuer Vorgang seit deinem letzten Besuch.",
   "co.read.newActivityMany":
@@ -636,8 +634,10 @@ export const de = {
     "Ein Deal hat seit deinem letzten Besuch die Phase gewechselt.",
   "co.read.dealMovedMany":
     "{count} Deals haben seit deinem letzten Besuch die Phase gewechselt.",
-  "co.read.oneWay":
-    "Die letzten {count} Nachrichten kamen alle von uns. Zurück kam nichts.",
+  "co.read.unansweredOne":
+    "Eine Nachricht in den letzten {days} Tagen raus, zurück kam nichts.",
+  "co.read.unansweredMany":
+    "{count} Nachrichten in den letzten {days} Tagen raus, zurück kam nichts.",
   "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
   "co.read.singleThread":
     "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",

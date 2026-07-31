@@ -534,7 +534,7 @@ export const en = {
   "approval.kind.org_name_promotion": "Rename an account",
   "approval.kind.fx_rate_proposal": "Refresh exchange rates",
   "approval.kind.ai_model_rate_proposal": "Refresh model prices",
-  "co.assistant.title": "What Margince sees",
+  "co.assistant.title": "Ask about this account",
   "co.assistant.aiTag": "AI-assisted",
   "co.decisions.open": "Review {count} waiting",
   "co.decisions.title": "Decisions waiting",
@@ -615,16 +615,16 @@ export const en = {
     "Parts of this account are hidden from you, so this reading is incomplete.",
   "co.read.lastTouch": "Last contact was {days} days ago.",
   "co.read.lastTouchOne": "Last contact was yesterday.",
-  "co.read.shallow":
-    "The names are on file, but there is no real relationship here yet.",
   "co.read.neverTouched":
     "Nobody has ever been in contact with anyone at this account.",
   "co.read.newActivityOne": "One new item since your last visit.",
   "co.read.newActivityMany": "{count} new items since your last visit.",
   "co.read.dealMovedOne": "One deal moved stage since your last visit.",
   "co.read.dealMovedMany": "{count} deals moved stage since your last visit.",
-  "co.read.oneWay":
-    "The last {count} messages here were all ours. Nothing has come back.",
+  "co.read.unansweredOne":
+    "One message out in the last {days} days, and nothing back.",
+  "co.read.unansweredMany":
+    "{count} messages out in the last {days} days, and nothing back.",
   "co.read.noContacts": "You do not know anyone at this account yet.",
   "co.read.singleThread":
     "Only {name} has ever engaged. Nobody else here has responded.",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
-import { QUIET_DAYS, readAccount } from "./accountread";
+import { QUIET_DAYS, readAccount, STRENGTH_WINDOW_DAYS } from "./accountread";
 
 type Organization360 = components["schemas"]["Organization360"];
 
@@ -84,41 +84,6 @@ describe("readAccount", () => {
       NOW,
     ).find((f) => f.id === "quiet");
     expect(stale?.tone).toBe("risk");
-  });
-
-  it("names a shallow relationship even when every contact has some score", () => {
-    // Three names each scoring a point or two is a populated-looking account
-    // with no relationship in it. The server's bucket is the authority.
-    const v = view({
-      strength: strength({
-        score: 2,
-        bucket: "weak",
-        last_interaction: daysAgo(3),
-        contributor_person_id: "p1",
-      }),
-      people: { data: [contact()], page: { has_more: false } },
-    });
-    const shallow = readAccount(v, NOW).find((f) => f.id === "shallow");
-    // The score stays in the header chip; this line says what it means and
-    // points at whoever is closest, named from the payload we already have.
-    expect(shallow?.params).toBeUndefined();
-    expect(shallow?.subject).toEqual({
-      kind: "person",
-      id: "p1",
-      label: "Christian Hagemeyer",
-    });
-    expect(shallow?.tone).toBe("risk");
-  });
-
-  it("says nothing about depth on a strong account", () => {
-    const v = view({
-      strength: strength({
-        score: 70,
-        bucket: "strong",
-        last_interaction: daysAgo(3),
-      }),
-    });
-    expect(ids(v)).not.toContain("shallow");
   });
 
   it("separates contacts on file from contacts who have ever engaged", () => {
@@ -231,21 +196,6 @@ describe("readAccount", () => {
     expect(moved?.params?.count).toBe(2);
   });
 
-  it("does not name a contact this reader's own payload never carried", () => {
-    // Withheld, or past the section's page: the line stands without a name
-    // rather than sending the page off to resolve an id.
-    const v = view({
-      strength: strength({
-        bucket: "weak",
-        last_interaction: daysAgo(3),
-        contributor_person_id: "p-unseen",
-      }),
-    });
-    const shallow = readAccount(v, NOW).find((f) => f.id === "shallow");
-    expect(shallow).toBeDefined();
-    expect(shallow?.subject).toBeUndefined();
-  });
-
   it("makes no claim about coverage from a truncated contact list", () => {
     // The section carries only its first page. "Only one person has engaged"
     // and "nobody is champion" are statements about the whole set, and the
@@ -311,84 +261,137 @@ describe("readAccount", () => {
     expect(ids(v)).not.toContain("no-champion");
   });
 
-  it("names a run of unanswered messages as one-way", () => {
+  it("reads last contact off the timeline the reader can see", () => {
+    // Strength counts only interactions linked to a contact; the timeline
+    // shows everything. Sourcing this from strength put "13 days ago" above a
+    // timeline whose newest row was yesterday.
     const v = view({
+      strength: strength({ last_interaction: daysAgo(13) }),
       activities: {
         data: [
-          { id: "a1", kind: "email", direction: "outbound" },
-          { id: "a2", kind: "email", direction: "outbound" },
-          { id: "a3", kind: "email", direction: "outbound" },
-        ],
-        page: { has_more: false },
-      },
-    } as Partial<Organization360>);
-    const oneWay = readAccount(v, NOW).find((f) => f.id === "one-way");
-    expect(oneWay?.key).toBe("co.read.oneWay");
-    expect(oneWay?.params?.count).toBe(3);
-  });
-
-  it("counts only the current run, not the whole history's balance", () => {
-    // Newest first. A reply behind three unanswered messages does not make
-    // the run answered, and an account that replied once a year ago is
-    // exactly the one a lifetime ratio would average away.
-    const v = view({
-      activities: {
-        data: [
-          { id: "a1", kind: "email", direction: "outbound" },
-          { id: "a2", kind: "email", direction: "outbound" },
-          { id: "a3", kind: "email", direction: "outbound" },
-          { id: "a4", kind: "email", direction: "inbound" },
+          {
+            id: "a1",
+            kind: "email",
+            direction: "outbound",
+            occurred_at: daysAgo(2),
+          },
+          {
+            id: "a2",
+            kind: "email",
+            direction: "inbound",
+            occurred_at: daysAgo(13),
+          },
         ],
         page: { has_more: false },
       },
     } as Partial<Organization360>);
     expect(
-      readAccount(v, NOW).find((f) => f.id === "one-way")?.params?.count,
-    ).toBe(3);
+      readAccount(v, NOW).find((f) => f.id === "quiet")?.params?.days,
+    ).toBe(2);
   });
 
-  it("says nothing once they have answered the latest message", () => {
+  it("does not count a note to ourselves as an exchange with them", () => {
     const v = view({
+      strength: strength({ last_interaction: daysAgo(13) }),
       activities: {
         data: [
-          { id: "a1", kind: "email", direction: "inbound" },
-          { id: "a2", kind: "email", direction: "outbound" },
-          { id: "a3", kind: "email", direction: "outbound" },
-          { id: "a4", kind: "email", direction: "outbound" },
+          { id: "a1", kind: "note", occurred_at: daysAgo(1) },
+          {
+            id: "a2",
+            kind: "email",
+            direction: "outbound",
+            occurred_at: daysAgo(13),
+          },
         ],
         page: { has_more: false },
       },
     } as Partial<Organization360>);
-    expect(ids(v)).not.toContain("one-way");
+    expect(
+      readAccount(v, NOW).find((f) => f.id === "quiet")?.params?.days,
+    ).toBe(13);
   });
 
-  it("treats a follow-up as normal rather than as a pattern", () => {
+  it("never says nobody has been in touch while messages are on screen", () => {
+    // strength carries no last_interaction, but the timeline lists mail we
+    // sent. Saying both in one screen is the page contradicting itself.
     const v = view({
+      strength: strength({ last_interaction: undefined, contact_count: 3 }),
       activities: {
         data: [
-          { id: "a1", kind: "email", direction: "outbound" },
-          { id: "a2", kind: "email", direction: "outbound" },
+          {
+            id: "a1",
+            kind: "email",
+            direction: "outbound",
+            occurred_at: daysAgo(4),
+          },
         ],
         page: { has_more: false },
       },
     } as Partial<Organization360>);
-    expect(ids(v)).not.toContain("one-way");
+    const found = ids(v);
+    expect(found).not.toContain("never-touched");
+    expect(found).toContain("quiet");
   });
 
-  it("ignores rows that carry no direction at all", () => {
-    // Notes and tasks have no direction. Counting them as ours would call a
-    // page of internal notes an unanswered outreach.
+  it("still says nobody has been in touch when neither source knows of one", () => {
     const v = view({
-      activities: {
-        data: [
-          { id: "a1", kind: "note" },
-          { id: "a2", kind: "task" },
-          { id: "a3", kind: "note" },
-        ],
-        page: { has_more: false },
-      },
+      strength: strength({ last_interaction: undefined, contact_count: 3 }),
+      activities: { data: [], page: { has_more: false } },
     } as Partial<Organization360>);
-    expect(ids(v)).not.toContain("one-way");
+    expect(ids(v)).toContain("never-touched");
+  });
+
+  it("falls back to strength when the activities section is withheld", () => {
+    const v = view({
+      sections_omitted: ["activities"],
+      strength: strength({ last_interaction: daysAgo(20) }),
+    } as Partial<Organization360>);
+    expect(
+      readAccount(v, NOW).find((f) => f.id === "quiet")?.params?.days,
+    ).toBe(20);
+  });
+
+  it("explains a low score with the traffic behind it", () => {
+    // The score is a 90-day engagement measure, not a verdict on whether a
+    // relationship exists. An account with a year of correspondence and two
+    // unanswered mails this quarter scores 2 — and reading that as "there is
+    // no relationship here" was simply false.
+    const v = view({
+      strength: strength({
+        score: 2,
+        bucket: "weak",
+        last_interaction: daysAgo(13),
+        outbound_90d: 2,
+        inbound_90d: 0,
+      }),
+    });
+    const found = readAccount(v, NOW).find((f) => f.id === "unanswered");
+    expect(found?.key).toBe("co.read.unansweredMany");
+    expect(found?.params).toEqual({ count: 2, days: STRENGTH_WINDOW_DAYS });
+  });
+
+  it("says nothing when they have answered inside the window", () => {
+    const v = view({
+      strength: strength({
+        last_interaction: daysAgo(3),
+        outbound_90d: 4,
+        inbound_90d: 2,
+      }),
+    });
+    expect(ids(v)).not.toContain("unanswered");
+  });
+
+  it("says nothing when the window carried no traffic at all", () => {
+    // Silence in the window is what the last-contact line already reports;
+    // "0 messages out and nothing back" adds nothing and reads as an error.
+    const v = view({
+      strength: strength({
+        last_interaction: daysAgo(200),
+        outbound_90d: 0,
+        inbound_90d: 0,
+      }),
+    });
+    expect(ids(v)).not.toContain("unanswered");
   });
 
   it("leads with the overdue commitment and names it", () => {

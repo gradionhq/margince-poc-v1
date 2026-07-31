@@ -25,10 +25,11 @@ type Section = Organization360["sections_omitted"][number];
 export const QUIET_DAYS = 14;
 
 /**
- * ONE_WAY_FLOOR is how long a run of unanswered messages has to be to mean
- * something. Two is a follow-up; three is a pattern.
+ * STRENGTH_WINDOW_DAYS is the window the server's inbound/outbound counts and
+ * the relationship score are computed over (PO-F-3). Named here because the
+ * brief states it: "two messages out" means nothing without "in 90 days".
  */
-export const ONE_WAY_FLOOR = 3;
+export const STRENGTH_WINDOW_DAYS = 90;
 
 /** A finding is one sentence the page is prepared to defend, plus its subject. */
 export type AccountFinding = {
@@ -79,12 +80,11 @@ export function readAccount(
 ): AccountFinding[] {
   const findings: AccountFinding[] = [];
   findings.push(...quietness(view, now));
-  findings.push(...depth(view));
   findings.push(...sinceLastVisit(view));
   findings.push(...coverage(view));
   findings.push(...pipeline(view));
   findings.push(...commitments(view));
-  findings.push(...reciprocity(view));
+  findings.push(...exchange(view));
   // Risks first: the reader's attention is spent top-down, and the neutral
   // lines are context for the risks rather than the other way round.
   return [
@@ -93,16 +93,49 @@ export function readAccount(
   ];
 }
 
-// How long this account has been quiet. Read off the strength section, which
-// is what carries the last interaction.
+/**
+ * lastExchange is when a message last passed between us and this account.
+ *
+ * It is read off the ACTIVITIES the page is about to draw, not off the
+ * strength section, because those two answer different questions and the
+ * reader can see both at once. Strength counts email, calls and meetings
+ * linked to a contact; the timeline shows everything on the account. Sourcing
+ * the brief from strength put "last contact was 13 days ago" directly above a
+ * timeline whose newest row was yesterday, and gave the reader no way to tell
+ * which was wrong.
+ *
+ * Only directed rows count. A note we wrote to ourselves is not an exchange
+ * with them, which is also why this cannot simply take the newest row.
+ */
+function lastExchange(view: Organization360): string | undefined {
+  if (withheld(view, "activities")) {
+    return undefined;
+  }
+  for (const activity of view.activities?.data ?? []) {
+    if (activity.direction) {
+      return activity.occurred_at;
+    }
+  }
+  return undefined;
+}
+
+// How long this account has been quiet.
 function quietness(view: Organization360, now: Date): AccountFinding[] {
   const strength = view.strength;
   if (!strength || withheld(view, "strength")) {
     return [];
   }
-  if (!strength.last_interaction) {
-    // Contacts on file and not one recorded interaction: a real state, and a
+  // Strength is the fallback, for a reader whose grants withheld the
+  // activities section: it knows an interaction happened without being able
+  // to show which one.
+  const at = lastExchange(view) ?? strength.last_interaction;
+  if (!at) {
+    // Contacts on file and not one recorded exchange: a real state, and a
     // different one from an account nobody has entered yet.
+    //
+    // Both sources have to be silent. Claiming nobody has ever been in touch
+    // while the timeline below lists five messages we sent is not a
+    // near-miss; it is the page contradicting itself in one screen.
     return strength.contact_count > 0
       ? [{ id: "never-touched", tone: "risk", key: "co.read.neverTouched" }]
       : [];
@@ -111,50 +144,13 @@ function quietness(view: Organization360, now: Date): AccountFinding[] {
   // and "we spoke in April" lead to different opening sentences. Only the tone
   // changes at the threshold: below it this is context, above it it is the
   // thing to deal with.
-  const days = daysBetween(strength.last_interaction, now);
+  const days = daysBetween(at, now);
   return [
     {
       id: "quiet",
       tone: days >= QUIET_DAYS ? "risk" : "neutral",
       key: days === 1 ? "co.read.lastTouchOne" : "co.read.lastTouch",
       params: { days },
-    },
-  ];
-}
-
-// How much of a relationship there actually is.
-//
-// The bucket is the server's word for it and nothing here re-derives a band
-// from the score: a low bucket on an account with contacts on file means the
-// names exist but the relationship does not, which is the single most
-// misleading thing a populated-looking account page can hide.
-function depth(view: Organization360): AccountFinding[] {
-  const strength = view.strength;
-  if (!strength || withheld(view, "strength") || !strength.last_interaction) {
-    return [];
-  }
-  if (strength.bucket !== "weak" && strength.bucket !== "dormant") {
-    return [];
-  }
-  // The score itself stays in the header chip. Repeating it here would put the
-  // same number on screen twice; this line's job is what it MEANS.
-  //
-  // The strongest contact is named only if this reader's own people section
-  // carried them. Absent — withheld, or past the section's page — the line
-  // stands without a name rather than sending the page off to look one up.
-  const contributor = view.people?.data.find(
-    (c) => c.person_id === strength.contributor_person_id,
-  );
-  return [
-    {
-      id: "shallow",
-      tone: "risk",
-      key: "co.read.shallow",
-      subject: contributor && {
-        kind: "person",
-        id: contributor.person_id,
-        label: contributor.full_name,
-      },
     },
   ];
 }
@@ -284,43 +280,36 @@ function pipeline(view: Organization360): AccountFinding[] {
   return out;
 }
 
-// Whether the conversation is still going, or has become a broadcast.
-//
-// The measure is the CURRENT RUN of unanswered messages, not the whole
-// history's balance. An account that replied once a year ago and has ignored
-// the last five mails is the one worth flagging, and a ratio over everything
-// ever sent would average that away. The run is also the only claim the
-// payload can support on its own: the activities section is paged, so
-// "nobody has ever replied" is not something this read can know, while "the
-// last five were ours" is true of the window whatever sits behind it.
-function reciprocity(view: Organization360): AccountFinding[] {
-  const activities = view.activities?.data;
-  if (!activities || withheld(view, "activities")) {
+/**
+ * exchange reports the traffic in the strength window: how much we sent, and
+ * how much came back.
+ *
+ * These are the server's own counts (`outbound_90d` / `inbound_90d`), the
+ * same ones the relationship score is built from, so a low score is EXPLAINED
+ * on the page instead of asserted. Saying the window out loud is the point: an
+ * account with a year of correspondence and nothing in the last quarter is a
+ * real and useful state, and reading its low score as "there is no
+ * relationship here" was simply false.
+ */
+function exchange(view: Organization360): AccountFinding[] {
+  const strength = view.strength;
+  if (!strength || withheld(view, "strength")) {
     return [];
   }
-  // Rows with no direction — notes, tasks — are ours by definition and say
-  // nothing about whether they answered, so they are skipped rather than
-  // counted: a page of internal notes is not an unanswered outreach.
-  const directed = activities.filter((a) => a.direction);
-  let run = 0;
-  for (const activity of directed) {
-    if (activity.direction !== "outbound") {
-      break;
-    }
-    run += 1;
-  }
-  // One unanswered message is normal; a run of them is the account telling
-  // you something, and the point at which a fourth of the same kind is the
-  // wrong move.
-  if (run < ONE_WAY_FLOOR) {
+  const out = strength.outbound_90d ?? 0;
+  const back = strength.inbound_90d ?? 0;
+  // Nothing at all in the window says nothing on its own; the last-contact
+  // line already carries how long it has been. Traffic in both directions is
+  // a conversation, and a conversation needs no line of its own.
+  if (out === 0 || back > 0) {
     return [];
   }
   return [
     {
-      id: "one-way",
+      id: "unanswered",
       tone: "risk",
-      key: "co.read.oneWay",
-      params: { count: run },
+      key: out === 1 ? "co.read.unansweredOne" : "co.read.unansweredMany",
+      params: { count: out, days: STRENGTH_WINDOW_DAYS },
     },
   ];
 }
