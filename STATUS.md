@@ -24,6 +24,52 @@ Vite/React web UI. What is deliberately still stubbed (answering explicit
 The merge gate (`make check`), the real-Postgres integration lane
 (`make test-integration`), and the live-boot job are all green.
 
+## Session pickup — 2026-07-31
+
+**A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
+binds OpenRouter through the generic `openai_compatible` adapter, with three
+candidates per tier ordered EU → China → USA — every one filtered to models
+whose catalog entry declares BOTH `structured_outputs` and `tools`, because a
+model missing either fails on the wire rather than on quality. Mistral is the
+only EU vendor OpenRouter carries, so the EU rungs are all Mistral by
+availability, not by preference. The file declares `cloud_frontier`, not
+`eu_hosted`: an EU vendor is not EU-hosted inference, and this path sends no
+provider-routing preference, so no residency claim would hold.
+
+`make e2e-ai TASK=cold_start` against that binding is **certified** at
+reliability 1.00 (`records/cold_start/openai_compatible_mistralai_ministral-14b-2512_cloud_frontier.json`),
+and on `cold_start/company_message` it beats the shipped Gemini default, which
+is only `supported_degraded` there.
+
+Three things this left open, in priority order:
+
+- **`ministral-14b` sits ON the certified/degraded boundary.** Two 12-run
+  passes disagreed: 0.92 with one run scoring 0, then 1.00 with min score 80.
+  The committed record is the second. Re-certify with `RUNS=5` before anyone
+  treats the EU cheap rung as settled.
+- **Only `cold_start` has been measured on OpenRouter.** The other twelve
+  shipped tasks are `absent` for this binding — `site_extract` matters most,
+  since its evidence gate demands verbatim quotes and that is where a weak
+  model comes back thin rather than failing.
+- **Certifying the `premium` rung self-judges.** `cert_judge`'s ladder is
+  `{premium, cheap_cloud}`, so a premium candidate grades its own answers. An
+  independent premium number needs a routing file whose premium rung is a
+  different model.
+
+Worth knowing before touching the embeddings lane: `openai_compatible`
+deliberately never sends `dimensions` (a non-MRL model behind vLLM 400s on
+it), so on that provider the configured width must EQUAL the model's native
+width. That caps the lane at the 2000 ceiling regardless of price, which puts
+`qwen3-embedding-4b` (2560) and `-8b` (4096) out of reach. `mistral-embed-2312`
+and `bge-m3` are both 1024 and verified against the live endpoint.
+
+One deliberate finding recorded rather than worked around:
+`mistral-small-3.2-24b` is `not_supported` on `cold_start` because it answers
+the confirm-first staging turn with "I've set the display name to …", claiming
+a write the turn does not make. Every run was deterministically accepted and
+scored 40/40/40 by the judge — the validator cannot see the claim, only the
+rubric can.
+
 ## Session pickup — 2026-07-30
 
 **The company page's second pass fixed what the first one shipped broken.** The
