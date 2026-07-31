@@ -1188,6 +1188,12 @@ export const de = {
   "ob.ai.awaitingModel": "Nach meinem ersten Modellaufruf sichtbar",
   "ob.ai.notAvailableYet": "Noch nicht verfügbar",
   "ob.ai.runtimeUnavailable": "Laufzeitdetails nicht verfügbar",
+  // Die Laufzeit-Offenlegung ist ein Chip zum Öffnen, kein Dauerband: Kosten
+  // stehen da, WÄHREND sie entstehen, aber wer entscheidet, ob eine
+  // Rechtsform stimmt, soll dafür keine Abrechnungstabelle lesen müssen.
+  "ob.ai.runtimeChip": "Was antwortet, und was es kostet",
+  "ob.ai.answeringNow": "Was gerade antwortet",
+  "ob.ai.runScope": "Nur dieser Lauf. Das ganze Protokoll: Einstellungen → KI.",
   "ob.ai.tier.localSmall": "lokal, schnell",
   "ob.ai.tier.cheapCloud": "Cloud, effizient",
   "ob.ai.tier.premium": "Premium-Reasoning",
@@ -1804,6 +1810,206 @@ export const de = {
   "ob.conv.next.decisionMany": "{count} Entscheidungen offen",
   "ob.conv.next.review": "Deine Durchsicht ist bereit",
   "ob.conv.next.build": "Bereit, deine Stimme zu bauen",
+
+  // Die Setup-Leiste: fünf Stationen, je ein Wort. Lang genug, den Schritt zu
+  // benennen, kurz genug, dass fünf davon bei 10px in eine Spalte passen.
+  "ob.rail.read": "Lesen",
+  "ob.rail.confirm": "Bestätigen",
+  "ob.rail.voice": "Stimme",
+  "ob.rail.ready": "Fertig",
+  "ob.rail.connect": "Verbinden",
+
+  // --- das Tor: der erste Screen nach der Anmeldung ----------------------
+  // Eine Frage und sonst nichts. Niemand soll das ganze Werkzeug auf dem
+  // ersten Screen treffen, also nennt das Tor, was es tut, was es den Leser
+  // kostet (zwei Minuten) und wer entscheidet (er selbst) — und fragt dann
+  // einmal.
+  "ob.gate.title": "Hallo {name}, ich bin die Margince-KI.",
+  "ob.gate.titleAnonymous": "Ich bin die Margince-KI.",
+  "ob.gate.sub":
+    "Nenn mir deine Website und ich lese sie: was du verkaufst, wer bei dir kauft, die Menschen dahinter. Du prüfst alles, bevor es gespeichert wird, und ohne dein Ja geht nichts nach draußen. Etwa zwei Minuten.",
+  "ob.gate.field": "Deine Website-Adresse",
+  "ob.gate.placeholder": "deinefirma.de",
+  "ob.gate.submit": "Meine Website lesen",
+  "ob.gate.altPrompt": "Keine Website zur Hand?",
+  "ob.gate.altAction": "Die Angaben selbst eintragen",
+  "ob.gate.invalidUrl":
+    "Das sieht nicht wie eine Web-Adresse aus. Versuch es als deinefirma.de.",
+  // Ein String für zwei Fehler, die für den Leser gleich aussehen: die
+  // Anfrage kam nie an, oder das Lesen begann und wurde nicht fertig.
+  // {detail} ist die Erklärung des Servers und kann leer sein — der Satz muss
+  // also auch ohne sie tragen.
+  "ob.gate.startFailed":
+    "Ich konnte diese Website nicht lesen. {detail} Versuch eine andere Adresse, oder gib die Daten selbst ein.",
+  // Ein aufgeschobenes Lesen ist vertagt, nicht kaputt: der Server kommt darauf
+  // zurück. Der Satz sagt also, was stimmt, und nennt beide Türen, ohne dass
+  // der Leser irgendetwas reparieren soll.
+  "ob.gate.readPaused":
+    "Dieses Lesen ist gerade pausiert. {detail} Es läuft von selbst weiter — oder nenn mir eine andere Adresse, oder gib die Daten selbst ein.",
+
+  // --- das Lese-Theater --------------------------------------------------
+  // Sichtbar gemachtes Volumen. Die Schnittstelle liefert keinen Nenner für
+  // die Seitenzahl, also ist jede Zahl hier ein offener Zähler — nie "14 von
+  // 18", nie ein Balken mit bekanntem Ende, denn die Gesamtzahl zu erfinden
+  // hieße, Daten zu erfinden.
+  "ob.scan.title": "Ich lese {host}",
+  "ob.scan.sub":
+    "Ich gehe die Website jetzt durch. Jeder Fakt behält die Seite, von der er kommt, damit du alles nachprüfen kannst, was ich behaupte.",
+  "ob.scan.doneTitle": "{host} gelesen",
+  "ob.scan.doneSub":
+    "{facts} Fakten und {fields} Profilfelder, jeweils mit der Seite, von der sie kommen. Ich öffne deine Durchsicht.",
+  "ob.scan.phaseCrawling": "Ich hole Seiten",
+  "ob.scan.phaseExtracting": "Ich ermittle, was du verkaufst",
+  "ob.scan.phaseQueued": "In der Warteschlange, startet gleich",
+  "ob.scan.phaseDeferred": "Vorerst pausiert",
+  "ob.scan.pagesRead": "{pages} Seiten gelesen",
+  "ob.scan.pagesSkipped": "{count} übersprungen",
+  "ob.scan.factsSoFar": "{count} Fakten bisher",
+  "ob.scan.stillReading": "lese noch",
+  "ob.scan.pageStripLabel": "Bisher gelesene Seiten",
+  "ob.scan.pageFetched": "{url} — gelesen",
+  "ob.scan.pageSkipped": "{url} — übersprungen: {reason}",
+  "ob.scan.pageFailed": "{url} — nicht lesbar: {reason}",
+  "ob.scan.pageNoReason": "kein Grund erfasst",
+  "ob.scan.transparency": "Transparenz",
+  "ob.scan.costLine": "{calls} Aufrufe · {tokens} Tokens · {cost}",
+  "ob.scan.costPending": "noch keine Modellaufrufe berechnet",
+
+  // --- das Live-Panel: der belegte Datensatz baut sich selbst ------------
+  "ob.live.headReading": "Ich lese {host}",
+  "ob.live.headDone": "{host} gelesen",
+  "ob.live.nothingSaved":
+    "Noch ist nichts gespeichert. Wenn ich fertig bin, zeige ich dir alles.",
+  "ob.live.summaryHeading": "Das habe ich verstanden",
+  "ob.live.summaryYouAre": "Du bist",
+  "ob.live.summaryYouSell": "Du verkaufst",
+  "ob.live.summaryYouSellTo": "Du verkaufst an",
+  "ob.live.summaryVolume":
+    "{facts} Fakten aus {pages} Seiten, schon eingetragen. Öffne einen Abschnitt, um ihn zu prüfen.",
+  "ob.live.stepWebsite": "Aus dem Lesen deiner Website",
+  "ob.live.stepVoice": "Deine Schreibstimme",
+  "ob.live.stepConnect": "Postfach und Kalender",
+  "ob.live.stateDone": "fertig",
+  "ob.live.stateNow": "läuft",
+  "ob.live.stateWaiting": "wartet",
+  "ob.live.review": "Prüfen",
+  "ob.live.hide": "Ausblenden",
+  "ob.live.countFields": "{count} Felder",
+  "ob.live.countFacts": "{count} Fakten",
+  "ob.live.countPeople": "{count} Lead-Vorschläge",
+  "ob.live.countPages": "{read} gelesen · {skipped} übersprungen",
+  "ob.live.cardIdentity": "Firmenidentität",
+  "ob.live.cardPositioning": "Positionierung und Vertriebsansatz",
+  "ob.live.cardPeople": "Gefundene Personen",
+  "ob.live.cardCoverage": "Was ich gelesen und was ich übersprungen habe",
+  "ob.live.cardVoice": "Stimmprofil",
+  "ob.live.cardConnect": "Verbunden",
+  "ob.live.voiceNotBuilt": "noch nicht gebaut",
+  "ob.live.connectNone": "nichts verbunden",
+  "ob.live.noValue": "—",
+  "ob.live.peopleEmpty":
+    "Noch niemand. Ich schlage eine Person nur vor, wenn die Seite Name und Rolle nennt.",
+  "ob.live.coverageWarning": "Hinweis",
+  "ob.live.coverageSkipped": "Übersprungen",
+  "ob.live.coverageFailed": "Nicht lesbar",
+  "ob.live.coverageClean":
+    "Jede Seite, die ich versucht habe, kam zurück. Nichts wurde übersprungen, nichts ist fehlgeschlagen.",
+
+  // --- Fakten: Vorschaukarte und die ganze Tabelle -----------------------
+  "ob.facts.title": "Fakten",
+  "ob.facts.catCompany": "Firma",
+  "ob.facts.catOffering": "Angebot",
+  "ob.facts.catMarket": "Markt",
+  "ob.facts.catSignal": "Signal",
+  "ob.facts.catAll": "Alle",
+  "ob.facts.mixLabel": "Fakten nach Kategorie",
+  "ob.facts.selected": "{selected} von {total} werden gespeichert",
+  "ob.facts.selectAll": "Alle auswählen",
+  "ob.facts.clearAll": "Auswahl aufheben",
+  "ob.facts.previewNote":
+    "Gezeigt werden die {count} Fakten mit der höchsten Konfidenz.",
+  "ob.facts.openTable": "Ganze Tabelle öffnen",
+  "ob.facts.tableTitle": "Alle Fakten, die ich gelesen habe",
+  "ob.facts.search": "Fakten durchsuchen",
+  "ob.facts.hits": "{hits} von {total}",
+  "ob.facts.colSave": "Speichern",
+  "ob.facts.colCategory": "Kategorie",
+  "ob.facts.colFact": "Fakt",
+  "ob.facts.colSource": "Quelle",
+  "ob.facts.colConfidence": "Konfidenz",
+  "ob.facts.rowSave": "Diesen Fakt speichern: {fact}",
+  "ob.facts.noMatch": "Zu dieser Suche passt nichts.",
+  "ob.facts.empty":
+    "Noch keine Fakten. Sie erscheinen hier, während ich lese — jeder mit der Seite, von der er kommt.",
+  "ob.facts.close": "Fertig",
+  "ob.facts.capReached":
+    "Du kannst bis zu {max} Fakten speichern. Nimm einen heraus, um Platz für einen anderen zu machen.",
+
+  // --- der Gegenwert: was zwei Minuten wirklich gebracht haben -----------
+  // Zahlen, kein Applaus. Jede Zelle ist eine echte Zahl von der
+  // Schnittstelle, und eine Zelle ohne Zahl sagt das, statt eine Null zu
+  // zeigen, die wie ein Ergebnis aussieht.
+  "ob.payoff.lead": "Vor wenigen Minuten war das eine leere Installation.",
+  "ob.payoff.factsRead": "Fakten gelesen",
+  "ob.payoff.factsConfirmed": "Fakten bestätigt",
+  "ob.payoff.peopleFound": "Personen gefunden",
+  "ob.payoff.profileFields": "Profilfelder",
+  "ob.payoff.voiceWords": "Wörter deiner Stimme",
+  "ob.payoff.pagesRead": "Seiten gelesen",
+  "ob.payoff.voiceNotTrained": "Stimme noch nicht trainiert",
+  "ob.payoff.body":
+    "Alles darin kannst du korrigieren, und jeder Wert zeigt weiter auf die Seite, von der er kommt.",
+  "ob.payoff.defaults":
+    "Zwei Voreinstellungen, beide änderbar unter Einstellungen → Autonomie: Ich bereite vor und warte auf deine Bestätigung, und ich überschreibe nie ein Feld, das du selbst getippt hast.",
+  "ob.payoff.seats":
+    "Es fehlen nur noch deine Kollegen. Sitze sind kostenpflichtig, deshalb legst du sie unter Einstellungen → Nutzer selbst an.",
+  "ob.payoff.understood": "Verstanden",
+
+  // --- die Übergabe in die App ------------------------------------------
+  "ob.enter.cta": "Margince öffnen",
+  "ob.enter.assembling": "Dein Workspace wird zusammengestellt",
+
+  // --- das Zurücklesen des Postfachs -------------------------------------
+  // Ein anderer Vorgang als das Verbinden, und der Text muss die beiden
+  // getrennt halten: Verbinden erteilt Zugriff, das Zurücklesen verbraucht
+  // Budget, um den Verlauf zu lesen. Es liest nur und schreibt nichts,
+  // solange der Leser nicht zustimmt.
+  "ob.backread.heading": "Wie weit soll ich zurücklesen?",
+  "ob.backread.window3m": "3 Monate — aktueller Kontext",
+  "ob.backread.window6m": "6 Monate — empfohlen",
+  "ob.backread.window12m": "12 Monate — ganzer Vertriebszyklus",
+  "ob.backread.estimate": "Etwa {messages} Nachrichten in diesem Zeitraum.",
+  "ob.backread.estimateHeuristic":
+    "Aus dem Postfach geschätzt, noch nicht gezählt.",
+  "ob.backread.estimateCost": "Ungefähr {cost} an Modellaufrufen.",
+  "ob.backread.estimateFailed":
+    "Ich konnte diesen Zeitraum nicht schätzen: {detail} Du kannst trotzdem starten oder einen anderen wählen.",
+  "ob.backread.note":
+    "Beim Zurücklesen wird nur gelesen. Ich importiere Personen, Firmen und Aktivitäten, und ich zeige dir, was ich gefunden habe, bevor etwas geschrieben wird.",
+  "ob.backread.start": "Verbinden und lesen",
+  "ob.backread.startFailed":
+    "Ich konnte das Zurücklesen nicht starten: {detail} Versuch es erneut, oder mach weiter und starte es später in den Einstellungen.",
+  "ob.backread.running": "Ich lese dein Postfach",
+  "ob.backread.runningNote":
+    "Du kannst das laufen lassen und weiterarbeiten. Ich mache dort weiter, wo ich stehen geblieben bin.",
+  "ob.backread.queued": "In der Warteschlange. Es startet gleich.",
+  "ob.backread.progress": "{scanned} von etwa {total} Nachrichten",
+  "ob.backread.progressNoTotal": "{scanned} Nachrichten bisher",
+  "ob.backread.tallyMessages": "Nachrichten gelesen",
+  "ob.backread.tallyCaptured": "behalten",
+  "ob.backread.tallySkipped": "ignoriert",
+  "ob.backread.tallyPeople": "Personen gefunden",
+  "ob.backread.tallyCompanies": "Firmen gefunden",
+  "ob.backread.doneHeading": "Das steckt darin.",
+  "ob.backread.doneNote":
+    "Noch ist nichts geschrieben. Alles, was ich gefunden habe, wartet im Eingang auf deine Prüfung.",
+  "ob.backread.failed":
+    "Das Zurücklesen wurde gestoppt: {detail} Deine Verbindung ist in Ordnung — du kannst es in den Einstellungen erneut starten.",
+  "ob.backread.cancelled":
+    "Ich habe das Lesen gestoppt. Es wurde nichts geschrieben.",
+  "ob.backread.cancel": "Lesen stoppen",
+  "ob.backread.explore": "In der Zeit Margince erkunden",
+  "ob.backread.skip": "Verlauf jetzt nicht lesen",
 
   "auth.title": "Margince",
   "auth.checking": "Sitzung wird geprüft…",

@@ -1164,6 +1164,13 @@ export const en = {
   "ob.ai.awaitingModel": "Shown after my first model call",
   "ob.ai.notAvailableYet": "Not available yet",
   "ob.ai.runtimeUnavailable": "Runtime details unavailable",
+  // The runtime disclosure is a chip you can open rather than a permanent
+  // band: cost is stated WHILE it is being spent, but a reader deciding
+  // whether a legal entity is right should not have to read a billing table
+  // to get to it.
+  "ob.ai.runtimeChip": "What is answering, and what it costs",
+  "ob.ai.answeringNow": "What is answering right now",
+  "ob.ai.runScope": "This run only. The full log is in Settings → AI.",
   "ob.ai.tier.localSmall": "local, fast",
   "ob.ai.tier.cheapCloud": "cloud, efficient",
   "ob.ai.tier.premium": "premium reasoning",
@@ -1768,6 +1775,200 @@ export const en = {
   "ob.conv.next.decisionMany": "{count} decisions open",
   "ob.conv.next.review": "Your review is ready",
   "ob.conv.next.build": "Ready to build your voice",
+
+  // The setup rail: five stops, one word each. Long enough to name the step,
+  // short enough that five of them fit a column at 10px.
+  "ob.rail.read": "Read",
+  "ob.rail.confirm": "Confirm",
+  "ob.rail.voice": "Voice",
+  "ob.rail.ready": "Ready",
+  "ob.rail.connect": "Connect",
+
+  // --- the gate: the first screen after sign-in -------------------------
+  // One question and nothing else. Nobody should meet the whole tool on their
+  // first screen, so the gate names what it will do, what it costs the reader
+  // (two minutes), and who decides (they do) — then asks once.
+  "ob.gate.title": "Hi {name}, I am the Margince AI.",
+  "ob.gate.titleAnonymous": "I am the Margince AI.",
+  "ob.gate.sub":
+    "Give me your website and I will read it: what you sell, who buys from you, the people behind it. You review everything before it is saved, and nothing goes out without your yes. About two minutes.",
+  "ob.gate.field": "Your website address",
+  "ob.gate.placeholder": "yourcompany.com",
+  "ob.gate.submit": "Read my site",
+  "ob.gate.altPrompt": "No website handy?",
+  "ob.gate.altAction": "Enter the details yourself",
+  "ob.gate.invalidUrl":
+    "That does not look like a web address. Try it as yourcompany.com.",
+  // One string for two failures that look identical to the reader: the request
+  // to start never landed, or the read started and did not finish. {detail} is
+  // the server's own guidance and may be empty, so the sentence has to stand
+  // without it.
+  "ob.gate.startFailed":
+    "I could not read that site. {detail} Try another address, or enter the details yourself.",
+  // A deferred read is shelved, not broken: the server will come back to it. So
+  // this says what is true and names both doors, without asking the reader to
+  // fix anything.
+  "ob.gate.readPaused":
+    "That read is paused for now. {detail} It resumes on its own — or give me another address, or enter the details yourself.",
+
+  // --- the read theatre -------------------------------------------------
+  // Volume made visible. The wire gives no page-count denominator, so every
+  // number here is an open count — never "14 of 18", never a bar with a known
+  // end, because inventing the total would be inventing data.
+  "ob.scan.title": "Reading {host}",
+  "ob.scan.sub":
+    "I am going through the site now. Every fact keeps the page it came from, so you can check anything I claim.",
+  "ob.scan.doneTitle": "Read {host}",
+  "ob.scan.doneSub":
+    "{facts} facts and {fields} profile fields, each with the page it came from. Opening your review.",
+  "ob.scan.phaseCrawling": "Fetching pages",
+  "ob.scan.phaseExtracting": "Working out what you sell",
+  "ob.scan.phaseQueued": "Queued, starting shortly",
+  "ob.scan.phaseDeferred": "Paused for now",
+  "ob.scan.pagesRead": "{pages} pages read",
+  "ob.scan.pagesSkipped": "{count} skipped",
+  "ob.scan.factsSoFar": "{count} facts so far",
+  "ob.scan.stillReading": "still reading",
+  "ob.scan.pageStripLabel": "Pages read so far",
+  "ob.scan.pageFetched": "{url} — read",
+  "ob.scan.pageSkipped": "{url} — skipped: {reason}",
+  "ob.scan.pageFailed": "{url} — could not be read: {reason}",
+  "ob.scan.pageNoReason": "no reason recorded",
+  "ob.scan.transparency": "Transparency",
+  "ob.scan.costLine": "{calls} calls · {tokens} tokens · {cost}",
+  "ob.scan.costPending": "no model calls billed yet",
+
+  // --- the live panel: the sourced record building itself ----------------
+  "ob.live.headReading": "Reading {host}",
+  "ob.live.headDone": "Read {host}",
+  "ob.live.nothingSaved":
+    "Nothing is saved yet. I will show you everything when I am done.",
+  "ob.live.summaryHeading": "Here is what I understood",
+  "ob.live.summaryYouAre": "You are",
+  "ob.live.summaryYouSell": "You sell",
+  "ob.live.summaryYouSellTo": "You sell to",
+  "ob.live.summaryVolume":
+    "{facts} facts from {pages} pages, already filled in. Open any section to check it.",
+  "ob.live.stepWebsite": "From reading your website",
+  "ob.live.stepVoice": "Your writing voice",
+  "ob.live.stepConnect": "Inbox and calendar",
+  "ob.live.stateDone": "done",
+  "ob.live.stateNow": "in progress",
+  "ob.live.stateWaiting": "waiting",
+  "ob.live.review": "Review",
+  "ob.live.hide": "Hide",
+  "ob.live.countFields": "{count} fields",
+  "ob.live.countFacts": "{count} facts",
+  "ob.live.countPeople": "{count} lead proposals",
+  "ob.live.countPages": "{read} read · {skipped} skipped",
+  "ob.live.cardIdentity": "Company identity",
+  "ob.live.cardPositioning": "Positioning and sales angle",
+  "ob.live.cardPeople": "People found",
+  "ob.live.cardCoverage": "What I read, and what I skipped",
+  "ob.live.cardVoice": "Voice profile",
+  "ob.live.cardConnect": "Connected",
+  "ob.live.voiceNotBuilt": "not built yet",
+  "ob.live.connectNone": "nothing connected",
+  "ob.live.noValue": "—",
+  "ob.live.peopleEmpty":
+    "Nobody yet. I only propose a person when the page gives a name and a role.",
+  "ob.live.coverageWarning": "Warning",
+  "ob.live.coverageSkipped": "Skipped",
+  "ob.live.coverageFailed": "Could not read",
+  "ob.live.coverageClean":
+    "Every page I tried came back. Nothing was skipped and nothing failed.",
+
+  // --- facts: preview card and the full table ----------------------------
+  "ob.facts.title": "Facts",
+  "ob.facts.catCompany": "Company",
+  "ob.facts.catOffering": "Offering",
+  "ob.facts.catMarket": "Market",
+  "ob.facts.catSignal": "Signal",
+  "ob.facts.catAll": "All",
+  "ob.facts.mixLabel": "Facts by category",
+  "ob.facts.selected": "{selected} of {total} will be saved",
+  "ob.facts.selectAll": "Select all",
+  "ob.facts.clearAll": "Clear all",
+  "ob.facts.previewNote": "Showing the {count} highest-confidence facts.",
+  "ob.facts.openTable": "Open the full table",
+  "ob.facts.tableTitle": "All facts I read",
+  "ob.facts.search": "Search facts",
+  "ob.facts.hits": "{hits} of {total}",
+  "ob.facts.colSave": "Save",
+  "ob.facts.colCategory": "Category",
+  "ob.facts.colFact": "Fact",
+  "ob.facts.colSource": "Source",
+  "ob.facts.colConfidence": "Confidence",
+  "ob.facts.rowSave": "Save the fact: {fact}",
+  "ob.facts.noMatch": "Nothing matches that search.",
+  "ob.facts.empty":
+    "No facts yet. Facts appear here as I read, each with the page it came from.",
+  "ob.facts.close": "Done",
+  "ob.facts.capReached":
+    "You can save up to {max} facts. Clear one to make room for another.",
+
+  // --- the payoff: what two minutes actually bought ----------------------
+  // Counts, not congratulation. Every cell is a real number off the wire, and
+  // a cell with no number says so rather than showing a zero that looks earned.
+  "ob.payoff.lead": "Minutes ago this was an empty install.",
+  "ob.payoff.factsRead": "facts read",
+  "ob.payoff.factsConfirmed": "facts you confirmed",
+  "ob.payoff.peopleFound": "people found",
+  "ob.payoff.profileFields": "profile fields",
+  "ob.payoff.voiceWords": "words in your voice",
+  "ob.payoff.pagesRead": "pages read",
+  "ob.payoff.voiceNotTrained": "voice not trained yet",
+  "ob.payoff.body":
+    "Everything in there is yours to correct, and every value still points at the page it came from.",
+  "ob.payoff.defaults":
+    "Two defaults, both changeable in Settings → Autonomy: I prepare and wait for your confirmation, and I never overwrite a field you typed yourself.",
+  "ob.payoff.seats":
+    "The one thing left is your colleagues. Seats are billed, so you create them in Settings → People.",
+  "ob.payoff.understood": "Understood",
+
+  // --- the handoff into the app -----------------------------------------
+  "ob.enter.cta": "Enter Margince",
+  "ob.enter.assembling": "Assembling your workspace",
+
+  // --- the mailbox backread ---------------------------------------------
+  // A separate operation from connecting, and the copy has to keep them
+  // separate: connecting grants access, the backread spends budget reading
+  // history. Read-only, and it writes nothing until the reader approves.
+  "ob.backread.heading": "How far back should I read?",
+  "ob.backread.window3m": "3 months — recent context",
+  "ob.backread.window6m": "6 months — recommended",
+  "ob.backread.window12m": "12 months — full sales cycle",
+  "ob.backread.estimate": "About {messages} messages in that window.",
+  "ob.backread.estimateHeuristic":
+    "Estimated from the mailbox, not counted yet.",
+  "ob.backread.estimateCost": "Roughly {cost} in model calls.",
+  "ob.backread.estimateFailed":
+    "I could not estimate that window: {detail} You can still start, or pick another.",
+  "ob.backread.note":
+    "The backread is read-only. I import people, companies and activity, and I show you what I found before anything is written.",
+  "ob.backread.start": "Connect and read",
+  "ob.backread.startFailed":
+    "I could not start the backread: {detail} Try again, or continue and start it later in Settings.",
+  "ob.backread.running": "Reading your mailbox",
+  "ob.backread.runningNote":
+    "You can leave this running and keep working. I pick it up where I left off.",
+  "ob.backread.queued": "Queued. It starts in a moment.",
+  "ob.backread.progress": "{scanned} of about {total} messages",
+  "ob.backread.progressNoTotal": "{scanned} messages so far",
+  "ob.backread.tallyMessages": "messages read",
+  "ob.backread.tallyCaptured": "kept",
+  "ob.backread.tallySkipped": "ignored",
+  "ob.backread.tallyPeople": "people found",
+  "ob.backread.tallyCompanies": "companies found",
+  "ob.backread.doneHeading": "Here is what is in there.",
+  "ob.backread.doneNote":
+    "Nothing is written yet. Everything I found waits for your review in the inbox.",
+  "ob.backread.failed":
+    "The backread stopped: {detail} Your connection is fine — you can start it again in Settings.",
+  "ob.backread.cancelled": "I stopped reading. Nothing was written.",
+  "ob.backread.cancel": "Stop reading",
+  "ob.backread.explore": "Explore Margince meanwhile",
+  "ob.backread.skip": "Do not read history now",
 
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
