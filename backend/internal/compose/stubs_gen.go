@@ -688,6 +688,10 @@ func (stubs) ConnectOverlay(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ConnectOverlay")
 }
 
+func (stubs) DownloadOverlayExport(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "DownloadOverlayExport")
+}
+
 func (stubs) ExecuteOverlayFlip(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ExecuteOverlayFlip")
 }

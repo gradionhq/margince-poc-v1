@@ -13,9 +13,11 @@ durable summary. Cross-references: [write-backbone.md](write-backbone.md) (the a
 connection lifecycle rides), [contract-first.md](contract-first.md) (the frozen contract this seam
 binds to), [composition-layer.md](composition-layer.md) (where the per-workspace dispatch lives).
 
-**Status: branch 1 (read + continuous sync) only.** Write-back, the visibility SLO/2×SLO floor, and
-the overlay→native flip are later branches — see [What branch 1 does not do](#what-branch-1-does-not-do)
-below. Don't read this page as a description of a finished write-capable overlay.
+**Status: branch 1 (read + continuous sync) plus the overlay→native cutover lifecycle.** The
+visibility SLO/2×SLO floor and OAuth connect are later branches — see
+[What branch 1 does not do](#what-branch-1-does-not-do) below. The flip and its ADR-0071 lifecycle
+(preflight gate, emergency cutover, retirement, reconstruction) are built — see
+[the cutover lifecycle](#the-overlaynative-cutover-lifecycle-adr-0071--ova-ac-6).
 
 ## Two system-of-record modes, one codebase
 
@@ -305,10 +307,46 @@ Stated explicitly so this page is not read as describing more than was built:
   guarantee reserved for the next visibility increment — branch 1 ships the visibility *contract* (the
   deny-join, fail-closed-on-absence, the inline owner projection) but not the freshness-tiered
   refresh cadence on top of it.
-- **Overlay→native flip** — the `/overlay/flip*` operations exist in the contract as parseable stubs
-  (they answer the not-implemented sentinel) but do no migration work yet.
 - **OAuth (public-app) connect** — branch 1 is private-app-token only; there is no refresh-token
   rotation to demonstrate on a static token.
+
+## The overlay→native cutover lifecycle (ADR-0071 / OVA-AC-6)
+
+The flip is built, as one step of a sequenced cutover: overlay live → parallel run →
+**flip while the incumbent is reachable** → verify native → retire the overlay. The incumbent is
+never modified at any step.
+
+- **Preflight** (`POST /overlay/flip:preflight`) answers `{ready, blocking[], unresolved_conflicts[]}`.
+  Its gates are conjunctive: incumbent connection `active`, force-fresh sync converged (a sweep
+  succeeded, no stale rows, every mirrored class's backfill genuinely done), `pending_sync` writes
+  drained, and a pre-flip export bundle newer than the mirror's freshest watermark. When green it
+  **seals the frozen snapshot** (fenced mirror writes refuse with `ErrMirrorFrozen`, sweeps skip the
+  workspace) and previews parity through the migration engine's zero-write dry-run — skips disclosed
+  with reasons, never dropped. Any blocker unseals: a failed preflight is a no-op return to a healthy
+  overlay.
+- **Execute** (`POST /overlay/flip`) is confirm-first behind the typed `FLIP TO SOR` phrase, refused
+  with `409 overlay_flip_blocked` while any gate is unsatisfied. It imports the frozen estate through
+  the shared migration engine (`internal/modules/migration` — provenance-keyed idempotent ensures, a
+  checkpointed resumable run record in `import_run`), detangles association edges into FKs and typed
+  relationship rows, then flips `workspace.x_sor_mode` to native and clears `x_incumbent` in one
+  audited transaction. The connection row survives, active but no longer authoritative.
+- **Unreachable incumbent** (`revoked`/`error`): the preflight reports not-ready with the
+  `incumbent_unreachable` blocking reason, the workspace stays in overlay on its last mirror, and
+  nothing is partially migrated — the direct importer's guard refuses with the same constant.
+- **Emergency cutover** (`mode: emergency`) is the ADR-0071 last-known-mirror path: available only
+  while the incumbent is unreachable (refused otherwise — never a silent substitute in either
+  direction), and its 202 returns the disclosed-lossy `last_synced_at` staleness plus an explicit
+  unverifiable-parity notice.
+- **Retirement**: disconnect-after-flip revokes the token and purges the mirror, associations,
+  visibility projection, and user map (tombstoned) while native data, the audit spine, and the
+  pre-flip export survive. A disconnect **mid-flip** (snapshot sealed, workspace still overlay) is
+  refused rather than tearing the estate down under a running import.
+- **Reversibility is reconstruction, not rollback**: `compose.ReconstructFromBundle` rebuilds a clean
+  native instance from the pre-flip bundle's mirror snapshot with zero incumbent calls. There is no
+  native→overlay reverse path.
+- In overlay mode the export bundle carries the mirror snapshot (under the caller's mirror-visibility
+  deny-join) and its manifest documents `canonical_data_resides_in` — the AC-OV-9 honest-scope
+  disclosure.
 
 ## Where the code lives
 
@@ -320,4 +358,7 @@ Stated explicitly so this page is not read as describing more than was built:
 | The HubSpot adapter (the first `incumbent.Incumbent` implementation) | `internal/modules/overlay/hubspot/` |
 | Connection lifecycle + RBAC policy | `internal/modules/overlay/connection.go`, `internal/modules/identity/internal/policy/policy.go` |
 | Compose wiring (dispatcher, meter, handlers) | `internal/compose/overlay.go`, `internal/compose/server.go` |
+| Flip preflight state (checks, freeze/seal, mode completion) + estate reads | `internal/modules/overlay/{flipstate,flipreads}.go` |
+| The shared migration engine (run records, checkpointed loop, dry-run, unreachable guard) | `internal/modules/migration/` |
+| Flip orchestration (verdict, execute, emergency), sources, writers, reconstruction | `internal/compose/{flip,flipsource,flipwriters,flipbundle}.go` |
 | Migrations (fork-owned) | `backend/migrations/custom/20260716120000_overlay.up.sql` and kin |

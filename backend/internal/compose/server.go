@@ -78,6 +78,7 @@ type Server struct {
 	captureExclusionHandlers
 	captureSettingsHandlers
 	filteredExportHandlers
+	overlayExportHandlers
 	orgRollupHandlers
 	strengthHandlers
 	customfieldsHandlers
@@ -292,6 +293,7 @@ func newServer(pool *pgxpool.Pool, log *slog.Logger, authH authHandlers, dealsH 
 		// collections store resolves a saved view / dynamic list source
 		// behind its own visibility gate.
 		filteredExportHandlers: filteredExportHandlers{writer: NewFilteredExportWriter(pool), collections: collections.NewStore(pool)},
+		overlayExportHandlers:  newOverlayExportHandlers(pool, log),
 		orgRollupHandlers:      orgRollupHandlers{pool: pool, now: time.Now},
 		strengthHandlers:       strengthHandlers{people: people.NewStore(pool), now: time.Now},
 		// The installation's own company (the 0083 anchor). Its own store
