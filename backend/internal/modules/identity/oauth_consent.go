@@ -101,7 +101,17 @@ func (s *Service) SelectablePassports(
 	return out, nil
 }
 
-// lendableScopes re-resolves the passport a consent POST offered to lend and
+// lentPassport is one resolved lend: WHICH passport the human handed to the
+// client, and the scopes the connection actually receives from it. Both travel
+// together because the authorization code needs the scopes and the audit trail
+// needs the id — the code row has no column for the passport, so that id is
+// recoverable afterwards only from what is recorded alongside it.
+type lentPassport struct {
+	ID     ids.PassportID
+	Scopes []string
+}
+
+// resolveLend re-resolves the passport a consent POST offered to lend and
 // answers with what the connection would actually receive: that passport's
 // authority intersected with what the client requested.
 //
@@ -111,26 +121,26 @@ func (s *Service) SelectablePassports(
 // the request — is judged again against live rows; a passport revoked in
 // another tab must not still be lendable. lendable is false for a passport_id
 // naming anything not on that live list, a malformed id included.
-func (s *Service) lendableScopes(
+func (s *Service) resolveLend(
 	ctx context.Context, id Identity, requested []string, rawID string,
-) (granted []string, lendable bool, err error) {
+) (lent lentPassport, lendable bool, err error) {
 	want := make([]principal.Scope, 0, len(requested))
 	for _, scope := range requested {
 		want = append(want, principal.Scope(scope))
 	}
 	options, err := s.SelectablePassports(ctx, id, want)
 	if err != nil {
-		return nil, false, err
+		return lentPassport{}, false, err
 	}
-	lent, ok := findOption(options, rawID)
+	option, ok := findOption(options, rawID)
 	if !ok {
-		return nil, false, nil
+		return lentPassport{}, false, nil
 	}
-	granted = make([]string, 0, len(lent.Granted))
-	for _, scope := range lent.Granted {
-		granted = append(granted, string(scope))
+	lent = lentPassport{ID: option.ID, Scopes: make([]string, 0, len(option.Granted))}
+	for _, scope := range option.Granted {
+		lent.Scopes = append(lent.Scopes, string(scope))
 	}
-	return granted, true, nil
+	return lent, true, nil
 }
 
 // findOption resolves the passport_id a consent POST carried against the

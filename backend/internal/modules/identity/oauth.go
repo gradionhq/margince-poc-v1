@@ -12,6 +12,7 @@ package identity
 // revocation binds mid-session exactly like the A1 path.
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -29,7 +30,9 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
@@ -317,9 +320,9 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 
 	// The human LENDS one of their own passports rather than granting scopes ad
 	// hoc, so the code carries the INTERSECTION of that passport's authority and
-	// the client's request — never wider than either one. lendableScopes states
-	// why that intersection is re-computed here instead of taken from the form.
-	granted, lendable, err := h.svc.lendableScopes(r.Context(), id, req.Scopes, r.PostForm.Get("passport_id"))
+	// the client's request — never wider than either one. resolveLend states why
+	// that intersection is re-computed here instead of taken from the form.
+	lent, lendable, err := h.svc.resolveLend(r.Context(), id, req.Scopes, r.PostForm.Get("passport_id"))
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -329,9 +332,9 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 			"select one of your own live passports to lend this client")
 		return
 	}
-	req.Scopes = granted
+	req.Scopes = lent.Scopes
 
-	code, err := h.mintAuthorizationCode(r, req, id)
+	code, err := h.mintAuthorizationCode(r, req, id, lent.ID)
 	if err != nil {
 		httperr.Write(w, r, err)
 		return
@@ -349,7 +352,13 @@ func (h Handlers) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 // unconstrained scopes column to survive the round trip instead of dying here.
 // The exchange re-derives the boolean from it and strips it before any scope
 // reaches the passport (oauth_token.go).
-func (h Handlers) mintAuthorizationCode(r *http.Request, req authorizeRequest, id Identity) (string, error) {
+//
+// The code row and the audit row naming the lend commit TOGETHER: which
+// passport a human handed to a client is the central authority fact of this
+// flow, and a code that existed without it would be a lend nobody could trace.
+func (h Handlers) mintAuthorizationCode(
+	r *http.Request, req authorizeRequest, id Identity, lentID ids.PassportID,
+) (string, error) {
 	code, err := randomToken()
 	if err != nil {
 		return "", err
@@ -359,19 +368,57 @@ func (h Handlers) mintAuthorizationCode(r *http.Request, req authorizeRequest, i
 		storedScopes = append(append([]string{}, req.Scopes...), scopeOfflineAccess)
 	}
 	err = database.WithWorkspaceTx(r.Context(), h.svc.pool, func(tx pgx.Tx) error {
-		_, err := tx.Exec(r.Context(), `
+		var codeID ids.UUID
+		if err := tx.QueryRow(r.Context(), `
 			INSERT INTO oauth_authorization_code
 			  (workspace_id, code_hash, client_id, user_id, scopes, code_challenge, redirect_uri, resource, expires_at)
 			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
-			        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval)`,
+			        $1, $2, $3, $4, $5, $6, NULLIF($7, ''), now() + $8::interval)
+			RETURNING id`,
 			hashOAuthCode(code), req.ClientID, id.UserID, storedScopes, req.CodeChallenge,
-			req.RedirectURI, req.Resource, authCodeTTL.String())
-		return err
+			req.RedirectURI, req.Resource, authCodeTTL.String()).Scan(&codeID); err != nil {
+			return err
+		}
+		return auditLend(r.Context(), tx, codeID, req, lentID)
 	})
 	if err != nil {
 		return "", err
 	}
 	return code, nil
+}
+
+// auditLend records WHICH of the human's passports was lent to this client,
+// and the authority that went with it. Neither oauth_authorization_code nor
+// oauth_grant has a column for the passport, so this row is the only place the
+// question "which of my passports did I lend to this connection?" can be
+// answered afterwards.
+//
+// The after image is the authority actually handed over — the intersected
+// scopes, never the client's request — and refresh_allowed beside them, the
+// same pair issueGrant records when the code is later redeemed, so the consent
+// and its redemption read as one story. The actor is stamped by storekit from
+// the authenticated principal; the session middleware bound it, so it can never
+// come from the request body. Only the code's hash is ever stored, and the
+// plaintext courier appears in no audit field.
+//
+// No outbox event rides with it. The events.md §5 catalog is closed and defines
+// no oauth-consent verb — exactly as it defines none for oauth_grant, which is
+// why issueGrant audits without emitting too (oauth_grant.go). The one type
+// that would fit structurally, audit.appended, is declared in the contract as
+// having no emit site and none planned for V1, so emitting it would need the
+// contract changed first: raised upstream (P3) rather than filled here with a
+// type that means something else.
+func auditLend(
+	ctx context.Context, tx pgx.Tx, codeID ids.UUID, req authorizeRequest, lentID ids.PassportID,
+) error {
+	_, err := storekit.Audit(ctx, tx, "create", "oauth_authorization_code", codeID, nil,
+		map[string]any{
+			"passport_id":      lentID,
+			oauthParamClientID: req.ClientID,
+			"scopes":           req.Scopes,
+			"refresh_allowed":  req.Offline,
+		})
+	return err
 }
 
 var (
@@ -423,53 +470,6 @@ func parseOAuthScopes(raw string) (scopes []string, offline bool, err error) {
 		scopes = []string{string(principal.ScopeRead)}
 	}
 	return scopes, offline, nil
-}
-
-// audienceMatches is the RFC 8707 rule for a credential being redeemed or
-// renewed, spelled once: two independent checks, not one compound test.
-//
-// A PRESENTED resource must always name this installation's canonical
-// endpoint, checked unconditionally — so a client that omitted resource at
-// authorize (the accepted older-client path, stored NULL) cannot smuggle a
-// foreign audience through later by presenting it only at the token endpoint.
-// Separately, an authorization that WAS bound to a resource requires the
-// presented value to match that binding, so a stale grant cannot outlive a
-// reconfigured resource. Unbound therefore means "the canonical resource",
-// never "any resource".
-//
-// An unset canonical value (no --public-base-url) can never equal a presented
-// one, so this fails closed rather than treating "no canonical value" as
-// "matches everything".
-func audienceMatches(presented, canonical string, bound *string) bool {
-	if presented != "" && presented != canonical {
-		return false
-	}
-	return bound == nil || presented == *bound
-}
-
-// refreshAudienceMatches is the same rule for a RENEWAL, and it differs from
-// redemption in exactly one place, on purpose.
-//
-// A PRESENTED resource is judged identically: it must name this
-// installation's canonical endpoint, and must also match the binding a grant
-// carries, so neither a foreign audience nor a grant that outlived a
-// reconfigured resource gets through. An ABSENT resource, though, means "the
-// audience this grant is already bound to" rather than a refusal — and that is
-// where the two rules part.
-//
-// The asymmetry is a risk judgement, not a shrug. Naming no audience is not a
-// client asking for a foreign one, so renewing against the grant's own
-// recorded resource hands out no authority the consent did not already carry.
-// Refusing it, on the other hand, would kill a working connection 30 days
-// after anyone was watching — the exact failure this whole feature exists to
-// prevent — for any client that omits the parameter on refresh. A code
-// exchange has no such trap: it happens seconds after a human approved it, in
-// a flow a client developer is watching, so redemption stays strict.
-func refreshAudienceMatches(presented, canonical string, bound *string) bool {
-	if presented == "" {
-		return true
-	}
-	return audienceMatches(presented, canonical, bound)
 }
 
 func hashOAuthCode(code string) string {
