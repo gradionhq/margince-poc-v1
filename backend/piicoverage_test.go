@@ -79,10 +79,20 @@ var piiTables = map[string]piiHandling{
 	// suppression list keeps holding it, and Art. 15 hands it back.
 	"person_channel_identity": {erasureWrite: true, sarRead: true},
 	"lead":                    {erasureWrite: true, sarRead: true},
-	"activity":                {erasureWrite: true, sarRead: true},
-	"attachment":              {erasureWrite: true, sarRead: true},
-	"raw_capture":             {erasureWrite: true, sarRead: true},
-	"embedding":               {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
+	// Who was IN each interaction (ACT-DDL-3). It names the subject twice —
+	// by person_id and by the raw address of a party who never became a
+	// record — so erasure nulls both and Art. 15 hands back the fact that
+	// they were a party to those conversations.
+	"activity_participant": {erasureWrite: true, sarRead: true},
+	// The interaction projection (CG-DDL-1): derived, but derived from data an
+	// erasure removes, and it holds who corresponded with the subject and how
+	// often. Purged, never exported — like the embedding, it is a machine
+	// artifact rather than anything the subject supplied.
+	"graph_interaction_edge": {erasureWrite: true, sarRead: false},
+	"activity":               {erasureWrite: true, sarRead: true},
+	"attachment":             {erasureWrite: true, sarRead: true},
+	"raw_capture":            {erasureWrite: true, sarRead: true},
+	"embedding":              {erasureWrite: true, sarRead: false}, // opaque vector: purged, never exported
 	// Field-level provenance names who captured which of the subject's
 	// fields from where — subject-linked metadata (B-E02.12).
 	"field_provenance": {erasureWrite: true, sarRead: true},
@@ -178,6 +188,11 @@ func sqlLiterals(t *testing.T, path string) []string {
 // exists to prevent.
 var erasureCascadeFiles = []string{
 	"internal/modules/privacy/erasure.go",
+	// The subject's TIMELINE and everything derived from it — split out of
+	// erasure.go when that file crossed the size cap. It is the same Art. 17
+	// transaction, so it counts here; leaving it off would let a table look
+	// uncovered the moment its purge moved file.
+	"internal/modules/privacy/erasuretimeline.go",
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/erasure_rivals.go",

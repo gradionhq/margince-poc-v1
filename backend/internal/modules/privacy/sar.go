@@ -36,15 +36,20 @@ type SARPackage struct {
 	// identity writes as them, the handle it carries, whether they have blocked
 	// this installation's bot, and whether the binding is still live.
 	ChannelIdentities []map[string]any `json:"channel_identities"`
-	Relationships     []map[string]any `json:"relationships"`
-	Deals             []map[string]any `json:"deals"`
-	Leads             []map[string]any `json:"leads"`
-	Activities        []map[string]any `json:"activities"`
-	Attachments       []map[string]any `json:"attachments"`
-	Consent           []map[string]any `json:"consent"`
-	ConsentEvents     []map[string]any `json:"consent_events"`
-	RawCapture        []map[string]any `json:"raw_capture"`
-	FieldOrigins      []map[string]any `json:"field_origins"`
+	// Which conversations the subject was recorded as being IN, and in what
+	// role (ACT-DDL-3). Distinct from Activities, which is what was said: this
+	// is the record that they were a party to it at all, and it is held about
+	// them whether or not they were ever a contact.
+	InteractionParticipation []map[string]any `json:"interaction_participation"`
+	Relationships            []map[string]any `json:"relationships"`
+	Deals                    []map[string]any `json:"deals"`
+	Leads                    []map[string]any `json:"leads"`
+	Activities               []map[string]any `json:"activities"`
+	Attachments              []map[string]any `json:"attachments"`
+	Consent                  []map[string]any `json:"consent"`
+	ConsentEvents            []map[string]any `json:"consent_events"`
+	RawCapture               []map[string]any `json:"raw_capture"`
+	FieldOrigins             []map[string]any `json:"field_origins"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -154,6 +159,13 @@ func sarSections(pkg *SARPackage) []sarSection {
 		{&pkg.Phones, `SELECT phone, phone_type, archived_at FROM person_phone WHERE person_id = $1`},
 		{&pkg.ChannelIdentities, `SELECT provider, channel_user_id, username, blocked_at, source, created_at, archived_at
 		   FROM person_channel_identity WHERE person_id = $1`},
+		{&pkg.InteractionParticipation, `SELECT ap.activity_id, ap.role, ap.address, ap.created_at,
+		       a.kind, a.occurred_at, a.direction
+		   FROM activity_participant ap
+		   JOIN activity a ON a.id = ap.activity_id
+		  WHERE ap.person_id = $1
+		     OR (ap.address IS NOT NULL AND ap.address IN (
+		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},
 		{&pkg.Deals, `SELECT d.id, d.name, d.status, d.amount_minor, d.currency

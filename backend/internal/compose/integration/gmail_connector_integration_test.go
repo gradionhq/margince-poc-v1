@@ -131,8 +131,14 @@ func TestGmailConnectorSyncsAnActivity(t *testing.T) {
 	if activities != 1 {
 		t.Fatalf("gmail activities = %d, want 1 (idempotent across the replay)", activities)
 	}
-	if capturedBy != "connector:gmail" || sourceID != "m1@acme.com" {
-		t.Fatalf("provenance wrong: captured_by=%q source_id=%q", capturedBy, sourceID)
+	// Provenance names the connector AND the mailbox owner behind it
+	// (ADR-0078 §4b). The connector alone identified the software rather than
+	// the person, so two colleagues who had both connected Gmail produced
+	// identical stamps and nothing downstream could say whose mailbox a
+	// message came from.
+	if capturedBy != "connector:gmail:"+e.Rep1.String() || sourceID != "m1@acme.com" {
+		t.Fatalf("provenance wrong: captured_by=%q source_id=%q, want connector:gmail:%s",
+			capturedBy, sourceID, e.Rep1)
 	}
 
 	// The cursor advanced to the mailbox historyId anchored at first sync.

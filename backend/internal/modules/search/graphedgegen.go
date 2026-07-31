@@ -20,8 +20,11 @@ package search
 //	    human relinks it to someone else.
 //	person.merged   → the source person's edges go, the target's are refolded.
 //	person.archived/restored → that contact's edges are refolded.
-//	person.erased   → the edges go outright; the projection must not be the
-//	    one place an erased person's correspondence pattern survives.
+//	ERASURE is NOT here, deliberately. It drops the edges inside its own
+//	    transaction (privacy/erasure.go), because an erasure obligation that
+//	    depends on an event being delivered fails silently when the bus is
+//	    behind. This consumer previously listened for a `person.erased` event
+//	    that no path emits, so every erasure left its edges standing.
 //	user.deactivated → nothing. Reads filter through the live-member join, so
 //	    a departure takes effect without rewriting a single row.
 
@@ -93,8 +96,10 @@ func (g *GraphEdgeGen) projectionContext(ctx context.Context, env events.Envelop
 // evidence, deleted.
 func (g *GraphEdgeGen) onActivity(ctx context.Context, env events.Envelope, activityID ids.UUID) error {
 	switch env.Type {
-	case "activity.captured", "activity.created", "activity.updated",
-		"activity.archived", "activity.restored", "activity.relinked":
+	// The catalog's activity types, in full. Naming one that does not exist
+	// is a branch that never runs and a projection that silently never
+	// updates — which is exactly how the erasure hole above survived review.
+	case "activity.captured", "activity.updated", "activity.archived":
 	default:
 		return nil
 	}
@@ -110,11 +115,6 @@ func (g *GraphEdgeGen) onActivity(ctx context.Context, env events.Envelope, acti
 func (g *GraphEdgeGen) onPerson(ctx context.Context, env events.Envelope, personID ids.UUID) error {
 	return database.WithWorkspaceTx(ctx, g.store.pool, func(tx pgx.Tx) error {
 		switch env.Type {
-		case "person.erased":
-			// Erasure is not a refold: there is no evidence left to fold, and
-			// a refold that found none would reach the same result by a longer
-			// route. Saying it outright is what makes the guarantee legible.
-			return DropEdgesForPerson(ctx, tx, personID)
 		case "person.merged":
 			// The source's edges belong to the survivor now. Dropping the
 			// source and refolding it is enough: the merge already repointed

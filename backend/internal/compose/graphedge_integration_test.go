@@ -11,8 +11,9 @@ package compose
 //
 //   - THE ANSWER IS RIGHT: a colleague who exchanged mail with a contact
 //     appears, with counts that match the traffic;
-//   - CC DOES NOT COUNT: being copied on a thread is not a relationship, and
-//     counting it is how a relationship score becomes a mailing-list census;
+//   - CC COUNTS, but ranks below a real exchange: the person permanently in
+//     copy is often the one who knows the customer, and reciprocity — not a
+//     role filter — is what keeps them from outranking a two-way thread;
 //   - REDELIVERY IS FREE: the bus is at-least-once, so recomputing five times
 //     must leave exactly what recomputing once did;
 //   - EVIDENCE LOSS DELETES: an archived last interaction removes the edge
@@ -175,21 +176,51 @@ func TestTheProjectionAnswersWhoKnowsThisContact(t *testing.T) {
 	}
 }
 
-func TestBeingCopiedOnAThreadIsNotARelationship(t *testing.T) {
+func TestBeingCopiedCountsButRanksBelowARealExchange(t *testing.T) {
 	v := edgeEnv{integration.Setup(t)}
 	now := time.Now().UTC()
-	contact := v.person(t, "Cc Only")
 
-	// Twenty messages where the contact was only ever in cc. Enough traffic to
-	// saturate the frequency term, if it counted — which is the point.
-	var ids20 []ids.UUID
+	// The market convention is to drop cc outright, on the argument that being
+	// copied is not a relationship. This product counts it (founder decision):
+	// in the accounts it is built for, the person permanently in copy is often
+	// the one who actually knows the customer — the account lead cc'd on their
+	// team's mail, the partner copied on every exchange. Dropping cc removed
+	// exactly those people from "who here knows them".
+	ccOnly := v.person(t, "Cc Contact")
+	var ccIDs []ids.UUID
 	for i := 0; i < 20; i++ {
-		ids20 = append(ids20, v.interaction(t, v.e.Rep1, contact, now.AddDate(0, 0, -i), "outbound", "cc"))
+		ccIDs = append(ccIDs, v.interaction(t, v.e.Rep1, ccOnly, now.AddDate(0, 0, -i), "outbound", "cc"))
 	}
-	v.recompute(t, ids20...)
+	v.recompute(t, ccIDs...)
 
-	if edges := v.edgesFor(t, contact); len(edges) != 0 {
-		t.Errorf("twenty cc rows produced %d edges; being copied on a thread is not a relationship: %+v", len(edges), edges)
+	edges := v.edgesFor(t, ccOnly)
+	if len(edges) != 1 {
+		t.Fatalf("cc traffic produced %d edges, want 1 — a colleague permanently in copy is still a way in: %+v", len(edges), edges)
+	}
+
+	// What keeps it honest is the score, not a role filter. Copy traffic is
+	// one-directional, so reciprocity floors it — the colleague appears,
+	// ranked where they belong, rather than vanishing.
+	direct := v.person(t, "Direct Contact")
+	var directIDs []ids.UUID
+	for i := 0; i < 10; i++ {
+		dir, role := "outbound", "to"
+		if i%2 == 0 {
+			dir, role = "inbound", "from"
+		}
+		directIDs = append(directIDs, v.interaction(t, v.e.Rep2, direct, now.AddDate(0, 0, -i), dir, role))
+	}
+	v.recompute(t, directIDs...)
+
+	ccScore := edges[0].StrengthOf(now).Strength
+	directEdges := v.edgesFor(t, direct)
+	if len(directEdges) != 1 {
+		t.Fatalf("the two-way exchange produced %d edges, want 1", len(directEdges))
+	}
+	directScore := directEdges[0].StrengthOf(now).Strength
+	if directScore <= ccScore {
+		t.Errorf("a two-way exchange over 10 messages scored %d, no better than 20 cc rows at %d — "+
+			"reciprocity is meant to separate them without a role filter", directScore, ccScore)
 	}
 }
 

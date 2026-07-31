@@ -191,6 +191,29 @@ func (s *Store) RelinkActivity(ctx context.Context, id ids.ActivityID, in Relink
 				return err
 			}
 		}
+		// A relink to a PERSON is a human saying "this conversation was
+		// actually with someone else", so the participant row that names the
+		// old contact is now wrong (ACT-DDL-3). Repointing it here keeps the
+		// participants and the links telling the same story; leaving it would
+		// credit the old contact — and whichever colleague spoke to them —
+		// with a conversation the correction just moved away, permanently,
+		// because nothing else revisits that row.
+		//
+		// Only when the relink REPLACED the previous person link. An
+		// additional link means the activity concerns both, and both were in
+		// it as far as anything here knows.
+		if in.EntityType == linkEntityPerson && in.ReplaceExistingOfType {
+			if _, err := tx.Exec(ctx, `
+				UPDATE activity_participant
+				   SET person_id = $2
+				 WHERE activity_id = $1 AND person_id IS NOT NULL
+				   AND NOT EXISTS (
+				       SELECT 1 FROM activity_participant other
+				        WHERE other.activity_id = $1 AND other.person_id = $2)`,
+				id, in.EntityID); err != nil {
+				return err
+			}
+		}
 		// Idempotent: replaying the same association is a no-op, and a
 		// no-op writes no audit noise.
 		tag, err := tx.Exec(ctx, storekit.SQLf(`

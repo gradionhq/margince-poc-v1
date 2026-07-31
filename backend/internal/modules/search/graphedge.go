@@ -61,12 +61,23 @@ func (e InteractionEdge) StrengthOf(now time.Time) relstrength.Score {
 	}, now)
 }
 
-// interactionRoles are the participant roles that make an edge. `cc` is
-// excluded deliberately and is the whole quality bar: being copied on a thread
-// is not a relationship, and counting it is how a relationship score turns
-// into a mailing-list census. The rows still exist — the timeline should be
-// able to say who saw a message — they simply do not score.
-const interactionRoles = `('from','to','attendee','organizer')`
+// interactionRoles are the participant roles that make an edge — every role
+// there is, cc included (founder decision, 2026-07-31).
+//
+// The market convention is to exclude cc, on the argument that being copied is
+// not a relationship. It was excluded here first and then reversed, and the
+// reason is worth keeping: in the accounts this product is built for, the
+// person who is always in copy on the thread is frequently the one who
+// actually knows the customer — the account lead cc'd on their team's
+// correspondence, the partner copied on every exchange. Dropping cc did not
+// remove noise so much as remove exactly those people from the answer to "who
+// here knows them".
+//
+// The score already handles the difference honestly without a role filter: a
+// colleague who is only ever copied has one-directional traffic, so the
+// reciprocity term floors them well below someone in a real exchange. They
+// appear, ranked where they belong, instead of vanishing.
+const interactionRoles = `('from','to','cc','attendee','organizer')`
 
 // RecomputeEdgesForActivities re-folds every (user, person) pair reachable
 // from the named activities, from the base tables.

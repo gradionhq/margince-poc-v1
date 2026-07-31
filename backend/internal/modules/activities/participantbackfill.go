@@ -110,12 +110,22 @@ func backfillParticipants(ctx context.Context, tx pgx.Tx, limit int) (int, error
 		             FROM app_user u
 		            WHERE a.captured_by = 'human:' || u.id::text
 		            UNION ALL
+		           -- Class 2a: connector provenance that NAMES its mailbox owner
+		           -- (connector:gmail:<user>). Exact, no inference — every
+		           -- row captured since that provenance shipped.
+		           SELECT u.id
+		             FROM app_user u
+		            WHERE a.captured_by LIKE 'connector:%:' || u.id::text
+		            UNION ALL
+		           -- Class 2b: older rows stamped with the connector alone,
+		           -- from before the owner was recorded. Attributable only
+		           -- when the workspace has exactly ONE connection for that
+		           -- provider; with two, the row could belong to either
+		           -- mailbox and nothing on it separates them, so it stays
+		           -- unattributed rather than attributed to a coin flip.
 		           SELECT c.user_id
 		             FROM capture_connection c
 		            WHERE a.captured_by = 'connector:' || c.provider
-		              AND a.captured_by NOT LIKE 'human:%'
-		              -- Exactly one connection for this provider, or the
-		              -- mailbox is ambiguous and we decline to guess.
 		              AND NOT EXISTS (
 		                  SELECT 1 FROM capture_connection other
 		                   WHERE other.provider = c.provider AND other.id <> c.id)
