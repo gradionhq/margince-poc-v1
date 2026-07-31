@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -95,6 +96,38 @@ func TestSeedModelRatesLocalsAreZero(t *testing.T) {
 	for provider, present := range locals {
 		if !present {
 			t.Errorf("no seed row for local provider %q", provider)
+		}
+	}
+}
+
+// TestSeedModelRatesPricesEveryBindingTheShippedExamplesName derives the
+// obligation from the tree rather than from a list somebody remembers to
+// update: a call whose (provider, model) has no rate row reports UNPRICED,
+// which is a materially different signal from FREE, and an example config an
+// operator copies verbatim must not produce one. The examples' commented
+// alternates are presented as one-line swaps, so they carry rows too — this
+// gate can only reach the active bindings the parser returns.
+func TestSeedModelRatesPricesEveryBindingTheShippedExamplesName(t *testing.T) {
+	priced := map[string]bool{}
+	for _, r := range SeedModelRates(time.Now()) {
+		priced[r.Provider+"/"+r.ModelID] = true
+	}
+	for _, path := range exampleRoutingFiles(t) {
+		cfg, err := LoadRoutingFile(path)
+		if err != nil {
+			t.Fatalf("%s no longer parses: %v", path, err)
+		}
+		// The embeddings lane is not a Tier, so the two are walked as
+		// labelled bindings rather than forced into one map.
+		bindings := map[string]ProviderConfig{"embeddings": cfg.Embeddings.ProviderConfig}
+		for tier, binding := range cfg.Tiers {
+			bindings[string(tier)] = binding
+		}
+		for lane, binding := range bindings {
+			if !priced[binding.Provider+"/"+binding.Model] {
+				t.Errorf("%s binds %s to %s/%s, which SeedModelRates does not price — every call on it would report UNPRICED",
+					filepath.Base(path), lane, binding.Provider, binding.Model)
+			}
 		}
 	}
 }
