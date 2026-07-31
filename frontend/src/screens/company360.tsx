@@ -15,6 +15,13 @@ import { formatDate, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { problemMessage } from "./common";
 import "./company360.css";
+import {
+  byReach,
+  missingRoles,
+  reachLabelKey,
+  reachOf,
+  roleLabelKey,
+} from "./coverage";
 import { EntityRef } from "./entityref";
 
 // The company view's data layer and its right-rail cards.
@@ -239,11 +246,15 @@ export function SectionCard({
  */
 export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
   const t = useT();
-  const contacts = view?.people?.data ?? [];
-  const openDeals = view?.deals?.data ?? [];
-  const hasChampion = contacts.some((c) =>
-    c.deal_roles.some((role) => role.role === "champion"),
+  const contacts = [...(view?.people?.data ?? [])].sort(byReach);
+  const truncated = Boolean(view?.people?.page.has_more);
+  const dealsReadable =
+    Boolean(view?.deals) && view != null && !omitted(view, "deals");
+  const openDealIds = new Set(
+    dealsReadable ? (view?.deals?.data ?? []).map((deal) => deal.deal_id) : [],
   );
+  const missing = missingRoles(contacts, openDealIds, truncated);
+  const untried = contacts.filter((c) => reachOf(c) === "untried");
   return (
     <SectionCard
       title={t("co.people.title")}
@@ -260,25 +271,40 @@ export function PeopleCard({ view }: Readonly<{ view?: Organization360 }>) {
           <ContactRow key={contact.person_id} contact={contact} />
         ))}
       </ul>
-      {contacts.length === 1 && (
+      {contacts.length === 1 && !truncated && (
         <p className="co-callout">
           <Badge tone="warn">{t("co.people.singleThread")}</Badge>
         </p>
       )}
-      {openDeals.length > 0 &&
-        !hasChampion &&
-        view &&
-        !omitted(view, "deals") && (
-          <p className="co-callout">
-            <Badge tone="warn">{t("co.people.championGap")}</Badge>
-          </p>
-        )}
+      {/* Who is missing, not only who is present. On an account where every
+          known contact has gone quiet, the person nobody has written to is the
+          only move left that is not a fourth follow-up. */}
+      {untried.length > 0 && (
+        <p className="co-callout">
+          <Badge tone="accent">
+            {untried.length === 1
+              ? t("co.people.untriedHintOne")
+              : t("co.people.untriedHint", { count: untried.length })}
+          </Badge>
+        </p>
+      )}
+      {missing.length > 0 && (
+        <p className="co-callout">
+          <Badge tone="warn">
+            {t("co.people.missing", {
+              roles: missing.map((role) => t(roleLabelKey(role))).join(" / "),
+            })}
+          </Badge>
+        </p>
+      )}
     </SectionCard>
   );
 }
 
 function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
+  const t = useT();
   const roles = contact.deal_roles.map((role) => role.role).filter(Boolean);
+  const reach = reachOf(contact);
   return (
     <li className="co-row">
       <button
@@ -290,8 +316,10 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
       </button>
       <span className="co-row-meta">
         {contact.title && <span>{contact.title}</span>}
-        <Badge tone={strengthTone(contact.strength.bucket)}>
-          {contact.strength.score}
+        {/* Where this person stands with us. "No reply" and "never asked"
+            looked identical in this list and call for opposite next moves. */}
+        <Badge tone={reach === "answered" ? "success" : undefined}>
+          {t(reachLabelKey(reach))}
         </Badge>
         {roles.map((role) => (
           <Badge key={role}>{role}</Badge>
@@ -300,20 +328,6 @@ function ContactRow({ contact }: Readonly<{ contact: Contact }>) {
       </span>
     </li>
   );
-}
-
-// strengthTone maps the server's bucket onto a badge tone. The bucket is
-// the server's word; nothing here re-derives a band from the score.
-function strengthTone(
-  bucket: Contact["strength"]["bucket"],
-): "success" | "accent" | undefined {
-  if (bucket === "strong") {
-    return "success";
-  }
-  if (bucket === "warm") {
-    return "accent";
-  }
-  return undefined;
 }
 
 /**
