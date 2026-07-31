@@ -36,25 +36,43 @@ availability, not by preference. The file declares `cloud_frontier`, not
 `eu_hosted`: an EU vendor is not EU-hosted inference, and this path sends no
 provider-routing preference, so no residency claim would hold.
 
-`make e2e-ai TASK=cold_start` against that binding is **certified** at
-reliability 1.00 (`records/cold_start/openai_compatible_mistralai_ministral-14b-2512_cloud_frontier.json`),
-and on `cold_start/company_message` it beats the shipped Gemini default, which
-is only `supported_degraded` there.
+**All 14 shipped tasks are measured** against that binding — 216 model calls,
+$0.0031 total, records committed under `aicert/records/`. Eight certified
+(`brief_ranking`, `capture_classify`, `cert_judge`, `cold_start`,
+`draft_reply`, `enrich`, `rate_extract`, `site_fact_extract`), one
+`supported_degraded` (`capture_counterparty_verdict`, 0.89), five
+`not_supported` (`summarize` 0.00, `agent_loop` 0.50, `offer_draft` 0.73,
+`site_extract` 0.75, `voice_build` 0.78). On `cold_start/company_message` this
+binding beats the shipped Gemini default, which is only `supported_degraded`
+there.
 
-Three things this left open, in priority order:
+**Every failure is validator-side, not taste.** The judge liked the answers
+(median 90–100 on four of the five); what failed is the site's own contract:
+
+- **`summarize` fails 12/12 as INVALID** — the one to fix first, because it is
+  a single defect with a clear shape. The model writes a display name where the
+  evidence schema requires an entity UUID (`"entity_id": "Nordwind Logistik
+  AG"`), sometimes in the very reply that gets a sibling reference right.
+  Nothing about the summary prose is wrong; the reference is.
+- **`agent_loop` (3 accepted / 3 wrong of 6)** and **`offer_draft`** (8/3/1 of
+  15) split down the middle, so both are a coin-flip rather than a consistent
+  behaviour — read them with `RUNS=5` before drawing a conclusion.
+- **`site_extract` and `voice_build`** sit at 0.75/0.78.
+
+Three caveats on the numbers themselves:
 
 - **`ministral-14b` sits ON the certified/degraded boundary.** Two 12-run
-  passes disagreed: 0.92 with one run scoring 0, then 1.00 with min score 80.
-  The committed record is the second. Re-certify with `RUNS=5` before anyone
-  treats the EU cheap rung as settled.
-- **Only `cold_start` has been measured on OpenRouter.** The other twelve
-  shipped tasks are `absent` for this binding — `site_extract` matters most,
-  since its evidence gate demands verbatim quotes and that is where a weak
-  model comes back thin rather than failing.
-- **Certifying the `premium` rung self-judges.** `cert_judge`'s ladder is
-  `{premium, cheap_cloud}`, so a premium candidate grades its own answers. An
-  independent premium number needs a routing file whose premium rung is a
-  different model.
+  `cold_start` passes disagreed: 0.92 with one run scoring 0, then 1.00 with
+  min score 80. The committed record is the second. Re-certify with `RUNS=5`
+  before anyone treats the EU cheap rung as settled.
+- **Four records are `self_judged=true`** (`brief_ranking`, `cert_judge`,
+  `rate_extract`, `site_extract`) because `cert_judge`'s ladder is
+  `{premium, cheap_cloud}` and those tasks resolve to the same rung. Their
+  bands are the deterministic pass plus an opinion the candidate has an
+  interest in. An independent number needs a routing file whose premium rung
+  is a different model.
+- **`enrich` certifies at median 75**, its lowest passing band of the eight —
+  the evidence gate is the likely reason and it is the next one to trace.
 
 Worth knowing before touching the embeddings lane: `openai_compatible`
 deliberately never sends `dimensions` (a non-MRL model behind vLLM 400s on

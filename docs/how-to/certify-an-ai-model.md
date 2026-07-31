@@ -80,10 +80,11 @@ a task the contract marks `status: shipped` can be certified: `agent_loop`,
 `brief_ranking`, `capture_classify`, `capture_counterparty_verdict`,
 `cert_judge` (the rubric judge is itself certified like any task), `cold_start`,
 `draft_reply`, `enrich`, `offer_draft`, `rate_extract`, `site_extract`,
-`site_fact_extract`, `voice_build`. Omit `TASK=` to run the whole corpus.
+`site_fact_extract`, `summarize`, `voice_build`. Omit `TASK=` to run the whole
+corpus.
 
 A `planned` task — one the contract declares but nothing implements
-(`summarize`, `nl_search`, `transcript`, `deal_health`) — owns no scenarios, and
+(`nl_search`, `transcript`, `deal_health`) — owns no scenarios, and
 naming it fails the run with `task "…" has no scenarios under corpus`. That is
 the point: a scenario for a prompt nobody ships would score a hand-written copy
 and report the task covered, so the corpus refuses to carry one and a fitness

@@ -46,7 +46,7 @@ func overrideForTask(base ai.RoutingConfig, task ai.Task, override string) (ai.R
 		// openai_compatible fails closed without one, so dropping it would
 		// make every OpenAI-wire candidate unrunnable. A cross-provider
 		// override inherits nothing: one vendor's host root addresses no
-		// other, and a tier base never bound has no endpoint to give
+		// other, and a tier that base never bound has no endpoint to give
 		// (provider is non-empty here, so a zero binding never matches).
 		if base.Tiers[tier].Provider == provider {
 			rebound.BaseURL = base.Tiers[tier].BaseURL
