@@ -32,8 +32,19 @@ to add a task or a site rather than certify one that exists, see
    default binds **gemini** on `cheap_cloud` + `premium`. The lane defaults
    `MARGINCE_AI_ROUTING` to that file — override with `MARGINCE_AI_ROUTING=<path>`
    to certify a different binding without touching your dev config.
+
+   For a second, non-Gemini binding to certify against, the tree also ships
+   `config/ai-routing.openrouter.example.yaml` — one OpenRouter key reaching
+   every open-weight model, with three candidates per tier ordered
+   EU → China → USA:
+
+   ```bash
+   make e2e-ai TASK=cold_start \
+     MARGINCE_AI_ROUTING=$PWD/config/ai-routing.openrouter.example.yaml
+   ```
 2. The provider's **BYOK key in the environment** — e.g. `GEMINI_API_KEY`,
-   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`. Keys live in the env, never in the
+   `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENAI_COMPATIBLE_API_KEY` (the
+   OpenRouter example reads that last one). Keys live in the env, never in the
    config file (a stray `api_key:` there is a boot error). Keep them in a
    gitignored `.env.local` and `source` it.
 3. No database. The lane runs on the DB-less local router, so `make db-up` is
@@ -96,6 +107,19 @@ make e2e-ai TASK=cold_start MODEL=gemini:gemini-3.1-flash-lite
 own pinned `cert_judge` binding** (never the candidate's), so a cheaper
 candidate can't grade itself lenient. Certify both the incumbent and the
 candidate, then compare their records before you change the binding.
+
+An override that names the tier's OWN provider keeps that tier's `base_url`, so
+an `openai_compatible` candidate is a one-liner against a routing file already
+pointed at the vendor:
+
+```bash
+make e2e-ai TASK=cold_start MODEL=openai_compatible:z-ai/glm-5.2 \
+  MARGINCE_AI_ROUTING=$PWD/config/ai-routing.openrouter.example.yaml
+```
+
+An override that switches provider inherits no endpoint — one vendor's host
+root addresses no other — so a cross-vendor candidate needs its own routing
+file.
 
 Other knobs: `RUNS=5` (odd repeat count), `MARGINCE_AI_ROUTING=<path>` (a scratch
 routing file).
