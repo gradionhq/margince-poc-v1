@@ -44,7 +44,7 @@ type updateRecordArgs struct {
 
 func (t updateRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "update_record", Version: "1.0.0",
+		Name: "update_record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierAutoExecute,
 		OpenAPIOp:     "updatePerson/updateOrganization/updateDeal/updateLead/updateProject",

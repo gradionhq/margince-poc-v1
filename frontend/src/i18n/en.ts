@@ -584,6 +584,16 @@ export const en = {
   "co.connections.rel.owns": "owns this account",
   "co.connections.rel.in_contact_with": "in contact",
   "co.connections.noSignal": "no signal yet",
+  "linkedinImport.title": "LinkedIn connections",
+  "linkedinImport.sub":
+    "Import your own export to see who your team already knows",
+  "linkedinImport.explainer":
+    "LinkedIn gives you a Connections.csv under Settings → Data privacy → Get a copy of your data. Uploading it here shows who on your team already knows someone at an account. The connections do NOT become contacts: they never appear in search, lists or contact pages, and nobody can write to or email them.",
+  "linkedinImport.working": "Reading your export…",
+  "linkedinImport.imported": "Connections imported",
+  "linkedinImport.confirmed": "Matched to a contact",
+  "linkedinImport.suggested": "Awaiting your confirmation",
+  "linkedinImport.skipped": "Rows skipped (no usable name)",
   "co.connections.group.contacts": "contacts",
   "co.connections.group.deals": "deals",
   "co.connections.group.intro_path": "the warm intro",

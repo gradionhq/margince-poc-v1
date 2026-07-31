@@ -79,6 +79,10 @@ func registryWithGate(pool *pgxpool.Pool, gate *auth.Gate, drafter activities.Em
 	// The pipeline-risk intents: the candidate set rides the deals
 	// module's row-scoped list, the drafts land through the provider.
 	agents.RegisterSlippingTools(registry, nativeOnlySlippingLister(sorMode, slippingLister(pool)), followUpDrafter(provider))
+	// The relationship-graph reads (ADR-0078): who here knows this contact,
+	// and how a deal is covered. Both 🟢 — they name people, they change
+	// nothing.
+	agents.RegisterNetworkTools(registry, whoKnowsLister(pool), coverageReader(pool))
 	agents.RegisterCommsTools(registry, newCommsAdapter(pool, drafter, send))
 	// The composed extension set's governed tools ride the same registry
 	// and admission gate as the core tools, registered last so a name that

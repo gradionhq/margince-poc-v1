@@ -24,6 +24,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/ports/mcp"
 )
 
+// toolVersionV1 is the version every shipped tool spec carries. Named because
+// it appears on every tool in the package: a bare literal repeated two dozen
+// times is a value nobody can grep for when the surface finally versions.
+const toolVersionV1 = "1.0.0"
+
 // toolSource is the provenance channel every MCP write carries.
 const toolSource = "mcp"
 
@@ -119,7 +124,7 @@ type searchRecords struct {
 
 func (t searchRecords) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "search_records", Version: "1.0.0",
+		Name: "search_records", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "listPeople/listOrganizations/listDeals/listLeads/listProjects",
 		InputSchema: schema(`{"type":"object","properties":{
@@ -202,7 +207,7 @@ type readRecord struct {
 
 func (t readRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "read_record", Version: "1.0.0",
+		Name: "read_record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "getPerson/getOrganization/getDeal/getLead/getActivity/getProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","id"],"properties":{
@@ -236,7 +241,7 @@ type createRecord struct {
 
 func (t createRecord) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "create_record", Version: "1.0.0",
+		Name: "create_record", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "createPerson/createOrganization/createDeal/createLead/createProject",
 		InputSchema: schema(`{"type":"object","required":["record_type","fields"],"properties":{
@@ -274,7 +279,7 @@ type logActivity struct {
 
 func (t logActivity) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "log_activity", Version: "1.0.0",
+		Name: "log_activity", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "logActivity",
 		InputSchema: schema(`{"type":"object","required":["kind"],"properties":{
@@ -322,7 +327,7 @@ type advanceDeal struct {
 
 func (t advanceDeal) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "advance_deal", Version: "1.0.0",
+		Name: "advance_deal", Version: toolVersionV1,
 		RequiredScope: principal.ScopeWrite,
 		Tier:          mcp.TierDynamic,
 		TierResolver:  advanceDealTier,

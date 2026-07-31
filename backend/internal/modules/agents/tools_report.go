@@ -34,7 +34,7 @@ type runReport struct {
 
 func (t runReport) Spec() mcp.ToolSpec {
 	return mcp.ToolSpec{
-		Name: "run_report", Version: "1.0.0",
+		Name: "run_report", Version: toolVersionV1,
 		RequiredScope: principal.ScopeRead, Tier: mcp.TierAutoExecute,
 		OpenAPIOp: "runReport",
 		InputSchema: schema(`{"type":"object","required":["report"],"properties":{
