@@ -134,7 +134,7 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails, floorInterval, floorAnchor)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails, channelActivityKeys(identities), floorInterval, floorAnchor)
 		if err != nil {
 			return err
 		}
@@ -348,20 +348,41 @@ func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string
 // the timeline text and its field-level provenance. It returns the
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
-	// Redact the subject's own timeline rows AND the unlinked mail about them —
-	// in both directions, captured and sent (unlinkedSubjectMail) — but shield
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, channelKeys []string, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
+	// Redact the subject's own timeline rows, the unlinked mail about them — in
+	// both directions, captured and sent (unlinkedSubjectMail) — and the
+	// unlinked CHANNEL messages from them (unlinkedSubjectChannel), but shield
 	// commercial correspondence younger than the
 	// statutory floor: the floor filters the row being updated (aliased `a`),
-	// so it covers both id sets in one pass. $1 person, $2 addresses, $3/$4
-	// the floor interval + anchor, $5 the tombstone name.
+	// so it covers all three id sets in one pass. $1 person, $2 addresses, $3/$4
+	// the floor interval + anchor, $5 the tombstone name, $6 the subject's
+	// `provider:account` channel keys.
+	//
+	// source_id and thread_key are cleared for channel rows and ONLY for channel
+	// rows, because for those two columns the identifier IS the subject: the
+	// capture writes source_id `botID:accountID:messageID` and thread_key
+	// `provider:botID:accountID`, and a private chat's id is the human's own
+	// Telegram id. Leaving them was a silent Art. 17 hole on the ordinary path —
+	// no race required — that emptying subject/body/raw did nothing about. A
+	// mail row keeps its natural key: a message-id does not name the subject.
+	//
+	// Clearing them costs nothing that is still reachable. The pair is the
+	// capture idempotency key, but the same erasure arms the suppression list,
+	// and Sink.Upsert refuses a suppressed account before it writes — so there
+	// is no redelivery left for the key to deduplicate.
 	rows, err := tx.Query(ctx, `
 		UPDATE activity a SET subject = $5, body = NULL, raw = NULL,
 		  counterparty_email = NULL,
+		  source_id = CASE WHEN a.source_system || ':' || split_part(coalesce(a.thread_key, ''), ':', 3) = ANY($6)
+		                   THEN NULL ELSE a.source_id END,
+		  thread_key = CASE WHEN a.source_system || ':' || split_part(coalesce(a.thread_key, ''), ':', 3) = ANY($6)
+		                    THEN NULL ELSE a.thread_key END,
 		  archived_at = coalesce(a.archived_at, now())
-		WHERE (a.id IN (`+subjectOnlyActivities+`) OR a.id IN (`+unlinkedSubjectMail+`))
+		WHERE (a.id IN (`+subjectOnlyActivities+`)
+		    OR a.id IN (`+unlinkedSubjectMail+`)
+		    OR a.id IN (`+unlinkedSubjectChannel+`))
 		  `+correspondenceFloorPredicate(3, 4)+`
-		RETURNING a.id`, personID, emails, floorInterval, floorAnchor, erasedName)
+		RETURNING a.id`, personID, emails, floorInterval, floorAnchor, erasedName, channelKeys)
 	if err != nil {
 		return nil, err
 	}

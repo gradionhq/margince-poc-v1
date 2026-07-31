@@ -56,6 +56,19 @@ func personChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.Person
 // second spelling of the identity: storekit owns the key, both callers hand it
 // the same pair, so an erasure and a delivery cannot end up on different keys
 // and silently stop excluding each other.
+// channelActivityKeys renders the subject's accounts as the composite
+// `provider:account` strings unlinkedSubjectChannel matches on. Composite
+// rather than a bare account list on purpose: an account id is a numeric
+// string, and matching one across every provider is the untyped over-deletion
+// this module refuses elsewhere.
+func channelActivityKeys(identities []channelIdentity) []string {
+	keys := make([]string, 0, len(identities))
+	for _, identity := range identities {
+		keys = append(keys, identity.Provider+":"+identity.ChannelUserID)
+	}
+	return keys
+}
+
 func channelIdentityLockKeys(identities []channelIdentity) []storekit.ChannelIdentityKey {
 	keys := make([]storekit.ChannelIdentityKey, 0, len(identities))
 	for _, identity := range identities {

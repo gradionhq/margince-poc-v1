@@ -64,18 +64,32 @@ func sinkConnectorCtx(e *Env) context.Context {
 	return principal.WithCorrelationID(ctx, ids.NewV7())
 }
 
+// beyondEveryStatutoryFloor is deliberately ancient, and fixed rather than
+// relative to now: the statutory correspondence floor shields any activity whose
+// kind is not 'task'/'note' — which includes every channel message — from
+// destructive erasure, and the German pack that declares one ships enabled by
+// default. A recent occurred_at therefore exercises the FLOOR, not the
+// redaction, and an erasure test written against it passes for the wrong reason
+// (nothing is redacted, so "the bystander kept their row" is vacuous). The
+// floor's own behaviour is pinned separately below.
+var beyondEveryStatutoryFloor = time.Date(2005, 1, 1, 12, 0, 0, 0, time.UTC)
+
 // inboundChannelRecord is one normalized inbound Telegram message from account,
 // shaped exactly as telegram.Normalize builds it: identified by its channel
 // identity, with no address anywhere, and with Raw deliberately empty (the
 // connector stores its original at the ingress edge, not here).
 func inboundChannelRecord(account, body string) connector.NormalizedRecord {
+	return inboundChannelRecordAt(account, body, beyondEveryStatutoryFloor)
+}
+
+func inboundChannelRecordAt(account, body string, at time.Time) connector.NormalizedRecord {
 	key := "77:" + account + ":9001"
 	return connector.NormalizedRecord{
 		EntityType: datasource.EntityActivity,
 		NaturalKey: connector.NaturalKey{SourceSystem: "telegram", SourceID: key},
 		Fields: capture.ActivityFields{
 			Kind: "telegram", Body: body, Direction: connector.DirectionInbound,
-			OccurredAt: time.Unix(1750000000, 0).UTC(),
+			OccurredAt: at,
 		},
 		Source:     "telegram:" + key,
 		CapturedBy: "connector:telegram",
@@ -206,6 +220,109 @@ func TestTheSinkRefusesACounterpartyNamedTwice(t *testing.T) {
 	}
 	if n := activityBodyCount(t, e, "named twice"); n != 0 {
 		t.Errorf("%d activities were committed for a malformed counterparty; want 0", n)
+	}
+}
+
+// The residual half of the P0. The Sink commits the activity in ONE transaction
+// and people's ensure writes the person link in a LATER one, so an erasure
+// landing in that gap leaves an activity linked to nobody — invisible to the
+// link-walking selector — and with no counterparty_email, so invisible to the
+// mail selector too. Before the channel selector arm existed, that row survived
+// every erasure, subject-access and retention pass forever.
+//
+// This test builds exactly that state: a Sink with no channel ensurer wired
+// never writes the link at all, which is the same row the race produces.
+func TestAnErasureReachesAChannelActivityWithNoPersonLink(t *testing.T) {
+	e := Setup(t)
+	person := e.SeedPerson(t, "Orphaned Subject", nil)
+	seedChannelIdentity(t, e, person, "20401", "orphaned")
+
+	const body = "a message no link points at"
+	if _, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), inboundChannelRecord("20401", body)); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if n := e.WsCount(t, `SELECT count(*) FROM activity_link WHERE person_id = $1`, person); n != 0 {
+		t.Fatalf("the fixture linked the activity to the person (%d links); this test needs the UNLINKED state", n)
+	}
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+		t.Fatalf("ErasePerson: %v", err)
+	}
+
+	if n := activityBodyCount(t, e, body); n != 0 {
+		t.Errorf("%d unlinked channel activities kept the erased subject's text; want 0", n)
+	}
+	// And the identifier itself: source_id is botID:accountID:messageID and
+	// thread_key is provider:botID:accountID, so both name the human directly.
+	// Emptying subject/body/raw never touched either — a silent Art. 17 hole on
+	// the ORDINARY path, with no race involved.
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM activity WHERE source_id LIKE '%20401%' OR thread_key LIKE '%20401%'`); n != 0 {
+		t.Errorf("%d activities still carry the erased subject's account id in source_id/thread_key; want 0", n)
+	}
+}
+
+// The guard that makes the arm above safe. An account id is a numeric string,
+// so a match that ignored the provider — or that compared the id anywhere in the
+// row — would redact other people's timelines. This pins that erasing one
+// subject touches only their own account's rows.
+func TestAnErasureLeavesAnotherAccountsChannelActivityUntouched(t *testing.T) {
+	e := Setup(t)
+	erased := e.SeedPerson(t, "Erased Subject", nil)
+	seedChannelIdentity(t, e, erased, "20501", "erased")
+	bystander := e.SeedPerson(t, "Bystander", nil)
+	seedChannelIdentity(t, e, bystander, "20502", "bystander")
+
+	sink := capture.NewSink(e.Pool)
+	ctx := sinkConnectorCtx(e)
+	const bystanderBody = "the bystander's own message"
+	if _, err := sink.Upsert(ctx, inboundChannelRecord("20501", "the erased subject's message")); err != nil {
+		t.Fatalf("Upsert (subject): %v", err)
+	}
+	if _, err := sink.Upsert(ctx, inboundChannelRecord("20502", bystanderBody)); err != nil {
+		t.Fatalf("Upsert (bystander): %v", err)
+	}
+
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), erased, "test"); err != nil {
+		t.Fatalf("ErasePerson: %v", err)
+	}
+
+	if n := activityBodyCount(t, e, bystanderBody); n != 1 {
+		t.Fatalf("got %d bystander activities, want 1 — erasing one subject redacted another's timeline", n)
+	}
+	if n := e.WsCount(t,
+		`SELECT count(*) FROM activity WHERE thread_key LIKE '%20502%'`); n != 1 {
+		t.Errorf("the bystander's thread_key was cleared by someone else's erasure (%d rows retain it, want 1)", n)
+	}
+}
+
+// The statutory floor outranks Art. 17 for recent correspondence, and it applies
+// to channel messages too: the predicate shields every activity whose kind is
+// not 'task'/'note', and a Telegram message qualifies. So a RECENT channel
+// message from an erased subject is retained verbatim, account id included,
+// until the floor lapses.
+//
+// That is the shipped GoBD posture (F-012 refuses a floor bypass), not an
+// oversight — and it is pinned here precisely because the arm above looks like
+// it should redact everything. Anyone who "fixes" this test by widening the
+// redaction has written a floor bypass. If the retention of channel messages
+// under a commercial-correspondence floor is wrong, that is a product and legal
+// question for the spec, not a change to make here.
+func TestARecentChannelMessageIsShieldedFromErasureByTheStatutoryFloor(t *testing.T) {
+	e := Setup(t)
+	person := e.SeedPerson(t, "Recent Subject", nil)
+	seedChannelIdentity(t, e, person, "20601", "recent")
+
+	const body = "a message inside the statutory floor"
+	rec := inboundChannelRecordAt("20601", body, time.Now().UTC())
+	if _, err := capture.NewSink(e.Pool).Upsert(sinkConnectorCtx(e), rec); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	if err := privacy.NewEraser(e.Pool).ErasePerson(e.Admin(), person, "test"); err != nil {
+		t.Fatalf("ErasePerson: %v", err)
+	}
+	if n := activityBodyCount(t, e, body); n != 1 {
+		t.Errorf("got %d retained activities, want 1 — the statutory correspondence floor must outrank the erasure for a recent message", n)
 	}
 }
 
