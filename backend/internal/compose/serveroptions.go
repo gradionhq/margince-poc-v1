@@ -46,6 +46,18 @@ func WithPasswordReset(m mailer.Mailer, publicBaseURL string) Option {
 	}
 }
 
+// WithPasswordLogin sets whether email+password sign-in is served. An
+// operator may switch it off only once a federated provider can carry the
+// installation (deployconfig refuses to disable the last method), and then
+// `/auth/login` and both recovery endpoints refuse and the capabilities probe
+// reports `password: false` — the switch is enforced at the surface, not just
+// validated at boot. Omitting the option keeps password login on.
+func WithPasswordLogin(enabled bool) Option {
+	return func(s *Server, _ *pgxpool.Pool) {
+		s.authHandlers = s.WithPasswordLogin(enabled)
+	}
+}
+
 // WithOIDCLogin wires federated sign-in (A107/ADR-0061 §6) onto the
 // identity surface. The relying party is built HERE, at option-build time,
 // so an unusable provider configuration fails the boot rather than shipping

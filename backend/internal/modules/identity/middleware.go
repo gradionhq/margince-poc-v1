@@ -57,7 +57,7 @@ func isOIDCLoginRequest(r *http.Request) bool {
 		return false
 	}
 	provider, action, found := strings.Cut(rest, "/")
-	if !found || provider == "" || strings.Contains(provider, "/") {
+	if !found || provider == "" {
 		return false
 	}
 	return action == "start" || action == "callback"

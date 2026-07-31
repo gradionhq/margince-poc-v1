@@ -695,3 +695,40 @@ describe("AvailabilityScreen", () => {
     expect(screen.queryByLabelText("Email")).toBeNull();
   });
 });
+
+describe("password-disabled installation", () => {
+  // §3.3: the screen renders exactly the methods that work. A server that
+  // refuses /auth/login must not be offered a password — the form would be an
+  // invitation it will not honour.
+  it("offers only the provider when the capability says password is off", async () => {
+    stubApi(
+      {
+        password: false,
+        password_reset: false,
+        oidc_providers: [{ key: "google", label: "Continue with Google" }],
+      },
+      () => ok(200),
+    );
+    render(<AuthScreen onAuthed={vi.fn()} />);
+
+    expect(
+      await screen.findByRole("button", { name: "Continue with Google" }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Email")).toBeNull();
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    // The divider labels the password path below it, so with no path below
+    // there is nothing for it to separate.
+    expect(screen.queryByText("or with email")).toBeNull();
+  });
+
+  // The honest default for a probe that has not answered yet, or failed: the
+  // password form is the baseline method, and hiding it on a transient read
+  // would lock everyone out of a working installation.
+  it("keeps the password form when the capability is absent", async () => {
+    stubApi({ password: true, password_reset: false }, () => ok(200));
+    render(<AuthScreen onAuthed={vi.fn()} />);
+    expect(await screen.findByLabelText("Email")).toBeTruthy();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+  });
+});

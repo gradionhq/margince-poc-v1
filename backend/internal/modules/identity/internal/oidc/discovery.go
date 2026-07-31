@@ -27,6 +27,11 @@ import (
 const (
 	defaultCacheTTL = time.Hour
 	minCacheTTL     = 5 * time.Minute
+	// failureBackoff is how long a failed discovery is remembered as failed.
+	// Short enough that a provider coming back is picked up within one human
+	// retry; long enough that a provider that is down costs one round-trip per
+	// window rather than one per request.
+	failureBackoff = 15 * time.Second
 	// maxBodyBytes bounds every provider response we read. A discovery
 	// document or key set is kilobytes; anything larger is a hostile or
 	// broken endpoint, not a provider.
@@ -71,13 +76,23 @@ func (p *Provider) discover(ctx context.Context) (discoveryDocument, error) {
 	if p.doc != nil && p.now().Before(p.docUntil) {
 		return *p.doc, nil
 	}
+	// A provider that just failed is not dialled again for a moment. The start
+	// endpoint is unauthenticated and discovers on every hit, and the fetch
+	// happens under this lock — so without a failure floor a blackholed
+	// provider would turn every arriving request into its own 15-second wait,
+	// queued behind the last one.
+	if p.now().Before(p.failedUntil) {
+		return discoveryDocument{}, fmt.Errorf("%w: discovery failed moments ago and is not retried yet", ErrProviderUnavailable)
+	}
 
 	var doc discoveryDocument
 	ttl, err := p.fetchJSON(ctx, strings.TrimRight(p.cfg.Issuer, "/")+"/.well-known/openid-configuration", &doc)
 	if err != nil {
+		p.failedUntil = p.now().Add(failureBackoff)
 		return discoveryDocument{}, err
 	}
 	if err := doc.validate(p.cfg.Issuer); err != nil {
+		p.failedUntil = p.now().Add(failureBackoff)
 		return discoveryDocument{}, err
 	}
 	p.doc = &doc

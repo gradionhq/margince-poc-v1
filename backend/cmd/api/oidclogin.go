@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
@@ -22,8 +23,15 @@ import (
 // it fail until a human did.
 func oidcLoginOptions(deployCfg deployconfig.Config, publicBaseURL, apiBaseURL string, stdout io.Writer) ([]compose.Option, error) {
 	oidcCfg := deployCfg.Auth.OIDC
+	// The password switch is wired whatever the OIDC posture is: an
+	// installation that turned it off must have that refused at the surface,
+	// not merely validated at boot.
+	opts := []compose.Option{compose.WithPasswordLogin(deployCfg.Auth.PasswordEnabled())}
+	if !deployCfg.Auth.PasswordEnabled() {
+		_, _ = fmt.Fprintln(stdout, "api password sign-in DISABLED by auth.password.enabled=false — /auth/login and password recovery refuse; humans sign in through the configured provider")
+	}
 	if !oidcCfg.Enabled {
-		return nil, nil
+		return opts, nil
 	}
 	if publicBaseURL == "" {
 		return nil, errors.New("api: auth.oidc.enabled requires --public-base-url/MARGINCE_PUBLIC_BASE_URL (the provider's registered redirect target is derived from it)")
@@ -40,6 +48,9 @@ func oidcLoginOptions(deployCfg deployconfig.Config, publicBaseURL, apiBaseURL s
 	callbackBase := strings.TrimRight(apiBaseURL, "/")
 	if callbackBase == "" {
 		callbackBase = strings.TrimRight(publicBaseURL, "/")
+	}
+	if err := sameCookieHost(callbackBase, publicBaseURL); err != nil {
+		return nil, err
 	}
 	opt, err := compose.WithOIDCLogin(identity.OIDCLoginConfig{
 		ProviderKey:    providerKey,
@@ -58,7 +69,37 @@ func oidcLoginOptions(deployCfg deployconfig.Config, publicBaseURL, apiBaseURL s
 	if len(oidcCfg.AllowedDomains) > 0 {
 		_, _ = fmt.Fprintf(stdout, "api federated sign-in restricted to domains: %s\n", strings.Join(oidcCfg.AllowedDomains, ", "))
 	}
-	return []compose.Option{opt}, nil
+	return append(opts, opt), nil
+}
+
+// sameCookieHost refuses a deployment whose federated sign-in could not
+// finish. The flow's browser binding is a host-scoped cookie: the SPA starts
+// it with a RELATIVE navigation, so the cookie lands on the app's host, while
+// the provider returns to the callback on the api's host. Cookies ignore
+// ports and schemes but not hosts, so when those two hosts differ the
+// callback arrives without the handle and EVERY sign-in dies as `expired`.
+//
+// It is a boot error rather than a runtime surprise for the reason A107 §14
+// gives: authentication configuration fails closed. It also cannot be caught
+// in `make dev`, where both bases are `localhost` and only the ports differ —
+// exactly the shape that would ship green and fail in production.
+func sameCookieHost(callbackBase, publicBaseURL string) error {
+	callback, err := url.Parse(callbackBase)
+	if err != nil {
+		return fmt.Errorf("api: --api-base-url %q is not a URL: %w", callbackBase, err)
+	}
+	app, err := url.Parse(strings.TrimRight(publicBaseURL, "/"))
+	if err != nil {
+		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", publicBaseURL, err)
+	}
+	if callback.Hostname() == app.Hostname() {
+		return nil
+	}
+	return fmt.Errorf(
+		"api: auth.oidc cannot work across hosts — the app is on %q and the OIDC callback on %q, "+
+			"and the flow's browser handle cookie is host-scoped, so every sign-in would fail as expired. "+
+			"Serve /v1 from the app's host (a path proxy, as `make dev` does) or point --api-base-url at that host",
+		app.Hostname(), callback.Hostname())
 }
 
 // providerLabel is the button copy the login screen renders verbatim. The

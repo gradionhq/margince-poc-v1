@@ -427,6 +427,10 @@ paths:
             Set-Cookie:
               schema: { type: string }
               description: 'crm_session=<token> on success; the crm_oidc handle is cleared either way.'
+        # The ONE non-302: a provider key this installation never configured is
+        # not a state of the sign-in, so it is answered as the unknown route it
+        # is rather than dressed up as a failed attempt.
+        '404': { $ref: '#/components/responses/NotFound' }
 
   # ------------------------------ /passports --------------------------------
   /passports:

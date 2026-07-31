@@ -91,7 +91,10 @@ type Provider struct {
 	mu       sync.Mutex
 	doc      *discoveryDocument
 	docUntil time.Time
-	keys     keySet
+	// failedUntil is the negative cache: a provider that just failed
+	// discovery is not dialled again before this instant.
+	failedUntil time.Time
+	keys        keySet
 }
 
 // New builds the relying party for one issuer. It performs no I/O —

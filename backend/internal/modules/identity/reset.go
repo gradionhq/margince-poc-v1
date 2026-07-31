@@ -46,7 +46,9 @@ const inviteTokenTTL = 7 * 24 * time.Hour
 // single-use token and email its link. Always 202 — the response never
 // discloses whether the address maps to an account.
 func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
-	if h.resetMailer == nil {
+	// An installation with password login off has no password to recover: a
+	// reset link that still worked would be the bypass turning it off closes.
+	if h.resetMailer == nil || !h.passwordEnabled() {
 		httperr.NotImplemented(w, r, "RequestPasswordReset")
 		return
 	}
@@ -109,7 +111,9 @@ func (h Handlers) RequestPasswordReset(w http.ResponseWriter, r *http.Request) {
 // single-use token, set the new password, and revoke every session of
 // the account.
 func (h Handlers) ResetPassword(w http.ResponseWriter, r *http.Request) {
-	if h.resetMailer == nil {
+	// Refused for the same reason as the request half: an already-issued token
+	// must not outlive the method it belongs to.
+	if h.resetMailer == nil || !h.passwordEnabled() {
 		httperr.NotImplemented(w, r, "ResetPassword")
 		return
 	}

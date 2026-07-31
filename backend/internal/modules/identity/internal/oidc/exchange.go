@@ -101,21 +101,32 @@ func (p *Provider) postToken(ctx context.Context, endpoint string, form url.Valu
 // unparsable body must not masquerade as a named reason.
 func oauthErrorCode(body []byte) string {
 	var parsed tokenResponse
-	if err := json.Unmarshal(body, &parsed); err != nil || parsed.Error == "" {
-		return "unspecified"
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return unspecifiedReason
 	}
-	// Bounded to a short, ASCII-safe slug: the field is provider-controlled
-	// and this value lands in an operator log line.
-	code := parsed.Error
-	if len(code) > 64 {
-		code = code[:64]
+	return SafeReason(parsed.Error)
+}
+
+// unspecifiedReason stands in for any refusal reason that is absent or not a
+// plain RFC 6749 code.
+const unspecifiedReason = "unspecified"
+
+// SafeReason bounds an OAuth/OIDC error code for a log line. Every such code
+// reaches us from outside — the token endpoint's body, or the browser's own
+// `?error=` on the callback — so it is length-capped and restricted to the
+// RFC 6749 §5.2 character set (`[A-Za-z_]`), and anything else becomes
+// "unspecified". Without this an unauthenticated caller chooses how many
+// bytes of attacker-authored text land in the operator's log, which is both a
+// disk-exhaustion lever and a way to drown the refusal lines this flow's audit
+// trail depends on.
+func SafeReason(raw string) string {
+	if raw == "" || len(raw) > 64 {
+		return unspecifiedReason
 	}
-	for _, r := range code {
-		if r < 'a' || r > 'z' {
-			if r != '_' && (r < 'A' || r > 'Z') {
-				return "unspecified"
-			}
+	for _, r := range raw {
+		if r != '_' && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') {
+			return unspecifiedReason
 		}
 	}
-	return code
+	return raw
 }

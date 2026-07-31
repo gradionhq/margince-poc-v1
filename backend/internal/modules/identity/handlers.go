@@ -45,6 +45,16 @@ type Handlers struct {
 	// answer 404 and the capabilities probe lists no provider, so the login
 	// screen draws no button it cannot honor.
 	oidc *OIDCLogin
+	// passwordDisabled turns email+password sign-in OFF, which an operator may
+	// do only once a federated provider can carry the installation
+	// (deployconfig refuses to disable the last method). Spelled negatively so
+	// the zero Handlers value keeps password login enabled — the posture every
+	// role and every test that wires nothing must get.
+	//
+	// It gates the whole password FAMILY: login and both recovery endpoints. A
+	// reset link that still mints a session would be the bypass the operator
+	// turned password off to close.
+	passwordDisabled bool
 
 	// The unauthenticated endpoints carry their own throttles: login
 	// attempts cost a full Argon2 verification each and reset requests
@@ -86,6 +96,19 @@ func (h Handlers) WithPasswordReset(m mailer.Mailer, publicBaseURL string) Handl
 	h.resetMailer = m
 	h.resetBaseURL = strings.TrimRight(publicBaseURL, "/")
 	return h
+}
+
+// WithPasswordLogin sets whether email+password sign-in is offered. The
+// composition root passes the deployment's `auth.password.enabled`; every
+// role that passes nothing keeps it on, which is the default posture.
+func (h Handlers) WithPasswordLogin(enabled bool) Handlers {
+	h.passwordDisabled = !enabled
+	return h
+}
+
+// passwordEnabled answers whether the password family may be served at all.
+func (h Handlers) passwordEnabled() bool {
+	return !h.passwordDisabled
 }
 
 // WithSorMode injects the workspace system-of-record mode resolver the
@@ -132,8 +155,12 @@ func clientIP(r *http.Request) string {
 // nothing beyond what the login UI needs.
 func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 	caps := crmcontracts.AuthCapabilities{
-		Password:      true,
-		PasswordReset: h.resetMailer != nil,
+		Password: h.passwordEnabled(),
+		// Reported from the SAME field the endpoints refuse on: an
+		// installation that turned password login off offers no way back in
+		// through a reset link either, so advertising one would be a dead
+		// affordance twice over.
+		PasswordReset: h.passwordEnabled() && h.resetMailer != nil,
 	}
 	caps.OidcProviders = make([]struct {
 		Key   string `json:"key"`
@@ -154,6 +181,15 @@ func (h Handlers) GetAuthCapabilities(w http.ResponseWriter, r *http.Request) {
 // Login implements (POST /auth/login). The route is public; the singleton
 // organization is bound by the middleware (installation.go).
 func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
+	if !h.passwordEnabled() {
+		// An installation that authenticates through a provider does not
+		// accept a password from anyone — refused BEFORE the body is read, so
+		// no credential is even parsed on a surface that cannot honor one.
+		// The same 501 shape the reset flow uses for an absent method, and the
+		// capabilities probe already told the login screen not to offer it.
+		httperr.NotImplemented(w, r, "Login")
+		return
+	}
 	var req crmcontracts.LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		httperr.Write(w, r, httperr.Validation("body", "malformed_json", err.Error()))

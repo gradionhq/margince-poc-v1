@@ -104,6 +104,14 @@ func newIssuerFake(t *testing.T) *issuerFake {
 			return
 		}
 		f.tokenForm = form
+		// A real provider checks the verifier against the challenge it was
+		// given. The fake does too, so "we sent a verifier" cannot pass for
+		// "we sent the RIGHT verifier" if the flow ever regresses.
+		sum := sha256.Sum256([]byte(form.Get("code_verifier")))
+		if base64.RawURLEncoding.EncodeToString(sum[:]) != f.authQuery.Get("code_challenge") {
+			f.refuseToken(w)
+			return
+		}
 		f.writeJSON(w, map[string]any{"id_token": f.idToken()})
 	})
 	f.server = httptest.NewServer(mux)
@@ -279,8 +287,8 @@ func TestFederatedSignInBindsOnFirstVerifiedEmailMatchThenResolvesBySubject(t *t
 	}
 }
 
-// The cookie is omitted on the second call above deliberately: it must fail.
-// This case pins that separately so the assertion is not buried.
+// Without the browser's handle cookie the callback is not a returning
+// sign-in — it is somebody else's request carrying a state they saw.
 func TestFederatedSignInRefusesACallbackWithoutTheBrowsersCookie(t *testing.T) {
 	e := setupFederatedEnv(t, "oidc-nocookie")
 	e.issuer.email = e.member.Email
@@ -393,6 +401,84 @@ func TestFederatedSignInActivatesAnInvitedHuman(t *testing.T) {
 	}
 	if status != "active" {
 		t.Errorf("status after the federated activation = %q, want active", status)
+	}
+}
+
+func TestFederatedSignInRefusesALockedAccount(t *testing.T) {
+	e := setupFederatedEnv(t, "oidc-locked")
+	e.issuer.email = e.member.Email
+	// The §27 lock is not password-specific: an admin (or a brute-force
+	// streak) locking an account expects it locked, and a second door that
+	// ignored it would make the first one decorative.
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE app_user SET locked_until = now() + interval '15 minutes' WHERE id = $1`,
+		e.member.UserID); err != nil {
+		t.Fatal(err)
+	}
+	state := e.start(t)
+
+	// Refused as the same neutral code as every other miss — the login screen
+	// must not become an oracle for account state.
+	assertSSORefusal(t, e.callback(t, state, "the-code", state), ssoErrorNotLinked)
+
+	// And once the lock lapses the same identity signs in, so the refusal was
+	// the lock and nothing else.
+	if _, err := e.owner.Exec(context.Background(),
+		`UPDATE app_user SET locked_until = NULL WHERE id = $1`, e.member.UserID); err != nil {
+		t.Fatal(err)
+	}
+	unlocked := e.start(t)
+	if session := oidcCookieValue(t, e.callback(t, unlocked, "another-code", unlocked), sessionCookie); session == "" {
+		t.Fatal("an unlocked account was still refused")
+	}
+}
+
+func TestPasswordDisabledInstallationRefusesTheWholePasswordFamily(t *testing.T) {
+	e := setupFederatedEnv(t, "oidc-only")
+	h := e.h.WithPasswordLogin(false).WithPasswordReset(&capturedMail{}, "https://crm.example.test")
+
+	// A CORRECT password is refused: the switch is enforced at the surface,
+	// not merely validated at boot.
+	rec := httptest.NewRecorder()
+	h.Login(rec, httptest.NewRequest(http.MethodPost, "/v1/auth/login",
+		strings.NewReader(`{"email":"`+e.member.Email+`","password":"`+memberPassword+`"}`)).
+		WithContext(e.wsOnlyCtx()))
+	if rec.Code == http.StatusOK {
+		t.Fatalf("password sign-in succeeded on a password-disabled installation: %s", rec.Body)
+	}
+	if cookie := oidcCookieValue(t, rec, sessionCookie); cookie != "" {
+		t.Fatal("a password-disabled installation minted a session cookie")
+	}
+
+	// Recovery is part of the same family: a reset link that still minted a
+	// session would be the bypass turning password login off exists to close.
+	for name, serve := range map[string]func(http.ResponseWriter, *http.Request){
+		"forgot-password": h.RequestPasswordReset,
+		"reset-password":  h.ResetPassword,
+	} {
+		rec := httptest.NewRecorder()
+		serve(rec, httptest.NewRequest(http.MethodPost, "/v1/auth/"+name,
+			strings.NewReader(`{"email":"`+e.member.Email+`","token":"t","new_password":"an entirely new password"}`)).
+			WithContext(e.wsOnlyCtx()))
+		if rec.Code < 400 {
+			t.Errorf("%s answered %d on a password-disabled installation: %s", name, rec.Code, rec.Body)
+		}
+	}
+
+	// And the probe says so, so the login screen never draws the form or the
+	// reset link — even though a mailer IS wired here.
+	rec = httptest.NewRecorder()
+	h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+	if body := rec.Body.String(); !strings.Contains(body, `"password":false`) || !strings.Contains(body, `"password_reset":false`) {
+		t.Errorf("capabilities = %s, want password and password_reset both false", body)
+	}
+
+	// The default posture is unchanged: a Handlers nobody told keeps password
+	// sign-in on.
+	rec = httptest.NewRecorder()
+	e.h.GetAuthCapabilities(rec, httptest.NewRequest(http.MethodGet, "/v1/auth/capabilities", nil))
+	if !strings.Contains(rec.Body.String(), `"password":true`) {
+		t.Errorf("default capabilities = %s, want password:true", rec.Body)
 	}
 }
 

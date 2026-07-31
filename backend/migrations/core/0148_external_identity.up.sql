@@ -53,9 +53,11 @@ CREATE TABLE oidc_login_state (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX idx_oidc_login_state_hash ON oidc_login_state (state_hash);
--- The sweep index: expired unconsumed attempts are deleted, not kept as
--- forensic debris — the row holds a live PKCE verifier.
-CREATE INDEX idx_oidc_login_state_expiry ON oidc_login_state (expires_at) WHERE consumed_at IS NULL;
+-- The sweep index. Unpartitioned on purpose: the sweep deletes every expired
+-- row, consumed or not — a spent attempt still holds its PKCE verifier, so
+-- there is nothing to keep — and a partial index the sweep's predicate does
+-- not match could not serve it.
+CREATE INDEX idx_oidc_login_state_expiry ON oidc_login_state (expires_at);
 
 ALTER TABLE oidc_login_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE oidc_login_state FORCE ROW LEVEL SECURITY;

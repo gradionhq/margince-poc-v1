@@ -33,14 +33,18 @@ type keySet struct {
 // provider is entitled to publish keys for algorithms and uses beyond the
 // one we need.
 type jwksResponse struct {
-	Keys []struct {
-		Kty string `json:"kty"`
-		Kid string `json:"kid"`
-		Use string `json:"use"`
-		Alg string `json:"alg"`
-		N   string `json:"n"`
-		E   string `json:"e"`
-	} `json:"keys"`
+	Keys []jwk `json:"keys"`
+}
+
+// jwk is one published key. Named rather than inline so a test can state a
+// key set as a literal and read as a spec.
+type jwk struct {
+	Kty string `json:"kty"`
+	Kid string `json:"kid"`
+	Use string `json:"use"`
+	Alg string `json:"alg"`
+	N   string `json:"n"`
+	E   string `json:"e"`
 }
 
 // signingKey returns the RSA public key for kid, fetching the key set when
@@ -87,23 +91,23 @@ func (p *Provider) signingKey(ctx context.Context, kid string, force bool) (*rsa
 // sign-in through this issuer would fail the same way.
 func rsaKeys(parsed jwksResponse) (map[string]*rsa.PublicKey, error) {
 	keys := map[string]*rsa.PublicKey{}
-	for _, jwk := range parsed.Keys {
-		if jwk.Kty != "RSA" || jwk.Kid == "" {
+	for _, published := range parsed.Keys {
+		if published.Kty != "RSA" || published.Kid == "" {
 			continue
 		}
-		if jwk.Use != "" && jwk.Use != "sig" {
+		if published.Use != "" && published.Use != "sig" {
 			continue
 		}
-		if jwk.Alg != "" && jwk.Alg != algRS256 {
+		if published.Alg != "" && published.Alg != algRS256 {
 			continue
 		}
-		key, err := rsaPublicKey(jwk.N, jwk.E)
+		key, err := rsaPublicKey(published.N, published.E)
 		if err != nil {
 			// One unusable key must not discard the rest of a valid set: the
 			// token at hand may well be signed by a sibling that parsed.
 			continue
 		}
-		keys[jwk.Kid] = key
+		keys[published.Kid] = key
 	}
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("%w: key set carries no usable RS256 signing key", ErrProviderUnavailable)

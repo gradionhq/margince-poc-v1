@@ -15,6 +15,7 @@ package identity
 // which addresses exist.
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -150,7 +151,8 @@ func (h Handlers) StartOidcLogin(w http.ResponseWriter, r *http.Request, provide
 
 	attempt, err := oidc.NewAuthRequest()
 	if err != nil {
-		httperr.Write(w, r, err)
+		slog.ErrorContext(r.Context(), "federated sign-in could not mint its secrets", "provider", login.key, "err", err)
+		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
 		return
 	}
 	// The authorization URL is built BEFORE the state is stored: discovery
@@ -158,12 +160,13 @@ func (h Handlers) StartOidcLogin(w http.ResponseWriter, r *http.Request, provide
 	// is still on the login screen rather than after a redirect out.
 	authURL, err := login.provider.AuthCodeURL(r.Context(), attempt, login.hostedDomainHint())
 	if err != nil {
-		slog.Error("federated sign-in could not start", "provider", login.key, "err", err)
-		http.Redirect(w, r, login.loginURL(ssoErrorProviderUnavailable), http.StatusFound)
+		slog.ErrorContext(r.Context(), "federated sign-in could not start", "provider", login.key, "err", err)
+		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
 		return
 	}
 	if err := h.svc.StartOIDCLogin(r.Context(), login.key, attempt); err != nil {
-		httperr.Write(w, r, err)
+		slog.ErrorContext(r.Context(), "federated sign-in could not store its login state", "provider", login.key, "err", err)
+		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
 		return
 	}
 
@@ -180,43 +183,59 @@ func (h Handlers) CompleteOidcLogin(w http.ResponseWriter, r *http.Request, prov
 		httperr.Write(w, r, apperrors.ErrNotFound)
 		return
 	}
+	// The callback carries the same per-IP ceiling as the start endpoint. It
+	// does real work for an unauthenticated caller — a database claim and, past
+	// it, a provider round-trip — and the throttle is what keeps a loop against
+	// it from being an amplifier. Refused as a redirect like everything else
+	// here, so a human caught behind a noisy network sees the login screen.
+	if !h.oidcPerIP.Allow(clientIP(r)) {
+		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
+		return
+	}
 	// The state cookie is spent whatever happens next: it belongs to exactly
 	// one attempt, and leaving it set would keep a dead handle in the browser.
 	clearOIDCStateCookie(w)
 
+	// From here the answer is a redirect no matter what — including on an
+	// infrastructure failure. A human mid-navigation has no use for a problem
+	// document, and the contract says 302: `provider_unavailable` is what a
+	// database we could not reach looks like from the login screen, and the
+	// operator's log carries the real reason.
 	attempt, refusal, err := h.claimAttempt(r, login, params)
 	if err != nil {
-		httperr.Write(w, r, err)
+		slog.ErrorContext(r.Context(), "federated sign-in could not claim its login state", "provider", login.key, "err", err)
+		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
 		return
 	}
 	if refusal != "" {
-		h.redirectToLogin(w, r, login, refusal)
+		redirectToLogin(w, r, login, refusal)
 		return
 	}
 
 	external, err := login.provider.ExchangeAndVerify(r.Context(), *params.Code, attempt.Verifier, attempt.Nonce)
 	if err != nil {
-		h.redirectToLogin(w, r, login, exchangeFailureCode(login.key, err))
+		redirectToLogin(w, r, login, exchangeFailureCode(r.Context(), login.key, err))
 		return
 	}
 	if !login.domainAllowed(external) {
-		slog.Warn("federated sign-in refused: domain not allowed", "provider", login.key, "hosted_domain", external.HostedDomain)
-		h.redirectToLogin(w, r, login, ssoErrorDomainNotAllowed)
+		slog.WarnContext(r.Context(), "federated sign-in refused: domain not allowed", "provider", login.key, "hosted_domain", external.HostedDomain)
+		redirectToLogin(w, r, login, ssoErrorDomainNotAllowed)
 		return
 	}
 
 	// The session cookie is the whole result: the SPA reads its identity from
 	// /me exactly as it does after a password sign-in.
-	_, token, err := h.svc.CompleteOIDCLogin(r.Context(), external)
+	token, err := h.svc.CompleteOIDCLogin(r.Context(), external)
 	switch {
 	case errors.Is(err, errNoLinkableUser), errors.Is(err, errUserBoundElsewhere):
 		// The distinction stays in the operator's system_log — the answer to
 		// the browser is one neutral code either way.
-		slog.Warn("federated sign-in matched no linkable user", "provider", login.key, "err", err)
-		h.redirectToLogin(w, r, login, ssoErrorNotLinked)
+		slog.WarnContext(r.Context(), "federated sign-in matched no linkable user", "provider", login.key, "err", err)
+		redirectToLogin(w, r, login, ssoErrorNotLinked)
 		return
 	case err != nil:
-		httperr.Write(w, r, err)
+		slog.ErrorContext(r.Context(), "federated sign-in could not open a session", "provider", login.key, "err", err)
+		redirectToLogin(w, r, login, ssoErrorProviderUnavailable)
 		return
 	}
 
@@ -234,7 +253,13 @@ func (h Handlers) claimAttempt(r *http.Request, login *OIDCLogin, params crmcont
 		// The provider names the refusal (access_denied, consent_required, …).
 		// The human's own cancellation is the overwhelmingly common case and
 		// the copy for it is not an error message.
-		slog.Info("federated sign-in refused at the provider", "provider", login.key, "reason", *params.Error)
+		//
+		// The reason is bounded before it is logged: this parameter arrives on
+		// an unauthenticated URL and is whatever the caller typed, so logging
+		// it verbatim would let anyone choose how many bytes of their own text
+		// land in the operator's log.
+		slog.InfoContext(r.Context(), "federated sign-in refused at the provider",
+			"provider", login.key, "reason", oidc.SafeReason(*params.Error))
 		return oidcAttempt{}, ssoErrorDenied, nil
 	}
 	if !stateCookieMatches(r, params.State) {
@@ -273,19 +298,19 @@ func stateCookieMatches(r *http.Request, state *string) bool {
 // exchangeFailureCode classifies a failed exchange or validation. The
 // provider's own detail is logged for the operator and never rendered: a
 // human cannot act on "aud mismatch", and the detail can name internals.
-func exchangeFailureCode(providerKey string, err error) string {
+func exchangeFailureCode(ctx context.Context, providerKey string, err error) string {
 	switch {
 	case errors.Is(err, oidc.ErrProviderUnavailable):
-		slog.Error("federated sign-in: provider unavailable", "provider", providerKey, "err", err)
+		slog.ErrorContext(ctx, "federated sign-in: provider unavailable", "provider", providerKey, "err", err)
 		return ssoErrorProviderUnavailable
 	case errors.Is(err, oidc.ErrEmailUnverified):
-		slog.Warn("federated sign-in: provider has not verified the email", "provider", providerKey)
+		slog.WarnContext(ctx, "federated sign-in: provider has not verified the email", "provider", providerKey)
 		return ssoErrorUnverifiedEmail
 	default:
 		// Both a refused exchange and a token that fails validation land
 		// here: from the human's side they are the same event — the provider
 		// did not produce a usable proof of identity.
-		slog.Warn("federated sign-in: authorization not usable", "provider", providerKey, "err", err)
+		slog.WarnContext(ctx, "federated sign-in: authorization not usable", "provider", providerKey, "err", err)
 		return ssoErrorRejected
 	}
 }
@@ -327,7 +352,7 @@ func (l *OIDCLogin) hostedDomainHint() string {
 // redirectToLogin returns the human to the login screen with one bounded
 // code. Its 302 is the same shape as the success redirect — a failed
 // federated sign-in is a state of the login screen, not an API error.
-func (h Handlers) redirectToLogin(w http.ResponseWriter, r *http.Request, login *OIDCLogin, code string) {
+func redirectToLogin(w http.ResponseWriter, r *http.Request, login *OIDCLogin, code string) {
 	// #nosec G710 -- not attacker-steerable: the base is the operator's configured
 	// AppBaseURL and the only variable part is one of the fixed ssoError* constants,
 	// query-escaped. Nothing from the request reaches this URL.

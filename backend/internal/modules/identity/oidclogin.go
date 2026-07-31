@@ -25,6 +25,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity/internal/oidc"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
@@ -59,12 +60,12 @@ func (s *Service) StartOIDCLogin(ctx context.Context, providerKey string, req oi
 		return apperrors.ErrNotFound
 	}
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// Sweep this installation's dead attempts on the way past. They hold
-		// live PKCE verifiers, so they are deleted rather than retained as
-		// forensic debris, and doing it here means the flow needs no
+		// Sweep this installation's dead attempts on the way past — consumed or
+		// not, because a spent attempt still holds its PKCE verifier and there
+		// is nothing in it worth keeping. Doing it here means the flow needs no
 		// background job to stay clean.
 		if _, err := tx.Exec(ctx,
-			`DELETE FROM oidc_login_state WHERE expires_at < now() - interval '1 hour'`); err != nil {
+			`DELETE FROM oidc_login_state WHERE expires_at < now()`); err != nil {
 			return err
 		}
 		_, err := tx.Exec(ctx,
@@ -111,30 +112,34 @@ func (s *Service) ClaimOIDCLoginState(ctx context.Context, providerKey, rawState
 	return attempt, nil
 }
 
-// CompleteOIDCLogin turns a validated provider identity into a session.
-// It resolves the human by `(issuer, subject)`, writing the binding on the
-// first verified-email match, and mints the same opaque session password
-// login does — a federated human is not a second class of principal.
-func (s *Service) CompleteOIDCLogin(ctx context.Context, external oidc.Identity) (Identity, string, error) {
+// CompleteOIDCLogin turns a validated provider identity into a session and
+// returns the raw session token. It resolves the human by
+// `(issuer, subject)`, writing the binding on the first verified-email match,
+// and mints the same opaque session password login does — a federated human
+// is not a second class of principal.
+//
+// It returns the token and nothing else, unlike Login: the callback answers a
+// 302 with no body, so the client reads its identity from /me afterwards, and
+// resolving roles and teams here would be work for a response that does not
+// exist.
+func (s *Service) CompleteOIDCLogin(ctx context.Context, external oidc.Identity) (string, error) {
 	wsID, ok := workspaceFrom(ctx)
 	if !ok {
 		// Pre-bootstrap there is no human to sign in; nothing about the
 		// installation's state is disclosed beyond "not linked".
-		return Identity{}, "", errNoLinkableUser
+		return "", errNoLinkableUser
 	}
 	token, tokenHash, err := mintSessionToken()
 	if err != nil {
-		return Identity{}, "", err
+		return "", err
 	}
 
-	var id Identity
 	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
 		userID, linked, err := resolveExternalIdentity(ctx, tx, wsID, external)
 		if err != nil {
 			return err
 		}
-		account, err := loadAccountForSession(ctx, tx, userID)
-		if err != nil {
+		if err := requireSignInReady(ctx, tx, userID); err != nil {
 			return err
 		}
 		if err := insertSession(ctx, tx, wsID, userID, tokenHash); err != nil {
@@ -144,23 +149,12 @@ func (s *Service) CompleteOIDCLogin(ctx context.Context, external oidc.Identity)
 		if linked {
 			detail = "federated sign-in (" + external.Issuer + "); provider identity linked on first verified-email match"
 		}
-		if err := auditLogin(ctx, tx, wsID, userID, detail); err != nil {
-			return err
-		}
-		id = Identity{
-			UserID:      userID,
-			WorkspaceID: wsID,
-			Email:       account.Email,
-			DisplayName: account.DisplayName,
-			SeatType:    account.SeatType,
-		}
-		id.Roles, id.Teams, id.Permissions, err = loadGrants(ctx, tx, userID)
-		return err
+		return auditLogin(ctx, tx, wsID, userID, detail)
 	})
 	if err != nil {
-		return Identity{}, "", err
+		return "", err
 	}
-	return id, token, nil
+	return token, nil
 }
 
 // resolveExternalIdentity maps the provider identity onto a local human,
@@ -214,9 +208,17 @@ func linkExternalIdentity(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, 
 		`INSERT INTO external_identity (workspace_id, user_id, issuer, subject, email_at_link_time, last_authenticated_at)
 		 VALUES ($1, $2, $3, $4, lower($5), now())`,
 		wsID, userID, external.Issuer, external.Subject, external.Email); err != nil {
-		// The unique indexes are the race arbiter: two simultaneous first
-		// logins cannot both write a binding, and the loser is refused
-		// rather than served a second identity for the same human.
+		// The unique indexes are the race arbiter, and the loser is refused as
+		// a refusal rather than as a fault: two simultaneous first logins reach
+		// the INSERT together (the row lock above serializes them, but each
+		// evaluated its "already bound?" test against its own snapshot), and
+		// the same constraint answers a subject already bound in another
+		// workspace, which this workspace-scoped read cannot see. Both are
+		// "this identity is not yours to claim" — the callback renders
+		// not_linked, never a 500 mid-navigation.
+		if storekit.IsUniqueViolation(err) {
+			return ids.UserID{}, false, errUserBoundElsewhere
+		}
 		return ids.UserID{}, false, fmt.Errorf("identity: linking provider identity: %w", err)
 	}
 	// Activation is part of the same transaction as the binding: a human can
@@ -232,28 +234,35 @@ func linkExternalIdentity(ctx context.Context, tx pgx.Tx, wsID ids.WorkspaceID, 
 	return userID, true, nil
 }
 
-// sessionAccount is the account state a freshly-minted session needs for
-// its /me answer.
-type sessionAccount struct {
-	Email       string
-	DisplayName string
-	SeatType    string
-}
-
-// loadAccountForSession re-reads the human AFTER the binding, so an account
-// deactivated between the provider round-trip and this transaction cannot
-// still receive a session.
-func loadAccountForSession(ctx context.Context, tx pgx.Tx, userID ids.UserID) (sessionAccount, error) {
-	var account sessionAccount
+// requireSignInReady re-reads the human AFTER the binding and refuses anyone
+// who may not hold a session right now. It is the ONE place both federated
+// paths — the existing binding and the just-written one — pass through, so
+// the state rules cannot be honored on one and missed on the other.
+//
+// Two rules, both shared with the password path: the account must be active
+// and unarchived (so an account deactivated between the provider round-trip
+// and this transaction cannot still be let in), and a §27 lockout refuses the
+// sign-in. The lock is deliberately NOT password-specific — an admin locking
+// an account expects it locked, and a second door that ignores it would make
+// the first one decorative. Its refusal is `errNoLinkableUser`, which the
+// callback renders as the same neutral `not_linked` as every other miss: the
+// login screen must not become an oracle for account state.
+func requireSignInReady(ctx context.Context, tx pgx.Tx, userID ids.UserID) error {
+	// The lock is judged in SQL, against the database's clock — the same place
+	// and the same way the session and passport expiries are.
+	var locked bool
 	err := tx.QueryRow(ctx,
-		`SELECT email, display_name, seat_type FROM app_user
+		`SELECT locked_until IS NOT NULL AND now() < locked_until FROM app_user
 		 WHERE id = $1 AND status = 'active' AND archived_at IS NULL`,
-		userID).Scan(&account.Email, &account.DisplayName, &account.SeatType)
+		userID).Scan(&locked)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return sessionAccount{}, errNoLinkableUser
+		return errNoLinkableUser
 	}
 	if err != nil {
-		return sessionAccount{}, err
+		return err
 	}
-	return account, nil
+	if locked {
+		return errNoLinkableUser
+	}
+	return nil
 }

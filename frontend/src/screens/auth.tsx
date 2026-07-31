@@ -161,6 +161,13 @@ export function AuthScreen({
           <LoginForm
             onAuthed={onAuthed}
             onPhase={setAuthPhase}
+            /* The server's own answer. An installation that turned password
+               sign-in off refuses /auth/login, so the form is absent rather
+               than offered and then refused (§3.3). Absent capabilities (the
+               probe is still in flight or failed) read as available: the
+               password form is the baseline method, and hiding it on a
+               transient read would lock everyone out of a working install. */
+            passwordAvailable={capabilities.data?.password !== false}
             resetAvailable={resetAvailable}
             /* The server's answer, passed through the ONE ui-preview override
                site. Off by default, in which case this is the identity
@@ -367,10 +374,17 @@ export function ProviderButtons({
   providers,
   disabled = false,
   unavailable = NO_UNAVAILABLE_PROVIDERS,
+  passwordAvailable = true,
   onSelect,
 }: Readonly<{
   providers: OidcProviders;
   disabled?: boolean;
+  /**
+   * Whether a password path exists below this block. When it does not — an
+   * installation that authenticates only through its provider — the "or with
+   * email" divider is absent, because it would label a path that is not there.
+   */
+  passwordAvailable?: boolean;
   /**
    * Provider keys to render as not-yet-available. **Empty in the product**, and
    * structurally so: the capability's items are `{ key, label }` with no
@@ -428,10 +442,13 @@ export function ProviderButtons({
         })}
       </div>
       {/* Labels the path BELOW it, so a screen reader hears what the divider
-          separates rather than a decorative rule. */}
-      <p className="auth-or">
-        <span>{t("auth.orWithEmail")}</span>
-      </p>
+          separates rather than a decorative rule — and is absent when there is
+          no path below to label. */}
+      {passwordAvailable && (
+        <p className="auth-or">
+          <span>{t("auth.orWithEmail")}</span>
+        </p>
+      )}
     </>
   );
 }
@@ -525,6 +542,7 @@ function ssoErrorFromLocation(): MessageKey | null {
 function LoginForm({
   onAuthed,
   onPhase,
+  passwordAvailable,
   resetAvailable,
   providers,
   unavailableProviders,
@@ -533,6 +551,12 @@ function LoginForm({
 }: Readonly<{
   onAuthed: () => void | Promise<void>;
   onPhase: (phase: AuthPhase) => void;
+  /**
+   * §3.3: served by /auth/capabilities. False on an installation that
+   * authenticates only through its provider — the server refuses `/auth/login`
+   * there, so drawing the form would be an invitation it will not honour.
+   */
+  passwordAvailable: boolean;
   resetAvailable: boolean;
   /** §11: served by /auth/capabilities. Empty means no federated block. */
   providers: OidcProviders;
@@ -558,7 +582,8 @@ function LoginForm({
 
   // Focus lands on email at render (§8.2) — programmatic rather than the
   // autoFocus attribute, so the a11y lint's blanket rule stays intact and
-  // the login page keeps the one justified exception.
+  // the login page keeps the one justified exception. With no password path
+  // there is no field to focus, and the provider button is already first.
   useEffect(() => {
     emailRef.current?.focus();
   }, []);
@@ -628,82 +653,91 @@ function LoginForm({
         providers={providers}
         disabled={login.isPending}
         unavailable={unavailableProviders}
+        passwordAvailable={passwordAvailable}
         onSelect={(providerKey) => {
           setSsoError(null);
           startFederatedSignIn(providerKey);
         }}
       />
-      <div className="auth-fields">
-        <Field id={emailId} label={t("auth.email")} icon={<Mail aria-hidden />}>
-          <input
+      {passwordAvailable && (
+        <div className="auth-fields">
+          <Field
             id={emailId}
-            ref={emailRef}
-            className="auth-input"
-            type="email"
-            required
-            autoComplete="username"
-            placeholder={t("auth.emailPlaceholder")}
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </Field>
-        <Field
-          id={passwordId}
-          label={t("auth.password")}
-          icon={<Lock aria-hidden />}
-          labelEnd={
-            resetAvailable ? (
-              <button type="button" className="auth-link" onClick={onForgot}>
-                {t("auth.forgotLink")}
-              </button>
-            ) : undefined
-          }
-          hint={capsLock ? t("auth.capsLock") : undefined}
-          trailing={
-            <button
-              type="button"
-              className="auth-reveal"
-              aria-pressed={showPassword}
-              aria-label={t(
-                showPassword ? "auth.hidePassword" : "auth.showPassword",
-              )}
-              title={t(
-                showPassword ? "auth.hidePassword" : "auth.showPassword",
-              )}
-              onClick={() => setShowPassword((v) => !v)}
-            >
-              {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
-            </button>
-          }
-        >
-          <input
+            label={t("auth.email")}
+            icon={<Mail aria-hidden />}
+          >
+            <input
+              id={emailId}
+              ref={emailRef}
+              className="auth-input"
+              type="email"
+              required
+              autoComplete="username"
+              placeholder={t("auth.emailPlaceholder")}
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </Field>
+          <Field
             id={passwordId}
-            className="auth-input"
-            type={showPassword ? "text" : "password"}
-            required
-            autoComplete="current-password"
-            placeholder={t("auth.passwordPlaceholder")}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            onKeyUp={(event) =>
-              setCapsLock(event.getModifierState?.("CapsLock") ?? false)
+            label={t("auth.password")}
+            icon={<Lock aria-hidden />}
+            labelEnd={
+              resetAvailable ? (
+                <button type="button" className="auth-link" onClick={onForgot}>
+                  {t("auth.forgotLink")}
+                </button>
+              ) : undefined
             }
-          />
-        </Field>
-      </div>
+            hint={capsLock ? t("auth.capsLock") : undefined}
+            trailing={
+              <button
+                type="button"
+                className="auth-reveal"
+                aria-pressed={showPassword}
+                aria-label={t(
+                  showPassword ? "auth.hidePassword" : "auth.showPassword",
+                )}
+                title={t(
+                  showPassword ? "auth.hidePassword" : "auth.showPassword",
+                )}
+                onClick={() => setShowPassword((v) => !v)}
+              >
+                {showPassword ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
+              </button>
+            }
+          >
+            <input
+              id={passwordId}
+              className="auth-input"
+              type={showPassword ? "text" : "password"}
+              required
+              autoComplete="current-password"
+              placeholder={t("auth.passwordPlaceholder")}
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              onKeyUp={(event) =>
+                setCapsLock(event.getModifierState?.("CapsLock") ?? false)
+              }
+            />
+          </Field>
+        </div>
+      )}
       {errorKey && (
         <div className="auth-error" role="alert" tabIndex={-1} ref={errorRef}>
           <p className="ae-t">{t(errorKey)}</p>
         </div>
       )}
-      <div className="auth-actions">
-        {/* Disabled ONLY while a request is in flight (§8.4). An empty field is
-            answered by native validation on the inputs, not by a pale control
-            with nothing to say. */}
-        <Button type="submit" variant="primary" disabled={login.isPending}>
-          {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
-        </Button>
-      </div>
+      {passwordAvailable && (
+        <div className="auth-actions">
+          {/* Disabled ONLY while a request is in flight (§8.4). An empty field is
+              answered by native validation on the inputs, not by a pale control
+              with nothing to say. */}
+          <Button type="submit" variant="primary" disabled={login.isPending}>
+            {login.isPending ? t("auth.signingIn") : t("auth.signIn")}
+          </Button>
+        </div>
+      )}
     </form>
   );
 }

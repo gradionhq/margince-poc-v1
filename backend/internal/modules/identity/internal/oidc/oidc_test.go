@@ -80,6 +80,12 @@ func newFakeIssuer(t *testing.T) *fakeIssuer {
 	mux.HandleFunc("/jwks", issuer.serveJWKS)
 	mux.HandleFunc("/token", issuer.serveToken)
 	mux.HandleFunc("/authorize", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	// A token endpoint that answers 200 with an access token and NO id_token —
+	// the shape a dropped `openid` scope produces. Registered here rather than
+	// reached into httptest's internals from the case that uses it.
+	mux.HandleFunc("/token-no-id", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, map[string]any{"access_token": "not-an-identity"})
+	})
 	issuer.server = httptest.NewServer(mux)
 	t.Cleanup(issuer.server.Close)
 	return issuer
@@ -317,7 +323,6 @@ func TestVerifyIDTokenRefusesEveryUnprovenToken(t *testing.T) {
 		name      string
 		claims    map[string]any
 		algHeader string
-		nonce     string
 		wantErr   error
 	}{
 		{
@@ -397,11 +402,7 @@ func TestVerifyIDTokenRefusesEveryUnprovenToken(t *testing.T) {
 			issuer.claimOverride, issuer.signAlgHeader = tc.claims, tc.algHeader
 			p := issuer.provider(t)
 
-			nonce := testNonce
-			if tc.nonce != "" {
-				nonce = tc.nonce
-			}
-			_, err := p.ExchangeAndVerify(context.Background(), "the-code", "the-verifier", nonce)
+			_, err := p.ExchangeAndVerify(context.Background(), "the-code", "the-verifier", testNonce)
 			if !errors.Is(err, tc.wantErr) {
 				t.Fatalf("err = %v, want %v", err, tc.wantErr)
 			}
@@ -514,11 +515,6 @@ func TestExchangeClassifiesProviderFailures(t *testing.T) {
 	t.Run("a 200 with no id_token is not an authentication", func(t *testing.T) {
 		issuer := newFakeIssuer(t)
 		p := issuer.provider(t)
-		// An access token this relying party never asked for and cannot use:
-		// the `openid` scope was dropped somewhere.
-		issuer.server.Config.Handler.(*http.ServeMux).HandleFunc("/token-no-id", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, map[string]any{"access_token": "not-an-identity"})
-		})
 		// Point the cached discovery document at the id-token-less endpoint.
 		doc, err := p.discover(context.Background())
 		if err != nil {
@@ -636,19 +632,11 @@ func TestRSAKeysSkipsUnusableKeysAndRefusesAnEmptySet(t *testing.T) {
 
 	// An undersized modulus is skipped rather than trusted: a short key
 	// verifies happily and proves nothing.
-	undersized := jwksResponse{}
-	undersized.Keys = append(undersized.Keys, struct {
-		Kty string `json:"kty"`
-		Kid string `json:"kid"`
-		Use string `json:"use"`
-		Alg string `json:"alg"`
-		N   string `json:"n"`
-		E   string `json:"e"`
-	}{
+	undersized := jwksResponse{Keys: []jwk{{
 		Kty: "RSA", Kid: "small-1", Use: "sig", Alg: algRS256,
 		N: base64.RawURLEncoding.EncodeToString(small.N.Bytes()),
 		E: base64.RawURLEncoding.EncodeToString(bigEndian(small.E)),
-	})
+	}}}
 	if _, err := rsaKeys(undersized); !errors.Is(err, ErrProviderUnavailable) {
 		t.Fatalf("undersized key err = %v, want ErrProviderUnavailable", err)
 	}
@@ -698,4 +686,69 @@ func bigEndian(exponent int) []byte {
 		out = out[1:]
 	}
 	return out
+}
+
+func TestSafeReasonBoundsAnUntrustedErrorCode(t *testing.T) {
+	// Every value here reaches us from outside — a provider's refusal body, or
+	// the browser's own `?error=` on an unauthenticated callback — and lands in
+	// an operator log line. Anything that is not a plain RFC 6749 code is
+	// replaced rather than logged, so nobody chooses how many bytes of their
+	// own text the log carries.
+	for raw, want := range map[string]string{
+		"access_denied":              "access_denied",
+		"invalid_grant":              "invalid_grant",
+		"":                           unspecifiedReason,
+		"has spaces":                 unspecifiedReason,
+		"newline\ninjected":          unspecifiedReason,
+		"digits123":                  unspecifiedReason,
+		"punctuation!":               unspecifiedReason,
+		strings.Repeat("A", 64):      strings.Repeat("A", 64),
+		strings.Repeat("A", 65):      unspecifiedReason,
+		strings.Repeat("A", 900_000): unspecifiedReason,
+	} {
+		if got := SafeReason(raw); got != want {
+			t.Errorf("SafeReason(%.20q…) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestDiscoveryFailureIsNotRetriedOnEveryRequest(t *testing.T) {
+	// The start endpoint is unauthenticated and discovers on every hit, under
+	// the cache lock. Without a failure floor, a blackholed provider would give
+	// every arriving request its own full timeout, queued behind the last one.
+	attempts := 0
+	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	t.Cleanup(down.Close)
+
+	now := fixedNow
+	p, err := New(Config{
+		Issuer: down.URL, ClientID: testClientID, ClientSecret: "s",
+		RedirectURI: "http://localhost:8080/cb", HTTPClient: down.Client(),
+		Now: func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatalf("building the relying party: %v", err)
+	}
+	req := AuthRequest{State: "s", Nonce: "n", Verifier: "v"}
+	for range 5 {
+		if _, err := p.AuthCodeURL(context.Background(), req, ""); !errors.Is(err, ErrProviderUnavailable) {
+			t.Fatalf("err = %v, want ErrProviderUnavailable", err)
+		}
+	}
+	if attempts != 1 {
+		t.Errorf("provider was dialled %d times inside the backoff window, want 1", attempts)
+	}
+
+	// Past the window it is tried again — a provider that comes back is picked
+	// up, so this is a floor and not a circuit breaker that stays open.
+	now = fixedNow.Add(failureBackoff + time.Second)
+	if _, err := p.AuthCodeURL(context.Background(), req, ""); !errors.Is(err, ErrProviderUnavailable) {
+		t.Fatalf("err = %v, want ErrProviderUnavailable", err)
+	}
+	if attempts != 2 {
+		t.Errorf("provider was dialled %d times in total, want 2 (one per window)", attempts)
+	}
 }
