@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { components } from "../api/schema";
-import { canonical, factFieldLabelKey, groupFacts } from "./factview";
+import {
+  canonical,
+  FACT_FIELD_LABELS,
+  factFieldLabelKey,
+  groupFacts,
+} from "./factview";
 
 type OrganizationFact = components["schemas"]["OrganizationFact"];
 
@@ -97,27 +102,17 @@ describe("groupFacts", () => {
   });
 
   it("names every field the schema allows", () => {
-    // Derived from the schema's own vocabulary, so a new fact field fails here
-    // rather than reaching a German reader as English snake_case.
-    const fields: OrganizationFact["field"][] = [
-      "founded_year",
-      "employee_range",
-      "phone",
-      "contact_email",
-      "location",
-      "service",
-      "product",
-      "capability",
-      "served_industry",
-      "company_size",
-      "geography",
-      "language",
-      "certification",
-      "partner",
-      "named_customer",
-      "technology",
-      "quantified_outcome",
-    ];
+    // The exhaustiveness is enforced by the TYPE: FACT_FIELD_LABELS is a
+    // Record<FactField, MessageKey>, so a fact field added to the contract
+    // fails the typecheck until it is named here. This walks that map to prove
+    // the second half — every entry resolves to its own key, so no field
+    // reaches a German reader as English snake_case. A hand-written list would
+    // have proved neither: its annotation rejects invalid names without
+    // requiring the valid ones.
+    const fields = Object.keys(
+      FACT_FIELD_LABELS,
+    ) as OrganizationFact["field"][];
+    expect(fields.length).toBeGreaterThan(0);
     for (const field of fields) {
       expect(factFieldLabelKey(field)).toBe(`co.factField.${field}`);
     }

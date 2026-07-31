@@ -62,6 +62,25 @@ function organization(): Organization360["organization"] {
   };
 }
 
+type Activities = NonNullable<Organization360["activities"]>;
+type Activity = Activities["data"][number];
+
+// The timeline rows the rules read: kind, direction and when. Everything else
+// is filled to the real schema so the builder cannot drift from the contract —
+// a cast here would hide exactly the mismatch these tests exist to catch.
+function activity(over: Partial<Activity> = {}): Activity {
+  return {
+    id: "a1",
+    kind: "email",
+    occurred_at: daysAgo(1),
+    ...over,
+  };
+}
+
+function activities(rows: Activity[]): Activities {
+  return { data: rows, page: { has_more: false } };
+}
+
 function view(over: Partial<Organization360> = {}): Organization360 {
   return {
     as_of: NOW.toISOString(),
@@ -317,24 +336,11 @@ describe("readAccount", () => {
     // timeline whose newest row was yesterday.
     const v = view({
       strength: strength({ last_interaction: daysAgo(13) }),
-      activities: {
-        data: [
-          {
-            id: "a1",
-            kind: "email",
-            direction: "outbound",
-            occurred_at: daysAgo(2),
-          },
-          {
-            id: "a2",
-            kind: "email",
-            direction: "inbound",
-            occurred_at: daysAgo(13),
-          },
-        ],
-        page: { has_more: false },
-      },
-    } as Partial<Organization360>);
+      activities: activities([
+        activity({ direction: "outbound", occurred_at: daysAgo(2) }),
+        activity({ id: "a2", direction: "inbound", occurred_at: daysAgo(13) }),
+      ]),
+    });
     expect(
       readAccount(v, NOW).find((f) => f.id === "quiet")?.params?.days,
     ).toBe(2);
@@ -343,19 +349,11 @@ describe("readAccount", () => {
   it("does not count a note to ourselves as an exchange with them", () => {
     const v = view({
       strength: strength({ last_interaction: daysAgo(13) }),
-      activities: {
-        data: [
-          { id: "a1", kind: "note", occurred_at: daysAgo(1) },
-          {
-            id: "a2",
-            kind: "email",
-            direction: "outbound",
-            occurred_at: daysAgo(13),
-          },
-        ],
-        page: { has_more: false },
-      },
-    } as Partial<Organization360>);
+      activities: activities([
+        activity({ kind: "note", occurred_at: daysAgo(1) }),
+        activity({ id: "a2", direction: "outbound", occurred_at: daysAgo(13) }),
+      ]),
+    });
     expect(
       readAccount(v, NOW).find((f) => f.id === "quiet")?.params?.days,
     ).toBe(13);
@@ -366,18 +364,10 @@ describe("readAccount", () => {
     // sent. Saying both in one screen is the page contradicting itself.
     const v = view({
       strength: strength({ last_interaction: undefined, contact_count: 3 }),
-      activities: {
-        data: [
-          {
-            id: "a1",
-            kind: "email",
-            direction: "outbound",
-            occurred_at: daysAgo(4),
-          },
-        ],
-        page: { has_more: false },
-      },
-    } as Partial<Organization360>);
+      activities: activities([
+        activity({ direction: "outbound", occurred_at: daysAgo(4) }),
+      ]),
+    });
     const found = ids(v);
     expect(found).not.toContain("never-touched");
     expect(found).toContain("quiet");
@@ -386,8 +376,8 @@ describe("readAccount", () => {
   it("still says nobody has been in touch when neither source knows of one", () => {
     const v = view({
       strength: strength({ last_interaction: undefined, contact_count: 3 }),
-      activities: { data: [], page: { has_more: false } },
-    } as Partial<Organization360>);
+      activities: activities([]),
+    });
     expect(ids(v)).toContain("never-touched");
   });
 
@@ -395,7 +385,7 @@ describe("readAccount", () => {
     const v = view({
       sections_omitted: ["activities"],
       strength: strength({ last_interaction: daysAgo(20) }),
-    } as Partial<Organization360>);
+    });
     expect(
       readAccount(v, NOW).find((f) => f.id === "quiet")?.params?.days,
     ).toBe(20);
