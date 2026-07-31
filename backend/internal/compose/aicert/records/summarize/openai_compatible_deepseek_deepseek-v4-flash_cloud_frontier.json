@@ -1,0 +1,81 @@
+{
+  "task": "summarize",
+  "provider": "openai_compatible",
+  "served_model": "deepseek/deepseek-v4-flash",
+  "env_class": "cloud_frontier",
+  "prompt_version": "p517cdec5497e6278bee79b8314ba5603",
+  "corpus_version": "v1",
+  "verdict": "not_supported",
+  "runs": 12,
+  "passed": 8,
+  "reliability": 0.6666666666666666,
+  "reported_accepted": 8,
+  "reported_wrong_answer": 1,
+  "reported_invalid": 0,
+  "reported_abstained": 3,
+  "certified_scope": "full_invocation",
+  "context_applied": false,
+  "context_scopes": [
+    "identity"
+  ],
+  "score_p50": 90,
+  "score_min": 0,
+  "latency_p50": 19317,
+  "latency_p95": 83270,
+  "mean_tokens": 1774,
+  "mean_tokens_in": 507,
+  "mean_tokens_out": 1266,
+  "mean_cached_tokens": 0,
+  "mean_cache_write_tokens": 0,
+  "est_cost_microusd": 425,
+  "judge_served_model": "z-ai/glm-5.2",
+  "self_judged": false,
+  "served_identity_source": "echo",
+  "ran_at": "2026-07-31T05:04:09Z",
+  "scenarios": [
+    {
+      "scenario": "ask_meeting_prep_stays_silent_about_a_withheld_section",
+      "site": "org_ask",
+      "verdict": "not_supported",
+      "runs": 3,
+      "passed": 1,
+      "reported_accepted": 1,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 2
+    },
+    {
+      "scenario": "ask_whats_open_answers_the_pipeline_not_the_history",
+      "site": "org_ask",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    },
+    {
+      "scenario": "brief_stays_silent_about_a_withheld_section",
+      "site": "org_brief",
+      "verdict": "certified",
+      "runs": 3,
+      "passed": 3,
+      "reported_accepted": 3,
+      "reported_wrong_answer": 0,
+      "reported_invalid": 0,
+      "reported_abstained": 0
+    },
+    {
+      "scenario": "brief_names_the_stalled_deal_and_the_last_touch",
+      "site": "org_brief",
+      "verdict": "not_supported",
+      "runs": 3,
+      "passed": 1,
+      "reported_accepted": 1,
+      "reported_wrong_answer": 1,
+      "reported_invalid": 0,
+      "reported_abstained": 1
+    }
+  ]
+}

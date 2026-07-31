@@ -58,12 +58,23 @@ signal and a *scenario* result (0/3 vs 3/3) as the real evidence — and use
 `RUNS=5` for any number a decision rests on. That applies to every figure
 below.
 
-Both providers land in the same place overall: neither certifies the whole
-corpus, and they fail on different tasks. Gemini certifies `agent_loop` and
-`capture_classify` where the candidate does not; the candidate certifies
-`capture_counterparty_verdict` and `cold_start` where Gemini is only
-`supported_degraded`. `offer_draft`, `summarize` and `site_extract` are
-`not_supported` on BOTH — those are task-side difficulty, not a vendor verdict.
+**Three jurisdictions are now measured**, one pass each over all 14 tasks
+(108 runs per provider, current code):
+
+| | certified | degraded | not_supported | cost |
+|---|---|---|---|---|
+| Gemini (incumbent, 🇺🇸) | 8 | 3 | 3 | $0.0299 |
+| Mistral (🇪🇺, `ai-routing.openrouter.example.yaml`) | 7 | 2 | 5 | $0.0031 |
+| DeepSeek + GLM (🇨🇳, `…openrouter-cn.example.yaml`) | 5 | 4 | 5 | $0.0061 |
+
+Gemini is still the strongest and is ~10× the price of the EU rungs. No binding
+certifies the whole corpus. `offer_draft`, `summarize` and `site_extract` are
+sub-certified on ALL THREE — that is task-side difficulty, not a vendor verdict,
+and it is where the corpus is worth reading before any model is blamed. Each
+binding also has its own shape: Gemini alone certifies `agent_loop` and
+`capture_classify`; the EU rungs alone certify `cold_start`; Gemini is the only
+one that fails `enrich` outright (0.33, where both OpenRouter ladders manage
+`supported_degraded`).
 
 Certifying a second vendor is what surfaced the `orgbrief` unfencing bug below,
 and both halves of why it survived are now measured rather than guessed:
@@ -135,6 +146,16 @@ Three caveats on the numbers themselves:
   is a different model.
 - **`enrich` certifies at median 75**, its lowest passing band of the eight —
   the evidence gate is the likely reason and it is the next one to trace.
+
+One lane defect the China pass exposed and this branch FIXES: `make e2e-ai`
+capped the whole run at `-timeout 30m`, which a slow premium rung cannot finish.
+`z-ai/glm-5.2` serves both `premium` and the `cert_judge` rung, so every
+scenario pays its latency twice — 9.7s mean per call against Mistral's 2.4s,
+with a 127s worst case — and the corpus died mid-run at 185 of 216 calls. The
+failure is a `panic`, so every task after the cut loses its record too. The cap
+is now `AICERT_TIMEOUT ?= 90m` (a single call is already bounded by
+`ai.requestTimeout`, 300s, so this is a runaway backstop, not the per-call
+guard).
 
 Three things this run found that are NOT fixed here, each recorded rather than
 worked around:
