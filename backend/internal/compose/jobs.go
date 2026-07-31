@@ -304,7 +304,6 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 	// The captured-organization auto-enrich sweep (ADR-0072/A118): always
 	// registered, it enqueues system deep reads the worker above applies.
 	river.AddWorker(workers, newCaptureAutoEnrichSweepWorker(pool, log))
-	river.AddWorker(workers, newParticipantBackfillWorker(pool, log))
 	// The outbound send is not periodic — the api stages one job per accepted
 	// message, in the same transaction as the activity; this role only needs
 	// the worker registered.
@@ -338,15 +337,6 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
 			func() (river.JobArgs, *river.InsertOpts) { return CaptureAutoEnrichSweepArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
-		// The interaction-participant backfill (ADR-0078): daily, run-on-start
-		// so an installation upgrading into ACT-DDL-3 recovers its history on
-		// the first boot rather than on the first mail that happens to arrive.
-		// It stays periodic afterwards because a restore, an import, or a
-		// merge can reintroduce unattributed rows; a caught-up workspace costs
-		// one probe that finds nothing.
-		river.NewPeriodicJob(river.PeriodicInterval(24*time.Hour),
-			func() (river.JobArgs, *river.InsertOpts) { return ParticipantBackfillArgs{}, sweepInsertOpts() },
-			&river.PeriodicJobOpts{RunOnStart: true}),
 		// Idempotency retention: hourly rather than daily, because the rows
 		// hold verbatim record snapshots and the replay window they serve is
 		// only 24h — a daily pass would leave a day's worth of expired PII
@@ -356,6 +346,9 @@ func NewJobRunner(pool *pgxpool.Pool, log *slog.Logger, cfg JobRunnerConfig) (*j
 			func() (river.JobArgs, *river.InsertOpts) { return IdempotencyRetentionArgs{}, sweepInsertOpts() },
 			&river.PeriodicJobOpts{RunOnStart: true}),
 	}
+	// The ADR-0078 relationship-graph passes register themselves, so this
+	// wiring stays one line as that surface grows (jobs_graph.go).
+	periodic = append(periodic, addGraphJobs(workers, pool, log)...)
 
 	if cfg.ClassifyBrain != nil {
 		river.AddWorker(workers, &captureClassifyWorker{

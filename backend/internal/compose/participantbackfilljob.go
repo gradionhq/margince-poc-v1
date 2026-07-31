@@ -19,6 +19,7 @@ package compose
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/riverqueue/river"
@@ -46,6 +47,10 @@ const participantBackfillBatch = 500
 // long-history workspace finishes over a few passes instead of monopolizing a
 // worker slot — and no single transaction grows long enough to matter.
 const participantBackfillBatchesPerTick = 25
+
+// participantBackfillInterval is daily. The pass is a catch-up, not a
+// deadline: new mail already arrives with its participants stamped.
+const participantBackfillInterval = 24 * time.Hour
 
 // participantBackfillWorker recovers participants for one workspace at a time.
 type participantBackfillWorker struct {

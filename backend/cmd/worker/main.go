@@ -165,6 +165,15 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, _ = fmt.Fprintln(stdout, "worker maintaining retrieval embeddings")
 		background.Go(func() { runSubscriber(ctx, rdb, "cg:context-graph", gen.HandleEvent, logger, 0) })
 	}
+	// The interaction-edge projection (ADR-0078). Unlike embeddings it needs no
+	// model, so it runs on every worker rather than only where a provider is
+	// configured — a deployment without AI still answers "who on our team knows
+	// this contact", which is a deterministic question about our own mail.
+	{
+		edges := search.NewGraphEdgeGen(search.NewStore(pool))
+		_, _ = fmt.Fprintln(stdout, "worker maintaining interaction edges")
+		background.Go(func() { runSubscriber(ctx, rdb, "cg:graph-edge", edges.HandleEvent, logger, 0) })
+	}
 
 	blob, blobConfigured, err := blobstore.FromEnv(ctx)
 	if err != nil {
