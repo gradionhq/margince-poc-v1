@@ -12,25 +12,29 @@
 > session narrative). When an item here closes, move its narrative to the
 > archive rather than growing this file.
 
-## Fixed — staged leads could not be accepted (merged 2026-07-31)
+## Open defect — capture_counterparty repeats the version-pin failure
 
-Accepting a staged `site_lead` failed with `version_skew` whenever anything had
-written to the pinned organization after staging, and the lead was then
-unrecoverable: the decision commits before the effect runs, so a failed accept
-left the approval `approved` but unredeemed. Auto-enrich and accepting the
-deep-read bundle both wrote the org's profile fields, which made every sibling
-lead from that read un-acceptable.
+`capture_counterparty` stages with a pinned `activity` version, and the classify
+pass bumps that version (`activities/capturelabel.go:77-81`), so the accept can
+fail the same way `site_lead` used to. The `site_lead` fix (PR #349, opt-in pins
+via `approvals.TargetIsContextOnly`) does not cover it: a counterparty decision
+IS about the activity it names, so the pin is arguably correct and the classify
+write is what needs to move. Decide which before changing either.
 
-Fixed in PR #349: the pin is now opt-in per approval kind. A `site_lead` is
-FILED under a company rather than being an operation on it, so its effect never
-reads the organization row and has no version to guard —
-`approvals.TargetIsContextOnly` names the kinds that opt out, and a fitness
-test holds the list against the kinds whose effects actually read their target.
+## Open decision — a testimonial with an email files under the wrong company
 
-The same class still applies to `capture_counterparty`, whose pinned `activity`
-version is bumped by the classify pass
-(`activities/capturelabel.go:77-81`) — that one has a different cause and is
-still open.
+The site read only proposes a published person who carries a name, a role, and
+an email address the page actually PRINTED. That floor removed every
+testimonial lead seen in practice, because none of them published an address.
+
+It proves contactability, not affiliation. A "what our clients say" wall that
+does print the quoted person's own address — `jane@client.example` on our
+site — still yields a lead filed as a contact AT our company, which their own
+quoted job title disproves on the same line.
+
+Requiring the address to sit on the crawled site's own domain would close it,
+and would also drop staff who publish a personal address. That trade is a
+product call, not a bug fix, so it is raised rather than taken.
 
 ## Open decision — the organization brief endpoint has no client
 
@@ -148,7 +152,7 @@ The merge gate (`make check`), the real-Postgres integration lane
 ## Session pickup — 2026-07-31
 
 **The site read stopped proposing leads nobody asked for.** Three defects in
-the published-person lane closed on `feat/company-page-wow-slice`:
+the published-person lane closed in PR #342 (merged):
 
 - **Testimonials became leads.** A home or about page's "what our clients say"
   wall names people who work elsewhere, and they were filed as contacts at the
@@ -171,11 +175,7 @@ the published-person lane closed on `feat/company-page-wow-slice`:
   ignoring both, and `StageOrJoinPendingInTx` is the door that honors them.
 
 **Still open in this area:** the email floor proves contactability, not
-affiliation. A testimonial that prints the quoted person's own address
-(`jane@client.example` on our site) still becomes a lead filed under the wrong
-company. Requiring the address to sit on the crawled site's own domain would
-close it, at the cost of dropping staff who publish a personal address —
-a product call, not a bug fix. Raised here rather than decided.
+affiliation — see the open decision above.
 
 **A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
 binds OpenRouter through the generic `openai_compatible` adapter, with three
