@@ -250,9 +250,6 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 		switch pol.ObjectType + "/" + pol.Action {
 		case "activity/archive":
 			_, err = tx.Exec(ctx, `UPDATE activity SET archived_at = now() WHERE id = $1`, id)
-			if err == nil {
-				err = invalidateGraphEdgesFor(ctx, tx, id)
-			}
 		case "activity/erase":
 			// Transcript free-text is the special-category risk; the
 			// record of the meeting stays, its content goes — including any
@@ -265,14 +262,6 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
-			}
-			if err == nil {
-				// Erase archives the activity too, so the interaction it
-				// evidenced is gone from every read — including the graph's.
-				// Archive already invalidated; this is its sibling, and
-				// leaving it out would keep an erased conversation counting
-				// toward a relationship score until the nightly rebuild.
-				err = invalidateGraphEdgesFor(ctx, tx, id)
 			}
 			if err == nil {
 				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)

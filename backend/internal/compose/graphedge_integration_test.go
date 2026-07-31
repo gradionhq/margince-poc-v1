@@ -317,3 +317,52 @@ func equalSnapshots(a, b map[string][4]int) bool {
 	}
 	return true
 }
+
+func TestArchivingOneOfTwoInteractionsCorrectsTheCountsRatherThanNothing(t *testing.T) {
+	v := edgeEnv{integration.Setup(t)}
+	now := time.Now().UTC()
+	contact := v.person(t, "Two Threads")
+
+	older := v.interaction(t, v.e.Rep1, contact, now.AddDate(0, 0, -5), "inbound", "from")
+	newer := v.interaction(t, v.e.Rep1, contact, now.AddDate(0, 0, -1), "outbound", "to")
+	v.recompute(t, older, newer)
+
+	before := v.edgesFor(t, contact)
+	if len(before) != 1 || before[0].Count90d != 2 {
+		t.Fatalf("setup wrong: %d edges, %d interactions", len(before), before[0].Count90d)
+	}
+
+	// Archive the MORE RECENT one. The pair still has evidence, so the edge
+	// must survive — but with corrected counts and an older last_at.
+	//
+	// This is the case a delete-only invalidation misses entirely: it drops
+	// pairs that lost ALL their evidence and silently leaves every surviving
+	// pair asserting the interaction that was just removed.
+	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(),
+			`UPDATE activity SET archived_at = now() WHERE id = $1`, newer)
+		return err
+	}); err != nil {
+		t.Fatalf("archiving the newer interaction: %v", err)
+	}
+	v.recompute(t, newer)
+
+	after := v.edgesFor(t, contact)
+	if len(after) != 1 {
+		t.Fatalf("the edge vanished though one interaction remains: %+v", after)
+	}
+	if after[0].Count90d != 1 {
+		t.Errorf("the surviving edge still counts %d interactions, want 1 — "+
+			"an archived conversation is still inflating the relationship", after[0].Count90d)
+	}
+	if !after[0].LastAt.Before(before[0].LastAt) {
+		t.Errorf("last contact is still %v after the most recent interaction was archived; "+
+			"recency dominates the score, so this is the number a rep would act on",
+			after[0].LastAt)
+	}
+	// And the direction counts follow: the outbound one was the archived one.
+	if after[0].OutCount90d != 0 || after[0].InCount90d != 1 {
+		t.Errorf("direction counts are %d in / %d out, want 1 in / 0 out",
+			after[0].InCount90d, after[0].OutCount90d)
+	}
+}

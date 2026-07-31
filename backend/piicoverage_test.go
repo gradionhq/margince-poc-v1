@@ -200,7 +200,6 @@ var erasureCascadeFiles = []string{
 	// uncovered the moment its purge moved file.
 	"internal/modules/privacy/erasuretimeline.go",
 	// Retention’s graph invalidation — same Art. 17/retention transaction.
-	"internal/modules/privacy/retentiongraph.go",
 	"internal/modules/privacy/erasure_attachments.go",
 	"internal/modules/privacy/erasure_channels.go",
 	"internal/modules/privacy/erasure_rivals.go",
@@ -218,7 +217,6 @@ var erasureCascadeFiles = []string{
 var retentionSweepFiles = []string{
 	"internal/modules/privacy/retention.go",
 	"internal/modules/privacy/retentionai.go",
-	"internal/modules/privacy/retentiongraph.go",
 }
 
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {

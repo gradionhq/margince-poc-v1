@@ -99,7 +99,14 @@ func (g *GraphEdgeGen) onActivity(ctx context.Context, env events.Envelope, acti
 	// The catalog's activity types, in full. Naming one that does not exist
 	// is a branch that never runs and a projection that silently never
 	// updates — which is exactly how the erasure hole above survived review.
-	case "activity.captured", "activity.updated", "activity.archived":
+	//
+	// `retention.applied` is here because the time-based sweep archives and
+	// erases activities under ITS name rather than the activity's own verbs.
+	// Handling it here is what lets the retention path reuse this ONE fold:
+	// the alternative was a second statement inside privacy, which duplicated
+	// the arithmetic and — being written as a delete — left a surviving pair's
+	// counts stale whenever the activity was not its last evidence.
+	case "activity.captured", "activity.updated", "activity.archived", "retention.applied":
 	default:
 		return nil
 	}
@@ -130,7 +137,7 @@ func (g *GraphEdgeGen) onPerson(ctx context.Context, env events.Envelope, person
 				return RecomputeEdgesForPerson(ctx, tx, target)
 			}
 			return nil
-		case "person.archived", "person.restored", "person.updated", "person.created":
+		case "person.archived", "person.restored", "person.updated", "person.created", "retention.applied":
 			return RecomputeEdgesForPerson(ctx, tx, personID)
 		default:
 			return nil

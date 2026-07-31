@@ -124,8 +124,10 @@ promised, last-contact delivered AND capped, so a recent one-liner evicted a
 year-long relationship), two deletion gaps (the time-based retention sweep
 reached none of the new tables; LinkedIn erasure keyed on a DERIVED org id, so
 a ghost imported before its account existed survived), and one stale-state gap
-(retention emits `retention.applied`, which the graph consumer does not
-listen for).
+(retention emits `retention.applied`, which the graph consumer now listens
+for — the first attempt at that fix was a second SQL statement inside privacy
+that only DELETED empty pairs, so a pair with other interactions kept counting
+the removed one; routing the event to the existing fold fixed both).
 
 **Accepted, NOT fixed — carry these forward.**
 1. Calendar and group-mail participants: capture writes the mailbox owner and
