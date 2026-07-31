@@ -8,7 +8,7 @@ import {
   StickyNote,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { formatDate, formatDuration, formatMoney } from "../format/format";
 import { useLocale, useT } from "../i18n";
 import { Avatar, Badge } from "./atoms";
@@ -380,17 +380,45 @@ function zoneClass(hasRail: boolean, hasAside: boolean): string | undefined {
 function TimelineText({ text }: Readonly<{ text: string }>) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Whether the clamp is actually cutting the text off, measured rather than
+  // guessed. Counting characters was wrong in the one direction that matters:
+  // the clamp is two VISUAL lines at whatever width the column happens to be,
+  // so a message short enough to look safe still wrapped past it in a narrow
+  // column, got clipped by CSS, and — having failed the character test — was
+  // given no way to expand. Text the reader could not reach.
+  const [clipped, setClipped] = useState(false);
+  const bodyRef = useRef<HTMLSpanElement>(null);
   const trimmed = text.trim();
+
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    // Nothing to measure while expanded: scrollHeight equals clientHeight, and
+    // re-measuring there would drop the control that collapses it again. Empty
+    // text renders nothing, so there is nothing that could be clipped.
+    if (!el || open || !trimmed) {
+      return;
+    }
+    const measure = () => setClipped(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    // The column is resizable, so a width change can start or stop the
+    // clipping. Guarded because jsdom has no ResizeObserver.
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, trimmed]);
+
   if (!trimmed) {
     return null;
   }
-  // Only offer the toggle when there is more to see. A short note that already
-  // fits would otherwise get a control that changes nothing.
-  const long = trimmed.length > 160 || trimmed.includes("\n");
   return (
     <span className="tl-text">
-      <span className={open ? "tl-text-full" : "tl-text-clamp"}>{trimmed}</span>
-      {long && (
+      <span ref={bodyRef} className={open ? "tl-text-full" : "tl-text-clamp"}>
+        {trimmed}
+      </span>
+      {(clipped || open) && (
         <button
           type="button"
           className="tl-text-toggle"

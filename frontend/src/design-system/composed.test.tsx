@@ -140,6 +140,52 @@ describe("RecordView + timeline", () => {
     expect(screen.getByText("typed by you")).toBeTruthy();
   });
 
+  it("keeps the whole message in the document, clamped but never cut", () => {
+    // The clamp is CSS. Truncating the string instead would put the rest of
+    // the message out of reach of find-in-page, selection and a screen reader,
+    // and no toggle can give back text that was never rendered.
+    const body = `Moin Christian, ${"eine sehr lange Zeile ".repeat(20)}Ende.`;
+    render(
+      <RecordView
+        name="ScaleCommerce"
+        zone="Europe/Berlin"
+        timeline={[
+          {
+            id: "t1",
+            kind: "email",
+            title: "Update zu Margince",
+            atIso: "2026-07-17T09:00:00Z",
+            provenance: { kind: "agent", agent: "capture" },
+            body,
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText(body.trim())).toBeTruthy();
+  });
+
+  it("says nothing where a message was lawfully erased", () => {
+    // Retention and Art. 17 both null the body. A row whose message is gone
+    // must render as a row with no message, not as an empty quote.
+    render(
+      <RecordView
+        name="ScaleCommerce"
+        zone="Europe/Berlin"
+        timeline={[
+          {
+            id: "t1",
+            kind: "email",
+            title: "Update zu Margince",
+            atIso: "2026-07-17T09:00:00Z",
+            provenance: { kind: "agent", agent: "capture" },
+            body: "   ",
+          },
+        ]}
+      />,
+    );
+    expect(document.querySelector(".tl-text")).toBeNull();
+  });
+
   it("renders a timeline entry's action slot when present", () => {
     render(
       <RecordView
