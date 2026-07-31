@@ -96,12 +96,17 @@ describe("readAccount", () => {
         last_interaction: daysAgo(3),
         contributor_person_id: "p1",
       }),
+      people: { data: [contact()], page: { has_more: false } },
     });
     const shallow = readAccount(v, NOW).find((f) => f.id === "shallow");
     // The score stays in the header chip; this line says what it means and
-    // points at whoever is closest.
+    // points at whoever is closest, named from the payload we already have.
     expect(shallow?.params).toBeUndefined();
-    expect(shallow?.personId).toBe("p1");
+    expect(shallow?.subject).toEqual({
+      kind: "person",
+      id: "p1",
+      label: "Christian Hagemeyer",
+    });
     expect(shallow?.tone).toBe("risk");
   });
 
@@ -140,7 +145,11 @@ describe("readAccount", () => {
     });
     const single = readAccount(v, NOW).find((f) => f.id === "single-thread");
     expect(single?.params?.name).toBe("Christian Hagemeyer");
-    expect(single?.personId).toBe("p1");
+    expect(single?.subject).toEqual({
+      kind: "person",
+      id: "p1",
+      label: "Christian Hagemeyer",
+    });
   });
 
   it("names no champion gap on an account with no open deal", () => {
@@ -222,6 +231,86 @@ describe("readAccount", () => {
     const moved = readAccount(counted, NOW).find((f) => f.id === "deal-moved");
     expect(moved?.key).toBe("co.read.dealMovedMany");
     expect(moved?.params?.count).toBe(2);
+  });
+
+  it("does not name a contact this reader's own payload never carried", () => {
+    // Withheld, or past the section's page: the line stands without a name
+    // rather than sending the page off to resolve an id.
+    const v = view({
+      strength: strength({
+        bucket: "weak",
+        last_interaction: daysAgo(3),
+        contributor_person_id: "p-unseen",
+      }),
+    });
+    const shallow = readAccount(v, NOW).find((f) => f.id === "shallow");
+    expect(shallow).toBeDefined();
+    expect(shallow?.subject).toBeUndefined();
+  });
+
+  it("makes no claim about coverage from a truncated contact list", () => {
+    // The section carries only its first page. "Only one person has engaged"
+    // and "nobody is champion" are statements about the whole set, and the
+    // twenty-sixth contact is exactly where the champion would be hiding.
+    const v = view({
+      people: {
+        data: [
+          contact({ person_id: "p1" }),
+          contact({
+            person_id: "p2",
+            full_name: "Thomas Lohner",
+            strength: { score: 0, bucket: "dormant", factors: FACTORS },
+          }),
+        ],
+        page: { has_more: true },
+      },
+      deals: deals({
+        data: [
+          { deal_id: "d1", name: "Pilot", status: "open", stalled: false },
+        ],
+      }),
+    });
+    const found = ids(v);
+    expect(found).not.toContain("single-thread");
+    expect(found).not.toContain("no-champion");
+  });
+
+  it("ignores a champion held on a deal that is not open", () => {
+    // A champion on a deal that closed last year says nothing about the one
+    // open now, and counting them hid the gap on the accounts that have it.
+    const v = view({
+      people: {
+        data: [
+          contact({
+            deal_roles: [{ deal_id: "d-closed", role: "champion" }],
+          }),
+        ],
+        page: { has_more: false },
+      },
+      deals: deals({
+        data: [
+          { deal_id: "d-open", name: "Pilot", status: "open", stalled: false },
+        ],
+      }),
+    });
+    expect(ids(v)).toContain("no-champion");
+  });
+
+  it("names no champion gap when the role is held on the open deal", () => {
+    const v = view({
+      people: {
+        data: [
+          contact({ deal_roles: [{ deal_id: "d-open", role: "champion" }] }),
+        ],
+        page: { has_more: false },
+      },
+      deals: deals({
+        data: [
+          { deal_id: "d-open", name: "Pilot", status: "open", stalled: false },
+        ],
+      }),
+    });
+    expect(ids(v)).not.toContain("no-champion");
   });
 
   it("leads with the overdue commitment and names it", () => {

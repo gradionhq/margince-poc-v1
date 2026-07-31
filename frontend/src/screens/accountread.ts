@@ -32,9 +32,15 @@ export type AccountFinding = {
   tone: "risk" | "neutral";
   key: MessageKey;
   params?: Record<string, string | number>;
-  /** The record this finding is about, when there is exactly one. */
-  personId?: string;
-  dealId?: string;
+  /**
+   * The record this finding is about, when there is exactly one.
+   *
+   * It carries its own label, because the 360 already told us the name. An id
+   * alone would make the brief resolve one record read per referenced finding,
+   * which is a fan-out of lookups on the page whose whole design is a single
+   * composite read.
+   */
+  subject?: { kind: "person" | "deal"; id: string; label: string };
 };
 
 function withheld(view: Organization360, section: Section): boolean {
@@ -123,12 +129,23 @@ function depth(view: Organization360): AccountFinding[] {
   }
   // The score itself stays in the header chip. Repeating it here would put the
   // same number on screen twice; this line's job is what it MEANS.
+  //
+  // The strongest contact is named only if this reader's own people section
+  // carried them. Absent — withheld, or past the section's page — the line
+  // stands without a name rather than sending the page off to look one up.
+  const contributor = view.people?.data.find(
+    (c) => c.person_id === strength.contributor_person_id,
+  );
   return [
     {
       id: "shallow",
       tone: "risk",
       key: "co.read.shallow",
-      personId: strength.contributor_person_id ?? undefined,
+      subject: contributor && {
+        kind: "person",
+        id: contributor.person_id,
+        label: contributor.full_name,
+      },
     },
   ];
 }
@@ -177,6 +194,14 @@ function coverage(view: Organization360): AccountFinding[] {
   if (!view.people || withheld(view, "people")) {
     return [];
   }
+  // Every finding here is a statement about the WHOLE set of contacts, and the
+  // section carries only its first page. With more behind it, "only one person
+  // has engaged" and "nobody is champion" are claims this read cannot make —
+  // the twenty-sixth contact is exactly where the champion would be hiding. A
+  // partial answer is worse than none, because the reader cannot tell.
+  if (view.people.page.has_more) {
+    return [];
+  }
   const contacts = view.people.data;
   if (contacts.length === 0) {
     return [{ id: "no-contacts", tone: "risk", key: "co.read.noContacts" }];
@@ -190,7 +215,11 @@ function coverage(view: Organization360): AccountFinding[] {
       tone: "risk",
       key: "co.read.singleThread",
       params: { name: only.full_name },
-      personId: only.person_id,
+      subject: {
+        kind: "person",
+        id: only.person_id,
+        label: only.full_name,
+      },
     });
   } else if (contacts.length === 1) {
     out.push({
@@ -198,15 +227,26 @@ function coverage(view: Organization360): AccountFinding[] {
       tone: "risk",
       key: "co.read.oneContact",
       params: { name: contacts[0].full_name },
-      personId: contacts[0].person_id,
+      subject: {
+        kind: "person",
+        id: contacts[0].person_id,
+        label: contacts[0].full_name,
+      },
     });
   }
   // A champion is only meaningful against an open deal, so this stays quiet
   // on an account with no pipeline rather than reporting a gap in nothing.
+  //
+  // The role must be held on one of THOSE deals: a champion on a deal that
+  // closed last year says nothing about the one open now, and counting them
+  // hid the gap on exactly the accounts that have it.
   const openDeals = view.deals?.data ?? [];
   if (openDeals.length > 0 && !withheld(view, "deals")) {
+    const openIds = new Set(openDeals.map((deal) => deal.deal_id));
     const hasChampion = contacts.some((c) =>
-      c.deal_roles.some((role) => role.role === "champion"),
+      c.deal_roles.some(
+        (role) => role.role === "champion" && openIds.has(role.deal_id),
+      ),
     );
     if (!hasChampion) {
       out.push({ id: "no-champion", tone: "risk", key: "co.read.noChampion" });
@@ -230,7 +270,7 @@ function pipeline(view: Organization360): AccountFinding[] {
       tone: "risk",
       key: "co.read.stalled",
       params: { name: deal.name },
-      dealId: deal.deal_id,
+      subject: { kind: "deal", id: deal.deal_id, label: deal.name },
     });
   }
   if (deals.data.length === 0) {

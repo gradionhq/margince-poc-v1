@@ -1,9 +1,9 @@
 import type { components } from "../api/schema";
+import { navigate } from "../app/router";
 import { SectionHeader } from "../design-system/atoms";
 import { useT } from "../i18n";
-import { readAccount } from "./accountread";
+import { type AccountFinding, readAccount } from "./accountread";
 import "./meetingbrief.css";
-import { EntityRef } from "./entityref";
 
 type Organization360 = components["schemas"]["Organization360"];
 
@@ -32,11 +32,18 @@ export function MeetingBrief({
 }>) {
   const t = useT();
   const findings = readAccount(view, now);
-  const firstVisit = !view.since_last_visit?.baseline_at;
+  const omitted = view.sections_omitted ?? [];
+  // A reader whose grants withheld since_last_visit has no baseline, which is
+  // NOT the same as never having opened the account. Saying "first visit" off
+  // an absent section turns withheld data into a claim about their history.
+  const firstVisit =
+    !omitted.includes("since_last_visit") &&
+    Boolean(view.since_last_visit) &&
+    !view.since_last_visit?.baseline_at;
   // Withheld sections are named once, here, rather than as a refusal beside
   // every line the reader did not get. The brief is a synthesis, so the honest
   // caveat is about the whole of it.
-  const partial = (view.sections_omitted ?? []).length > 0;
+  const partial = omitted.length > 0;
 
   return (
     <section className="card co-prep">
@@ -45,18 +52,30 @@ export function MeetingBrief({
         <p className="co-empty">{t("co.prep.sparse")}</p>
       ) : (
         <ul className="co-prep-lines">
-          {findings.map((finding) => (
-            <li
-              key={finding.id}
-              className={`co-prep-line co-prep-${finding.tone}`}
-            >
-              <span>{t(finding.key, finding.params)}</span>
-              {finding.personId && (
-                <EntityRef kind="person" id={finding.personId} />
-              )}
-              {finding.dealId && <EntityRef kind="deal" id={finding.dealId} />}
-            </li>
-          ))}
+          {findings.map((finding) => {
+            const subject = finding.subject;
+            return (
+              <li
+                key={finding.id}
+                className={`co-prep-line co-prep-${finding.tone}`}
+              >
+                <span>{t(finding.key, finding.params)}</span>
+                {/* The subject is named from the 360's own payload and routed
+                  directly. EntityRef would resolve the id with a record read
+                  per referenced line, which is a fan-out of lookups on the
+                  page whose whole design is one composite read. */}
+                {subject && (
+                  <button
+                    type="button"
+                    className="co-rowlink"
+                    onClick={() => openSubject(subject)}
+                  >
+                    {subject.label}
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {/* The way into the decision queue stays in the header pulse, one line
@@ -67,4 +86,12 @@ export function MeetingBrief({
       </p>
     </section>
   );
+}
+
+// openSubject routes a finding's record to its own screen.
+function openSubject(subject: NonNullable<AccountFinding["subject"]>) {
+  navigate({
+    screen: subject.kind === "deal" ? "deals" : "contacts",
+    id: subject.id,
+  });
 }
