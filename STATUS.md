@@ -112,6 +112,41 @@ updating; (3) relink moved the activity_link and left the participant row
 naming the old contact, permanently. Also: the PII census is a hand-maintained
 list, so new tables pass it vacuously until enrolled.
 
+**Codex full-branch review, reconciled.** 14 findings; 7 fixed on the branch,
+7 accepted and recorded below. The fixed ones, because the CLASS matters more
+than the instances: two privacy leaks (deal coverage listed owner-private
+stakeholders to anyone who could see the deal; the person-network read used
+EnsureVisible, which skips its probe for unbounded callers and never checks
+archived_at), one lying test (deactivation sets `status` and leaves
+archived_at NULL — the test ARCHIVED the user instead, so it passed while
+production kept offering departed colleagues), one contract lie (warmest-first
+promised, last-contact delivered AND capped, so a recent one-liner evicted a
+year-long relationship), two deletion gaps (the time-based retention sweep
+reached none of the new tables; LinkedIn erasure keyed on a DERIVED org id, so
+a ghost imported before its account existed survived), and one stale-state gap
+(retention emits `retention.applied`, which the graph consumer does not
+listen for).
+
+**Accepted, NOT fixed — carry these forward.**
+1. Calendar and group-mail participants: capture writes the mailbox owner and
+   ONE counterparty, so gcal attendees and multi-party mail are still not
+   recorded as participants. ADR-0078 §1 claims they are; that claim is
+   currently ahead of the code.
+2. Relink invalidation: the participant row is repointed before the event
+   fires, so the consumer cannot name the displaced pair and the old edge
+   survives to the nightly rebuild. Needs the additive `relinked_from`
+   reference (a public-event contract change).
+3. Person merge does not repoint `activity_participant`; the consumer drops the
+   source edge assuming it did, and the nightly rebuild can recreate an edge to
+   the archived source because the fold does not check person liveness.
+4. Our-side concentration counts one group email once per stakeholder, so five
+   stakeholders on one message satisfy the five-interaction floor.
+5. `matched_org_id` is only recomputed on upload and never cleared, so org
+   rename/archive/merge leaves reach counts stale or misattached.
+6. A refreshed LinkedIn export never tombstones connections absent from it.
+7. `at_risk_relationships`, `intro_path_to`, going-cold and champion-left are
+   not built.
+
 **Verification.** `make check-backend` green. Integration lane matches the
 `origin/main` baseline exactly — the overlay/mirror, MinIO and Redis-relay
 failures present there are unchanged and unrelated. Not yet run: `make dev`
