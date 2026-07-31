@@ -519,7 +519,11 @@ export function TagsCard({
           ))}
         </p>
       </SectionPart>
-      {(shows(listState) || shows(tagState)) && (
+      {/* The strip exists only when something is IN it. An archived company
+          passes no verbs, and a wrapper rendered anyway leaves an empty box
+          and its margin under the card — SectionCard already gates on the
+          same condition. */}
+      {((shows(tagState) && tagAction) || (shows(listState) && listAction)) && (
         <div className="co-card-actions">
           {shows(tagState) && tagAction}
           {shows(listState) && listAction}

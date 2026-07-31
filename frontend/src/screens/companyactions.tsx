@@ -188,8 +188,12 @@ async function resolveTagId(
   }
   const winner = matching(after.data);
   if (!winner) {
-    // A 409 with no row carrying the name means the collision was about
-    // something other than the name, and this function has no answer for it.
+    // The name collided but no readable row carries it. Two ways to get here,
+    // and the rep can act on neither: the collision was about something other
+    // than the name, or the workspace holds more tags than one listTags page
+    // returns and the winner sits past the cap. listTags takes no name filter,
+    // so a client cannot ask about that row directly — the reach for it is a
+    // contract gap, recorded in STATUS.md rather than looped around here.
     throw new Error(problemMessage(error, t));
   }
   return winner;

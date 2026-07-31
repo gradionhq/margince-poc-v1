@@ -36,6 +36,23 @@ Requiring the address to sit on the crawled site's own domain would close it,
 and would also drop staff who publish a personal address. That trade is a
 product call, not a bug fix, so it is raised rather than taken.
 
+## Upstream raise — listTags cannot be asked about one name
+
+`GET /tags` takes no name filter and no cursor (crm.yaml `listTags`), so a
+client reads the catalog and matches locally against whatever one page
+returns — the server caps that at 1,000 rows.
+
+The company page's Add tag resolves a typed name to one tag, and it is the
+caller that pays for this: on a workspace holding more tags than the cap, an
+existing tag past the cap is not found, the create then collides with
+`uq_tag_name`, and the 409 cannot be resolved because the winner is not in the
+page either. The rep gets an error they cannot act on.
+
+The reach is a name filter on `listTags` (or a create that answers with the
+colliding row), not a paging loop in the client. Raised rather than worked
+around; a workspace with more than a thousand tags is not the pilot's shape,
+so nothing here is blocked on it.
+
 ## Open decision — the organization brief endpoint has no client
 
 `GET /organizations/{id}/brief` is no longer read by the web UI. Its card was
