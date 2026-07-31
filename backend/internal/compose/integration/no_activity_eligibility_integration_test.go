@@ -384,7 +384,21 @@ func seedTaskRow(t *testing.T, owner *pgx.Conn, ws ids.UUID, subject, source str
 // namespace rather than restated here.
 func applyCleanupMigration(t *testing.T, owner *pgx.Conn) {
 	t.Helper()
-	const version = "0148"
+	applyCoreMigration(t, owner, "0148")
+}
+
+// applyRestoreMigration runs the shipped 0149 up-migration, which gives back
+// the reminders 0148 archived that nothing in the workspace will re-mint.
+func applyRestoreMigration(t *testing.T, owner *pgx.Conn) {
+	t.Helper()
+	applyCoreMigration(t, owner, "0149")
+}
+
+// applyCoreMigration runs one shipped core migration's own SQL against the
+// fixture rows, loaded from the embedded namespace rather than restated here —
+// the migration is what these suites assert on.
+func applyCoreMigration(t *testing.T, owner *pgx.Conn, version string) {
+	t.Helper()
 	core, err := migrations.Core()
 	if err != nil {
 		t.Fatalf("loading the core migration namespace: %v", err)
@@ -393,8 +407,32 @@ func applyCleanupMigration(t *testing.T, owner *pgx.Conn) {
 		if m.Version != version {
 			continue
 		}
-		if _, err := owner.Exec(context.Background(), m.UpSQL); err != nil {
+		// One transaction for the SQL and the ledger row, exactly as dbmigrate
+		// applies it — 0149 reads schema_migrations_core.applied_at to know
+		// which rows 0148 archived, and now() is per transaction, so applying
+		// the two separately would put them at different instants and the
+		// suites below would be testing a shape production never has.
+		tx, err := owner.Begin(context.Background())
+		if err != nil {
+			t.Fatalf("opening the migration transaction: %v", err)
+		}
+		//craft:ignore swallowed-errors the rollback only runs if a Fatalf above skipped the commit; after a successful commit it is a no-op whose error says nothing, and the test has already failed in the other case
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		if _, err := tx.Exec(context.Background(), m.UpSQL); err != nil {
 			t.Fatalf("applying migration %s: %v", version, err)
+		}
+		if _, err := tx.Exec(context.Background(),
+			// The template already carries this migration from the real
+			// migrator, so the ledger instant is UPDATED rather than kept:
+			// these suites re-run the SQL to archive their own fixtures, and
+			// 0149 reads applied_at to know which rows that run touched.
+			`INSERT INTO schema_migrations_core (version, name) VALUES ($1, $2)
+			 ON CONFLICT (version) DO UPDATE SET applied_at = now()`,
+			m.Version, m.Name); err != nil {
+			t.Fatalf("recording migration %s in the ledger: %v", version, err)
+		}
+		if err := tx.Commit(context.Background()); err != nil {
+			t.Fatalf("committing migration %s: %v", version, err)
 		}
 		return
 	}

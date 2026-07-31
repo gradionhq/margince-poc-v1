@@ -253,6 +253,26 @@ group, the narrowed reminder semantics (open-deal or active-lead eligibility
 plus an N-day creation grace), and the answer-shape rule that ids belong in
 evidence and never in prose.
 
+**#333 merged, then needed #341 behind it.** Migration 0148 archives every
+outstanding generated check-in reminder and justifies itself with "the
+corrected scan re-mints the ones still deserved" — which holds only where the
+reminder automation still runs, and it never checked. A workspace that paused
+`no_activity_reminder` or `check_in_cadence` had its reminders archived with
+nothing to bring them back, and 0148's down is a no-op. 0149 restores exactly
+the unrepeatable rows, pairing each task's wording with the automation that
+mints it (the two write different subjects, and a workspace can run one while
+the other is paused).
+
+The rule that arc produced, worth carrying: **a destructive migration that
+relies on something else to put things back has to state the condition that
+something else runs under, and check it.** Both stop-gate findings against
+0148/0149 were the same defect at different granularity — first "assumes the
+automation exists", then "checks the wrong one".
+
+Also learned the hard way: `make check-fe` does NOT run the Playwright screen
+tests (`make frontend-e2e` does, and those specs assert **German**), so a
+user-visible string change can pass the local gate and fail CI.
+
 **Every company now wears its face (#330).** The A55 logo lane resolves a
 company's mark from the site the deep read already crawls — og:image, then the
 declared icons, then `/favicon.ico` — normalizes it once to a square PNG at
@@ -269,7 +289,9 @@ Three things it left open, in priority order:
 - **Nothing purges a logo object**, because nothing hard-deletes an
   organization row. The key is on the row (`organization.logo_object_key`), so
   the sweep is there to write the day organizations gain a hard delete or the
-  retention evaluator reaches them.
+  retention evaluator reaches them. Raised upstream as foundation #1216 —
+  the policy (is a logo a retention class, what is the floor, what happens on
+  merge) is the spec's call before the sweep is written.
 - **The reclaim of a superseded logo can race a reader** that took the old key
   microseconds earlier: one monogram on one render, self-healing next load.
   The offer-PDF path makes the same trade.
@@ -858,6 +880,22 @@ caused confusion in commits and comments. These are raised against
 `gradionhq/margince-foundation`, never worked around here, and never edited from
 this build repo.
 
+- **Art. 17 erasure has no organization path (foundation #1215).** `Eraser` in
+  `privacy/erasure.go` anonymizes the `person` row and purges its satellites;
+  grep `organization` there and it finds nothing, on the standard reading that
+  an organization is a legal person. A sole trader is not: their
+  `organization` row carries `display_name`, `legal_name`, `address`, `raw` and
+  the logo, and it survives an erasure that certified them gone. The spec has to
+  answer what marks a natural-person organization, what erasure does to it, how
+  a request reaches it (through the person relationship, never through
+  `organization_domain`), and whether `sarSections()` owes the row on the Art. 15
+  side too. Nothing is built against a guess.
+- **Nothing reclaims an organization logo object (foundation #1216).** The
+  superseded-write case is handled (`supersededObject()` hands the orphaned key
+  back under the row lock); archive and merge are not, because neither stops the
+  row referencing the key. Operational, not legal — unbounded storage growth over
+  the installation's life. The retention evaluator already holds a
+  `blobstore.Store`, so only the policy is missing.
 - **The backfill's live-progress columns and seam** — two raises from
   `feat/backfill-live-progress` (#307), which made a running backfill page
   report progress per message instead of only at page commit. CAP-DDL-4's
