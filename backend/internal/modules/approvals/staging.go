@@ -275,6 +275,11 @@ func resolveTargetVersion(ctx context.Context, tx pgx.Tx, in StageInput) (versio
 	if in.TargetID.IsZero() || !TargetVersionCheckable(in.TargetType) {
 		return 0, false, nil
 	}
+	// A kind whose target is context rather than operand binds to nothing:
+	// see contextTargetKinds for why pinning it was worse than not pinning it.
+	if TargetIsContextOnly(in.Kind) {
+		return 0, false, nil
+	}
 	current, err := targetVersion(ctx, tx, in.TargetType, in.TargetID)
 	if err != nil {
 		return 0, false, err

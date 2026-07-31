@@ -189,6 +189,48 @@ func TestDeepReadTeamPageStagesOneThinSiteLeadPerPublishedPerson(t *testing.T) {
 	}
 }
 
+// A lead is filed under the company it was read from, but creating it reads
+// nothing off that company. The staging used to pin the organization's version
+// anyway, and any unrelated write to the company — the very enrichment run
+// that discovers the leads writes its profile fields — bumped that version and
+// made the lead permanently un-acceptable. Worse than a failed click: the
+// decision commits before the effect runs, so the approval was left approved
+// and unredeemed with no lead created, and the retry answered "already
+// decided". The lead was gone.
+func TestSiteLeadStaysAcceptableAfterAnUnrelatedWriteToItsCompany(t *testing.T) {
+	e := integration.Setup(t)
+	org := insertOrg(t, e, e.Rep1, "acme.example", "")
+	done, svc := runTeamDeepRead(t, e, org)
+
+	// Anything at all that touches the company. The version trigger fires on
+	// every UPDATE, so the narrowest possible write is the honest test.
+	if err := database.WithWorkspaceTx(e.As(e.Rep1, nil, integration.AdminPerms), e.Pool,
+		func(tx pgx.Tx) error {
+			_, err := tx.Exec(context.Background(),
+				`UPDATE organization SET industry = 'Manufacturing' WHERE id = $1`, org)
+			return err
+		}); err != nil {
+		t.Fatalf("touch the company: %v", err)
+	}
+
+	for _, id := range done.ProposalIDs {
+		if _, err := svc.Decide(e.As(e.Rep2, nil, integration.AdminPerms),
+			ids.From[ids.ApprovalKind](id), true, nil); err != nil {
+			t.Fatalf("accept %s after an unrelated write to its company: %v", id, err)
+		}
+	}
+
+	var leads int
+	if err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(context.Background(), `SELECT count(*) FROM lead`).Scan(&leads)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if leads != 2 {
+		t.Fatalf("%d leads after accepting both, want 2 — the accept was refused and the lead lost", leads)
+	}
+}
+
 func TestSiteLeadAcceptCapturesALeadIdempotentAcrossReReads(t *testing.T) {
 	e := integration.Setup(t)
 	org := insertOrg(t, e, e.Rep1, "acme.example", "")
