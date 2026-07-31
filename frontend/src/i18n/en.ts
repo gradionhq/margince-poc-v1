@@ -598,7 +598,7 @@ export const en = {
   "co.profileField.industry": "Industry",
   "co.profileField.history": "History",
   "co.profile.title": "Company profile",
-  "co.reach.window": "Contact shown for the last 90 days",
+  "co.reach.window": "Contact status for the last 90 days",
   "co.reach.answered": "Answered",
   "co.reach.silent": "No reply",
   "co.reach.untried": "Not approached",
@@ -629,7 +629,7 @@ export const en = {
     "You have written to {count} contacts here in the last {days} days and none has replied.",
   "co.read.noContacts": "You do not know anyone at this account yet.",
   "co.read.singleThread":
-    "Only {name} shows email, calls or meetings in the last {days} days.",
+    "Only {name} has email, calls or meetings recorded in the last {days} days.",
   "co.read.oneContact": "{name} is your only way into this account.",
   "co.read.noChampion.one": "No champion is named on the open deal.",
   "co.read.noChampion.other": "No champion is named on any of the open deals.",

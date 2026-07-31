@@ -331,8 +331,7 @@ describe("readAccount", () => {
   it("says nothing about a section the reader may not see", () => {
     // The sections are POPULATED and also named as omitted. A version that
     // supplies no data proves nothing: deleting every withheld() check would
-    // still yield no findings, because there would be nothing to read. Each
-    // section here would produce a finding if its check were removed.
+    // still yield no findings, because there would be nothing to read.
     const v = view({
       sections_omitted: ["people", "deals", "strength", "next_steps"],
       people: { data: [], page: { has_more: false } },
@@ -341,6 +340,67 @@ describe("readAccount", () => {
       next_steps: { data: [], page: { has_more: false } },
     });
     expect(readAccount(v, NOW)).toHaveLength(0);
+  });
+
+  // One case per guard. The combined test above cannot isolate them: coverage()
+  // returns on the people check before it ever consults the deals one, so
+  // deleting the deals guard leaves it green. A guard needs a case that fails
+  // when THAT guard alone is removed.
+  it("withholds the deals section from the champion rule", () => {
+    const v = view({
+      sections_omitted: ["deals"],
+      people: { data: [contact()], page: { has_more: false } },
+      deals: deals({
+        data: [
+          { deal_id: "d1", name: "Pilot", status: "open", stalled: false },
+        ],
+      }),
+    });
+    expect(ids(v)).not.toContain("no-champion");
+  });
+
+  it("withholds the deals section from the pipeline rules", () => {
+    // A separate case, because the champion rule and the pipeline rules read
+    // the section through their own guards, and one fixture cannot fail for
+    // both: an EMPTY deal list is what makes the pipeline rule speak, and a
+    // POPULATED one is what makes the champion rule speak.
+    const empty = view({ sections_omitted: ["deals"], deals: deals() });
+    expect(ids(empty)).not.toContain("no-open-deal");
+
+    const stalled = view({
+      sections_omitted: ["deals"],
+      deals: deals({
+        data: [{ deal_id: "d1", name: "Pilot", status: "open", stalled: true }],
+      }),
+    });
+    expect(ids(stalled)).not.toContain("stalled:d1");
+  });
+
+  it("withholds the strength section on its own", () => {
+    const v = view({
+      sections_omitted: ["strength"],
+      strength: strength({ last_interaction: daysAgo(40) }),
+    });
+    expect(ids(v)).not.toContain("quiet");
+  });
+
+  it("withholds the next-steps section on its own", () => {
+    const v = view({
+      sections_omitted: ["next_steps"],
+      next_steps: {
+        data: [{ activity_id: "t1", subject: "Send the quote", overdue: true }],
+        page: { has_more: false },
+      },
+    });
+    expect(ids(v)).not.toContain("overdue");
+  });
+
+  it("withholds the people section on its own", () => {
+    const v = view({
+      sections_omitted: ["people"],
+      people: { data: [], page: { has_more: false } },
+    });
+    expect(ids(v)).not.toContain("no-contacts");
   });
 
   it("does not infer coverage from a people section that never arrived", () => {
