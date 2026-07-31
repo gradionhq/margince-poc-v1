@@ -61,8 +61,10 @@ const (
 // defaultIncumbentBudgets is the built-in per-incumbent OVB configuration
 // used for any incumbent the YAML does not override. HubSpot: the Search
 // API's per-second ceiling (~5 req/s) with a conservative 4 req/s cap
-// (AC-overlay-budget-1's "x / 4.0 req/s"), and a rolling-24h REST
-// allocation (the ~100k/day org ceiling) capped conservatively below it.
+// (AC-overlay-budget-1's "x / 4.0 req/s"), and a fixed UTC-day REST
+// allocation (the ~100k/day org ceiling) capped conservatively below it —
+// "UTC-day" and not "rolling 24h", because that is what the meter does and
+// the difference decides when an exhausted quota comes back.
 func defaultIncumbentBudgets() OverlayBudget {
 	return OverlayBudget{
 		"hubspot": {

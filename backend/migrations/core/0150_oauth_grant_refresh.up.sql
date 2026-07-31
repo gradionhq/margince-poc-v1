@@ -118,3 +118,11 @@ CREATE INDEX oauth_refresh_token_grant_ix ON oauth_refresh_token (workspace_id, 
 -- replacement is minted), which makes this the hotter of the two. The existing
 -- idx_passport_obo is on (workspace_id, on_behalf_of) and cannot serve it.
 CREATE INDEX passport_oauth_grant_ix ON passport (workspace_id, oauth_grant_id);
+-- Deactivating a human ends every connection that borrows their authority, and
+-- redeeming a code re-reads their liveness, so both paths look grants up by
+-- (workspace, user). Partial on the live rows because that is the only set
+-- either path acts on: a revoked grant is never revoked again, and the index
+-- then stays proportional to open connections rather than to every connection
+-- the installation has ever approved.
+CREATE INDEX oauth_grant_user_live_ix ON oauth_grant (workspace_id, user_id, id)
+  WHERE revoked_at IS NULL;

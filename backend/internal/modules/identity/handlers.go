@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -16,6 +15,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/mailer"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
@@ -158,19 +158,6 @@ func (h Handlers) resolveSorMode(ctx context.Context) crmcontracts.MeResponseSys
 	return crmcontracts.Overlay
 }
 
-// clientIP is the throttle key for unauthenticated calls. RemoteAddr is
-// the direct peer — behind a reverse proxy this is the proxy, so a
-// deployment fronted by one must terminate rate limiting there or extend
-// this to a *trusted* Forwarded header (never trusted blindly: it is
-// attacker-controlled).
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
-
 // GetAuthCapabilities implements (GET /auth/capabilities): the anonymous
 // probe the login UI renders from (A107/ADR-0061). It reports exactly the
 // operational methods — a disabled provider button or a dead
@@ -202,8 +189,8 @@ func (h Handlers) Login(w http.ResponseWriter, r *http.Request) {
 	// the email with the caller's IP: counting attempts on the bare email
 	// would let ten bogus posts lock the real owner out of their own
 	// account from anywhere.
-	accountKey := strings.ToLower(string(req.Email)) + "|" + clientIP(r)
-	if !h.loginPerIP.Allow(clientIP(r)) || h.loginFailures.Blocked(accountKey) {
+	accountKey := strings.ToLower(string(req.Email)) + "|" + httpserver.ClientIP(r)
+	if !h.loginPerIP.Allow(httpserver.ClientIP(r)) || h.loginFailures.Blocked(accountKey) {
 		httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 		return
 	}

@@ -11,4 +11,5 @@ ALTER TABLE passport DROP COLUMN IF EXISTS oauth_grant_id;
 
 DROP INDEX IF EXISTS oauth_refresh_token_grant_ix;
 DROP TABLE IF EXISTS oauth_refresh_token;
+DROP INDEX IF EXISTS oauth_grant_user_live_ix;
 DROP TABLE IF EXISTS oauth_grant;

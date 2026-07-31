@@ -19,6 +19,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -94,9 +95,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 	// both derived from --public-base-url, never from the Host header an
 	// attacker controls — so the gate that turns the connector on cannot
 	// be satisfied without it.
-	if deployCfg.MCP.ConnectorEnabled && cfg.publicBaseURL == "" {
-		return errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
-			"audience and the advertised MCP resource must not be derived from the Host header")
+	if deployCfg.MCP.ConnectorEnabled {
+		if cfg.publicBaseURL == "" {
+			return errors.New("api: mcp.connector_enabled requires --public-base-url: the OAuth " +
+				"audience and the advertised MCP resource must not be derived from the Host header")
+		}
+		if err := validatePublicBaseURL(cfg.publicBaseURL); err != nil {
+			return err
+		}
 	}
 	if err := compose.EnsureInstallation(ctx, pool, logger, deployCfg); err != nil {
 		return err
@@ -269,6 +275,38 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 // returned close func releases whatever this stage opened (currently
 // only the schema pool) and is always safe to call, even when nothing
 // was opened.
+// validatePublicBaseURL refuses a base URL the connector cannot be reached at.
+// Presence alone is not enough: every value here is copied verbatim into the
+// OAuth audience, the RFC 9728 protected-resource document and the advertised
+// MCP URL, and a client dereferences all three exactly as given. A malformed
+// or path-bearing value therefore does not fail at boot — it boots a connector
+// that advertises somewhere nobody can connect to, which looks like a client
+// bug from every side.
+//
+// A trailing slash is accepted and trimmed downstream; anything else that
+// would change what the URL MEANS — a scheme other than http(s), a missing
+// host, or a path, query or fragment — is refused rather than silently
+// normalized, because guessing what an operator meant is how the wrong origin
+// ends up published.
+func validatePublicBaseURL(raw string) error {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", raw, err)
+	}
+	switch {
+	case parsed.Scheme != "http" && parsed.Scheme != "https":
+		return fmt.Errorf("api: --public-base-url %q needs an http or https scheme, got %q", raw, parsed.Scheme)
+	case parsed.Host == "":
+		return fmt.Errorf("api: --public-base-url %q names no host", raw)
+	case strings.Trim(parsed.Path, "/") != "":
+		return fmt.Errorf("api: --public-base-url %q must be a bare origin: the MCP resource is "+
+			"derived by appending /mcp, so a path here publishes an unreachable URL", raw)
+	case parsed.RawQuery != "" || parsed.Fragment != "":
+		return fmt.Errorf("api: --public-base-url %q must be a bare origin, with no query or fragment", raw)
+	}
+	return nil
+}
+
 func baseComposeOptions(ctx context.Context, cfg apiConfig, capCfg compose.CaptureConfig, pool *pgxpool.Pool, logger *slog.Logger, stdout io.Writer) ([]compose.Option, func(), error) {
 	var opts []compose.Option
 	// Record the deployment's capture suppression-list config first, so the

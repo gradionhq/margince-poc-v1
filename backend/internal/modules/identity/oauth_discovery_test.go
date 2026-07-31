@@ -77,8 +77,13 @@ func TestDiscoveryAdvertisesEveryGrantableScope(t *testing.T) {
 func TestProtectedResourceMetadataNamesTheMCPURLNotTheOrigin(t *testing.T) {
 	h := Handlers{mcpResource: "https://crm.example.com/mcp"}
 	rec := httptest.NewRecorder()
-	h.ProtectedResourceMetadata(rec, httptest.NewRequest(http.MethodGet,
-		"https://crm.example.com/.well-known/oauth-protected-resource", nil))
+	req := httptest.NewRequest(http.MethodGet,
+		"https://crm.example.com/.well-known/oauth-protected-resource", nil)
+	// The forwarded-proto signal a terminating proxy supplies in production.
+	// Stating it means the https assertions below rest on the header this
+	// deployment actually relies on, not on whatever r.TLS happens to be.
+	req.Header.Set("X-Forwarded-Proto", "https")
+	h.ProtectedResourceMetadata(rec, req)
 
 	var doc struct {
 		Resource             string   `json:"resource"`

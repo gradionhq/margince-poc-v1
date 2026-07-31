@@ -21,12 +21,13 @@ package compose
 import (
 	"bytes"
 	"io"
+	"mime"
 	"net/http"
 	"net/url"
-	"strings"
 
 	"github.com/gradionhq/margince/backend/internal/modules/identity"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 )
 
@@ -77,7 +78,7 @@ func oauthEdge(next http.Handler, lim mcpLimiters) http.Handler {
 // Allow — they COUNT — and short-circuiting would leave one ceiling unmetered on
 // the requests the other one admitted.
 func oauthAdmits(r *http.Request, lim mcpLimiters) bool {
-	ip := clientIP(r)
+	ip := httpserver.ClientIP(r)
 	switch r.URL.Path {
 	case oauthTokenPath:
 		// Per (client_id, IP) and never IP alone: all of claude.ai arrives from
@@ -178,13 +179,27 @@ func sessionDigest(r *http.Request) string {
 	return digestOf(cookie.Value)
 }
 
+// isFormURLEncoded reports whether a Content-Type names the OAuth token
+// endpoint's media type, the way net/http itself reads it: the type is
+// case-INSENSITIVE and parameters (`; charset=utf-8`) are legal and ignored.
+//
+// A prefix match on the raw header put `Application/X-WWW-Form-Urlencoded`
+// into the empty-client bucket while the handler happily parsed its body. The
+// limiter and the handler must classify the same request identically, or a
+// shared peer's 60 legitimate-but-differently-cased requests spend a bucket
+// that then 429s innocent clients.
+func isFormURLEncoded(header string) bool {
+	mediaType, _, err := mime.ParseMediaType(header)
+	return err == nil && mediaType == "application/x-www-form-urlencoded"
+}
+
 // peekFormField reads one field out of a form-encoded body WITHOUT consuming
 // it: ParseForm drains r.Body, and the handler behind this edge parses the same
 // body again, so whatever is read here is put back in front of the unread
 // remainder. The handler therefore still sees the request the client actually
 // sent — including the oversized or unreadable body it must answer 400 for.
 func peekFormField(r *http.Request, field string) string {
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "application/x-www-form-urlencoded") {
+	if !isFormURLEncoded(r.Header.Get("Content-Type")) {
 		return ""
 	}
 	read, err := io.ReadAll(io.LimitReader(r.Body, tokenFormPeek+1))

@@ -223,7 +223,14 @@ func TestChassisWrappersPreserveResponseControllerCapabilities(t *testing.T) {
 	for name, wrap := range wrappers {
 		t.Run(name, func(t *testing.T) {
 			var deadlineErr, flushErr error
+			// http.Get returns once the response HEADERS arrive, which the
+			// first flush already produces — so the handler goroutine can still
+			// be running when the assertions below read what it writes. served
+			// is closed as the handler's last act, making the handoff explicit
+			// rather than a race that happens to resolve.
+			served := make(chan struct{})
 			srv := httptest.NewServer(wrap(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				defer close(served)
 				rc := http.NewResponseController(w)
 				deadlineErr = rc.SetWriteDeadline(time.Time{})
 				_, _ = w.Write([]byte("x"))
@@ -239,6 +246,7 @@ func TestChassisWrappersPreserveResponseControllerCapabilities(t *testing.T) {
 					t.Errorf("closing body: %v", err)
 				}
 			}()
+			<-served
 			if deadlineErr != nil {
 				t.Errorf("SetWriteDeadline through %s: %v", name, deadlineErr)
 			}

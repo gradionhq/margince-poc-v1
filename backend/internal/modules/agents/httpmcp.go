@@ -3,15 +3,19 @@
 
 package agents
 
-// The A2 hosted transport (B-EP06.18a): the SAME tool surface as A1
-// over streamable HTTP — one JSON-RPC exchange per POST. Nothing here
-// adds capability: registry, admission, staging and audit are shared
-// with stdio, so "two transports, one gate" is a property of the
-// construction, not a discipline.
+// The A2 hosted transport (B-EP06.18a): the governed tool surface over
+// streamable HTTP — one JSON-RPC exchange per POST. It is the ONLY MCP
+// transport; A1 stdio and its cmd/mcp binary are retired (SCR-9).
+//
+// Nothing here adds capability. Registry, admission, staging and audit all
+// live behind the Dispatcher this handler builds, so a route cannot widen
+// what an agent may do — that is a property of the construction, not a
+// discipline.
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -31,6 +35,17 @@ import (
 // request, so the deadline must outlast that budget with headroom or the
 // slowest legitimate call dies mid-response.
 const mcpCallDeadline = 150 * time.Second
+
+// ErrAuthUnavailable marks an authenticate failure that says nothing about the
+// presented credential — the installation would not resolve, or the database
+// behind the passport lookup was unreachable. The transport answers those 503,
+// never 401.
+//
+// It is a sentinel the injected authenticate closure wraps rather than a
+// condition this package detects, because the conditions live in identity and
+// a module never imports a sibling: compose composes both and therefore owns
+// the classification (see compose/mcpedge.go).
+var ErrAuthUnavailable = errors.New("agents: the credential could not be verified")
 
 // sessionKey identifies one live MCP session. The session id ALONE is
 // deliberately not enough to act on (DESIGN §10.4): every request
@@ -203,7 +218,7 @@ type httpMCPHandler struct {
 	// shared rather than re-derived per request, so the two transports cannot
 	// answer one call differently. It holds no per-request state — the
 	// request's own authenticated context is what dispatch runs on.
-	server       *StdioServer
+	server       *Dispatcher
 	authenticate func(*http.Request) (context.Context, error)
 	challenge    func(*http.Request) string
 	sessions     *sessionRegistry
@@ -223,7 +238,7 @@ type httpMCPHandler struct {
 // SetDefault means the record is written somewhere nobody is reading.
 func NewHTTPHandler(registry *Registry, authenticate func(*http.Request) (context.Context, error), challenge func(*http.Request) string, name, version string, log *slog.Logger) http.Handler {
 	return &httpMCPHandler{
-		server:       NewStdioServer(registry, bindAuthenticated, name, version).WithLogger(log),
+		server:       NewDispatcher(registry, bindAuthenticated, name, version).WithLogger(log),
 		authenticate: authenticate,
 		challenge:    challenge,
 		sessions:     newSessionRegistry(),
@@ -251,6 +266,20 @@ func (h *httpMCPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, err := h.authenticate(r)
+	if errors.Is(err, ErrAuthUnavailable) {
+		// The server could not REACH a verdict on the credential, so it must
+		// not imply one. A 401 here tells a client its token is bad: a
+		// well-behaved one then discards a perfectly good token and re-runs the
+		// whole OAuth dance against a server that is down, turning an outage
+		// into mass re-consent. 503 is the honest answer, and the only one a
+		// client retries.
+		httperr.Write(w, r, &httperr.DetailedError{
+			Status: http.StatusServiceUnavailable,
+			Code:   "authentication_unavailable",
+			Detail: "This server cannot verify credentials right now. Retry with the same token.",
+		})
+		return
+	}
 	if err != nil {
 		// RFC 9728: the 401 names where the client can discover the
 		// authorization server. DELETE authenticates exactly like POST —

@@ -19,6 +19,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -56,7 +57,7 @@ func publicBooking(store *activities.Store, limits publicBookingLimiters) func(h
 				httperr.Write(w, r, apperrors.ErrNotFound)
 				return
 			}
-			if !limits.perIP.Allow(clientIP(r)) {
+			if !limits.perIP.Allow(httpserver.ClientIP(r)) {
 				httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 				return
 			}

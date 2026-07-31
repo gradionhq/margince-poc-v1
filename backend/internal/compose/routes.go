@@ -15,7 +15,6 @@ package compose
 import (
 	"context"
 	"log/slog"
-	"net"
 	"net/http"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -163,18 +162,4 @@ func operationalMux(srv Server, pool *pgxpool.Pool, log *slog.Logger, identitySv
 		mux.Handle("/webhooks/hubspot", httpserver.Correlate(httpserver.AccessLog(log, srv.overlayWebhook)))
 	}
 	return mux
-}
-
-// clientIP is the ONE client-IP rule every throttled edge on this mux keys
-// on — the anonymous booking and preference paths, and the MCP connector. It
-// mirrors the login throttle's key: the direct peer. A raw X-Forwarded-For is
-// attacker-chosen and deliberately not read; a deployment fronted by a proxy
-// terminates rate limiting there (or extends this to a TRUSTED Forwarded
-// header — never trusted blindly).
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
 }

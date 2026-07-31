@@ -18,6 +18,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/modules/consent"
 	"github.com/gradionhq/margince/backend/internal/platform/httperr"
+	"github.com/gradionhq/margince/backend/internal/platform/httpserver"
 	"github.com/gradionhq/margince/backend/internal/platform/ratelimit"
 	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
@@ -54,7 +55,7 @@ func publicPreferences(store *consent.Store, limits publicPreferenceLimiters) fu
 				httperr.Write(w, r, apperrors.ErrNotFound)
 				return
 			}
-			if !limits.perIP.Allow(clientIP(r)) {
+			if !limits.perIP.Allow(httpserver.ClientIP(r)) {
 				httperr.Write(w, r, apperrors.ErrBudgetExceeded)
 				return
 			}

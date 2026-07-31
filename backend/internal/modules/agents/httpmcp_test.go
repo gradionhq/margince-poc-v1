@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -51,9 +52,45 @@ func TestUnauthenticatedRequestChallengesWithAnAbsolutePointerAndConservativeSco
 	}
 }
 
+// An outage is not a credential verdict. When the server cannot REACH a verdict
+// the answer is 503 with no challenge: a 401 would tell a client its token is
+// bad, and a well-behaved client then discards a good token and re-runs the
+// whole OAuth dance against a server that is down.
+func TestUnverifiableCredentialAnswers503RatherThanChallenging(t *testing.T) {
+	h := NewHTTPHandler(NewRegistry(nil, nil),
+		func(*http.Request) (context.Context, error) {
+			return nil, fmt.Errorf("resolving the installation: %w: %w",
+				errors.New("dial tcp 10.7.0.5:5432: connect: connection refused"), ErrAuthUnavailable)
+		},
+		func(*http.Request) string { return `Bearer resource_metadata="https://crm.example.com/x"` },
+		"margince-crm", "test", discardLog())
+
+	for _, method := range []string{http.MethodPost, http.MethodDelete} {
+		t.Run(method, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(method, "/mcp", strings.NewReader(`{}`)))
+
+			if rec.Code != http.StatusServiceUnavailable {
+				t.Fatalf("status = %d, want 503", rec.Code)
+			}
+			// No challenge: a challenge is an instruction to re-authenticate,
+			// which is exactly what must not happen during an outage.
+			if got := rec.Header().Get("WWW-Authenticate"); got != "" {
+				t.Errorf("503 carries a re-authentication challenge %q", got)
+			}
+			// The client is untrusted: the reason it cannot be verified stays
+			// server-side.
+			if body := rec.Body.String(); strings.Contains(body, "10.7.0.5") ||
+				strings.Contains(body, "dial tcp") {
+				t.Errorf("503 body leaked infrastructure detail: %q", body)
+			}
+		})
+	}
+}
+
 // TestResourceMetadataChallengeIsAbsoluteAndScopeBearing pins the builder the
-// production mounts (compose's api edge and cmd/mcp) actually call — the test
-// above only proves the handler forwards whatever challenge func it is given.
+// production mount (compose's api edge) actually calls — the test above only
+// proves the handler forwards whatever challenge func it is given.
 func TestResourceMetadataChallengeIsAbsoluteAndScopeBearing(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "https://crm.example.com/mcp", nil)
 	// httptest.NewRequest never populates r.TLS, so RequestOrigin needs the
@@ -360,7 +397,7 @@ func TestInitializeReturnsASessionIDAndDeleteClosesOnlyYourOwn(t *testing.T) {
 // legitimately has no resources or prompts, but answering -32601 method-
 // not-found reads as a broken server rather than an empty, valid catalog.
 func TestResourcesAndPromptsAnswerEmptyRatherThanMethodNotFound(t *testing.T) {
-	s := NewStdioServer(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
+	s := NewDispatcher(NewRegistry(nil, nil), bindAuthenticated, "margince-crm", "test")
 	for _, method := range []string{"resources/list", "resources/templates/list", "prompts/list"} {
 		resp := s.handle(context.Background(), rpcRequest{
 			JSONRPC: "2.0", ID: json.RawMessage(`1`), Method: method,
@@ -435,9 +472,15 @@ func TestPostWithEventStreamAcceptFramesASingleDataFrame(t *testing.T) {
 	if got := resp.Header.Get("Content-Type"); got != "text/event-stream" {
 		t.Errorf("Content-Type = %q, want text/event-stream", got)
 	}
-	buf := make([]byte, 4096)
-	n, _ := resp.Body.Read(buf)
-	body := string(buf[:n])
+	// The whole body, not one Read: a single Read may return a partial chunk,
+	// which would fail the framing assertions below for a reason that has
+	// nothing to do with framing. The handler writes one frame and returns, so
+	// the stream ends and ReadAll terminates.
+	raw, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("reading the SSE frame: %v", err)
+	}
+	body := string(raw)
 	if !strings.HasPrefix(body, "data: ") {
 		t.Fatalf("body %q does not start with a data: frame", body)
 	}

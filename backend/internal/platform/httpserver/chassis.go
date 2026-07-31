@@ -9,6 +9,7 @@ package httpserver
 
 import (
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime/debug"
 	"strings"
@@ -77,7 +78,7 @@ func RequestOrigin(r *http.Request) string {
 	// forwarded header is attacker noise. Host itself must be sanitized
 	// by the fronting proxy — the metadata documents say so.
 	scheme := secure
-	switch r.Header.Get("X-Forwarded-Proto") {
+	switch forwardedProto(r) {
 	case secure:
 	case insecure:
 		scheme = insecure
@@ -87,6 +88,25 @@ func RequestOrigin(r *http.Request) string {
 		}
 	}
 	return scheme + "://" + r.Host
+}
+
+// forwardedProto reads the scheme the OUTERMOST proxy saw out of
+// X-Forwarded-Proto. Each hop APPENDS to the header, so a chain arrives as
+// "https, http": the client-facing scheme is the FIRST element, and every
+// later one describes an internal hop.
+//
+// Taking the whole value would match neither case arm above and fall through
+// to r.TLS, which is nil behind a terminating proxy — so a two-hop deployment
+// would advertise an http:// origin in the OAuth discovery documents and in
+// the protected-resource URL, which is the one thing they exist to state
+// correctly. The value is also trimmed and lowercased because the header is a
+// token, not a literal.
+func forwardedProto(r *http.Request) string {
+	proto := r.Header.Get("X-Forwarded-Proto")
+	if comma := strings.IndexByte(proto, ','); comma >= 0 {
+		proto = proto[:comma]
+	}
+	return strings.ToLower(strings.TrimSpace(proto))
 }
 
 // BearerToken reads the credential out of an Authorization header value, and
@@ -139,4 +159,22 @@ func RecoverPanics(log *slog.Logger, next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(w, r)
 	})
+}
+
+// ClientIP is the ONE client-IP throttle key in this process — the login and
+// password-reset limits in identity, the anonymous booking and preference
+// paths, and every connector edge. It is here rather than in either caller
+// because two copies meant a deployment could harden one edge and leave the
+// other keyed differently, and nothing would say so.
+//
+// RemoteAddr is the DIRECT peer. A raw X-Forwarded-For is attacker-chosen and
+// deliberately never read: a deployment fronted by a proxy terminates rate
+// limiting there, or extends this to a *trusted* Forwarded header — never
+// trusted blindly.
+func ClientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }

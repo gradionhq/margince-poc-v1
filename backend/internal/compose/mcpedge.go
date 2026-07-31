@@ -31,6 +31,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -48,8 +49,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
-// The MCP server identity reported in the initialize handshake — the same
-// pair the stdio transport reports, because it is the same tool surface.
+// The MCP server identity reported in the initialize handshake.
 const (
 	mcpServerName    = "margince-crm"
 	mcpServerVersion = "0.1.0"
@@ -90,7 +90,11 @@ func mcpAuthenticate(auth *identity.Service) func(*http.Request) (context.Contex
 	return func(r *http.Request) (context.Context, error) {
 		wsID, err := auth.InstallationWorkspace(r.Context())
 		if err != nil {
-			return nil, err
+			// Resolving WHICH installation this is has nothing to do with the
+			// credential the caller presented, so no failure of it may be
+			// reported as a credential problem — not an unbootstrapped
+			// database, not an unreachable one.
+			return nil, fmt.Errorf("mcp: resolving the installation: %w: %w", err, agents.ErrAuthUnavailable)
 		}
 		ctx := principal.WithWorkspaceID(r.Context(), wsID.UUID)
 		// bearerToken requires the scheme name and a non-empty credential
@@ -103,6 +107,14 @@ func mcpAuthenticate(auth *identity.Service) func(*http.Request) (context.Contex
 		}
 		agent, err := auth.AuthenticateAgent(ctx, bearer)
 		if err != nil {
+			// ErrNotFound is the ONLY definitive verdict on the credential —
+			// the token is unknown, revoked, or its grant/client/human is gone
+			// (existence-hiding collapses all of those into one answer). Any
+			// other error means the lookup never reached a verdict, so it must
+			// not be dressed up as one.
+			if !errors.Is(err, apperrors.ErrNotFound) {
+				return nil, fmt.Errorf("mcp: verifying the passport: %w: %w", err, agents.ErrAuthUnavailable)
+			}
 			return nil, err
 		}
 		return principal.WithCorrelationID(principal.WithActor(ctx, agent.Principal()), ids.NewV7()), nil
@@ -167,7 +179,7 @@ func mcpEdge(next http.Handler, lim mcpLimiters, allowedOrigin string) http.Hand
 			return
 		}
 		credential := passportBucket(r)
-		peer := clientIP(r)
+		peer := httpserver.ClientIP(r)
 		failures := presentedKey("credential", peer, credential)
 		// Read BEFORE the transport authenticates, so a credential already
 		// known not to work is refused without spending a store lookup on it.

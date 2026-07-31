@@ -8,6 +8,7 @@ package main
 // still watching a terminal, rather than on the first request that needs it.
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -86,4 +87,44 @@ func TestAnUnusableOAuthAccessTokenTTLFailsTheBoot(t *testing.T) {
 			t.Fatal("a malformed env duration was ignored, want a boot error rather than a silent default")
 		}
 	})
+}
+
+// The connector publishes --public-base-url verbatim as its OAuth audience, its
+// RFC 9728 protected-resource document and its advertised MCP URL. A value that
+// is wrong in any of those ways must fail while an operator is watching, not
+// boot a connector advertising somewhere nobody can reach.
+func TestValidatePublicBaseURLRefusesAnythingButABareOrigin(t *testing.T) {
+	for _, ok := range []string{
+		"https://crm.example.com",
+		"http://localhost:8080",
+		// A trailing slash means the same origin, and the /mcp derivation trims
+		// it, so it is accepted rather than nitpicked.
+		"https://crm.example.com/",
+	} {
+		if err := validatePublicBaseURL(ok); err != nil {
+			t.Errorf("validatePublicBaseURL(%q) = %v, want nil", ok, err)
+		}
+	}
+
+	for _, bad := range []struct{ name, raw string }{
+		{"no scheme", "crm.example.com"},
+		{"a scheme nothing dereferences", "ftp://crm.example.com"},
+		{"no host", "https://"},
+		// The MCP resource is this value + "/mcp", so a path here publishes
+		// something like https://host/base/mcp while the route is at /mcp.
+		{"a path", "https://crm.example.com/base"},
+		{"a query", "https://crm.example.com?x=1"},
+		{"a fragment", "https://crm.example.com#f"},
+	} {
+		t.Run(bad.name, func(t *testing.T) {
+			err := validatePublicBaseURL(bad.raw)
+			if err == nil {
+				t.Fatalf("validatePublicBaseURL(%q) = nil, want a refusal", bad.raw)
+			}
+			// The operator has to be able to fix it from the message alone.
+			if !strings.Contains(err.Error(), bad.raw) {
+				t.Errorf("refusal %q does not quote the offending value", err)
+			}
+		})
+	}
 }

@@ -193,10 +193,35 @@ func TestMCPOnTheAPIServesTheAPIsOwnToolSurface(t *testing.T) {
 	if got.StatusCode != http.StatusOK {
 		t.Fatalf("authenticated POST /mcp → %d %s", got.StatusCode, got.Body)
 	}
+	// The comparison is against the READ-scoped subset, because this passport
+	// carries only "read" and tools/list advertises only what the caller could
+	// actually invoke (§5.7). Comparing against the whole REST surface would
+	// assert the transport lies.
+	var readable, refused int
 	for _, tool := range rest.Data {
-		if !strings.Contains(got.Body, `"`+tool.Name+`"`) {
-			t.Fatalf("tools/list omits %q, which /v1/agent-tools advertises: %s", tool.Name, got.Body)
+		listed := strings.Contains(got.Body, `"`+tool.Name+`"`)
+		if tool.RequiredScope == "read" {
+			readable++
+			if !listed {
+				t.Fatalf("tools/list omits read-scoped %q, which /v1/agent-tools advertises: %s",
+					tool.Name, got.Body)
+			}
+			continue
 		}
+		refused++
+		// The other half of honesty: a tool this passport could never invoke
+		// must not be advertised to it at all.
+		if listed {
+			t.Fatalf("tools/list advertises %q (needs %q) to a read-only passport: %s",
+				tool.Name, tool.RequiredScope, got.Body)
+		}
+	}
+	// Both counts guard the assertions above from passing vacuously — a surface
+	// that reported only read tools, or only non-read ones, would satisfy one
+	// loop arm while proving nothing about the other.
+	if readable == 0 || refused == 0 {
+		t.Fatalf("the REST surface has %d read and %d non-read tools; both are needed to prove filtering",
+			readable, refused)
 	}
 }
 
