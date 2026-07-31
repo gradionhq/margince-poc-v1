@@ -240,107 +240,6 @@ func (s *RetentionService) evaluateWorkspace(ctx context.Context) error {
 // honors it — the window is the ai module's fixed operational floor, not a
 // policy-configurable domain record.
 
-// evaluateVoiceSignalRetention erases the draft plaintext of over-age voice
-// learning signals: the counters row survives (the learning statistics stay
-// honest), the generated and final texts do not outlive their window.
-func (s *RetentionService) evaluateVoiceSignalRetention(ctx context.Context) error {
-	var due []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id FROM voice_learning_signal
-			WHERE retention_until < now() AND content_erased_at IS NULL
-			  AND (generated_original IS NOT NULL OR final_text IS NOT NULL)
-			LIMIT $1`, retentionBatch)
-		if err != nil {
-			return err
-		}
-		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("retention voice_learning_signal: select: %w", err)
-	}
-	for _, id := range due {
-		if err := s.eraseVoiceSignalContent(ctx, id); err != nil {
-			return fmt.Errorf("retention voice_learning_signal on %s: %w", id, err)
-		}
-	}
-	return nil
-}
-
-func (s *RetentionService) eraseVoiceSignalContent(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		// The content_erased_at predicate is the CAS: a rival sweep that
-		// already erased this row matches zero rows, and nothing is audited
-		// twice for one erasure.
-		tag, err := tx.Exec(ctx, `
-			UPDATE voice_learning_signal
-			SET generated_original = NULL, final_text = NULL, content_erased_at = now(),
-			    version = version + 1, updated_at = now()
-			WHERE id = $1 AND content_erased_at IS NULL`, id)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return nil
-		}
-		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "voice_learning_signal", id, nil, nil, map[string]any{
-			evidenceKeyRetentionAction: actionErase,
-		})
-		if err != nil {
-			return err
-		}
-		return storekit.EmitEventForEntity(ctx, tx, auditID, "voice_learning_signal", id, retentionAppliedPayload(actionErase, nil, nil))
-	})
-}
-
-// evaluateEmbedCallRetention erases over-age embedding-kind ai_call trace
-// rows, batched and audited one record per transaction like every other
-// retention action — but driven by the fixed embedCallRetention cap
-// instead of a workspace's retention_policy rows, since these rows are
-// engine telemetry, not a policy-configurable domain record.
-func (s *RetentionService) evaluateEmbedCallRetention(ctx context.Context) error {
-	var due []ids.UUID
-	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		rows, err := tx.Query(ctx, `
-			SELECT id FROM ai_call
-			WHERE kind = 'embedding' AND occurred_at < now() - make_interval(days => $1)
-			LIMIT $2`, embedCallRetention, retentionBatch)
-		if err != nil {
-			return err
-		}
-		due, err = pgx.CollectRows(rows, pgx.RowTo[ids.UUID])
-		return err
-	})
-	if err != nil {
-		return fmt.Errorf("retention ai_call/embedding: select: %w", err)
-	}
-	for _, id := range due {
-		if err := s.eraseEmbedCall(ctx, id); err != nil {
-			return fmt.Errorf("retention ai_call/embedding on %s: %w", id, err)
-		}
-	}
-	return nil
-}
-
-// eraseEmbedCall deletes one over-age embedding-kind ai_call row outright
-// — unlike activity/erase there is no metadata half left to keep: the
-// embedding trace row IS the content being aged out.
-func (s *RetentionService) eraseEmbedCall(ctx context.Context, id ids.UUID) error {
-	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `DELETE FROM ai_call WHERE id = $1`, id); err != nil {
-			return err
-		}
-		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "ai_call", id, nil, nil, map[string]any{
-			evidenceKeyRetentionAction: actionErase, "retain_days": embedCallRetention,
-		})
-		if err != nil {
-			return err
-		}
-		return storekit.EmitEventForEntity(ctx, tx, auditID, "ai_call", id, retentionAppliedPayload(actionErase, nil, nil))
-	})
-}
-
 // apply runs ONE action on ONE record in one audited transaction.
 func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id ids.UUID) error {
 	if pol.ObjectType == "person" && pol.Action == actionErase {
@@ -366,6 +265,14 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM embedding WHERE entity_type = 'activity' AND entity_id = $1`, id)
+			}
+			if err == nil {
+				// Erase archives the activity too, so the interaction it
+				// evidenced is gone from every read — including the graph's.
+				// Archive already invalidated; this is its sibling, and
+				// leaving it out would keep an erased conversation counting
+				// toward a relationship score until the nightly rebuild.
+				err = invalidateGraphEdgesFor(ctx, tx, id)
 			}
 			if err == nil {
 				err = s.eraser.eraseAttachments(ctx, tx, `entity_type = 'activity' AND entity_id = $1`, id)
@@ -398,6 +305,17 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 					`DELETE FROM embedding WHERE entity_type = 'lead' AND entity_id = $1`, id)
 			}
 		case "person/anonymize":
+			// The subject's addresses, read BEFORE person_email is deleted
+			// below. The graph structures name them by raw address as well as
+			// by person id — that is what the address arm of a participant row
+			// IS — so a sweep that only matched person_id would leave the
+			// address behind, still readable and still re-matchable. Same trap
+			// the eraser hit with the subject's NAME, one column over.
+			subjectEmails, emailErr := collectStrings(ctx, tx,
+				`SELECT lower(email) FROM person_email WHERE person_id = $1`, id)
+			if emailErr != nil {
+				return emailErr
+			}
 			// Same in-place anonymization the eraser uses, minus the
 			// suppression list — the subject may lawfully return.
 			_, err = tx.Exec(ctx, `
@@ -435,22 +353,33 @@ func (s *RetentionService) apply(ctx context.Context, pol retentionPolicy, id id
 			// address book is not anonymized. This sweep is the path nobody
 			// asks for, which is exactly why it must not be the thinner one.
 			if err == nil {
+				// Delete then null, in that order and for the reason the
+				// eraser documents: a participant row must name somebody, so a
+				// row whose only identity is the subject cannot be blanked,
+				// while one that also names a colleague is not the subject's
+				// to remove.
 				_, err = tx.Exec(ctx, `
 					DELETE FROM activity_participant
-					 WHERE user_id IS NULL AND person_id = $1`, id)
+					 WHERE user_id IS NULL
+					   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
+					id, subjectEmails)
 			}
 			if err == nil {
 				_, err = tx.Exec(ctx, `
 					UPDATE activity_participant SET person_id = NULL, address = NULL
-					 WHERE user_id IS NOT NULL AND person_id = $1`, id)
+					 WHERE user_id IS NOT NULL
+					   AND (person_id = $1 OR (address IS NOT NULL AND address = ANY($2)))`,
+					id, subjectEmails)
 			}
 			if err == nil {
 				_, err = tx.Exec(ctx,
 					`DELETE FROM graph_interaction_edge WHERE person_id = $1`, id)
 			}
 			if err == nil {
-				_, err = tx.Exec(ctx,
-					`DELETE FROM linkedin_connection WHERE matched_person_id = $1`, id)
+				_, err = tx.Exec(ctx, `
+					DELETE FROM linkedin_connection
+					 WHERE matched_person_id = $1
+					    OR (email IS NOT NULL AND email = ANY($2))`, id, subjectEmails)
 			}
 		default:
 			return fmt.Errorf("retention: no executor for %s/%s", pol.ObjectType, pol.Action)

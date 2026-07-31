@@ -119,6 +119,11 @@ func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Tim
 	if err != nil {
 		return out, err
 	}
+	// Ranked warmest first, with the id tie-break every ordered payload in
+	// this codebase carries. EdgesForPeople returns last-contact order, which
+	// is not what a coverage view is asking — and an unordered list would make
+	// the same deal render differently on two loads.
+	search.SortByStrength(edges, now)
 	for _, e := range edges {
 		out.OurSide = append(out.OurSide, ColleagueEdge{
 			UserID: e.UserID, PersonID: e.PersonID,

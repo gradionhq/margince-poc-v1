@@ -35,15 +35,26 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 	return func(ctx context.Context, personID ids.UUID) ([]agents.KnownColleague, error) {
 		var out []agents.KnownColleague
 		err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
-			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsCap)
+			// Over-fetch, rank by warmth, THEN cap — the same three steps the
+			// HTTP surface takes, for the same reason. EdgesForPerson orders
+			// by last contact, so capping it directly would hand a model the
+			// most RECENT colleagues under the label "who knows them best".
+			// This is the sibling of the /people/{id}/network fix; leaving it
+			// unfixed would have meant the answer depended on whether a human
+			// or an agent asked.
+			edges, err := search.EdgesForPerson(ctx, tx, personID, agentWhoKnowsFetch)
 			if err != nil {
 				return err
+			}
+			now := clockNow()
+			search.SortByStrength(edges, now)
+			if len(edges) > agentWhoKnowsCap {
+				edges = edges[:agentWhoKnowsCap]
 			}
 			names, err := networkUserNames(ctx, tx, edges)
 			if err != nil {
 				return err
 			}
-			now := clockNow()
 			for _, e := range edges {
 				score := e.StrengthOf(now)
 				colleague := agents.KnownColleague{
@@ -66,6 +77,10 @@ func whoKnowsLister(pool *pgxpool.Pool) agents.WhoKnowsLister {
 // ask; a model given forty names will pick one at random and present it with
 // the same confidence as the right one.
 const agentWhoKnowsCap = 10
+
+// agentWhoKnowsFetch is how many edges are read before ranking, matching the
+// HTTP surface. Ranking a capped set would rank the wrong set.
+const agentWhoKnowsFetch = 100
 
 // coverageReader answers "how is this deal covered" for the tool surface.
 func coverageReader(pool *pgxpool.Pool) agents.CoverageReader {

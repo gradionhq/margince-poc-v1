@@ -207,10 +207,19 @@ var erasureCascadeFiles = []string{
 	"internal/modules/privacy/deliveries.go",
 }
 
-// retentionSweepFile is the nightly time-based evaluator — the only eraser a
+// retentionSweepFiles are the nightly time-based evaluator — the only eraser a
 // subject-unlinked PII table has. Kept apart from the cascade above so a
 // retention sweep can never be mistaken for an answer to an Art. 17 request.
-const retentionSweepFile = "internal/modules/privacy/retention.go"
+//
+// A LIST rather than one path, because the evaluator has already outgrown one
+// file once: splitting the AI-store sweeps out made three tables look
+// unswept, and a census keyed to a single filename reports a refactor as a
+// compliance regression.
+var retentionSweepFiles = []string{
+	"internal/modules/privacy/retention.go",
+	"internal/modules/privacy/retentionai.go",
+	"internal/modules/privacy/retentiongraph.go",
+}
 
 func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 	writes := map[string]bool{}
@@ -225,9 +234,11 @@ func TestErasureAndSARReachEveryPIITable(t *testing.T) {
 	// the declared erasure assignments are checked against the statement that
 	// erases THIS table rather than against retention.go as a whole.
 	sweeps := map[string]string{}
-	for _, lit := range sqlLiterals(t, retentionSweepFile) {
-		for _, table := range sqlWriteTargets(lit) {
-			sweeps[table] += " " + collapsedSQL(lit)
+	for _, path := range retentionSweepFiles {
+		for _, lit := range sqlLiterals(t, path) {
+			for _, table := range sqlWriteTargets(lit) {
+				sweeps[table] += " " + collapsedSQL(lit)
+			}
 		}
 	}
 	reads := map[string]bool{}
