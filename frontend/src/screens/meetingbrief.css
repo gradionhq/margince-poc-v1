@@ -1,0 +1,51 @@
+/* The meeting brief. It is the one block on the account that reads as prose
+   rather than as fields, so it is set wider and quieter than the cards around
+   it: the reader is meant to read it top to bottom once, not scan it. */
+
+.co-prep {
+  padding: var(--space-4);
+}
+
+.co-prep-lines {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.co-prep-line {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--textPrimary);
+  padding-inline-start: var(--space-3);
+  border-inline-start: 2px solid transparent;
+}
+
+/* A risk earns the accent bar; context does not. The distinction is carried by
+   the bar rather than by colouring the sentence itself, so the brief still
+   reads as one voice and stays legible to anyone who cannot separate the two
+   hues. */
+.co-prep-risk {
+  border-inline-start-color: var(--danger);
+}
+
+.co-prep-neutral {
+  color: var(--textMeta);
+}
+
+.co-prep-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.co-prep-foot:empty {
+  display: none;
+}

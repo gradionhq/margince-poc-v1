@@ -589,6 +589,35 @@ export const en = {
   "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
+  "co.prep.title": "Before you talk to them",
+  "co.prep.sub":
+    "Read off this account's own records. Every line names what it is based on.",
+  "co.prep.sparse":
+    "There is barely any history on this account yet, so there is nothing to prepare from.",
+  "co.prep.withheld":
+    "Parts of this account are hidden from you, so this reading is incomplete.",
+  "co.read.lastTouch": "Last contact was {days} days ago.",
+  "co.read.lastTouchOne": "Last contact was yesterday.",
+  "co.read.shallow":
+    "The names are on file, but there is no real relationship here yet.",
+  "co.read.neverTouched":
+    "Nobody has ever been in contact with anyone at this account.",
+  "co.read.newActivityOne": "One new item since your last visit.",
+  "co.read.newActivityMany": "{count} new items since your last visit.",
+  "co.read.dealMovedOne": "One deal moved stage since your last visit.",
+  "co.read.dealMovedMany": "{count} deals moved stage since your last visit.",
+  "co.read.noContacts": "You do not know anyone at this account yet.",
+  "co.read.singleThread":
+    "Only {name} has ever engaged. Nobody else here has responded.",
+  "co.read.oneContact": "{name} is your only way into this account.",
+  "co.read.noChampion": "No champion is named on the open deal.",
+  "co.read.stalled": "{name} has stalled.",
+  "co.read.noOpenDeal": "No open deal, and nothing won here yet.",
+  "co.read.noOpenDealCustomer":
+    "No open deal right now, though this account has bought before.",
+  "co.read.overdueOne": "Overdue: {subject}",
+  "co.read.overdueMany": "{count} commitments here are overdue.",
+  "co.read.noNextStep": "Nothing is scheduled next on this account.",
   "co.facts.title": "Quick facts",
   "co.tags.lists": "Lists",
   "co.tags.tags": "Tags",
