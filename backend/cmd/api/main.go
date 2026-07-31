@@ -293,12 +293,25 @@ func validatePublicBaseURL(raw string) error {
 	if err != nil {
 		return fmt.Errorf("api: --public-base-url %q is not a URL: %w", raw, err)
 	}
+	// Userinfo is refused BEFORE any error that quotes the value, because that
+	// is where a password would be: an origin carrying credentials would put
+	// them in this boot error and every log line that copies it.
+	if parsed.User != nil {
+		return errors.New("api: --public-base-url carries userinfo; it must be a bare origin " +
+			"(value withheld: it may contain a credential)")
+	}
 	switch {
 	case parsed.Scheme != "http" && parsed.Scheme != "https":
 		return fmt.Errorf("api: --public-base-url %q needs an http or https scheme, got %q", raw, parsed.Scheme)
-	case parsed.Host == "":
+	// Hostname(), not Host: Host keeps the port, so ":8080" is a non-empty
+	// authority that names no host at all.
+	case parsed.Hostname() == "":
 		return fmt.Errorf("api: --public-base-url %q names no host", raw)
-	case strings.Trim(parsed.Path, "/") != "":
+	// Exactly "" or "/" — NOT a trimmed comparison. url.Parse decodes as it
+	// goes, so "//" and "/%2F" both arrive as a path that trims to empty while
+	// the RAW value is what gets published: appending "/mcp" to either yields a
+	// URL with a doubled or encoded separator that no client resolves.
+	case parsed.Path != "" && parsed.Path != "/":
 		return fmt.Errorf("api: --public-base-url %q must be a bare origin: the MCP resource is "+
 			"derived by appending /mcp, so a path here publishes an unreachable URL", raw)
 	case parsed.RawQuery != "" || parsed.Fragment != "":

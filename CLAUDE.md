@@ -120,19 +120,21 @@ The CI pipeline that runs these gates as required checks — the change
 classifier, the job graph, and the SonarCloud coverage flow — is documented in
 [infra/ci-pipeline.md](infra/ci-pipeline.md).
 
-Four process-role binaries, all wired through
+Three process-role binaries, all wired through
 `internal/compose`: `cmd/api` (HTTP; inline outbox relay behind
 `--inline-relay`, default true), `cmd/worker` (standalone relay),
 `cmd/migrate` (up|down).
 
-MCP (Surface A1): mint a passport (`POST /v1/passports`, session-authed),
-then `MARGINCE_PASSPORT_TOKEN=mgp_… mcp --dsn …`
-serves the tool surface over stdio. The same token is a REST Bearer
-credential; a passport on REST is governed exactly like MCP (ADR-0055,
-superseding the old "read-only on REST" C1 rule) — 🟢 mutations
-auto-execute, 🟡 ones stage for confirm-first approval, all still capped
-by the granting human's live seat/RBAC. Every call re-authenticates:
-revocation binds mid-session.
+MCP (Surface A2): the api serves the governed tool surface at `/mcp`, on the
+same origin as `/oauth/*` and the discovery documents — A1 stdio and its
+`cmd/mcp` binary are retired (SCR-9). A client needs only the URL:
+`claude mcp add --transport http margince <base>/mcp` walks discovery, DCR,
+consent and the token exchange itself. `tools/list` advertises only what the
+presenting passport's scopes admit. A passport is also a REST Bearer
+credential, governed exactly like MCP (ADR-0055, superseding the old
+"read-only on REST" C1 rule) — 🟢 mutations auto-execute, 🟡 ones stage for
+confirm-first approval, all still capped by the granting human's live
+seat/RBAC. Every call re-authenticates: revocation binds mid-session.
 
 Host requirements: Go ≥ 1.26, Docker, and `golangci-lint` (the codegen
 tool chain is pure Go, in its own module `backend/tools/`).

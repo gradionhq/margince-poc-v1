@@ -1,11 +1,14 @@
 # Connect an MCP client
 
 The api serves the one governed agent tool surface at `/mcp` on its own
-origin, alongside `/oauth/*` and the discovery documents. That co-location is
-the point: OAuth discovery only resolves when the protected resource and the
-authorization server share an origin, which is why the retired `cmd/mcp`
-binary — a second origin that could not host those documents — was removed
-(SCR-9).
+origin, alongside `/oauth/*` and the discovery documents.
+
+RFC 9728 does permit an authorization server on a different origin from the
+protected resource, so the co-location here is *this deployment's* decision,
+not a protocol requirement: one origin means one thing to configure, one
+certificate, and a discovery chain with nothing to cross-reference. The retired
+`cmd/mcp` binary served the transport from a second origin while hosting none
+of those documents, which is what made it not worth keeping (SCR-9).
 
 Every call re-authenticates and re-loads the granting human's RBAC, so
 revoking a passport, disabling the client, or deactivating the human binds

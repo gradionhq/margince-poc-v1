@@ -115,6 +115,13 @@ func TestValidatePublicBaseURLRefusesAnythingButABareOrigin(t *testing.T) {
 		{"a path", "https://crm.example.com/base"},
 		{"a query", "https://crm.example.com?x=1"},
 		{"a fragment", "https://crm.example.com#f"},
+		// ":8080" is a non-empty authority that names no host — Host keeps the
+		// port, so only Hostname() catches it.
+		{"a hostless authority", "http://:8080"},
+		// url.Parse decodes as it goes, so both of these arrive as a path that
+		// trims to empty while the RAW value is what gets published.
+		{"a repeated separator", "https://crm.example.com//"},
+		{"an encoded separator", "https://crm.example.com/%2F"},
 	} {
 		t.Run(bad.name, func(t *testing.T) {
 			err := validatePublicBaseURL(bad.raw)
@@ -126,5 +133,22 @@ func TestValidatePublicBaseURLRefusesAnythingButABareOrigin(t *testing.T) {
 				t.Errorf("refusal %q does not quote the offending value", err)
 			}
 		})
+	}
+}
+
+// An origin carrying userinfo is refused WITHOUT quoting it. Every other
+// refusal quotes the value so an operator can fix it, but this one would copy a
+// password into the boot error and every log line that carries it.
+func TestValidatePublicBaseURLRefusesUserinfoWithoutEchoingIt(t *testing.T) {
+	const secret = "s3cr3t-password"
+	err := validatePublicBaseURL("https://admin:" + secret + "@crm.example.com")
+	if err == nil {
+		t.Fatal("an origin with userinfo was accepted")
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("the refusal leaked the credential: %q", err)
+	}
+	if !strings.Contains(err.Error(), "userinfo") {
+		t.Errorf("refusal %q does not say what is wrong", err)
 	}
 }
