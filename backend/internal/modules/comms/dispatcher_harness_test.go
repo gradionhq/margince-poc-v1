@@ -30,6 +30,10 @@ type fakeStore struct {
 	sent   string
 	parked string
 	failed string
+	// parkedReceipt is the provider message id a park kept, empty on an ordinary
+	// park. It is the difference between "this delivery stopped" and "this
+	// delivery reached the customer and here is the provider's own id for it".
+	parkedReceipt string
 	// stamped is the RFC822 identity the receipt carried through to the store.
 	// The dispatcher must hand the WHOLE receipt on: dropping this field on
 	// the floor here is invisible until a sent message is filed under an
@@ -37,12 +41,21 @@ type fakeStore struct {
 	stamped  string
 	deferred string
 
+	// marked and cleared count the at-most-once marker's two transitions. They
+	// are COUNTS rather than flags because the invariant is about how many times
+	// each happened relative to the provider call: one mark before a
+	// transmission, and a retraction only on a definite answer.
+	marked  int
+	cleared int
+
 	// Per-transition faults. ErrTerminal from any of them is the benign
 	// no-op the store documents: a newer attempt already closed the row.
 	sentErr   error
 	parkErr   error
 	failedErr error
 	deferErr  error
+	markErr   error
+	clearErr  error
 }
 
 func (f *fakeStore) Load(context.Context, ids.UUID) (Delivery, error) { return f.delivery, f.loadErr }
@@ -55,6 +68,16 @@ func (f *fakeStore) RecordSent(_ context.Context, _ ids.UUID, receipt connector.
 
 func (f *fakeStore) Park(_ context.Context, _ ids.UUID, r string) error {
 	f.parked = r
+	return f.parkErr
+}
+
+// ParkTransmitted shares parkErr with Park — both are the same guarded
+// transition to 'parked' — but records the receipt it kept SEPARATELY, because
+// that is the fact this park exists for: a message the provider accepted, whose
+// id would otherwise be the only thing lost.
+func (f *fakeStore) ParkTransmitted(_ context.Context, _ ids.UUID, reason, providerMessageID string) error {
+	f.parked = reason
+	f.parkedReceipt = providerMessageID
 	return f.parkErr
 }
 
@@ -75,39 +98,100 @@ func (f *fakeStore) RecordDeferral(_ context.Context, _ ids.UUID, r string) erro
 	return f.deferErr
 }
 
+// MarkInFlight records the pre-call marker the fake delivery ALSO carries
+// forward, so a second dispatch of the same fake store sees what the first one
+// wrote. Without that the crash case could not be exercised at all: the whole
+// guarantee is that the marker outlives the attempt that set it.
+func (f *fakeStore) MarkInFlight(_ context.Context, _ ids.UUID) error {
+	if f.markErr != nil {
+		return f.markErr
+	}
+	f.marked++
+	at := testNow
+	f.delivery.InFlightAt = &at
+	return nil
+}
+
+func (f *fakeStore) ClearInFlight(_ context.Context, _ ids.UUID) error {
+	if f.clearErr != nil {
+		return f.clearErr
+	}
+	f.cleared++
+	f.delivery.InFlightAt = nil
+	return nil
+}
+
 type fakeSender struct {
 	calls int
-	seen  connector.OutboundMessage
+	seen  connector.EmailMessage
 	err   error
 }
 
-func (f *fakeSender) Send(_ context.Context, _ connector.Auth, m connector.OutboundMessage) (connector.SendReceipt, error) {
+func (f *fakeSender) SendEmail(_ context.Context, _ connector.Auth, m connector.EmailMessage) (connector.SendReceipt, error) {
 	f.calls++
 	f.seen = m
 	return connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "stamped@mail.gmail.com"}, f.err
 }
 
+// stubMessageSender is the CHANNEL provider boundary for the cases that run
+// against the fake store. It is spelled apart from fakeSender because the two
+// seams differ in the one way these cases are about: nothing at this provider
+// can be asked afterwards whether a message already went.
+type stubMessageSender struct {
+	calls int
+	err   error
+}
+
+func (s *stubMessageSender) SendMessage(context.Context, connector.Auth, connector.ChannelMessage) (connector.SendReceipt, error) {
+	s.calls++
+	return connector.SendReceipt{ProviderMessageID: channelReceiptID}, s.err
+}
+
+// channelReceiptID is what the stub provider hands back — Telegram's own
+// message id, the value a park after a failed receipt has to keep.
+const channelReceiptID = "9911"
+
 type fakeResolver struct {
-	sender  connector.Sender
+	sender  connector.EmailSender
+	channel connector.MessageSender
 	granted []string
 	err     error
 }
 
-func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.Sender, connector.Auth, []string, error) {
+func (f fakeResolver) Resolve(context.Context, ids.UserID, string) (connector.EmailSender, connector.Auth, []string, error) {
 	return f.sender, connector.Auth("cred"), f.granted, f.err
+}
+
+// ResolveChannel answers with the bot token itself as the credential, which is
+// what the real resolver hands back: a channel binding has no OAuth bundle and
+// therefore no scope list either.
+func (f fakeResolver) ResolveChannel(context.Context, string) (connector.MessageSender, connector.Auth, error) {
+	return f.channel, connector.Auth("bot-token"), f.err
 }
 
 // stubConsent records WHO it was asked about, not only what it answered. The
 // recipient list is the gate's whole subject: a gate handed the wrong
 // addressees answers correctly about the wrong people, which is
 // indistinguishable from a pass unless the argument itself is asserted.
+//
+// It records each recipient's own LABEL — the address for mail, provider:account
+// for a channel — because that is the fact every case here asserts, and because
+// a stub that flattened a channel recipient to its empty Email field would let a
+// delivery reach the gate naming nobody and still read as asked-about.
 type stubConsent struct {
 	err   error
 	asked []string
 }
 
-func (s *stubConsent) RequireGrantedForEmails(_ context.Context, recipients []string, _ string) error {
-	s.asked = recipients
+func (s *stubConsent) RequireGrantedForRecipients(_ context.Context, recipients []connector.Recipient, _ string) error {
+	s.asked = nil
+	for _, r := range recipients {
+		if r.Channel != nil {
+			s.asked = append(s.asked, r.Channel.Provider+":"+r.Channel.ChannelUserID)
+			continue
+		}
+		s.asked = append(s.asked, r.Email)
+	}
 	return s.err
 }
 
@@ -147,6 +231,21 @@ func liveDelivery() Delivery {
 	}
 }
 
+// channelDelivery is liveDelivery's channel-shaped twin: the same staged
+// message on the transport whose retries cannot detect a prior send. The mail
+// fields are absent rather than zeroed by accident — a channel message has no
+// subject, no address list and no RFC822 identity — and ChannelUserID being
+// non-nil is what the dispatcher reads as the row's shape.
+func channelDelivery() Delivery {
+	recipient := "778899"
+	return Delivery{
+		ID: ids.NewV7(), UserID: ids.New[ids.UserKind](), Provider: "telegram",
+		ChannelUserID: &recipient, ConsentPurpose: "transactional",
+		Body: "On its way today.", InReplyTo: "4231",
+		Status: StatusPending, Attempts: 1, CreatedAt: testNow.Add(-time.Minute),
+	}
+}
+
 func newTestDispatcher(store deliveryStore, res ConnectionResolver, consent ConsentGate, policies ...SendPolicy) *Dispatcher {
 	return newSeatedDispatcher(store, res, liveSeat(), consent, policies...)
 }
@@ -168,8 +267,8 @@ func dispatch(ctx context.Context, d *Dispatcher, id ids.UUID) (Outcome, error) 
 	return outcome, err
 }
 
-type consentFunc func(context.Context, []string, string) error
+type consentFunc func(context.Context, []connector.Recipient, string) error
 
-func (f consentFunc) RequireGrantedForEmails(ctx context.Context, r []string, p string) error {
+func (f consentFunc) RequireGrantedForRecipients(ctx context.Context, r []connector.Recipient, p string) error {
 	return f(ctx, r, p)
 }

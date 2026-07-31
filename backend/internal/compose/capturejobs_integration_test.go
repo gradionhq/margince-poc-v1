@@ -31,7 +31,6 @@ import (
 // (not the boot pass) — and it can't have been deduped, the first already ran.
 func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 	b := setupBackfillWire(t)
-	applyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	// The run's job is enqueued by hand further down, once the boot digest has
@@ -87,7 +86,6 @@ func TestBackfillCompletionBuildsTheDigest(t *testing.T) {
 
 func TestCaptureOvernightJobsRegisterAndRun(t *testing.T) {
 	b := setupBackfillWire(t)
-	applyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 
 	runner, err := NewJobRunner(b.env.Pool, quiet, JobRunnerConfig{

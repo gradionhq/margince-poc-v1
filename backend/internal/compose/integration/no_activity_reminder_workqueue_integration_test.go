@@ -59,7 +59,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"testing"
 	"time"
 
@@ -70,7 +69,6 @@ import (
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/modules/activities"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
@@ -97,7 +95,7 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	seedTaskCreatePermission(t, owner, e.WS, sam)
 	seedOwnedNoActivityReminder(t, owner, e.WS, sam, noActivityDays)
 
-	applyRiverSchema(t)
+	ApplyRiverSchema(t)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	runner, err := compose.NewJobRunner(e.Pool, quiet, compose.JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -167,42 +165,6 @@ func TestNoActivityReminderReachesTheOwnersTasksScreenThroughTheRealRiverJob(t *
 	}
 	if taskListContains(strangerTasks, taskID) {
 		t.Fatalf("an unrelated rep's Tasks screen surfaced Sam's reminder task %s — the scope clause is not actually row-limited", taskID)
-	}
-}
-
-// applyRiverSchema layers River's schema onto the harness-migrated
-// database, exactly as cmd/migrate does after core+custom. Mirrors
-// compose/jobs_integration_test.go's helper of the same name (a
-// different package — no collision); duplicated rather than exported
-// because this is the only suite in this package driving a real River
-// runner, and platform/jobs.Migrate already owns the one real
-// implementation both copies call.
-func applyRiverSchema(t *testing.T) {
-	t.Helper()
-	ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-	if ownerDSN == "" {
-		t.Fatal("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-	}
-	ctx := context.Background()
-	ownerPool, err := database.NewPool(ctx, ownerDSN)
-	if err != nil {
-		t.Fatalf("opening owner pool: %v", err)
-	}
-	defer ownerPool.Close()
-	// The compose/integration package shares ONE clone DB across its tests, and
-	// more than one drives the real River runner (no_activity_reminder here,
-	// gmail_watch). River's migrator recreates river_migration on a re-apply
-	// (SQLSTATE 42P07), so ensure-once on the table's existence rather than
-	// migrating twice — these tests run sequentially in-package (no t.Parallel).
-	var present bool
-	if err := ownerPool.QueryRow(ctx, `SELECT to_regclass('public.river_migration') IS NOT NULL`).Scan(&present); err != nil {
-		t.Fatalf("checking river schema: %v", err)
-	}
-	if present {
-		return
-	}
-	if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-		t.Fatalf("applying river schema: %v", err)
 	}
 }
 

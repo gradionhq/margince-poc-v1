@@ -15,20 +15,14 @@ package compose
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/riverqueue/river"
 
 	"github.com/gradionhq/margince/backend/internal/compose/integration"
-	"github.com/gradionhq/margince/backend/internal/platform/database"
-	"github.com/gradionhq/margince/backend/internal/platform/jobs"
 	"github.com/gradionhq/margince/backend/internal/platform/keyvault"
 )
 
@@ -39,7 +33,7 @@ import (
 // overlayVault=nil call below, which never exercises this branch.
 func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
 	e := integration.Setup(t)
-	applyRiverSchema(t)
+	integration.ApplyRiverSchema(t)
 
 	runner, err := NewJobRunner(e.Pool, slog.New(slog.DiscardHandler), JobRunnerConfig{
 		CloseDateInterval: time.Hour,
@@ -82,46 +76,6 @@ func TestNewJobRunnerWiresTheOverlayPollerWhenAVaultIsConfigured(t *testing.T) {
 	awaitKindCompleted(waitCtx, t, sub, OverlayReconcileArgs{}.Kind())
 }
 
-// riverSchemaOnce guards the River migration per test-binary process, the
-// same contract as testdb.EnsureSchema: the schema survives the per-test
-// reset, but the reset DOES empty river_migration's applied-version
-// ledger — so a second in-process migrate would re-run River's first
-// migration against tables that still exist and fail on CREATE TABLE.
-// jobs.Migrate is not idempotent (a second call fails "river_migration
-// already exists"), and more than one suite here now needs the River schema
-// (the close-date sweep proof and the overlay-poller wiring proof), so every
-// suite goes through applyRiverSchema — this stays the one spelling.
-var (
-	riverSchemaOnce sync.Once
-	riverSchemaErr  error
-)
-
-// applyRiverSchema layers River's schema onto the harness-migrated database,
-// exactly as cmd/migrate does after core+custom — once per process.
-func applyRiverSchema(t *testing.T) {
-	t.Helper()
-	riverSchemaOnce.Do(func() {
-		ownerDSN := os.Getenv("MARGINCE_TEST_DSN")
-		if ownerDSN == "" {
-			riverSchemaErr = errors.New("MARGINCE_TEST_DSN not set — run `make db-up` (integration tests fail loudly, they never skip)")
-			return
-		}
-		ctx := context.Background()
-		ownerPool, err := database.NewPool(ctx, ownerDSN)
-		if err != nil {
-			riverSchemaErr = fmt.Errorf("opening owner pool: %w", err)
-			return
-		}
-		defer ownerPool.Close()
-		if _, err := jobs.Migrate(ctx, ownerPool); err != nil {
-			riverSchemaErr = fmt.Errorf("applying river schema: %w", err)
-		}
-	})
-	if riverSchemaErr != nil {
-		t.Fatal(riverSchemaErr)
-	}
-}
-
 // awaitKindCompleted blocks until a job of the given kind reports completion,
 // or the context deadline fires. No polling, no sleep.
 func awaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Event, kind string) {
@@ -140,7 +94,7 @@ func awaitKindCompleted(ctx context.Context, t *testing.T, sub <-chan *river.Eve
 
 func TestRiverCloseDateSweepStagesSameProvisionalAsDirectSweep(t *testing.T) {
 	e := setupCloseDate(t)
-	applyRiverSchema(t)
+	integration.ApplyRiverSchema(t)
 	// The exact fixture the direct-Sweep test uses: an overdue, active,
 	// commit-override deal — never auto-final, always a staged proposal.
 	id := e.seedSweepDeal(t, "Commit slipped", e.late, stringp("commit"), intp(-10), 3)

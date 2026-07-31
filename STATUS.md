@@ -323,6 +323,20 @@ each fails; changing what re-arms a dismissal means reading that first.
 
 ## Pick up here
 
+### Telegram pull-ingress review — 2026-07-31
+
+The `feat/telegram-oa` pre-merge review found the reported erased-subject
+cursor failure to be an integration-fixture race: the fixture accepted any
+completed poll event while the runner's RunOnStart dispatcher could complete an
+empty poll first. It now waits until the cursor proves the newly supplied update
+committed. Two post-erasure Telegram natural-key leaks were also removed from a
+persisted River job error and the counterparty-ensure fault ledger. The real
+Postgres lane could not run in the sandbox because loopback access to Postgres
+is denied; rerun `make test-it DIR=backend/internal/compose/integration` on the
+host before merge. `make check` reached `pkg-freeze` and then failed because
+that target tries to create a Git worktree in the human-reserved checkout,
+outside this worktree's permissions.
+
 Open work, roughly in priority order.
 
 ### Developer experience

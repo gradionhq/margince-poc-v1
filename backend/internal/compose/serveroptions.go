@@ -78,6 +78,16 @@ func WithBlobstore(store blobstore.Store) Option {
 // connector credentials declares that gap at wiring time rather than
 // nil-derefing at Authenticate — a capture-capable role must pass this or
 // fail to boot (enforced in cmd).
+//
+// It ALSO installs the outbound send pre-flight (WithSendAuthority) over the
+// registry it just ensured exists, so the channel half of that check — is
+// there a live bot bound for this provider? — is live on every
+// capture-capable role, Google app or not: NewCaptureRegistry registers
+// Telegram unconditionally, so the registry answers that question correctly
+// even with no Gmail/Graph app configured. A role that later configures
+// Gmail (WithGmailCapture) re-wires this over its own richer registry, which
+// upgrades the mailbox half without ever making the channel half depend on
+// that config.
 func WithKeyvault(vault keyvault.Vault) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.vault = vault
@@ -112,6 +122,17 @@ func WithKeyvault(vault keyvault.Vault) Option {
 		if s.sorDispatch != nil {
 			s.sorDispatch.SetOverlayIncumbentResolver(s.resolveOverlayIncumbent(pool))
 		}
+		// The channel connect path needs the same custodian: it seals the bot
+		// token and destroys it on disconnect. A role that composed no channel
+		// transport is left that way (channelconnect.go).
+		s.channelHandlers = s.WithVault(vault)
+		// The pre-flight reads whichever registry the lines above just
+		// ensured exists — the SAME one, never a second construction — so a
+		// mailbox or bot connected through it is a mailbox or bot the check
+		// asks about. WithGmailCapture below re-wires this same call over its
+		// own registry when the Google app is configured; until then this is
+		// the only place the channel branch gets to run at all.
+		installSendPreflight(s, pool)
 	}
 }
 
@@ -197,19 +218,25 @@ func WithPublicBaseURL(base string) Option {
 // transmission with, onto BOTH send transports this role serves: the HTTP
 // handler and the MCP send_email tool. Without it a send refuses rather than
 // log an activity claiming a message went out.
-func WithDelivery(stager activities.DeliveryStager) Option {
+//
+// It carries BOTH staging shapes (DeliveryMachinery), so the mail send and the
+// channel reply are wired by one call: they are the same machinery, and a role
+// that wired one without the other would serve a surface accepting messages
+// nothing will carry.
+func WithDelivery(stager DeliveryMachinery) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.send.Delivery = stager
 		s.rebuildToolRegistry(pool)
 	}
 }
 
-// WithMailbox wires the send-grant pre-flight onto the same transports, so a
-// user with no send-capable mailbox is told to reconnect it instead of being
-// handed a 202 for a message that can only park.
-func WithMailbox(authority activities.MailboxAuthority) Option {
+// WithSendAuthority wires the send pre-flight onto the same transports, so a
+// user with no send-capable mailbox — or a workspace with no bot bound — is told
+// what to do about it instead of being handed a 202 for a message that can only
+// park.
+func WithSendAuthority(authority activities.SendAuthority) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
-		s.send.Mailbox = authority
+		s.send.SendAuthority = authority
 		s.rebuildToolRegistry(pool)
 	}
 }

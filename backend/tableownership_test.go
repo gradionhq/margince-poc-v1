@@ -56,10 +56,14 @@ var tableOwners = map[string]string{
 	"oauth_authorization_code": "internal/modules/identity",
 	"onboarding_wizard_state":  "internal/modules/identity",
 	// people
-	"person":                     "internal/modules/people",
-	"person_email":               "internal/modules/people",
-	"person_social":              "internal/modules/people",
-	"person_phone":               "internal/modules/people",
+	"person":        "internal/modules/people",
+	"person_email":  "internal/modules/people",
+	"person_social": "internal/modules/people",
+	"person_phone":  "internal/modules/people",
+	// The channel identity is a resolution key on the person, not connection
+	// state: it answers "which Person is this Telegram user", so it lives with
+	// the one dedupe implementation that resolves them.
+	"person_channel_identity":    "internal/modules/people",
 	"organization":               "internal/modules/people",
 	"organization_domain":        "internal/modules/people",
 	"relationship":               "internal/modules/people",
@@ -117,6 +121,10 @@ var tableOwners = map[string]string{
 	"capture_auto_enrich_state":    "internal/modules/capture",
 	"capture_pending_counterparty": "internal/modules/capture",
 	"capture_auto_enrich_budget":   "internal/modules/capture",
+	// The workspace's bot channel: credentials, webhook secret and connection
+	// status. It is a connection, so it sits with capture_connection under the
+	// ONE connector.Sink rather than with the identities it delivers.
+	"channel_connection": "internal/modules/capture",
 	// search
 	"embedding":           "internal/modules/search",
 	"embed_store_binding": "internal/modules/search",
@@ -262,6 +270,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:person_social":                "erasure and retention delete the subject's social-handle rows in the same anonymization transaction",
 	"internal/modules/privacy:voice_learning_signal":        "the nightly retention sweep erases over-age draft plaintext in place; the counters row survives (voice_draftread.go stamps the per-row deadline)",
 	"internal/modules/privacy:person_phone":                 "erasure deletes the subject's phone channel rows in the single erasure transaction",
+	"internal/modules/privacy:person_channel_identity":      "erasure and the retention anonymizer delete the subject's channel-identity rows in the single erasure/per-record transaction — the identity is the key an inbound message would re-bind them by, so it has to go in the same commit that hashes it onto the suppression list",
 	"internal/modules/privacy:lead":                         "erasure/retention anonymize the subject's segregated lead rows in the same transaction",
 	"internal/modules/privacy:activity":                     "retention archives/erases over-age timeline rows, and Art. 17 erasure redacts subject-only activity subject/body, in the single erasure/per-record transaction",
 	"internal/modules/privacy:attachment":                   "Art. 17 erasure deletes attachments hung off the subject or a subject-only activity in the single erasure transaction",

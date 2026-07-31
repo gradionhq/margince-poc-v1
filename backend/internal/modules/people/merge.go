@@ -245,6 +245,17 @@ func relinkPersonReferences(ctx context.Context, tx pgx.Tx, sourceID, targetID i
 	if err := mergeConsent(ctx, tx, sourceID, targetID); err != nil {
 		return counts, fmt.Errorf("merge consent: %w", err)
 	}
+	// The channel identities follow the survivor, or the human behind them
+	// keeps writing into the record nobody reads any more. No survivor-wins
+	// rule is needed here, unlike the email and phone slots above: the unique
+	// key spans (provider, channel_user_id) WITHOUT person_id, so the two
+	// halves cannot both hold the same identity live and the relink cannot
+	// collide.
+	if _, err := tx.Exec(ctx, `
+		UPDATE person_channel_identity SET person_id = $2
+		WHERE person_id = $1 AND archived_at IS NULL`, sourceID, targetID); err != nil {
+		return counts, fmt.Errorf("relink channel identities: %w", err)
+	}
 	// The promotion outcome pointer follows the survivor so a
 	// re-promote 409 names a live person.
 	if _, err := tx.Exec(ctx,

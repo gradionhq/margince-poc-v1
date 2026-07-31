@@ -1101,6 +1101,48 @@ func (e ChangeUserRoleRequestRole) Valid() bool {
 	}
 }
 
+// Defines values for ChannelConnectionProvider.
+const (
+	ChannelConnectionProviderTelegram ChannelConnectionProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the ChannelConnectionProvider enum.
+func (e ChannelConnectionProvider) Valid() bool {
+	switch e {
+	case ChannelConnectionProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChannelConnectionStatus.
+const (
+	ChannelConnectionStatusConnected      ChannelConnectionStatus = "connected"
+	ChannelConnectionStatusDisconnected   ChannelConnectionStatus = "disconnected"
+	ChannelConnectionStatusError          ChannelConnectionStatus = "error"
+	ChannelConnectionStatusPending        ChannelConnectionStatus = "pending"
+	ChannelConnectionStatusReauthRequired ChannelConnectionStatus = "reauth_required"
+)
+
+// Valid indicates whether the value is a known member of the ChannelConnectionStatus enum.
+func (e ChannelConnectionStatus) Valid() bool {
+	switch e {
+	case ChannelConnectionStatusConnected:
+		return true
+	case ChannelConnectionStatusDisconnected:
+		return true
+	case ChannelConnectionStatusError:
+		return true
+	case ChannelConnectionStatusPending:
+		return true
+	case ChannelConnectionStatusReauthRequired:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ColdStartFieldField.
 const (
 	ColdStartFieldFieldBuyingCenter      ColdStartFieldField = "buying_center"
@@ -1863,6 +1905,21 @@ func (e ComputedFieldKind) Valid() bool {
 	case ComputedFieldKindDurationMonths:
 		return true
 	case ComputedFieldKindPercent:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectChannelRequestProvider.
+const (
+	ConnectChannelRequestProviderTelegram ConnectChannelRequestProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the ConnectChannelRequestProvider enum.
+func (e ConnectChannelRequestProvider) Valid() bool {
+	switch e {
+	case ConnectChannelRequestProviderTelegram:
 		return true
 	default:
 		return false
@@ -4437,6 +4494,21 @@ func (e PersonPhonePhoneType) Valid() bool {
 	}
 }
 
+// Defines values for PersonReachabilityProvider.
+const (
+	PersonReachabilityProviderTelegram PersonReachabilityProvider = "telegram"
+)
+
+// Valid indicates whether the value is a known member of the PersonReachabilityProvider enum.
+func (e PersonReachabilityProvider) Valid() bool {
+	switch e {
+	case PersonReachabilityProviderTelegram:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PreferenceCenterPurposesState.
 const (
 	PreferenceCenterPurposesStateGranted   PreferenceCenterPurposesState = "granted"
@@ -6410,31 +6482,31 @@ func (e CapturedByKind) Valid() bool {
 
 // Defines values for ListActivitiesParamsKind.
 const (
-	Call     ListActivitiesParamsKind = "call"
-	Email    ListActivitiesParamsKind = "email"
-	Meeting  ListActivitiesParamsKind = "meeting"
-	Note     ListActivitiesParamsKind = "note"
-	Task     ListActivitiesParamsKind = "task"
-	Telegram ListActivitiesParamsKind = "telegram"
-	Whatsapp ListActivitiesParamsKind = "whatsapp"
+	ListActivitiesParamsKindCall     ListActivitiesParamsKind = "call"
+	ListActivitiesParamsKindEmail    ListActivitiesParamsKind = "email"
+	ListActivitiesParamsKindMeeting  ListActivitiesParamsKind = "meeting"
+	ListActivitiesParamsKindNote     ListActivitiesParamsKind = "note"
+	ListActivitiesParamsKindTask     ListActivitiesParamsKind = "task"
+	ListActivitiesParamsKindTelegram ListActivitiesParamsKind = "telegram"
+	ListActivitiesParamsKindWhatsapp ListActivitiesParamsKind = "whatsapp"
 )
 
 // Valid indicates whether the value is a known member of the ListActivitiesParamsKind enum.
 func (e ListActivitiesParamsKind) Valid() bool {
 	switch e {
-	case Call:
+	case ListActivitiesParamsKindCall:
 		return true
-	case Email:
+	case ListActivitiesParamsKindEmail:
 		return true
-	case Meeting:
+	case ListActivitiesParamsKindMeeting:
 		return true
-	case Note:
+	case ListActivitiesParamsKindNote:
 		return true
-	case Task:
+	case ListActivitiesParamsKindTask:
 		return true
-	case Telegram:
+	case ListActivitiesParamsKindTelegram:
 		return true
-	case Whatsapp:
+	case ListActivitiesParamsKindWhatsapp:
 		return true
 	default:
 		return false
@@ -7229,22 +7301,22 @@ func (e ListSignalsParamsKind) Valid() bool {
 
 // Defines values for ListSignalsParamsResolutionState.
 const (
-	ListSignalsParamsResolutionStateDropped       ListSignalsParamsResolutionState = "dropped"
-	ListSignalsParamsResolutionStateLowConfidence ListSignalsParamsResolutionState = "low_confidence"
-	ListSignalsParamsResolutionStateResolved      ListSignalsParamsResolutionState = "resolved"
-	ListSignalsParamsResolutionStateUnresolved    ListSignalsParamsResolutionState = "unresolved"
+	Dropped       ListSignalsParamsResolutionState = "dropped"
+	LowConfidence ListSignalsParamsResolutionState = "low_confidence"
+	Resolved      ListSignalsParamsResolutionState = "resolved"
+	Unresolved    ListSignalsParamsResolutionState = "unresolved"
 )
 
 // Valid indicates whether the value is a known member of the ListSignalsParamsResolutionState enum.
 func (e ListSignalsParamsResolutionState) Valid() bool {
 	switch e {
-	case ListSignalsParamsResolutionStateDropped:
+	case Dropped:
 		return true
-	case ListSignalsParamsResolutionStateLowConfidence:
+	case LowConfidence:
 		return true
-	case ListSignalsParamsResolutionStateResolved:
+	case Resolved:
 		return true
-	case ListSignalsParamsResolutionStateUnresolved:
+	case Unresolved:
 		return true
 	default:
 		return false
@@ -8253,6 +8325,34 @@ type ChangeUserRoleRequest struct {
 // ChangeUserRoleRequestRole defines model for ChangeUserRoleRequest.Role.
 type ChangeUserRoleRequestRole string
 
+// ChannelConnection One workspace-level messaging-channel binding. The bot token never appears in this shape — it lives sealed in the vault, and it is the only secret a binding holds.
+type ChannelConnection struct {
+	// ChannelId The provider's own id for the bot — the key the binding is unique on.
+	ChannelId string `json:"channelId"`
+
+	// ChannelLabel The bot's @username. Display only — a username is mutable and re-assignable, so it identifies nothing.
+	ChannelLabel string                    `json:"channelLabel"`
+	CreatedAt    *time.Time                `json:"createdAt,omitempty"`
+	Id           openapi_types.UUID        `json:"id"`
+	Provider     ChannelConnectionProvider `json:"provider"`
+
+	// Status Only `connected` is live, and it is the only state a connect can produce — a pull ingress makes no provider call after the write, so there is no half-connected state. `error` and `reauth_required` are where ingress parks a binding it can no longer poll (another consumer holds the bot's updates; the token was refused), and neither is polled again until an operator acts. `pending` is a value NO server produces: it is retained because the code generator disambiguates enum member names across the whole document, so dropping it renames unrelated generated constants in other schemas.
+	Status    ChannelConnectionStatus `json:"status"`
+	UpdatedAt *time.Time              `json:"updatedAt,omitempty"`
+	Version   int64                   `json:"version"`
+}
+
+// ChannelConnectionProvider defines model for ChannelConnection.Provider.
+type ChannelConnectionProvider string
+
+// ChannelConnectionStatus Only `connected` is live, and it is the only state a connect can produce — a pull ingress makes no provider call after the write, so there is no half-connected state. `error` and `reauth_required` are where ingress parks a binding it can no longer poll (another consumer holds the bot's updates; the token was refused), and neither is polled again until an operator acts. `pending` is a value NO server produces: it is retained because the code generator disambiguates enum member names across the whole document, so dropping it renames unrelated generated constants in other schemas.
+type ChannelConnectionStatus string
+
+// ChannelConnectionListResponse defines model for ChannelConnectionListResponse.
+type ChannelConnectionListResponse struct {
+	Data []ChannelConnection `json:"data"`
+}
+
 // ColdStartField One read-back field. EVERY field carries a non-empty `evidence_snippet` + `confidence`, or it is
 // omitted (the no-guess gate). `source_kind` says where the evidence lives; `source_url` is present
 // ONLY for `source_kind=url` (nullable otherwise — text/self-description evidence has no URL).
@@ -8714,6 +8814,16 @@ type ConfirmCompanySiteReadRequest struct {
 	Resolutions      *[]CompanySiteReadResolution `json:"resolutions,omitempty"`
 	SelectedFactKeys []string                     `json:"selected_fact_keys"`
 }
+
+// ConnectChannelRequest defines model for ConnectChannelRequest.
+type ConnectChannelRequest struct {
+	// BotToken The BotFather token, `<bot id>:<secret>`. Sealed into the vault on arrival and never echoed back.
+	BotToken string                        `json:"botToken"`
+	Provider ConnectChannelRequestProvider `json:"provider"`
+}
+
+// ConnectChannelRequestProvider defines model for ConnectChannelRequest.Provider.
+type ConnectChannelRequestProvider string
 
 // ConnectConnectorRequest Connect a capture source. Providers differ in kind, not in path: an OAuth provider
 // (gmail, gcal, graph) needs no body and answers with `authorize_url`; a credential
@@ -11330,6 +11440,13 @@ type Person struct {
 	Phones       *[]PersonPhone          `json:"phones,omitempty"`
 	Raw          *map[string]interface{} `json:"raw,omitempty"`
 
+	// Reachability Per-channel reachability (design §6.6), derived from `person_channel_identity`.
+	// Exposes `{provider, reachable, since}` only — the channel account id (an opaque
+	// third-party identifier) stays out of this broad read; a governed surface owns it.
+	// A blocked identity still appears here, with `reachable: false`, so the record keeps
+	// showing that a conversation exists even when a reply cannot currently be delivered.
+	Reachability *[]PersonReachability `json:"reachability,omitempty"`
+
 	// Social { linkedin, twitter, github, ... }
 	Social *map[string]interface{} `json:"social,omitempty"`
 	Source string                  `json:"source"`
@@ -11417,6 +11534,19 @@ type PersonPhone struct {
 
 // PersonPhonePhoneType defines model for PersonPhone.PhoneType.
 type PersonPhonePhoneType string
+
+// PersonReachability Whether a reply on this channel can currently be delivered (design §6.6) — a live
+// `person_channel_identity` row (`archived_at IS NULL`) with `blocked_at IS NULL`.
+type PersonReachability struct {
+	Provider  PersonReachabilityProvider `json:"provider"`
+	Reachable bool                       `json:"reachable"`
+
+	// Since When the current state took hold — the block timestamp while unreachable, otherwise when the identity was first established.
+	Since time.Time `json:"since"`
+}
+
+// PersonReachabilityProvider defines model for PersonReachability.Provider.
+type PersonReachabilityProvider string
 
 // Pipeline A pipeline. Mirrors the `pipeline` table (with embedded stages on GET).
 type Pipeline struct {
@@ -11890,6 +12020,12 @@ type RenameCustomFieldRequest struct {
 	Label *string `json:"label,omitempty"`
 }
 
+// ReplaceChannelTokenRequest defines model for ReplaceChannelTokenRequest.
+type ReplaceChannelTokenRequest struct {
+	// BotToken The replacement BotFather token. Sealed into the vault on arrival and never echoed back.
+	BotToken string `json:"botToken"`
+}
+
 // ReportDerivation The "Explain This Number" resolution (features/03 §1.3): a plain-language definition of
 // the exact filter+group+aggregate plus the underlying source rows, which reconcile
 // exactly to the explained aggregate (AC-X1).
@@ -12050,6 +12186,22 @@ type SendEmailRequest struct {
 	DraftRef *string               `json:"draft_ref,omitempty"`
 	Subject  string                `json:"subject"`
 	To       []openapi_types.Email `json:"to"`
+}
+
+// SendMessageRequest One channel reply. It carries no subject and no addressee list, and that absence is the
+// shape of the transport rather than an omission: a messaging channel has no subject line
+// and no Cc, and the recipient is resolved from the conversation being answered (see the
+// operation), never named by the caller.
+type SendMessageRequest struct {
+	// Body The (possibly edited) final message text that is sent. A messaging provider rejects a
+	// text-less message, so an empty or whitespace-only body is refused at request time
+	// (422 `empty_message_body`) rather than staged for a delivery that could only park.
+	Body string `json:"body"`
+
+	// ConsentPurpose The consent purpose this send falls under (e.g. `transactional`). The send is
+	// suppressed (409 `consent_not_granted`) unless the recipient has an active `granted`
+	// `person_consent` for THIS purpose (default-deny per purpose, A22/ADR-0011).
+	ConsentPurpose string `json:"consent_purpose"`
 }
 
 // SetAiModelRateRequest defines model for SetAiModelRateRequest.
@@ -13287,6 +13439,34 @@ type RelinkActivityJSONBodyEntityType string
 
 // SendEmailParams defines parameters for SendEmail.
 type SendEmailParams struct {
+	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
+	// create (API-CC-6). **Scope:** the key is unique within
+	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
+	// returns the original status + body. Reusing the same key with a *different* request body
+	// returns `409 code: idempotency_key_conflict` (never a silent replay of mismatched intent).
+	// **On an update behind `If-Match`** the key is what separates "not applied" from "applied,
+	// answer lost": without it the blind retry answers `409 version_skew`, because the first
+	// attempt already bumped the version.
+	// **Precedence vs natural keys:** on `logActivity`/`createLead`, the Idempotency-Key (transport
+	// retry-safety) is checked first; if absent, the `(source_system, source_id)` natural key
+	// (data-model dedupe) governs. The two never both create a row. **Declaring this parameter is
+	// what makes an operation replay-safe** — an operation that omits it ignores the header rather
+	// than half-honouring it, so read this contract, not the client, to know which calls are safe
+	// to retry blind.
+	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+
+	// XApprovalToken A signed, single-use approval token (see schema `ApprovalToken`) minted by
+	// POST /approvals/{id}/approve, authorizing exactly one 🟡 confirm-first operation. It is a
+	// compact JWS whose claims **bind** the token to a specific approval, effect, tenant and
+	// principal — it is NOT a bare opaque string (ADR-0036). The server rejects a token that is
+	// expired, already consumed, or whose `diff_hash`/`workspace_id`/`passport_id`/`tool` does not
+	// match the operation being executed (`403 code: approval_token_invalid`). Required when an
+	// AGENT principal invokes a 🟡 operation; a human's direct call is itself the approval.
+	XApprovalToken *ApprovalToken `json:"X-Approval-Token,omitempty"`
+}
+
+// SendMessageParams defines parameters for SendMessage.
+type SendMessageParams struct {
 	// IdempotencyKey Client-supplied key making a mutation safe to retry — an update exactly as much as a
 	// create (API-CC-6). **Scope:** the key is unique within
 	// `(workspace_id, principal, request-path)` and retained **24h**; a replay within that window
@@ -16068,6 +16248,9 @@ type RelinkActivityJSONRequestBody RelinkActivityJSONBody
 // SendEmailJSONRequestBody defines body for SendEmail for application/json ContentType.
 type SendEmailJSONRequestBody = SendEmailRequest
 
+// SendMessageJSONRequestBody defines body for SendMessage for application/json ContentType.
+type SendMessageJSONRequestBody = SendMessageRequest
+
 // SetAiModelRateJSONRequestBody defines body for SetAiModelRate for application/json ContentType.
 type SetAiModelRateJSONRequestBody = SetAiModelRateRequest
 
@@ -16112,6 +16295,12 @@ type CreateCaptureExclusionJSONRequestBody = CreateCaptureExclusionRequest
 
 // UpdateCaptureSettingsJSONRequestBody defines body for UpdateCaptureSettings for application/json ContentType.
 type UpdateCaptureSettingsJSONRequestBody = UpdateCaptureSettingsRequest
+
+// ConnectChannelJSONRequestBody defines body for ConnectChannel for application/json ContentType.
+type ConnectChannelJSONRequestBody = ConnectChannelRequest
+
+// ReplaceChannelTokenJSONRequestBody defines body for ReplaceChannelToken for application/json ContentType.
+type ReplaceChannelTokenJSONRequestBody = ReplaceChannelTokenRequest
 
 // ColdStartReadbackJSONRequestBody defines body for ColdStartReadback for application/json ContentType.
 type ColdStartReadbackJSONRequestBody = ColdStartRequest
@@ -19747,6 +19936,14 @@ func (a *Person) UnmarshalJSON(b []byte) error {
 		delete(object, "raw")
 	}
 
+	if raw, found := object["reachability"]; found {
+		err = json.Unmarshal(raw, &a.Reachability)
+		if err != nil {
+			return fmt.Errorf("error reading 'reachability': %w", err)
+		}
+		delete(object, "reachability")
+	}
+
 	if raw, found := object["social"]; found {
 		err = json.Unmarshal(raw, &a.Social)
 		if err != nil {
@@ -19916,6 +20113,13 @@ func (a Person) MarshalJSON() ([]byte, error) {
 		object["raw"], err = json.Marshal(a.Raw)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'raw': %w", err)
+		}
+	}
+
+	if a.Reachability != nil {
+		object["reachability"], err = json.Marshal(a.Reachability)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'reachability': %w", err)
 		}
 	}
 
@@ -22022,6 +22226,9 @@ type ServerInterface interface {
 	// Send a (possibly edited) email draft — 🟡 confirm-first / gated.
 	// (POST /activities/{id}/send-email)
 	SendEmail(w http.ResponseWriter, r *http.Request, id Id, params SendEmailParams)
+	// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+	// (POST /activities/{id}/send-message)
+	SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams)
 	// The governed tool surface (registry metadata) for the operator UI.
 	// (GET /agent-tools)
 	ListAgentTools(w http.ResponseWriter, r *http.Request)
@@ -22160,6 +22367,18 @@ type ServerInterface interface {
 	// Update the workspace's capture settings (admin/ops).
 	// (PATCH /capture/settings)
 	UpdateCaptureSettings(w http.ResponseWriter, r *http.Request)
+	// List the workspace's messaging-channel connections.
+	// (GET /channel-connections)
+	ListChannelConnections(w http.ResponseWriter, r *http.Request)
+	// Connect a messaging-channel bot for the whole workspace.
+	// (POST /channel-connections)
+	ConnectChannel(w http.ResponseWriter, r *http.Request)
+	// Disconnect a messaging channel (archives the binding and destroys the credential).
+	// (DELETE /channel-connections/{id})
+	DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id)
+	// Replace a channel connection's bot token in place.
+	// (PATCH /channel-connections/{id})
+	ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id)
 	// Website cold-start read-back — returns a staged proposal with evidence.
 	// (POST /coldstart)
 	ColdStartReadback(w http.ResponseWriter, r *http.Request)
@@ -22904,6 +23123,12 @@ func (_ Unimplemented) SendEmail(w http.ResponseWriter, r *http.Request, id Id, 
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Reply on a captured messaging-channel conversation — 🟡 confirm-first / gated.
+// (POST /activities/{id}/send-message)
+func (_ Unimplemented) SendMessage(w http.ResponseWriter, r *http.Request, id Id, params SendMessageParams) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // The governed tool surface (registry metadata) for the operator UI.
 // (GET /agent-tools)
 func (_ Unimplemented) ListAgentTools(w http.ResponseWriter, r *http.Request) {
@@ -23177,6 +23402,30 @@ func (_ Unimplemented) GetCaptureSettings(w http.ResponseWriter, r *http.Request
 // Update the workspace's capture settings (admin/ops).
 // (PATCH /capture/settings)
 func (_ Unimplemented) UpdateCaptureSettings(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// List the workspace's messaging-channel connections.
+// (GET /channel-connections)
+func (_ Unimplemented) ListChannelConnections(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Connect a messaging-channel bot for the whole workspace.
+// (POST /channel-connections)
+func (_ Unimplemented) ConnectChannel(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Disconnect a messaging channel (archives the binding and destroys the credential).
+// (DELETE /channel-connections/{id})
+func (_ Unimplemented) DisconnectChannel(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Replace a channel connection's bot token in place.
+// (PATCH /channel-connections/{id})
+func (_ Unimplemented) ReplaceChannelToken(w http.ResponseWriter, r *http.Request, id Id) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
@@ -25077,6 +25326,83 @@ func (siw *ServerInterfaceWrapper) SendEmail(w http.ResponseWriter, r *http.Requ
 	handler.ServeHTTP(w, r)
 }
 
+// SendMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params SendMessageParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Idempotency-Key" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Idempotency-Key")]; found {
+		var IdempotencyKey IdempotencyKey
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Idempotency-Key", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Idempotency-Key", valueList[0], &IdempotencyKey, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Idempotency-Key", Err: err})
+			return
+		}
+
+		params.IdempotencyKey = &IdempotencyKey
+
+	}
+
+	// ------------- Optional header parameter "X-Approval-Token" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("X-Approval-Token")]; found {
+		var XApprovalToken ApprovalToken
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "X-Approval-Token", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "X-Approval-Token", valueList[0], &XApprovalToken, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "X-Approval-Token", Err: err})
+			return
+		}
+
+		params.XApprovalToken = &XApprovalToken
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendMessage(w, r, id, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListAgentTools operation middleware
 func (siw *ServerInterfaceWrapper) ListAgentTools(w http.ResponseWriter, r *http.Request) {
 
@@ -26785,6 +27111,110 @@ func (siw *ServerInterfaceWrapper) UpdateCaptureSettings(w http.ResponseWriter, 
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.UpdateCaptureSettings(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChannelConnections operation middleware
+func (siw *ServerInterfaceWrapper) ListChannelConnections(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChannelConnections(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ConnectChannel operation middleware
+func (siw *ServerInterfaceWrapper) ConnectChannel(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ConnectChannel(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DisconnectChannel operation middleware
+func (siw *ServerInterfaceWrapper) DisconnectChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DisconnectChannel(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ReplaceChannelToken operation middleware
+func (siw *ServerInterfaceWrapper) ReplaceChannelToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ReplaceChannelToken(w, r, id)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -38240,6 +38670,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Post(options.BaseURL+"/activities/{id}/send-email", wrapper.SendEmail)
 	})
 	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/activities/{id}/send-message", wrapper.SendMessage)
+	})
+	r.Group(func(r chi.Router) {
 		r.Get(options.BaseURL+"/agent-tools", wrapper.ListAgentTools)
 	})
 	r.Group(func(r chi.Router) {
@@ -38376,6 +38809,18 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Patch(options.BaseURL+"/capture/settings", wrapper.UpdateCaptureSettings)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/channel-connections", wrapper.ListChannelConnections)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/channel-connections", wrapper.ConnectChannel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Delete(options.BaseURL+"/channel-connections/{id}", wrapper.DisconnectChannel)
+	})
+	r.Group(func(r chi.Router) {
+		r.Patch(options.BaseURL+"/channel-connections/{id}", wrapper.ReplaceChannelToken)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/coldstart", wrapper.ColdStartReadback)

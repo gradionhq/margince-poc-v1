@@ -66,9 +66,9 @@ func (e *Eraser) WithBlobstore(blob blobstore.Store) *Eraser {
 }
 
 // ErasePerson removes the subject's PII in ONE transaction: person row
-// anonymized, email/phone child rows deleted, raw capture purged,
-// embeddings dropped, identifiers hashed onto the suppression list,
-// tombstone written. Deleting a person row outright would cascade into
+// anonymized, email/phone/channel-identity child rows deleted, raw
+// capture purged, embeddings dropped, identifiers hashed onto the
+// suppression list, tombstone written. Deleting a person row outright would cascade into
 // business records other subjects appear in; anonymize-in-place is the
 // A13 posture.
 //
@@ -108,12 +108,33 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err != nil {
 			return err
 		}
+		// Same reason: read before eraseChannelIdentities deletes the table.
+		identities, err := personChannelIdentities(ctx, tx, subject)
+		if err != nil {
+			return err
+		}
+		// Taken before the first statement that purges or suppresses by
+		// channel identity, and held until the commit: an inbound message
+		// from one of these accounts must land entirely before this erasure
+		// or entirely after it, never inside it — storekit.LockChannelIdentities
+		// states what landing inside it costs.
+		if err := storekit.LockChannelIdentities(ctx, tx, channelIdentityLockKeys(identities)); err != nil {
+			return err
+		}
+		// Refused BEFORE the first destructive statement: everything below
+		// this line suppresses and purges by IDENTIFIER, and a rival record
+		// holding the same identifier would be left named, reachable, and
+		// stripped of the evidence that was never this request's to destroy
+		// (erasure_rivals.go).
+		if err := refuseRivalIdentifierHolders(ctx, tx, subject, emails, identities); err != nil {
+			return err
+		}
 
 		leadsWiped, err := anonymizeSubjectRows(ctx, tx, subject, emails)
 		if err != nil {
 			return err
 		}
-		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails, floorInterval, floorAnchor)
+		activitiesRedacted, err := redactSubjectTimeline(ctx, tx, subject, emails, channelActivityKeys(identities), floorInterval, floorAnchor)
 		if err != nil {
 			return err
 		}
@@ -148,7 +169,11 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		if err := e.eraseAttachments(ctx, tx, subjectAttachmentsWhere, subject, floorInterval, floorAnchor); err != nil {
 			return err
 		}
-		rawPurged, aiPayloadsPurged, err := purgeDerivedTraces(ctx, tx, subject, emails)
+		rawPurged, aiPayloadsPurged, err := purgeDerivedTraces(ctx, tx, subject, emails, identities)
+		if err != nil {
+			return err
+		}
+		channelsSuppressed, err := eraseChannelIdentities(ctx, tx, identities)
 		if err != nil {
 			return err
 		}
@@ -162,61 +187,13 @@ func (e *Eraser) ErasePerson(ctx context.Context, personID ids.UUID, reason stri
 		auditID, err := storekit.AuditWithEvidence(ctx, tx, actionErase, "person", subject.UUID, nil, nil, map[string]any{
 			"reason": reason, "emails_suppressed": len(emails), "raw_rows_purged": rawPurged,
 			"ai_payloads_purged": aiPayloadsPurged, "activities_redacted": len(activitiesRedacted),
+			"channel_identities_suppressed": channelsSuppressed,
 		})
 		if err != nil {
 			return err
 		}
 		return storekit.EmitEventForEntity(ctx, tx, auditID, "person", subject.UUID, retentionAppliedPayload(actionErase, nil, &reason))
 	})
-}
-
-// subjectAttachmentsWhere selects the attachments Art. 17 erasure removes for
-// a person: those hung off the person and those on the person's destroyable
-// subject-only activities (floor-shielded correspondence keeps its
-// attachments too). $1 is the person id; $2/$3 are the statutory floor's
-// interval and calendar-year-end anchor.
-var subjectAttachmentsWhere = `(entity_type = 'person' AND entity_id = $1)
-	   OR (entity_type = 'activity' AND entity_id IN (` + subjectOnlyDestroyable + `))`
-
-// eraseAttachments purges the matched attachments' objects and deletes their
-// rows within the caller's transaction, objects FIRST: the keys live in the
-// rows, so purging before the DELETE means any failure (a store error, or no
-// store configured while objects exist) rolls the transaction back with the
-// keys intact — a retry re-purges idempotently, and no bytes are ever
-// orphaned with their only key gone. Erasure is rare and not latency-bound,
-// so the brief object-store I/O held under the transaction is an acceptable
-// trade for that durability guarantee.
-func (e *Eraser) eraseAttachments(ctx context.Context, tx pgx.Tx, where string, args ...any) error {
-	rows, err := tx.Query(ctx, `SELECT storage_key FROM attachment WHERE `+where, args...)
-	if err != nil {
-		return err
-	}
-	var keys []string
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			rows.Close()
-			return err
-		}
-		keys = append(keys, key)
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	if len(keys) > 0 {
-		if e.blob == nil {
-			return fmt.Errorf("privacy: %d attachment object(s) to purge but no object store is configured", len(keys))
-		}
-		for _, key := range keys {
-			if err := e.blob.Delete(ctx, key); err != nil {
-				return fmt.Errorf("privacy: purging attachment object: %w", err)
-			}
-		}
-	}
-	if _, err := tx.Exec(ctx, `DELETE FROM attachment WHERE `+where, args...); err != nil {
-		return err
-	}
-	return nil
 }
 
 // anonymizeSubjectRows wipes the subject's PII in place: the person row
@@ -256,7 +233,14 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		 WHERE email IN (SELECT email FROM person_email WHERE person_id = $1)`, personID); err != nil {
 		return nil, err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM person_email WHERE person_id = $1`, personID); err != nil {
+	// By ADDRESS as well as by person_id, for the reason eraseChannelIdentities
+	// deletes by account (erasure_rivals.go): uq_person_email_dedupe is partial
+	// on archived_at IS NULL, so an archived duplicate Person can hold the same
+	// address, and leaving that row behind would keep the erased subject's
+	// address stored under a record this erasure suppressed and purged for.
+	// A LIVE duplicate never reaches here — the guard refuses the erasure.
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM person_email WHERE person_id = $1 OR email = ANY($2)`, personID, emails); err != nil {
 		return nil, err
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM person_phone WHERE person_id = $1`, personID); err != nil {
@@ -364,20 +348,41 @@ func tombstoneCollateralScrubs(ctx context.Context, tx pgx.Tx, entityType string
 // the timeline text and its field-level provenance. It returns the
 // redacted activity ids so the caller can tombstone each record's own
 // audit spine.
-func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
-	// Redact the subject's own timeline rows AND the unlinked mail about them —
-	// in both directions, captured and sent (unlinkedSubjectMail) — but shield
+func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, channelKeys []string, floorInterval string, floorAnchor bool) ([]ids.UUID, error) {
+	// Redact the subject's own timeline rows, the unlinked mail about them — in
+	// both directions, captured and sent (unlinkedSubjectMail) — and the
+	// unlinked CHANNEL messages from them (unlinkedSubjectChannel), but shield
 	// commercial correspondence younger than the
 	// statutory floor: the floor filters the row being updated (aliased `a`),
-	// so it covers both id sets in one pass. $1 person, $2 addresses, $3/$4
-	// the floor interval + anchor, $5 the tombstone name.
+	// so it covers all three id sets in one pass. $1 person, $2 addresses, $3/$4
+	// the floor interval + anchor, $5 the tombstone name, $6 the subject's
+	// `provider:account` channel keys.
+	//
+	// source_id and thread_key are cleared for channel rows and ONLY for channel
+	// rows, because for those two columns the identifier IS the subject: the
+	// capture writes source_id `botID:accountID:messageID` and thread_key
+	// `provider:botID:accountID`, and a private chat's id is the human's own
+	// Telegram id. Leaving them was a silent Art. 17 hole on the ordinary path —
+	// no race required — that emptying subject/body/raw did nothing about. A
+	// mail row keeps its natural key: a message-id does not name the subject.
+	//
+	// Clearing them costs nothing that is still reachable. The pair is the
+	// capture idempotency key, but the same erasure arms the suppression list,
+	// and Sink.Upsert refuses a suppressed account before it writes — so there
+	// is no redelivery left for the key to deduplicate.
 	rows, err := tx.Query(ctx, `
 		UPDATE activity a SET subject = $5, body = NULL, raw = NULL,
 		  counterparty_email = NULL,
+		  source_id = CASE WHEN a.source_system || ':' || split_part(coalesce(a.thread_key, ''), ':', 3) = ANY($6)
+		                   THEN NULL ELSE a.source_id END,
+		  thread_key = CASE WHEN a.source_system || ':' || split_part(coalesce(a.thread_key, ''), ':', 3) = ANY($6)
+		                    THEN NULL ELSE a.thread_key END,
 		  archived_at = coalesce(a.archived_at, now())
-		WHERE (a.id IN (`+subjectOnlyActivities+`) OR a.id IN (`+unlinkedSubjectMail+`))
+		WHERE (a.id IN (`+subjectOnlyActivities+`)
+		    OR a.id IN (`+unlinkedSubjectMail+`)
+		    OR a.id IN (`+unlinkedSubjectChannel+`))
 		  `+correspondenceFloorPredicate(3, 4)+`
-		RETURNING a.id`, personID, emails, floorInterval, floorAnchor, erasedName)
+		RETURNING a.id`, personID, emails, floorInterval, floorAnchor, erasedName, channelKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -398,15 +403,14 @@ func redactSubjectTimeline(ctx context.Context, tx pgx.Tx, personID ids.PersonID
 	return redacted, nil
 }
 
-// purgeDerivedTraces removes what the system DERIVED from the subject
-// and arms the suppression list. Raw capture is purged by identifier
-// match: any stored provider payload carrying one of the subject's
-// addresses goes — crude on purpose, over-deleting evidence is
-// recoverable by re-sync, under-deleting PII is a violation. Embeddings
-// of activities on the subject's timeline embed text ABOUT them; the
-// vector store must not keep what a similarity probe could partially
-// reconstruct.
-func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string) (rawPurged, aiPayloadsPurged int64, err error) {
+// purgeDerivedTraces removes what the system DERIVED from the subject and
+// arms the suppression list. Raw capture is purged two ways: by email here
+// (crude on purpose — over-deleting evidence is recoverable, under-deleting
+// PII is not) and by channel identity in purgeChannelRawCapture
+// (erasure_channels.go, kept apart for file length). Embeddings of
+// activities on the subject's timeline embed text ABOUT them; the vector
+// store must not keep what a similarity probe could partially reconstruct.
+func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, emails []string, identities []channelIdentity) (rawPurged, aiPayloadsPurged int64, err error) {
 	for _, email := range emails {
 		tag, execErr := tx.Exec(ctx,
 			`DELETE FROM raw_capture WHERE payload::text ILIKE '%' || $1 || '%' ESCAPE '\'`,
@@ -416,6 +420,11 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		}
 		rawPurged += tag.RowsAffected()
 	}
+	channelRawPurged, err := purgeChannelRawCapture(ctx, tx, identities)
+	if err != nil {
+		return 0, 0, err
+	}
+	rawPurged += channelRawPurged
 	if _, err := tx.Exec(ctx, `
 		DELETE FROM embedding e USING activity_link l
 		WHERE e.entity_type = 'activity' AND l.person_id = $1 AND e.entity_id = l.activity_id`,
@@ -423,15 +432,19 @@ func purgeDerivedTraces(ctx context.Context, tx pgx.Tx, personID ids.PersonID, e
 		return 0, 0, err
 	}
 	// Captured AI payloads (Layer 3) are purged by the same identifier
-	// match as raw_capture: any opt-in request/response body whose content
-	// names one of the subject's addresses goes, and its ai_call metadata
-	// row survives (the FK is ON DELETE CASCADE from ai_call, never the
-	// reverse). This reaches ONLY payloads whose text mentions the subject —
-	// a call that never named them keeps no PII and ages out anyway via the
-	// 365d ai_call_payload retention erase; there is no subject FK to scope
-	// by, so a content match is the reachable boundary, crude on purpose
-	// (over-deleting captured content is recoverable, under-deleting PII is
-	// a violation).
+	// match as raw_capture's email lane: any opt-in request/response body
+	// whose content names one of the subject's addresses goes, and its
+	// ai_call metadata row survives (the FK is ON DELETE CASCADE from
+	// ai_call, never the reverse). This reaches ONLY payloads whose text
+	// mentions the subject — a call that never named them keeps no PII and
+	// ages out anyway via the 365d ai_call_payload retention erase; there is
+	// no subject FK to scope by, so a content match is the reachable
+	// boundary, crude on purpose (over-deleting captured content is
+	// recoverable, under-deleting PII is a violation).
+	//
+	// No channel-identity lane here, unlike raw_capture above — see
+	// purgeChannelRawCapture's comment (erasure_channels.go) for why
+	// ai_call_payload cannot safely take the same match.
 	for _, email := range emails {
 		tag, execErr := tx.Exec(ctx, `
 			DELETE FROM ai_call_payload

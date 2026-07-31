@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/gradionhq/margince/backend/internal/compose"
-	"github.com/gradionhq/margince/backend/internal/modules/activities"
 )
 
 // workerConfig is the parsed boot configuration of the worker process.
@@ -265,7 +264,7 @@ func envDurationOr(key string, fallback time.Duration) (time.Duration, error) {
 // registry, which only the api role builds. The transmit-time authority gate
 // still refuses a grant that cannot send, so its absence costs a clearer
 // message, never a message that should not have gone.
-func sendPath(cfg workerConfig, delivery activities.DeliveryStager) compose.SendPath {
+func sendPath(cfg workerConfig, delivery compose.DeliveryMachinery) compose.SendPath {
 	return compose.SendPath{PublicBaseURL: cfg.publicBaseURL, Delivery: delivery}
 }
 

@@ -136,6 +136,40 @@ func TestDispatchParksOnARejectedGrant(t *testing.T) {
 	if got, _ := dispatch(context.Background(), d, store.delivery.ID); got != OutcomeParked {
 		t.Errorf("outcome = %v, want OutcomeParked — a dead grant is not retryable", got)
 	}
+	// The credential park is the one that asks for a reconnection, and it must be
+	// the ONLY one: the reason is the whole instruction an operator acts on.
+	if !strings.Contains(store.parked, "reconnect") {
+		t.Errorf("park reason %q does not name the reconnection that repairs a rejected credential", store.parked)
+	}
+}
+
+// A recipient the provider permanently refuses parks at once, and the reason must
+// name the RECIPIENT. Sharing the credential park's wording would send an operator
+// to rotate a working credential, and falling through to the retry ladder would
+// spend every attempt on a chat that will never accept the message and then park
+// under a reason that names no cause at all.
+func TestDispatchParksNamingTheRecipientWhenTheProviderRefusesToDeliverToThem(t *testing.T) {
+	sender := &fakeSender{err: connector.ErrRecipientUnreachable}
+	store := &fakeStore{delivery: liveDelivery()}
+	d := newTestDispatcher(store, fakeResolver{sender: sender, granted: []string{sendScope}}, &stubConsent{})
+
+	got, _ := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeParked {
+		t.Fatalf("outcome = %v, want OutcomeParked — no retry reaches a recipient the provider refuses", got)
+	}
+	if !strings.Contains(store.parked, "recipient") || !strings.Contains(store.parked, "blocked") {
+		t.Errorf("park reason %q does not tell the operator that the recipient is the cause", store.parked)
+	}
+	// The credential wording is what this park must NOT reuse: rotating a
+	// working token repairs nothing when the recipient is the cause.
+	if strings.Contains(store.parked, "reconnect it to resume sending") {
+		t.Errorf("park reason %q reuses the credential wording, which misdirects the operator", store.parked)
+	}
+	// A definite answer proves nothing was transmitted, so the marker that would
+	// make the NEXT attempt park as an unknown outcome has to be retracted.
+	if store.cleared != 1 {
+		t.Errorf("the in-flight marker was cleared %d time(s), want 1 — the provider gave a definite answer", store.cleared)
+	}
 }
 
 func TestDispatchRetriesWhenTheProviderIsUnreachable(t *testing.T) {
@@ -408,6 +442,47 @@ func TestDispatchTreatsATerminalTransitionAsAlreadyHandled(t *testing.T) {
 				t.Errorf("outcome=%v wait=%v, want OutcomeSkipped/0 — a newer attempt already closed this delivery", got, wait)
 			}
 		})
+	}
+}
+
+// A CHANNEL send the provider accepted, whose receipt then could not be
+// written, is a message the customer already has. Nothing can ask Telegram
+// afterwards whether it went, and the next attempt would read the in-flight
+// marker and park as an unknown outcome — recording a delivered message as
+// never sent, in the log Art. 15 answers from.
+//
+// So it parks HERE, on this attempt, stating what is definitely true, and keeps
+// the provider's message id: that id is the only handle anyone has on the
+// message afterwards, and the failed receipt is the reason it is nowhere else.
+// The gmail twin below (TestDispatchRetriesWhenATransitionFailsForANonTerminalReason)
+// keeps retrying because a mail retry can discover its own prior send.
+func TestAChannelSendWhoseReceiptFailsParksAsDelivered(t *testing.T) {
+	channel := &stubMessageSender{}
+	store := &fakeStore{delivery: channelDelivery(), sentErr: errors.New("connection reset by peer")}
+	d := newTestDispatcher(store, fakeResolver{channel: channel}, &stubConsent{})
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("dispatch: %v — a terminal outcome carrying an error fails the job that did its work", err)
+	}
+	if got != OutcomeParked {
+		t.Fatalf("outcome = %v, want OutcomeParked — a message the provider accepted must not go back on a ladder that cannot tell it went", got)
+	}
+	if channel.calls != 1 {
+		t.Fatalf("the provider was called %d time(s), want exactly 1", channel.calls)
+	}
+	if store.failed != "" {
+		t.Errorf("a retry note %q was recorded; \"will retry\" is a false statement about a message that already went", store.failed)
+	}
+	if store.parked == unknownOutcomeReason {
+		t.Errorf("the delivery parked as an unknown outcome; this outcome is KNOWN — the provider accepted the message")
+	}
+	if !strings.Contains(store.parked, "accepted") || !strings.Contains(store.parked, "receipt") {
+		t.Errorf("park reason = %q; it must say the provider accepted the message and its receipt could not be recorded", store.parked)
+	}
+	if store.parkedReceipt != channelReceiptID {
+		t.Errorf("provider message id kept on the park = %q, want %q — it is the only handle left on a message nothing else records",
+			store.parkedReceipt, channelReceiptID)
 	}
 }
 

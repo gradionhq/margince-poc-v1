@@ -1375,6 +1375,171 @@ describe("ComposeModal send refusals", () => {
   });
 });
 
+// The Telegram reply reuses ComposeModal's confirm-first send, its consent
+// rendering, and its post-send refresh wholesale — only the wire target and
+// the fields a channel has no concept of differ from the mail path above.
+describe("ComposeModal — telegram channel reply", () => {
+  const telegramActivity: Activity = {
+    ...activity202,
+    id: "act-1",
+    kind: "telegram",
+    subject: null,
+    direction: "inbound",
+  };
+
+  it("posts to send-message for a telegram activity", async () => {
+    const onClose = vi.fn();
+    const sent = stubRoutes({
+      "POST /activities/act-1/send-message": () =>
+        jsonResponse(
+          { ...telegramActivity, direction: "outbound", body: "On my way." },
+          202,
+        ),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        kind="telegram"
+        open
+        onClose={onClose}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await userEvent.type(screen.getByPlaceholderText("Body"), "On my way.");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    const req = sent.find(
+      (r) => r.key === "POST /activities/act-1/send-message",
+    );
+    // No `to`, `subject`, `cc`, or `draft_ref` — the wire shape a channel send
+    // actually accepts (SendMessageRequest carries only these two fields).
+    expect(req?.body).toEqual({
+      body: "On my way.",
+      consent_purpose: "transactional",
+    });
+    // ADR-0055: the human's own click is the approval on both send paths.
+    expect(req?.headers.get("X-Approval-Token")).toBeNull();
+    expect(req?.headers.get("Idempotency-Key")).toBeNull();
+  });
+
+  it("hides subject and cc for a channel reply", async () => {
+    stubRoutes();
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        kind="telegram"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await userEvent.type(screen.getByPlaceholderText("Body"), "On my way.");
+
+    // The interaction proves the surface is otherwise usable; the missing
+    // fields are the point of the test, not an accident of an unrendered form.
+    expect(screen.getByDisplayValue("On my way.")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Subject")).toBeNull();
+    expect(screen.queryByLabelText("Cc")).toBeNull();
+    // A channel has no addressable "to" either — the server resolves the
+    // recipient from the conversation's own channel identity (design §9.3).
+    expect(screen.queryByLabelText("To")).toBeNull();
+  });
+
+  it("names the channel it is about to send on, and says the send is final", async () => {
+    stubRoutes();
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        kind="telegram"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+
+    // Confirming an irreversible send under the name of a channel this
+    // message will never travel on is a lie the rep cannot check.
+    expect(screen.getByText("Send this message?")).toBeTruthy();
+    expect(screen.queryByText("Send this email?")).toBeNull();
+    // The heading is the only place the channel is named, so it cannot also
+    // be the only place the irreversibility is: the modal chrome around it
+    // is a tier dot and two buttons.
+    expect(screen.getByText(/irreversible action/)).toBeTruthy();
+  });
+
+  it("gives the message box an accessible name of its own", async () => {
+    stubRoutes();
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        kind="telegram"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+
+    // getByLabelText resolves labels only — a placeholder does not satisfy
+    // it — so this holds the box to a name that survives the rep typing
+    // into it, the moment the placeholder disappears.
+    expect(screen.getByLabelText("Body")).toBeTruthy();
+  });
+
+  it("keeps the drafted text when consent is refused", async () => {
+    stubRoutes({
+      "POST /activities/act-1/send-message": () =>
+        problemResponse(
+          {
+            code: "consent_not_granted",
+            detail: "suppressed",
+            title: "Conflict",
+          },
+          409,
+        ),
+    });
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        personId="p-1"
+        kind="telegram"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+    await userEvent.type(
+      screen.getByPlaceholderText("Body"),
+      "Call me back please.",
+    );
+    await userEvent.selectOptions(
+      screen.getByRole("combobox"),
+      "transactional",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    expect(await screen.findByText(/has not granted consent/i)).toBeTruthy();
+    // The rep's words survive the refusal — proving this, not merely that an
+    // error rendered, is the whole point: losing a written reply to a 409
+    // once is what makes a rep stop trusting the surface.
+    expect(screen.getByDisplayValue("Call me back please.")).toBeTruthy();
+  });
+});
+
 describe("TimelineActions", () => {
   const email: Activity = {
     ...activity202,
@@ -1424,5 +1589,46 @@ describe("TimelineActions", () => {
     await userEvent.click(screen.getByRole("button", { name: "Reply" }));
     // The ConfirmModal titled "Send this email?" mounts only once Reply opens it.
     expect(await screen.findByText("Send this email?")).toBeTruthy();
+  });
+
+  it("offers no reply when the person is unreachable", async () => {
+    // A blocked (or never-established) Telegram identity means a reply box
+    // here would only fail once the rep has already written the message —
+    // worse than never offering it (design §9.3).
+    const telegram: Activity = { ...activity202, id: "a3", kind: "telegram" };
+    stubRoutes({
+      "GET /people/p-1": () =>
+        jsonResponse({
+          id: "p-1",
+          workspace_id: "w",
+          full_name: "Jane Doe",
+          reachability: [
+            {
+              provider: "telegram",
+              reachable: false,
+              since: "2026-07-01T00:00:00Z",
+            },
+          ],
+          version: 1,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        }),
+    });
+    render(
+      <TimelineActions
+        activity={telegram}
+        entityType="person"
+        entityId="p-1"
+        personId="p-1"
+      />,
+    );
+
+    // Relink renders immediately (it never waits on reachability), which is
+    // the interaction that proves the component actually mounted and the
+    // missing Reply button is the gate, not an unrendered tree.
+    expect(await screen.findByRole("button", { name: "Relink" })).toBeTruthy();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Reply" })).toBeNull(),
+    );
   });
 });

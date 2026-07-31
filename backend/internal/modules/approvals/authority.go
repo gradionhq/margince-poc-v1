@@ -23,6 +23,11 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 )
 
+// objectActivity is the RBAC object every timeline write is governed by, spelled
+// once: three staged kinds and the target-visibility switch below all name it,
+// and a typo in any of them would silently ask for a grant nobody holds.
+const objectActivity = "activity"
+
 // decisionGrants maps each stageable kind onto the RBAC the underlying
 // effect needs; approving requires every one of them.
 var decisionGrants = map[string][]struct {
@@ -42,8 +47,11 @@ var decisionGrants = map[string][]struct {
 	// A send is an activity write plus consent enforcement at redemption
 	// time; the approver needs the write grant, the consent gate runs in
 	// the handler regardless of who approved.
-	"send_email":   {{"activity", principal.ActionCreate}},
-	"book_meeting": {{"activity", principal.ActionCreate}},
+	"send_email": {{objectActivity, principal.ActionCreate}},
+	// send_message is the same effect on a messaging channel: an activity
+	// write, with the consent gate running in the handler whoever approved it.
+	"send_message": {{objectActivity, principal.ActionCreate}},
+	"book_meeting": {{objectActivity, principal.ActionCreate}},
 	// Sending an offer releases the draft→sent transition (B-E03.19) —
 	// an offer write; deciding it needs the same grant the send itself
 	// requires.
@@ -81,7 +89,7 @@ var decisionGrants = map[string][]struct {
 	// the drafted task activity; the target deal's visibility gates who
 	// may see and decide it (targetVisible), the create grant gates the
 	// write the confirm performs.
-	"deal_follow_up": {{"activity", principal.ActionCreate}},
+	"deal_follow_up": {{objectActivity, principal.ActionCreate}},
 }
 
 // decidedEcho builds the approved/rejected payload a kind's decision

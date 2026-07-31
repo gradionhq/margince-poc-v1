@@ -81,3 +81,25 @@ func TestWithKeyvaultWiresTheCredentialCustodian(t *testing.T) {
 		t.Fatal("WithKeyvault must not displace an already-wired connector registry")
 	}
 }
+
+// TestWithKeyvaultWiresTheSendPreflightWithNoGoogleApp pins the fix for the
+// Telegram-only wiring gap: previously the outbound send pre-flight was
+// installed ONLY by WithGmailCapture, so a role with no Google app configured
+// composed no pre-flight at all — including for the channel branch, which
+// never depended on Gmail in the first place (NewCaptureRegistry registers
+// Telegram unconditionally). WithKeyvault must now install it over whichever
+// registry it just ensured exists, with no Gmail/Graph option involved.
+func TestWithKeyvaultWiresTheSendPreflightWithNoGoogleApp(t *testing.T) {
+	s := &Server{}
+	WithKeyvault(fakeVault{})(s, nil)
+	if s.send.SendAuthority == nil {
+		t.Fatal("WithKeyvault must install the send pre-flight even with no Google app configured")
+	}
+	authority, ok := s.send.SendAuthority.(mailboxAuthority)
+	if !ok {
+		t.Fatalf("send pre-flight = %T, want a mailboxAuthority", s.send.SendAuthority)
+	}
+	if authority.grants != s.connectorHandlers.registry {
+		t.Fatal("the pre-flight must read the SAME registry the connect flow writes to, not a second construction")
+	}
+}

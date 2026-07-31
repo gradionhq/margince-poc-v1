@@ -218,7 +218,7 @@ func (s *Store) BookMeeting(ctx context.Context, in BookMeetingInput) (crmcontra
 	}
 	source := in.Source
 	if source == "" {
-		source = "manual"
+		source = sourceManual
 	}
 	occurred := in.Start
 	activity, _, err := s.LogActivity(ctx, LogActivityInput{

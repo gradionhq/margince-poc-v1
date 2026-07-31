@@ -100,6 +100,29 @@ func preflightAppPool(t *testing.T) *pgxpool.Pool {
 // a vault before setupWithOptions has opened the harness's own.
 func setupPreflight(t *testing.T) *preflightEnv {
 	t.Helper()
+	gmailCfg := compose.GmailConfig{
+		ClientID: "preflight-id", ClientSecret: "preflight-secret",
+		StateKey: "0123456789abcdef0123456789abcdef", PublicBaseURL: preflightBaseURL,
+	}
+	return setupPreflightIn(t, compose.WithGmailCapture(gmailCfg, compose.CaptureConfig{}))
+}
+
+// setupPreflightWithoutGoogleApp boots the same composition on a deployment
+// that configured NO Google app: the connect registry still exists (WithKeyvault
+// builds one), so the pre-flight is live and reads the same tables — the only
+// thing missing is the app that would have transmitted.
+func setupPreflightWithoutGoogleApp(t *testing.T) *preflightEnv {
+	t.Helper()
+	return setupPreflightIn(t)
+}
+
+// setupPreflightIn lays the fixture down: a consented person, the anchor
+// activity being answered, and the acting human. extra carries whatever the
+// caller wants composed on top of the vault and the public base URL — which is
+// where the two setups above differ, and the only place. Each test boots its own
+// database, so the one installation slug serves both.
+func setupPreflightIn(t *testing.T, extra ...compose.Option) *preflightEnv {
+	t.Helper()
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		t.Fatalf("generating a test root key: %v", err)
@@ -109,16 +132,12 @@ func setupPreflight(t *testing.T) *preflightEnv {
 	if err != nil {
 		t.Fatalf("building the local vault: %v", err)
 	}
-	gmailCfg := compose.GmailConfig{
-		ClientID: "preflight-id", ClientSecret: "preflight-secret",
-		StateKey: "0123456789abcdef0123456789abcdef", PublicBaseURL: preflightBaseURL,
-	}
-	e := setupWithOptions(t, compose.WithKeyvault(vault),
-		compose.WithGmailCapture(gmailCfg, compose.CaptureConfig{}),
-		// A marketing send derives a one-click unsubscribe link and refuses
-		// without a boot-configured base to build it from, so the fixture
-		// carries one — an install that can send at all has one.
-		compose.WithPublicBaseURL(preflightBaseURL))
+	opts := append([]compose.Option{compose.WithKeyvault(vault)}, extra...)
+	// A marketing send derives a one-click unsubscribe link and refuses
+	// without a boot-configured base to build it from, so the fixture
+	// carries one — an install that can send at all has one.
+	opts = append(opts, compose.WithPublicBaseURL(preflightBaseURL))
+	e := setupWithOptions(t, opts...)
 	e.slug = "preflight-e2e"
 	bootstrapWorkspaceSession(t, e, "Preflight E2E", "sender@fable.test", "Admin")
 
@@ -284,5 +303,32 @@ func TestSendProceedsOnceTheMailboxHoldsTheSendGrant(t *testing.T) {
 	}
 	if n := p.stagedDeliveries(t); n != 1 {
 		t.Fatalf("%d deliveries staged behind an accepted send, want 1", n)
+	}
+}
+
+// The deployment fact the grant cannot express: the mailbox holds the send
+// scope, and this installation configured no Google app to transmit under it.
+// The scope survives the app being removed — and a mailbox can be connected on
+// one deployment and read by another — so the grant alone says yes to a send
+// that could only park.
+//
+// It is the DEPLOYMENT that is asked, never this process role's registry: the
+// api self-gates its Gmail transport on a state key it does not need to
+// transmit, so an installation whose worker sends perfectly well has no api-side
+// gmail connector, and refusing on that would refuse every Gmail send there.
+func TestAGrantedGmailScopeWithNoConfiguredAppRefusesAtRequestTime(t *testing.T) {
+	p := setupPreflightWithoutGoogleApp(t)
+	p.connect(t, gmailReadonlyScope, gmailSendScope)
+
+	status, code, detail := p.send(t)
+
+	if status != http.StatusUnprocessableEntity || code != "mailbox_not_send_capable" {
+		t.Fatalf("send on a deployment with no Google app → %d %q, want 422 mailbox_not_send_capable", status, code)
+	}
+	if !strings.Contains(detail, "reconnect") {
+		t.Fatalf("refusal detail %q does not tell the user what to do about it", detail)
+	}
+	if n := p.stagedDeliveries(t); n != 0 {
+		t.Fatalf("%d deliveries staged behind a refused send, want 0", n)
 	}
 }

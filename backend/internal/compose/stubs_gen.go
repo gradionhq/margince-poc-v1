@@ -52,6 +52,10 @@ func (stubs) SendEmail(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontr
 	httperr.NotImplemented(w, r, "SendEmail")
 }
 
+func (stubs) SendMessage(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.SendMessageParams) {
+	httperr.NotImplemented(w, r, "SendMessage")
+}
+
 func (stubs) ListAgentTools(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ListAgentTools")
 }
@@ -234,6 +238,22 @@ func (stubs) GetCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 
 func (stubs) UpdateCaptureSettings(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "UpdateCaptureSettings")
+}
+
+func (stubs) ListChannelConnections(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ListChannelConnections")
+}
+
+func (stubs) ConnectChannel(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "ConnectChannel")
+}
+
+func (stubs) DisconnectChannel(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "DisconnectChannel")
+}
+
+func (stubs) ReplaceChannelToken(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "ReplaceChannelToken")
 }
 
 func (stubs) ColdStartReadback(w nethttp.ResponseWriter, r *nethttp.Request) {
