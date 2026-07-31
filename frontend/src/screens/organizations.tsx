@@ -50,7 +50,6 @@ import {
   PeopleCard,
   RECORD_ZONE,
   SignalsCard,
-  SinceLastVisit,
   TagsCard,
   useOrganization360,
 } from "./company360";
@@ -72,6 +71,7 @@ import {
   useListQuery,
 } from "./listquery";
 import { LogActivityAction } from "./logactivity";
+import { MeetingBrief } from "./meetingbrief";
 import { MergeAction } from "./merge";
 import { PartnerTab } from "./partners";
 import { activityTimeline } from "./people";
@@ -1535,12 +1535,11 @@ function CompanyOverview({
       {tabs}
       {overlay && <OverlayFallback />}
       {failed && <EmptyState>{t("co.partial")}</EmptyState>}
-      {view && (
-        <SinceLastVisit
-          view={view}
-          onOpenDecisions={() => setDecisionsOpen(true)}
-        />
-      )}
+      {/* The brief leads: what this account looks like right now, before the
+          cards that report it field by field. It absorbed the standalone
+          "since your last visit" block, because two cards each claiming to
+          say what the state is made the reader arbitrate between them. */}
+      {view && <MeetingBrief view={view} />}
       <AssistantPanel
         orgId={org.id}
         view={view}

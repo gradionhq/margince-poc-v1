@@ -600,6 +600,37 @@ export const de = {
   "co.connections.group.intro_path": "der warme Einstieg",
   "co.signals.title": "Signale",
   "co.signals.empty": "Kein offenes Signal zu diesem Account.",
+  "co.prep.title": "Bevor du mit ihnen sprichst",
+  "co.prep.sub":
+    "Aus den Daten dieses Accounts gelesen. Jede Zeile nennt ihre Grundlage.",
+  "co.prep.sparse":
+    "Zu diesem Account gibt es kaum Historie. Es lässt sich daraus nichts vorbereiten.",
+  "co.prep.withheld":
+    "Teile dieses Accounts sind für dich nicht sichtbar. Diese Einschätzung ist deshalb unvollständig.",
+  "co.read.lastTouch": "Der letzte Kontakt war vor {days} Tagen.",
+  "co.read.lastTouchOne": "Der letzte Kontakt war gestern.",
+  "co.read.shallow":
+    "Die Namen sind erfasst, eine echte Beziehung besteht hier aber noch nicht.",
+  "co.read.neverTouched": "Mit diesem Account hatte bisher niemand Kontakt.",
+  "co.read.newActivityOne": "Ein neuer Vorgang seit deinem letzten Besuch.",
+  "co.read.newActivityMany":
+    "{count} neue Vorgänge seit deinem letzten Besuch.",
+  "co.read.dealMovedOne":
+    "Ein Deal hat seit deinem letzten Besuch die Phase gewechselt.",
+  "co.read.dealMovedMany":
+    "{count} Deals haben seit deinem letzten Besuch die Phase gewechselt.",
+  "co.read.noContacts": "Du kennst bei diesem Account noch niemanden.",
+  "co.read.singleThread":
+    "Nur {name} hat je reagiert. Sonst hat hier niemand geantwortet.",
+  "co.read.oneContact": "{name} ist dein einziger Zugang zu diesem Account.",
+  "co.read.noChampion": "Am offenen Deal ist kein Champion benannt.",
+  "co.read.stalled": "{name} kommt nicht voran.",
+  "co.read.noOpenDeal": "Kein offener Deal, und bisher nichts gewonnen.",
+  "co.read.noOpenDealCustomer":
+    "Aktuell kein offener Deal. Der Account hat aber schon gekauft.",
+  "co.read.overdueOne": "Überfällig: {subject}",
+  "co.read.overdueMany": "{count} Zusagen sind hier überfällig.",
+  "co.read.noNextStep": "Für diesen Account ist nichts Nächstes geplant.",
   "co.facts.title": "Kurzfakten",
   "co.tags.lists": "Listen",
   "co.tags.tags": "Tags",

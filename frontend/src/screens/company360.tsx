@@ -505,69 +505,6 @@ export function SignalsCard({ orgId }: Readonly<{ orgId: string }>) {
 }
 
 /**
- * SinceLastVisit is the "what changed" line. It reports only the dimensions
- * it was allowed to count: a null count means the caller lacks that grant,
- * which is not the same as zero, so those lines are absent rather than "0".
- */
-export function SinceLastVisit({
-  view,
-  onOpenDecisions,
-}: Readonly<{
-  view: Organization360;
-  // Given, the proposals count opens the queue it counts. Absent, it stays a
-  // badge — the count is still true, it just has nowhere to send the reader.
-  onOpenDecisions?: () => void;
-}>) {
-  const t = useT();
-  const delta = view.since_last_visit;
-  // Withheld or missing: the line is dropped rather than claiming nothing
-  // changed. "Nothing new" is a fact this page would not have.
-  if (!delta || omitted(view, "since_last_visit")) {
-    return null;
-  }
-  const lines: string[] = [];
-  if (delta.new_activities > 0) {
-    lines.push(t("co.since.activities", { count: delta.new_activities }));
-  }
-  if (delta.deal_stage_moves) {
-    lines.push(t("co.since.moves", { count: delta.deal_stage_moves }));
-  }
-  const proposals = delta.pending_proposals
-    ? t("co.since.proposals", { count: delta.pending_proposals })
-    : null;
-  const first = !delta.baseline_at;
-  const empty = lines.length === 0 && !proposals;
-  return (
-    <section className="card co-since">
-      <SectionHeader title={t("co.since.title")} />
-      {first && <p className="co-empty">{t("co.since.first")}</p>}
-      {!first && empty && <p className="co-empty">{t("co.since.nothing")}</p>}
-      {!empty && (
-        <p className="co-row-meta">
-          {lines.map((line) => (
-            <Badge key={line} tone="accent">
-              {line}
-            </Badge>
-          ))}
-          {proposals &&
-            (onOpenDecisions ? (
-              <button
-                type="button"
-                className="co-since-open"
-                onClick={onOpenDecisions}
-              >
-                <Badge tone="accent">{proposals}</Badge>
-              </button>
-            ) : (
-              <Badge tone="accent">{proposals}</Badge>
-            ))}
-        </p>
-      )}
-    </section>
-  );
-}
-
-/**
  * NextSteps is the middle column's first block: the open tasks on this
  * account, overdue first, each showing what it is linked to.
  */
