@@ -27,7 +27,8 @@ import (
 )
 
 // acmeTeamSite is a two-page site whose /team page names two people: Anna
-// with a printed email, Bernd without one — the person lane's fixture.
+// with a printed email, Bernd without one: only Anna is proposed, because a
+// lead nobody can contact is not a lead.
 func acmeTeamSite() *fakeSite {
 	return &fakeSite{pages: map[string]fakeSitePage{
 		seedURL: {text: readable("Acme home.")},
@@ -93,15 +94,17 @@ func TestDeepReadTeamPageStagesOneThinSiteLeadPerPublishedPerson(t *testing.T) {
 	done, _ := runTeamDeepRead(t, e, org)
 
 	// People are proposals, not facts: the dossier reports an honest done
-	// with fact_count 0 and the two per-person stagings.
+	// with fact_count 0 and one staging for the person the page published an
+	// address for. Bernd is named on the same page and dropped: a lead
+	// nobody can contact asks a human to confirm a name they cannot act on.
 	if done.Status != "done" || done.FactCount != 0 {
 		t.Fatalf("dossier = %+v, want done with fact_count 0 (people are not facts)", done)
 	}
-	if len(done.ProposalIDs) != 2 {
-		t.Fatalf("proposal_ids = %v, want one site_lead per published person", done.ProposalIDs)
+	if len(done.ProposalIDs) != 1 {
+		t.Fatalf("proposal_ids = %v, want one site_lead per CONTACTABLE published person", done.ProposalIDs)
 	}
 
-	annaSummary, anna, _ := siteLeadProposalRow(t, e, done.ProposalIDs[0])
+	annaSummary, anna, annaRaw := siteLeadProposalRow(t, e, done.ProposalIDs[0])
 	if annaSummary != "Lead from https://acme.example: Anna Muster — Chief Executive Officer" {
 		t.Fatalf("summary = %q, want the site + name — role spelling", annaSummary)
 	}
@@ -117,14 +120,15 @@ func TestDeepReadTeamPageStagesOneThinSiteLeadPerPublishedPerson(t *testing.T) {
 		t.Fatalf("Anna's evidence = %q, want the page's passage naming her", anna.EvidenceSnippet)
 	}
 
-	// The NEVER-8 boundary: the model claimed an email for Bernd the page
-	// never printed — the staged payload must not carry it ANYWHERE.
-	_, bernd, berndRaw := siteLeadProposalRow(t, e, done.ProposalIDs[1])
-	if bernd.Name != "Bernd Beispiel" || bernd.Role != "Head of Sales" {
-		t.Fatalf("Bernd's payload = %+v, want the page's published identity", bernd)
+	// The NEVER-8 boundary and the contactability floor meet on Bernd: the
+	// model claimed an email the page never printed, so the claim is stripped
+	// — and a person with no published address is not proposed at all. A lead
+	// nobody can contact asks a human to confirm a name they cannot act on.
+	if len(done.ProposalIDs) != 1 {
+		t.Fatalf("%d proposals, want only the person the page published an address for", len(done.ProposalIDs))
 	}
-	if bernd.PublishedEmail != "" || strings.Contains(string(berndRaw), "bernd@") {
-		t.Fatalf("Bernd's payload %s carries an email the page never published", berndRaw)
+	if strings.Contains(string(annaRaw), "bernd@") {
+		t.Fatalf("a payload carries an email the page never published: %s", annaRaw)
 	}
 }
 
@@ -142,46 +146,38 @@ func TestSiteLeadAcceptCapturesALeadIdempotentAcrossReReads(t *testing.T) {
 	}
 	var leads int
 	var annaEmail, annaTitle, annaSource, annaCapturedBy string
-	var berndEmail *string
 	err := database.WithWorkspaceTx(e.Admin(), e.Pool, func(tx pgx.Tx) error {
 		ctx := context.Background()
 		if err := tx.QueryRow(ctx, `SELECT count(*) FROM lead`).Scan(&leads); err != nil {
 			return err
 		}
-		if err := tx.QueryRow(ctx,
-			`SELECT email, title, source_system, captured_by FROM lead WHERE full_name = 'Anna Muster'`).
-			Scan(&annaEmail, &annaTitle, &annaSource, &annaCapturedBy); err != nil {
-			return err
-		}
 		return tx.QueryRow(ctx,
-			`SELECT email FROM lead WHERE full_name = 'Bernd Beispiel'`).Scan(&berndEmail)
+			`SELECT email, title, source_system, captured_by FROM lead WHERE full_name = 'Anna Muster'`).
+			Scan(&annaEmail, &annaTitle, &annaSource, &annaCapturedBy)
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if leads != 2 {
-		t.Fatalf("%d leads after accepting both people, want 2", leads)
+	if leads != 1 {
+		t.Fatalf("%d leads, want 1 — only the person the page published an address for", leads)
 	}
 	if annaEmail != "anna@acme.example" || annaTitle != "Chief Executive Officer" ||
 		annaSource != "siteread" || annaCapturedBy != "agent:siteread" {
 		t.Fatalf("Anna's lead = %s/%s from %s by %s, want her published identity captured as agent:siteread",
 			annaEmail, annaTitle, annaSource, annaCapturedBy)
 	}
-	if berndEmail != nil {
-		t.Fatalf("Bernd's lead email = %v, want NULL — the page published none", *berndEmail)
-	}
 
 	// A FRESH read of the same site stages fresh proposals; accepting the
 	// same person again resolves to the same natural key — no second lead.
 	again, svc2 := runTeamDeepRead(t, e, org)
-	if len(again.ProposalIDs) != 2 {
-		t.Fatalf("re-read proposal_ids = %v, want the two people staged again", again.ProposalIDs)
+	if len(again.ProposalIDs) != 1 {
+		t.Fatalf("re-read proposal_ids = %v, want the contactable person staged again", again.ProposalIDs)
 	}
 	if _, err := svc2.Decide(e.As(e.Rep2, nil, integration.AdminPerms), ids.From[ids.ApprovalKind](again.ProposalIDs[0]), true, nil); err != nil {
 		t.Fatalf("re-accept after re-read: %v", err)
 	}
-	if n := e.WsCount(t, `SELECT count(*) FROM lead`); n != 2 {
-		t.Fatalf("%d leads after re-accepting Anna from a re-read, want still 2 (same natural key)", n)
+	if n := e.WsCount(t, `SELECT count(*) FROM lead`); n != 1 {
+		t.Fatalf("%d leads after re-accepting Anna from a re-read, want still 1 (same natural key)", n)
 	}
 	if n := e.WsCount(t, `SELECT count(*) FROM lead WHERE full_name = 'Anna Muster'`); n != 1 {
 		t.Fatalf("%d Anna leads after the re-read accept, want exactly 1", n)

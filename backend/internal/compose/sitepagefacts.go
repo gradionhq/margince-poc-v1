@@ -51,6 +51,12 @@ func menuForKind(kind crmcontracts.SiteReadPageKind) (pageMenu, bool) {
 	case crmcontracts.SiteReadPageKindServices, crmcontracts.SiteReadPageKindProducts:
 		return pageMenu{factFields: append(offeringAndMarket, people.FactTechnology)}, true
 	case crmcontracts.SiteReadPageKindHome, crmcontracts.SiteReadPageKindAbout:
+		// These pages keep the people lane: an about page's founders and
+		// named staff are exactly the contacts worth having. What they must
+		// not yield is the testimonial wall, and the published-email floor
+		// is what separates the two — a company prints an address for the
+		// person you should talk to, and never for the customer it is
+		// quoting.
 		return pageMenu{factFields: append(factFields("offering", "market", "signal"), people.FactLocation), people: true}, true
 	case crmcontracts.SiteReadPageKindTeam:
 		return pageMenu{people: true}, true
@@ -398,10 +404,23 @@ func gatePagePeople(parsed pageFactsReply, page crawlPage, idx snippetIndex, dro
 			drop(lanePeople, name, role, dropNameRoleUnlinked)
 			continue
 		}
+		// A lead nobody can contact is not a lead. The page has to have
+		// PRINTED an address: without one the proposal asks a human to
+		// confirm a name they then have no way to act on, and sixty-two of
+		// those buried the queue that real proposals share.
+		//
+		// This gates what we PROPOSE, not what a lead may be — a lead
+		// created by any other route may still carry no email (LEADS-DDL,
+		// uq_lead_email_dedupe is partial for exactly that reason).
+		publishedEmail := verbatimOrEmpty(p.M, page.Text)
+		if publishedEmail == "" {
+			drop(lanePeople, name, role, dropNoPublishedEmail)
+			continue
+		}
 		person := sitePerson{
 			Name:            name,
 			Role:            role,
-			PublishedEmail:  verbatimOrEmpty(p.M, page.Text),
+			PublishedEmail:  publishedEmail,
 			LinkedinURL:     verbatimOrEmpty(p.L, page.Text),
 			EvidenceSnippet: evidence,
 			SourceURL:       page.URL,

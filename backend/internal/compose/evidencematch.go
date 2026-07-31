@@ -88,6 +88,7 @@ const (
 	dropEvidenceNotOnPage = "evidence_not_on_page"
 	dropConfidenceRange   = "confidence_out_of_range"
 	dropNameRoleUnlinked  = "name_role_not_in_snippet"
+	dropNoPublishedEmail  = "no_published_email"
 	dropEmptyValueKey     = "empty_value_key"
 	dropZeroedStat        = "zeroed_stat"
 	dropUnparseableReply  = "unparseable_reply"
