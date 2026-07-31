@@ -46,13 +46,26 @@ UPDATE activity a
             AND l.entity_id = a.id
             AND l.action = 'archive')
    AND (
-         -- Nothing in this workspace will ever re-mint it.
+         -- The automation that mints THIS task's wording is not running, so
+         -- nothing will ever mint it again.
+         --
+         -- Paired per subject, not per workspace: the two automations write
+         -- different tasks (no_activity_reminder says "Check in — no activity
+         -- since …", check_in_cadence says "Time for a check-in — last touched
+         -- …"), and a workspace can run one and have paused the other. Asking
+         -- only whether EITHER is enabled would leave the paused one's tasks
+         -- archived with nothing to bring them back — the same permanence this
+         -- migration exists to undo, one automation further in.
          NOT EXISTS (
                SELECT 1 FROM automation au
                 WHERE au.workspace_id = a.workspace_id
-                  AND au.key IN ('no_activity_reminder', 'check_in_cadence')
                   AND au.enabled
-                  AND au.archived_at IS NULL)
+                  AND au.archived_at IS NULL
+                  AND au.key = CASE
+                        WHEN a.subject LIKE 'Check in — no activity since %'
+                          THEN 'no_activity_reminder'
+                        ELSE 'check_in_cadence'
+                      END)
          -- Or a person had made it theirs, and a re-mint is not the same row.
          OR a.assignee_id IS NOT NULL
          OR a.remind_at IS NOT NULL);

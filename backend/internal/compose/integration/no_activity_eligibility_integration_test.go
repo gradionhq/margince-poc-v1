@@ -556,3 +556,28 @@ func TestTheRestoreLeavesADeliberateHumanArchiveAlone(t *testing.T) {
 		t.Error("a reminder a person deliberately archived was handed back to them")
 	}
 }
+
+// The two reminder automations write different tasks, and a workspace can run
+// one while the other is paused. Asking only whether EITHER is enabled leaves
+// the paused one's tasks archived with nothing to bring them back.
+func TestTheRestorePairsEachReminderWithItsOwnAutomation(t *testing.T) {
+	e := Setup(t)
+	owner := OwnerConn(t)
+
+	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", true)
+	seedReminderAutomation(t, owner, e.WS, "check_in_cadence", false)
+	live := seedTaskRow(t, owner, e.WS,
+		"Check in — no activity since 2026-06-16", "system", false)
+	stranded := seedTaskRow(t, owner, e.WS,
+		"Time for a check-in — last touched 2026-06-16", "system", false)
+
+	applyCleanupMigration(t, owner)
+	applyRestoreMigration(t, owner)
+
+	if !isArchived(t, owner, live) {
+		t.Error("a reminder whose own automation still runs came back; the scan will mint a duplicate beside it")
+	}
+	if isArchived(t, owner, stranded) {
+		t.Error("a cadence reminder stayed archived while only the OTHER automation runs — nothing will ever mint it again")
+	}
+}
