@@ -223,54 +223,62 @@ func (s *Service) ListPassports(ctx context.Context, id Identity) ([]PassportRow
 // as its first act, keeping the grant → refresh → passport order this
 // function must not invert.
 func (s *Service) RevokePassport(ctx context.Context, id Identity, passportID ids.PassportID) error {
-	isAdmin := id.hasRole("admin")
 	ctx = actorCtx(ctx, id)
 	return database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		var onBehalfOf ids.UserID
-		var revokedAt *time.Time
-		var grantID *ids.UUID
-		err := tx.QueryRow(ctx,
-			`SELECT on_behalf_of, revoked_at, oauth_grant_id FROM passport WHERE id = $1`, passportID).
-			Scan(&onBehalfOf, &revokedAt, &grantID)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return apperrors.ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		// Another user's passport reads as absent, not forbidden —
-		// existence-hiding matches the row-scope convention.
-		if onBehalfOf != id.UserID && !isAdmin {
-			return apperrors.ErrNotFound
-		}
-		if revokedAt != nil && grantID == nil {
-			return nil // idempotent: a locally minted passport has nothing beneath it
-		}
-		if grantID != nil {
-			// The connection dies even when THIS row is already dead. A rotation
-			// that replaced the passport a moment before the human pressed the
-			// button would otherwise turn their revoke into a no-op: the
-			// credential they aimed at is gone, and the connection they meant
-			// keeps serving calls under its successor.
-			if err := s.revokeGrantTx(ctx, tx, *grantID, passportRevokedReason); err != nil {
-				return err
-			}
-		}
-		// The row itself, conditional on it still being live: the cascade
-		// above already retired every passport under the grant, and a second
-		// UPDATE would audit one death twice. It still runs for a passport
-		// whose grant was already dead — nothing may report a revocation it
-		// did not perform.
-		tag, err := tx.Exec(ctx,
-			`UPDATE passport SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, passportID)
-		if err != nil {
-			return err
-		}
-		if tag.RowsAffected() == 0 {
-			return nil
-		}
-		return auditPassportRevoked(ctx, tx, passportID, id.UserID)
+		return s.revokePassportTx(ctx, tx, id, passportID)
 	})
+}
+
+// revokePassportTx is RevokePassport's body, inside the caller's transaction.
+// It is a named function rather than a closure so the cascade order it depends
+// on — grant lock first, this row second — reads at one nesting level.
+func (s *Service) revokePassportTx(
+	ctx context.Context, tx pgx.Tx, id Identity, passportID ids.PassportID,
+) error {
+	var onBehalfOf ids.UserID
+	var revokedAt *time.Time
+	var grantID *ids.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT on_behalf_of, revoked_at, oauth_grant_id FROM passport WHERE id = $1`, passportID).
+		Scan(&onBehalfOf, &revokedAt, &grantID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return apperrors.ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	// Another user's passport reads as absent, not forbidden —
+	// existence-hiding matches the row-scope convention.
+	if onBehalfOf != id.UserID && !id.hasRole("admin") {
+		return apperrors.ErrNotFound
+	}
+	if revokedAt != nil && grantID == nil {
+		return nil // idempotent: a locally minted passport has nothing beneath it
+	}
+	if grantID != nil {
+		// The connection dies even when THIS row is already dead. A rotation
+		// that replaced the passport a moment before the human pressed the
+		// button would otherwise turn their revoke into a no-op: the
+		// credential they aimed at is gone, and the connection they meant
+		// keeps serving calls under its successor.
+		if err := s.revokeGrantTx(ctx, tx, *grantID, passportRevokedReason); err != nil {
+			return err
+		}
+	}
+	// The row itself, conditional on it still being live: the cascade
+	// above already retired every passport under the grant, and a second
+	// UPDATE would audit one death twice. It still runs for a passport
+	// whose grant was already dead — nothing may report a revocation it
+	// did not perform.
+	tag, err := tx.Exec(ctx,
+		`UPDATE passport SET revoked_at = now() WHERE id = $1 AND revoked_at IS NULL`, passportID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	return auditPassportRevoked(ctx, tx, passportID, id.UserID)
 }
 
 // auditPassportRevoked records one dead passport: the audit row and the bus

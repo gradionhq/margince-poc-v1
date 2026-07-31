@@ -116,46 +116,8 @@ func (s *Service) rotateRefreshToken(ctx context.Context, in refreshRequest) (Is
 		reused  bool
 	)
 	err := database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
-		tokenHash := hashToken(in.Token)
-		grantID, err := grantOfPresentedToken(ctx, tx, tokenHash)
-		if err != nil {
-			return err
-		}
-		// The connection-level lock (oauth_grant.go), always before the refresh
-		// row below. A grant that vanished between the two reads leaves nothing
-		// to renew, which is a refusal like any other.
-		if err := lockGrant(ctx, tx, grantID); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return errRefreshRejected
-			}
-			return err
-		}
-		locked, err := lockPresentedRefreshToken(ctx, tx, tokenHash)
-		if err != nil {
-			return err
-		}
-		// Every write below is attributed to the human who consented: a
-		// renewal has no session, and an unattributed audit row would hide
-		// whose connection changed.
-		writeCtx := actorCtx(ctx, locked.identity())
-		switch err := presentationVerdict(ctx, tx, locked, in, s.now()); {
-		case errors.Is(err, errRefreshReuse):
-			if err := s.revokeGrantTx(writeCtx, tx, locked.grantID, reuseRevokeReason); err != nil {
-				return err
-			}
-			// The cascade MUST commit: returning the refusal from here would
-			// roll it back and leave the stolen chain alive. So the
-			// transaction succeeds and the refusal is answered after it.
-			reused = true
-			return nil
-		case err != nil:
-			return err
-		}
-		scopes, err := narrowedScopes(in.Scopes, locked.scopes)
-		if err != nil {
-			return err
-		}
-		issued, refresh, err = spendAndReissue(writeCtx, tx, locked, scopes, in.AccessTokenTTL)
+		var err error
+		issued, refresh, reused, err = s.rotateRefreshTokenTx(ctx, tx, in)
 		return err
 	})
 	switch {
@@ -165,6 +127,59 @@ func (s *Service) rotateRefreshToken(ctx context.Context, in refreshRequest) (Is
 		return IssuedPassport{}, "", errRefreshRejected
 	}
 	return issued, refresh, nil
+}
+
+// rotateRefreshTokenTx is rotateRefreshToken's body, inside the caller's
+// transaction. It is a named function rather than a closure so the lock order
+// its correctness rests on reads at one nesting level.
+//
+// The `reused` return is separate from the error deliberately: a detected reuse
+// has to COMMIT the revoke cascade it just performed, so it cannot travel as an
+// error, and the caller answers the refusal once the transaction is safely
+// closed.
+func (s *Service) rotateRefreshTokenTx(
+	ctx context.Context, tx pgx.Tx, in refreshRequest,
+) (issued IssuedPassport, refresh string, reused bool, err error) {
+	tokenHash := hashToken(in.Token)
+	grantID, err := grantOfPresentedToken(ctx, tx, tokenHash)
+	if err != nil {
+		return IssuedPassport{}, "", false, err
+	}
+	// The connection-level lock (oauth_grant.go), always before the refresh
+	// row below. A grant that vanished between the two reads leaves nothing
+	// to renew, which is a refusal like any other.
+	if err := lockGrant(ctx, tx, grantID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return IssuedPassport{}, "", false, errRefreshRejected
+		}
+		return IssuedPassport{}, "", false, err
+	}
+	locked, err := lockPresentedRefreshToken(ctx, tx, tokenHash)
+	if err != nil {
+		return IssuedPassport{}, "", false, err
+	}
+	// Every write below is attributed to the human who consented: a
+	// renewal has no session, and an unattributed audit row would hide
+	// whose connection changed.
+	writeCtx := actorCtx(ctx, locked.identity())
+	switch err := presentationVerdict(ctx, tx, locked, in, s.now()); {
+	case errors.Is(err, errRefreshReuse):
+		if err := s.revokeGrantTx(writeCtx, tx, locked.grantID, reuseRevokeReason); err != nil {
+			return IssuedPassport{}, "", false, err
+		}
+		// The cascade MUST commit: returning the refusal as an error here would
+		// roll it back and leave the stolen chain alive. So the transaction
+		// succeeds and the refusal is answered after it.
+		return IssuedPassport{}, "", true, nil
+	case err != nil:
+		return IssuedPassport{}, "", false, err
+	}
+	scopes, err := narrowedScopes(in.Scopes, locked.scopes)
+	if err != nil {
+		return IssuedPassport{}, "", false, err
+	}
+	issued, refresh, err = spendAndReissue(writeCtx, tx, locked, scopes, in.AccessTokenTTL)
+	return issued, refresh, false, err
 }
 
 // grantOfPresentedToken names WHICH connection a presented token belongs to,
