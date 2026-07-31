@@ -26,7 +26,7 @@ import (
 // input changes. It rides the fingerprint, so a deploy that rewrites the
 // prompt invalidates every cached brief rather than serving text written to
 // the old instructions.
-const promptVersion = "org-brief-v1"
+const promptVersion = "org-brief-v2"
 
 // Input is what one brief is written from: the account's identity, its
 // pipeline, its people, and what has moved recently — each already pruned
@@ -44,10 +44,10 @@ type Input struct {
 	// the 360 converts to at each deal's frozen close-time rate. It has no
 	// relation to whatever the open deals are priced in, so it must never be
 	// labelled with theirs.
-	WonCurrency string    `json:"won_currency,omitempty"`
-	LostCount   int       `json:"lost_count"`
-	OpenTasks   []NamedIn `json:"open_tasks,omitempty"`
-	Recent      []ActIn   `json:"recent,omitempty"`
+	WonCurrency string   `json:"won_currency,omitempty"`
+	LostCount   int      `json:"lost_count"`
+	OpenTasks   []TaskIn `json:"open_tasks,omitempty"`
+	Recent      []ActIn  `json:"recent,omitempty"`
 	// SectionsOmitted names what the reader could NOT see. It rides the
 	// fingerprint so two readers with different grants never share a cached
 	// brief, and it tells the writer to stay silent about those sections
@@ -56,13 +56,28 @@ type Input struct {
 }
 
 // NamedIn is a record the brief may write about and must be able to cite:
-// contacts and open tasks carry their ids for the same reason deals and
-// activities do. Names alone invited the prompt to make a claim about a
-// person or a task that no citation could ground, so the sentence was
-// dropped and the reader lost a true statement.
+// contacts carry their ids for the same reason deals and activities do. Names
+// alone invited the prompt to make a claim about a person that no citation
+// could ground, so the sentence was dropped and the reader lost a true
+// statement.
 type NamedIn struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
+}
+
+// TaskIn is one open task the brief may write about.
+//
+// It carries the due date because a task sentence without one names a chore
+// and says nothing about when it is wanted, and neither writer may infer that
+// — the deterministic one has no other source for it, and the model must not
+// guess it.
+type TaskIn struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Due is RFC3339 in UTC, empty when the task carries no due date. The
+	// format is fixed so two due dates compare as strings the way the instants
+	// they name compare.
+	Due string `json:"due,omitempty"`
 }
 
 // DealIn is one open deal as the brief reads it.
@@ -153,9 +168,11 @@ func foldTasks(view crmcontracts.Organization360, in *Input) {
 		return
 	}
 	for _, step := range view.NextSteps.Data {
-		in.OpenTasks = append(in.OpenTasks, NamedIn{
-			ID: step.ActivityId.String(), Name: step.Subject,
-		})
+		task := TaskIn{ID: step.ActivityId.String(), Name: step.Subject}
+		if step.DueAt != nil {
+			task.Due = step.DueAt.UTC().Format(time.RFC3339)
+		}
+		in.OpenTasks = append(in.OpenTasks, task)
 	}
 }
 

@@ -77,11 +77,16 @@ func DueOverlayConnections(ctx context.Context, pool *pgxpool.Pool) ([]DueOverla
 			// — no more re-sweeping a revoked/rate-limited/unreachable
 			// connection hot every tick. No row (never swept, or reset by a
 			// success) is due immediately (COALESCE to now()).
+			// mirror_frozen_at IS NULL: a workspace whose flip preflight
+			// sealed the snapshot (flipstate.go) is not swept at all — the
+			// fence would refuse every ingest anyway; excluding it here
+			// spares the budget the sweep's live reads would burn.
 			scanErr := tx.QueryRow(wsCtx, `
 				SELECT c.incumbent, c.region, c.credential_ref, c.connected_at
 				FROM incumbent_connection c
 				LEFT JOIN overlay_sync_state s ON s.workspace_id = c.workspace_id
-				WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()`,
+				WHERE c.status = $1 AND COALESCE(s.next_sweep_at, now()) <= now()
+				  AND s.mirror_frozen_at IS NULL`,
 				statusActive).Scan(&incumbent, &region, &ref, &connectedAt)
 			if errors.Is(scanErr, pgx.ErrNoRows) {
 				// Either x_sor_mode='overlay' with no active connection row (a

@@ -23,12 +23,23 @@ export type ApprovalPage = { data: Approval[] };
 // the FULL set to sort/filter correctly, not a manually-paged slice, so this
 // walks every page via the API's opaque `next_cursor` and merges them into
 // one collection before the query resolves.
-async function fetchAllApprovals(status: ApprovalStatus): Promise<Approval[]> {
+async function fetchAllApprovals(
+  status: ApprovalStatus,
+  target?: { entityType: string; entityId: string },
+): Promise<Approval[]> {
   const all: Approval[] = [];
   let cursor: string | null | undefined;
   do {
     const { data, error } = await api.GET("/approvals", {
-      params: { query: { status, limit: 50, cursor: cursor ?? undefined } },
+      params: {
+        query: {
+          status,
+          limit: 50,
+          cursor: cursor ?? undefined,
+          target_entity_type: target?.entityType,
+          target_entity_id: target?.entityId,
+        },
+      },
     });
     if (error) {
       throw new Error(problemMessage(error));
@@ -113,4 +124,25 @@ export function useDecidedApprovals(enabled = true): QueryLike<ApprovalPage> {
     pending.refetch();
   };
   return { isPending, isError, error: firstError, data, refetch };
+}
+
+// What is staged against ONE record. A record page showing its own queue must
+// read the queue itself: the composite 360 carries a capped first page of
+// approvals for the count, and deciding through that page would leave the rest
+// reachable only through the workspace-wide inbox, which is not the queue the
+// reader was working.
+export function useTargetApprovals(
+  entityType: string,
+  entityId: string,
+  enabled = true,
+) {
+  return useQuery({
+    queryKey: ["approvals", "pending", entityType, entityId],
+    enabled,
+    queryFn: async (): Promise<ApprovalPage> => ({
+      data: (
+        await fetchAllApprovals("pending", { entityType, entityId })
+      ).filter((approval) => approval.status === "pending"),
+    }),
+  });
 }

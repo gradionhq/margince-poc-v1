@@ -508,6 +508,41 @@ export const en = {
   "co.brief.cite.activity": "activity",
   "co.brief.cite.person": "contact",
   "co.brief.cite.organization": "account",
+  // Several sources of one kind that have no screen to open collapse into one
+  // counted chip, rather than a run of identical labels.
+  "co.brief.cite.deal.many": "{count} deals",
+  "co.brief.cite.activity.many": "{count} activities",
+  "co.brief.cite.person.many": "{count} contacts",
+  "co.brief.cite.organization.many": "{count} accounts",
+  "approval.kind.advance_deal": "Move a deal forward",
+  "approval.kind.close_date_correction": "Correct a close date",
+  "approval.kind.deal_follow_up": "Add a follow-up on a deal",
+  "approval.kind.promote_lead": "Promote a lead",
+  "approval.kind.archive_record": "Archive a record",
+  "approval.kind.merge_records": "Merge two records",
+  "approval.kind.share_record": "Share a record",
+  "approval.kind.update_record": "Update a record",
+  "approval.kind.create_record": "Create a record",
+  "approval.kind.send_email": "Send an email",
+  "approval.kind.book_meeting": "Book a meeting",
+  "approval.kind.send_offer": "Send an offer",
+  "approval.kind.coldstart": "Fill in a new account",
+  "approval.kind.enrich": "Enrich from the web",
+  "approval.kind.deepread": "Read the company site",
+  "approval.kind.site_lead": "Add a person found on the site",
+  "approval.kind.capture_counterparty": "Add someone from your mail",
+  "approval.kind.org_name_promotion": "Rename an account",
+  "approval.kind.fx_rate_proposal": "Refresh exchange rates",
+  "approval.kind.ai_model_rate_proposal": "Refresh model prices",
+  "co.assistant.title": "What Margince sees",
+  "co.assistant.aiTag": "AI-assisted",
+  "co.assistant.sub":
+    "Written from this account's own records — every sentence names its sources.",
+  "co.tools.title": "Data & tools",
+  "co.decisions.open": "Review {count} waiting",
+  "co.decisions.title": "Decisions waiting",
+  "co.decisions.group": "{count} × {kind}",
+  "co.decisions.empty": "Nothing is waiting on a decision here.",
   "co.ask.title": "Ask Margince",
   "co.ask.q.whats_open": "What's open here?",
   "co.ask.q.meeting_prep": "Prep me for a meeting",
@@ -529,6 +564,8 @@ export const en = {
   "co.deals.noStage": "No stage",
   "co.connections.title": "Connections",
   "co.connections.empty": "Nothing linked to this account yet.",
+  "co.connections.ourSide": "Your side",
+  "co.connections.theirSide": "At this account",
   "co.connections.expand": "See it larger",
   "co.connections.collapse": "Close",
   "co.connections.introPath": "Route in",
@@ -544,9 +581,12 @@ export const en = {
   "co.connections.rel.referred_by.counterparty": "referred this account",
   "co.connections.rel.referred_by.owner": "referred by this account",
   "co.connections.rel.co_sell_with": "co-selling",
+  "co.connections.rel.owns": "owns this account",
+  "co.connections.rel.in_contact_with": "in contact",
   "co.connections.group.contacts": "contacts",
   "co.connections.group.deals": "deals",
   "co.connections.group.intro_path": "the warm intro",
+  "co.connections.group.our_side": "who here is connected",
   "co.signals.title": "Signals",
   "co.signals.empty": "No open signal on this account.",
   "co.facts.title": "Quick facts",
@@ -954,6 +994,9 @@ export const en = {
   "tasks.undated": "No due date",
   "tasks.complete": "Done",
   "tasks.snooze": "Snooze 1d",
+  "tasks.detail": "Task",
+  "tasks.isDone": "Completed",
+  "tasks.logged": "Logged",
   "tasks.new": "New task",
   "tasks.subject": "Subject",
   "tasks.dueDate": "Due date",
@@ -1772,14 +1815,31 @@ export const en = {
   "auth.title": "Margince",
   "auth.checking": "Checking your session…",
   "auth.pageTitle": "Sign in · Margince",
-  "auth.loginTitle": "Welcome back",
-  "auth.loginSub": "Sign in so I can work with your context and permissions.",
+  "auth.loginTitle": "Sign in to Margince",
+  // Short declaratives rather than one comma-joined sentence (VOICE-RULE-1):
+  // each clause is a separate fact about the installation, and a reader who
+  // stops after the first has still read a true sentence. Two of them, not
+  // three — "Margince runs on your own server" is a claim about the product,
+  // and someone at a login screen is here to get in. What is left is the
+  // provisioning fact (A97, invite-only): what to do when there is no sign-up
+  // link.
+  "auth.loginSub":
+    "Accounts come from your administrator. There is no self-signup.",
   "auth.coreDisclosure": "Margince · AI system",
   "auth.coreBoundary":
     "I can only use your context after Margince verifies that it's you.",
+  // The scope of the context the statement above is about. Bounded on purpose:
+  // "nothing else" is what keeps it a limit rather than a list of capabilities,
+  // which is what the artifact's version of this line was.
+  "auth.coreScope":
+    "That context is your mail, your calendar, and what I can read on the open web. Nothing else, and nothing without your permission.",
   "auth.corePermission": "I use your permissions.",
   "auth.coreCites": "I cite what I find.",
   "auth.coreWaits": "I wait before taking external action.",
+  // The fourth limit. The mockup's five became four, and one that did not
+  // travel says why: "enriches records from sources it names" is a capability
+  // claim, and ADR-0076 Decision 2 admits only limits. This one is a limit.
+  "auth.coreMarks": "I mark every value I wrote.",
   "auth.coreConfigured": "Configured",
   "auth.coreUnconfigured": "AI not configured",
   "auth.coreStillWorks": "The CRM still works.",
@@ -1795,12 +1855,31 @@ export const en = {
   "auth.coreProviderOpenAI": "OpenAI",
   "auth.coreProviderCompatible": "compatible provider",
   "auth.coreProviderVllm": "vLLM",
-  "auth.email": "Email address",
-  "auth.emailPlaceholder": "name@example.com",
+  // The shortest label that still names the field (VOICE-RULE-1), pinned by the
+  // login spec §7.1/§7.2 (Amendment 4) and reconciling
+  // single-organization-auth-concept.md §12, which already drew "Email".
+  "auth.email": "Email",
+  // A placeholder is an EXAMPLE, never an instruction and never the label
+  // again. "Enter your email" in a placeholder is a label that disappears.
+  "auth.emailPlaceholder": "you@company.com",
   "auth.password": "Password",
+  "auth.passwordPlaceholder": "Password",
   "auth.passwordHint": "at least 12 characters",
   "auth.showPassword": "Show password",
+  "auth.hidePassword": "Hide password",
   "auth.capsLock": "Caps Lock is on",
+  // Labels the password path, not the provider buttons above it: where the
+  // installation runs SSO, the form beneath this divider is the fallback door.
+  "auth.orWithEmail": "or with email",
+  // §7.1 verbatim. The noun is "organization", not "workspace": ADR-0061/A107
+  // keeps `workspace` internal and §7.3 removed it from authentication. And the
+  // line states that ACCESS is restricted, never that data is safe, encrypted or
+  // compliant — VOICE-RULE-7 rules those out here, because they are outcome
+  // claims the installation's own configuration can contradict, on the screen a
+  // CISO reads on the way in.
+  "auth.legalProtected": "Access to this organization is restricted.",
+  "auth.legalTerms": "Terms",
+  "auth.legalPrivacy": "Privacy",
   "auth.signIn": "Sign in",
   "auth.signingIn": "Signing in…",
   "auth.failed": "That didn't work",
@@ -1822,14 +1901,17 @@ export const en = {
     "This Margince installation isn't ready to sign you in. An operator needs to complete or repair the setup.",
   "auth.forgotLink": "Forgot password?",
   "auth.forgotTitle": "Reset your password",
+  // Two sentences, sentence-cased, with no dash. VOICE-RULE-5 forbids an em or
+  // en dash anywhere in user-facing copy, and a lowercase opening mid-surface
+  // reads as a fragment rather than as a sentence. Same for auth.resetSub.
   "auth.forgotSub":
-    "enter your email — if it has an account, a reset link is on its way",
+    "Enter your email. If it has an account, a reset link is on its way.",
   "auth.sendResetLink": "Send reset link",
   "auth.forgotSentTitle": "Check your inbox",
   "auth.forgotSentBody":
     "If that address has an account, a reset link is on its way. It expires in one hour.",
   "auth.resetTitle": "Choose a new password",
-  "auth.resetSub": "your reset link checks out — set the new password below",
+  "auth.resetSub": "Your link is valid. Choose a new password.",
   "auth.newPassword": "New password",
   "auth.setNewPassword": "Set new password",
   "auth.resetFailed": "That reset link is invalid, used, or expired.",

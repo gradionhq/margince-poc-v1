@@ -1,9 +1,11 @@
-import { Search } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   useEffect,
+  useRef,
+  useState,
 } from "react";
 import "./atoms.css";
 
@@ -54,12 +56,28 @@ const AVATAR_TONES = 6;
 export function Avatar({
   name,
   tinted,
+  src,
+  size,
 }: Readonly<{
   name: string;
   // A deterministic per-name colour. Off by default so the many existing
   // callers keep the neutral chip they render today.
   tinted?: boolean;
+  // A resolved logo to render instead of the monogram. The monogram is the
+  // floor, not the fallback of last resort: it is what shows while the image
+  // loads, if it fails to load, and whenever no logo resolved — so a company
+  // is never a broken image or an empty slot.
+  src?: string | null;
+  // "lg" is the record header's larger chip; the default is the 28px chip
+  // every list and row uses.
+  size?: "lg";
 }>) {
+  // An image that fails to load falls back to the monogram for the rest of
+  // this mount. Keyed by src so a record whose logo changes gets a fresh try
+  // rather than inheriting the previous one's failure.
+  const [brokenSrc, setBrokenSrc] = useState<string | null>(null);
+  const broken = Boolean(src) && brokenSrc === src;
+  const setBroken = () => setBrokenSrc(src ?? null);
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -77,8 +95,23 @@ export function Avatar({
     }
     tone = hash;
   }
+  const classes = ["avatar"];
+  if (tinted) classes.push(`avatar-t${tone}`);
+  if (size === "lg") classes.push("avatar-lg");
+  if (src && !broken) classes.push("avatar-has-logo");
   return (
-    <span className={tinted ? `avatar avatar-t${tone}` : "avatar"}>
+    <span className={classes.join(" ")}>
+      {src && !broken ? (
+        // The monogram stays underneath: it is what the chip shows until the
+        // image paints, and what is left if the image never does.
+        <img
+          className="avatar-img"
+          src={src}
+          alt=""
+          loading="lazy"
+          onError={setBroken}
+        />
+      ) : null}
       {initials}
     </span>
   );
@@ -200,6 +233,7 @@ export function Modal({
   size?: "default" | "wide";
   children: ReactNode;
 }>) {
+  const dialog = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!open) {
       return;
@@ -207,11 +241,33 @@ export function Modal({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         onClose();
+        return;
+      }
+      if (event.key === "Tab" && dialog.current) {
+        keepTabInside(event, dialog.current);
       }
     };
     globalThis.addEventListener("keydown", onKey);
     return () => globalThis.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Focus moves in when the dialog opens and returns to whatever opened it
+  // when it closes — otherwise a keyboard reader who dismisses a dialog
+  // resumes tabbing from the top of the document, having lost their place.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const opener = document.activeElement;
+    const stops = dialog.current ? focusableWithin(dialog.current) : [];
+    (stops[0] ?? dialog.current)?.focus();
+    return () => {
+      if (opener instanceof HTMLElement) {
+        opener.focus();
+      }
+    };
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -233,10 +289,54 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={labelledBy}
         className={size === "wide" ? "modal modal-wide" : "modal"}
+        ref={dialog}
+        // Focusable so a dialog whose body is pure text still receives focus
+        // when it opens, rather than leaving it on the page behind.
+        tabIndex={-1}
       >
         {children}
       </div>
     </div>
+  );
+}
+
+// Keep Tab inside the dialog. `aria-modal` tells a screen reader the rest of
+// the page is inert; it does nothing for the Tab key, so without this a
+// keyboard reader walks straight out of the dialog into the page behind it and
+// can operate a surface the dialog is covering.
+function keepTabInside(event: KeyboardEvent, dialog: HTMLElement) {
+  const stops = focusableWithin(dialog);
+  if (stops.length === 0) {
+    event.preventDefault();
+    return;
+  }
+  const first = stops[0];
+  const last = stops[stops.length - 1];
+  const active = document.activeElement;
+  // Focus already outside the dialog is the case both directions have to
+  // catch, not just Shift+Tab: it happens whenever something on the page
+  // behind took focus while the dialog was open, and from there a plain Tab
+  // would keep walking that page rather than coming back.
+  const outside = !dialog.contains(active);
+  const leavingBackwards = event.shiftKey && (active === first || outside);
+  const leavingForwards = !event.shiftKey && (active === last || outside);
+  if (!leavingBackwards && !leavingForwards) {
+    return;
+  }
+  event.preventDefault();
+  (leavingBackwards ? last : first).focus();
+}
+
+// The tab stops inside a container, in document order. Disabled controls and
+// anything explicitly removed from the tab order are not stops; a negative
+// tabindex (the dialog's own) is reachable by script but not by Tab, so it is
+// deliberately excluded here.
+const FOCUSABLE =
+  'a[href], button, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
+function focusableWithin(root: HTMLElement): HTMLElement[] {
+  return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (element) => !element.hasAttribute("disabled") && element.tabIndex !== -1,
   );
 }
 
@@ -337,5 +437,36 @@ export function DataTable<Row>({
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * Disclosure is a section the reader opens when they want it.
+ *
+ * For the surfaces a record page carries but does not lead with — one-off
+ * tools, configuration, the occasional deep read. Kept as a standing card
+ * each of those competes for the eye with the facts a reader came for; kept
+ * behind a summary they cost one line until asked for.
+ *
+ * `open` forces it open for a state the reader must not miss (a tool that is
+ * running, a result that just arrived); left undefined the reader decides.
+ */
+export function Disclosure({
+  summary,
+  open,
+  children,
+}: Readonly<{
+  summary: string;
+  open?: boolean;
+  children: ReactNode;
+}>) {
+  return (
+    <details className="disclosure" open={open}>
+      <summary className="disclosure-summary">
+        <ChevronRight className="disclosure-chevron" aria-hidden="true" />
+        <span className="t-label">{summary}</span>
+      </summary>
+      <div className="disclosure-body">{children}</div>
+    </details>
   );
 }

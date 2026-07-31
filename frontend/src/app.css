@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "./design-system/tokens.css";
+/* After tokens.css, always: brand.css derives from the canon, so it has to see
+   it (WDS-GATE-4 cascade order). */
+@import "./design-system/brand.css";
 @import "./design-system/base.css";
 
 body {

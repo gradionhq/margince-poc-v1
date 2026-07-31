@@ -1,0 +1,38 @@
+# Source-tree SBOM defaults. `make sbom` drives the scan; it feeds
+# syft a clean `git archive HEAD` export, so the scan source is committed
+# content only — the Makefile owns the "what is scanned" policy, not this file.
+
+check-for-app-update: false
+
+output: cyclonedx-json
+
+format:
+  pretty: true
+
+source:
+  name: margince
+  # NB: syft has no `source.license` key — the primary component's license
+  # cannot be set from config. Margince's own source license is BUSL-1.1;
+  # first-party packages are handled in .grant.yaml (allow BUSL-1.1 + ignore
+  # github.com/gradionhq/margince/*).
+
+# Enrich package coordinates with license metadata. syft pulls Go
+# licenses from the module proxy and npm licenses from the registry, so `make
+# sbom` needs network access — it is not an offline scan.
+enrich:
+  - all
+license:
+  content: none
+
+# Committed trees that are agent/CI/build-tooling/test state, not shipped
+# product source or dependency manifests. The clean export already drops
+# uncommitted host state (node_modules, build output, .env); these drop the
+# committed non-product trees the scan would otherwise catalog as components.
+exclude:
+  - ./.claude/**
+  - ./.github/** # CI workflows — syft catalogs the referenced Actions as packages, but they are build infra, not shipped product
+  - ./.githooks/**
+  - ./.pnpm-store/**
+  - ./scratchpad/**
+  - ./cli/craft/** # code-craftsmanship gate (ADR-0045), a pre-push build tool — not shipped
+  - ./fixtures/** # test fixtures (e.g. the crm-hello extension module) — not shipped

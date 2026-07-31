@@ -133,10 +133,21 @@
   font-size: 13.5px;
   color: var(--textContent);
 }
+/* A sentence's citations sit in their own wrapping row after the prose, each
+   one visibly a separate chip. Run together without a gap they read as one
+   corrupted word ("activityactivityactivity"), which is what an unseparated
+   list of same-typed citations looked like. */
+.co-brief-cites {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-inline-start: var(--space-2);
+  vertical-align: baseline;
+}
 .co-brief-cite {
   background: none;
   border: 0;
-  padding: 0 0 0 6px;
+  padding: 0;
   font: inherit;
   font-size: 11.5px;
   color: var(--textMeta);
@@ -154,9 +165,12 @@
 }
 
 /* A citation with nowhere to go: the same size and colour as a linked one,
-   without the affordance, so it reads as a label rather than a dead link. */
+   without the affordance, so it reads as a label rather than a dead link.
+   It carries a border because it has no underline to mark where it ends. */
 .co-brief-cite-flat {
-  padding-left: 6px;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
   font-size: 11.5px;
   color: var(--textMeta);
 }
@@ -198,5 +212,36 @@
   margin: 10px 0 0;
   font-size: 12px;
   font-weight: 600;
+  color: var(--textMeta);
+}
+
+/* The proposals count is a way into the queue it counts, so it is a button —
+   but it must not look like a second kind of thing next to the two counts it
+   sits beside, so the badge inside it carries the whole appearance. */
+.co-since-open {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  cursor: pointer;
+}
+.co-since-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-full);
+}
+
+/* One assistant panel, three parts. The disclosure line sits under the title
+   so a reader knows what wrote everything below it before they read any of
+   it — stated once for the panel, not repeated per part (WDS-TRUST-6). */
+.co-assistant {
+  margin-bottom: var(--space-3);
+}
+.co-assistant-disclosure {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
   color: var(--textMeta);
 }

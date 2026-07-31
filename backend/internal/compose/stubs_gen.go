@@ -628,6 +628,10 @@ func (stubs) GetOrganizationHierarchyRollup(w nethttp.ResponseWriter, r *nethttp
 	httperr.NotImplemented(w, r, "GetOrganizationHierarchyRollup")
 }
 
+func (stubs) GetOrganizationLogo(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id) {
+	httperr.NotImplemented(w, r, "GetOrganizationLogo")
+}
+
 func (stubs) MergeOrganization(w nethttp.ResponseWriter, r *nethttp.Request, id crmcontracts.Id, params crmcontracts.MergeOrganizationParams) {
 	httperr.NotImplemented(w, r, "MergeOrganization")
 }
@@ -674,6 +678,10 @@ func (stubs) GetOverlayConnection(w nethttp.ResponseWriter, r *nethttp.Request) 
 
 func (stubs) ConnectOverlay(w nethttp.ResponseWriter, r *nethttp.Request) {
 	httperr.NotImplemented(w, r, "ConnectOverlay")
+}
+
+func (stubs) DownloadOverlayExport(w nethttp.ResponseWriter, r *nethttp.Request) {
+	httperr.NotImplemented(w, r, "DownloadOverlayExport")
 }
 
 func (stubs) ExecuteOverlayFlip(w nethttp.ResponseWriter, r *nethttp.Request) {

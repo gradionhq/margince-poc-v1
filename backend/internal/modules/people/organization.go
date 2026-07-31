@@ -368,7 +368,7 @@ func (s *Store) ArchiveOrganization(ctx context.Context, id ids.OrganizationID) 
 
 const orgColumns = `id, workspace_id, display_name, legal_name, industry, size_band, owner_id,
 	address_line1, address_line2, address_city, address_region, address_postal_code, address_country,
-	classification, relevance, parent_org_id, merged_into_id, source, captured_by,
+	classification, relevance, parent_org_id, merged_into_id, logo_object_key, source, captured_by,
 	version, created_at, updated_at, archived_at`
 
 // readOrganization resolves one organization row; active names the
@@ -403,12 +403,13 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	var classification string
 	var relevance *int16
 	var addr crmcontracts.Address
+	var logoObjectKey *string
 	var version int64
 
 	dests := []any{
 		&id, &wsID, &o.DisplayName, &o.LegalName, &o.Industry, &o.SizeBand, &ownerID,
 		&addr.Line1, &addr.Line2, &addr.City, &addr.Region, &addr.PostalCode, &addr.Country,
-		&classification, &relevance, &parentID, &mergedInto, &o.Source, &o.CapturedBy,
+		&classification, &relevance, &parentID, &mergedInto, &logoObjectKey, &o.Source, &o.CapturedBy,
 		&version, &o.CreatedAt, &o.UpdatedAt, &o.ArchivedAt,
 	}
 	cf := storekit.ScanDests(active)
@@ -426,6 +427,7 @@ func scanOrganization(row pgx.Row, active []fieldcatalog.Column, extra ...any) (
 	o.MergedIntoId = uuidPtr(mergedInto)
 	cls := crmcontracts.OrganizationClassification(classification)
 	o.Classification = &cls
+	o.LogoUrl = LogoURL(id, logoObjectKey)
 	if a := addressOrNil(addr); a != nil {
 		o.Address = a
 	}

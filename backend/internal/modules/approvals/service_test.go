@@ -295,7 +295,7 @@ func TestRateProposalDecidableOnlyForOwningWorkspace(t *testing.T) {
 		}
 		for _, c := range cases {
 			t.Run(targetType+"/"+c.name, func(t *testing.T) {
-				got, err := targetVisible(c.ctx, nil, a)
+				got, err := targetVisible(c.ctx, nil, a.TargetType, a.TargetID)
 				if err != nil {
 					t.Fatalf("targetVisible: %v", err)
 				}

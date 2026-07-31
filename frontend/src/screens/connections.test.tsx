@@ -2,6 +2,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
+  fireEvent,
   render as rtlRender,
   screen,
   waitFor,
@@ -162,10 +163,21 @@ describe("connections card", () => {
     expect(within(list).queryByRole("button", { name: "" })).toBeNull();
   });
 
-  it("hides the diagram from assistive technology, because the list is the content", async () => {
+  it("keeps the diagram out of the rail card, where the list is the content", async () => {
     stub(graph());
     const { container } = render(<ConnectionsCard orgId={ROOT} />);
     await screen.findByRole("list");
+
+    // Decoration that costs half a rail card's height says nothing the list
+    // beneath it does not already say, and says it to sighted readers only.
+    expect(container.querySelector("svg.cx-diagram")).toBeNull();
+  });
+
+  it("hides the diagram from assistive technology, because the list is the content", async () => {
+    stub(graph());
+    const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    (await screen.findByRole("button", { name: "See it larger" })).click();
+    await screen.findByRole("dialog", { name: "Connections" });
 
     const svg = container.querySelector("svg.cx-diagram");
     expect(svg).toBeTruthy();
@@ -178,7 +190,8 @@ describe("connections card", () => {
   it("draws one line per edge, including the one that does not start at the account", async () => {
     stub(graph());
     const { container } = render(<ConnectionsCard orgId={ROOT} />);
-    await screen.findByRole("list");
+    (await screen.findByRole("button", { name: "See it larger" })).click();
+    await screen.findByRole("dialog", { name: "Connections" });
 
     expect(container.querySelectorAll("svg.cx-diagram line")).toHaveLength(3);
     expect(
@@ -267,7 +280,45 @@ describe("connections card", () => {
     const { container } = render(<ConnectionsCard orgId={ROOT} />);
 
     expect(await screen.findByText("Route in")).toBeTruthy();
+    (await screen.findByRole("button", { name: "See it larger" })).click();
+    await screen.findByRole("dialog", { name: "Connections" });
     expect(container.querySelectorAll("circle.cx-node-intro")).toHaveLength(1);
+  });
+
+  it("shows who on our side is connected, above who is at the account", async () => {
+    stub(
+      graph({
+        nodes: [
+          node({ id: ROOT, kind: "organization", label: "Brandt", root: true }),
+          node({ id: "u-1", kind: "user", label: "Lars Jankowfsky" }),
+          node({ id: "p-1", kind: "person", label: "Dana Buyer" }),
+        ],
+        edges: [
+          { from: "u-1", to: ROOT, kind: "owns" as const },
+          { from: "u-1", to: "p-1", kind: "in_contact_with" as const },
+          { from: ROOT, to: "p-1", kind: "employment" as const },
+        ],
+      }),
+    );
+    render(<ConnectionsCard orgId={ROOT} />);
+
+    const ourSide = await screen.findByLabelText("Your side");
+    expect(within(ourSide).getByText("Lars Jankowfsky")).toBeTruthy();
+    // The user edges describe the user's end, so they read from our side.
+    expect(within(ourSide).getByText("owns this account")).toBeTruthy();
+    expect(within(ourSide).getByText("in contact")).toBeTruthy();
+    const theirSide = screen.getByLabelText("At this account");
+    expect(within(theirSide).getByText("Dana Buyer")).toBeTruthy();
+    expect(within(theirSide).queryByText("Lars Jankowfsky")).toBeNull();
+  });
+
+  it("omits our side entirely when the server named no one, rather than drawing it empty", async () => {
+    stub(graph());
+    render(<ConnectionsCard orgId={ROOT} />);
+    await screen.findByRole("list");
+
+    expect(screen.queryByLabelText("Your side")).toBeNull();
+    expect(screen.getByLabelText("At this account")).toBeTruthy();
   });
 
   it("opens the same graph in a wide dialog", async () => {
@@ -403,5 +454,75 @@ describe("connections layout", () => {
     // fabricated root would draw a company the payload never named.
     expect(placed).toHaveLength(1);
     expect(placed[0].node.id).toBe("p-1");
+  });
+});
+
+describe("company logos on the diagram", () => {
+  // A55: a logo is the upgrade, the node is the floor. A company node must
+  // read as a node whether or not its image ever paints.
+  //
+  // The diagram lives in the expanded view — a rail card shows the list — so
+  // each case opens it first.
+  const openDiagram = async () => {
+    (await screen.findByRole("button", { name: "See it larger" })).click();
+    await screen.findByRole("dialog", { name: "Connections" });
+  };
+  const withLogo = () =>
+    graph({
+      nodes: [
+        node({
+          id: ROOT,
+          kind: "organization",
+          label: "Brandt",
+          root: true,
+          logo_url: `/v1/organizations/${ROOT}/logo`,
+        }),
+      ],
+      edges: [],
+    });
+
+  it("draws the mark clipped into the node and takes the neutral backing", async () => {
+    stub(withLogo());
+    const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    await openDiagram();
+    await waitFor(() =>
+      expect(container.querySelector("image.cx-node-logo")).toBeTruthy(),
+    );
+    const image = container.querySelector("image.cx-node-logo");
+    expect(image?.getAttribute("href")).toBe(`/v1/organizations/${ROOT}/logo`);
+    // Clipped to its own node, never to a shared path — a shared clip would
+    // cut every logo to one node's position — and scoped per diagram, because
+    // the card and its modal are both mounted while the modal is open.
+    const clip = image?.getAttribute("clip-path") ?? "";
+    expect(clip).toMatch(/^url\(#.+\)$/);
+    expect(clip).toContain(ROOT);
+    const clipId = clip.slice("url(#".length, -1);
+    // Matched by attribute rather than by id selector: React's useId emits
+    // colons, which a CSS id selector would read as a pseudo-class.
+    expect(container.querySelector(`clipPath[id="${clipId}"]`)).toBeTruthy();
+    expect(container.querySelectorAll("circle.cx-node-marked")).toHaveLength(1);
+  });
+
+  it("falls back to the node's own colour when the logo fails to load", async () => {
+    stub(withLogo());
+    const { container } = render(<ConnectionsCard orgId={ROOT} />);
+    await openDiagram();
+    const image = await waitFor(() => {
+      const found = container.querySelector("image.cx-node-logo");
+      expect(found).toBeTruthy();
+      return found as SVGImageElement;
+    });
+
+    fireEvent.error(image);
+
+    await waitFor(() =>
+      expect(container.querySelector("image.cx-node-logo")).toBeNull(),
+    );
+    // The neutral backing goes with it: a node whose mark never painted must
+    // keep its kind colour rather than becoming a pale empty disc.
+    expect(container.querySelectorAll("circle.cx-node-marked")).toHaveLength(0);
+    expect(
+      container.querySelectorAll("circle.cx-node-organization"),
+    ).toHaveLength(1);
   });
 });

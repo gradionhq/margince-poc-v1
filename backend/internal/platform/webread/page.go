@@ -18,13 +18,38 @@ import (
 )
 
 // Page is one fetched page with the crawler-facing extras Fetch discards: the
-// nav links the raw HTML carried and the raw byte count (for the crawl's total
-// byte budget — the stripped text under-counts what was transferred).
+// nav links the raw HTML carried, the visual-identity assets its <head>
+// declared, and the raw byte count (for the crawl's total byte budget — the
+// stripped text under-counts what was transferred).
 type Page struct {
 	URL   string
 	Text  string
 	Links []string
 	Bytes int
+	// OGImage is the og:image the page declared (absolute), or "" when it
+	// declared none.
+	OGImage string
+	// Icons are the icons the page's <link rel> declared, in document order.
+	Icons []IconRef
+}
+
+// Icon rel kinds a page can declare. Callers rank by kind rather than by
+// re-parsing rel strings.
+const (
+	// RelIcon is the standard favicon link (rel="icon" or "shortcut icon").
+	RelIcon = "icon"
+	// RelAppleTouchIcon is the homescreen icon: usually the largest square
+	// raster mark a site publishes.
+	RelAppleTouchIcon = "apple-touch-icon"
+)
+
+// IconRef is one icon a page's <head> declared: the absolute URL, the rel
+// kind that declared it, and the sizes attribute lowercased ("180x180",
+// "any", or "" when the page did not say).
+type IconRef struct {
+	URL   string
+	Rel   string
+	Sizes string
 }
 
 // FetchPage retrieves one page for the crawler: stripped text plus the <a href>
@@ -35,20 +60,136 @@ type Page struct {
 // against the page URL), http(s)-only, fragment-free, and deduplicated in
 // document order.
 func (f *Fetcher) FetchPage(ctx context.Context, rawURL string) (Page, error) {
-	parsed, err := url.Parse(rawURL)
-	if err != nil || parsed.Host == "" {
+	if parsed, err := url.Parse(rawURL); err != nil || parsed.Host == "" {
 		return Page{}, fmt.Errorf("webread: %q is not a fetchable URL", rawURL)
 	}
-	body, _, err := f.fetchDoc(ctx, rawURL, acceptHTML) // HTML only — the crawler needs HTML for the <a href> link harvest
+	// HTML only — the crawler needs HTML for the <a href> link harvest.
+	// `base` is where the body CAME from, not where it was asked for: a bare
+	// domain redirecting to its www host is the ordinary case, and resolving
+	// the page's own relative references against the pre-redirect origin would
+	// point every one of them at a host that never served this page.
+	body, _, base, err := f.fetchDoc(ctx, rawURL, acceptHTML)
 	if err != nil {
 		return Page{}, err
 	}
+	ogImage, icons := extractHeadAssets(body, base)
 	return Page{
-		URL:   rawURL,
-		Text:  StripTags(body),
-		Links: extractLinks(body, parsed),
-		Bytes: len(body),
+		URL:     rawURL,
+		Text:    StripTags(body),
+		Links:   extractLinks(body, base),
+		Bytes:   len(body),
+		OGImage: ogImage,
+		Icons:   icons,
 	}, nil
+}
+
+// extractHeadAssets harvests the visual identity a page declares: its
+// og:image and every <link rel> naming an icon. Both live in attributes
+// StripTags destroys, so — like extractLinks — the harvest runs on the raw
+// HTML. URLs come back absolute; a candidate whose href does not resolve to
+// an http(s) URL is dropped rather than guessed at.
+func extractHeadAssets(rawHTML string, base *url.URL) (ogImage string, icons []IconRef) {
+	tokenizer := html.NewTokenizer(strings.NewReader(rawHTML))
+	seen := map[string]bool{}
+	for {
+		tokenType := tokenizer.Next()
+		if tokenType == html.ErrorToken {
+			// io.EOF or a malformed tail: the parseable prefix has been
+			// harvested, which is all a best-effort discovery aid owes.
+			return ogImage, icons
+		}
+		name, hasAttr := tokenizer.TagName()
+		// The harvest stops at </head>, because that is where a site declares
+		// its own identity. Markup in the body is not the same claim: on a page
+		// that renders user-generated content, whoever wrote that content also
+		// wrote the tags around it, and a <link rel="icon"> down there would
+		// let them choose the company's face.
+		if tokenType == html.EndTagToken && string(name) == "head" {
+			return ogImage, icons
+		}
+		if !hasAttr {
+			continue
+		}
+		switch string(name) {
+		case "meta":
+			if found, ok := ogImageFrom(tokenizer, base); ok && ogImage == "" {
+				// First declaration wins: a page repeating og:image offers no
+				// basis to rank the repeats, and the first is conventionally
+				// the canonical one.
+				ogImage = found
+			}
+		case "link":
+			if icon, ok := iconFrom(tokenizer, base); ok && !seen[icon.URL] {
+				seen[icon.URL] = true
+				icons = append(icons, icon)
+			}
+		}
+	}
+}
+
+// tagAttrs collects the current tag's attributes, keys lowercased. The
+// tokenizer yields them one at a time and only for the tag it is positioned
+// on, so callers that need two attributes together (rel AND href) read the
+// whole set first.
+func tagAttrs(tokenizer *html.Tokenizer) map[string]string {
+	attrs := map[string]string{}
+	for {
+		key, value, more := tokenizer.TagAttr()
+		attrs[strings.ToLower(string(key))] = string(value)
+		if !more {
+			return attrs
+		}
+	}
+}
+
+// ogImageFrom reads one <meta> as an og:image declaration. Open Graph names
+// the field in `property`; some CMSs emit it in `name`, so both are accepted.
+func ogImageFrom(tokenizer *html.Tokenizer, base *url.URL) (string, bool) {
+	attrs := tagAttrs(tokenizer)
+	if attrs["property"] != "og:image" && attrs["name"] != "og:image" {
+		return "", false
+	}
+	return resolveAsset(base, attrs["content"])
+}
+
+// iconFrom reads one <link> as an icon declaration.
+func iconFrom(tokenizer *html.Tokenizer, base *url.URL) (IconRef, bool) {
+	attrs := tagAttrs(tokenizer)
+	rel := iconRel(attrs["rel"])
+	if rel == "" {
+		return IconRef{}, false
+	}
+	href, ok := resolveAsset(base, attrs["href"])
+	if !ok {
+		return IconRef{}, false
+	}
+	return IconRef{URL: href, Rel: rel, Sizes: strings.ToLower(strings.TrimSpace(attrs["sizes"]))}, true
+}
+
+// iconRel reduces a rel attribute to the icon kind it declares, or "" for a
+// link that declares none. rel is a space-separated token list, so
+// "shortcut icon" is an icon. rel="mask-icon" is deliberately not a kind: it
+// is a monochrome stencil for Safari's pinned tabs, never the company's mark.
+func iconRel(rel string) string {
+	for _, token := range strings.Fields(strings.ToLower(rel)) {
+		switch token {
+		case RelAppleTouchIcon, "apple-touch-icon-precomposed":
+			return RelAppleTouchIcon
+		case RelIcon:
+			return RelIcon
+		}
+	}
+	return ""
+}
+
+// resolveAsset resolves a declared asset reference. Unlike a nav link, an
+// empty reference is not the page itself — a <link href=""> declares no asset,
+// so it is dropped instead of resolving to the page's own URL.
+func resolveAsset(base *url.URL, ref string) (string, bool) {
+	if strings.TrimSpace(ref) == "" {
+		return "", false
+	}
+	return resolveLink(base, ref)
 }
 
 // extractLinks harvests <a href> targets from raw HTML. The tokenizer treats

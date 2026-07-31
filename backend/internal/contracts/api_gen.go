@@ -3887,6 +3887,7 @@ const (
 	OrganizationGraphGroupsOmittedContacts  OrganizationGraphGroupsOmitted = "contacts"
 	OrganizationGraphGroupsOmittedDeals     OrganizationGraphGroupsOmitted = "deals"
 	OrganizationGraphGroupsOmittedIntroPath OrganizationGraphGroupsOmitted = "intro_path"
+	OrganizationGraphGroupsOmittedOurSide   OrganizationGraphGroupsOmitted = "our_side"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphGroupsOmitted enum.
@@ -3897,6 +3898,8 @@ func (e OrganizationGraphGroupsOmitted) Valid() bool {
 	case OrganizationGraphGroupsOmittedDeals:
 		return true
 	case OrganizationGraphGroupsOmittedIntroPath:
+		return true
+	case OrganizationGraphGroupsOmittedOurSide:
 		return true
 	default:
 		return false
@@ -3909,6 +3912,8 @@ const (
 	OrganizationGraphEdgeKindDealStakeholder OrganizationGraphEdgeKind = "deal_stakeholder"
 	OrganizationGraphEdgeKindEmployment      OrganizationGraphEdgeKind = "employment"
 	OrganizationGraphEdgeKindHasDeal         OrganizationGraphEdgeKind = "has_deal"
+	OrganizationGraphEdgeKindInContactWith   OrganizationGraphEdgeKind = "in_contact_with"
+	OrganizationGraphEdgeKindOwns            OrganizationGraphEdgeKind = "owns"
 	OrganizationGraphEdgeKindParentOf        OrganizationGraphEdgeKind = "parent_of"
 	OrganizationGraphEdgeKindPartnerOf       OrganizationGraphEdgeKind = "partner_of"
 	OrganizationGraphEdgeKindReferredBy      OrganizationGraphEdgeKind = "referred_by"
@@ -3924,6 +3929,10 @@ func (e OrganizationGraphEdgeKind) Valid() bool {
 	case OrganizationGraphEdgeKindEmployment:
 		return true
 	case OrganizationGraphEdgeKindHasDeal:
+		return true
+	case OrganizationGraphEdgeKindInContactWith:
+		return true
+	case OrganizationGraphEdgeKindOwns:
 		return true
 	case OrganizationGraphEdgeKindParentOf:
 		return true
@@ -3941,6 +3950,7 @@ const (
 	OrganizationGraphNodeKindDeal         OrganizationGraphNodeKind = "deal"
 	OrganizationGraphNodeKindOrganization OrganizationGraphNodeKind = "organization"
 	OrganizationGraphNodeKindPerson       OrganizationGraphNodeKind = "person"
+	OrganizationGraphNodeKindUser         OrganizationGraphNodeKind = "user"
 )
 
 // Valid indicates whether the value is a known member of the OrganizationGraphNodeKind enum.
@@ -3951,6 +3961,8 @@ func (e OrganizationGraphNodeKind) Valid() bool {
 	case OrganizationGraphNodeKindOrganization:
 		return true
 	case OrganizationGraphNodeKindPerson:
+		return true
+	case OrganizationGraphNodeKindUser:
 		return true
 	default:
 		return false
@@ -4113,6 +4125,69 @@ func (e OverlayConnectionStatus) Valid() bool {
 	case OverlayConnectionStatusError:
 		return true
 	case OverlayConnectionStatusRevoked:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipAcceptedMode.
+const (
+	OverlayFlipAcceptedModeEmergency OverlayFlipAcceptedMode = "emergency"
+	OverlayFlipAcceptedModeFreshSync OverlayFlipAcceptedMode = "fresh_sync"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipAcceptedMode enum.
+func (e OverlayFlipAcceptedMode) Valid() bool {
+	switch e {
+	case OverlayFlipAcceptedModeEmergency:
+		return true
+	case OverlayFlipAcceptedModeFreshSync:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipPreflightBlocking.
+const (
+	ExportMissing        OverlayFlipPreflightBlocking = "export_missing"
+	ForceFreshIncomplete OverlayFlipPreflightBlocking = "force_fresh_incomplete"
+	IncumbentUnreachable OverlayFlipPreflightBlocking = "incumbent_unreachable"
+	PendingSyncDraining  OverlayFlipPreflightBlocking = "pending_sync_draining"
+	UnresolvedConflicts  OverlayFlipPreflightBlocking = "unresolved_conflicts"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipPreflightBlocking enum.
+func (e OverlayFlipPreflightBlocking) Valid() bool {
+	switch e {
+	case ExportMissing:
+		return true
+	case ForceFreshIncomplete:
+		return true
+	case IncumbentUnreachable:
+		return true
+	case PendingSyncDraining:
+		return true
+	case UnresolvedConflicts:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OverlayFlipRequestMode.
+const (
+	OverlayFlipRequestModeEmergency OverlayFlipRequestMode = "emergency"
+	OverlayFlipRequestModeFreshSync OverlayFlipRequestMode = "fresh_sync"
+)
+
+// Valid indicates whether the value is a known member of the OverlayFlipRequestMode enum.
+func (e OverlayFlipRequestMode) Valid() bool {
+	switch e {
+	case OverlayFlipRequestModeEmergency:
+		return true
+	case OverlayFlipRequestModeFreshSync:
 		return true
 	default:
 		return false
@@ -10317,8 +10392,17 @@ type Organization struct {
 	Id             openapi_types.UUID    `json:"id"`
 	Industry       *string               `json:"industry,omitempty"`
 	LegalName      *string               `json:"legal_name,omitempty"`
-	MergedIntoId   *openapi_types.UUID   `json:"merged_into_id,omitempty"`
-	OwnerId        *openapi_types.UUID   `json:"owner_id,omitempty"`
+
+	// LogoUrl Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
+	// path for this record, cookie-authenticated and same-origin. The key is ABSENT
+	// entirely (not null) when no logo resolved, which is the common case and never an
+	// error: a client renders the deterministic monogram then, so it never shows a
+	// broken image or an empty slot.
+	// The stored object key is deliberately not exposed; it names a bucket path, and a
+	// client's business is the endpoint that streams the bytes.
+	LogoUrl      *string             `json:"logo_url,omitempty"`
+	MergedIntoId *openapi_types.UUID `json:"merged_into_id,omitempty"`
+	OwnerId      *openapi_types.UUID `json:"owner_id,omitempty"`
 
 	// ParentOrgId Single-level hierarchy FK; no cycles.
 	ParentOrgId *openapi_types.UUID `json:"parent_org_id,omitempty"`
@@ -10677,6 +10761,11 @@ type OrganizationGraph struct {
 	// this" instead of "there is none". `contacts` withheld also withholds
 	// `deal_stakeholder` edges and the intro path, because both name a person.
 	//
+	// `our_side` is the workspace members connected to the account — the owner and the
+	// teammates who have interacted with its contacts. It needs BOTH the person and the
+	// activity grant, because each of its edges names a contact and is derived from a
+	// recorded interaction; either one missing withholds the whole group.
+	//
 	// The parent, child and partner organizations are not a group here: they need no
 	// grant beyond the organization read this whole endpoint already demands, so they
 	// are row-scope pruned like every other node and can never be withheld wholesale.
@@ -10717,10 +10806,16 @@ type OrganizationGraphEdge struct {
 	// points at it; the account points at each child).
 	// `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 	// the organization that records the edge to its counterparty.
+	// `owns` — `from` is the workspace member who owns the account.
+	// `in_contact_with` — `from` is the workspace member who has recorded interactions
+	// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+	// those interactions, so a task assigned to a teammate does not make one: an
+	// assignment is intent, a logged email is contact.
 	Kind OrganizationGraphEdgeKind `json:"kind"`
 
 	// Role The edge's role where it has one — an employment title, a stakeholder role
-	// (champion, economic_buyer, …). Null on the edges that carry none.
+	// (champion, economic_buyer, …). Null on the edges that carry none, which includes
+	// both `owns` and `in_contact_with`.
 	Role *string            `json:"role,omitempty"`
 	To   openapi_types.UUID `json:"to"`
 }
@@ -10732,6 +10827,11 @@ type OrganizationGraphEdge struct {
 // points at it; the account points at each child).
 // `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
 // the organization that records the edge to its counterparty.
+// `owns` — `from` is the workspace member who owns the account.
+// `in_contact_with` — `from` is the workspace member who has recorded interactions
+// (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+// those interactions, so a task assigned to a teammate does not make one: an
+// assignment is intent, a logged email is contact.
 type OrganizationGraphEdgeKind string
 
 // OrganizationGraphIntroPath The warm-intro route the account's most recent open signal proposes: which signal,
@@ -10757,19 +10857,33 @@ type OrganizationGraphIntroPath struct {
 type OrganizationGraphNode struct {
 	// Detail One short line of context the node cannot be read without: a contact's title,
 	// or a deal's stage name. Null when the record has none on file, and always null
-	// on an organization — how a related company is attached is the EDGE's kind, and
-	// saying it twice would let the two disagree.
+	// on an organization or a user — how a related company is attached, and how a
+	// teammate is connected, is the EDGE's kind, and saying it twice would let the two
+	// disagree.
 	Detail *string            `json:"detail,omitempty"`
 	Id     openapi_types.UUID `json:"id"`
 
 	// IntroPath This contact is the route in the active signal's warm-intro path proposes.
 	// At most one node carries it, and only when `intro_path` at the top level is
 	// present. Absent on every other node — there is nothing to say about them.
-	IntroPath *bool                     `json:"intro_path,omitempty"`
-	Kind      OrganizationGraphNodeKind `json:"kind"`
+	IntroPath *bool `json:"intro_path,omitempty"`
 
-	// Label The record's display name — the organization's, the person's full name, the deal's name.
+	// Kind `organization`, `person` and `deal` are the account's own records.
+	// `user` is a member of THIS workspace — someone on our side who is connected to the
+	// account. A user node carries its display name as the `label` and nothing else:
+	// `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+	// because §4 measures our relationship with the account's people, not with each
+	// other. `intro_path` is a plain boolean and is never sent as null on any node —
+	// a client reads its absence as "not on the warm-intro path".
+	Kind OrganizationGraphNodeKind `json:"kind"`
+
+	// Label The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name.
 	Label string `json:"label"`
+
+	// LogoUrl The company node's resolved logo (A55), same value `Organization.logo_url` carries.
+	// Absent on an organization with no resolved logo and on every person or deal node —
+	// a client draws the node's monogram or its token-coloured circle instead.
+	LogoUrl *string `json:"logo_url,omitempty"`
 
 	// Root This node is the account the graph is centred on. Exactly one node carries
 	// `true`. Always present, because "is this the centre" is a fact about every
@@ -10777,15 +10891,21 @@ type OrganizationGraphNode struct {
 	Root bool `json:"root"`
 
 	// Strength The person's §4 relationship strength, for weighting the node. Null for an
-	// organization or a deal, which have no relationship of their own, and for a
-	// contact whose strength this caller's person scope did not resolve.
+	// organization, a deal or a user, none of which have a relationship of their own,
+	// and for a contact whose strength this caller's person scope did not resolve.
 	Strength *int `json:"strength,omitempty"`
 
 	// StrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
 	StrengthBucket *OrganizationGraphNodeStrengthBucket `json:"strength_bucket,omitempty"`
 }
 
-// OrganizationGraphNodeKind defines model for OrganizationGraphNode.Kind.
+// OrganizationGraphNodeKind `organization`, `person` and `deal` are the account's own records.
+// `user` is a member of THIS workspace — someone on our side who is connected to the
+// account. A user node carries its display name as the `label` and nothing else:
+// `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+// because §4 measures our relationship with the account's people, not with each
+// other. `intro_path` is a plain boolean and is never sent as null on any node —
+// a client reads its absence as "not on the warm-intro path".
 type OrganizationGraphNodeKind string
 
 // OrganizationGraphNodeStrengthBucket The server's band for `strength` — the same vocabulary `RelationshipStrength.bucket` uses. Never re-derived from the score by a client.
@@ -10944,6 +11064,91 @@ type OverlayConnectionIncumbent string
 // OverlayConnectionStatus defines model for OverlayConnection.Status.
 type OverlayConnectionStatus string
 
+// OverlayFlipAccepted defines model for OverlayFlipAccepted.
+type OverlayFlipAccepted struct {
+	// EmergencyDisclosure Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent.
+	EmergencyDisclosure *struct {
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	} `json:"emergency_disclosure,omitempty"`
+	Mode            OverlayFlipAcceptedMode `json:"mode"`
+	RecordsImported *int64                  `json:"records_imported,omitempty"`
+
+	// RunId The migration run (`import_run`) this flip executed.
+	RunId openapi_types.UUID `json:"run_id"`
+}
+
+// OverlayFlipAcceptedMode defines model for OverlayFlipAccepted.Mode.
+type OverlayFlipAcceptedMode string
+
+// OverlayFlipParityEntry One object class's parity preview row (AC-mode-flip-7).
+type OverlayFlipParityEntry struct {
+	MirrorCount int                      `json:"mirror_count"`
+	Object      string                   `json:"object"`
+	Skipped     *[]OverlayFlipParitySkip `json:"skipped,omitempty"`
+	WillCreate  int                      `json:"will_create"`
+	WillUpdate  int                      `json:"will_update"`
+}
+
+// OverlayFlipParitySkip One row the importer cannot carry, disclosed with its reason (never silently dropped).
+type OverlayFlipParitySkip struct {
+	ExternalId string `json:"external_id"`
+	Reason     string `json:"reason"`
+}
+
+// OverlayFlipPreflight The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[], unresolved_conflicts[]}` plus the sealed snapshot and parity preview when ready, and the emergency-cutover disclosure when the incumbent is unreachable (ADR-0071 / OVA-AC-6).
+type OverlayFlipPreflight struct {
+	// Blocking Why the flip cannot run, empty when ready. `incumbent_unreachable` is the OVA-AC-6(a) honest block — the connection is revoked/error, so the force-fresh sync cannot pass; the workspace stays in overlay on its last mirror.
+	Blocking []OverlayFlipPreflightBlocking `json:"blocking"`
+
+	// Emergency Present only while the incumbent is unreachable: the ADR-0071 emergency cutover from the last-known mirror, disclosed-lossy — never offered while a fresh-sync flip is possible.
+	Emergency *struct {
+		Available                bool       `json:"available"`
+		LastSyncedAt             *time.Time `json:"last_synced_at"`
+		StalenessSeconds         *int64     `json:"staleness_seconds,omitempty"`
+		UnverifiableParityNotice string     `json:"unverifiable_parity_notice"`
+	} `json:"emergency,omitempty"`
+
+	// Parity The parity dry-run against the sealed snapshot — writes zero CRM rows; skipped rows are disclosed with reasons, never silently dropped (AC-mode-flip-7).
+	Parity *[]OverlayFlipParityEntry `json:"parity,omitempty"`
+	Ready  bool                      `json:"ready"`
+
+	// Snapshot The sealed frozen-mirror snapshot the flip imports.
+	Snapshot *OverlayFlipSnapshot `json:"snapshot,omitempty"`
+
+	// UnresolvedConflicts Open incumbent-wins conflicts awaiting acceptance; each blocks the flip. Empty in this build: branch 1 reconciliation resolves incumbent-wins at ingest and persists no conflict queue, so the producer arrives with write-back (branch 2). The field is required by OVA-WIRE-7's response shape.
+	UnresolvedConflicts []OverlayFlipUnresolvedConflict `json:"unresolved_conflicts"`
+}
+
+// OverlayFlipPreflightBlocking defines model for OverlayFlipPreflight.Blocking.
+type OverlayFlipPreflightBlocking string
+
+// OverlayFlipRequest defines model for OverlayFlipRequest.
+type OverlayFlipRequest struct {
+	// ConfirmationPhrase Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5).
+	ConfirmationPhrase string `json:"confirmation_phrase"`
+
+	// Mode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+	Mode *OverlayFlipRequestMode `json:"mode,omitempty"`
+}
+
+// OverlayFlipRequestMode `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+type OverlayFlipRequestMode string
+
+// OverlayFlipSnapshot The sealed frozen-mirror snapshot the flip imports.
+type OverlayFlipSnapshot struct {
+	FrozenAt time.Time `json:"frozen_at"`
+	Id       string    `json:"id"`
+}
+
+// OverlayFlipUnresolvedConflict One open incumbent-wins conflict blocking the flip.
+type OverlayFlipUnresolvedConflict struct {
+	ExternalId  string  `json:"external_id"`
+	ObjectClass string  `json:"object_class"`
+	Property    *string `json:"property,omitempty"`
+}
+
 // OverlayOwner defines model for OverlayOwner.
 type OverlayOwner struct {
 	Email           string  `json:"email"`
@@ -10961,10 +11166,13 @@ type OverlayOwnerDirectory struct {
 // OverlaySyncStatus Per-object mirror sync health — freshness state and backfill completeness (design.md §4.7).
 type OverlaySyncStatus struct {
 	Objects *[]struct {
-		BackfillComplete *bool                          `json:"backfillComplete,omitempty"`
-		LastSyncedAt     *time.Time                     `json:"lastSyncedAt,omitempty"`
-		Object           *string                        `json:"object,omitempty"`
-		State            *OverlaySyncStatusObjectsState `json:"state,omitempty"`
+		BackfillComplete *bool `json:"backfillComplete,omitempty"`
+
+		// FrozenForFlip The mirror is held still by a pending overlay→native flip: the sweep skips this workspace entirely, so staleness grows on purpose. Stated rather than left to be inferred from a mirror that merely looks idle.
+		FrozenForFlip *bool                          `json:"frozenForFlip,omitempty"`
+		LastSyncedAt  *time.Time                     `json:"lastSyncedAt,omitempty"`
+		Object        *string                        `json:"object,omitempty"`
+		State         *OverlaySyncStatusObjectsState `json:"state,omitempty"`
 	} `json:"objects,omitempty"`
 }
 
@@ -13157,6 +13365,18 @@ type ListApprovalsParams struct {
 
 	// Kind Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight).
 	Kind *string `form:"kind,omitempty" json:"kind,omitempty"`
+
+	// TargetEntityType Filter to the approvals staged against ONE record, together with `target_entity_id`.
+	// The two are a discriminated reference and only mean something as a pair, so supplying
+	// one without the other is a 422 rather than a filter that quietly matches every record
+	// of a type or every type of an id.
+	//
+	// A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+	// existence-hiding the record's own read gives.
+	TargetEntityType *string `form:"target_entity_type,omitempty" json:"target_entity_type,omitempty"`
+
+	// TargetEntityId The record the staged actions act on. Requires `target_entity_type`.
+	TargetEntityId *openapi_types.UUID `form:"target_entity_id,omitempty" json:"target_entity_id,omitempty"`
 }
 
 // ListApprovalsParamsStatus defines parameters for ListApprovals.
@@ -16027,6 +16247,9 @@ type DismissOrganizationSuggestionJSONRequestBody DismissOrganizationSuggestionJ
 
 // ConnectOverlayJSONRequestBody defines body for ConnectOverlay for application/json ContentType.
 type ConnectOverlayJSONRequestBody = OverlayConnectRequest
+
+// ExecuteOverlayFlipJSONRequestBody defines body for ExecuteOverlayFlip for application/json ContentType.
+type ExecuteOverlayFlipJSONRequestBody = OverlayFlipRequest
 
 // SetOverlayUserMapJSONRequestBody defines body for SetOverlayUserMap for application/json ContentType.
 type SetOverlayUserMapJSONRequestBody = SetOverlayUserMapRequest
@@ -19108,6 +19331,14 @@ func (a *Organization) UnmarshalJSON(b []byte) error {
 		delete(object, "legal_name")
 	}
 
+	if raw, found := object["logo_url"]; found {
+		err = json.Unmarshal(raw, &a.LogoUrl)
+		if err != nil {
+			return fmt.Errorf("error reading 'logo_url': %w", err)
+		}
+		delete(object, "logo_url")
+	}
+
 	if raw, found := object["merged_into_id"]; found {
 		err = json.Unmarshal(raw, &a.MergedIntoId)
 		if err != nil {
@@ -19281,6 +19512,13 @@ func (a Organization) MarshalJSON() ([]byte, error) {
 		object["legal_name"], err = json.Marshal(a.LegalName)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling 'legal_name': %w", err)
+		}
+	}
+
+	if a.LogoUrl != nil {
+		object["logo_url"], err = json.Marshal(a.LogoUrl)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling 'logo_url': %w", err)
 		}
 	}
 
@@ -22216,6 +22454,9 @@ type ServerInterface interface {
 	// Roll up an organization's account tree — weighted pipeline, current-quarter closed-won, 30-day activity count.
 	// (GET /organizations/{id}/hierarchy-rollup)
 	GetOrganizationHierarchyRollup(w http.ResponseWriter, r *http.Request, id Id, params GetOrganizationHierarchyRollupParams)
+	// Stream an organization's logo image.
+	// (GET /organizations/{id}/logo)
+	GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id Id)
 	// Merge this organization into a target (non-lossy).
 	// (POST /organizations/{id}/merge)
 	MergeOrganization(w http.ResponseWriter, r *http.Request, id Id, params MergeOrganizationParams)
@@ -22252,10 +22493,13 @@ type ServerInterface interface {
 	// Connect the workspace's overlay incumbent (HubSpot).
 	// (POST /overlay/connection)
 	ConnectOverlay(w http.ResponseWriter, r *http.Request)
-	// Execute the read-mode→overlay flip, queuing the migration.
+	// Download the workspace export bundle — the flip's pre-flip export producer.
+	// (GET /overlay/export)
+	DownloadOverlayExport(w http.ResponseWriter, r *http.Request)
+	// Execute the overlay→native flip, running the migration.
 	// (POST /overlay/flip)
 	ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request)
-	// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+	// Dry-run the overlay→native flip's readiness checks without executing it.
 	// (POST /overlay/flip:preflight)
 	PreflightOverlayFlip(w http.ResponseWriter, r *http.Request)
 	// The connected incumbent's user directory, for the mapping picker.
@@ -23524,6 +23768,12 @@ func (_ Unimplemented) GetOrganizationHierarchyRollup(w http.ResponseWriter, r *
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
+// Stream an organization's logo image.
+// (GET /organizations/{id}/logo)
+func (_ Unimplemented) GetOrganizationLogo(w http.ResponseWriter, r *http.Request, id Id) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
 // Merge this organization into a target (non-lossy).
 // (POST /organizations/{id}/merge)
 func (_ Unimplemented) MergeOrganization(w http.ResponseWriter, r *http.Request, id Id, params MergeOrganizationParams) {
@@ -23596,13 +23846,19 @@ func (_ Unimplemented) ConnectOverlay(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Execute the read-mode→overlay flip, queuing the migration.
+// Download the workspace export bundle — the flip's pre-flip export producer.
+// (GET /overlay/export)
+func (_ Unimplemented) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Execute the overlay→native flip, running the migration.
 // (POST /overlay/flip)
 func (_ Unimplemented) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
 }
 
-// Dry-run the read-mode→overlay flip's readiness checks without executing it.
+// Dry-run the overlay→native flip's readiness checks without executing it.
 // (POST /overlay/flip:preflight)
 func (_ Unimplemented) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNotImplemented)
@@ -25167,6 +25423,32 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "kind"})
 		} else {
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "kind", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_entity_type" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_entity_type", r.URL.Query(), &params.TargetEntityType, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_type"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_type", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "target_entity_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "target_entity_id", r.URL.Query(), &params.TargetEntityId, runtime.BindQueryParameterOptions{Type: "string", Format: "uuid"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "target_entity_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "target_entity_id", Err: err})
 		}
 		return
 	}
@@ -31207,6 +31489,38 @@ func (siw *ServerInterfaceWrapper) GetOrganizationHierarchyRollup(w http.Respons
 	handler.ServeHTTP(w, r)
 }
 
+// GetOrganizationLogo operation middleware
+func (siw *ServerInterfaceWrapper) GetOrganizationLogo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "id" -------------
+	var id Id
+
+	err = runtime.BindStyledParameterWithOptions("simple", "id", chi.URLParam(r, "id"), &id, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "id", Err: err})
+		return
+	}
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetOrganizationLogo(w, r, id)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // MergeOrganization operation middleware
 func (siw *ServerInterfaceWrapper) MergeOrganization(w http.ResponseWriter, r *http.Request) {
 
@@ -31660,12 +31974,30 @@ func (siw *ServerInterfaceWrapper) ConnectOverlay(w http.ResponseWriter, r *http
 	handler.ServeHTTP(w, r)
 }
 
+// DownloadOverlayExport operation middleware
+func (siw *ServerInterfaceWrapper) DownloadOverlayExport(w http.ResponseWriter, r *http.Request) {
+
+	ctx := r.Context()
+
+	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
+
+	r = r.WithContext(ctx)
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DownloadOverlayExport(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ExecuteOverlayFlip operation middleware
 func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -31686,8 +32018,6 @@ func (siw *ServerInterfaceWrapper) ExecuteOverlayFlip(w http.ResponseWriter, r *
 func (siw *ServerInterfaceWrapper) PreflightOverlayFlip(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
-
-	ctx = context.WithValue(ctx, BearerAuthScopes, []string{})
 
 	ctx = context.WithValue(ctx, CookieAuthScopes, []string{})
 
@@ -38342,6 +38672,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 		r.Get(options.BaseURL+"/organizations/{id}/hierarchy-rollup", wrapper.GetOrganizationHierarchyRollup)
 	})
 	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/organizations/{id}/logo", wrapper.GetOrganizationLogo)
+	})
+	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/organizations/{id}/merge", wrapper.MergeOrganization)
 	})
 	r.Group(func(r chi.Router) {
@@ -38376,6 +38709,9 @@ func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handl
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/connection", wrapper.ConnectOverlay)
+	})
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/overlay/export", wrapper.DownloadOverlayExport)
 	})
 	r.Group(func(r chi.Router) {
 		r.Post(options.BaseURL+"/overlay/flip", wrapper.ExecuteOverlayFlip)

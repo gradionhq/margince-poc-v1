@@ -3,13 +3,12 @@
 
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import type { components } from "../api/schema";
+import { AssistantPanel } from "./assistant";
 import {
-  AskCard,
   DealsCard,
   NextSteps,
   PeopleCard,
   SinceLastVisit,
-  SuggestionsCard,
   TagsCard,
 } from "./company360";
 import { installFetchStub, jsonResponse, StoryProviders } from "./story-utils";
@@ -226,9 +225,8 @@ function Cards({ view }: Readonly<{ view: View }>) {
     <StoryProviders>
       <div style={{ display: "grid", gap: "var(--space-3)", maxWidth: 380 }}>
         <SinceLastVisit view={view} />
-        <SuggestionsCard orgId="o-1" view={view} />
+        <AssistantPanel orgId="o-1" view={view} enabled />
         <NextSteps view={view} />
-        <AskCard orgId="o-1" enabled />
         <PeopleCard view={view} />
         <DealsCard view={view} />
         <TagsCard view={view} />

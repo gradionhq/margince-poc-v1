@@ -140,6 +140,12 @@ type Service struct {
 	// can drop its entry instead of serving the OLD mode for a cache
 	// TTL. nil means no observer is composed — the flip still commits.
 	modeFlipped func(workspaceID ids.UUID)
+	// flipImportRunning answers, inside the caller's transaction,
+	// whether a flip migration is mid-run — the one condition Disconnect
+	// refuses on (teardown.go). Injected because the run records belong
+	// to the migration module; nil means "no run in flight", so a role
+	// composed without the flip never blocks its own disconnect.
+	flipImportRunning func(ctx context.Context, tx pgx.Tx) (bool, error)
 }
 
 // NewService constructs a Service over pool, vault (the credential
@@ -154,6 +160,13 @@ func NewService(pool *pgxpool.Pool, vault keyvault.Vault, ms *MirrorStore) *Serv
 // Returns s so compose can chain it onto NewService's result.
 func (s *Service) WithModeFlipObserver(fn func(workspaceID ids.UUID)) *Service {
 	s.modeFlipped = fn
+	return s
+}
+
+// WithFlipImportProbe wires the in-flight-flip predicate Disconnect
+// consults (see the field's doc and teardown.go).
+func (s *Service) WithFlipImportProbe(fn func(ctx context.Context, tx pgx.Tx) (bool, error)) *Service {
+	s.flipImportRunning = fn
 	return s
 }
 

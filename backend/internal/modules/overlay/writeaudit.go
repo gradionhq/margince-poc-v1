@@ -218,7 +218,10 @@ func writePathError(err error) error {
 	if errors.Is(err, ErrConnectionGone) {
 		return apperrors.ErrModeNotOverlay
 	}
-	return err
+	// A pending flip holds the mirror still; the write-back path folds it
+	// the same way the user-map service does, so a frozen workspace never
+	// answers an opaque 500 on either surface.
+	return foldMirrorFrozen(err)
 }
 
 // commitUpdateWriteBack lands the LOCAL half of a completed create/update

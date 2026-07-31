@@ -1,6 +1,25 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { mockApi } from "./seed";
+
+/**
+ * Wait for every FINITE animation to finish before measuring the page.
+ *
+ * A contrast check reads the colours that are painted, and an element mid-fade
+ * paints a blend: the login screen's staggered entry made axe see the runtime
+ * line at #bfc3c1 on #fafbfa (1.71:1) instead of its settled #36433d on #eef1f0
+ * (8.9:1), so the sweep failed or passed depending on how fast the machine got
+ * to `networkidle`. Infinite animations are excluded because the Core breathes
+ * forever — waiting on those would hang rather than settle.
+ */
+async function animationsSettled(page: Page) {
+  await page.waitForFunction(() =>
+    document
+      .getAnimations()
+      .filter((animation) => animation.effect?.getTiming().iterations !== Number.POSITIVE_INFINITY)
+      .every((animation) => animation.playState === "finished"),
+  );
+}
 
 // B-EP09.22a/b: the AC-<screen>-N criteria as named tests — a failing test
 // names the criterion it breaks. Includes the cross-cutting invariants
@@ -141,7 +160,7 @@ test("AC-deal-6: a terminal-stage drop is a 🟡 confirm — nothing runs before
 
 test("AC-inbox: approve and reject act on the staged row", async ({ page }) => {
   await page.goto("/#/inbox");
-  await expect(page.getByText("send_email", { exact: true })).toBeVisible();
+  await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
   await expect(page.getByText("Agent: runner")).toBeVisible();
   await page.getByRole("button", { name: "Übernehmen" }).click();
 });
@@ -608,7 +627,7 @@ test.describe("§3.8: 390px mobile", () => {
     page,
   }) => {
     await page.goto("/#/inbox");
-    await expect(page.getByText("send_email", { exact: true })).toBeVisible();
+    await expect(page.getByText("E-Mail senden", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Übernehmen" }).click();
   });
 });
@@ -618,6 +637,7 @@ test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
     test(`no AA violations on #/${screen}`, async ({ page }) => {
       await page.goto(`/#/${screen}`);
       await page.waitForLoadState("networkidle");
+      await animationsSettled(page);
       const results = await new AxeBuilder({ page })
         .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
         .analyze();
@@ -630,6 +650,253 @@ test.describe("B-EP09.21: WCAG 2.2 AA (axe)", () => {
       ).toEqual([]);
     });
   }
+});
+
+// ---------------------------------------------------------------------------
+// The unauthenticated surface (ADR-0076): §3.8 at two narrow widths, 200% zoom,
+// the two-region structure, and axe.
+//
+// WHY IT NEEDS ITS OWN BLOCK: every sweep above walks CORE_SCREENS, and all of
+// those start behind a session — so the one screen a signed-out user actually
+// meets was never measured at any width. It is also the only screen the spec
+// gives a SECOND region, which makes it the likeliest place a breakpoint
+// regression lands and the least likely place anyone notices: nobody resizes the
+// login page.
+//
+// These override the file-level beforeEach with an unauthenticated mock, so the
+// app renders login rather than the shell.
+// ---------------------------------------------------------------------------
+test.describe("ADR-0076: the unauthenticated surface", () => {
+  test.beforeEach(async ({ page }) => {
+    await mockApi(page, { session: "unauthenticated" });
+  });
+
+  // Each entry is a viewport the spec names. 200% zoom is expressed as the CSS
+  // viewport it actually produces — a 1280x800 window at 200% presents 640x400 —
+  // because that is what the layout sees; deviceScaleFactor would change the
+  // pixel ratio and nothing about the breakpoints.
+  // `identity` is whether the identity REGION is part of the surface at that
+  // width. Below 561px it is not: the phone layout is the task alone, one
+  // full-height card, with the Core in its header (see the ≤560 block in
+  // auth.css). That is a deliberate reversal of Decision 1 for phones only —
+  // raised in STATUS.md — and it is pinned here rather than left to drift,
+  // because the alternative is a suite that still forbids the shipped design.
+  const NARROW = [
+    { label: "390px mobile", width: 390, height: 844, identity: false },
+    { label: "320px narrow", width: 320, height: 568, identity: false },
+    { label: "200% zoom", width: 640, height: 400, identity: true },
+  ] as const;
+
+  for (const { label, width, height, identity } of NARROW) {
+    test.describe(label, () => {
+      test.use({ viewport: { width, height } });
+
+      test("no horizontal body scroll", async ({ page }) => {
+        await page.goto("/");
+        await expect(
+          page.getByRole("heading", {
+            level: 1,
+            name: "Bei Margince anmelden",
+          }),
+        ).toBeVisible();
+        const overflow = await page.evaluate(
+          () =>
+            document.documentElement.scrollWidth -
+            document.documentElement.clientWidth,
+        );
+        expect(overflow).toBeLessThanOrEqual(0);
+      });
+
+      // The defect this pins is specific and was live: a fixed, overflow-hidden
+      // full-screen surface cannot scroll, so at 320px or under a phone keyboard
+      // the submit button is simply unreachable (§13.3).
+      test("keeps the primary action reachable", async ({ page }) => {
+        await page.goto("/");
+        const submit = page.getByRole("button", { name: "Anmelden" });
+        await submit.scrollIntoViewIfNeeded();
+        await expect(submit).toBeVisible();
+        // Thrown rather than asserted-and-continued: an `if (box)` guard around
+        // the checks below would let a null box SKIP them, and a test that can
+        // no-op is the thing this one exists to stop being.
+        const box = await submit.boundingBox();
+        if (!box) {
+          throw new Error("the submit button rendered no box");
+        }
+        const viewport = page.viewportSize();
+        if (!viewport) {
+          throw new Error("the page reported no viewport");
+        }
+        // §6.5/§12: 44px is the target floor, not a rounded-up number.
+        expect(Math.round(box.height)).toBeGreaterThanOrEqual(44);
+        // `toBeVisible()` passes for a CSS-visible element parked outside the
+        // viewport on a fixed, overflow-hidden surface, which is exactly the
+        // defect this test is named for. Pin containment directly.
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+      });
+
+      // Where the region IS part of the surface, it shows all of itself: no
+      // limit may be dropped to fit (ADR-0076 Decision 6, and both earlier
+      // implementations dropped two of them with `display: none`). Count AND
+      // rendered height, because a count alone passes on a hidden node.
+      //
+      // Where it is NOT — the phone layout — the region is absent by design and
+      // what remains is one card with the Core in its header. But the DISCLOSURE
+      // is not the region's to take with it: the Core is `aria-hidden`, so
+      // dropping the aside without the phone line leaves a phone user, and every
+      // screen-reader user on one, told nothing about the AI at all. Exactly one
+      // of the two statements is live at any width, so neither branch can pass
+      // by saying it twice.
+      test("shows the identity region whole, or not at all", async ({
+        page,
+      }) => {
+        await page.goto("/");
+        const region = page.locator("aside.auth-identity");
+        const limits = page.locator(".auth-limits li");
+        const phoneLine = page.locator(".auth-phone-disclosure");
+        if (identity) {
+          await expect(region).toBeVisible();
+          await expect(limits).toHaveCount(4);
+          for (let index = 0; index < 4; index += 1) {
+            await expect(limits.nth(index)).toBeVisible();
+          }
+          await expect(phoneLine).toBeHidden();
+        } else {
+          await expect(region).toBeHidden();
+          await expect(page.locator("[data-core-state]")).toHaveCount(1);
+          await expect(page.locator("main.auth-task")).toBeVisible();
+          await expect(phoneLine).toBeVisible();
+          await expect(phoneLine).not.toBeEmpty();
+        }
+      });
+    });
+  }
+
+  // Stacked below 960px, and the task comes FIRST — visually as well as in the
+  // DOM, because at this width there is no second column for `order` to move.
+  test("stacks the task region above the identity region below 960px", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 720, height: 900 });
+    await page.goto("/");
+    await expect(
+      page.getByRole("heading", { level: 1, name: "Bei Margince anmelden" }),
+    ).toBeVisible();
+    const task = await page.locator("main.auth-task").boundingBox();
+    const identity = await page.locator("aside.auth-identity").boundingBox();
+    expect(task).not.toBeNull();
+    expect(identity).not.toBeNull();
+    expect(task?.y ?? 0).toBeLessThan(identity?.y ?? 0);
+  });
+
+  // §6.4 / §12: one h1, and it is the TASK. A surface whose h1 is the system
+  // talking and whose h2 is "sign in" has inverted its own hierarchy — and the
+  // identity region's statement is set large enough that promoting it to a
+  // heading is a tempting mistake.
+  test("has exactly one h1, and it is the task", async ({ page }) => {
+    await page.goto("/");
+    const headings = page.getByRole("heading", { level: 1 });
+    await expect(headings).toHaveCount(1);
+    await expect(headings).toHaveText("Bei Margince anmelden");
+  });
+
+  // The Core is decoration (WDS-CORE-4): every state it shows is also stated in
+  // text by the surface around it, so it must not reach the a11y tree at all.
+  test("keeps the Core out of the accessibility tree", async ({ page }) => {
+    await page.goto("/");
+    const core = page.locator("[data-core-state]");
+    await expect(core).toHaveCount(1);
+    await expect(core).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // §19: no control whose flow does not exist — and the reason this passes has
+  // CHANGED. The federated block has markup now, so it is no longer a property
+  // of the tree that nothing could render a provider button. The gate is the
+  // CAPABILITY: /auth/capabilities serves `oidc_providers: []` because the OIDC
+  // flow has not shipped, and `ProviderButtons` returns null for an empty list.
+  // The companion test below drives the same gate in its "on" position, because
+  // a gate only ever seen switched off is a gate nobody has watched work.
+  test("offers no identity provider that does not work", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".auth-sso")).toHaveCount(0);
+    await expect(page.locator(".auth-or")).toHaveCount(0);
+    await expect(
+      page.getByText(/weiter mit|continue with|oder per e-mail/i),
+    ).toHaveCount(0);
+  });
+
+  // The other direction: an installation whose administrator HAS wired SSO. The
+  // labels are the SERVER's strings (the second one is a provider this frontend
+  // has never heard of, which is the normal case for a self-hosted product), the
+  // buttons are real focusable controls at the 44px target floor, and the divider
+  // labels the PASSWORD FORM below them — where SSO exists the form is the
+  // fallback door, so the divider names it rather than the buttons.
+  test("offers the providers an installation does serve", async ({ page }) => {
+    await mockApi(page, {
+      session: "unauthenticated",
+      oidcProviders: [
+        { key: "google", label: "Weiter mit Google" },
+        { key: "corp-sso", label: "Anmeldung über Werk-IT" },
+      ],
+    });
+    await page.goto("/");
+
+    const google = page.getByRole("button", { name: "Weiter mit Google" });
+    const corp = page.getByRole("button", { name: "Anmeldung über Werk-IT" });
+    await expect(google).toBeVisible();
+    await expect(corp).toBeVisible();
+    // An unrecognised key still gets a mark — a neutral one rather than nothing,
+    // because a working sign-in path must not be hidden for want of a logo.
+    await expect(page.locator(".auth-sso .provider-mark")).toHaveCount(2);
+
+    // Reachable, not merely present.
+    await google.focus();
+    await expect(google).toBeFocused();
+    expect(
+      Math.round((await google.boundingBox())?.height ?? 0),
+    ).toBeGreaterThanOrEqual(44);
+
+    // The divider sits between the providers and the form it labels.
+    const divider = page.locator(".auth-or");
+    await expect(divider).toHaveText("oder per E-Mail");
+    const buttonsY = (await page.locator(".auth-sso").boundingBox())?.y ?? 0;
+    const dividerY = (await divider.boundingBox())?.y ?? 0;
+    const fieldsY = (await page.locator(".auth-fields").boundingBox())?.y ?? 0;
+    expect(buttonsY).toBeLessThan(dividerY);
+    expect(dividerY).toBeLessThan(fieldsY);
+
+    // The federated block exists only under this seeding, so the axe sweep below
+    // would never see it. Run it here too rather than leave the one part of the
+    // surface a user of an SSO installation actually clicks unmeasured.
+    await page.waitForLoadState("networkidle");
+    await animationsSettled(page);
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.flatMap((violation) =>
+        violation.nodes.map(
+          (node) => `${violation.id}: ${node.target.join(" ")}`,
+        ),
+      ),
+    ).toEqual([]);
+  });
+
+  test("no AA violations on the login screen", async ({ page }) => {
+    await page.goto("/");
+    await page.waitForLoadState("networkidle");
+    await animationsSettled(page);
+    const results = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    expect(
+      results.violations.flatMap((violation) =>
+        violation.nodes.map(
+          (node) => `${violation.id}: ${node.target.join(" ")}`,
+        ),
+      ),
+    ).toEqual([]);
+  });
 });
 
 test("PERF-1: record open renders under the 300ms perceived budget", async ({

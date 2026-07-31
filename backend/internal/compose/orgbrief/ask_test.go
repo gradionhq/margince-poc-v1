@@ -11,6 +11,8 @@ package orgbrief
 // it, and over one that cannot.
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"regexp"
 	"strings"
@@ -21,6 +23,7 @@ import (
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
+	"github.com/gradionhq/margince/backend/internal/shared/ports/model"
 )
 
 // openingTag matches the fence's opening marker, whatever promptfence names it
@@ -45,8 +48,8 @@ func askInput() Input {
 				Stage: "Proposal", AmountMinor: 4_800_000, Currency: "EUR", Stalled: true,
 			},
 		},
-		OpenTasks: []NamedIn{
-			{ID: "018f0000-0000-7000-8000-0000000000a2", Name: "Call the CFO"},
+		OpenTasks: []TaskIn{
+			{ID: "018f0000-0000-7000-8000-0000000000a2", Name: "Call the CFO", Due: "2026-07-21T09:00:00Z"},
 		},
 		Recent: []ActIn{
 			{ID: "018f0000-0000-7000-8000-0000000000a1", Kind: "email", Subject: "Re: proposal", At: "2026-07-10T09:00:00Z"},
@@ -289,6 +292,139 @@ func TestTheAskPromptFencesTheAccountWithItsOwnNonce(t *testing.T) {
 	}
 	if !strings.Contains(req.System, askInstruction[crmcontracts.WhatsOpen]) {
 		t.Error("the system prompt carries no per-question instruction, so every question would answer alike")
+	}
+}
+
+// threeCheckIns is the account that produced the answer this shape was built
+// to stop: three tasks whose subjects are identical, which the old writer
+// joined into one sentence carrying three citations. The reader got three
+// unseparated chips and a wall of ids.
+func threeCheckIns() Input {
+	return Input{
+		Name: "Brandt Automotive GmbH",
+		OpenTasks: []TaskIn{
+			{ID: "019fac6c-60d1-732b-ab2b-d93611745625", Name: "Check in", Due: "2026-07-21T09:00:00Z"},
+			{ID: "019fac6c-60c8-745f-8c5f-1503a9a4ea48", Name: "Check in", Due: "2026-07-17T09:00:00Z"},
+			{ID: "019fac6c-60f8-77d4-a267-dabced904009", Name: "Check in", Due: "2026-07-28T09:00:00Z"},
+		},
+	}
+}
+
+// TestOpenTasksAnswerIsOneSentencePerTask is the shape rule at the case that
+// broke: a count sentence the reader can read, then one sentence per task, and
+// every sentence carrying exactly the one citation it is about.
+func TestOpenTasksAnswerIsOneSentencePerTask(t *testing.T) {
+	in := threeCheckIns()
+	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, in)
+	if len(answered) != 1+len(in.OpenTasks) {
+		t.Fatalf("got %d sentences for %d tasks, want one count sentence and one per task: %q",
+			len(answered), len(in.OpenTasks), texts(answered))
+	}
+	for _, sentence := range answered {
+		if len(sentence.Evidence) != 1 {
+			t.Errorf("sentence %q carries %d citations, want the one record it is about",
+				sentence.Text, len(sentence.Evidence))
+		}
+		if idInProse.MatchString(sentence.Text) {
+			t.Errorf("sentence %q spells a record id at the reader", sentence.Text)
+		}
+	}
+	// The count sentence is anchored on the task due first, so the reader opens
+	// the one that is most overdue from the sentence that counts them.
+	if !strings.Contains(answered[0].Text, "3 open tasks") {
+		t.Errorf("the count sentence %q does not state how many are open", answered[0].Text)
+	}
+	if !strings.Contains(answered[0].Text, "17 Jul 2026") {
+		t.Errorf("the count sentence %q does not name the earliest due date", answered[0].Text)
+	}
+	if answered[0].Evidence[0].EntityID != in.OpenTasks[1].ID {
+		t.Errorf("the count sentence cites %q, want the task due first", answered[0].Evidence[0].EntityID)
+	}
+}
+
+// The per-task list stops at listedRecords, and the count sentence still states
+// the TRUE total — a reader told "five open tasks" who has nine is worse off
+// than one told nothing.
+func TestOpenTasksAnswerCapsTheListButNotTheCount(t *testing.T) {
+	in := Input{Name: "Brandt Automotive GmbH"}
+	const tasks = listedRecords + 4
+	for i := range tasks {
+		in.OpenTasks = append(in.OpenTasks, TaskIn{
+			ID:   fmt.Sprintf("019fac6c-60d1-732b-ab2b-d3611745%04d", i),
+			Name: fmt.Sprintf("Task %d", i),
+		})
+	}
+	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, in)
+	if len(answered) != 1+listedRecords {
+		t.Fatalf("got %d sentences, want the count plus %d listed tasks", len(answered), listedRecords)
+	}
+	if !strings.Contains(answered[0].Text, fmt.Sprintf("%d open tasks", tasks)) {
+		t.Errorf("the count sentence %q reports the capped list, not the true total", answered[0].Text)
+	}
+}
+
+// One task needs no count in front of it: its own sentence names it and says
+// when it is due, which is everything the count would have added.
+func TestASingleOpenTaskIsOneSentence(t *testing.T) {
+	answered := deterministicAnswer(crmcontracts.WhatsOpen, askOrgID, Input{
+		Name:      "Brandt Automotive GmbH",
+		OpenTasks: []TaskIn{{ID: "019fac6c-60d1-732b-ab2b-d93611745625", Name: "Call the CFO"}},
+	})
+	if len(answered) != 1 {
+		t.Fatalf("got %d sentences for one task: %q", len(answered), texts(answered))
+	}
+	if !strings.Contains(answered[0].Text, "Call the CFO") {
+		t.Errorf("the one task is not named: %q", answered[0].Text)
+	}
+}
+
+// idSpellingLane answers exactly the way the shipped answer failed: grounded
+// citations, and the same ids spelled out in the prose.
+type idSpellingLane struct{ tasks []TaskIn }
+
+func (l idSpellingLane) Complete(context.Context, model.Request) (model.Response, error) {
+	written := make([]string, 0, len(l.tasks))
+	for _, task := range l.tasks {
+		written = append(written, fmt.Sprintf(
+			`{"text":"You have an open task %q (ID: %s).","evidence":[{"entity_type":"activity","entity_id":%q}]}`,
+			task.Name, task.ID, task.ID))
+	}
+	return model.Response{Text: `{"sentences":[` + strings.Join(written, ",") + `]}`}, nil
+}
+
+// A model that spells ids at the reader loses every sentence it wrote, and the
+// reader gets the deterministic floor rather than developer output. This is the
+// defect the user reported, at the seam that decides what they see.
+func TestAnAnswerSpellingIDsFallsBackToTheFloor(t *testing.T) {
+	in := threeCheckIns()
+	lane := idSpellingLane{tasks: in.OpenTasks}
+
+	answered, by, err := Answer(context.Background(), lane, crmcontracts.WhatsOpen, askOrgID, in)
+	if err != nil {
+		t.Fatalf("answer: %v", err)
+	}
+	if by != crmcontracts.Deterministic {
+		t.Errorf("generated_by = %q, want the floor — every model sentence spelled an id", by)
+	}
+	if len(answered) == 0 {
+		t.Fatal("no sentences: dropping the model's prose must not drop the answer")
+	}
+	for _, sentence := range answered {
+		if idInProse.MatchString(sentence.Text) {
+			t.Errorf("the floor spells an id too: %q", sentence.Text)
+		}
+	}
+}
+
+// Every deterministic answer is readable prose: no answer may hand the reader a
+// record id in the text, whichever question produced it.
+func TestNoDeterministicAnswerSpellsAnIDAtTheReader(t *testing.T) {
+	for _, question := range declaredQuestions(t) {
+		for _, sentence := range deterministicAnswer(question, askOrgID, askInput()) {
+			if idInProse.MatchString(sentence.Text) {
+				t.Errorf("%s answered with an id in the text: %q", question, sentence.Text)
+			}
+		}
 	}
 }
 

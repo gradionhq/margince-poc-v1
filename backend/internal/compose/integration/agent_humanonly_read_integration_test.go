@@ -56,6 +56,9 @@ func TestAgentBearerIsRefusedOnHumanOnlyReads(t *testing.T) {
 		"/v1/voice-profiles",
 		"/v1/webhook-subscriptions",
 		"/v1/passports",
+		// The pre-flip export bundle: a full-estate read, audit log
+		// included, in a single GET.
+		"/v1/overlay/export",
 	} {
 		t.Run(route, func(t *testing.T) {
 			var problem struct {

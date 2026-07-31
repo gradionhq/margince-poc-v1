@@ -416,6 +416,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/organizations/{id}/logo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Stream an organization's logo image.
+         * @description The bytes behind `Organization.logo_url` (A55): the company mark resolved from its
+         *     own website during enrichment, normalized once at store time to a square PNG. The
+         *     response is always `image/png` — whatever the source format was, what is served is
+         *     the server's own re-encode, so no third-party markup is ever served from this origin.
+         *     404 when the organization has no resolved logo, is invisible to the caller, or does
+         *     not exist — a client renders the deterministic monogram for all three alike. 501 when
+         *     the deployment has no object store configured.
+         */
+        get: operations["getOrganizationLogo"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/organizations/{id}/360": {
         parameters: {
             query?: never;
@@ -4816,6 +4845,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/overlay/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the workspace export bundle — the flip's pre-flip export producer.
+         * @description Streams the open-format margince-export/1 bundle (CSV per object + relational JSON + manifests). In overlay mode it carries the mirror snapshot under the caller's mirror-visibility deny-join and the honest-scope manifest (AC-OV-9), and writing it records the export audit entry the flip preflight's export-recency check reads (B-E18.26). Admin/ops only (the overlay_connection UPDATE grant): this is the cutover operator's surface. Spec-fill note: the general export-run lifecycle (IEM-WIRE-1/2) is the import-export-migration chapter's own unminted contract extension — this op is the overlay lifecycle's bundle producer until that lands, raised upstream.
+         */
+        get: operations["downloadOverlayExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/overlay/flip:preflight": {
         parameters: {
             query?: never;
@@ -4825,7 +4874,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Dry-run the read-mode→overlay flip's readiness checks without executing it. */
+        /**
+         * Dry-run the overlay→native flip's readiness checks without executing it.
+         * @description The B-E18.26 gate (OVA-WIRE-7): reports whether the flip can run — incumbent reachable, force-fresh sync complete, `pending_sync` writes drained, conflicts cleared, pre-flip export available — and, when every check is green, seals the frozen mirror snapshot the flip will import and previews the parity dry-run (counts per object, skips with reasons, zero rows written). Any blocker unseals the snapshot again (UC-E18-04 F1): a failed preflight is a no-op return to a healthy overlay. When the incumbent is unreachable (`revoked`/`error`), `blocking` carries `incumbent_unreachable` and the `emergency` block discloses the last-known-mirror cutover option (OVA-AC-6 a/b).
+         */
         post: operations["preflightOverlayFlip"];
         delete?: never;
         options?: never;
@@ -4842,7 +4894,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Execute the read-mode→overlay flip, queuing the migration. */
+        /**
+         * Execute the overlay→native flip, running the migration.
+         * @description The B-E18.27 cutover (OVA-WIRE-8): freezes the mirror, imports the frozen snapshot through the migration engine with counts and relationships preserved (AC-OV-10), carries our augmentation over, detaches write-back, and flips the workspace to native — an irreversible mode change gated by the typed confirmation phrase. Refused with 409 `overlay_flip_blocked` while the preflight is unsatisfied. Human-only, like its preflight: the typed confirmation phrase IS the human-intent control, and an agent supplying it in staged arguments would collapse the confirm-first gate to a single approval click on a one-way, estate-wide change. `mode: emergency` is the ADR-0071 last-known-mirror cutover: available ONLY while the incumbent is unreachable (never a silent substitute for a fresh-sync flip, in either direction) and its 202 carries the disclosed-lossy staleness + unverifiable-parity notice.
+         */
         post: operations["executeOverlayFlip"];
         delete?: never;
         options?: never;
@@ -5656,6 +5711,8 @@ export interface components {
                 /** @enum {string} */
                 state?: "fresh" | "pending_sync" | "stale";
                 backfillComplete?: boolean;
+                /** @description The mirror is held still by a pending overlay→native flip: the sweep skips this workspace entirely, so staleness grows on purpose. Stated rather than left to be inferred from a mirror that merely looks idle. */
+                frozenForFlip?: boolean;
             }[];
         };
         /** @description The incumbent REST budget window's consumption and degradation band, its per-source breakdown, honest headroom, and the per-second Search window (overlay-budget.md "The budget read (wire shape)", OVB-AC-1/AC-5). */
@@ -5693,6 +5750,80 @@ export interface components {
          * @enum {string}
          */
         OverlayBudgetBand: "ok" | "warn" | "shed";
+        /** @description The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[], unresolved_conflicts[]}` plus the sealed snapshot and parity preview when ready, and the emergency-cutover disclosure when the incumbent is unreachable (ADR-0071 / OVA-AC-6). */
+        OverlayFlipPreflight: {
+            ready: boolean;
+            /** @description Why the flip cannot run, empty when ready. `incumbent_unreachable` is the OVA-AC-6(a) honest block — the connection is revoked/error, so the force-fresh sync cannot pass; the workspace stays in overlay on its last mirror. */
+            blocking: ("incumbent_unreachable" | "force_fresh_incomplete" | "pending_sync_draining" | "unresolved_conflicts" | "export_missing")[];
+            /** @description Open incumbent-wins conflicts awaiting acceptance; each blocks the flip. Empty in this build: branch 1 reconciliation resolves incumbent-wins at ingest and persists no conflict queue, so the producer arrives with write-back (branch 2). The field is required by OVA-WIRE-7's response shape. */
+            unresolved_conflicts: components["schemas"]["OverlayFlipUnresolvedConflict"][];
+            snapshot?: components["schemas"]["OverlayFlipSnapshot"];
+            /** @description The parity dry-run against the sealed snapshot — writes zero CRM rows; skipped rows are disclosed with reasons, never silently dropped (AC-mode-flip-7). */
+            parity?: components["schemas"]["OverlayFlipParityEntry"][] | null;
+            /** @description Present only while the incumbent is unreachable: the ADR-0071 emergency cutover from the last-known mirror, disclosed-lossy — never offered while a fresh-sync flip is possible. */
+            emergency?: {
+                available: boolean;
+                /** Format: date-time */
+                last_synced_at: string | null;
+                /** Format: int64 */
+                staleness_seconds?: number;
+                unverifiable_parity_notice: string;
+            } | null;
+        };
+        /** @description The sealed frozen-mirror snapshot the flip imports. */
+        OverlayFlipSnapshot: {
+            id: string;
+            /** Format: date-time */
+            frozen_at: string;
+        };
+        /** @description One open incumbent-wins conflict blocking the flip. */
+        OverlayFlipUnresolvedConflict: {
+            object_class: string;
+            external_id: string;
+            property?: string;
+        };
+        /** @description One object class's parity preview row (AC-mode-flip-7). */
+        OverlayFlipParityEntry: {
+            object: string;
+            mirror_count: number;
+            will_create: number;
+            will_update: number;
+            skipped?: components["schemas"]["OverlayFlipParitySkip"][];
+        };
+        /** @description One row the importer cannot carry, disclosed with its reason (never silently dropped). */
+        OverlayFlipParitySkip: {
+            external_id: string;
+            reason: string;
+        };
+        OverlayFlipRequest: {
+            /**
+             * @description `fresh_sync` (the default) requires the sealed preflight snapshot. `emergency` is the last-known-mirror cutover and is refused while the incumbent is reachable — the explicit field is the never-silently-substituted guarantee (OVA-AC-6 b).
+             * @default fresh_sync
+             * @enum {string}
+             */
+            mode: "fresh_sync" | "emergency";
+            /** @description Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5). */
+            confirmation_phrase: string;
+        };
+        OverlayFlipAccepted: {
+            /**
+             * Format: uuid
+             * @description The migration run (`import_run`) this flip executed.
+             */
+            run_id: string;
+            /** @enum {string} */
+            mode: "fresh_sync" | "emergency";
+            /** Format: int64 */
+            records_imported?: number;
+            /** @description Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent. */
+            emergency_disclosure?: {
+                /** Format: date-time */
+                last_synced_at: string | null;
+                /** Format: int64 */
+                staleness_seconds?: number;
+                unverifiable_parity_notice: string;
+            } | null;
+        };
         OverlayUserMapEntry: {
             /** Format: uuid */
             user_id: string;
@@ -6102,6 +6233,16 @@ export interface components {
              * @enum {string|null}
              */
             classification?: null | "prospect" | "customer" | "agency" | "reseller" | "tech_vendor" | "platform" | "partner" | "competitor" | "other";
+            /**
+             * @description Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
+             *     path for this record, cookie-authenticated and same-origin. The key is ABSENT
+             *     entirely (not null) when no logo resolved, which is the common case and never an
+             *     error: a client renders the deterministic monogram then, so it never shows a
+             *     broken image or an empty slot.
+             *     The stored object key is deliberately not exposed; it names a bucket path, and a
+             *     client's business is the endpoint that streams the bytes.
+             */
+            readonly logo_url?: string | null;
             /** @description Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions. */
             readonly strength?: components["schemas"]["RelationshipStrength"];
             source: string;
@@ -6465,9 +6606,18 @@ export interface components {
         OrganizationGraphNode: {
             /** Format: uuid */
             id: string;
-            /** @enum {string} */
-            kind: "organization" | "person" | "deal";
-            /** @description The record's display name — the organization's, the person's full name, the deal's name. */
+            /**
+             * @description `organization`, `person` and `deal` are the account's own records.
+             *     `user` is a member of THIS workspace — someone on our side who is connected to the
+             *     account. A user node carries its display name as the `label` and nothing else:
+             *     `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+             *     because §4 measures our relationship with the account's people, not with each
+             *     other. `intro_path` is a plain boolean and is never sent as null on any node —
+             *     a client reads its absence as "not on the warm-intro path".
+             * @enum {string}
+             */
+            kind: "organization" | "person" | "deal" | "user";
+            /** @description The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name. */
             label: string;
             /**
              * @description This node is the account the graph is centred on. Exactly one node carries
@@ -6478,14 +6628,15 @@ export interface components {
             /**
              * @description One short line of context the node cannot be read without: a contact's title,
              *     or a deal's stage name. Null when the record has none on file, and always null
-             *     on an organization — how a related company is attached is the EDGE's kind, and
-             *     saying it twice would let the two disagree.
+             *     on an organization or a user — how a related company is attached, and how a
+             *     teammate is connected, is the EDGE's kind, and saying it twice would let the two
+             *     disagree.
              */
             detail?: string | null;
             /**
              * @description The person's §4 relationship strength, for weighting the node. Null for an
-             *     organization or a deal, which have no relationship of their own, and for a
-             *     contact whose strength this caller's person scope did not resolve.
+             *     organization, a deal or a user, none of which have a relationship of their own,
+             *     and for a contact whose strength this caller's person scope did not resolve.
              */
             strength?: number | null;
             /**
@@ -6499,6 +6650,12 @@ export interface components {
              *     present. Absent on every other node — there is nothing to say about them.
              */
             intro_path?: boolean;
+            /**
+             * @description The company node's resolved logo (A55), same value `Organization.logo_url` carries.
+             *     Absent on an organization with no resolved logo and on every person or deal node —
+             *     a client draws the node's monogram or its token-coloured circle instead.
+             */
+            logo_url?: string | null;
         };
         /**
          * @description One edge, from the record that owns it to the record it points at. Both ends are
@@ -6518,12 +6675,18 @@ export interface components {
              *     points at it; the account points at each child).
              *     `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
              *     the organization that records the edge to its counterparty.
+             *     `owns` — `from` is the workspace member who owns the account.
+             *     `in_contact_with` — `from` is the workspace member who has recorded interactions
+             *     (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+             *     those interactions, so a task assigned to a teammate does not make one: an
+             *     assignment is intent, a logged email is contact.
              * @enum {string}
              */
-            kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with";
+            kind: "employment" | "has_deal" | "deal_stakeholder" | "parent_of" | "partner_of" | "referred_by" | "co_sell_with" | "owns" | "in_contact_with";
             /**
              * @description The edge's role where it has one — an employment title, a stakeholder role
-             *     (champion, economic_buyer, …). Null on the edges that carry none.
+             *     (champion, economic_buyer, …). Null on the edges that carry none, which includes
+             *     both `owns` and `in_contact_with`.
              */
             role?: string | null;
         };
@@ -6575,11 +6738,16 @@ export interface components {
              *     this" instead of "there is none". `contacts` withheld also withholds
              *     `deal_stakeholder` edges and the intro path, because both name a person.
              *
+             *     `our_side` is the workspace members connected to the account — the owner and the
+             *     teammates who have interacted with its contacts. It needs BOTH the person and the
+             *     activity grant, because each of its edges names a contact and is derived from a
+             *     recorded interaction; either one missing withholds the whole group.
+             *
              *     The parent, child and partner organizations are not a group here: they need no
              *     grant beyond the organization read this whole endpoint already demands, so they
              *     are row-scope pruned like every other node and can never be withheld wholesale.
              */
-            groups_omitted: ("contacts" | "deals" | "intro_path")[];
+            groups_omitted: ("contacts" | "deals" | "intro_path" | "our_side")[];
             intro_path?: components["schemas"]["OrganizationGraphIntroPath"];
         };
         /**
@@ -11707,6 +11875,41 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    getOrganizationLogo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Opaque resource id (UUID; ordering semantics are not exposed). */
+                id: components["parameters"]["Id"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The normalized logo bytes. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "image/png": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The deployment has no object store configured, so no logo can be stored or served. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["Problem"];
+                };
+            };
+        };
+    };
     getOrganization360: {
         parameters: {
             query?: never;
@@ -16698,6 +16901,18 @@ export interface operations {
                 status?: "pending" | "approved" | "rejected";
                 /** @description Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight). */
                 kind?: string;
+                /**
+                 * @description Filter to the approvals staged against ONE record, together with `target_entity_id`.
+                 *     The two are a discriminated reference and only mean something as a pair, so supplying
+                 *     one without the other is a 422 rather than a filter that quietly matches every record
+                 *     of a type or every type of an id.
+                 *
+                 *     A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+                 *     existence-hiding the record's own read gives.
+                 */
+                target_entity_type?: string;
+                /** @description The record the staged actions act on. Requires `target_entity_type`. */
+                target_entity_id?: string;
             };
             header?: never;
             path?: never;
@@ -16716,6 +16931,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getApproval: {
@@ -20876,6 +21092,28 @@ export interface operations {
             };
         };
     };
+    downloadOverlayExport: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bundle as a downloadable ZIP attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/zip": string;
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+        };
+    };
     preflightOverlayFlip: {
         parameters: {
             query?: never;
@@ -20890,8 +21128,13 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["OverlayFlipPreflight"];
+                };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
         };
     };
     executeOverlayFlip: {
@@ -20901,15 +21144,26 @@ export interface operations {
             path?: never;
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["OverlayFlipRequest"];
+            };
+        };
         responses: {
-            /** @description Migration queued */
+            /** @description Migration run complete (synchronous behind 202, the teardown precedent). */
             202: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["OverlayFlipAccepted"];
+                };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["PermissionDenied"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listOverlayUserMap: {

@@ -56,6 +56,12 @@ func TestTimeScannerFiresOnceThenTheOccurrenceKeySuppressesTheRefire(t *testing.
 	firstTouch := scanNow.AddDate(0, 0, -10)
 	seedGenuineTouch(t, owner, e.WS, dealID, "call", firstTouch)
 
+	// The deal must also predate the cutoff: a record younger than the
+	// threshold is not neglected, however old the activities on it are
+	// (the creation grace in activities.LastTouchBefore). SeedDeal stamps
+	// created_at with the real now(), so the fixture says so explicitly.
+	backdateCreatedAt(t, owner, "deal", dealID, firstTouch)
+
 	// A system-seeded instance (no owner_id): the match-time owner gate
 	// (automation/gate.go) skips entirely for a zero OwnerID, so this test
 	// exercises the scan/dispatch/occurrence-key machinery without also

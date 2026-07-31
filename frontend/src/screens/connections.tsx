@@ -2,10 +2,11 @@
 // SPDX-FileCopyrightText: 2026 Gradion
 
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useId, useState } from "react";
 import { api } from "../api/client";
 import type { components } from "../api/schema";
 import {
+  Avatar,
   Badge,
   Button,
   Modal,
@@ -53,7 +54,12 @@ type RelationKey =
   | "partner_of.owner"
   | "referred_by.counterparty"
   | "referred_by.owner"
-  | "co_sell_with";
+  | "co_sell_with"
+  // Our side of the account: the owner, and teammates with recorded
+  // interactions with a contact. These name a workspace user, not a record at
+  // the account, and read from the user's end rather than the account's.
+  | "owns"
+  | "in_contact_with";
 
 /** useOrganizationGraph reads the account's one-hop connections. */
 export function useOrganizationGraph(id: string) {
@@ -125,6 +131,15 @@ export function layout(nodes: readonly GraphNode[]): Placed[] {
 function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
   const placed = layout(graph.nodes);
   const at = new Map(placed.map((p) => [p.node.id, p]));
+  // Logos that failed to load. A node then keeps its kind colour and reads as
+  // an ordinary node, which is the same floor the list's monogram gives it —
+  // never a pale empty disc where a company should be.
+  const [broken, setBroken] = useState<ReadonlySet<string>>(new Set());
+  // The card and its expanded modal are BOTH mounted while the modal is open,
+  // so a clip id built from the node id alone would exist twice in one
+  // document and `url(#…)` would resolve to whichever came first. Scoping the
+  // ids per diagram keeps each one's clips its own.
+  const clipScope = useId();
   return (
     <svg
       className="cx-diagram"
@@ -152,15 +167,48 @@ function EgoDiagram({ graph }: Readonly<{ graph: Graph }>) {
           />
         );
       })}
-      {placed.map((p) => (
-        <circle
-          key={p.node.id}
-          className={nodeClass(p.node)}
-          cx={p.x}
-          cy={p.y}
-          r={p.node.root ? ROOT_RADIUS : NODE_RADIUS}
-        />
-      ))}
+      {placed.map((p) => {
+        const r = p.node.root ? ROOT_RADIUS : NODE_RADIUS;
+        const logo = p.node.logo_url && !broken.has(p.node.logo_url);
+        return (
+          <g key={p.node.id}>
+            <circle
+              className={nodeClass(p.node, Boolean(logo))}
+              cx={p.x}
+              cy={p.y}
+              r={r}
+            />
+            {logo && p.node.logo_url && (
+              <>
+                {/* One clip per node: a clipPath is defined in the diagram's
+                    own coordinates, so a shared one would clip every logo to
+                    a single node's position. */}
+                <clipPath id={`${clipScope}-${p.node.id}`}>
+                  <circle cx={p.x} cy={p.y} r={r - 1} />
+                </clipPath>
+                {/* The circle underneath keeps its fill and its ring, so a
+                    company whose image never loads is still a drawn node
+                    rather than a hole in the diagram. */}
+                <image
+                  className="cx-node-logo"
+                  href={p.node.logo_url}
+                  clipPath={`url(#${clipScope}-${p.node.id})`}
+                  x={p.x - r + 2}
+                  y={p.y - r + 2}
+                  width={(r - 2) * 2}
+                  height={(r - 2) * 2}
+                  preserveAspectRatio="xMidYMid meet"
+                  onError={() =>
+                    setBroken((was) =>
+                      p.node.logo_url ? new Set(was).add(p.node.logo_url) : was,
+                    )
+                  }
+                />
+              </>
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 }
@@ -175,13 +223,21 @@ function edgeKey(edge: GraphEdge): string {
 // nodeClass carries the node's kind, whether it is the centre, and whether it
 // is on the intro path into CSS, so the diagram's palette lives in the
 // stylesheet rather than in inline attributes.
-function nodeClass(node: GraphNode): string {
+function nodeClass(node: GraphNode, hasLogo: boolean): string {
   const classes = ["cx-node", `cx-node-${node.kind}`];
   if (node.root) {
     classes.push("cx-node-root");
   }
   if (node.intro_path) {
     classes.push("cx-node-intro");
+  }
+  if (hasLogo) {
+    // A company whose logo IS being drawn needs the same neutral backing the
+    // avatar chip gives it elsewhere: a mark drawn on transparency would
+    // otherwise read against the node's own dark fill. Keyed off the drawing,
+    // not off the field — a node whose image failed keeps its kind colour
+    // instead of becoming a pale empty disc.
+    classes.push("cx-node-marked");
   }
   return classes.join(" ");
 }
@@ -240,30 +296,36 @@ function relationKey(edge: GraphEdge, nodeId: string): RelationKey | null {
       return `${edge.kind}.${pointsAtNode ? "counterparty" : "owner"}`;
     case "co_sell_with":
       return edge.kind;
+    // A user edge describes the user it starts at, so it labels the FROM end —
+    // the mirror of every account-side edge below.
+    case "owns":
+    case "in_contact_with":
+      return pointsAtNode ? null : edge.kind;
     default:
       return pointsAtNode ? edge.kind : null;
   }
 }
 
 /**
- * NodeList is the card's accessible content: every node the diagram draws, in
- * the same order, each reachable by keyboard through EntityRef's own link and
- * each naming how it attaches to the account.
- *
- * The root is left out — it is the record the reader is already on, and a
- * link back to the current page is a dead end that costs a tab stop.
+ * NodeList renders one group of connections, each row reachable by keyboard
+ * through EntityRef's own link and naming how it attaches to the account.
  */
-function NodeList({ graph }: Readonly<{ graph: Graph }>) {
+function NodeList({
+  nodes,
+  graph,
+}: Readonly<{ nodes: readonly GraphNode[]; graph: Graph }>) {
   const t = useT();
-  const neighbours = graph.nodes.filter((node) => !node.root);
-  if (neighbours.length === 0) {
+  if (nodes.length === 0) {
     return <p className="co-empty">{t("co.connections.empty")}</p>;
   }
   return (
     <ul className="co-list cx-nodes">
-      {neighbours.map((node) => (
+      {nodes.map((node) => (
         <li key={node.id} className="co-row">
-          <span className="cx-node-name">
+          <span className="cx-node-name avatar-row">
+            {node.kind === "organization" && (
+              <Avatar name={node.label} src={node.logo_url} tinted />
+            )}
             {/* The label comes off THIS payload. EntityRef would otherwise
                 fetch each record's name — one request per visible node, with
                 the raw id showing until it lands — for names the graph read
@@ -337,6 +399,51 @@ function Withheld({ groups }: Readonly<{ groups: readonly Group[] }>) {
  * the 360's sections get from their payload: a failed read is unavailable, and
  * only a successful one may say the account has no connections.
  */
+/**
+ * ConnectionsBody is what the card and the expanded view both show, so the two
+ * cannot drift into saying different things about one payload.
+ *
+ * The connections split by SIDE, because the two answer different questions:
+ * who here already deals with this account, and who at the account there is to
+ * deal with. Rolled into one list, the second buried the first — which is what
+ * made the card read as a staff directory.
+ */
+function ConnectionsBody({ graph }: Readonly<{ graph: Graph }>) {
+  const t = useT();
+  const neighbours = graph.nodes.filter((node) => !node.root);
+  const ourSide = neighbours.filter((node) => node.kind === "user");
+  const theirSide = neighbours.filter((node) => node.kind !== "user");
+  return (
+    <>
+      {/* Absent, not empty, when the server sent no user nodes: an older
+          server that cannot answer who on our side is connected must not be
+          rendered as an account nobody here knows. */}
+      {ourSide.length > 0 && (
+        <section className="co-part" aria-label={t("co.connections.ourSide")}>
+          <h3 className="co-part-label">{t("co.connections.ourSide")}</h3>
+          <NodeList nodes={ourSide} graph={graph} />
+        </section>
+      )}
+      {/* Absent when our side already said something and the account side has
+          nothing: "Lars owns this account" followed by "no connections" reads
+          as the card contradicting itself. A wholly empty graph keeps the
+          group, because there the empty state IS the answer. */}
+      {(theirSide.length > 0 || ourSide.length === 0) && (
+        <section className="co-part" aria-label={t("co.connections.theirSide")}>
+          <h3 className="co-part-label">{t("co.connections.theirSide")}</h3>
+          <NodeList nodes={theirSide} graph={graph} />
+        </section>
+      )}
+      <Withheld groups={graph.groups_omitted} />
+      {graph.dropped_count > 0 && (
+        <p className="co-row-meta">
+          {t("co.connections.more", { count: graph.dropped_count })}
+        </p>
+      )}
+    </>
+  );
+}
+
 export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
   const t = useT();
   const [expanded, setExpanded] = useState(false);
@@ -356,14 +463,11 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
       )}
       {readable && (
         <>
-          <EgoDiagram graph={readable} />
-          <NodeList graph={readable} />
-          <Withheld groups={readable.groups_omitted} />
-          {readable.dropped_count > 0 && (
-            <p className="co-row-meta">
-              {t("co.connections.more", { count: readable.dropped_count })}
-            </p>
-          )}
+          {/* The diagram lives in the expanded view only. In a rail card it
+              took half the height to say what the list under it already said,
+              and being aria-hidden decoration it said it to some readers
+              only. */}
+          <ConnectionsBody graph={readable} />
           <p className="cx-actions">
             <Button small onClick={() => setExpanded(true)}>
               {t("co.connections.expand")}
@@ -375,19 +479,17 @@ export function ConnectionsCard({ orgId }: Readonly<{ orgId: string }>) {
             labelledBy="cx-modal-title"
             size="wide"
           >
-            <h2 id="cx-modal-title" className="t-h2">
+            <h2 id="cx-modal-title" className="t-h2 modal-title">
               {t("co.connections.title")}
             </h2>
             <div className="cx-expanded">
               <EgoDiagram graph={readable} />
-              <NodeList graph={readable} />
+              {/* One flex child, so the two groups stack inside it instead of
+                  becoming two more columns beside the diagram. */}
+              <div className="cx-expanded-list">
+                <ConnectionsBody graph={readable} />
+              </div>
             </div>
-            <Withheld groups={readable.groups_omitted} />
-            {readable.dropped_count > 0 && (
-              <p className="co-row-meta">
-                {t("co.connections.more", { count: readable.dropped_count })}
-              </p>
-            )}
             <p className="cx-actions">
               <Button small onClick={() => setExpanded(false)}>
                 {t("co.connections.collapse")}

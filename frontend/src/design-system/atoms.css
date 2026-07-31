@@ -90,6 +90,20 @@
   flex: none;
 }
 
+/* An avatar beside its label on one line — a list cell, a search hit, a node
+   row. The label keeps the baseline it had before the mark joined it. */
+.avatar-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.avatar-lg {
+  width: 44px;
+  height: 44px;
+  font-size: 16px;
+}
+
 /* The per-name tints come AFTER the base rule: same specificity, so the
    later declaration is the one that wins. Defined before it, they were
    silently overridden and every monogram rendered in the accent colour. */
@@ -116,6 +130,25 @@
 .avatar-t5 {
   background: var(--mono5Fill);
   color: var(--mono5Text);
+}
+
+/* A resolved logo sits ON the chip rather than replacing it: the chip is the
+   neutral, theme-aware backdrop a mark with its own opaque background needs to
+   look deliberate, and it is the monogram the viewer sees until the image
+   paints. `contain` plus the inset keeps the mark padded and never stretched —
+   a wide wordmark letterboxes instead of distorting. */
+.avatar-has-logo {
+  background: var(--bgCard);
+  position: relative;
+}
+
+.avatar-img {
+  position: absolute;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  object-fit: contain;
+  border-radius: var(--r-full);
 }
 
 .skeleton {
@@ -378,6 +411,38 @@
   gap: var(--space-3);
 }
 
+/* Side-by-side fields inside a .form-stack. They wrap rather than compress,
+   so a narrow column stacks the fields instead of shrinking the inputs. */
+.form-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.form-row > .field {
+  flex: 1 1 140px;
+}
+
+/* A form's submit row: the actions sit right, away from the fields. */
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.form-error {
+  color: var(--danger);
+}
+
+/* A card that stacks above the next one in a rail. */
+.card-stack {
+  margin-bottom: var(--space-4);
+}
+
+/* A dialog's own heading, where the content has no SectionHeader of its own. */
+.modal-title {
+  margin-bottom: var(--space-3);
+}
+
 /* Group divider inside a form (create.tsx RecordFormBody): sets custom fields
    apart from core fields with a labeled rule, no input of its own. */
 .form-divider {
@@ -523,4 +588,44 @@ select.input {
   letter-spacing: 0.06em;
   font-weight: 600;
   color: var(--textMeta);
+}
+
+/* Disclosure: a section the reader opens when they want it. The chevron is the
+   only state indicator, so it must turn — a summary that looks identical open
+   and closed leaves the reader unsure whether the click did anything. */
+.disclosure {
+  border-top: 1px solid var(--borderSubtle);
+  padding-top: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  list-style: none;
+  color: var(--textMeta);
+}
+.disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+.disclosure-summary:hover {
+  color: var(--textPrimary);
+}
+.disclosure-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+.disclosure-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform 0.15s;
+}
+.disclosure[open] .disclosure-chevron {
+  transform: rotate(90deg);
+}
+.disclosure-body {
+  margin-top: var(--space-3);
 }

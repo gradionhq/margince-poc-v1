@@ -4,6 +4,7 @@
 package ai
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -53,6 +54,11 @@ func TestPriceCall(t *testing.T) {
 // instead of hand-listing every model: no entry ever pays a negative
 // price, and (provider, model) never collides (a duplicate would make
 // SeedModelRates' insertion order silently decide which price wins).
+// seedRatesTestDay pins the effective date these tests hand SeedModelRates.
+// None of them asserts on that date, so a real clock would only give them a
+// way to differ between runs.
+var seedRatesTestDay = time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC)
+
 func TestSeedModelRatesEveryEntryIsNonNegativeAndUnique(t *testing.T) {
 	rates := SeedModelRates(time.Date(2026, 7, 20, 0, 0, 0, 0, time.UTC))
 	if len(rates) == 0 {
@@ -80,7 +86,7 @@ func TestSeedModelRatesEveryEntryIsNonNegativeAndUnique(t *testing.T) {
 // "unpriced" for lack of a rate row (global constraint: price-on-read,
 // no silent 0 for a REAL call, but locals are a real 0 by construction).
 func TestSeedModelRatesLocalsAreZero(t *testing.T) {
-	rates := SeedModelRates(time.Now())
+	rates := SeedModelRates(seedRatesTestDay)
 	locals := map[string]bool{ProviderFake: false, providerOllama: false, providerVLLM: false}
 	for _, r := range rates {
 		if _, ok := locals[r.Provider]; !ok {
@@ -95,6 +101,38 @@ func TestSeedModelRatesLocalsAreZero(t *testing.T) {
 	for provider, present := range locals {
 		if !present {
 			t.Errorf("no seed row for local provider %q", provider)
+		}
+	}
+}
+
+// TestSeedModelRatesPricesEveryBindingTheShippedExamplesName derives the
+// obligation from the tree rather than from a list somebody remembers to
+// update: a call whose (provider, model) has no rate row reports UNPRICED,
+// which is a materially different signal from FREE, and an example config an
+// operator copies verbatim must not produce one. The examples' commented
+// alternates are presented as one-line swaps, so they carry rows too — this
+// gate can only reach the active bindings the parser returns.
+func TestSeedModelRatesPricesEveryBindingTheShippedExamplesName(t *testing.T) {
+	priced := map[string]bool{}
+	for _, r := range SeedModelRates(seedRatesTestDay) {
+		priced[r.Provider+"/"+r.ModelID] = true
+	}
+	for _, path := range exampleRoutingFiles(t) {
+		cfg, err := LoadRoutingFile(path)
+		if err != nil {
+			t.Fatalf("%s no longer parses: %v", path, err)
+		}
+		// The embeddings lane is not a Tier, so the two are walked as
+		// labelled bindings rather than forced into one map.
+		bindings := map[string]ProviderConfig{"embeddings": cfg.Embeddings.ProviderConfig}
+		for tier, binding := range cfg.Tiers {
+			bindings[string(tier)] = binding
+		}
+		for lane, binding := range bindings {
+			if !priced[binding.Provider+"/"+binding.Model] {
+				t.Errorf("%s binds %s to %s/%s, which SeedModelRates does not price — every call on it would report UNPRICED",
+					filepath.Base(path), lane, binding.Provider, binding.Model)
+			}
 		}
 	}
 }

@@ -157,9 +157,20 @@ ifeq ($(TRACE),1)
 override TRACE := $(CURDIR)/../.tmp/aicert
 endif
 
-e2e-ai: composition ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path
+# AICERT_TIMEOUT is the whole-run backstop, not the per-call guard — a single
+# call is already bounded by ai.requestTimeout (300s). It has to hold the FULL
+# corpus (216 calls over 14 tasks) at the pace of the slowest binding an
+# operator may certify: a measured EU/Mistral pass averages 2.4s/call (~9 min),
+# a z-ai/glm-5.2 premium rung averages 9.7s with a 127s worst case and needs
+# ~35 min. 30m cut that run off mid-corpus at 185 calls — and the failure is a
+# panic, so every task after the cut loses its record. 90m carries a 25s/call
+# mean; a run that overruns THAT is hung, not slow. Override for one run with
+# AICERT_TIMEOUT=<dur>.
+AICERT_TIMEOUT ?= 90m
+
+e2e-ai: composition ## Certify AI tasks vs the local binding (paid: real model + network; opt-in). BYOK key auto-loaded from .env.local. Payload trace ON by default (TRACE= to disable). TASK=x MODEL=prov:model RUNS=3 MARGINCE_AI_ROUTING=path AICERT_TIMEOUT=90m
 	$(LOAD_ENV_LOCAL) MARGINCE_AICERT=1 MARGINCE_AI_ROUTING=$(MARGINCE_AI_ROUTING) MARGINCE_AICERT_TASK=$(TASK) MARGINCE_AICERT_MODEL=$(MODEL) MARGINCE_AICERT_RUNS=$(RUNS) MARGINCE_AICERT_TRACE=$(TRACE) \
-	  $(GOWORK_COMPOSED) $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout 30m
+	  $(GOWORK_COMPOSED) $(GO) test -tags e2e_llm ./internal/compose/aicert/ -run TestE2ECertify -v -count=1 -timeout $(AICERT_TIMEOUT)
 
 e2e-ai-report: ## Print the certification readiness report — every shipped site, its band, and whether its record is current, stale or absent — from internal/compose/aicert/{corpus,records}/.
 	$(GO) run ./internal/compose/aicert/reportcmd

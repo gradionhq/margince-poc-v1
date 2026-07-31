@@ -851,6 +851,38 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
 
+  /organizations/{id}/logo:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Organizations]
+      operationId: getOrganizationLogo
+      security: [ { cookieAuth: [] } ]   # human session only (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Stream an organization's logo image.
+      description: |
+        The bytes behind `Organization.logo_url` (A55): the company mark resolved from its
+        own website during enrichment, normalized once at store time to a square PNG. The
+        response is always `image/png` — whatever the source format was, what is served is
+        the server's own re-encode, so no third-party markup is ever served from this origin.
+        404 when the organization has no resolved logo, is invisible to the caller, or does
+        not exist — a client renders the deterministic monogram for all three alike. 501 when
+        the deployment has no object store configured.
+      responses:
+        '200':
+          description: The normalized logo bytes.
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '501':
+          description: The deployment has no object store configured, so no logo can be stored or served.
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
   /organizations/{id}/360:
     parameters:
       - $ref: '#/components/parameters/Id'
@@ -4770,6 +4802,21 @@ paths:
           in: query
           schema: { type: string }
           description: Filter by proposal kind (e.g. coldstart, send_email, advance_deal, overnight).
+        - name: target_entity_type
+          in: query
+          schema: { type: string }
+          description: |
+            Filter to the approvals staged against ONE record, together with `target_entity_id`.
+            The two are a discriminated reference and only mean something as a pair, so supplying
+            one without the other is a 422 rather than a filter that quietly matches every record
+            of a type or every type of an id.
+
+            A target outside the caller's row scope answers an EMPTY list, never a 403 — the same
+            existence-hiding the record's own read gives.
+        - name: target_entity_id
+          in: query
+          schema: { type: string, format: uuid }
+          description: The record the staged actions act on. Requires `target_entity_type`.
       responses:
         '200':
           description: A page of approval items.
@@ -4778,6 +4825,7 @@ paths:
               schema: { $ref: '#/components/schemas/ApprovalListResponse' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /approvals/{id}:
     parameters:
@@ -7653,16 +7701,21 @@ paths:
   #   POST   /overlay/flip:preflight
   #       Overlay→SoR flip preflight gate (B-E18.26, V1-WOW): force-fresh sync +
   #       conflict reconciliation + honest-scope export check → {ready,
-  #       blocking[], unresolved_conflicts[]}. 🟢. 409 `overlay_flip_blocked` is
-  #       returned by the execute op below when this is not satisfied.
+  #       blocking[], unresolved_conflicts[]}. Human-only: a green
+  #       preflight FREEZES the mirror and seals the snapshot the execute
+  #       imports. 409 `overlay_flip_blocked` is returned by the execute
+  #       op below when this is not satisfied.
   #   POST   /overlay/flip
-  #       Execute Overlay→SoR flip (B-E18.27; AC-OV-9/10): reuse the features/04
+  #       Execute Overlay→SoR flip (B-E18.27; AC-OV-9/10): import the
+  #       frozen snapshot the preflight sealed, reusing the features/04
   #       §5 importer, preserve record counts/relationships, carry over OUR
   #       augmentation (context/embeddings/audit/capture/mappings), re-tag
   #       incumbent-derived nodes T2→T1, detach write-back, flip
-  #       `workspace.sor_mode = native`. 🟡 (irreversible mode change),
-  #       ErrRequiresApproval + token; 202 + migration job ref.
-  #       x-mcp-tool: tier confirmation_required.
+  #       `workspace.sor_mode = native`. Human-only, like its preflight:
+  #       the typed confirmation phrase IS the human-intent control, and
+  #       an agent supplying it in staged arguments would collapse the
+  #       confirm-first gate to one approval click on a one-way,
+  #       estate-wide change. 202 + migration run ref.
   #
   # Overlay error sentinels (interfaces.md §0 + overlay additions): 404
   # `mode_not_overlay` (op called in SoR-mode), 409 `incumbent_already_connected`,
@@ -7903,8 +7956,8 @@ paths:
   # ---------------------------- /overlay ------------------------------------
   # The HubSpot mirror overlay (a second datasource.SystemOfRecordProvider):
   # incumbent connection lifecycle, mirror sync health, budget, and the
-  # read-mode→overlay flip. Handlers land as 501 in this contract-first cut;
-  # real bodies land in later tasks (design.md §11).
+  # overlay→native flip with its ADR-0071 cutover lifecycle (preflight gate,
+  # emergency last-known-mirror variant, retirement ordering — OVA-AC-6).
   /overlay/connection:
     get:
       tags: [Overlay]
@@ -7965,29 +8018,92 @@ paths:
       responses:
         '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayBudget' } } } }
 
+  /overlay/export:
+    get:
+      tags: [Overlay]
+      operationId: downloadOverlayExport
+      security: [ { cookieAuth: [] } ]   # human session only — bulk egress, same posture as createFilteredExport
+      x-agent-access: human-only
+      summary: Download the workspace export bundle — the flip's pre-flip export producer.
+      description: >-
+        Streams the open-format margince-export/1 bundle (CSV per object +
+        relational JSON + manifests). In overlay mode it carries the mirror
+        snapshot under the caller's mirror-visibility deny-join and the
+        honest-scope manifest (AC-OV-9), and writing it records the export
+        audit entry the flip preflight's export-recency check reads
+        (B-E18.26). Admin/ops only (the overlay_connection UPDATE grant):
+        this is the cutover operator's surface. Spec-fill note: the general
+        export-run lifecycle (IEM-WIRE-1/2) is the import-export-migration
+        chapter's own unminted contract extension — this op is the overlay
+        lifecycle's bundle producer until that lands, raised upstream.
+      responses:
+        '200':
+          description: The bundle as a downloadable ZIP attachment.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+
   /overlay/flip:preflight:
     post:
       tags: [Overlay]
       operationId: preflightOverlayFlip
-      summary: Dry-run the read-mode→overlay flip's readiness checks without executing it.
-      x-mcp-tool:
-        verb: preflight_overlay_flip
-        record_type: overlay_connection
-        tier: auto_execute
+      security: [ { cookieAuth: [] } ]   # human session only — a green preflight FREEZES the mirror (x-agent-access: human-only)
+      x-agent-access: human-only
+      summary: Dry-run the overlay→native flip's readiness checks without executing it.
+      description: >-
+        The B-E18.26 gate (OVA-WIRE-7): reports whether the flip can run —
+        incumbent reachable, force-fresh sync complete, `pending_sync` writes
+        drained, conflicts cleared, pre-flip export available — and, when every
+        check is green, seals the frozen mirror snapshot the flip will import
+        and previews the parity dry-run (counts per object, skips with reasons,
+        zero rows written). Any blocker unseals the snapshot again (UC-E18-04
+        F1): a failed preflight is a no-op return to a healthy overlay. When
+        the incumbent is unreachable (`revoked`/`error`), `blocking` carries
+        `incumbent_unreachable` and the `emergency` block discloses the
+        last-known-mirror cutover option (OVA-AC-6 a/b).
       responses:
-        '200': { description: OK }
-
+        '200': { description: OK, content: { application/json: { schema: { $ref: '#/components/schemas/OverlayFlipPreflight' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
   /overlay/flip:
     post:
       tags: [Overlay]
       operationId: executeOverlayFlip
-      summary: Execute the read-mode→overlay flip, queuing the migration.
-      x-mcp-tool:
-        verb: execute_overlay_flip
-        record_type: overlay_connection
-        tier: confirmation_required
+      summary: Execute the overlay→native flip, running the migration.
+      description: >-
+        The B-E18.27 cutover (OVA-WIRE-8): freezes the mirror, imports the
+        frozen snapshot through the migration engine with counts and
+        relationships preserved (AC-OV-10), carries our augmentation over,
+        detaches write-back, and flips the workspace to native — an
+        irreversible mode change gated by the typed confirmation phrase.
+        Refused with 409 `overlay_flip_blocked` while the preflight is
+        unsatisfied. Human-only, like its preflight: the typed
+        confirmation phrase IS the human-intent control, and an agent
+        supplying it in staged arguments would collapse the confirm-first
+        gate to a single approval click on a one-way, estate-wide change. `mode: emergency` is the ADR-0071 last-known-mirror
+        cutover: available ONLY while the incumbent is unreachable (never a
+        silent substitute for a fresh-sync flip, in either direction) and its
+        202 carries the disclosed-lossy staleness + unverifiable-parity notice.
+      security: [ { cookieAuth: [] } ]   # human session only — see x-agent-access
+      x-agent-access: human-only
+      # Not `required`: an absent body carries no confirmation phrase, so
+      # it lands on the same 422 the typed-phrase gate answers — the
+      # refusal a confirm-first op owes, without turning the previously
+      # body-less operation into a breaking contract change.
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/OverlayFlipRequest' }
       responses:
-        '202': { description: Migration queued }
+        '202': { description: 'Migration run complete (synchronous behind 202, the teardown precedent).', content: { application/json: { schema: { $ref: '#/components/schemas/OverlayFlipAccepted' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/PermissionDenied' }
+        '404': { $ref: '#/components/responses/NotFound' }   # mode_not_overlay
+        '409': { $ref: '#/components/responses/Conflict' }   # overlay_flip_blocked
+        '422': { $ref: '#/components/responses/ValidationError' }
 
   /overlay/user-map:
     get:
@@ -9102,6 +9218,13 @@ components:
               lastSyncedAt: { type: [string, 'null'], format: date-time }
               state: { type: string, enum: [fresh, pending_sync, stale] }
               backfillComplete: { type: boolean }
+              frozenForFlip:
+                type: boolean
+                description: >-
+                  The mirror is held still by a pending overlay→native flip:
+                  the sweep skips this workspace entirely, so staleness grows
+                  on purpose. Stated rather than left to be inferred from a
+                  mirror that merely looks idle.
     OverlayBudget:
       type: object
       description: >-
@@ -9151,6 +9274,123 @@ components:
         The degradation band of a budget window — healthy (`ok`), approaching the
         cap (`warn`), or at/over the shed threshold (`shed`). Shared by the REST
         and Search windows so both read the one band vocabulary.
+
+    OverlayFlipPreflight:
+      type: object
+      description: >-
+        The flip preflight verdict (OVA-WIRE-7): `{ready, blocking[],
+        unresolved_conflicts[]}` plus the sealed snapshot and parity preview
+        when ready, and the emergency-cutover disclosure when the incumbent is
+        unreachable (ADR-0071 / OVA-AC-6).
+      required: [ready, blocking, unresolved_conflicts]
+      properties:
+        ready: { type: boolean }
+        blocking:
+          type: array
+          description: >-
+            Why the flip cannot run, empty when ready. `incumbent_unreachable`
+            is the OVA-AC-6(a) honest block — the connection is revoked/error,
+            so the force-fresh sync cannot pass; the workspace stays in overlay
+            on its last mirror.
+          items:
+            type: string
+            enum: [incumbent_unreachable, force_fresh_incomplete, pending_sync_draining, unresolved_conflicts, export_missing]
+        unresolved_conflicts:
+          type: array
+          description: >-
+            Open incumbent-wins conflicts awaiting acceptance; each blocks the
+            flip. Empty in this build: branch 1 reconciliation resolves
+            incumbent-wins at ingest and persists no conflict queue, so the
+            producer arrives with write-back (branch 2). The field is required
+            by OVA-WIRE-7's response shape.
+          items: { $ref: '#/components/schemas/OverlayFlipUnresolvedConflict' }
+        # Absent (not null) while unsealed: the snapshot exists only for a
+        # green preflight, and any blocker unseals it again.
+        snapshot: { $ref: '#/components/schemas/OverlayFlipSnapshot' }
+        parity:
+          type: [array, 'null']
+          description: >-
+            The parity dry-run against the sealed snapshot — writes zero CRM
+            rows; skipped rows are disclosed with reasons, never silently
+            dropped (AC-mode-flip-7).
+          items: { $ref: '#/components/schemas/OverlayFlipParityEntry' }
+        emergency:
+          type: [object, 'null']
+          description: >-
+            Present only while the incumbent is unreachable: the ADR-0071
+            emergency cutover from the last-known mirror, disclosed-lossy —
+            never offered while a fresh-sync flip is possible.
+          required: [available, last_synced_at, unverifiable_parity_notice]
+          properties:
+            available: { type: boolean }
+            last_synced_at: { type: [string, 'null'], format: date-time }
+            staleness_seconds: { type: integer, format: int64 }
+            unverifiable_parity_notice: { type: string }
+    OverlayFlipSnapshot:
+      type: object
+      description: The sealed frozen-mirror snapshot the flip imports.
+      required: [id, frozen_at]
+      properties:
+        id: { type: string }
+        frozen_at: { type: string, format: date-time }
+    OverlayFlipUnresolvedConflict:
+      type: object
+      description: One open incumbent-wins conflict blocking the flip.
+      required: [object_class, external_id]
+      properties:
+        object_class: { type: string }
+        external_id: { type: string }
+        property: { type: string }
+    OverlayFlipParityEntry:
+      type: object
+      description: One object class's parity preview row (AC-mode-flip-7).
+      required: [object, mirror_count, will_create, will_update]
+      properties:
+        object: { type: string }
+        mirror_count: { type: integer }
+        will_create: { type: integer }
+        will_update: { type: integer }
+        skipped:
+          type: array
+          items: { $ref: '#/components/schemas/OverlayFlipParitySkip' }
+    OverlayFlipParitySkip:
+      type: object
+      description: One row the importer cannot carry, disclosed with its reason (never silently dropped).
+      required: [external_id, reason]
+      properties:
+        external_id: { type: string }
+        reason: { type: string }
+    OverlayFlipRequest:
+      type: object
+      required: [confirmation_phrase]
+      properties:
+        mode:
+          type: string
+          enum: [fresh_sync, emergency]
+          default: fresh_sync
+          description: >-
+            `fresh_sync` (the default) requires the sealed preflight snapshot.
+            `emergency` is the last-known-mirror cutover and is refused while
+            the incumbent is reachable — the explicit field is the
+            never-silently-substituted guarantee (OVA-AC-6 b).
+        confirmation_phrase:
+          type: string
+          description: Must equal the exact phrase `FLIP TO SOR` (AC-mode-flip-5).
+    OverlayFlipAccepted:
+      type: object
+      required: [run_id, mode]
+      properties:
+        run_id: { type: string, format: uuid, description: The migration run (`import_run`) this flip executed. }
+        mode: { type: string, enum: [fresh_sync, emergency] }
+        records_imported: { type: integer, format: int64 }
+        emergency_disclosure:
+          type: [object, 'null']
+          description: Returned on an emergency cutover — the disclosed-lossy staleness and the parity that cannot be re-verified against a live incumbent.
+          required: [last_synced_at, unverifiable_parity_notice]
+          properties:
+            last_synced_at: { type: [string, 'null'], format: date-time }
+            staleness_seconds: { type: integer, format: int64 }
+            unverifiable_parity_notice: { type: string }
 
     OverlayUserMapEntry:
       type: object
@@ -9548,6 +9788,17 @@ components:
           type: array
           items: { $ref: '#/components/schemas/OrganizationDomain' }
         classification: { type: [string, 'null'], enum: [null, prospect, customer, agency, reseller, tech_vendor, platform, partner, competitor, other], description: "An org IS a partner iff classification='partner' AND it has a `partner` row (A41/ADR-0032). Values match the data-model §4.1 CHECK." }
+        logo_url:
+          type: [string, 'null']
+          readOnly: true
+          description: |
+            Where to fetch the company's resolved logo image (A55) — the `getOrganizationLogo`
+            path for this record, cookie-authenticated and same-origin. The key is ABSENT
+            entirely (not null) when no logo resolved, which is the common case and never an
+            error: a client renders the deterministic monogram then, so it never shows a
+            broken image or an empty slot.
+            The stored object key is deliberately not exposed; it names a bucket path, and a
+            client's business is the endpoint that streams the bytes.
         strength: { allOf: [ { $ref: '#/components/schemas/RelationshipStrength' } ], readOnly: true, description: 'Deterministic org-level relationship-strength roll-up (features/07 §4). Read-only derived view; NULL until capture has interactions.' }
         source: { type: string }
         captured_by: { type: string, readOnly: true, description: 'Server-stamped from the authenticated principal (human:<uuid> | agent:<id> | connector:<name>); never client-supplied.' }
@@ -9963,10 +10214,20 @@ components:
       required: [id, kind, label, root]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [organization, person, deal] }
+        kind:
+          type: string
+          enum: [organization, person, deal, user]
+          description: |
+            `organization`, `person` and `deal` are the account's own records.
+            `user` is a member of THIS workspace — someone on our side who is connected to the
+            account. A user node carries its display name as the `label` and nothing else:
+            `detail`, `strength` and `strength_bucket` are null and `intro_path` is ABSENT,
+            because §4 measures our relationship with the account's people, not with each
+            other. `intro_path` is a plain boolean and is never sent as null on any node —
+            a client reads its absence as "not on the warm-intro path".
         label:
           type: string
-          description: The record's display name — the organization's, the person's full name, the deal's name.
+          description: The record's display name — the organization's, the person's full name, the deal's name, the workspace member's display name.
         root:
           type: boolean
           description: |
@@ -9978,16 +10239,17 @@ components:
           description: |
             One short line of context the node cannot be read without: a contact's title,
             or a deal's stage name. Null when the record has none on file, and always null
-            on an organization — how a related company is attached is the EDGE's kind, and
-            saying it twice would let the two disagree.
+            on an organization or a user — how a related company is attached, and how a
+            teammate is connected, is the EDGE's kind, and saying it twice would let the two
+            disagree.
         strength:
           type: [integer, 'null']
           minimum: 0
           maximum: 100
           description: |
             The person's §4 relationship strength, for weighting the node. Null for an
-            organization or a deal, which have no relationship of their own, and for a
-            contact whose strength this caller's person scope did not resolve.
+            organization, a deal or a user, none of which have a relationship of their own,
+            and for a contact whose strength this caller's person scope did not resolve.
         strength_bucket:
           type: [string, 'null']
           enum: [null, dormant, weak, warm, strong]
@@ -9998,6 +10260,12 @@ components:
             This contact is the route in the active signal's warm-intro path proposes.
             At most one node carries it, and only when `intro_path` at the top level is
             present. Absent on every other node — there is nothing to say about them.
+        logo_url:
+          type: [string, 'null']
+          description: |
+            The company node's resolved logo (A55), same value `Organization.logo_url` carries.
+            Absent on an organization with no resolved logo and on every person or deal node —
+            a client draws the node's monogram or its token-coloured circle instead.
 
     OrganizationGraphEdge:
       type: object
@@ -10011,7 +10279,7 @@ components:
         to: { type: string, format: uuid }
         kind:
           type: string
-          enum: [employment, has_deal, deal_stakeholder, parent_of, partner_of, referred_by, co_sell_with]
+          enum: [employment, has_deal, deal_stakeholder, parent_of, partner_of, referred_by, co_sell_with, owns, in_contact_with]
           description: |
             `employment` — the account employs the person.
             `has_deal` — the deal belongs to the account.
@@ -10020,11 +10288,17 @@ components:
             points at it; the account points at each child).
             `partner_of` / `referred_by` / `co_sell_with` — the A41 partner edges, from
             the organization that records the edge to its counterparty.
+            `owns` — `from` is the workspace member who owns the account.
+            `in_contact_with` — `from` is the workspace member who has recorded interactions
+            (email, call, meeting) with the contact at `to`. It is drawn from who AUTHORED
+            those interactions, so a task assigned to a teammate does not make one: an
+            assignment is intent, a logged email is contact.
         role:
           type: [string, 'null']
           description: |
             The edge's role where it has one — an employment title, a stakeholder role
-            (champion, economic_buyer, …). Null on the edges that carry none.
+            (champion, economic_buyer, …). Null on the edges that carry none, which includes
+            both `owns` and `in_contact_with`.
 
     OrganizationGraphIntroPath:
       type: object
@@ -10078,12 +10352,17 @@ components:
             this" instead of "there is none". `contacts` withheld also withholds
             `deal_stakeholder` edges and the intro path, because both name a person.
 
+            `our_side` is the workspace members connected to the account — the owner and the
+            teammates who have interacted with its contacts. It needs BOTH the person and the
+            activity grant, because each of its edges names a contact and is derived from a
+            recorded interaction; either one missing withholds the whole group.
+
             The parent, child and partner organizations are not a group here: they need no
             grant beyond the organization read this whole endpoint already demands, so they
             are row-scope pruned like every other node and can never be withheld wholesale.
           items:
             type: string
-            enum: [contacts, deals, intro_path]
+            enum: [contacts, deals, intro_path, our_side]
         intro_path: { $ref: '#/components/schemas/OrganizationGraphIntroPath' }
 
     # ---- Relationship ----

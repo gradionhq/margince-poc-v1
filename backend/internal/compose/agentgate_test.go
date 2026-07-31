@@ -86,6 +86,19 @@ func TestGovernanceOperationsAreHumanOnly(t *testing.T) {
 		"createStage": true, "updateStage": true,
 		"issuePassport": true, "revokePassport": true,
 		"issueDoubleOptIn": true,
+		// The overlay entries below are pinned because the contract
+		// annotation alone is a line someone can re-add: without them a
+		// revert restores an agent-reachable op with every other gate,
+		// arch and drift test still green.
+		//
+		// The overlay→native cutover: the typed confirmation phrase is
+		// the human-intent control, so an agent supplying it in staged
+		// arguments would collapse confirm-first to one approval click
+		// on a one-way, estate-wide change.
+		"preflightOverlayFlip": true, "executeOverlayFlip": true,
+		// The export is human-only for a different reason: it streams
+		// the whole estate, audit log included, in a single GET.
+		"downloadOverlayExport": true,
 	}
 	seen := map[string]bool{}
 	for route, pol := range agentPolicies {

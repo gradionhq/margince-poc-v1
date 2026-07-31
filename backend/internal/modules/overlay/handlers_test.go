@@ -87,12 +87,12 @@ func TestGetOverlayConnectionIsNotImplementedWithoutAService(t *testing.T) {
 	}
 }
 
-// TestPreflightAndExecuteOverlayFlipAreDeclared501 pins the flip pair's
-// own doc contract: branch 2's read-mode->overlay flip stays an explicit
-// 501 regardless of how Handlers was constructed — never a silent
-// success or a nil-deref, the same "declared, not yet served" posture
-// every other unimplemented op in this package takes.
-func TestPreflightAndExecuteOverlayFlipAreDeclared501(t *testing.T) {
+// TestPreflightAndExecuteOverlayFlipAre501WhileUnwired pins the flip
+// pair's fail-honest posture: with no FlipRunner injected (a role built
+// without the flip's compose wiring) both ops answer an explicit 501 —
+// never a silent success or a nil-deref, the same "declared, not
+// served" posture every other unwired op in this package takes.
+func TestPreflightAndExecuteOverlayFlipAre501WhileUnwired(t *testing.T) {
 	h := NewHandlers(nil)
 
 	w := httptest.NewRecorder()

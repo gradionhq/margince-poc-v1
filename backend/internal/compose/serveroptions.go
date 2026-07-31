@@ -91,18 +91,19 @@ func WithBusReady(check func(context.Context) error) Option {
 }
 
 // WithBlobstore wires the object store: it feeds the /readyz probe and
-// backs the attachment handlers and the offer PDF render endpoint.
-// Without it the attachment endpoints and renderOffer stay their
+// backs the attachment handlers, the offer PDF render endpoint, and the
+// organization-logo stream. Without it those endpoints stay their
 // generated/explicit 501, so a role that stores no objects declares that
-// by omission rather than nil-derefing at request time. activitiesHandlers
-// and dealsHandlers both promote a WithBlobstore method, so s.WithBlobstore
-// itself would be an ambiguous selector — each call is qualified through
-// its own embedded field instead.
+// by omission rather than nil-derefing at request time. Several handler
+// sets promote a WithBlobstore method, so s.WithBlobstore itself would be
+// an ambiguous selector — each call is qualified through its own embedded
+// field instead.
 func WithBlobstore(store blobstore.Store) Option {
 	return func(s *Server, pool *pgxpool.Pool) {
 		s.blob = store
 		s.activitiesHandlers = s.activitiesHandlers.WithBlobstore(store)
 		s.dealsHandlers = s.dealsHandlers.WithBlobstore(store)
+		s.peopleHandlers = s.peopleHandlers.WithBlobstore(store)
 		// Erasure must reach the attachment bytes, not only the rows, so the
 		// DSR erase path gets a blob-aware eraser (Art. 17).
 		s.consentHandlers = s.WithEraser(privacy.NewEraser(pool).WithBlobstore(store))

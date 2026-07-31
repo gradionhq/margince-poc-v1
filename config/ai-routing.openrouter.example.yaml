@@ -1,0 +1,109 @@
+# yaml-language-server: $schema=./ai-routing.schema.json
+# ai-routing.openrouter.example.yaml — one API key, every open-weight model.
+# The sibling of ai-routing.example.yaml for operators who want a second,
+# non-Gemini binding to certify against (docs/how-to/certify-an-ai-model.md).
+# Copy it over config/ai-routing.yaml, or point one run at it without
+# touching your dev config:
+#
+#   make e2e-ai TASK=cold_start MARGINCE_AI_ROUTING=$PWD/config/ai-routing.openrouter.example.yaml
+#
+# key — export OPENAI_COMPATIBLE_API_KEY=sk-or-v1-… in .env.local. There is no
+# api_key field; a stray one is a startup error (ADR-0020).
+#
+# base_url — the vendor HOST ROOT with no version segment. The adapter appends
+# /v1/chat/completions and /v1/embeddings itself.
+#
+# substituting a model — every tier below is picked from the models whose
+# OpenRouter catalog entry declares BOTH `structured_outputs` and `tools`.
+# Every shipped AI task asks for a JSON schema and agent_loop asks for tools,
+# so a model missing either fails on the wire, not on quality. Check a
+# candidate before you bind it:
+#
+#   curl -s https://openrouter.ai/api/v1/models | jq '.data[] | select(.id=="<slug>") | .supported_parameters'
+#
+# jurisdiction — each tier ships its EU rung active, with the China and USA
+# rungs commented directly beneath. Mistral is the only EU vendor OpenRouter
+# carries, so the EU rungs are all Mistral by availability, not by taste.
+# Prices are USD per million tokens (in/out), read from the catalog on
+# 2026-07-31; `#n` is the model's rank on openrouter.ai/rankings by weekly
+# tokens. Every model named here — active or commented — carries a seed price
+# row in ai.SeedModelRates, so a swap never silently reports UNPRICED.
+
+# cloud_frontier, NOT eu_hosted: profile is a data-residency declaration, and
+# an EU vendor is not EU-hosted inference. OpenRouter brokers each call to a
+# third-party provider and this adapter sends no provider-routing preference,
+# so nothing here can promise where a call physically executes. Bind a vendor
+# directly, or use the `sovereign` profile with a local provider, if residency
+# is a requirement rather than a preference.
+profile: cloud_frontier
+
+tiers:
+  local_small:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: mistralai/ministral-8b-2512               # EU · $0.15/$0.15 · 262k
+    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2
+    # model: openai/gpt-oss-20b                      # US · $0.03/$0.13 · 131k
+
+  # Measured on cold_start (`make e2e-ai TASK=cold_start`, 3 runs/scenario,
+  # judged by the premium rung). ministral-14b sits ON the certified/degraded
+  # boundary and moves between passes: one 12-run pass came back
+  # supported_degraded (reliability 0.92, one run scored 0), the next
+  # certified (1.00, min score 80 — the committed record). Read it as
+  # "passes, not comfortably"; re-certify with RUNS=5 before trusting it in
+  # production. deepseek-v4-flash certified at 1.00 for less money, so the EU
+  # rung here is the best-measured EU model, not the best measured model.
+  cheap_cloud:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: mistralai/ministral-14b-2512              # EU · $0.20/$0.20 · 262k · certified (boundary)
+    # model: deepseek/deepseek-v4-flash              # CN · $0.14/$0.28 · 1.05M · #2 · certified
+    # model: openai/gpt-oss-120b                     # US · $0.037/$0.17 · 131k
+    # model: mistralai/mistral-small-3.2-24b-instruct  # EU · $0.10/$0.30 · 256k — cheaper, but
+    #   not_supported on cold_start: it answers the confirm-first staging turn with
+    #   "I've set the display name to …", claiming a write this turn does not make.
+    #   Deterministically accepted every run, scored 40/40/40 by the judge.
+
+  # premium serves the deep site read's extraction FIRST (site_extract is
+  # premium-first in tasks.go) and its evidence gate demands verbatim quotes,
+  # so a cheap model here does not fail — it comes back thin. Judge a
+  # candidate with `make -C backend e2e-siteread` before you trust it.
+  #
+  # cert_judge's own ladder is {premium, cheap_cloud}, so certifying THIS rung
+  # grades it with itself and the run reports self_judged=true. That does not
+  # change the verdict, but read the score as the deterministic pass plus an
+  # opinion the candidate has an interest in. For an independent premium
+  # number, certify against a routing file whose premium rung is a different
+  # model.
+  premium:
+    provider: openai_compatible
+    base_url: https://openrouter.ai/api
+    model: mistralai/mistral-large-2512              # EU · $0.50/$1.50 · 262k
+    # model: z-ai/glm-5.2                            # CN · $0.97/$3.04 · 1.05M · #5
+    # model: nvidia/nemotron-3-ultra-550b-a55b       # US · $0.60/$3.60 · 512k · #6
+    #   NOT the :free variant of that model — it serves tools but not
+    #   structured_outputs, so site_extract and enrich fail on the wire.
+
+# embeddings — bound separately from the chat tiers so retrieval keeps working
+# when the chat budget is exhausted. Required.
+#
+# dimensions MUST equal the model's NATIVE width. This adapter deliberately
+# never sends the `dimensions` parameter (vLLM 400s on a model that is not
+# MRL-trained), so whatever the model natively emits is what arrives, and the
+# store rejects any other width. The EU and CN rungs are both 1024, so they
+# swap freely; the USA rung is 1536 and its dimensions line moves with it.
+#
+# Out of reach on this path at any price: qwen3-embedding-4b (2560 native) and
+# -8b (4096) both exceed the 2000 ceiling, which matches pgvector's own index
+# limit.
+#
+# Switching from the Gemini default's 1536 changes the store's populated
+# width. The column is unbounded `vector` and embed_store_binding records the
+# identity, so this is a re-embed, not a schema break.
+embeddings:
+  provider: openai_compatible
+  base_url: https://openrouter.ai/api
+  model: mistralai/mistral-embed-2312      # EU · $0.10 · 1024d · 8192 ctx
+  dimensions: 1024
+  # model: baai/bge-m3                     # CN · $0.01 · 1024d · 8194 ctx
+  # model: openai/text-embedding-3-small   # US · $0.02 · 1536d · 8192 ctx — set dimensions: 1536

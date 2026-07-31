@@ -99,6 +99,10 @@ func (g *graphAssembly) placeDeals() {
 type graphRelatedOrg struct {
 	orgID       ids.UUID
 	displayName string
+	// logoObjectKey is where the company's resolved logo lives, nil when it
+	// has none — the node's face, so a related company on the graph is
+	// recognized the same way it is on its own record.
+	logoObjectKey *string
 	// relation is the arm that found it: parent, child, or partner.
 	relation string
 	// partnerKind is the relationship kind on a partner arm, and edgeOwner
@@ -130,9 +134,10 @@ func (g *graphAssembly) placeRelated(related []graphRelatedOrg) {
 	for _, row := range related {
 		drawn[row.orgID] = true
 		g.addNode(crmcontracts.OrganizationGraphNode{
-			Id:    openapi_types.UUID(row.orgID),
-			Kind:  crmcontracts.OrganizationGraphNodeKindOrganization,
-			Label: row.displayName,
+			Id:      openapi_types.UUID(row.orgID),
+			Kind:    crmcontracts.OrganizationGraphNodeKindOrganization,
+			Label:   row.displayName,
+			LogoUrl: people.LogoURL(row.orgID, row.logoObjectKey),
 		})
 		from, to, kind := g.relatedEdge(row)
 		g.addEdge(from, to, kind, nil)
@@ -161,6 +166,46 @@ func (g *graphAssembly) relatedEdge(row graphRelatedOrg) (ids.UUID, ids.UUID, cr
 		}
 		return from, to, kind
 	}
+}
+
+// placeOurSide draws our side of the account: the member who owns it, and the
+// colleagues with recorded contact with the contacts the card is showing.
+//
+// No edge here can dangle: readInContactWith is given the contacts already
+// PLACED (drawnContactIDs), so every person an edge points at is a node before
+// this runs — the same already-drawn rule placeDeals applies to a stakeholder
+// seat on a dropped deal.
+//
+// The drop count runs over the colleagues WITH CONTACT only, and it is exact
+// because the read chose its capped users over that same placed-contact set.
+// The owner is never capped, so counting them in the total would let one drawn
+// owner push dropped_count below the contract's `minimum: 0`.
+func (g *graphAssembly) placeOurSide() {
+	if g.accountOwner != nil {
+		g.addUserNode(*g.accountOwner)
+		g.addEdge(g.accountOwner.userID, g.orgID.UUID,
+			crmcontracts.OrganizationGraphEdgeKindOwns, nil)
+	}
+	drawn := map[ids.UUID]bool{}
+	for _, edge := range g.ourSide {
+		drawn[edge.user.userID] = true
+		g.addUserNode(edge.user)
+		g.addEdge(edge.user.userID, edge.personID,
+			crmcontracts.OrganizationGraphEdgeKindInContactWith, nil)
+	}
+	g.out.DroppedCount += g.ourSideTotal - len(drawn)
+}
+
+// addUserNode adds one colleague. A user node carries a name and nothing else:
+// §4 measures our relationship with the account's people, not with each other,
+// and how this colleague is connected is the EDGE's kind. The owner who also
+// emailed a contact dedupes through nodeIndex into ONE node with two edges.
+func (g *graphAssembly) addUserNode(user graphUser) {
+	g.addNode(crmcontracts.OrganizationGraphNode{
+		Id:    openapi_types.UUID(user.userID),
+		Kind:  crmcontracts.OrganizationGraphNodeKindUser,
+		Label: user.displayName,
+	})
 }
 
 // markIntroPath names the contact the warm room would route the account's

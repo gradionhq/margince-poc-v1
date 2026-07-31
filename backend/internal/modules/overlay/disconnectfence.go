@@ -208,6 +208,9 @@ func (s *MirrorStore) assertFence(ctx context.Context, tx pgx.Tx) error {
 	if !s.fenced {
 		return nil
 	}
+	if err := assertMirrorUnfrozen(ctx, tx); err != nil {
+		return err
+	}
 	if s.identityFenced {
 		if s.connectedAt.IsZero() {
 			return errIdentityFenceMisconfigured
@@ -215,6 +218,25 @@ func (s *MirrorStore) assertFence(ctx context.Context, tx pgx.Tx) error {
 		return assertOwnConnection(ctx, tx, s.connectedAt)
 	}
 	return assertActiveConnection(ctx, tx)
+}
+
+// assertMirrorUnfrozen refuses every fenced mirror write while the flip
+// preflight's seal holds (flipstate.go): the frozen snapshot the flip
+// imports must not drift under it, and after a completed flip a late
+// in-flight write-back must not reach the incumbent. It runs in the same
+// transaction as the write it guards, so a seal committed before this
+// read is visible to it.
+func assertMirrorUnfrozen(ctx context.Context, tx pgx.Tx) error {
+	var frozen bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM overlay_sync_state WHERE mirror_frozen_at IS NOT NULL)`,
+	).Scan(&frozen); err != nil {
+		return fmt.Errorf("overlay: checking the flip freeze before a fenced write: %w", err)
+	}
+	if frozen {
+		return ErrMirrorFrozen
+	}
+	return nil
 }
 
 // errIdentityFenceMisconfigured is assertFence's fail-closed answer to a
