@@ -1,0 +1,557 @@
+/* The onboarding live panel: a sourced dossier that assembles itself in the
+   right-hand pane. Structure and rhythm only — every colour reads a token.
+
+   The panel is the scroll container so its head can be sticky within it: a
+   sticky head inside a page-level scroll would pin to the viewport and drift
+   away from the pane it belongs to. */
+.ob-live {
+  --ob-live-pad: var(--space-4);
+  height: 100%;
+  overflow-y: auto;
+  /* No top padding: the sticky head occupies that band itself, and a scroll
+     container's top padding makes the sticky resting offset ambiguous across
+     engines — the head would sink by one pad the moment it stuck. */
+  padding: 0 var(--ob-live-pad) var(--ob-live-pad);
+  background: var(--bgCard);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+/* ---- the sticky head ---------------------------------------------------- */
+
+/* Bleeds to the pane edges (the panel's own padding, negated) so the surface
+   reads as a header band rather than a card floating at the top, and casts a
+   shadow so content passes convincingly beneath it. */
+.ob-live-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0 calc(var(--ob-live-pad) * -1);
+  padding: var(--space-4) var(--ob-live-pad);
+  background: var(--bgElevated);
+  border-bottom: 1px solid var(--borderSubtle);
+  box-shadow: var(--shadow-card);
+}
+
+.ob-live-head-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ob-live-head-title {
+  font-family: var(--f-display);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--textPrimary);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The working indicator. Decorative: the head line already says "Reading
+   {host}" in words, so nothing here carries state on its own. */
+.ob-live-working {
+  display: inline-flex;
+  gap: 3px;
+  flex: none;
+}
+
+.ob-live-working span {
+  width: 4px;
+  height: 4px;
+  border-radius: var(--r-full);
+  background: var(--ai);
+  animation: ob-live-pulse 1.1s ease-in-out infinite;
+}
+
+.ob-live-working span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.ob-live-working span:nth-child(3) {
+  animation-delay: 0.36s;
+}
+
+@keyframes ob-live-pulse {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.ob-live-summary {
+  margin-top: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ob-live-summary-heading {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+  margin: 0 0 var(--space-1);
+}
+
+/* The three understanding rows stagger in: the record stating itself, one
+   line at a time. Nothing is gated on the animation finishing. */
+.ob-live-summary-row {
+  display: grid;
+  grid-template-columns: 72px 1fr;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  animation: ob-live-rise 0.42s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ob-live-summary-row:nth-child(3) {
+  animation-delay: 0.09s;
+}
+
+.ob-live-summary-row:nth-child(4) {
+  animation-delay: 0.18s;
+}
+
+.ob-live-summary-label {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+  padding-top: 2px;
+}
+
+.ob-live-summary-value {
+  color: var(--textPrimary);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.ob-live-summary-volume {
+  margin: var(--space-2) 0 0;
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--textMeta);
+  animation: ob-live-rise 0.42s cubic-bezier(0.23, 1, 0.32, 1) 0.27s both;
+}
+
+@keyframes ob-live-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- while the read runs ------------------------------------------------ */
+
+.ob-live-notice {
+  margin: 0;
+  padding: var(--space-4);
+  border: 1px dashed var(--borderStrong);
+  border-radius: var(--r-md);
+  background: var(--bgElevated);
+  color: var(--textContent);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+/* ---- step blocks -------------------------------------------------------- */
+
+.ob-live-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ob-live-step-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ob-live-step-n {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  color: var(--textMeta);
+}
+
+.ob-live-step[data-state="done"] .ob-live-step-n {
+  background: var(--accentLight);
+  border-color: var(--accentMed);
+  color: var(--accent);
+}
+
+.ob-live-step-title {
+  font-family: var(--f-display);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--textPrimary);
+  margin: 0;
+  flex: 1 1 auto;
+}
+
+.ob-live-step-state {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--textMeta);
+  flex: none;
+}
+
+/* ---- the card stack ----------------------------------------------------- */
+
+/* The cards read as one list: shared hairlines, corners only at the ends. */
+.ob-live-cards {
+  display: flex;
+  flex-direction: column;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+
+.ob-live-cards > * + * {
+  border-top: 1px solid var(--borderSubtle);
+}
+
+.ob-live-card {
+  display: flex;
+  flex-direction: column;
+  animation: ob-live-rise 0.36s cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+.ob-live-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-3) var(--space-3);
+  background: transparent;
+  border: 0;
+  font-family: var(--f-body);
+  font-size: 13px;
+  text-align: left;
+  color: var(--textPrimary);
+}
+
+button.ob-live-card-head {
+  cursor: pointer;
+  transition: background 0.14s ease;
+}
+
+button.ob-live-card-head:hover {
+  background: var(--bgHover);
+}
+
+.ob-live-card-glyph {
+  flex: none;
+  color: var(--textTertiary);
+}
+
+.ob-live-card[data-done="true"] .ob-live-card-glyph {
+  color: var(--success);
+}
+
+.ob-live-card-title {
+  font-weight: 500;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+
+.ob-live-card-count {
+  flex: none;
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--textMeta);
+  white-space: nowrap;
+}
+
+.ob-live-card-toggle {
+  flex: none;
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.ob-live-card-chev {
+  flex: none;
+  color: var(--textTertiary);
+  transition: transform 0.16s ease;
+}
+
+button.ob-live-card-head[aria-expanded="true"] .ob-live-card-chev {
+  transform: rotate(180deg);
+}
+
+.ob-live-card-body {
+  padding: 0 var(--space-3) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* The needs-a-human card reads the warn family — the ONE semantic for "a
+   person must decide" — and never folds. */
+.ob-live-card[data-decision="true"] {
+  background: var(--warnSurface);
+  box-shadow: inset 3px 0 0 var(--warnBorder);
+}
+
+.ob-live-card[data-decision="true"] .ob-live-card-glyph,
+.ob-live-card[data-decision="true"] .ob-live-card-title {
+  color: var(--warn);
+}
+
+/* ---- field rows --------------------------------------------------------- */
+
+.ob-live-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ob-live-field-head {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ob-live-field-label {
+  font-size: 11px;
+  color: var(--textTertiary);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-field-pct {
+  font-family: var(--f-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 10.5px;
+  color: var(--textMeta);
+  text-align: right;
+}
+
+.ob-live-field-value {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--textPrimary);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-field-value[data-empty="true"] {
+  color: var(--textTertiary);
+}
+
+/* ---- list bodies -------------------------------------------------------- */
+
+.ob-live-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ob-live-empty {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--textContent);
+}
+
+.ob-live-person,
+.ob-live-coverage {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ob-live-person-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--textPrimary);
+}
+
+.ob-live-person-role {
+  font-size: 12px;
+  color: var(--textContent);
+}
+
+.ob-live-person-meta {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  color: var(--textMeta);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-coverage-label {
+  font-family: var(--f-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--warn);
+}
+
+.ob-live-coverage-url {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  color: var(--textMeta);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-coverage-reason {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--textContent);
+}
+
+/* ---- the entity decision ------------------------------------------------ */
+
+.ob-live-decide-sub {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--textContent);
+}
+
+.ob-live-entities {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ob-live-entity {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+  background: var(--bgElevated);
+  cursor: pointer;
+}
+
+.ob-live-entity:has(input:checked) {
+  border-color: var(--accent);
+  background: var(--accentLight);
+}
+
+.ob-live-entity input {
+  margin-top: 3px;
+  flex: none;
+}
+
+.ob-live-entity-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ob-live-entity-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--textPrimary);
+}
+
+.ob-live-entity-meta {
+  font-family: var(--f-mono);
+  font-size: 10.5px;
+  color: var(--textMeta);
+  overflow-wrap: anywhere;
+}
+
+.ob-live-decide-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* ---- a step with nothing to show yet ------------------------------------ */
+
+.ob-live-pending {
+  margin: 0;
+  padding: var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  background: var(--bgElevated);
+  border: 1px solid var(--borderSubtle);
+  border-radius: var(--r-sm);
+}
+
+.ob-live-pending-title {
+  font-size: 13px;
+  color: var(--textContent);
+}
+
+.ob-live-pending-state {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--textTertiary);
+}
+
+/* Reduced motion jumps to the end state: everything is already in place, and
+   nothing in the panel waits on an animation to become reachable. */
+@media (prefers-reduced-motion: reduce) {
+  .ob-live-summary-row,
+  .ob-live-summary-volume,
+  .ob-live-card {
+    animation: none;
+  }
+
+  .ob-live-working span {
+    animation: none;
+    opacity: 1;
+  }
+
+  .ob-live-card-chev,
+  button.ob-live-card-head {
+    transition: none;
+  }
+}

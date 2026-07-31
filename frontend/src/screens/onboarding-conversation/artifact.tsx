@@ -2,11 +2,12 @@ import { Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { components } from "../../api/schema";
 import { Button } from "../../design-system/atoms";
-import { useT } from "../../i18n";
+import { useLocale, useT } from "../../i18n";
 import type { CompanyDraft, CompanyFieldName } from "../onboarding";
 import { CompanyStep } from "../onboarding-company-form";
+import { FactsCard, useFactSelection } from "../onboarding-facts";
+import { OnboardingLivePanel } from "../onboarding-live-panel";
 import { ManualCompanyInterview } from "../onboarding-manual-interview";
-import { ReadEvidence } from "../onboarding-read";
 
 // The right panel of the company act: a living dossier of what the read
 // grounded, an edit escape hatch hosting the classic form, and — on the
@@ -199,16 +200,79 @@ function ArtifactBody(props: CompanyActArtifactProps) {
       </>
     );
   }
+  return <DossierBody {...props} />;
+}
+
+// The dossier: numbered step blocks of collapsed, sourced cards. Every card
+// states its own count in its header, so leaving one shut is an informed choice
+// rather than a missed one.
+function DossierBody(props: CompanyActArtifactProps) {
+  const t = useT();
+  const { locale } = useLocale();
+  const { read } = props;
+  const selection = useFactSelection(
+    read?.facts ?? [],
+    props.selectedFactKeys,
+    props.setSelectedFactKeys,
+  );
+
+  if (read === null) {
+    return (
+      <>
+        <p className="ob-conv-artifact-empty">{t("ob.conv.artifact.empty")}</p>
+        <Button
+          small
+          variant="ghost"
+          onClick={() => props.onSwitchMode("edit")}
+        >
+          {t("ob.conv.review.editDirectly")}
+        </Button>
+      </>
+    );
+  }
+
   return (
     <>
-      {props.read ? (
-        <ReadEvidence read={props.read} />
-      ) : (
-        <p className="ob-conv-artifact-empty">{t("ob.conv.artifact.empty")}</p>
-      )}
+      <OnboardingLivePanel
+        host={hostOf(read.root_url)}
+        done={SETTLED_READ.has(read.status)}
+        read={read}
+        entityChoice={props.draft.values.legal_name.trim() || null}
+        onConfirmEntity={(value) => props.setField("legal_name", value)}
+        onDeclineEntity={() => props.setField("legal_name", "")}
+        voiceState="waiting"
+        connectState="waiting"
+        factsSlot={
+          read.facts.length > 0 ? (
+            <FactsCard
+              facts={read.facts}
+              selection={selection}
+              locale={locale}
+            />
+          ) : undefined
+        }
+      />
       <Button small variant="ghost" onClick={() => props.onSwitchMode("edit")}>
         {t("ob.conv.review.editDirectly")}
       </Button>
     </>
   );
+}
+
+// A read that has produced its answer, so the panel may open its cards.
+const SETTLED_READ: ReadonlySet<CompanySiteRead["status"]> = new Set([
+  "ready",
+  "partial",
+  "confirmed",
+]);
+
+function hostOf(rootUrl: string): string {
+  // The panel heads name the site, and the wire always sends an absolute URL —
+  // but a malformed one must degrade to the raw string rather than throw and
+  // take the whole dossier down with it.
+  try {
+    return new URL(rootUrl).host;
+  } catch {
+    return rootUrl;
+  }
 }
