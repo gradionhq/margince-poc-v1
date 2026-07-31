@@ -105,8 +105,11 @@ var tableOwners = map[string]string{
 	// search module, and a sibling would have to import its traversal
 	// primitives, which a module may not do.
 	"graph_interaction_edge": "internal/modules/search",
-	"attachment":             "internal/modules/activities",
-	"booking_page":           "internal/modules/activities",
+	// CG-DDL-2: LinkedIn ghosts. Owned by people because the work they exist
+	// for is identity matching — the same dedupe rules, the same chokepoint.
+	"linkedin_connection": "internal/modules/people",
+	"attachment":          "internal/modules/activities",
+	"booking_page":        "internal/modules/activities",
 	// approvals (workspace_signing_key backs the approval-token JWS)
 	"approval":              "internal/modules/approvals",
 	"workspace_signing_key": "internal/modules/approvals",
@@ -278,6 +281,7 @@ var crossStoreWrites = map[string]string{
 	"internal/modules/privacy:person_email":                 "erasure deletes the subject's email channel rows in the single erasure transaction",
 	"internal/modules/privacy:preference_token":             "erasure deletes the subject's preference-center token in the single erasure transaction — it is a live capability over their consent record on a session-less edge, and anonymize-in-place means 0048's ON DELETE CASCADE never fires, so an erased subject would keep accruing consent rows through the capability the erasure certifies destroyed",
 	"internal/modules/privacy:activity_participant":         "erasure nulls the subject's person and address arms on the interaction participants in the single erasure transaction — the address arm exists precisely for a party who never became a record, so it survives the person_email purge and would keep the erased address readable and re-matchable; the ROW is kept where other participants remain, because the other people in that conversation are not the subject",
+	"internal/modules/privacy:linkedin_connection":          "erasure deletes the subject's LinkedIn ghosts in the single erasure transaction — a ghost holds the subject's name, employer and address, imported from a colleague's export without the subject ever being asked, and it is invisible to every person-keyed clause because a ghost is not a person row",
 	"internal/modules/privacy:graph_interaction_edge":       "erasure drops the subject's interaction edges in the single erasure transaction rather than leaving it to the cg:graph-edge consumer — an Art. 17 obligation discharged by an event is one that fails silently when the bus is behind, and the projection holds who corresponded with the subject, how often and how recently",
 	"internal/modules/privacy:capture_pending_counterparty": "erasure drops the capture dispositions keyed on the subject's own address in the single erasure transaction — left behind, they would keep the erased address readable and still answering the capture gates",
 	"internal/modules/privacy:person_social":                "erasure and retention delete the subject's social-handle rows in the same anonymization transaction",

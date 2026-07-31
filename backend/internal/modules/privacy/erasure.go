@@ -272,6 +272,20 @@ func anonymizeSubjectRows(ctx context.Context, tx pgx.Tx, personID ids.PersonID,
 		personID, emails); err != nil {
 		return nil, err
 	}
+	// A LinkedIn ghost (CG-DDL-2) can BE the subject: it holds their name,
+	// employer and — on CSV rows — their address, imported from a colleague's
+	// export without the subject ever being asked. That is precisely the data
+	// an Art. 17 request is about, and it is invisible to every other clause
+	// here because a ghost is not a person row.
+	//
+	// The row goes rather than being anonymized: unlike a participant row it
+	// records nothing about anybody else, so there is nothing left to keep.
+	if _, err := tx.Exec(ctx, `
+		DELETE FROM linkedin_connection
+		 WHERE matched_person_id = $1
+		    OR (email IS NOT NULL AND email = ANY($2))`, personID, emails); err != nil {
+		return nil, err
+	}
 	// The interaction projection (CG-DDL-1) is derived, but derived from data
 	// that is now gone — and it holds who corresponded with the subject, how
 	// often and how recently. It is dropped HERE, in the erasure transaction,

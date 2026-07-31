@@ -41,15 +41,18 @@ type SARPackage struct {
 	// is the record that they were a party to it at all, and it is held about
 	// them whether or not they were ever a contact.
 	InteractionParticipation []map[string]any `json:"interaction_participation"`
-	Relationships            []map[string]any `json:"relationships"`
-	Deals                    []map[string]any `json:"deals"`
-	Leads                    []map[string]any `json:"leads"`
-	Activities               []map[string]any `json:"activities"`
-	Attachments              []map[string]any `json:"attachments"`
-	Consent                  []map[string]any `json:"consent"`
-	ConsentEvents            []map[string]any `json:"consent_events"`
-	RawCapture               []map[string]any `json:"raw_capture"`
-	FieldOrigins             []map[string]any `json:"field_origins"`
+	// Where the subject appears in a colleague's imported LinkedIn network.
+	// They never consented to that import and would have no way to know of it.
+	LinkedInConnections []map[string]any `json:"linkedin_connections"`
+	Relationships       []map[string]any `json:"relationships"`
+	Deals               []map[string]any `json:"deals"`
+	Leads               []map[string]any `json:"leads"`
+	Activities          []map[string]any `json:"activities"`
+	Attachments         []map[string]any `json:"attachments"`
+	Consent             []map[string]any `json:"consent"`
+	ConsentEvents       []map[string]any `json:"consent_events"`
+	RawCapture          []map[string]any `json:"raw_capture"`
+	FieldOrigins        []map[string]any `json:"field_origins"`
 	// What capture decided about the subject's own address, and why — an
 	// automated decision the subject is owed sight of (CAP-DDL-8).
 	CaptureDispositions []map[string]any `json:"capture_dispositions"`
@@ -165,6 +168,12 @@ func sarSections(pkg *SARPackage) []sarSection {
 		   JOIN activity a ON a.id = ap.activity_id
 		  WHERE ap.person_id = $1
 		     OR (ap.address IS NOT NULL AND ap.address IN (
+		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
+		{&pkg.LinkedInConnections, `SELECT full_name, position, company_name, connected_on,
+		       email, match_status, source, synced_at
+		   FROM linkedin_connection
+		  WHERE matched_person_id = $1
+		     OR (email IS NOT NULL AND email IN (
 		         SELECT lower(email) FROM person_email WHERE person_id = $1))`},
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},

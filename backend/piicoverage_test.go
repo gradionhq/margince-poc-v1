@@ -84,6 +84,12 @@ var piiTables = map[string]piiHandling{
 	// record — so erasure nulls both and Art. 15 hands back the fact that
 	// they were a party to those conversations.
 	"activity_participant": {erasureWrite: true, sarRead: true},
+	// LinkedIn ghosts (CG-DDL-2) hold a third party's name, employer and
+	// sometimes address, imported from a colleague's export without that
+	// person being asked. Erasure deletes them; Art. 15 hands them back,
+	// because "you appear in someone's imported address book" is exactly the
+	// kind of holding a subject would not otherwise discover.
+	"linkedin_connection": {erasureWrite: true, sarRead: true},
 	// The interaction projection (CG-DDL-1): derived, but derived from data an
 	// erasure removes, and it holds who corresponded with the subject and how
 	// often. Purged, never exported — like the embedding, it is a machine

@@ -349,6 +349,12 @@ var rowScopedFKDecisions = map[string]string{
 	// request body ever names a person here. Reads of it carry the person
 	// predicate, so an edge never discloses a contact the caller cannot open.
 	"graph_interaction_edge.person_id": "derived projection: folded from participant rows by the graph-edge consumer, never written from a request",
+	// The LinkedIn ghost's match arms (CG-DDL-2). A ghost is not a record and
+	// carries no client-supplied reference: the matcher resolves both ids from
+	// its own row-scoped lookups, and a human confirming a suggestion
+	// addresses the ghost row rather than naming a person.
+	"linkedin_connection.matched_person_id": "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
+	"linkedin_connection.matched_org_id":    "server-derived: resolved by the ghost matcher's own row-scoped lookup, never from a request body",
 }
 
 // TestFK_rowScopedTargetsHaveVisibilityDecision derives the H1 obligation
