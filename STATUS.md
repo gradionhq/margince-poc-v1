@@ -103,7 +103,7 @@ out to be OUR bug:
 
 - **`orgbrief.ParseBrief` never unfenced (FIXED here).** It was the only
   model-reply parser in the tree reducing through a bare `strings.TrimSpace`
-  instead of `ai.Unfence`, so a model that wraps its JSON in a ```json fence
+  instead of `ai.Unfence`, so a model that wraps its JSON in a markdown code fence
   lost the entire `summarize` model lane to the deterministic floor —
   12/12 runs `invalid` on `parse the brief reply: invalid character '`'`.
   A sweep of all 30 `json.Unmarshal` sites confirmed this was the last one
