@@ -279,7 +279,11 @@ export function RecordView({
   // to the single column every existing caller already renders.
   rail?: ReactNode;
   aside?: ReactNode;
-  timeline: TimelineEntry[];
+  // The entries, or undefined when this view has NO timeline at all. The
+  // distinction is the same one every card on a record page keeps: absent is
+  // not empty. `[]` renders the section with its honest "nothing logged yet";
+  // undefined omits the section, for a view whose body is not a history.
+  timeline?: TimelineEntry[];
   // Controls above the timeline list (filters), and below it (load more).
   timelineHeader?: ReactNode;
   timelineFooter?: ReactNode;
@@ -316,12 +320,16 @@ export function RecordView({
         )}
         <div className="record-main">
           {children}
-          <section aria-label={t("record.timeline")}>
-            <h2 className="t-sub">{t("record.timeline")}</h2>
-            {timelineHeader}
-            {timelineNotice ?? <TimelineList entries={timeline} zone={zone} />}
-            {timelineFooter}
-          </section>
+          {timeline && (
+            <section aria-label={t("record.timeline")}>
+              <h2 className="t-sub">{t("record.timeline")}</h2>
+              {timelineHeader}
+              {timelineNotice ?? (
+                <TimelineList entries={timeline} zone={zone} />
+              )}
+              {timelineFooter}
+            </section>
+          )}
         </div>
         {aside && (
           <aside className="record-aside" aria-label={t("record.business")}>

@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n";
@@ -93,10 +94,14 @@ const EMPTY_BRIEF = {
 let briefBody: unknown = EMPTY_BRIEF;
 
 function stub(three60: unknown, status = 200) {
+  // The paths actually requested. A test proves the page did NOT refetch by
+  // counting these rather than by trusting that it did not.
+  const fetched: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (request: Request) => {
       const pathname = new URL(request.url).pathname;
+      fetched.push(pathname);
       if (pathname.endsWith("/360")) {
         return jsonResponse(three60, status);
       }
@@ -112,6 +117,7 @@ function stub(three60: unknown, status = 200) {
       return jsonResponse({ data: [], page: emptyPage });
     }),
   );
+  return fetched;
 }
 
 afterEach(() => {
@@ -238,6 +244,48 @@ describe("company view — consent is per purpose", () => {
     renderCompany();
 
     await waitFor(() => expect(screen.getByText("May contact")).toBeTruthy());
+  });
+});
+
+describe("company view — the rails belong to the account, not to a tab", () => {
+  it("keeps both side columns mounted when the reader switches tab", async () => {
+    stub(view());
+    renderCompany();
+
+    await screen.findByRole("complementary", { name: "Business" });
+    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
+
+    // Partner and History used to render in a header-only frame, so both
+    // rails unmounted, the grid re-columned under the reader, and every query
+    // behind them refetched on the way back.
+    expect(
+      screen.getByRole("complementary", { name: "Business" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Profile" })).toBeTruthy();
+  });
+
+  it("does not refetch the account when the reader switches tab and back", async () => {
+    const fetched = stub(view());
+    renderCompany();
+    await screen.findByRole("complementary", { name: "Business" });
+    const before = fetched.filter((path) => path.endsWith("/360")).length;
+
+    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
+    await userEvent.click(screen.getByRole("button", { name: "Overview" }));
+
+    expect(fetched.filter((path) => path.endsWith("/360")).length).toBe(before);
+  });
+
+  it("leaves the timeline to the overview rather than repeating it under a form", async () => {
+    stub(view());
+    renderCompany();
+    await screen.findByRole("region", { name: "Timeline" });
+
+    await userEvent.click(screen.getByRole("button", { name: "Partner" }));
+
+    expect(screen.queryByRole("region", { name: "Timeline" })).toBeNull();
   });
 });
 

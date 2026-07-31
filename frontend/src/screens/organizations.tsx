@@ -1303,61 +1303,22 @@ function CompanyRecord({
     </div>
   );
 
-  if (tab === "partner" || tab === "history") {
-    return (
-      <CompanyShell org={org} view={assembled}>
-        {tabs}
-        {/* Overlay refuses the whole company page, not just its overview:
-            the partner extension and the field history are native records
-            the mirror does not hold, so switching tabs must not walk around
-            the refusal into reads that can only fail. */}
-        {overlay ? (
-          <OverlayFallback />
-        ) : tab === "partner" ? (
-          <PartnerTab organizationId={org.id} />
-        ) : (
-          <RecordHistoryTab kind="organization" id={org.id} />
-        )}
-      </CompanyShell>
-    );
-  }
+  // Every tab renders inside ONE page. Partner and History used to be a
+  // different component tree with no rails, so switching tab unmounted both
+  // side columns and every query behind them: the grid re-columned under the
+  // reader and the page refetched itself on the way back. Only the middle
+  // column's body changes now.
   return (
-    <CompanyOverview
+    <CompanyPage
       org={org}
       view={assembled}
       overlay={overlay}
       loading={view.isPending}
       failed={view.isError}
+      tab={tab}
       tabs={tabs}
       onOpenHistory={() => onTab("history")}
     />
-  );
-}
-
-// CompanyShell is the header-only frame the non-overview tabs render inside,
-// so the identity, pulse line and action bar stay put as the rep switches.
-function CompanyShell({
-  org,
-  view,
-  children,
-}: Readonly<{
-  org: Organization;
-  view?: Organization360View;
-  children: ReactNode;
-}>) {
-  return (
-    <RecordView
-      name={org.display_name}
-      avatarSrc={org.logo_url}
-      subtitle={companySubtitle(org)}
-      zone={RECORD_ZONE}
-      badges={<CompanyActionBadges org={org} />}
-      pulse={<CompanyPulse org={org} view={view} />}
-      timeline={[]}
-      timelineNotice={<span />}
-    >
-      {children}
-    </RecordView>
   );
 }
 
@@ -1459,15 +1420,21 @@ function StrengthPulse({
   );
 }
 
-// CompanyOverview is the page itself: identity and verbs at the top, then
-// three zones — what this company IS on the left, what is HAPPENING in the
-// middle, the BUSINESS around it on the right.
-function CompanyOverview({
+// CompanyPage is the page itself: identity and verbs at the top, then three
+// zones — what this company IS on the left, what is HAPPENING in the middle,
+// the BUSINESS around it on the right.
+//
+// All three tabs render here. The rails belong to the ACCOUNT, not to the
+// overview, so they stay mounted whichever tab is open and the reader keeps
+// the firmographics and the business context while reading the partner form
+// or the change history.
+function CompanyPage({
   org,
   view,
   overlay,
   loading,
   failed,
+  tab,
   tabs,
   onOpenHistory,
 }: Readonly<{
@@ -1479,6 +1446,7 @@ function CompanyOverview({
   // account is empty", because all three would otherwise draw the same
   // blank page and only one of them is a fact about the account.
   failed: boolean;
+  tab: CompanyTab;
   tabs: ReactNode;
   // An evidence mark's "full history" opens the record's History tab, which
   // is local state on this screen rather than a route — so the mark is
@@ -1531,8 +1499,11 @@ function CompanyOverview({
         )
       }
       aside={businessRail({ org, view, overlay, failed })}
+      // The timeline is the account's story and belongs to the overview. The
+      // Partner tab is a form and History has its own change list, so neither
+      // repeats it under itself.
       timeline={
-        view
+        tab === "overview"
           ? activityTimeline(timeline, (activity) => (
               <TimelineActions
                 activity={activity}
@@ -1540,13 +1511,13 @@ function CompanyOverview({
                 entityId={org.id}
               />
             ))
-          : []
+          : undefined
       }
       // In overlay mode the refusal is stated once, in the body: repeating it
       // over the timeline would read as two separate things being
       // unavailable rather than one page not being assembled.
       timelineNotice={
-        overlay ? (
+        overlay || tab !== "overview" ? (
           <span />
         ) : (
           timelineNoticeFor(
@@ -1558,20 +1529,32 @@ function CompanyOverview({
       }
     >
       {tabs}
+      {/* Overlay refuses the whole company page, not one tab of it: the
+          partner extension and the field history are native records the
+          mirror does not hold, so switching tabs must not walk around the
+          refusal into reads that can only fail. */}
       {overlay && <OverlayFallback />}
-      {failed && <EmptyState>{t("co.partial")}</EmptyState>}
+      {!overlay && tab === "partner" && <PartnerTab organizationId={org.id} />}
+      {!overlay && tab === "history" && (
+        <RecordHistoryTab kind="organization" id={org.id} />
+      )}
+      {tab === "overview" && failed && (
+        <EmptyState>{t("co.partial")}</EmptyState>
+      )}
       {/* The brief leads: what this account looks like right now, before the
           cards that report it field by field. It absorbed the standalone
           "since your last visit" block, because two cards each claiming to
           say what the state is made the reader arbitrate between them. */}
-      {view && <MeetingBrief view={view} />}
-      <AssistantPanel
-        orgId={org.id}
-        view={view}
-        enabled={!overlay}
-        onOpenRecord={openCitation}
-      />
-      {view && (
+      {tab === "overview" && view && <MeetingBrief view={view} />}
+      {tab === "overview" && (
+        <AssistantPanel
+          orgId={org.id}
+          view={view}
+          enabled={!overlay}
+          onOpenRecord={openCitation}
+        />
+      )}
+      {tab === "overview" && view && (
         <NextSteps
           view={view}
           onOpenTask={(step) => setOpenTaskId(step.activity_id)}
