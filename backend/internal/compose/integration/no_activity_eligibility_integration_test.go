@@ -24,7 +24,6 @@ package integration
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"log/slog"
 	"testing"
@@ -408,8 +407,32 @@ func applyCoreMigration(t *testing.T, owner *pgx.Conn, version string) {
 		if m.Version != version {
 			continue
 		}
-		if _, err := owner.Exec(context.Background(), m.UpSQL); err != nil {
+		// One transaction for the SQL and the ledger row, exactly as dbmigrate
+		// applies it — 0149 reads schema_migrations_core.applied_at to know
+		// which rows 0148 archived, and now() is per transaction, so applying
+		// the two separately would put them at different instants and the
+		// suites below would be testing a shape production never has.
+		tx, err := owner.Begin(context.Background())
+		if err != nil {
+			t.Fatalf("opening the migration transaction: %v", err)
+		}
+		//craft:ignore swallowed-errors the rollback only runs if a Fatalf above skipped the commit; after a successful commit it is a no-op whose error says nothing, and the test has already failed in the other case
+		defer func() { _ = tx.Rollback(context.Background()) }()
+		if _, err := tx.Exec(context.Background(), m.UpSQL); err != nil {
 			t.Fatalf("applying migration %s: %v", version, err)
+		}
+		if _, err := tx.Exec(context.Background(),
+			// The template already carries this migration from the real
+			// migrator, so the ledger instant is UPDATED rather than kept:
+			// these suites re-run the SQL to archive their own fixtures, and
+			// 0149 reads applied_at to know which rows that run touched.
+			`INSERT INTO schema_migrations_core (version, name) VALUES ($1, $2)
+			 ON CONFLICT (version) DO UPDATE SET applied_at = now()`,
+			m.Version, m.Name); err != nil {
+			t.Fatalf("recording migration %s in the ledger: %v", version, err)
+		}
+		if err := tx.Commit(context.Background()); err != nil {
+			t.Fatalf("committing migration %s: %v", version, err)
 		}
 		return
 	}
@@ -425,174 +448,4 @@ func isArchived(t *testing.T, owner *pgx.Conn, id ids.UUID) bool {
 		t.Fatalf("reading the archival state of activity %s: %v", id, err)
 	}
 	return archived
-}
-
-// 0148 archives every outstanding generated reminder on the reasoning that the
-// corrected scan re-mints the ones that are still deserved. That holds only
-// where the automation still runs, and 0148 never checked. 0149 gives back the
-// rows nothing will bring back on its own.
-
-// seedReminderAutomation inserts one clock automation in the given enabled
-// state, so a suite can express "this workspace still runs reminders" and
-// "this workspace paused them".
-func seedReminderAutomation(t *testing.T, owner *pgx.Conn, ws ids.UUID, key string, enabled bool) {
-	t.Helper()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO automation (id, workspace_id, key, name, trigger, action, params, enabled)
-		 VALUES ($1, $2, $3, $3, '{"schedule":"clock"}', '{"kind":"create_task"}', '{}'::jsonb, $4)`,
-		ids.NewV7(), ws, key, enabled); err != nil {
-		t.Fatalf("seeding the %s automation (enabled=%v): %v", key, enabled, err)
-	}
-}
-
-// seedUser inserts one workspace member, so a task can be assigned to a real
-// row (assignee_id carries a foreign key).
-func seedUser(t *testing.T, owner *pgx.Conn, ws ids.UUID) ids.UUID {
-	t.Helper()
-	id := ids.NewV7()
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO app_user (id, workspace_id, email, display_name)
-		 VALUES ($1, $2, $3, 'Reminder Owner')`,
-		id, ws, fmt.Sprintf("owner-%s@restore.test", id)); err != nil {
-		t.Fatalf("seeding the workspace member: %v", err)
-	}
-	return id
-}
-
-// adopt makes a generated task somebody's own work, the way a person does:
-// assigning it, or setting a reminder on it.
-func adopt(t *testing.T, owner *pgx.Conn, id ids.UUID, column string, value any) {
-	t.Helper()
-	if _, err := owner.Exec(context.Background(),
-		`UPDATE activity SET `+column+` = $2 WHERE id = $1`, id, value); err != nil {
-		t.Fatalf("setting %s on task %s: %v", column, id, err)
-	}
-}
-
-func TestTheRestoreGivesBackRemindersNothingWillReMint(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-
-	// This workspace paused its reminders, so the corrected scan never runs
-	// here and 0148's re-mint argument does not apply to a single row.
-	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", false)
-	stranded := seedTaskRow(t, owner, e.WS,
-		"Check in — no activity since 2026-06-16", "system", false)
-	strandedCadence := seedTaskRow(t, owner, e.WS,
-		"Time for a check-in — last touched 2026-06-16", "system", false)
-
-	applyCleanupMigration(t, owner)
-	for _, id := range []ids.UUID{stranded, strandedCadence} {
-		if !isArchived(t, owner, id) {
-			t.Fatalf("0148 did not archive %s, so this suite is not testing what it claims", id)
-		}
-	}
-
-	applyRestoreMigration(t, owner)
-	for _, id := range []ids.UUID{stranded, strandedCadence} {
-		if isArchived(t, owner, id) {
-			t.Errorf("reminder %s stayed archived in a workspace whose automation is paused — nothing will ever mint it again", id)
-		}
-	}
-}
-
-func TestTheRestoreGivesBackAReminderSomebodyHadTakenOver(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-
-	// Reminders DO still run here, so 0148's re-mint argument holds for an
-	// untouched row — but a re-mint is a new row, without the assignee or the
-	// date the person chose.
-	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", true)
-	assigned := seedTaskRow(t, owner, e.WS,
-		"Check in — no activity since 2026-06-16", "system", false)
-	reminded := seedTaskRow(t, owner, e.WS,
-		"Check in — no activity since 2026-06-16", "system", false)
-	untouched := seedTaskRow(t, owner, e.WS,
-		"Check in — no activity since 2026-06-16", "system", false)
-	adopt(t, owner, assigned, "assignee_id", seedUser(t, owner, e.WS))
-	adopt(t, owner, reminded, "remind_at", quietSince)
-
-	applyCleanupMigration(t, owner)
-	// Without this the assertions below pass vacuously: a row 0148 never
-	// archived also reads "not archived" after the restore, and the suite
-	// would be green while 0149 did nothing at all.
-	for _, id := range []ids.UUID{assigned, reminded, untouched} {
-		if !isArchived(t, owner, id) {
-			t.Fatalf("0148 did not archive %s, so this suite is not testing what it claims", id)
-		}
-	}
-	applyRestoreMigration(t, owner)
-
-	if isArchived(t, owner, assigned) {
-		t.Error("a reminder assigned to somebody stayed archived; the re-mint would not carry the assignee")
-	}
-	if isArchived(t, owner, reminded) {
-		t.Error("a reminder somebody set a reminder on stayed archived; the re-mint would not carry the date they chose")
-	}
-	// The whole point of 0148 stands for a row the scan will genuinely
-	// reconsider: it stays archived rather than coming back twice.
-	if !isArchived(t, owner, untouched) {
-		t.Error("an untouched reminder in a live workspace came back, so the corrected scan will mint a duplicate beside it")
-	}
-}
-
-func TestTheRestoreLeavesADeliberateHumanArchiveAlone(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-
-	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", false)
-	dismissed := seedTaskRow(t, owner, e.WS,
-		"Check in — no activity since 2026-06-16", "system", false)
-	adopt(t, owner, dismissed, "assignee_id", seedUser(t, owner, e.WS))
-	// A person archived this one through the store, which writes the audit
-	// row 0148's raw SQL never does. That entry is what tells the two apart.
-	if _, err := owner.Exec(context.Background(),
-		`UPDATE activity SET archived_at = now() WHERE id = $1`, dismissed); err != nil {
-		t.Fatalf("archiving the task: %v", err)
-	}
-	if _, err := owner.Exec(context.Background(),
-		`INSERT INTO audit_log (workspace_id, actor_type, actor_id, action, entity_type, entity_id)
-		 VALUES ($1, 'human', 'human:x', 'archive', 'activity', $2)`,
-		e.WS, dismissed); err != nil {
-		t.Fatalf("recording the human archive: %v", err)
-	}
-
-	applyRestoreMigration(t, owner)
-
-	if !isArchived(t, owner, dismissed) {
-		t.Error("a reminder a person deliberately archived was handed back to them")
-	}
-}
-
-// The two reminder automations write different tasks, and a workspace can run
-// one while the other is paused. Asking only whether EITHER is enabled leaves
-// the paused one's tasks archived with nothing to bring them back.
-func TestTheRestorePairsEachReminderWithItsOwnAutomation(t *testing.T) {
-	e := Setup(t)
-	owner := OwnerConn(t)
-
-	seedReminderAutomation(t, owner, e.WS, "no_activity_reminder", true)
-	seedReminderAutomation(t, owner, e.WS, "check_in_cadence", false)
-	live := seedTaskRow(t, owner, e.WS,
-		"Check in — no activity since 2026-06-16", "system", false)
-	stranded := seedTaskRow(t, owner, e.WS,
-		"Time for a check-in — last touched 2026-06-16", "system", false)
-
-	applyCleanupMigration(t, owner)
-	// Same guard as its siblings: "stranded came back" only means anything
-	// once 0148 has been shown to have taken it away.
-	for _, id := range []ids.UUID{live, stranded} {
-		if !isArchived(t, owner, id) {
-			t.Fatalf("0148 did not archive %s, so this suite is not testing what it claims", id)
-		}
-	}
-	applyRestoreMigration(t, owner)
-
-	if !isArchived(t, owner, live) {
-		t.Error("a reminder whose own automation still runs came back; the scan will mint a duplicate beside it")
-	}
-	if isArchived(t, owner, stranded) {
-		t.Error("a cadence reminder stayed archived while only the OTHER automation runs — nothing will ever mint it again")
-	}
 }

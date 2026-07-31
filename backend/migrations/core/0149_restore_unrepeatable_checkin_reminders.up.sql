@@ -22,15 +22,27 @@
 -- Restored, not re-created, so the id, the audit trail and the links a person
 -- may already have acted on all survive.
 --
--- WHICH rows 0148 archived is decided by the audit log, not by a timestamp:
--- 0148 is raw SQL and wrote no audit row, while every human archive goes
--- through the store and writes one. So an archived generated task with no
--- 'archive' entry against it is one this migration is entitled to give back,
--- and a task a human archived deliberately stays archived.
+-- WHICH rows 0148 archived is decided EXACTLY, by the migration ledger.
 --
--- Deliberately NOT used as a discriminator: updated_at and version. The
--- activity table carries set_updated_at_bump_version(), so 0148's own UPDATE
--- bumped both on every row it touched — they no longer distinguish anything.
+-- dbmigrate runs a migration's SQL and its schema_migrations_core INSERT in
+-- ONE transaction, and Postgres now() is that transaction's start time — so
+-- 0148's `archived_at = now()` and its ledger row's `applied_at` default are
+-- the same instant to the microsecond. A row 0148 archived carries exactly
+-- that archived_at, and nothing else does.
+--
+-- Anything archived BEFORE 0148 is excluded by construction rather than by
+-- inference: 0148 only touched `archived_at IS NULL`, so it never saw those
+-- rows, and their archived_at cannot equal its instant. An absent ledger row
+-- (0148 never ran on this database) makes the comparison NULL and restores
+-- nothing, which is the right answer — there is nothing to give back.
+--
+-- Two weaker discriminators were considered and rejected. The audit log
+-- ("0148 wrote no audit row, a human archive writes one") also matches
+-- anything archived before 0148 by a path that did not audit, so it would
+-- resurrect rows this migration has no business touching. And updated_at /
+-- version cannot serve at all: the activity table carries
+-- set_updated_at_bump_version(), so 0148's own UPDATE bumped both on every
+-- row it touched.
 UPDATE activity a
    SET archived_at = NULL
  WHERE a.kind = 'task'
@@ -39,12 +51,9 @@ UPDATE activity a
    AND a.is_done = false
    AND (a.subject LIKE 'Check in — no activity since %'
      OR a.subject LIKE 'Time for a check-in — last touched %')
-   -- 0148's work, not a person's considered decision to archive it.
-   AND NOT EXISTS (
-         SELECT 1 FROM audit_log l
-          WHERE l.entity_type = 'activity'
-            AND l.entity_id = a.id
-            AND l.action = 'archive')
+   -- 0148's own work, to the microsecond, and nothing archived before it.
+   AND a.archived_at = (
+         SELECT applied_at FROM schema_migrations_core WHERE version = '0148')
    AND (
          -- The automation that mints THIS task's wording is not running, so
          -- nothing will ever mint it again.
