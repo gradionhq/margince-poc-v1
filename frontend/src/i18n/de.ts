@@ -943,6 +943,9 @@ export const de = {
   "compose.sendConfirmTitle": "Diese E-Mail senden?",
   "compose.sendBody":
     "Sie senden diese E-Mail jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
+  "compose.sendMessageConfirmTitle": "Diese Nachricht senden?",
+  "compose.sendMessageBody":
+    "Sie senden diese Nachricht jetzt. Dies ist eine ausgehende, unwiderrufliche Aktion.",
   "compose.consentBlockedTitle": "Versand blockiert — keine Einwilligung",
   "compose.consentBlocked":
     "Ein Empfänger hat für diesen Zweck nicht eingewilligt, daher wurde der Versand unterdrückt (Standard-Ablehnung).",

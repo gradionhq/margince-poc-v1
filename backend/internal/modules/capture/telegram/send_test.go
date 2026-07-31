@@ -213,6 +213,20 @@ func TestSendMessageRefusesAnUnaddressableMessageWithoutCallingTheProvider(t *te
 		{"a non-numeric reply anchor", func(m *connector.ChannelMessage) { m.ReplyTo = "root" }},
 		{"no recipient at all", func(m *connector.ChannelMessage) { m.Recipient.ChannelUserID = "" }},
 		{"no idempotency key", func(m *connector.ChannelMessage) { m.IdempotencyKey = "" }},
+		// A negative chat id is Telegram's spelling of a supergroup or channel —
+		// the non-private chat this connector never captures from and must never
+		// answer into. Parsed as a chat, it would publish the rep's reply, and
+		// the customer's words quoted in it, to a room whoever owns that id
+		// controls.
+		{"a supergroup chat id", func(m *connector.ChannelMessage) { m.Recipient.ChannelUserID = "-1001234567890" }},
+		// Chat 0 addresses no account: it is what a staged row carries when the
+		// identity behind it was never resolved.
+		{"a recipient chat id of zero", func(m *connector.ChannelMessage) { m.Recipient.ChannelUserID = "0" }},
+		// "0" parses cleanly and means "no anchor" to the Bot API, so a reply
+		// carrying it would be sent detached from the conversation it answers
+		// while reporting success — the same silent loss a dropped anchor is.
+		{"a reply anchor of zero", func(m *connector.ChannelMessage) { m.ReplyTo = "0" }},
+		{"a negative reply anchor", func(m *connector.ChannelMessage) { m.ReplyTo = "-5" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api, rec := serve(t, 200, `{"ok":true,"result":{"message_id":9911}}`)

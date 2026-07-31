@@ -103,6 +103,19 @@ func (s *Store) EnsureChannelCounterparty(ctx context.Context, in EnsureChannelC
 // message never leaves behind a person nobody is bound to or a binding no
 // message points at.
 func (s *Store) ensureChannelCounterpartyTx(ctx context.Context, tx pgx.Tx, in EnsureChannelCounterpartyInput) (EnsureChannelCounterpartyResult, error) {
+	// The probe below is a READ COMMITTED read followed by a dependent write, so
+	// it needs the lock the eraser holds across its whole purge: without it this
+	// transaction can pass the probe and then bind a LIVE identity to a new
+	// person while the erasure destroys the old one. uq_person_channel_identity
+	// is partial on archived_at IS NULL, so nothing in the database refuses that
+	// second binding — and the erasure writes by person_id, so the rival it
+	// never named keeps the erased human's account and name for good.
+	if err := storekit.LockChannelIdentities(ctx, tx, []storekit.ChannelIdentityKey{
+		{Provider: in.Identity.Provider, ChannelUserID: in.Identity.ChannelUserID},
+	}); err != nil {
+		return EnsureChannelCounterpartyResult{}, err
+	}
+
 	// A13: deletion sticks on the channel key exactly as it does on an address.
 	// This is EnsureCounterpartyTx's EmailSuppressed probe in its channel
 	// spelling — an erased subject whose only identifier was a Telegram id must
@@ -259,39 +272,60 @@ func (s *Store) recordChannelDedupeCandidate(ctx context.Context, tx pgx.Tx, in 
 //
 // A sender who has no handle at all — Telegram accounts need none — reports an
 // empty one, and clearing the stored value is the honest answer: keeping a
-// handle its owner has dropped would show a name nobody answers to. The
-// IS DISTINCT FROM predicate makes the ordinary unchanged case touch no row, so
+// handle its owner has dropped would show a name nobody answers to. Comparing
+// against the stored handle makes the ordinary unchanged case touch no row, so
 // a conversation does not bump version and updated_at on every message — and
 // leaves no audit row either, which is why the trail records handle CHANGES
 // rather than one line per inbound message.
 //
-// The old handle comes back from the statement itself: the joined subquery is
-// read from the pre-update snapshot, so the audit row can name what the handle
-// was without a second round trip that a concurrent refresh could race.
+// The prior handle is read under FOR UPDATE and compared in Go. The tempting
+// one-statement shape — an UPDATE joined to a subquery holding the old value —
+// cannot answer this correctly: the subquery is a NON-target read, so it stays
+// on the statement-start snapshot even when the UPDATE itself blocked and
+// resumed against a newer row version. Two messages from a renaming sender are
+// in flight at once often enough for that to bite, and the second would then
+// audit a handle the account had two writes ago and re-publish a rename the
+// first already published. The extra round trip buys the one thing this trail
+// exists for — saying what actually changed. (RETURNING OLD.* would answer
+// both in one statement; PG16, which this deployment pins, has no such thing.)
 func refreshChannelUsername(ctx context.Context, tx pgx.Tx, ci connector.ChannelIdentity) error {
+	var boundID ids.UUID
 	var personID ids.PersonID
 	var previous *string
 	err := tx.QueryRow(ctx, `
-		WITH bound AS (
-			SELECT id, person_id, username FROM person_channel_identity
-			WHERE provider = $1 AND channel_user_id = $2 AND archived_at IS NULL
-		)
-		UPDATE person_channel_identity pci SET username = NULLIF($3, '')
-		FROM bound
-		WHERE pci.id = bound.id AND bound.username IS DISTINCT FROM NULLIF($3, '')
-		RETURNING bound.person_id, bound.username`,
-		ci.Provider, ci.ChannelUserID, ci.Username).Scan(&personID, &previous)
+		SELECT id, person_id, username FROM person_channel_identity
+		 WHERE provider = $1 AND channel_user_id = $2 AND archived_at IS NULL
+		 FOR UPDATE`,
+		ci.Provider, ci.ChannelUserID).Scan(&boundID, &personID, &previous)
 	if errors.Is(err, pgx.ErrNoRows) {
-		// Either the handle is unchanged — the ordinary case, every message
-		// after the first — or nothing is bound to this identity yet, which
-		// the bind above this call is what fixes.
+		// Nothing is bound to this identity yet, which the bind above this call
+		// is what fixes.
 		return nil
 	}
 	if err != nil {
+		return fmt.Errorf("people: reading the channel identity handle: %w", err)
+	}
+	current := emptyToNil(ci.Username)
+	if sameHandle(previous, current) {
+		// The ordinary case, every message after the first.
+		return nil
+	}
+	if _, err := tx.Exec(ctx,
+		`UPDATE person_channel_identity SET username = $2 WHERE id = $1`, boundID, current); err != nil {
 		return fmt.Errorf("people: refreshing the channel identity handle: %w", err)
 	}
 	return auditChannelIdentityChange(ctx, tx, personID,
-		handleImage(ci.Provider, previous), handleImage(ci.Provider, emptyToNil(ci.Username)))
+		handleImage(ci.Provider, previous), handleImage(ci.Provider, current))
+}
+
+// sameHandle compares two handles with "no handle at all" as ONE state rather
+// than two: emptyToNil has already collapsed the empty string the provider
+// reports for a handle-less account into the NULL the column stores.
+func sameHandle(a, b *string) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	return *a == *b
 }
 
 // handleImage is the audit/event field image for a handle refresh, provider

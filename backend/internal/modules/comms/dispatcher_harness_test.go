@@ -30,6 +30,10 @@ type fakeStore struct {
 	sent   string
 	parked string
 	failed string
+	// parkedReceipt is the provider message id a park kept, empty on an ordinary
+	// park. It is the difference between "this delivery stopped" and "this
+	// delivery reached the customer and here is the provider's own id for it".
+	parkedReceipt string
 	// stamped is the RFC822 identity the receipt carried through to the store.
 	// The dispatcher must hand the WHOLE receipt on: dropping this field on
 	// the floor here is invisible until a sent message is filed under an
@@ -64,6 +68,16 @@ func (f *fakeStore) RecordSent(_ context.Context, _ ids.UUID, receipt connector.
 
 func (f *fakeStore) Park(_ context.Context, _ ids.UUID, r string) error {
 	f.parked = r
+	return f.parkErr
+}
+
+// ParkTransmitted shares parkErr with Park — both are the same guarded
+// transition to 'parked' — but records the receipt it kept SEPARATELY, because
+// that is the fact this park exists for: a message the provider accepted, whose
+// id would otherwise be the only thing lost.
+func (f *fakeStore) ParkTransmitted(_ context.Context, _ ids.UUID, reason, providerMessageID string) error {
+	f.parked = reason
+	f.parkedReceipt = providerMessageID
 	return f.parkErr
 }
 
@@ -118,6 +132,24 @@ func (f *fakeSender) SendEmail(_ context.Context, _ connector.Auth, m connector.
 	f.seen = m
 	return connector.SendReceipt{ProviderMessageID: "gmsg1", RFC822MessageID: "stamped@mail.gmail.com"}, f.err
 }
+
+// stubMessageSender is the CHANNEL provider boundary for the cases that run
+// against the fake store. It is spelled apart from fakeSender because the two
+// seams differ in the one way these cases are about: nothing at this provider
+// can be asked afterwards whether a message already went.
+type stubMessageSender struct {
+	calls int
+	err   error
+}
+
+func (s *stubMessageSender) SendMessage(context.Context, connector.Auth, connector.ChannelMessage) (connector.SendReceipt, error) {
+	s.calls++
+	return connector.SendReceipt{ProviderMessageID: channelReceiptID}, s.err
+}
+
+// channelReceiptID is what the stub provider hands back — Telegram's own
+// message id, the value a park after a failed receipt has to keep.
+const channelReceiptID = "9911"
 
 type fakeResolver struct {
 	sender  connector.EmailSender
@@ -196,6 +228,21 @@ func liveDelivery() Delivery {
 		InReplyTo: "anchor@example.com", References: []string{"anchor@example.com"},
 		ListUnsubscribe: "<https://margince.test/u/tok>",
 		Status:          StatusPending, Attempts: 1, CreatedAt: testNow.Add(-time.Minute),
+	}
+}
+
+// channelDelivery is liveDelivery's channel-shaped twin: the same staged
+// message on the transport whose retries cannot detect a prior send. The mail
+// fields are absent rather than zeroed by accident — a channel message has no
+// subject, no address list and no RFC822 identity — and ChannelUserID being
+// non-nil is what the dispatcher reads as the row's shape.
+func channelDelivery() Delivery {
+	recipient := "778899"
+	return Delivery{
+		ID: ids.NewV7(), UserID: ids.New[ids.UserKind](), Provider: "telegram",
+		ChannelUserID: &recipient, ConsentPurpose: "transactional",
+		Body: "On its way today.", InReplyTo: "4231",
+		Status: StatusPending, Attempts: 1, CreatedAt: testNow.Add(-time.Minute),
 	}
 }
 

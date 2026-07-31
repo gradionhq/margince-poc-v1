@@ -136,3 +136,32 @@ func TestDispatchNamesAFaultThatBelongsToTheConnectorVocabulary(t *testing.T) {
 		t.Errorf("reason = %q, want the provider-unreachable sentence", store.failed)
 	}
 }
+
+// Every other pre-transmit fault leaves the row saying why this attempt failed;
+// the in-flight marker's own write is the one that did not. A rep watching a
+// reply that has not gone reads a delivery still pending with no reason at all —
+// indistinguishable from one nothing has looked at yet — while the whole run's
+// evidence sits in a job log they cannot see.
+func TestAFailedInFlightWriteRecordsItsReason(t *testing.T) {
+	markFailed := errors.New("connection reset by peer")
+	channel := &stubMessageSender{}
+	store := &fakeStore{delivery: channelDelivery(), markErr: markFailed}
+	d := newTestDispatcher(store, fakeResolver{channel: channel}, &stubConsent{})
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if got != OutcomeRetry {
+		t.Fatalf("outcome = %v, want OutcomeRetry — nothing was transmitted and the marker is absent", got)
+	}
+	if err == nil || !errors.Is(err, markFailed) {
+		t.Fatalf("returned error = %v; the full cause must still reach the job log", err)
+	}
+	if store.failed == "" {
+		t.Error("no reason recorded; the row is pending and silent about an attempt that already failed")
+	}
+	if !strings.HasPrefix(store.failed, faultPrefix) {
+		t.Errorf("reason = %q, want it labelled as a transient fault like every other pre-transmit fault", store.failed)
+	}
+	if channel.calls != 0 {
+		t.Errorf("the provider was called %d time(s) with no durable marker; a crash now is a message nothing can account for", channel.calls)
+	}
+}

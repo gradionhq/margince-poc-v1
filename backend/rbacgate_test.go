@@ -150,20 +150,21 @@ var ungatedEntryPoints = map[string]string{ // #nosec G101 -- waiver rationales 
 	// (storekit.Actor) and fails closed when none resolves to an app_user;
 	// no caller input can name a different sender. Object-RBAC has nothing
 	// left to narrow once that derivation stands. Load/RecordSent/Park/
-	// RecordFailure/RecordDeferral/MarkInFlight/ClearInFlight are the
-	// dispatcher's own state-machine steps, driven by the outbox/River worker
+	// ParkTransmitted/RecordFailure/RecordDeferral/MarkInFlight/ClearInFlight
+	// are the dispatcher's own state-machine steps, driven by the outbox/River worker
 	// under the system principal with no human principal in the call at all;
 	// nothing here discloses a record to anyone — the reason each of them
 	// writes is an operator-facing transport diagnosis, not tenant data.
-	"internal/modules/comms:StageTx":        "derives user_id from the authenticated principal (storekit.Actor) and fails closed with no caller-suppliable override; the activity:create check on the shared transaction admits the send action itself, but the sending IDENTITY is enforced here, in the store, not inherited from that check",
-	"internal/modules/comms:StageChannelTx": "the channel-shaped twin of StageTx and the same posture: it derives user_id from the authenticated principal (stagingUser, shared with StageTx so neither can grow a caller-suppliable override) and runs inside the caller's already-gated activity transaction",
-	"internal/modules/comms:Load":           "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
-	"internal/modules/comms:RecordSent":     "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",
-	"internal/modules/comms:Park":           "worker-loop terminal transition on an unretryable provider failure, system principal, same posture as Load",
-	"internal/modules/comms:RecordFailure":  "worker-loop retry-bookkeeping transition on a transient provider failure, system principal, same posture as Load",
-	"internal/modules/comms:RecordDeferral": "worker-loop pacing transition, system principal, same posture as Load: it notes which rule is holding a delivery back and gives back the attempt that dispatch counted, because a deferral reached no provider. It discloses nothing and can only ever leave a pending delivery pending",
-	"internal/modules/comms:MarkInFlight":   "worker-loop at-most-once transition, system principal, same posture as Load: it stamps one timestamp on a pending delivery before the provider call so a crashed attempt is visible to the next one. It reads nothing back and discloses nothing",
-	"internal/modules/comms:ClearInFlight":  "the retraction half of MarkInFlight, same posture: it nulls that timestamp once the provider gave a definite answer. Both are timestamps about this system's own transport attempt, not tenant data",
+	"internal/modules/comms:StageTx":         "derives user_id from the authenticated principal (storekit.Actor) and fails closed with no caller-suppliable override; the activity:create check on the shared transaction admits the send action itself, but the sending IDENTITY is enforced here, in the store, not inherited from that check",
+	"internal/modules/comms:StageChannelTx":  "the channel-shaped twin of StageTx and the same posture: it derives user_id from the authenticated principal (stagingUser, shared with StageTx so neither can grow a caller-suppliable override) and runs inside the caller's already-gated activity transaction",
+	"internal/modules/comms:Load":            "worker-loop step: the dispatcher claims the next attempt under the system principal (no human principal in a job); admission happened when the message was staged",
+	"internal/modules/comms:RecordSent":      "worker-loop terminal transition on the connector's own success receipt, system principal, same posture as Load",
+	"internal/modules/comms:Park":            "worker-loop terminal transition on an unretryable provider failure, system principal, same posture as Load",
+	"internal/modules/comms:ParkTransmitted": "the same terminal transition for a delivery the provider ALREADY accepted, system principal, same posture as Park: it keeps the provider's own message id on the row when the receipt write failed, so a message the recipient is holding is not recorded as unsent. It reads nothing back and discloses nothing",
+	"internal/modules/comms:RecordFailure":   "worker-loop retry-bookkeeping transition on a transient provider failure, system principal, same posture as Load",
+	"internal/modules/comms:RecordDeferral":  "worker-loop pacing transition, system principal, same posture as Load: it notes which rule is holding a delivery back and gives back the attempt that dispatch counted, because a deferral reached no provider. It discloses nothing and can only ever leave a pending delivery pending",
+	"internal/modules/comms:MarkInFlight":    "worker-loop at-most-once transition, system principal, same posture as Load: it stamps one timestamp on a pending delivery before the provider call so a crashed attempt is visible to the next one. It reads nothing back and discloses nothing",
+	"internal/modules/comms:ClearInFlight":   "the retraction half of MarkInFlight, same posture: it nulls that timestamp once the provider gave a definite answer. Both are timestamps about this system's own transport attempt, not tenant data",
 }
 
 // gateFnInfo is what the gate needs to know about one function name in a

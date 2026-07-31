@@ -51,7 +51,8 @@ type subjectEnvelope struct {
 //     chatTypePrivate);
 //   - an update Telegram names no account for — an anonymous group admin posts
 //     under sender_chat, leaving `from` absent and the id 0, which is not an
-//     account any human owns;
+//     account any human owns, and neither is a negative id, which is how
+//     Telegram numbers chats rather than users;
 //   - an update kind outside the two this connector subscribes to, or one
 //     carrying both of them, which is not a shape the Bot API posts.
 //
@@ -80,8 +81,14 @@ func InScopeSubjects(update []byte) ([]string, error) {
 
 // subjectOf answers for one update kind: the account, when the chat is one this
 // connector captures and Telegram named an account at all; nothing otherwise.
+//
+// The account test is the sign test Normalize's identity mint applies, and the
+// two must stay identical: this function decides what the webhook PERSISTS and
+// Normalize decides what is captured, so an id admitted here and refused there
+// is a verbatim payload in the only-copy store with no person_channel_identity
+// the erasure or SAR lanes could ever reach it by.
 func subjectOf(chat telegramChat, account int64) []string {
-	if !chat.isPrivate() || account == 0 {
+	if !chat.isPrivate() || account <= 0 {
 		return nil
 	}
 	return []string{fmt.Sprintf("%d", account)}

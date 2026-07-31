@@ -51,11 +51,6 @@ func personChannelIdentities(ctx context.Context, tx pgx.Tx, personID ids.Person
 	return pgx.CollectRows(rows, pgx.RowToStructByPos[channelIdentity])
 }
 
-// channelIdentityLockKeys renders the subject's accounts as the lock keys the
-// ingest side takes on the very same accounts. It is a translation and not a
-// second spelling of the identity: storekit owns the key, both callers hand it
-// the same pair, so an erasure and a delivery cannot end up on different keys
-// and silently stop excluding each other.
 // channelActivityKeys renders the subject's accounts as the composite
 // `provider:account` strings unlinkedSubjectChannel matches on. Composite
 // rather than a bare account list on purpose: an account id is a numeric
@@ -69,6 +64,11 @@ func channelActivityKeys(identities []channelIdentity) []string {
 	return keys
 }
 
+// channelIdentityLockKeys renders the subject's accounts as the lock keys the
+// ingest side takes on the very same accounts. It is a translation and not a
+// second spelling of the identity: storekit owns the key, both callers hand it
+// the same pair, so an erasure and a delivery cannot end up on different keys
+// and silently stop excluding each other.
 func channelIdentityLockKeys(identities []channelIdentity) []storekit.ChannelIdentityKey {
 	keys := make([]storekit.ChannelIdentityKey, 0, len(identities))
 	for _, identity := range identities {

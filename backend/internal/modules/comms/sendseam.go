@@ -156,8 +156,11 @@ func (d *Dispatcher) guardAtMostOnce(ctx context.Context, del Delivery, seam sen
 		}
 		// Nothing was transmitted, and the marker is absent precisely because
 		// this write failed, so the ladder may safely try the whole attempt
-		// again.
-		return OutcomeRetry, 0, fmt.Errorf("comms: marking the transmission in flight: %w", err)
+		// again — and the row says so, like every other pre-transmit fault.
+		// The failure note may of course fail for whatever reason the marker
+		// did; retry then hands back both causes and the disposition is the one
+		// this line would have returned anyway.
+		return d.retry(ctx, del.ID, fmt.Errorf("comms: marking the transmission in flight: %w", err))
 	}
 	return outcomeUndecided, 0, nil
 }

@@ -272,7 +272,28 @@ func (s *Store) ensureOrgAndEmployment(ctx context.Context, tx pgx.Tx, in Ensure
 // org link would double-count the same mail). Shared with the channel ensure,
 // which links the same way: it takes the activity id rather than either
 // path's input so neither has to know the other's shape.
+//
+// Being the ONE point both paths reach, it is also where the person is settled
+// against a merge. Every step above it — the dedupe ladder, the identity bind,
+// the handle refresh — named its person from a read that a merge can invalidate
+// before this insert runs, and no reader of activity_link walks merged_into_id,
+// so a link written to the retired id leaves the message on a record nobody
+// opens. Resolving it here covers both callers at once, and it is the last read
+// before the write, so nothing can overtake it.
 func (s *Store) linkActivityToPerson(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, personID ids.PersonID) error {
+	// FOR UPDATE serializes this behind the merge's own LockPair, so the
+	// redirect this reads is the committed one; one hop is enough because a
+	// merge repoints its source's redirect rather than chaining (merge.go).
+	// An archived survivor is still the right subject: the message happened,
+	// and this call's caller logs faults rather than failing the capture, so
+	// refusing here would drop the link silently rather than loudly.
+	var canonical ids.PersonID
+	if err := tx.QueryRow(ctx,
+		`SELECT coalesce(merged_into_id, id) FROM person WHERE id = $1 FOR UPDATE`,
+		personID).Scan(&canonical); err != nil {
+		return fmt.Errorf("people: resolving the person this activity belongs to: %w", err)
+	}
+	personID = canonical
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO activity_link (workspace_id, activity_id, entity_type, person_id)
 		SELECT $1, $2, 'person', $3

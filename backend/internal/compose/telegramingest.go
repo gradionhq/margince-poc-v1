@@ -26,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/capture/telegram"
 	"github.com/gradionhq/margince/backend/internal/modules/people"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/platform/database/storekit"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
@@ -113,7 +114,7 @@ func (w *telegramIngestWorker) Work(ctx context.Context, job *river.Job[Telegram
 		return fmt.Errorf("telegram_ingest: parsing membership: %w", err)
 	}
 	if isMembership {
-		return w.applyMembership(actorCtx, membership)
+		return w.applyMembership(actorCtx, job.Args.BotID, membership)
 	}
 
 	records, err := telegram.Normalize(actorCtx, raw)
@@ -187,7 +188,12 @@ func (w *telegramIngestWorker) captureRecords(actorCtx context.Context, records 
 // attributed to. It gets its own transaction: there is no invariant tying
 // this write to the earlier read, unlike a captured record's atomic write
 // shape.
-func (w *telegramIngestWorker) applyMembership(actorCtx context.Context, m telegram.Membership) error {
+//
+// The bot the update arrived through travels with it from the job args, for
+// the same reason the envelope reads it from there: the connection row's
+// channel_id is mutable, and the watermark this write orders itself by is that
+// bot's own update sequence.
+func (w *telegramIngestWorker) applyMembership(actorCtx context.Context, botID string, m telegram.Membership) error {
 	var blocked bool
 	switch m.Status {
 	case telegram.StatusKicked:
@@ -199,7 +205,16 @@ func (w *telegramIngestWorker) applyMembership(actorCtx context.Context, m teleg
 		return nil
 	}
 	err := database.WithWorkspaceTx(actorCtx, w.pool, func(tx pgx.Tx) error {
-		return w.people.SetChannelIdentityBlocked(actorCtx, tx, m.Identity, blocked)
+		// The account lock and the update watermark answer two different
+		// questions and neither substitutes for the other: the lock keeps this
+		// write from interleaving with an erasure of the same human, the
+		// watermark keeps two transitions from applying in the wrong order.
+		if err := storekit.LockChannelIdentities(actorCtx, tx, []storekit.ChannelIdentityKey{
+			{Provider: m.Identity.Provider, ChannelUserID: m.Identity.ChannelUserID},
+		}); err != nil {
+			return err
+		}
+		return w.people.SetChannelIdentityBlocked(actorCtx, tx, m.Identity, blocked, botID, m.UpdateID)
 	})
 	if err != nil {
 		return fmt.Errorf("telegram_ingest: applying membership status %q: %w", m.Status, err)

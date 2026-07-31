@@ -28,6 +28,11 @@ type deliveryStore interface {
 	Load(ctx context.Context, id ids.UUID) (Delivery, error)
 	RecordSent(ctx context.Context, id ids.UUID, receipt connector.SendReceipt) error
 	Park(ctx context.Context, id ids.UUID, reason string) error
+	// ParkTransmitted parks a delivery the provider ALREADY accepted, keeping
+	// the receipt's provider message id on the row. It is a transition of its
+	// own rather than an argument to Park because the row it leaves says
+	// something Park cannot: the message went, and only its receipt is missing.
+	ParkTransmitted(ctx context.Context, id ids.UUID, reason, providerMessageID string) error
 	RecordFailure(ctx context.Context, id ids.UUID, reason string) error
 	RecordDeferral(ctx context.Context, id ids.UUID, reason string) error
 	// The at-most-once marker, for the seams whose retries cannot detect a prior

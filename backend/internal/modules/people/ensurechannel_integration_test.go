@@ -5,16 +5,17 @@
 
 package people
 
-// The channel counterparty ensure over a real Postgres. Every claim here is a
-// SQL fact a mock could only assert about itself: that the created person row
-// carries no owner, that no email satellite exists beside the identity one,
-// that the suppression list refuses a resurrection, and that the handle the
-// provider reports is refreshed rather than frozen at first contact.
+// The channel counterparty ensure over a real Postgres, one writer at a time.
+// Every claim here is a SQL fact a mock could only assert about itself: that
+// the created person row carries no owner, that no email satellite exists
+// beside the identity one, that the suppression list refuses a resurrection,
+// and that the handle the provider reports is refreshed rather than frozen at
+// first contact. What the same path does against a competing transaction is
+// ensurechannel_contention_integration_test.go.
 
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -212,76 +213,6 @@ func TestEnsureChannelCounterpartyRespectsTheSuppressionLedger(t *testing.T) {
 	}
 }
 
-// Two first messages from one new sender arriving at once. The bind is the
-// arbiter, so the loser's speculatively-created person, its audit row and its
-// outbox event all have to leave no trace — otherwise one human ends up on two
-// records with the conversation on only one of them. No sleep and no polling:
-// Postgres blocks the loser on the speculative-insert lock until the winner
-// commits, so the database is the synchronizer.
-func TestTwoConcurrentFirstChannelMessagesConvergeOnOnePerson(t *testing.T) {
-	e := setupDedupe(t)
-	ctx := e.asChannelConnector()
-	const name = "Concurrent Channel Sender"
-	ci := connector.ChannelIdentity{Provider: telegramProvider, ChannelUserID: "880501", Username: "racer"}
-
-	// Both activities are captured up front: a t.Fatal from inside a goroutine
-	// is not the test's to make, and the race under test is the ensure's.
-	inputs := [2]EnsureChannelCounterpartyInput{
-		e.channelEnsureInput(ctx, t, ci, name),
-		e.channelEnsureInput(ctx, t, ci, name),
-	}
-
-	barrier := make(chan struct{})
-	results := make([]EnsureChannelCounterpartyResult, len(inputs))
-	failures := make([]error, len(inputs))
-	var running sync.WaitGroup
-	running.Add(len(inputs))
-	for slot, in := range inputs {
-		go func(slot int, in EnsureChannelCounterpartyInput) {
-			defer running.Done()
-			<-barrier
-			results[slot], failures[slot] = e.store.EnsureChannelCounterparty(ctx, in)
-		}(slot, in)
-	}
-	close(barrier)
-	running.Wait()
-
-	for slot, err := range failures {
-		if err != nil {
-			t.Fatalf("ensure %d: %v", slot, err)
-		}
-	}
-	if results[0].PersonID != results[1].PersonID {
-		t.Fatalf("the two messages landed on %s and %s; one sender is one person",
-			results[0].PersonID, results[1].PersonID)
-	}
-	created := 0
-	for _, res := range results {
-		if res.PersonCreated {
-			created++
-		}
-	}
-	if created != 1 {
-		t.Fatalf("%d of the two ensures reported creating the person, want exactly 1 — the loser adopted, it did not create", created)
-	}
-	if n := e.countInWorkspace(ctx, t,
-		`SELECT count(*) FROM person WHERE full_name = $1 AND archived_at IS NULL`, name); n != 1 {
-		t.Fatalf("%d person rows, want 1 — the loser's speculative person must leave no trace", n)
-	}
-	if n := e.countInWorkspace(ctx, t,
-		`SELECT count(*) FROM person_channel_identity WHERE channel_user_id = $1 AND archived_at IS NULL`,
-		ci.ChannelUserID); n != 1 {
-		t.Fatalf("%d live bindings, want 1", n)
-	}
-	// Both activities are on the surviving person's timeline: the loser adopted
-	// the winner's record and linked to it, rather than dropping its message.
-	if n := e.countInWorkspace(ctx, t,
-		`SELECT count(*) FROM activity_link WHERE person_id = $1 AND entity_type = 'person'`,
-		results[0].PersonID); n != len(inputs) {
-		t.Fatalf("%d activity links on the surviving person, want %d", n, len(inputs))
-	}
-}
-
 // handleAuditCount counts the person-scoped audit rows a handle refresh left.
 func (e *dedupeEnv) handleAuditCount(ctx context.Context, t *testing.T, personID ids.PersonID) int {
 	t.Helper()
@@ -310,6 +241,16 @@ func (e *dedupeEnv) newestHandleImages(ctx context.Context, t *testing.T, person
 		t.Fatalf("reading the newest handle audit images for %s: %v", personID, err)
 	}
 	return before, after
+}
+
+// handleText renders a handle image for a failure message: an account with no
+// handle at all reads as (none), and a present one as itself rather than as the
+// address of the pointer holding it.
+func handleText(handle *string) string {
+	if handle == nil {
+		return "(none)"
+	}
+	return *handle
 }
 
 // The handle is display data the provider lets its users change at will
@@ -361,7 +302,8 @@ func TestChannelUsernameRefreshesOnEveryInboundMessage(t *testing.T) {
 		t.Fatalf("%d handle audit rows after one rename, want exactly 1", n)
 	}
 	if was, is := e.newestHandleImages(ctx, t, first.PersonID); was == nil || *was != ci.Username || is == nil || *is != renamed.Username {
-		t.Fatalf("handle audit recorded %v → %v, want %q → %q", was, is, ci.Username, renamed.Username)
+		t.Fatalf("handle audit recorded %s → %s, want %q → %q",
+			handleText(was), handleText(is), ci.Username, renamed.Username)
 	}
 
 	// A third message reporting the same handle changes nothing, so an ordinary

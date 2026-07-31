@@ -62,6 +62,12 @@ func TestParseMembershipReadsTheCustomerFromTheChatNotTheBot(t *testing.T) {
 	if mem.Status != StatusKicked {
 		t.Errorf("Status = %q, want %q", mem.Status, StatusKicked)
 	}
+	// update_id sits beside my_chat_member, not inside it, and it is the only
+	// thing that orders this transition against the one that may be racing it
+	// downstream — dropped here, the reachability write has nothing to order by.
+	if mem.UpdateID != 200 {
+		t.Errorf("UpdateID = %d, want 200 — it is read from the update, not the membership payload", mem.UpdateID)
+	}
 }
 
 // An unblock is the same update with the bot's status back to member — the

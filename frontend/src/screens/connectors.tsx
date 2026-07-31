@@ -226,12 +226,53 @@ function useChannelConnections() {
   });
 }
 
-// The Telegram connector panel (Task 17, design §9.1/§9.2): one bot
-// connects for the WHOLE workspace, so this renders at most a single row —
-// never a per-user roster the way the mail providers do. Editing goes
-// through the SAME TelegramConnectForm modal PATCH targets in place of a
-// disconnect-reconnect cycle (§9.2), so this panel only ever mounts one
-// form instance, driven by which state (connecting vs. editing) is active.
+function TelegramConnectionRow({
+  connection,
+  onEdit,
+  onDisconnect,
+}: Readonly<{
+  connection: ChannelConnection;
+  onEdit: () => void;
+  onDisconnect: () => void;
+}>) {
+  const t = useT();
+  return (
+    <li className="connector-row">
+      <span className="connector-id">
+        <Send aria-hidden />
+        <span>
+          <strong>{t("connectors.provTelegram")}</strong>
+          <span className="t-small connector-account">
+            @{connection.channelLabel}
+          </span>
+        </span>
+      </span>
+      <span className="connector-actions">
+        <Badge tone={statusTone(connection.status)}>
+          {t(statusLabel(connection.status))}
+        </Badge>
+        <Button small onClick={onEdit}>
+          <RefreshCw aria-hidden /> {t("connectors.telegramEditToken")}
+        </Button>
+        <Button small variant="ghost" onClick={onDisconnect}>
+          {t("connectors.disconnect")}
+        </Button>
+      </span>
+    </li>
+  );
+}
+
+// One row per live bot, rendered from the server's own roster.
+//
+// A bot connects for the WHOLE workspace rather than per-user (Task 17,
+// design §9.1/§9.2), and a send needs exactly one of them: with a second
+// live bot the workspace can send nothing at all until an admin removes it.
+// This panel is the only surface that can, so it must show every connection
+// the list returns — a bot it hides is a bot nobody can disconnect.
+//
+// Editing goes through the SAME TelegramConnectForm modal, whose PATCH takes
+// the place of a disconnect-reconnect cycle (§9.2). The panel mounts one
+// form instance, keyed to whichever row opened it.
 function TelegramConnectorPanel() {
   const t = useT();
   const qc = useQueryClient();
@@ -278,7 +319,7 @@ function TelegramConnectorPanel() {
     );
   }
 
-  const connection = query.data.data[0] ?? null;
+  const connections = query.data.data;
   const closeForms = () => {
     setConnectOpen(false);
     setEditingConnection(null);
@@ -286,42 +327,27 @@ function TelegramConnectorPanel() {
 
   return (
     <>
-      {!connection && (
+      {connections.length === 0 && (
         <Button small onClick={() => setConnectOpen(true)}>
           <Send aria-hidden /> {t("connectors.telegramConnectCta")}
         </Button>
       )}
-      {connection && (
+      {connections.length > 0 && (
         <ul className="connectors-list">
-          <li className="connector-row">
-            <span className="connector-id">
-              <Send aria-hidden />
-              <span>
-                <strong>{t("connectors.provTelegram")}</strong>
-                <span className="t-small connector-account">
-                  @{connection.channelLabel}
-                </span>
-              </span>
-            </span>
-            <span className="connector-actions">
-              <Badge tone={statusTone(connection.status)}>
-                {t(statusLabel(connection.status))}
-              </Badge>
-              <Button small onClick={() => setEditingConnection(connection)}>
-                <RefreshCw aria-hidden /> {t("connectors.telegramEditToken")}
-              </Button>
-              <Button
-                small
-                variant="ghost"
-                onClick={() => setDisconnecting(connection)}
-              >
-                {t("connectors.disconnect")}
-              </Button>
-            </span>
-          </li>
+          {connections.map((connection) => (
+            <TelegramConnectionRow
+              key={connection.id}
+              connection={connection}
+              onEdit={() => setEditingConnection(connection)}
+              onDisconnect={() => setDisconnecting(connection)}
+            />
+          ))}
         </ul>
       )}
       <TelegramConnectForm
+        // Keyed to the row that opened it, so the form never carries one
+        // connection's in-progress state onto another's rotation.
+        key={editingConnection?.id ?? "new"}
         open={connectOpen || editingConnection !== null}
         connection={editingConnection ?? undefined}
         onClose={closeForms}

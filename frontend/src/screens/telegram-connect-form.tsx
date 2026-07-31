@@ -42,16 +42,6 @@ export function TelegramConnectForm({
   const queryClient = useQueryClient();
   const [botToken, setBotToken] = useState("");
 
-  // A fresh open never carries a previous attempt's token — nor, on a
-  // repeat edit, the token of whichever earlier attempt preceded it.
-  const wasOpen = useRef(false);
-  useEffect(() => {
-    if (open && !wasOpen.current) {
-      setBotToken("");
-    }
-    wasOpen.current = open;
-  }, [open]);
-
   const connect = useMutation({
     mutationFn: async (token: string): Promise<ChannelConnection> => {
       if (connection) {
@@ -85,6 +75,21 @@ export function TelegramConnectForm({
       setBotToken("");
     },
   });
+
+  // A fresh open starts from nothing: neither a previous attempt's token nor
+  // the outcome it reached. This form is mounted for the life of the Settings
+  // card and only shown or hidden, so a retained success view is what the
+  // admin meets on the next rotation — a bot username and a Done button,
+  // with no way back to the token field.
+  const { reset: resetConnect } = connect;
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (open && !wasOpen.current) {
+      setBotToken("");
+      resetConnect();
+    }
+    wasOpen.current = open;
+  }, [open, resetConnect]);
 
   const ready = botToken.trim() !== "";
   // RFC 7807 `detail` carries the actionable reason (e.g. the webhook-

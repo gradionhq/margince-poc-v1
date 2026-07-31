@@ -29,10 +29,17 @@ const (
 )
 
 // Membership is one my_chat_member update, pure-parsed: the identity it
-// names and the status Telegram reported for it.
+// names, the status Telegram reported for it, and the update's own sequence
+// number.
+//
+// UpdateID is Telegram's per-bot counter, and it is what orders two
+// transitions against each other: the ingest queue runs several workers, so
+// the block and the unblock that answers it can reach the write path in
+// either order, and only the counter says which one Telegram issued last.
 type Membership struct {
 	Identity connector.ChannelIdentity
 	Status   string
+	UpdateID int64
 }
 
 // chatMember is the `new_chat_member` object, narrowed to the one field that
@@ -59,11 +66,13 @@ type chatMemberUpdated struct {
 	NewChatMember chatMember   `json:"new_chat_member"`
 }
 
-// membershipEnvelope reads only the one field ParseMembership needs out of
-// Telegram's update JSON. A pointer field (not a value) is how "this update
-// carries no my_chat_member at all" is told apart from "it carries an empty
-// one" — the same reason telegramUpdate.Message is a pointer in normalize.go.
+// membershipEnvelope reads only the fields ParseMembership needs out of
+// Telegram's update JSON: the membership payload and the update_id that sits
+// beside it. A pointer field (not a value) is how "this update carries no
+// my_chat_member at all" is told apart from "it carries an empty one" — the
+// same reason telegramUpdate.Message is a pointer in normalize.go.
 type membershipEnvelope struct {
+	UpdateID     int64              `json:"update_id"`
 	MyChatMember *chatMemberUpdated `json:"my_chat_member"`
 }
 
@@ -95,21 +104,13 @@ func ParseMembership(raw connector.RawRecord) (Membership, bool, error) {
 	if !upd.Chat.isPrivate() {
 		return Membership{}, false, nil
 	}
-	// A chat id of 0 is Telegram reporting no chat at all, and this function
-	// reads the customer's account OUT of the chat — so 0 would be written as a
-	// reachability state against the account "telegram:0", which every such
-	// update shares. Declining is the same answer a group update gets, and for
-	// the same reason: no addressable customer is named, so the caller falls
-	// through to Normalize, which counts it as the deliberate skip it is.
-	if upd.Chat.ID == 0 {
-		return Membership{}, false, nil
-	}
 	return Membership{
 		Identity: connector.ChannelIdentity{
 			Provider:      Provider,
 			ChannelUserID: fmt.Sprintf("%d", upd.Chat.ID),
 			Username:      upd.Chat.Username,
 		},
-		Status: upd.NewChatMember.Status,
+		Status:   upd.NewChatMember.Status,
+		UpdateID: mem.UpdateID,
 	}, true, nil
 }

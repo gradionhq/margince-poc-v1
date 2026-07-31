@@ -785,9 +785,13 @@ export function ComposeModal({
     <ConfirmModal
       open={open}
       onClose={onClose}
-      title={t("compose.sendConfirmTitle")}
+      title={t(
+        isTelegram
+          ? "compose.sendMessageConfirmTitle"
+          : "compose.sendConfirmTitle",
+      )}
       tier="confirm"
-      // The rep is about to send real mail irreversibly, so the body they are
+      // The rep is about to send irreversibly, so the body they are
       // confirming has to be readable at a glance rather than through a
       // five-line porthole — and the Send button has to sit above the fold,
       // not below a scroll.
@@ -838,6 +842,7 @@ export function ComposeModal({
         )}
         <textarea
           className="textarea compose-body"
+          aria-label={t("compose.body")}
           placeholder={t("compose.body")}
           value={body}
           disabled={rejectionInFlight}
@@ -879,11 +884,9 @@ export function ComposeModal({
           <p className="t-caption">{t("compose.sendUnavailable")}</p>
         )}
         <SendRefusal refusal={refusal} personId={personId} />
-        {/* The irreversibility notice names "email" — a channel reply has its
-            own confirm-first framing via the shared ConfirmModal chrome, so
-            this mail-specific line is dropped rather than misdescribing the
-            send. */}
-        {!isTelegram && <p className="t-caption">{t("compose.sendBody")}</p>}
+        <p className="t-caption">
+          {t(isTelegram ? "compose.sendMessageBody" : "compose.sendBody")}
+        </p>
       </div>
     </ConfirmModal>
   );

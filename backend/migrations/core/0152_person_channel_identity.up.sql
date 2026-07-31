@@ -26,6 +26,21 @@ CREATE TABLE person_channel_identity (
   channel_user_id text NOT NULL,   -- the sender's numeric Telegram id
   username        text NULL,       -- display only, refreshed on every inbound message
   blocked_at      timestamptz NULL,
+
+  -- The membership watermark: which my_chat_member update last decided
+  -- blocked_at. Telegram numbers its updates, but the ingest queue runs
+  -- several workers, so a block and the unblock answering it can commit either
+  -- way round — and the wrong order leaves a reachable customer suppressed for
+  -- good, since nothing else ever writes blocked_at.
+  --
+  -- blocked_at cannot serve as its own ordering evidence: the unblock arm sets
+  -- it to NULL and destroys it. The bot is part of the key because update_id is
+  -- a PER-BOT sequence — a replacement bot starts low, and an unscoped
+  -- watermark would read every one of its updates as stale and wedge the
+  -- identity's reachability permanently.
+  membership_bot_id    text NULL,
+  membership_update_id bigint NULL,
+
   source          text NOT NULL,
   captured_by     text NOT NULL,
   version         bigint NOT NULL DEFAULT 1,

@@ -326,6 +326,14 @@ func (s *Store) Load(ctx context.Context, id ids.UUID) (Delivery, error) {
 // recorded, one duplicate timeline row", which is exactly the behaviour that
 // existed before the re-key did.
 //
+// That reasoning covers MAIL, whose prior-send lookup makes a failed receipt
+// recoverable on the next attempt. It does not cover a transport that has none:
+// there, a failed receipt is unrecoverable by any later attempt, so the
+// dispatcher parks the delivery against the receipt (ParkTransmitted) instead of
+// returning it to the ladder. Either way the obligation this comment opens with
+// is the same one — a message the provider accepted may never end up recorded as
+// unsent.
+//
 // One transaction with the re-key under a savepoint is NOT the same guarantee,
 // which is why it is not what this does. A savepoint isolates a refused
 // statement; it does not isolate a failed RELEASE, a rollback that cannot be

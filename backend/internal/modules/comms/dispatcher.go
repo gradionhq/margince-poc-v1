@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"time"
 
@@ -320,6 +321,13 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, seam sendSeam) 
 			// receipt; overwriting it would replace a real one.
 			return OutcomeSkipped, 0, nil
 		}
+		if !seam.detectsPriorSend {
+			return d.parkTransmitted(ctx, del, receipt, err)
+		}
+		// Mail goes back on the ladder: the next attempt's prior-send lookup
+		// finds the message at the provider and answers from it rather than
+		// transmitting a second copy, so the receipt is recorded late instead of
+		// lost.
 		return OutcomeRetry, 0, fmt.Errorf("comms: recording the send receipt: %w", err)
 	}
 
@@ -341,6 +349,45 @@ func (d *Dispatcher) transmit(ctx context.Context, del Delivery, seam sendSeam) 
 		}
 	}
 	return OutcomeSent, 0, nil
+}
+
+// receiptUnrecordedReason is what a delivery the provider ACCEPTED records when
+// its receipt could not be written. It is the opposite fact to
+// unknownOutcomeReason and must never be confused with it: nothing here is
+// uncertain — the message went — so the sentence tells the operator the one
+// thing they must not do about it.
+const receiptUnrecordedReason = "the provider accepted this message and its receipt could not be recorded: " +
+	"it WAS sent, and the provider's own message id is kept on this delivery. " +
+	"Do not send it again — the recipient already has it"
+
+// parkTransmitted closes a delivery whose message is already with the provider
+// and whose receipt this attempt could not write.
+//
+// It exists for the seams whose retries cannot detect a prior send. For those,
+// returning the attempt to the ladder is not a delay but a LOSS: the next
+// attempt reads the in-flight marker, learns nothing about what happened, and
+// parks the delivery as an outcome nobody knows — a message the customer is
+// holding, durably recorded as never sent. Parking here instead states what is
+// definitely true and keeps the provider's message id, which after a failed
+// receipt is the only handle left on that message.
+func (d *Dispatcher) parkTransmitted(ctx context.Context, del Delivery, receipt connector.SendReceipt, cause error) (Outcome, time.Duration, error) {
+	if err := d.store.ParkTransmitted(ctx, del.ID, receiptUnrecordedReason, receipt.ProviderMessageID); err != nil {
+		if errors.Is(err, ErrTerminal) {
+			return OutcomeSkipped, 0, nil
+		}
+		// Nothing durable records this send now. The row stays pending with its
+		// marker standing, so the next attempt parks on the uncertainty rather
+		// than messaging the customer twice, and both causes reach the job log.
+		return OutcomeRetry, 0, errors.Join(cause, err)
+	}
+	// The cause goes to the LOG rather than back to the caller. The delivery is
+	// terminal — a returned error would fail a job whose work is done and put a
+	// closed row back on the ladder — and the reason column may not carry a
+	// database fault's own text (faultReason), so this is where an operator's
+	// diagnosis lives.
+	slog.ErrorContext(ctx, "comms: a transmitted message's receipt could not be recorded; the delivery is parked against it",
+		"err", cause, "delivery_id", del.ID, "provider_message_id", receipt.ProviderMessageID)
+	return OutcomeParked, 0, nil
 }
 
 // classifySendFailure turns a provider failure into a disposition using only

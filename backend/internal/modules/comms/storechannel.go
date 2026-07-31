@@ -90,6 +90,34 @@ func (s *Store) StageChannelTx(ctx context.Context, tx pgx.Tx, in StageChannelIn
 	return id, nil
 }
 
+// ParkTransmitted closes a delivery whose message the provider ALREADY accepted
+// and whose receipt could not be written, keeping the provider's message id on
+// the row.
+//
+// It lives HERE, with the at-most-once marker, because it exists for the same
+// shape and the same reason: a transport whose retries cannot discover a prior
+// send has no way to record that receipt later, so the park is the last chance
+// to write down that this message went. Mail never reaches it — its next attempt
+// finds the message at the provider and records the receipt then.
+//
+// The id is the whole reason this is not Park. Once the receipt write failed,
+// nothing else in this installation holds the identity the provider filed the
+// message under, and nothing can go and ask for it. Parked without it, the send
+// log would carry a message the recipient is holding with no way to point at it.
+//
+// It runs DETACHED from the caller's context for commitReceipt's reason, one
+// step further along: the message is out, this is the second attempt to write
+// that fact down, and a job deadline expiring must not be what turns it into no
+// record at all.
+func (s *Store) ParkTransmitted(ctx context.Context, id ids.UUID, reason, providerMessageID string) error {
+	ctx, cancel := detachedWrite(ctx)
+	defer cancel()
+	return s.update(ctx, `
+		UPDATE comms_outbound
+		   SET status = 'parked', reason = $2, provider_message_id = $3
+		 WHERE id = $1 AND status = 'pending'`, id, reason, providerMessageID)
+}
+
 // MarkInFlight records — DURABLY, before anything reaches the provider — that
 // this delivery is about to be transmitted through a seam whose retries cannot
 // detect a prior send (design §8.4).

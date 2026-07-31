@@ -86,6 +86,54 @@ func TestInScopeSubjectsRefusesAGroupMembershipUpdate(t *testing.T) {
 	}
 }
 
+// A supergroup id under a `private` label is still a supergroup: Telegram
+// numbers those chats negative, and the type field is only the payload's claim
+// about itself. This must answer the same as the honestly-labelled group above,
+// and it must answer the same as Normalize — the webhook persists on the
+// strength of this function while Normalize decides what is captured, so an
+// admitted update Normalize then skips is a verbatim payload stored with no
+// person_channel_identity any erasure could reach it by.
+func TestInScopeSubjectsRefusesAGroupIDWearingThePrivateLabel(t *testing.T) {
+	got, err := InScopeSubjects([]byte(`{
+		"update_id": 905,
+		"message": {
+			"message_id": 5,
+			"chat": {"id": -100126, "type": "private"},
+			"from": {"id": 560, "username": "grouptalker"},
+			"date": 1690000400,
+			"text": "mislabelled"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("InScopeSubjects: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("accounts = %v, want none — a negative chat id is a group however the payload labels itself", got)
+	}
+}
+
+// The account read out of a membership update is the chat's own id, so the same
+// rule decides both halves there: a negative id names no account, and probing
+// the suppression list with one would ask about a key no Person carries.
+func TestInScopeSubjectsRefusesANonAccountSender(t *testing.T) {
+	got, err := InScopeSubjects([]byte(`{
+		"update_id": 906,
+		"message": {
+			"message_id": 6,
+			"chat": {"id": 1002, "type": "private"},
+			"from": {"id": -561},
+			"date": 1690000500,
+			"text": "who owns this id?"
+		}
+	}`))
+	if err != nil {
+		t.Fatalf("InScopeSubjects: %v", err)
+	}
+	if len(got) != 0 {
+		t.Errorf("accounts = %v, want none — a negative sender id is not an account", got)
+	}
+}
+
 // A message with no `from` at all decodes to sender id 0, which is not an
 // account: every anonymous sender would share it, so probing the suppression
 // list with "0" would ask about a key no human can own — and, worse, one that

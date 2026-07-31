@@ -207,6 +207,76 @@ func TestChannelSenderForRefusesToGuessBetweenTwoLiveBindings(t *testing.T) {
 	}
 }
 
+// The window between resolving a credential and spending it is real: the
+// dispatcher unseals the token first and then walks the seat, consent and pacing
+// gates, several database round trips before the provider is called. An admin
+// who replaces the bot inside that window has withdrawn the resolved one —
+// Telegram deleted its webhook, and a reply transmitted through it lands in a
+// chat nothing will ever read an answer from, or is refused outright once the
+// token itself was rotated.
+//
+// The refusal must be TRANSIENT rather than one of the deployment facts: the
+// workspace has a live bot, it is simply a different one, and the retry that
+// follows resolves it.
+func TestASendRefusesAfterItsBotWasReplaced(t *testing.T) {
+	f := newChannelFixture(t, nil)
+	connectChannel(t, f, "outgoingbot")
+	provider := &channelSendConnector{}
+	reg := channelSendRegistry(t, f, provider)
+
+	sender, auth, err := reg.ChannelSenderFor(f.ctx, capture.ProviderTelegram)
+	if err != nil {
+		t.Fatalf("ChannelSenderFor: %v", err)
+	}
+
+	// The admin swaps the bot while the delivery is still walking the gates.
+	live := f.liveConnections(t)
+	if len(live) != 1 {
+		t.Fatalf("the fixture holds %d live connections, want exactly 1", len(live))
+	}
+	incoming, _ := f.api.withNewBot("incomingbot")
+	if err := f.store.ReplaceToken(f.ctx, live[0].ID, incoming); err != nil {
+		t.Fatalf("ReplaceToken: %v", err)
+	}
+
+	_, err = sender.SendMessage(f.ctx, auth, connector.ChannelMessage{
+		Recipient:      connector.ChannelIdentity{Provider: capture.ProviderTelegram, ChannelUserID: "778899"},
+		Body:           "On its way today.",
+		IdempotencyKey: "01997f0e-0000-7000-8000-00000000f00d",
+	})
+	if !errors.Is(err, capture.ErrChannelBindingReplaced) {
+		t.Fatalf("SendMessage through the replaced bot = %v, want ErrChannelBindingReplaced", err)
+	}
+	if len(provider.sent) != 0 {
+		t.Fatalf("the withdrawn bot transmitted %d message(s); the reply went to a chat whose webhook is gone", len(provider.sent))
+	}
+	for _, fact := range []error{capture.ErrNoConnection, capture.ErrConnectorCannotSend, capture.ErrConnectorNotConfigured} {
+		if errors.Is(err, fact) {
+			t.Fatalf("a replaced binding was reported as the deployment fact %v; the delivery would park instead of retrying", fact)
+		}
+	}
+
+	// The proof that the fence tracks the binding rather than refusing forever:
+	// resolving again picks up the replacement and transmits through it.
+	sender, auth, err = reg.ChannelSenderFor(f.ctx, capture.ProviderTelegram)
+	if err != nil {
+		t.Fatalf("re-resolving after the replacement: %v", err)
+	}
+	if string(auth) != incoming {
+		t.Fatalf("the re-resolved credential is not the incoming bot's token")
+	}
+	if _, err := sender.SendMessage(f.ctx, auth, connector.ChannelMessage{
+		Recipient:      connector.ChannelIdentity{Provider: capture.ProviderTelegram, ChannelUserID: "778899"},
+		Body:           "On its way today.",
+		IdempotencyKey: "01997f0e-0000-7000-8000-00000000f00e",
+	}); err != nil {
+		t.Fatalf("SendMessage through the replacement: %v", err)
+	}
+	if len(provider.sent) != 1 {
+		t.Fatalf("the provider saw %d message(s), want the one sent through the replacement", len(provider.sent))
+	}
+}
+
 // RLS scopes the resolve: another workspace's live binding is not this
 // workspace's sender, whatever the global bot index says.
 func TestChannelSenderForDoesNotReachAnotherWorkspacesBinding(t *testing.T) {

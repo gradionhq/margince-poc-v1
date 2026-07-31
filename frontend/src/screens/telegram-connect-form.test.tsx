@@ -39,15 +39,18 @@ const connectedConnection: ChannelConnection = {
 };
 
 function render(ui: ReactNode) {
-  return rtlRender(
-    <QueryClientProvider
-      client={
-        new QueryClient({ defaultOptions: { queries: { retry: false } } })
-      }
-    >
-      <LocaleProvider initial="en">{ui}</LocaleProvider>
-    </QueryClientProvider>,
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  const wrap = (node: ReactNode) => (
+    <QueryClientProvider client={client}>
+      <LocaleProvider initial="en">{node}</LocaleProvider>
+    </QueryClientProvider>
   );
+  const view = rtlRender(wrap(ui));
+  // The form is mounted once for the life of the Settings card and driven by
+  // its `open` prop, so re-opening it is a rerender, never a fresh mount.
+  return { ...view, rerender: (node: ReactNode) => view.rerender(wrap(node)) };
 }
 
 afterEach(() => {
@@ -132,6 +135,30 @@ describe("TelegramConnectForm", () => {
     // never a DELETE followed by a fresh POST.
     expect(calls[0].body).toEqual({ botToken: "555000111:BBH-rotated-token" });
     expect(await screen.findByText(/@acme_sales_bot/)).toBeInTheDocument();
+  });
+
+  it("asks for a token again when reopened after a successful connect", async () => {
+    installFetchStub({
+      "POST /channel-connections": () => jsonResponse(connectedConnection, 201),
+    });
+    const { rerender } = render(
+      <TelegramConnectForm open onClose={() => {}} />,
+    );
+    await userEvent.type(
+      screen.getByLabelText("Bot token"),
+      "555000111:AAG-fake-bot-father-token",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByText(/@acme_sales_bot/)).toBeInTheDocument();
+
+    rerender(<TelegramConnectForm open={false} onClose={() => {}} />);
+    rerender(<TelegramConnectForm open onClose={() => {}} />);
+
+    // Rotating the token is the next thing this form is for, and a stale
+    // success view offers only a Done button — no way back to the field
+    // short of reloading the page.
+    expect(await screen.findByLabelText("Bot token")).toBeInTheDocument();
+    expect(screen.queryByText(/@acme_sales_bot/)).not.toBeInTheDocument();
   });
 
   it("surfaces a webhook-conflict refusal with its reason", async () => {

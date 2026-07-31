@@ -65,11 +65,15 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+type ChannelConnection = components["schemas"]["ChannelConnection"];
+
 type StubOpts = {
   /** Fail the /connectors GET with this status (load-error path). */
   listStatus?: number;
   /** The connect (reconnect) POST response, or an error status. */
   connect?: { authorize_url?: string } | { status: number };
+  /** The messaging-channel roster the Telegram panel reads. */
+  channels?: ChannelConnection[];
 };
 
 function stubApi(connections: CaptureConnection[], opts: StubOpts = {}) {
@@ -90,7 +94,7 @@ function stubApi(connections: CaptureConnection[], opts: StubOpts = {}) {
       // only, so an empty roster is the honest default rather than a
       // fixture every one of them would otherwise have to repeat.
       if (path.endsWith("/channel-connections") && request.method === "GET") {
-        return jsonResponse({ data: [] });
+        return jsonResponse({ data: opts.channels ?? [] });
       }
       if (path.endsWith("/connect") && request.method === "POST") {
         const c = opts.connect ?? {
@@ -531,5 +535,58 @@ describe("add a connection", () => {
     render(<ConnectorsCard />);
     await screen.findByText("Google Calendar"); // a roster row label
     expect(screen.queryByText("Add a connection")).toBeNull();
+  });
+});
+
+// A workspace may hold more than one live bot — nothing in the API forbids
+// connecting a second one — and a send refuses outright while it does. This
+// panel is the only surface that can take one of them away again, so it has
+// to show every one it is handed.
+describe("the Telegram connector panel", () => {
+  const salesBot: ChannelConnection = {
+    id: "018f3a1b-0000-7000-8000-0000000000d1",
+    provider: "telegram",
+    channelId: "555000111",
+    channelLabel: "acme_sales_bot",
+    status: "connected",
+    version: 1,
+  };
+  const supportBot: ChannelConnection = {
+    ...salesBot,
+    id: "018f3a1b-0000-7000-8000-0000000000d2",
+    channelId: "555000222",
+    channelLabel: "acme_support_bot",
+    status: "pending",
+  };
+
+  it("lists every connected bot, each with its own Disconnect", async () => {
+    stubApi([], { channels: [salesBot, supportBot] });
+    render(<ConnectorsCard />);
+
+    const rows = await screen.findAllByRole("listitem");
+    expect(rows.length).toBe(2);
+    expect(within(rows[0]).getByText("@acme_sales_bot")).toBeTruthy();
+    expect(within(rows[1]).getByText("@acme_support_bot")).toBeTruthy();
+    // One shared Disconnect for two bots could only ever remove one of them,
+    // which is exactly the state an admin is here to escape.
+    for (const row of rows) {
+      expect(
+        within(row).getByRole("button", { name: "Disconnect" }),
+      ).toBeTruthy();
+    }
+  });
+
+  it("opens the replace-token form on the bot whose row was clicked", async () => {
+    stubApi([], { channels: [salesBot, supportBot] });
+    render(<ConnectorsCard />);
+
+    const rows = await screen.findAllByRole("listitem");
+    await userEvent.click(
+      within(rows[1]).getByRole("button", { name: "Replace token" }),
+    );
+    // The second bot is the pending one: the form showing its status is the
+    // observable proof it bound to that row and not to the first.
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/^Pending/)).toBeTruthy();
   });
 });

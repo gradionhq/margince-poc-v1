@@ -77,7 +77,19 @@ type telegramChat struct {
 // or unrecognized type is NOT private: the scope exclusion fails closed, so an
 // update shape this package cannot place is skipped rather than captured
 // against a conversation nobody can reply to.
-func (c telegramChat) isPrivate() bool { return c.Type == chatTypePrivate }
+//
+// The id has to agree with the label, because the label is only the payload's
+// claim about itself. Telegram numbers a private chat POSITIVE and a
+// supergroup or channel negative, so a negative id under a `private` type is a
+// group — precisely the chat this connector excludes, and the one a reply must
+// never be published into.
+//
+// Zero is no chat at all, and it matters most on the membership path, which
+// reads the customer's account OUT of the chat: a zero id there would be
+// written as a reachability state against "telegram:0", an account every such
+// update would share. Refusing it here is why that path needs no guard of its
+// own.
+func (c telegramChat) isPrivate() bool { return c.Type == chatTypePrivate && c.ID > 0 }
 
 // telegramMedia is the attachment set Telegram delivers in place of `text`.
 // Every field is decoded for PRESENCE only, never for its schema: naming the
@@ -159,15 +171,17 @@ func Normalize(_ context.Context, raw connector.RawRecord) ([]connector.Normaliz
 		return nil, fmt.Errorf("telegram: update %d is in a %q chat, not a private one: %w",
 			update.UpdateID, msg.Chat.Type, connector.ErrSkip)
 	}
-	// A message Telegram delivers with no `from` at all — an anonymous group
-	// admin posts under `sender_chat` instead — decodes to sender id 0, which
-	// is not an account: it is a valid, non-empty key that every such sender
-	// shares, so they would collapse onto ONE Person, one identity row, and one
-	// conversation reading as reachable at chat 0. The identity is minted a few
-	// lines below, so the rule about what counts as an account belongs here —
-	// the chat-scope gate above narrows which update shapes arrive, it does not
-	// decide whether the sender is addressable.
-	if msg.From.ID == 0 {
+	// A Telegram account id is POSITIVE. A message Telegram delivers with no
+	// `from` at all — an anonymous group admin posts under `sender_chat`
+	// instead — decodes to sender id 0, which is not an account: it is a valid,
+	// non-empty key that every such sender shares, so they would collapse onto
+	// ONE Person, one identity row, and one conversation reading as reachable at
+	// chat 0. A negative id is not an account either — that is how Telegram
+	// numbers chats, not users. The identity is minted a few lines below, so the
+	// rule about what counts as an account belongs here — the chat-scope gate
+	// above narrows which update shapes arrive, it does not decide whether the
+	// sender is addressable.
+	if msg.From.ID <= 0 {
 		return nil, fmt.Errorf("telegram: update %d carries no addressable sender: %w",
 			update.UpdateID, connector.ErrSkip)
 	}

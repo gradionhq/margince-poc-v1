@@ -138,14 +138,19 @@ func (c *Connector) SendMessage(ctx context.Context, auth connector.Auth, msg co
 // chat's id IS the Telegram account id, which is why a resolved channel identity
 // addresses a chat with no second lookup.
 //
-// It REFUSES a non-numeric id rather than routing to a guessed chat. The value
-// arrives from the staged delivery row, so a row that cannot name a chat is a
-// defect to surface; the id itself is left out of the message because this text
-// reaches a log, and a counterparty's account id is not log material.
+// It REFUSES anything that is not a positive id rather than routing to a
+// guessed chat. Non-numeric is the obvious case; the sign is the dangerous one,
+// because Telegram numbers a supergroup or channel NEGATIVE, so a negative id
+// would send this reply — and the customer's words quoted in it — to a room
+// whoever owns that id controls, and zero addresses no account at all. The
+// value arrives from the staged delivery row, so a row that cannot name a
+// private chat is a defect to surface; the id itself is left out of the message
+// because this text reaches a log, and a counterparty's account id is not log
+// material.
 func chatIDOf(recipient connector.ChannelIdentity) (int64, error) {
 	chatID, err := strconv.ParseInt(recipient.ChannelUserID, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("telegram: the recipient's channel account id is not a numeric chat id: %w", ErrRequestRejected)
+	if err != nil || chatID <= 0 {
+		return 0, fmt.Errorf("telegram: the recipient's channel account id is not a private chat id: %w", ErrRequestRejected)
 	}
 	return chatID, nil
 }
@@ -156,14 +161,17 @@ func chatIDOf(recipient connector.ChannelIdentity) (int64, error) {
 //
 // A malformed anchor is refused rather than dropped. Dropping it would send the
 // rep's reply detached from the conversation it answers, which reads to the
-// customer as a message out of nowhere and to the rep as a success.
+// customer as a message out of nowhere and to the rep as a success. A provider
+// message id is POSITIVE, so a stated anchor of "0" or below is refused for the
+// same reason: it parses cleanly and then means "no anchor" on the wire, which
+// is the silent drop written out.
 func replyAnchorOf(replyTo string) (int64, error) {
 	if replyTo == "" {
 		return 0, nil
 	}
 	anchor, err := strconv.ParseInt(replyTo, 10, 64)
-	if err != nil {
-		return 0, fmt.Errorf("telegram: the reply anchor is not a numeric provider message id: %w", ErrRequestRejected)
+	if err != nil || anchor <= 0 {
+		return 0, fmt.Errorf("telegram: the reply anchor is not a provider message id: %w", ErrRequestRejected)
 	}
 	return anchor, nil
 }

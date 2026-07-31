@@ -445,6 +445,47 @@ func TestDispatchTreatsATerminalTransitionAsAlreadyHandled(t *testing.T) {
 	}
 }
 
+// A CHANNEL send the provider accepted, whose receipt then could not be
+// written, is a message the customer already has. Nothing can ask Telegram
+// afterwards whether it went, and the next attempt would read the in-flight
+// marker and park as an unknown outcome — recording a delivered message as
+// never sent, in the log Art. 15 answers from.
+//
+// So it parks HERE, on this attempt, stating what is definitely true, and keeps
+// the provider's message id: that id is the only handle anyone has on the
+// message afterwards, and the failed receipt is the reason it is nowhere else.
+// The gmail twin below (TestDispatchRetriesWhenATransitionFailsForANonTerminalReason)
+// keeps retrying because a mail retry can discover its own prior send.
+func TestAChannelSendWhoseReceiptFailsParksAsDelivered(t *testing.T) {
+	channel := &stubMessageSender{}
+	store := &fakeStore{delivery: channelDelivery(), sentErr: errors.New("connection reset by peer")}
+	d := newTestDispatcher(store, fakeResolver{channel: channel}, &stubConsent{})
+
+	got, err := dispatch(context.Background(), d, store.delivery.ID)
+	if err != nil {
+		t.Fatalf("dispatch: %v — a terminal outcome carrying an error fails the job that did its work", err)
+	}
+	if got != OutcomeParked {
+		t.Fatalf("outcome = %v, want OutcomeParked — a message the provider accepted must not go back on a ladder that cannot tell it went", got)
+	}
+	if channel.calls != 1 {
+		t.Fatalf("the provider was called %d time(s), want exactly 1", channel.calls)
+	}
+	if store.failed != "" {
+		t.Errorf("a retry note %q was recorded; \"will retry\" is a false statement about a message that already went", store.failed)
+	}
+	if store.parked == unknownOutcomeReason {
+		t.Errorf("the delivery parked as an unknown outcome; this outcome is KNOWN — the provider accepted the message")
+	}
+	if !strings.Contains(store.parked, "accepted") || !strings.Contains(store.parked, "receipt") {
+		t.Errorf("park reason = %q; it must say the provider accepted the message and its receipt could not be recorded", store.parked)
+	}
+	if store.parkedReceipt != channelReceiptID {
+		t.Errorf("provider message id kept on the park = %q, want %q — it is the only handle left on a message nothing else records",
+			store.parkedReceipt, channelReceiptID)
+	}
+}
+
 // A transition that failed for a reason that is NOT ErrTerminal left the row
 // exactly as it was: still pending, with no record that this attempt reached a
 // disposition at all. Reporting the disposition anyway would claim a durable

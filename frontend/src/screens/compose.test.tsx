@@ -1454,6 +1454,50 @@ describe("ComposeModal — telegram channel reply", () => {
     expect(screen.queryByLabelText("To")).toBeNull();
   });
 
+  it("names the channel it is about to send on, and says the send is final", async () => {
+    stubRoutes();
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        kind="telegram"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+
+    // Confirming an irreversible send under the name of a channel this
+    // message will never travel on is a lie the rep cannot check.
+    expect(screen.getByText("Send this message?")).toBeTruthy();
+    expect(screen.queryByText("Send this email?")).toBeNull();
+    // The heading is the only place the channel is named, so it cannot also
+    // be the only place the irreversibility is: the modal chrome around it
+    // is a tier dot and two buttons.
+    expect(screen.getByText(/irreversible action/)).toBeTruthy();
+  });
+
+  it("gives the message box an accessible name of its own", async () => {
+    stubRoutes();
+    render(
+      <ComposeModal
+        activityId="act-1"
+        entityType="person"
+        entityId="p-1"
+        kind="telegram"
+        open
+        onClose={vi.fn()}
+      />,
+    );
+    await screen.findByRole("combobox");
+
+    // getByLabelText resolves labels only — a placeholder does not satisfy
+    // it — so this holds the box to a name that survives the rep typing
+    // into it, the moment the placeholder disappears.
+    expect(screen.getByLabelText("Body")).toBeTruthy();
+  });
+
   it("keeps the drafted text when consent is refused", async () => {
     stubRoutes({
       "POST /activities/act-1/send-message": () =>

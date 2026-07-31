@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -92,44 +93,78 @@ func ResolveOrCreateChannelIdentity(ctx context.Context, tx pgx.Tx, personID ids
 // returning customer into a second Person the moment their next message
 // misses the lane.
 //
-// The WHERE clause guards on the identity's CURRENT blocked state rather
-// than issuing an unconditional SET, which is what makes this idempotent:
-// Telegram redelivers my_chat_member, and a repeat delivery must touch zero
-// rows — not move blocked_at's timestamp forward, not re-fire the
-// updated_at/version trigger, and not leave a second audit row for a state
-// that did not change.
+// updateID is Telegram's per-bot sequence number for the update that reports
+// the change, and the row remembers the last one it applied. Telegram numbers
+// its updates but the ingest queue runs several workers, so a block and the
+// unblock answering it can arrive at this write in either order; without that
+// memory the loser is applied last and a reachable customer is left suppressed
+// for good, since nothing else ever writes blocked_at.
+//
+// The watermark advances on every update the row accepts, INCLUDING one that
+// leaves the state as it found it — a newer same-state update that recorded
+// nothing would leave the row still willing to accept an older update of the
+// opposite state.
+//
+// botID scopes the comparison because update_id counts per bot: replacing the
+// workspace's bot restarts the sequence low, and ids from two different bots
+// do not order each other at all. IS DISTINCT FROM starts the new bot's
+// sequence from scratch; comparing across bots instead would read every update
+// from the replacement as stale and wedge the identity's reachability
+// permanently.
+//
+// The write stays idempotent under Telegram's redelivery, which is the same
+// update and so carries the same update_id: a repeat touches zero rows — it
+// does not move blocked_at's timestamp forward, re-fire the
+// updated_at/version trigger, or leave a second audit row for a state that did
+// not change. Only a genuine flip is audited, which is why the pre-update
+// image is read in the same statement rather than trusted from the arguments.
 //
 // A my_chat_member naming an identity nobody has bound yet (blocked before
 // ever messaging the bot) matches no row. That is not a fault: there is no
 // reachability state yet to correct.
-func (s *Store) SetChannelIdentityBlocked(ctx context.Context, tx pgx.Tx, ci connector.ChannelIdentity, blocked bool) error {
+func (s *Store) SetChannelIdentityBlocked(ctx context.Context, tx pgx.Tx, ci connector.ChannelIdentity, blocked bool, botID string, updateID int64) error {
 	if ci.Provider == "" || ci.ChannelUserID == "" {
 		return errors.New("people: a channel identity needs both a provider and a channel user id")
 	}
-	query := `
-		UPDATE person_channel_identity SET blocked_at = now()
-		WHERE provider = $1 AND channel_user_id = $2
-		  AND archived_at IS NULL AND blocked_at IS NULL
-		RETURNING person_id`
-	if !blocked {
-		query = `
-			UPDATE person_channel_identity SET blocked_at = NULL
-			WHERE provider = $1 AND channel_user_id = $2
-			  AND archived_at IS NULL AND blocked_at IS NOT NULL
-			RETURNING person_id`
+	// Telegram numbers its updates from 1 up and always names the bot that
+	// received them, so neither of these comes off the wire: a zero id would be
+	// stored as a watermark no later update could exceed, and an unnamed bot
+	// would order two unrelated sequences against each other. Both leave the
+	// identity's reachability frozen, which is the failure this write exists to
+	// prevent, so it refuses rather than applies.
+	if botID == "" || updateID <= 0 {
+		return fmt.Errorf(
+			"people: a reachability change needs the bot that received it and that bot's update id, got bot %q and update %d",
+			botID, updateID)
 	}
 	// At most one row can come back: the partial unique index admits one live
 	// binding per (workspace, provider, channel_user_id).
 	var personID ids.PersonID
-	err := tx.QueryRow(ctx, query, ci.Provider, ci.ChannelUserID).Scan(&personID)
+	var wasBlockedAt *time.Time
+	err := tx.QueryRow(ctx, `
+		WITH bound AS (
+			SELECT id, person_id, blocked_at FROM person_channel_identity
+			 WHERE provider = $1 AND channel_user_id = $2 AND archived_at IS NULL
+		)
+		UPDATE person_channel_identity pci
+		   SET membership_bot_id    = $4,
+		       membership_update_id = $5,
+		       blocked_at = CASE WHEN $3 THEN coalesce(pci.blocked_at, now()) ELSE NULL END
+		  FROM bound
+		 WHERE pci.id = bound.id
+		   AND (pci.membership_bot_id IS DISTINCT FROM $4
+		        OR $5 > coalesce(pci.membership_update_id, 0))
+		RETURNING bound.person_id, bound.blocked_at`,
+		ci.Provider, ci.ChannelUserID, blocked, botID, updateID).Scan(&personID, &wasBlockedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("people: setting channel identity blocked=%t: %w", blocked, err)
 	}
-	// The flip really happened, so the guard above proves what the prior
-	// state was: a row only matched because it held the opposite of `blocked`.
+	if (wasBlockedAt != nil) == blocked {
+		return nil
+	}
 	return auditChannelIdentityChange(ctx, tx, personID,
 		reachabilityImage(ci.Provider, blocked), reachabilityImage(ci.Provider, !blocked))
 }

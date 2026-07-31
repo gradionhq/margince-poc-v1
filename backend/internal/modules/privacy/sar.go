@@ -33,8 +33,8 @@ type SARPackage struct {
 	Emails  []map[string]any `json:"emails"`
 	Phones  []map[string]any `json:"phones"`
 	// The messaging-channel accounts bound to the subject: which provider
-	// identity writes as them, the handle it carries, and whether they have
-	// blocked this installation's bot.
+	// identity writes as them, the handle it carries, whether they have blocked
+	// this installation's bot, and whether the binding is still live.
 	ChannelIdentities []map[string]any `json:"channel_identities"`
 	Relationships     []map[string]any `json:"relationships"`
 	Deals             []map[string]any `json:"deals"`
@@ -143,12 +143,16 @@ type sarSection struct {
 // the export owes the data subject.
 func sarSections(pkg *SARPackage) []sarSection {
 	return []sarSection{
-		{&pkg.Emails, `SELECT email, email_type, is_primary FROM person_email WHERE person_id = $1`},
-		{&pkg.Phones, `SELECT phone, phone_type FROM person_phone WHERE person_id = $1`},
-		// Archived identities are exported too, like the email and phone
-		// sections above: Art. 15 owes what is HELD, and a retired binding is
-		// still a record of which account wrote as the subject.
-		{&pkg.ChannelIdentities, `SELECT provider, channel_user_id, username, blocked_at, source, created_at
+		// The three identifier sections export ARCHIVED rows alongside live
+		// ones: Art. 15 owes what is HELD, and a retired address, number or
+		// channel binding is still a record of how the subject was reached, and
+		// of which account wrote as them. Each therefore carries archived_at.
+		// Without it every identifier in the export reads as current, so the
+		// subject cannot tell a retirement that happened from one that did not —
+		// in the very package they would check it in.
+		{&pkg.Emails, `SELECT email, email_type, is_primary, archived_at FROM person_email WHERE person_id = $1`},
+		{&pkg.Phones, `SELECT phone, phone_type, archived_at FROM person_phone WHERE person_id = $1`},
+		{&pkg.ChannelIdentities, `SELECT provider, channel_user_id, username, blocked_at, source, created_at, archived_at
 		   FROM person_channel_identity WHERE person_id = $1`},
 		{&pkg.Relationships, `SELECT kind, organization_id, deal_id, role, started_at, ended_at
 		   FROM relationship WHERE person_id = $1 AND archived_at IS NULL`},

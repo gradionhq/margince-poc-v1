@@ -923,6 +923,9 @@ export const en = {
   "compose.sendConfirmTitle": "Send this email?",
   "compose.sendBody":
     "You are sending this email now. This is an outbound, irreversible action.",
+  "compose.sendMessageConfirmTitle": "Send this message?",
+  "compose.sendMessageBody":
+    "You are sending this message now. This is an outbound, irreversible action.",
   "compose.consentBlockedTitle": "Send blocked — no consent",
   "compose.consentBlocked":
     "A recipient has not granted consent for this purpose, so the send was suppressed (default-deny).",

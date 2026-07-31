@@ -162,6 +162,41 @@ func TestNormalizeSkipsAChatOfUnstatedType(t *testing.T) {
 	}`)
 }
 
+// Telegram gives a supergroup or channel a NEGATIVE id, and the type field is
+// the payload's own claim about itself. A chat calling itself private while
+// carrying a group's id is therefore not a private chat, and admitting it on
+// the strength of the label would file a group conversation as a customer's
+// and then answer it in that group — publishing the rep's reply to whoever
+// owns the id.
+func TestNormalizeSkipsAChatWhoseIDIsNotAPrivateOne(t *testing.T) {
+	assertSkipped(t, `{
+		"update_id": 106,
+		"message": {
+			"message_id": 12,
+			"chat": {"id": -1001234567890, "type": "private"},
+			"from": {"id": 555, "username": "annlee"},
+			"date": 1690000100,
+			"text": "mislabelled"
+		}
+	}`)
+}
+
+// The same rule for the sender: an account id is positive, so a negative one
+// names no Telegram account. Minted as an identity it would bind a Person to a
+// channel_user_id no human owns and no reply can reach.
+func TestNormalizeSkipsAMessageFromANonAccountSender(t *testing.T) {
+	assertSkipped(t, `{
+		"update_id": 107,
+		"message": {
+			"message_id": 13,
+			"chat": {"id": 1001, "type": "private", "username": "annlee"},
+			"from": {"id": -555},
+			"date": 1690000100,
+			"text": "who owns this id?"
+		}
+	}`)
+}
+
 // A sender id of 0 — Telegram's rendering of a message with no `from` — is a
 // valid, non-empty key that EVERY anonymous sender shares. Captured, it merges
 // distinct humans onto one Person and one identity row, which then reads as
