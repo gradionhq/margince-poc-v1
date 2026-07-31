@@ -7,6 +7,7 @@ package people
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 
 	crmcontracts "github.com/gradionhq/margince/backend/internal/contracts"
@@ -41,10 +42,15 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	defer func() {
-		// The upload is a temp file the multipart reader owns; failing to
-		// close it leaks a descriptor per request, which is a slow outage
-		// rather than a visible one.
-		_ = file.Close()
+		// Logged, not ignored, and not returned: by the time this runs the
+		// import has either committed or failed on its own terms, and a close
+		// error changes neither. It still has to be visible — the upload is a
+		// temp file the multipart reader owns, and failing to close it leaks a
+		// descriptor per request, which is a slow outage rather than a loud
+		// one. (Same handling as the attachment upload.)
+		if cerr := file.Close(); cerr != nil {
+			slog.WarnContext(r.Context(), "closing uploaded LinkedIn export", "err", cerr)
+		}
 	}()
 
 	result, err := h.store.ImportLinkedInConnections(r.Context(), file)
