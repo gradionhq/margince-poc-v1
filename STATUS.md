@@ -176,6 +176,36 @@ The merge gate (`make check`), the real-Postgres integration lane
 
 ## Session pickup — 2026-07-31
 
+**The site read stopped proposing leads nobody asked for.** Three defects in
+the published-person lane closed on `feat/company-page-wow-slice`:
+
+- **Testimonials became leads.** A home or about page's "what our clients say"
+  wall names people who work elsewhere, and they were filed as contacts at the
+  company whose site it is. The floor is now a published email address —
+  `dropNoPublishedEmail` in `compose/sitepagefacts.go` — which is what
+  separates the quoted customer from the founder on the same page. Reading one
+  real site had staged 62 of these.
+- **People already on file were re-proposed.** `people.Store.EmailAlreadyOnFile`
+  (`modules/people/emailonfile.go`) probes live person and lead rows before
+  staging. It runs under the REQUESTING HUMAN's live grants, never the
+  worker's system authority: the answer decides whether a proposal reaches an
+  inbox, so a workspace-wide answer would let a rep point a read at a page of
+  addresses and learn which ones exist on records their row scope hides. See
+  `probeCtx` in `compose/siteleadstage.go`.
+- **Re-reads stacked duplicate questions.** The staged payload carries the read
+  id and the page's reflowed passage, so the diff hash differed per read. The
+  staging now declares a logical identity — the lead's natural key — so a
+  re-read supersedes its own undecided proposal. `approvals.StageInTx` now
+  REFUSES an input carrying `Identity` or `JoinPending` instead of silently
+  ignoring both, and `StageOrJoinPendingInTx` is the door that honors them.
+
+**Still open in this area:** the email floor proves contactability, not
+affiliation. A testimonial that prints the quoted person's own address
+(`jane@client.example` on our site) still becomes a lead filed under the wrong
+company. Requiring the address to sit on the crawled site's own domain would
+close it, at the cost of dropping staff who publish a personal address —
+a product call, not a bug fix. Raised here rather than decided.
+
 **A second model vendor is now certifiable.** `config/ai-routing.openrouter.example.yaml`
 binds OpenRouter through the generic `openai_compatible` adapter, with three
 candidates per tier ordered EU → China → USA — every one filtered to models
