@@ -23,6 +23,7 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 	"github.com/gradionhq/margince/backend/internal/shared/ports/connector"
 )
 
@@ -32,11 +33,6 @@ import (
 const (
 	roleFrom = "from"
 	roleTo   = "to"
-
-	// The activity kinds that represent a real exchange.
-	kindEmail   = "email"
-	kindCall    = "call"
-	kindMeeting = "meeting"
 )
 
 // stampCaptureParticipants records the two ends of a captured message: the
@@ -67,7 +63,7 @@ func stampCaptureParticipants(
 	// The same kinds the hand-logged path accepts. Without this a captured
 	// note or channel message becomes an interaction while an identical
 	// hand-logged one does not, and the backfill disagrees with both.
-	if !interactionKind(kind) {
+	if !relstrength.IsInteractionKind(kind) {
 		return nil
 	}
 	ourRole, theirRole := roleFrom, roleTo
@@ -135,15 +131,3 @@ func actorUserID(ctx context.Context) ids.UUID {
 	}
 	return actor.UserID
 }
-
-// interactionKind answers whether an activity kind represents a real exchange.
-// A task is intent and a note is a record of thinking; neither means two
-// people spoke, and counting them would let a rep's own to-do list score as a
-// relationship.
-func interactionKind(kind string) bool {
-	return interactionKinds[kind]
-}
-
-// interactionKinds is the closed set, named so a new kind is added in one
-// place rather than in whichever switch someone finds first.
-var interactionKinds = map[string]bool{kindEmail: true, kindCall: true, kindMeeting: true}

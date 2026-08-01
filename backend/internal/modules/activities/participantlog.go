@@ -23,21 +23,13 @@ import (
 
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
+	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
 )
-
-// interactionKinds are the activity kinds that represent a real exchange. A
-// task or a note is not one: a task is intent and a note is a record of
-// thinking, and neither means the two people spoke. Recording participants for
-// them would let a rep's own to-do list score as a relationship.
-var interactionKinds = map[string]bool{kindEmail: true, kindCall: true, kindMeeting: true}
 
 // The activity kinds and the link entity type this file names, as constants so
 // a typo is a compile error rather than a participant row that silently never
 // gets written.
 const (
-	kindEmail        = "email"
-	kindCall         = "call"
-	kindMeeting      = "meeting"
 	linkEntityPerson = "person"
 )
 
@@ -48,7 +40,7 @@ const (
 // link — an unlinked note is a workspace-shared thought, not a conversation
 // with anybody.
 func stampLoggedParticipants(ctx context.Context, tx pgx.Tx, activityID ids.ActivityID, kind string, direction *string, links []ActivityLinkInput) error {
-	if !interactionKinds[kind] {
+	if !relstrength.IsInteractionKind(kind) {
 		return nil
 	}
 	actor, ok := principal.Actor(ctx)

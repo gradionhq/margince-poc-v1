@@ -146,7 +146,7 @@ func TestRetentionAppliedReachesTheConsumer(t *testing.T) {
 		t.Fatalf("retention.applied: %v", err)
 	}
 	if got := edgeCount(t, e, person); got != 0 {
-		t.Errorf("%d edges survived retention.applied — the branch is named for an event that never fires", got)
+		t.Errorf("%d edges survived retention.applied — the fold did not react to the archive", got)
 	}
 }
 
