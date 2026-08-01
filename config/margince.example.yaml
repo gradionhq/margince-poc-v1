@@ -53,19 +53,10 @@ rates:
     # so change the URL if that is not OpenRouter.
     # openai_compatible: https://openrouter.ai/api/v1/models
 
-# Remote MCP connector (Gate 1). ON in this file so a local stack serves the
-# connector out of the box; the CODE default is off, so an installation with no
-# mcp block exposes none of it. The per-workspace toggle is the second gate.
-#
-# On is safe to ship here without hiding what it costs: turning the connector on
-# exposes the OAuth authorization server and the agent tool surface, so it also
-# requires the --public-base-url flag (or MARGINCE_PUBLIC_BASE_URL), a bare
-# origin — the advertised MCP resource is that value + "/mcp", and it must never
-# be derived from the request Host. There is no key for it in this file. cmd/api
-# REFUSES TO BOOT on connector_enabled: true without it, so a deployment that
-# copies this file cannot quietly serve the surface: it fails loudly on the
-# first start. `make dev` passes the flag unconditionally, which is why a local
-# stack just works and a real deployment has to supply the value itself.
+# Remote MCP connector (Gate 1). On here so a local stack serves it out of the
+# box; the code default is off, so an installation with no mcp block serves none
+# of it. Also needs --public-base-url (a bare origin) — cmd/api refuses to boot
+# without it, so copying this file cannot serve the surface by accident.
 mcp:
   connector_enabled: true
 
