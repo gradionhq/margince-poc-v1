@@ -89,7 +89,15 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 	// what the upload actually achieved. An import that answered "3,000
 	// stored" and left the matches for an invisible nightly pass would look
 	// like it had done nothing.
-	matched, err := h.store.MatchLinkedInConnections(r.Context(), uploaderID(r.Context()))
+	if _, err := h.store.MatchLinkedInConnections(r.Context(), uploaderID(r.Context())); err != nil {
+		writeStoreErr(w, r, err)
+		return
+	}
+	// The TOTALS, not this pass's delta. The matcher only considers ghosts
+	// nobody has decided on, so re-importing the same export truthfully
+	// reports zero new matches while twenty-six sit in the database — and a
+	// card labelled "Matched to a contact" showing 0 in that state is wrong.
+	confirmed, suggested, err := h.store.MyLinkedInMatchTotals(r.Context())
 	if err != nil {
 		writeStoreErr(w, r, err)
 		return
@@ -98,8 +106,8 @@ func (h Handlers) ImportLinkedInConnections(w http.ResponseWriter, r *http.Reque
 		Rows:      result.Rows,
 		Imported:  result.Imported,
 		Skipped:   result.Skipped,
-		Confirmed: matched.Confirmed,
-		Suggested: matched.Suggested,
+		Confirmed: confirmed,
+		Suggested: suggested,
 	})
 }
 

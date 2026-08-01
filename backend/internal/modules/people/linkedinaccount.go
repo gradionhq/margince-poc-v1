@@ -40,6 +40,34 @@ type LinkedInAccount struct {
 	// can say what the authorization actually yielded rather than only that it
 	// happened.
 	Connections int
+	// Confirmed and Suggested are this member's TOTAL match state, not one
+	// import's delta.
+	Confirmed int
+	Suggested int
+}
+
+// MyLinkedInMatchTotals counts where this member's whole network stands.
+//
+// The import reports what THAT pass decided, which is the honest number for a
+// progress line and the wrong one for a status card: the matcher only
+// considers ghosts nobody has decided on, so a second import of the same file
+// truthfully reports zero new matches while twenty-six matches sit in the
+// database. A card labelled "Matched to a contact" showing 0 in that state is
+// simply wrong.
+func (s *Store) MyLinkedInMatchTotals(ctx context.Context) (confirmed, suggested int, err error) {
+	actor, ok := principal.Actor(ctx)
+	if !ok || actor.UserID == ids.Nil {
+		return 0, 0, apperrors.ErrPermissionDenied
+	}
+	err = database.WithWorkspaceTx(ctx, s.pool, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `
+			SELECT count(*) FILTER (WHERE match_status = 'confirmed'),
+			       count(*) FILTER (WHERE match_status = 'suggested')
+			  FROM linkedin_connection
+			 WHERE owner_user_id = $1 AND tombstoned_at IS NULL`, actor.UserID).
+			Scan(&confirmed, &suggested)
+	})
+	return confirmed, suggested, err
 }
 
 // GetMyLinkedInAccount reads the caller's own row. A member who has never been

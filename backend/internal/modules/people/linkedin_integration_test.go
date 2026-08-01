@@ -353,3 +353,82 @@ func TestAMemberOwnsAndCanCorrectTheirLinkedInProfile(t *testing.T) {
 		t.Error("a non-URL profile was accepted")
 	}
 }
+
+// normalized_company is DERIVED and it is part of the natural dedupe key, so
+// changing the normalizer changes the key: the same connection stops matching
+// the row it already has, and the next import inserts a second copy.
+//
+// That is not hypothetical. Cleaning LinkedIn's headline company field
+// ("najahak.io | نجاحك" → "najahak.io") re-keyed every row carrying a tagline,
+// and re-importing the same export produced 209 duplicates on a real
+// workspace — double-counting every org-level reach those rows feed.
+//
+// The backfill is what makes a normalizer change safe: recompute the stored
+// keys, collapse what collides, and keep the row a human has decided on.
+func TestRenormalizingCollapsesTheDuplicatesAnOldKeyLeft(t *testing.T) {
+	e := setupDedupe(t)
+	ctx := e.as()
+
+	// Two rows for ONE connection: the key an older normalizer stored, and the
+	// key today's produces. This is exactly the state a re-import left behind.
+	var stale, fresh ids.UUID
+	_ = fresh
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		insert := `
+			INSERT INTO linkedin_connection
+			  (workspace_id, owner_user_id, full_name, normalized_name,
+			   company_name, normalized_company, match_status, source)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+			        $1, 'Abbas Fawaz', 'abbas fawaz', 'najahak.io | Growth',
+			        $2, $3, 'csv_export')
+			RETURNING id`
+		if err := tx.QueryRow(ctx, insert,
+			e.rep, "najahak.io | growth", "suggested").Scan(&stale); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx, insert, e.rep, "najahak.io", "unmatched").Scan(&fresh)
+	}); err != nil {
+		t.Fatalf("seeding the duplicate pair: %v", err)
+	}
+
+	result, err := e.store.RenormalizeLinkedInCompanyKeys(ctx)
+	if err != nil {
+		t.Fatalf("re-normalizing: %v", err)
+	}
+	if result.Merged != 1 {
+		t.Errorf("merged %d rows, want 1 — the duplicate pair is one connection", result.Merged)
+	}
+
+	var rows int
+	var survivorStatus string
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`SELECT count(*) FROM linkedin_connection WHERE normalized_name = 'abbas fawaz'`).
+			Scan(&rows); err != nil {
+			return err
+		}
+		return tx.QueryRow(ctx,
+			`SELECT match_status FROM linkedin_connection WHERE normalized_name = 'abbas fawaz'`).
+			Scan(&survivorStatus)
+	}); err != nil {
+		t.Fatalf("reading back: %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("%d rows survive, want 1 — every org reach count these feed is multiplied by the duplicate", rows)
+	}
+	// The row carrying a human's judgement is the one to keep. Discarding it
+	// and keeping the undecided copy would silently re-ask a question somebody
+	// already answered.
+	if survivorStatus != "suggested" {
+		t.Errorf("the survivor is %q, want the row a human had already decided on", survivorStatus)
+	}
+
+	// Idempotent: a second pass over a clean workspace changes nothing.
+	again, err := e.store.RenormalizeLinkedInCompanyKeys(ctx)
+	if err != nil {
+		t.Fatalf("second pass: %v", err)
+	}
+	if again.Merged != 0 || again.Rekeyed != 0 {
+		t.Errorf("a second pass changed %+v, want nothing — it runs on every boot", again)
+	}
+}

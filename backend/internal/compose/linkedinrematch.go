@@ -65,6 +65,14 @@ func (w *linkedInRematchWorker) Work(ctx context.Context, _ *river.Job[LinkedInR
 		return err
 	}
 	for _, ws := range workspaces {
+		// Re-key BEFORE matching. A stale company key both misses its account
+		// and duplicates on the next import, and matching duplicates would
+		// double every reach count the matches feed.
+		if err := w.renormalizeWorkspace(ctx, ws); err != nil {
+			w.log.WarnContext(ctx, "linkedin re-match: workspace re-normalize failed",
+				"workspace", ws.String(), "err", err)
+			continue
+		}
 		matched, err := w.sweepWorkspace(ctx, ws)
 		if err != nil {
 			w.log.WarnContext(ctx, "linkedin re-match: workspace sweep failed",
@@ -80,14 +88,34 @@ func (w *linkedInRematchWorker) Work(ctx context.Context, _ *river.Job[LinkedInR
 	return nil
 }
 
-func (w *linkedInRematchWorker) sweepWorkspace(ctx context.Context, ws ids.UUID) (people.LinkedInMatchResult, error) {
-	wsCtx := principal.WithWorkspaceID(ctx, ws)
-	// Workspace-wide, which is what the zero owner means: this pass is not
-	// reporting one person's upload back to them, it is catching up every
-	// member's ghosts against records the workspace has since learned.
-	wsCtx = principal.WithActor(wsCtx, principal.Principal{
+// renormalizeWorkspace recomputes the stored company keys and collapses the
+// duplicates a previous normalizer left. Idempotent, so a caught-up workspace
+// costs one scan and writes nothing.
+func (w *linkedInRematchWorker) renormalizeWorkspace(ctx context.Context, ws ids.UUID) error {
+	result, err := w.store.RenormalizeLinkedInCompanyKeys(w.systemContext(ctx, ws))
+	if err != nil {
+		return err
+	}
+	if result.Rekeyed+result.Merged > 0 {
+		w.log.InfoContext(ctx, "linkedin re-normalize: company keys rebuilt",
+			"workspace", ws.String(), "rekeyed", result.Rekeyed, "merged", result.Merged)
+	}
+	return nil
+}
+
+// systemContext binds the workspace and the maintenance principal both passes
+// run under, spelled once so they cannot diverge.
+func (w *linkedInRematchWorker) systemContext(ctx context.Context, ws ids.UUID) context.Context {
+	ctx = principal.WithWorkspaceID(ctx, ws)
+	return principal.WithActor(ctx, principal.Principal{
 		Type: principal.PrincipalSystem, ID: "system:linkedin_rematch",
 		Permissions: principal.Permissions{RowScope: principal.RowScopeAll},
 	})
-	return w.store.MatchLinkedInConnections(wsCtx, ids.Nil)
+}
+
+func (w *linkedInRematchWorker) sweepWorkspace(ctx context.Context, ws ids.UUID) (people.LinkedInMatchResult, error) {
+	// Workspace-wide, which is what the zero owner means: this pass is not
+	// reporting one person's upload back to them, it is catching up every
+	// member's ghosts against records the workspace has since learned.
+	return w.store.MatchLinkedInConnections(w.systemContext(ctx, ws), ids.Nil)
 }
