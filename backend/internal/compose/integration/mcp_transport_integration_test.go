@@ -166,10 +166,10 @@ func TestMCPIsServedAtTheAPIOriginWithDiscovery(t *testing.T) {
 		t.Fatalf("authorization-server metadata = %v, want issuer+token endpoint on %s", asDoc, env.origin)
 	}
 	// The resource must also tell a client what it may ASK for here (RFC 9728
-	// §2). A client that reads no scope off this document requests none, the
-	// authorize parser defaults to read, and the connection comes out read-only
-	// however broad the passport the human lends — so the mutating verbs being
-	// visible is what makes a write connection reachable at all.
+	// §2), and a scope absent from this document is one no client will ever
+	// name. So the mutating verbs have to be visible for a client to be able to
+	// request them at all — what a connection then receives is the passport the
+	// human lends, which this document neither widens nor narrows.
 	advertised, ok := doc["scopes_supported"].([]any)
 	if !ok {
 		t.Fatalf("resource metadata = %v, want a scopes_supported a client can request from", doc)

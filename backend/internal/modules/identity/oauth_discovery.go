@@ -56,9 +56,10 @@ func (h Handlers) ProtectedResourceMetadata(w http.ResponseWriter, r *http.Reque
 		"bearer_methods_supported": []string{"header"},
 		// The vocabulary belongs HERE, not only in the authorization server's
 		// document: this is the RFC 9728 §2 field a client reads to learn what
-		// it may ask for at this resource, and a client that reads no scope
-		// here asks for none — the authorize parser then defaults to `read`
-		// and the connection is read-only whatever passport the human lent.
+		// it may ask for at this resource, and a scope absent from it is one no
+		// client will ever name. What it does not do is bound a connection —
+		// the grant is the passport the human lent, so a client that names
+		// nothing still receives everything in it.
 		// offline_access is absent on purpose: it buys token lifetime, not
 		// access to this resource, so it is the authorization server's to
 		// advertise and never a passport scope.
