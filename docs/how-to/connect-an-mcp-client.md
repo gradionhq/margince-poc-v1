@@ -43,12 +43,26 @@ claude mcp add --transport http margince http://localhost:8080/mcp
 For a deployment, use `<public-base-url>/mcp`. The first call answers `401`
 with an RFC 9728 `WWW-Authenticate` pointer at
 `/.well-known/oauth-protected-resource`; the client follows it, registers
-itself (DCR), and opens the consent screen. Approving it mints a passport
-bound to your own seat and RBAC — an agent can never exceed the human who
-granted it.
+itself (DCR), and opens the consent screen.
 
-The default scope hint is the conservative `read draft`; widen it on the
-consent screen if the client needs to write or send.
+The consent screen does not grant a client whatever it asked for. It asks the
+signed-in human to **lend one of their own existing agent passports** — the
+connection's scopes come from that passport, intersected with what the client
+requested, so the client can end up with **less** than the passport carries,
+never more. There is a real Deny too: it sends the client `access_denied`
+instead of leaving it hanging.
+
+**A human with no passport yet cannot approve anything.** The screen shows a
+guide instead of an approve control — mint a passport in Settings (the
+"AI & autonomy" tab) and it brings you back to finish connecting. In practice
+this means **`claude mcp add` no longer completes unattended for a brand-new
+account**: it stops at the guide until a passport exists. See
+[mint-a-passport.md](mint-a-passport.md) to create one ahead of time.
+
+Once a passport is lent, the connection is bound to that passport's own seat
+and RBAC — an agent can never exceed the human who granted it. The default
+scope a client requests is the conservative `read draft`; if it needs to write
+or send, lend a passport that already carries that scope (or mint one first).
 
 ## A passport as a REST credential
 
