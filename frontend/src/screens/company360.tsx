@@ -383,6 +383,22 @@ export function PeopleCard({
 // OpenDeal is the slice of an open deal a role can be attached to.
 type OpenDeal = { id: string; name: string };
 
+// everyRoleHeld reports whether this contact already holds every assignable
+// role on every open deal, which is when the verb has nothing left to write.
+function everyRoleHeld(
+  contact: Contact,
+  openDeals: readonly OpenDeal[],
+): boolean {
+  return openDeals.every((deal) => {
+    const held = new Set(
+      contact.deal_roles
+        .filter((entry) => entry.deal_id === deal.id)
+        .map((entry) => entry.role),
+    );
+    return ASSIGNABLE_ROLES.every((role) => held.has(role));
+  });
+}
+
 // The stakeholder roles offered here. `role` is free text on the wire until
 // DEAL-EXT-5 mints the enum upstream, so this list is the UI's own vocabulary
 // — the five the spec names, in the order a rep thinks of them.
@@ -461,7 +477,11 @@ function SetRoleAction({
 
   // A role belongs to a deal. With no open deal there is nothing to be a
   // champion OF, and the card already says so in its own words.
-  if (openDeals.length === 0) {
+  //
+  // Nothing left to offer is the same answer: a contact already holding every
+  // role on every open deal would otherwise open a dialog with an empty list
+  // and a dead Save button.
+  if (openDeals.length === 0 || everyRoleHeld(contact, openDeals)) {
     return null;
   }
   return (
@@ -1140,7 +1160,12 @@ export function AccountBrief({
     <section className="co-part co-brief" aria-label={t("co.brief.title")}>
       <h2 className="co-part-label">{t("co.brief.title")}</h2>
       {brief.isPending && <Skeleton width="100%" height={64} />}
-      {brief.isError && <EmptyState>{t("co.brief.unavailable")}</EmptyState>}
+      {/* Errored, or answered with a payload this build cannot read: both are
+          "no brief to show", and rendering the heading over nothing would be a
+          card that looks broken rather than one that says so. */}
+      {(brief.isError || (!brief.isPending && !readable)) && (
+        <EmptyState>{t("co.brief.unavailable")}</EmptyState>
+      )}
       {readable && readable.sentences.length === 0 && (
         <EmptyState>{t("co.brief.empty")}</EmptyState>
       )}

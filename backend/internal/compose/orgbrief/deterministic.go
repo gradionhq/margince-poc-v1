@@ -97,7 +97,7 @@ func profileLines(in Input, account []Evidence) []Sentence {
 		// A stored value of nothing but punctuation reduces to nothing, and a
 		// line reading "What they sell: ." is worse than no line.
 		statement := trimSentence(entry.Value)
-		if statement == "" || statement == "." {
+		if statement == "" {
 			continue
 		}
 		out = append(out, Sentence{
