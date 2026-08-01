@@ -500,6 +500,7 @@ export const en = {
   "co.pulse.lastTouch": "Last touch {when}",
   "co.pulse.neverTouched": "Never contacted",
   "co.pulse.owner": "Owner",
+  "co.owner.notInRoster": "Current owner (no longer in the user list)",
   "co.pulse.unowned": "Unassigned",
   "co.since.first": "You are opening this account for the first time.",
   "co.partial":

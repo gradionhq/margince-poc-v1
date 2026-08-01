@@ -398,3 +398,24 @@ func TestLogoCandidatesKeepTheFallbackACutDeclarationAlsoNamed(t *testing.T) {
 		t.Errorf("candidates %v lost /favicon.ico to a declaration the cap dropped", got)
 	}
 }
+
+// A fallback one of the surviving declarations already named needs no slot of
+// its own, so the reserve it was holding goes back to the next declaration
+// rather than shortening the chain.
+func TestLogoCandidatesSpendTheWholeBudgetWhenAFallbackIsAlreadyDeclared(t *testing.T) {
+	icons := []webread.IconRef{{URL: "https://acme.example/favicon.ico", Rel: webread.RelIcon}}
+	for i := range logoMaxCandidates * 2 {
+		icons = append(icons, webread.IconRef{
+			URL: fmt.Sprintf("https://acme.example/icon-%d.png", i), Rel: webread.RelIcon,
+		})
+	}
+	got, _ := logoCandidates(logoSeed, declaredAssets{
+		icons: icons, ogImage: "https://acme.example/share.png",
+	})
+	if len(got) != logoMaxCandidates {
+		t.Fatalf("tried %d candidates, want the whole budget of %d: %v", len(got), logoMaxCandidates, got)
+	}
+	if len(slices.Compact(slices.Sorted(slices.Values(got)))) != len(got) {
+		t.Errorf("candidates repeat: %v", got)
+	}
+}

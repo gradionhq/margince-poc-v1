@@ -267,10 +267,12 @@
   margin-top: var(--space-3);
 }
 
-/* The brief's footer: what moved since the reader was last here, or that
-   there is no "away" to compare against, plus the withheld-sections caveat.
-   These are separate spans, so they need a gap or they run together. */
-.co-prep-foot {
+/* The brief's two footers: what moved since the reader was last here (or that
+   there is no "away" to compare against, plus the withheld-sections caveat),
+   and who wrote the card and when. Both are runs of separate spans, so they
+   need a gap or they run together. */
+.co-prep-foot,
+.co-brief-meta {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -279,12 +281,4 @@
 }
 .co-prep-foot:empty {
   display: none;
-}
-
-.co-brief-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
 }

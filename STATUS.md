@@ -97,27 +97,23 @@ rework set out to fix IS fixed: three calm columns, email bodies readable,
 disclosures holding the detail. What is left is judgment, and none of it is
 visible from a test.
 
-1. ~~**The header pulse is still cryptic.**~~ FIXED on
-   `feat/company-page-clarity` (PR #356): the line names the strongest contact
-   first and labels the score ("Strongest contact X — of 3 people here
-   (relationship 41/100)"), with the scale explained on hover.
-2. **One fact, twice, on one screen.** The brief says "billing_apac is your
+Items 1 and 5 of the original five closed on PR #356 (the header pulse now
+names the strongest contact and labels the score; the profile card folded
+under the account brief). Their narrative is in
+[STATUS-ARCHIVE.md](STATUS-ARCHIVE.md). What is left:
+
+1. **One fact, twice, on one screen.** The brief says "billing_apac is your
    only way into this account" and the People card says "One contact only — the
    account is single-threaded". Card soup returning in a new place.
-3. **A role mailbox is described as a person.** `billing_apac` is a shared
+2. **A role mailbox is described as a person.** `billing_apac` is a shared
    inbox; "your only way into this account" is a sentence about a human. The
    page has no notion of a role address, so it treats one as a contact.
-4. **The brief reads as an inventory of absences.** On this account: last
+3. **The brief reads as an inventory of absences.** On this account: last
    contact 56 days ago, nothing scheduled, no open deal, nothing won. All true,
    none actionable. A brief should say what to do about the account; the rules
    currently only say what it lacks.
-5. **The profile card is a new wall.** Sixteen fields, every value a full
-   paragraph, all underlined so everything reads as a link. The facts wall was
-   collapsed and then rebuilt out of profile fields. Closed on PR #356: the
-   card folded into a disclosure under the account brief, which quotes the two
-   statements worth reading up front.
 
-Items 2, 3 and 4 are still open and are the substance of the brief work below.
+All three are the substance of the brief work below.
 
 ## Open — the reindex banner is ops jargon on every page
 

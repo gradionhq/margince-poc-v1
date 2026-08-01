@@ -94,8 +94,14 @@ func profileLines(in Input, account []Evidence) []Sentence {
 		if !ok {
 			continue
 		}
+		// A stored value of nothing but punctuation reduces to nothing, and a
+		// line reading "What they sell: ." is worse than no line.
+		statement := trimSentence(entry.Value)
+		if statement == "" || statement == "." {
+			continue
+		}
 		out = append(out, Sentence{
-			Text:     fmt.Sprintf("%s: %s", label, trimSentence(entry.Value)),
+			Text:     fmt.Sprintf("%s: %s", label, statement),
 			Evidence: account,
 		})
 	}

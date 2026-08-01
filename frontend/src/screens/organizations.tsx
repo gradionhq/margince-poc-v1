@@ -1244,7 +1244,7 @@ function CompanyEditAction({
   // cannot resolve, and since the select is required once an owner is set,
   // saving anything else would then force a reassignment nobody asked for.
   if (org.owner_id && !owners.some((user) => user.id === org.owner_id)) {
-    owners.push({ id: org.owner_id, display_name: org.owner_id });
+    owners.push({ id: org.owner_id, display_name: t("co.owner.notInRoster") });
   }
   return (
     <EditAction

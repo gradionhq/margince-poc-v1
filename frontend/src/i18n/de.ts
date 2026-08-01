@@ -510,6 +510,7 @@ export const de = {
   "co.pulse.lastTouch": "Letzter Kontakt {when}",
   "co.pulse.neverTouched": "Noch nie kontaktiert",
   "co.pulse.owner": "Betreut von",
+  "co.owner.notInRoster": "Aktuell zugeordnet (nicht mehr in der Nutzerliste)",
   "co.pulse.unowned": "Nicht zugewiesen",
   "co.since.first": "Du öffnest diesen Account zum ersten Mal.",
   "co.partial":

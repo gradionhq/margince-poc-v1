@@ -464,9 +464,16 @@ export function DataTable<Row>({
 // the destructive ones sit next to the routine ones.
 //
 // The children are the caller's own action components (each opening its own
-// confirm flow), so the menu owns only the disclosure: it closes on Escape, on
-// a click outside, and after a click inside — a menu that stayed open over the
-// confirm dialog its own item just opened would cover the decision.
+// confirm flow), so the menu owns only the disclosure: it closes on Escape and
+// on a click outside. It deliberately stays open when an item is clicked —
+// that item's dialog restores focus to whatever opened it, so hiding it would
+// send focus, on close, to a node that is gone.
+//
+// The children are not rendered until the menu is first opened. They are
+// components with their own reads — the company's edit form alone fetches the
+// user roster and the custom-field catalogue — and every reader of every
+// record page was paying for them without ever opening the menu. Once opened
+// they STAY mounted, so a dialog survives the panel being hidden again.
 export function OverflowMenu({
   label,
   children,
@@ -475,6 +482,7 @@ export function OverflowMenu({
   children: ReactNode;
 }>) {
   const [open, setOpen] = useState(false);
+  const [everOpened, setEverOpened] = useState(false);
   const wrap = useRef<HTMLDivElement | null>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   const panelId = useId();
@@ -534,7 +542,10 @@ export function OverflowMenu({
         aria-controls={panelId}
         aria-label={label}
         title={label}
-        onClick={() => setOpen((was) => !was)}
+        onClick={() => {
+          setEverOpened(true);
+          setOpen((was) => !was);
+        }}
       >
         <MoreHorizontal aria-hidden="true" size={16} />
       </button>
@@ -550,7 +561,7 @@ export function OverflowMenu({
           target visible; the outside-click below then closes it on the
           reader's next move. */}
       <div id={panelId} className="overflow-menu-items" hidden={!open}>
-        {children}
+        {everOpened && children}
       </div>
     </div>
   );
