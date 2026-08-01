@@ -96,7 +96,7 @@ export function PersonNetworkCard({ id }: Readonly<{ id: string }>) {
   const colleagues = query.data?.colleagues ?? [];
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card net-card">
       <SectionHeader title={t("network.title")} />
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && <Skeleton width="80%" />}
@@ -148,7 +148,7 @@ export function DealCoverageCard({ id }: Readonly<{ id: string }>) {
   const risks = query.data?.risks ?? [];
 
   return (
-    <section className="card" style={{ marginBottom: 16 }}>
+    <section className="card net-card">
       <SectionHeader title={t("coverage.title")} />
       {overlay && <OverlayUnavailable />}
       {!overlay && query.isPending && <Skeleton width="60%" />}
