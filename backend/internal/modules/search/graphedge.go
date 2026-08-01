@@ -63,6 +63,13 @@ func (e InteractionEdge) StrengthOf(now time.Time) relstrength.Score {
 	}, now)
 }
 
+// Counting is over DISTINCT ACTIVITIES, never over join rows. One message
+// produces a participant row per party per role, so a contact who is both a
+// `to` and a `cc` — or a colleague who is `from` and `cc` — multiplies into
+// several join rows and would count that single message two or three times.
+// That inflates frequency, which inflates the score, on exactly the busy
+// threads a relationship score is meant to read.
+//
 // interactionRoles are the participant roles that make an edge — every role
 // there is, cc included (founder decision, 2026-07-31).
 //
@@ -208,10 +215,10 @@ func recomputePairs(ctx context.Context, tx pgx.Tx, pairs []pair) error {
 		           max(a.occurred_at) AS last_at,
 		           max(a.occurred_at) FILTER (WHERE a.direction = 'inbound')  AS last_inbound_at,
 		           max(a.occurred_at) FILTER (WHERE a.direction = 'outbound') AS last_outbound_at,
-		           count(*) FILTER (WHERE a.occurred_at >= `+window+`) AS count_90d,
-		           count(*) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'inbound')  AS in_90d,
-		           count(*) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'outbound') AS out_90d,
-		           count(*) AS count_total
+		           count(DISTINCT a.id) FILTER (WHERE a.occurred_at >= `+window+`) AS count_90d,
+		           count(DISTINCT a.id) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'inbound')  AS in_90d,
+		           count(DISTINCT a.id) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'outbound') AS out_90d,
+		           count(DISTINCT a.id) AS count_total
 		      FROM target t
 		      JOIN activity_participant up
 		        ON up.user_id = t.user_id AND up.role IN `+interactionRoles+`
@@ -403,10 +410,10 @@ func RebuildEdges(ctx context.Context, tx pgx.Tx) error {
 		       max(a.occurred_at),
 		       max(a.occurred_at) FILTER (WHERE a.direction = 'inbound'),
 		       max(a.occurred_at) FILTER (WHERE a.direction = 'outbound'),
-		       count(*) FILTER (WHERE a.occurred_at >= `+window+`),
-		       count(*) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'inbound'),
-		       count(*) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'outbound'),
-		       count(*),
+		       count(DISTINCT a.id) FILTER (WHERE a.occurred_at >= `+window+`),
+		       count(DISTINCT a.id) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'inbound'),
+		       count(DISTINCT a.id) FILTER (WHERE a.occurred_at >= `+window+` AND a.direction = 'outbound'),
+		       count(DISTINCT a.id),
 		       now()
 		  FROM activity_participant up
 		  JOIN activity_participant pp ON pp.activity_id = up.activity_id

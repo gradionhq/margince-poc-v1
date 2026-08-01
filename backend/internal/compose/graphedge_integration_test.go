@@ -366,3 +366,41 @@ func TestArchivingOneOfTwoInteractionsCorrectsTheCountsRatherThanNothing(t *test
 			after[0].InCount90d, after[0].OutCount90d)
 	}
 }
+
+func TestOneMessageCountsOnceHoweverManyRolesItNames(t *testing.T) {
+	v := edgeEnv{integration.Setup(t)}
+	now := time.Now().UTC()
+	contact := v.person(t, "Both To And Cc")
+
+	// One message, and the contact is named twice on it: once as a direct
+	// recipient and once in copy. That is ordinary — a thread where someone
+	// is both is common — and it produces two participant rows for one
+	// conversation.
+	activityID := v.interaction(t, v.e.Rep1, contact, now.AddDate(0, 0, -1), "outbound", "to")
+	if err := database.WithWorkspaceTx(v.e.Admin(), v.e.Pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(context.Background(), `
+			INSERT INTO activity_participant (workspace_id, activity_id, person_id, role)
+			VALUES (NULLIF(current_setting('app.workspace_id', true), '')::uuid, $1, $2, 'cc')`,
+			activityID, contact)
+		return err
+	}); err != nil {
+		t.Fatalf("adding the cc row: %v", err)
+	}
+	v.recompute(t, activityID)
+
+	edges := v.edgesFor(t, contact)
+	if len(edges) != 1 {
+		t.Fatalf("got %d edges, want 1", len(edges))
+	}
+	// Counting join rows would say two. One message is one interaction, and
+	// frequency drives the score — so this is the difference between a
+	// relationship reading twice as active as it is.
+	if edges[0].Count90d != 1 {
+		t.Errorf("one message counted %d times because the contact was on both to and cc; "+
+			"frequency feeds the score, so a busy thread would read twice as warm as it is",
+			edges[0].Count90d)
+	}
+	if edges[0].CountTotal != 1 {
+		t.Errorf("total counted %d for one message", edges[0].CountTotal)
+	}
+}
