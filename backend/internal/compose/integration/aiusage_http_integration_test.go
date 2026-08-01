@@ -12,6 +12,7 @@ package integration
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -19,10 +20,43 @@ import (
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 )
 
+// usageMonth anchors this suite's fixture dates to the real current
+// calendar month (UTC) instead of a fixed year/month literal: MonthTokens
+// (internal/modules/ai/meter.go) sums the CURRENT calendar month relative
+// to the wall clock, so a fixture hard-dated to one specific month passes
+// only until the real date rolls past it, then fails silently on the next
+// month boundary. Every month has at least 28 days, so day-of-month
+// 1/10/11/14 (usageDay below) are always valid regardless of which month
+// usageMonth resolves to.
+func usageMonth() time.Time {
+	now := time.Now().UTC()
+	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
+}
+
+// usageDay is day n (1-28) of usageMonth, at midnight UTC.
+func usageDay(n int) time.Time {
+	m := usageMonth()
+	return time.Date(m.Year(), m.Month(), n, 0, 0, 0, 0, time.UTC)
+}
+
+// usageDateStr is usageDay(n) formatted as the ai_usage.day / query-param
+// date literal.
+func usageDateStr(n int) string {
+	return usageDay(n).Format(time.DateOnly)
+}
+
+// usageMonthEnd is the last calendar day of usageMonth (28-31, whichever
+// the month actually has).
+func usageMonthEnd() time.Time {
+	return usageMonth().AddDate(0, 1, -1)
+}
+
 // seedAiUsage writes the AIRT-PARAM-33 meter rows the report aggregates:
-// two days, one with two tiers of the same task — through the owner
-// connection under the workspace GUC, exactly as the meter's upsert lands
-// them.
+// two days (usageDay(10), usageDay(11)) of the current calendar month —
+// not a fixed calendar date, so the fixture stays inside MonthTokens'
+// current-month window across a real month rollover — one with two tiers
+// of the same task, through the owner connection under the workspace GUC,
+// exactly as the meter's upsert lands them.
 func seedAiUsage(t *testing.T, e *env) {
 	t.Helper()
 	ctx := context.Background()
@@ -41,9 +75,9 @@ func seedAiUsage(t *testing.T, e *env) {
 	}
 	if _, err := tx.Exec(ctx, `
 		INSERT INTO ai_usage (workspace_id, day, task, tier, calls, cached_hits, tokens_in, tokens_out) VALUES
-		($1, '2026-07-10', 'capture_classify', 'local_small', 4, 1, 1200, 300),
-		($1, '2026-07-10', 'capture_classify', 'cheap_cloud', 1, 0, 800, 200),
-		($1, '2026-07-11', 'enrich', 'cheap_cloud', 2, 0, 500, 120)`, wsID); err != nil {
+		($1, $2, 'capture_classify', 'local_small', 4, 1, 1200, 300),
+		($1, $2, 'capture_classify', 'cheap_cloud', 1, 0, 800, 200),
+		($1, $3, 'enrich', 'cheap_cloud', 2, 0, 500, 120)`, wsID, usageDateStr(10), usageDateStr(11)); err != nil {
 		t.Fatalf("seeding ai_usage: %v", err)
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -90,7 +124,8 @@ func TestAiUsageOverHTTP(t *testing.T) {
 
 	// Two metered days: the report groups day × task × tier as recorded.
 	seedAiUsage(t, e)
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2026-07-01&to=2026-07-14", nil, nil, &usage); status != http.StatusOK {
+	windowedURL := fmt.Sprintf("/v1/ai/usage?from=%s&to=%s", usageDateStr(1), usageDateStr(14))
+	if status := e.call(t, "GET", windowedURL, nil, nil, &usage); status != http.StatusOK {
 		t.Fatalf("windowed GET /ai/usage → %d, want 200", status)
 	}
 	if len(usage.Days) != 2 {
@@ -108,10 +143,15 @@ func TestAiUsageOverHTTP(t *testing.T) {
 	}
 
 	// The refusals, before the aggregation runs: inverted, then over-wide.
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2026-07-14&to=2026-07-01", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	invertedURL := fmt.Sprintf("/v1/ai/usage?from=%s&to=%s", usageDateStr(14), usageDateStr(1))
+	if status := e.call(t, "GET", invertedURL, nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("inverted window → %d, want 422", status)
 	}
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2020-01-01&to=2026-07-14", nil, nil, nil); status != http.StatusUnprocessableEntity {
+	// from is a fixed, far-past anchor (any real test run is well past
+	// 2021), so it is always >366 days before usageDateStr(14) — the cap
+	// check is a pure date-arithmetic comparison, not wall-clock relative.
+	overWideURL := fmt.Sprintf("/v1/ai/usage?from=2020-01-01&to=%s", usageDateStr(14))
+	if status := e.call(t, "GET", overWideURL, nil, nil, nil); status != http.StatusUnprocessableEntity {
 		t.Fatalf("over-wide window → %d, want 422 (366-day cap)", status)
 	}
 }
@@ -151,7 +191,7 @@ func seedAiModelRate(t *testing.T, e *env, wsID string, day time.Time) {
 
 // TestAiUsageCostOverHTTP proves AIRT-WIRE-1's cost merge (ADR-0067,
 // price-on-read) end to end over the real wire, on top of seedAiUsage's
-// fixture (2026-07-10 capture_classify across two tiers, 2026-07-11
+// fixture (usageDay(10) capture_classify across two tiers, usageDay(11)
 // enrich). CostReport groups by day + task + TIER — exactly the wire's
 // own grain — so each tier line of a task must report ONLY its own
 // tier's priced cost, never a shared task-day total broadcast onto both
@@ -168,7 +208,7 @@ func TestAiUsageCostOverHTTP(t *testing.T) {
 		t.Fatalf("workspace lookup: %v", err)
 	}
 
-	// capture_classify/2026-07-10 ran on two tiers (seedAiUsage's meter
+	// capture_classify/usageDay(10) ran on two tiers (seedAiUsage's meter
 	// rows): rate each tier's own ai_call row distinctly so the two
 	// resulting costs are provably different, hand-computable amounts —
 	// not one shared total copy-pasted onto both lines.
@@ -181,18 +221,23 @@ func TestAiUsageCostOverHTTP(t *testing.T) {
 	// cheap_cloud: 4_000 in / 1_000 out, double local_small's usage =
 	// (4_000*5_000_000 + 1_000*25_000_000)/1_000_000 = 45_000 microUSD =
 	// 4 cents.
-	seedAiModelRate(t, e, wsID, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	seedAiCall(t, e, wsID, "capture_classify", "local_small", "anthropic", "claude-test-model", 2_000, 500, time.Date(2026, 7, 10, 12, 0, 0, 0, time.UTC))
-	seedAiCall(t, e, wsID, "capture_classify", "cheap_cloud", "anthropic", "claude-test-model", 4_000, 1_000, time.Date(2026, 7, 10, 13, 0, 0, 0, time.UTC))
-	// enrich/2026-07-11: seedAiUsage already counts calls for this
+	//
+	// The rate's effective_date is anchored a full year before usageMonth
+	// (never a fixed calendar date) so it always predates the seeded
+	// ai_call rows regardless of which month the suite runs in.
+	seedAiModelRate(t, e, wsID, usageMonth().AddDate(-1, 0, 0))
+	seedAiCall(t, e, wsID, "capture_classify", "local_small", "anthropic", "claude-test-model", 2_000, 500, usageDay(10).Add(12*time.Hour))
+	seedAiCall(t, e, wsID, "capture_classify", "cheap_cloud", "anthropic", "claude-test-model", 4_000, 1_000, usageDay(10).Add(13*time.Hour))
+	// enrich/usageDay(11): seedAiUsage already counts calls for this
 	// task/day at tier cheap_cloud, but "no-rate-model" has no
 	// ai_model_rate row (neither the workspace-default seed sheet nor
 	// this test's own seedAiModelRate names it) — must come back
 	// unpriced, never a silent 0.
-	seedAiCall(t, e, wsID, "enrich", "cheap_cloud", "anthropic", "no-rate-model", 500, 100, time.Date(2026, 7, 11, 12, 0, 0, 0, time.UTC))
+	seedAiCall(t, e, wsID, "enrich", "cheap_cloud", "anthropic", "no-rate-model", 500, 100, usageDay(11).Add(12*time.Hour))
 
 	var usage aiUsageDTO
-	if status := e.call(t, "GET", "/v1/ai/usage?from=2026-07-01&to=2026-07-31", nil, nil, &usage); status != http.StatusOK {
+	fullMonthURL := fmt.Sprintf("/v1/ai/usage?from=%s&to=%s", usageDateStr(1), usageMonthEnd().Format(time.DateOnly))
+	if status := e.call(t, "GET", fullMonthURL, nil, nil, &usage); status != http.StatusOK {
 		t.Fatalf("GET /ai/usage → %d, want 200", status)
 	}
 	if usage.Budget.Currency == nil || *usage.Budget.Currency != "USD" {
