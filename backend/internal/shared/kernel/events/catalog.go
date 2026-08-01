@@ -84,7 +84,11 @@ var catalog = map[string]struct {
 	// per-row event would bury every other event in the stream, while the
 	// auditable fact is that a member imported their network at all.
 	"linkedin_network.imported": {personStreamEntity, 1},
-	"retention.applied":         {personStreamEntity, 1},
+	// One decision on one connection. It rides the person stream because the
+	// decision is ABOUT a contact — and it names neither the contact nor the
+	// connection, because a ghost's identity must not travel through the bus.
+	"linkedin_match.decided": {personStreamEntity, 1},
+	"retention.applied":      {personStreamEntity, 1},
 
 	"organization.created":  {organizationStreamEntity, 1},
 	"organization.updated":  {organizationStreamEntity, 1},

@@ -93,7 +93,10 @@ type IntroRoute struct {
 // IntroPathLister answers "who here can get me into this account", warmest
 // route first. Compose implements it as the fixed two-hop join ADR-0021 pins:
 // colleague → contact (the interaction projection) → account (employment).
-type IntroPathLister func(ctx context.Context, orgID ids.UUID) ([]IntroRoute, error)
+//
+// The bool reports that the CANDIDATE set was cut before ranking, so the
+// answer may not contain the warmest route that exists.
+type IntroPathLister func(ctx context.Context, orgID ids.UUID) (routes []IntroRoute, candidatesTruncated bool, err error)
 
 // AtRiskDeal is one deal the coverage rules have something to say about.
 type AtRiskDeal struct {
@@ -241,7 +244,7 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	if err != nil {
 		return nil, err
 	}
-	routes, err := t.list(ctx, orgID)
+	routes, truncated, err := t.list(ctx, orgID)
 	if err != nil {
 		return nil, err
 	}
@@ -253,6 +256,12 @@ func (t introPathTool) Handle(ctx context.Context, in json.RawMessage) (json.Raw
 	}
 	return json.Marshal(map[string]any{
 		"organization_id": orgID, "routes": routes,
+		// Warmth is computed AFTER the read, so an account with more contacts
+		// than the fetch bound contributes only the first slice of them and the
+		// genuinely warmest route can fall outside it. Saying so is the "no
+		// silent caps" rule: a ranked list presented as complete is how a model
+		// tells a rep that nobody warmer exists.
+		"candidates_truncated": truncated,
 	})
 }
 

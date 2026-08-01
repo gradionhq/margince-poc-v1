@@ -69,6 +69,7 @@ components:
         - consent.changed
         - linkedin_account.changed
         - linkedin_network.imported
+        - linkedin_match.decided
         - retention.applied
         - signal.detected
         - signal.resolved
@@ -1208,6 +1209,36 @@ components:
           description: >-
             Whether a profile URL is now stored. False after a member clears
             the field, which is a deliberate "do not record this".
+      additionalProperties: false
+
+    PublicEventLinkedinMatchDecided:
+      type: object
+      x-event-type: linkedin_match.decided
+      x-entity-type: user
+      x-version: 1
+      description: >-
+        Payload for linkedin_match.decided — a member said whether one of their
+        imported connections is a contact on file. The connection is NOT named:
+        it is a third party who never consented to being in this CRM, and the
+        whole point of keeping the imported rows invisible is defeated if their
+        names travel through the outbox. The verdict and whether a profile URL
+        reached the contact are the auditable facts; the records themselves are
+        reachable through the audit row this event is linked to.
+      required:
+        - verdict
+        - profile_url_written
+      properties:
+        verdict:
+          type: string
+          enum: [confirmed, rejected]
+          description: What the member decided.
+        profile_url_written:
+          type: boolean
+          description: >-
+            Whether the decision put a LinkedIn handle on the contact. False on
+            every rejection, and false on a confirmation whose contact already
+            carried one — a value on a record is somebody's statement and is
+            never overwritten.
       additionalProperties: false
 
     PublicEventLinkedinNetworkImported:

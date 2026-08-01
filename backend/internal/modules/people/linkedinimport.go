@@ -118,10 +118,17 @@ func (s *Store) ImportLinkedInConnections(ctx context.Context, r io.Reader) (Lin
 		}
 		out.Imported = 0
 		for _, row := range rows.parsed {
-			if err := upsertGhost(ctx, tx, actor.UserID, row); err != nil {
+			// Counted only when a row was actually stored. An erased subject on
+			// the suppression list is refused, and reporting them as imported
+			// would tell a member their file landed data this system
+			// deliberately destroyed.
+			stored, err := upsertGhost(ctx, tx, actor.UserID, row)
+			if err != nil {
 				return err
 			}
-			out.Imported++
+			if stored {
+				out.Imported++
+			}
 		}
 		// The write shape, once for the ACT and not once per row. An export is
 		// thousands of connections; a per-row audit would bury every other
@@ -279,7 +286,11 @@ func linkedInRowFrom(record []string, index map[string]int) (linkedInRow, bool) 
 // export must update rows rather than duplicate them — people re-export
 // regularly, and a second import that doubled everyone's network would make
 // the reach counts meaningless.
-func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow) error {
+// upsertGhost writes one connection and reports whether a row was actually
+// stored. The bool matters: a subject on the erasure suppression list is
+// skipped silently, and counting that as "imported" tells a member their file
+// landed rows it deliberately refused.
+func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow) (bool, error) {
 	// An erased subject must not walk back in through a colleague's next
 	// export. Erasure hashes the addresses it destroyed onto the suppression
 	// list precisely so re-ingestion cannot resurrect them, and an import that
@@ -295,10 +306,10 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 			SELECT EXISTS (SELECT 1 FROM erasure_suppression
 			                WHERE kind = 'email' AND value_hash = $1)`,
 			storekit.SuppressionHash(row.email)).Scan(&suppressed); err != nil {
-			return fmt.Errorf("people: checking the erasure suppression list: %w", err)
+			return false, fmt.Errorf("people: checking the erasure suppression list: %w", err)
 		}
 		if suppressed {
-			return nil
+			return false, nil
 		}
 	}
 	_, err := tx.Exec(ctx, `
@@ -327,9 +338,9 @@ func upsertGhost(ctx context.Context, tx pgx.Tx, owner ids.UUID, row linkedInRow
 		owner, row.fullName, row.normalized, row.position,
 		row.company, row.normCompany, row.connectedOn, row.email, row.profileURL)
 	if err != nil {
-		return fmt.Errorf("people: storing a LinkedIn connection: %w", err)
+		return false, fmt.Errorf("people: storing a LinkedIn connection: %w", err)
 	}
-	return nil
+	return true, nil
 }
 
 // cleanLinkedInCompany strips what LinkedIn's company field carries that a

@@ -186,8 +186,22 @@ export function LinkedInReachCard() {
       />
       {query.isPending && <Skeleton width="70%" />}
       {query.isError && <EmptyState>{query.error.message}</EmptyState>}
+      {/* The unresolved count is reported whether or not anything resolved,
+          and it matters MOST when nothing did: a fresh workspace that imported
+          five thousand connections and matched no account should see the five
+          thousand, not just "none yet". Hiding it behind a non-empty list hid
+          the number in exactly the case it explains. */}
       {query.isSuccess && accounts.length === 0 && (
-        <EmptyState>{t("linkedinReach.empty")}</EmptyState>
+        <>
+          <EmptyState>{t("linkedinReach.empty")}</EmptyState>
+          {(query.data?.unresolved_connections ?? 0) > 0 && (
+            <p className="co-muted">
+              {t("linkedinReach.allUnresolved", {
+                unresolved: query.data?.unresolved_connections ?? 0,
+              })}
+            </p>
+          )}
+        </>
       )}
       {accounts.length > 0 && (
         <>

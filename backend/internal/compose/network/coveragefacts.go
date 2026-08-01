@@ -63,9 +63,22 @@ func readDealFacts(ctx context.Context, tx pgx.Tx, dealID ids.DealID) (dealFacts
 // always on is a warning nobody reads.
 //
 // So a person qualifies only when BOTH halves hold: an employment at this
-// account that has ended or been archived, and no live employment there now. A
+// account with an end date that has PASSED, and no live employment there now. A
 // contract renewed after a gap, or a role change recorded as end-then-start,
 // leaves a live row and correctly raises nothing.
+//
+// An ARCHIVED employment is not evidence of leaving, and reading it as such was
+// wrong. Archiving retracts a statement — somebody recorded the job by mistake
+// — while an end date records a fact about the world. Announcing a resignation
+// because a colleague fixed a data-entry error is exactly the false alarm that
+// teaches a rep to ignore the flag.
+//
+// "Still employed there" is spelled the same way here and in the two places
+// that ask the opposite question (compose/introseams.go accountContacts,
+// people/linkedinmatch.go suggestGhostsByNameAndEmployer): archived_at IS NULL
+// AND (ended_at IS NULL OR ended_at > today). A future end date is still
+// employment — a person leaving next month is at their desk today — and the
+// two questions must not disagree about the same row.
 //
 // No visibility probe: the caller passes the stakeholder ids it already read
 // under its own person row scope, so a seat this caller cannot see never
@@ -81,7 +94,8 @@ func readDeparted(ctx context.Context, tx pgx.Tx, orgID ids.UUID, people []ids.U
 		 WHERE r.kind = 'employment'
 		   AND r.organization_id = $1
 		   AND r.person_id = ANY($2)
-		   AND (r.archived_at IS NOT NULL OR (r.ended_at IS NOT NULL AND r.ended_at <= $3::date))
+		   AND r.archived_at IS NULL
+		   AND r.ended_at IS NOT NULL AND r.ended_at <= $3::date
 		   AND NOT EXISTS (
 		       SELECT 1 FROM relationship live
 		        WHERE live.kind = 'employment'

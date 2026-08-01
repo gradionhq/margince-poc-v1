@@ -9,6 +9,24 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for PublicEventLinkedinMatchDecidedVerdict.
+const (
+	Confirmed PublicEventLinkedinMatchDecidedVerdict = "confirmed"
+	Rejected  PublicEventLinkedinMatchDecidedVerdict = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the PublicEventLinkedinMatchDecidedVerdict enum.
+func (e PublicEventLinkedinMatchDecidedVerdict) Valid() bool {
+	switch e {
+	case Confirmed:
+		return true
+	case Rejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for SubscribableEventType.
 const (
 	ActivityArchived          SubscribableEventType = "activity.archived"
@@ -35,6 +53,7 @@ const (
 	LeadPromoted              SubscribableEventType = "lead.promoted"
 	LeadUpdated               SubscribableEventType = "lead.updated"
 	LinkedinAccountChanged    SubscribableEventType = "linkedin_account.changed"
+	LinkedinMatchDecided      SubscribableEventType = "linkedin_match.decided"
 	LinkedinNetworkImported   SubscribableEventType = "linkedin_network.imported"
 	MirrorBudgetDegraded      SubscribableEventType = "mirror.budget_degraded"
 	MirrorConflict            SubscribableEventType = "mirror.conflict"
@@ -132,6 +151,8 @@ func (e SubscribableEventType) Valid() bool {
 	case LeadUpdated:
 		return true
 	case LinkedinAccountChanged:
+		return true
+	case LinkedinMatchDecided:
 		return true
 	case LinkedinNetworkImported:
 		return true
@@ -542,6 +563,18 @@ type PublicEventLinkedinAccountChanged struct {
 	// HasProfileUrl Whether a profile URL is now stored. False after a member clears the field, which is a deliberate "do not record this".
 	HasProfileUrl bool `json:"has_profile_url"`
 }
+
+// PublicEventLinkedinMatchDecided Payload for linkedin_match.decided — a member said whether one of their imported connections is a contact on file. The connection is NOT named: it is a third party who never consented to being in this CRM, and the whole point of keeping the imported rows invisible is defeated if their names travel through the outbox. The verdict and whether a profile URL reached the contact are the auditable facts; the records themselves are reachable through the audit row this event is linked to.
+type PublicEventLinkedinMatchDecided struct {
+	// ProfileUrlWritten Whether the decision put a LinkedIn handle on the contact. False on every rejection, and false on a confirmation whose contact already carried one — a value on a record is somebody's statement and is never overwritten.
+	ProfileUrlWritten bool `json:"profile_url_written"`
+
+	// Verdict What the member decided.
+	Verdict PublicEventLinkedinMatchDecidedVerdict `json:"verdict"`
+}
+
+// PublicEventLinkedinMatchDecidedVerdict What the member decided.
+type PublicEventLinkedinMatchDecidedVerdict string
 
 // PublicEventLinkedinNetworkImported Payload for linkedin_network.imported — a member uploaded their own LinkedIn connections export. ONE event for the import act, never one per row: an export is thousands of rows, a per-row event would bury every other event in the stream, and the auditable fact is that a member imported their network at all. No connection is named in the payload: the imported rows are third parties who never consented to being in this CRM, and publishing their names would defeat the point of keeping them invisible everywhere else.
 type PublicEventLinkedinNetworkImported struct {
@@ -1258,6 +1291,10 @@ func (PublicEventLinkedinAccountChanged) EventType() string { return "linkedin_a
 
 func (PublicEventLinkedinAccountChanged) EntityType() string { return "user" }
 
+func (PublicEventLinkedinMatchDecided) EventType() string { return "linkedin_match.decided" }
+
+func (PublicEventLinkedinMatchDecided) EntityType() string { return "user" }
+
 func (PublicEventLinkedinNetworkImported) EventType() string { return "linkedin_network.imported" }
 
 func (PublicEventLinkedinNetworkImported) EntityType() string { return "user" }
@@ -1468,6 +1505,7 @@ var PublicEventVersions = map[string]int{
 	"lead.promoted":                1,
 	"lead.updated":                 1,
 	"linkedin_account.changed":     1,
+	"linkedin_match.decided":       1,
 	"linkedin_network.imported":    1,
 	"mirror.budget_degraded":       1,
 	"mirror.conflict":              1,

@@ -174,11 +174,18 @@ func sarSections(pkg *SARPackage) []sarSection {
 		// owes what is HELD, and an unmatched ghost holds their name and
 		// employer just as surely as a confirmed one does.
 		{&pkg.LinkedInConnections, `SELECT full_name, position, company_name, connected_on,
-		       email, match_status, source, synced_at
+		       email, profile_url, match_status, source, synced_at
 		   FROM linkedin_connection g
 		  WHERE g.matched_person_id = $1
 		     OR (g.email IS NOT NULL AND g.email IN (
 		         SELECT lower(email) FROM person_email WHERE person_id = $1))
+		     -- The profile URL is an identifier the subject is reachable by,
+		     -- and it is held about them whether or not the matcher ever
+		     -- linked the row. A package that omitted it would answer "what do
+		     -- you hold about me" with less than is held.
+		     OR (g.profile_url IS NOT NULL AND g.profile_url IN (
+		         SELECT handle FROM person_social
+		          WHERE person_id = $1 AND platform = 'linkedin'))
 		     OR (g.normalized_company IS NOT NULL
 		         AND g.normalized_name = (SELECT lower(f_unaccent(full_name)) FROM person WHERE id = $1)
 		         AND EXISTS (

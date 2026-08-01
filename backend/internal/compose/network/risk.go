@@ -176,6 +176,18 @@ func CoverageFor(ctx context.Context, tx pgx.Tx, dealID ids.DealID, now time.Tim
 func foldRisks(c DealCoverage, now time.Time) []Risk {
 	var risks []Risk
 
+	// Every rule here is a PIPELINE rule. REPORT-PARAM-1 says "an open deal",
+	// and the others follow: a closed-won deal with one engaged contact is a
+	// deal that closed, not one at risk, and telling a rep their delivered
+	// business is single-threaded is how a flag stops being read.
+	//
+	// A coverage view with no gathered status is a hand-built fixture rather
+	// than a deal, and it keeps the structural findings so the fold can be
+	// tested without describing a pipeline.
+	if c.Status != "" && c.Status != dealStatusOpen {
+		return nil
+	}
+
 	// REPORT-PARAM-1, verbatim: distinct_engaged_contacts < 2.
 	engaged := make([]ids.UUID, 0, len(c.Stakeholders))
 	for _, s := range c.Stakeholders {

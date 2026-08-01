@@ -102,8 +102,8 @@ func TestNoWarmRouteIsAnAnswerNotAnError(t *testing.T) {
 	// Same rule as who_knows, and it matters more here: "nobody here can get
 	// you in" is the finding that says go cold-outbound, and an error would
 	// make the model report a malfunction instead.
-	tool := introPathTool{list: func(context.Context, ids.UUID) ([]IntroRoute, error) {
-		return nil, nil
+	tool := introPathTool{list: func(context.Context, ids.UUID) ([]IntroRoute, bool, error) {
+		return nil, false, nil
 	}}
 	out, err := tool.Handle(context.Background(), json.RawMessage(`{"organization_id":"`+ids.NewV7().String()+`"}`))
 	if err != nil {
@@ -127,12 +127,12 @@ func TestAnIntroRouteNamesBothTheColleagueAndTheContact(t *testing.T) {
 	// A route that named only the colleague leaves a rep asking "an intro to
 	// whom" — the pair is the answer.
 	colleague, contact := ids.NewV7(), ids.NewV7()
-	tool := introPathTool{list: func(context.Context, ids.UUID) ([]IntroRoute, error) {
+	tool := introPathTool{list: func(context.Context, ids.UUID) ([]IntroRoute, bool, error) {
 		return []IntroRoute{{
 			UserID: colleague, DisplayName: "Anna Weber",
 			PersonID: contact, PersonName: "Jonas Bach",
 			StrengthBucket: "strong", Interactions90d: 12,
-		}}, nil
+		}}, false, nil
 	}}
 	out, err := tool.Handle(context.Background(), json.RawMessage(`{"organization_id":"`+ids.NewV7().String()+`"}`))
 	if err != nil {

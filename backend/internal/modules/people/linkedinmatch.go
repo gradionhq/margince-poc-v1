@@ -121,6 +121,24 @@ func (s *Store) MatchLinkedInConnectionsForPerson(ctx context.Context, person id
 	return out, err
 }
 
+// capturePrivacyForGhostOwner is the ONE boundary the workspace-wide matcher
+// may not cross.
+//
+// The sweep and the event consumer run under a SYSTEM principal, and a system
+// principal is exempt from capture privacy by design (auth.UnboundedFor) —
+// provisioning, the relay and the privacy engines have to read every row. That
+// exemption is correct for them and wrong here: it made auth.ScopeClauseFor
+// return an empty clause, so the matcher happily linked Alice's ghost to a
+// contact Bob had captured privately, and the review list then reported the
+// match back to Alice. She could not read the record, and did not need to —
+// the status alone proved it exists.
+//
+// So the match carries the boundary itself, keyed to the GHOST's owner rather
+// than to whoever is executing: a private contact is a candidate only for the
+// member who captured it. It composes with, and does not replace, the caller's
+// own scope clause — an interactive call is still narrowed by both.
+const capturePrivacyForGhostOwner = `(p.visibility <> 'owner' OR p.owner_id = g.owner_user_id)`
+
 // matchGhostsByEmail confirms the ghosts whose address is already a known
 // contact's address. This is the one automatic confirmation, and it is
 // automatic for the same reason capture's dedupe is: an address identifies a
@@ -160,6 +178,7 @@ func matchGhostsByEmail(ctx context.Context, tx pgx.Tx, owner, onlyPerson ids.UU
 		   AND g.match_status = 'unmatched'
 		   AND ($%[1]d::uuid IS NULL OR g.owner_user_id = $%[1]d)
 		   AND ($%[3]d::uuid IS NULL OR p.id = $%[3]d)
+		   AND `+capturePrivacyForGhostOwner+`
 		   AND (%[2]s)`, ownerPos, visible, personPos), args...)
 	if err != nil {
 		return 0, fmt.Errorf("people: matching LinkedIn connections by address: %w", err)
@@ -209,7 +228,10 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyP
 		       AND lower(f_unaccent(p.full_name)) = g.normalized_name
 		      JOIN relationship r
 		        ON r.person_id = p.id AND r.kind = 'employment'
-		       AND r.ended_at IS NULL AND r.archived_at IS NULL
+		       -- Still employed TODAY, the same test the coverage and intro
+		       -- reads take: a future end date is still employment.
+		       AND r.archived_at IS NULL
+		       AND (r.ended_at IS NULL OR r.ended_at > current_date)
 		     WHERE g.match_status = 'unmatched'
 		       AND g.tombstoned_at IS NULL
 		       -- The employer is matched through matched_org_id, which the
@@ -222,6 +244,7 @@ func suggestGhostsByNameAndEmployer(ctx context.Context, tx pgx.Tx, owner, onlyP
 		       -- a per-person call cannot suggest a link the sweep would have
 		       -- refused as ambiguous. It filters the RESULT, not the pairs.
 		       AND (%[2]s)
+		       AND `+capturePrivacyForGhostOwner+`
 		       AND g.matched_org_id IS NOT NULL
 		       AND r.organization_id = g.matched_org_id
 		       AND NOT EXISTS (
@@ -281,16 +304,16 @@ func matchGhostOrganizations(ctx context.Context, tx pgx.Tx) error {
 		return nil
 	}
 	rows, err := tx.Query(ctx, `
-		SELECT id, company_name FROM linkedin_connection
+		SELECT id, owner_user_id, company_name FROM linkedin_connection
 		 WHERE company_name IS NOT NULL AND tombstoned_at IS NULL`)
 	if err != nil {
 		return fmt.Errorf("people: reading LinkedIn connections to place: %w", err)
 	}
 	var ghostIDs, orgIDs []ids.UUID
 	for rows.Next() {
-		var ghost ids.UUID
+		var ghost, ghostOwner ids.UUID
 		var company string
-		if err := rows.Scan(&ghost, &company); err != nil {
+		if err := rows.Scan(&ghost, &ghostOwner, &company); err != nil {
 			rows.Close()
 			return err
 		}
@@ -299,11 +322,19 @@ func matchGhostOrganizations(ctx context.Context, tx pgx.Tx) error {
 		// orgKeys already drops every ambiguous key — so a looser lookup can
 		// widen what is FOUND without ever widening what is GUESSED.
 		for _, key := range orgMatchKeys(company) {
-			if org, known := orgs[key]; known {
-				ghostIDs = append(ghostIDs, ghost)
-				orgIDs = append(orgIDs, org)
-				break
+			org, known := orgs[key]
+			if !known {
+				continue
 			}
+			// A key that resolves ONLY to an account this member may not be
+			// told about stops the search rather than falling through to a
+			// looser key: the looser key is a weaker claim, and answering a
+			// privacy refusal with a worse guess is not an improvement.
+			if org.reachableBy(ghostOwner) {
+				ghostIDs = append(ghostIDs, ghost)
+				orgIDs = append(orgIDs, org.id)
+			}
+			break
 		}
 	}
 	rows.Close()
@@ -324,23 +355,40 @@ func matchGhostOrganizations(ctx context.Context, tx pgx.Tx) error {
 	return nil
 }
 
+// orgCandidate is one account a ghost could be placed at, with what capture
+// privacy needs to decide whether THIS ghost's owner may be told about it.
+type orgCandidate struct {
+	id      ids.UUID
+	private bool
+	owner   ids.UUID
+}
+
+// reachableBy answers whether a member may have their connection placed at this
+// account. An owner-private account is a captured, unpromoted record belonging
+// to the member who captured it — placing somebody else's connection there
+// would report its existence to them through a reach count.
+func (c orgCandidate) reachableBy(member ids.UUID) bool {
+	return !c.private || c.owner == member
+}
+
 // orgKeys is every live account by its normalized name. An ambiguous key —
 // two accounts that normalize the same — is dropped rather than picked
 // between: attaching a colleague's network to the wrong account is a worse
 // answer than attaching it to none.
-func orgKeys(ctx context.Context, tx pgx.Tx) (map[string]ids.UUID, error) {
+func orgKeys(ctx context.Context, tx pgx.Tx) (map[string]orgCandidate, error) {
 	rows, err := tx.Query(ctx,
-		`SELECT id, display_name FROM organization WHERE archived_at IS NULL`)
+		`SELECT id, display_name, visibility = 'owner', coalesce(owner_id, '00000000-0000-0000-0000-000000000000'::uuid)
+		   FROM organization WHERE archived_at IS NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("people: reading accounts for LinkedIn placement: %w", err)
 	}
 	defer rows.Close()
-	out := map[string]ids.UUID{}
+	out := map[string]orgCandidate{}
 	ambiguous := map[string]bool{}
 	for rows.Next() {
-		var id ids.UUID
+		var c orgCandidate
 		var name string
-		if err := rows.Scan(&id, &name); err != nil {
+		if err := rows.Scan(&c.id, &name, &c.private, &c.owner); err != nil {
 			return nil, err
 		}
 		key := NormalizeOrgName(name)
@@ -351,7 +399,7 @@ func orgKeys(ctx context.Context, tx pgx.Tx) (map[string]ids.UUID, error) {
 			ambiguous[key] = true
 			continue
 		}
-		out[key] = id
+		out[key] = c
 	}
 	for key := range ambiguous {
 		delete(out, key)

@@ -26,6 +26,7 @@ package people
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
@@ -40,11 +41,15 @@ type LinkedInRenormalizeResult struct {
 }
 
 type ghostKeyRow struct {
-	id       ids.UUID
-	company  *string
-	stored   *string
-	status   string
-	decided  bool
+	id      ids.UUID
+	company *string
+	stored  *string
+	status  string
+	decided bool
+	// syncedAt breaks a tie between two rows carrying the same strength of
+	// decision. The NEWER one wins: it is the one the latest export described,
+	// and its profile URL is the address the connection is reachable at today.
+	syncedAt time.Time
 	dupGroup string
 }
 
@@ -55,8 +60,28 @@ type ghostKeyRow struct {
 // already answered. Passed to SQL as an array so the ordering is spelled once.
 var matchRankOrder = []string{"unmatched", "suggested", "rejected", "confirmed"}
 
-// decidedStatus answers whether a status carries a human's judgement.
-func decidedStatus(status string) bool { return status != "unmatched" }
+// decidedStatus answers whether a status carries a HUMAN's judgement.
+//
+// `suggested` does not, and reading it as if it did was a real defect: the
+// matcher writes it on its own, so a machine guess ranked equal to a person's
+// confirmation. Two copies both counted as "decided", the OLDEST id won, and a
+// human's confirmed link to P2 was replaced by the matcher's guess at P1 while
+// the row inherited the status `confirmed` from the copy it had just
+// overwritten. The decision looked honoured and pointed at the wrong person.
+func decidedStatus(status string) bool {
+	return status == "confirmed" || status == "rejected"
+}
+
+// matchRank is a status's position in matchRankOrder, so Go and SQL rank the
+// four states by the one list.
+func matchRank(status string) int {
+	for i, s := range matchRankOrder {
+		if s == status {
+			return i
+		}
+	}
+	return 0
+}
 
 // RenormalizeLinkedInCompanyKeys recomputes every stored company key and
 // collapses the duplicates a previous normalizer left behind.
@@ -105,7 +130,7 @@ func renormalizeGhostKeysTx(ctx context.Context, tx pgx.Tx) (LinkedInRenormalize
 // the normalizer lives.
 func readGhostKeys(ctx context.Context, tx pgx.Tx) ([]ghostKeyRow, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT id, company_name, normalized_company, match_status,
+		SELECT id, company_name, normalized_company, match_status, synced_at,
 		       owner_user_id::text || '|' || normalized_name || '|' ||
 		         coalesce(connected_on::text, 'epoch')
 		  FROM linkedin_connection
@@ -117,7 +142,7 @@ func readGhostKeys(ctx context.Context, tx pgx.Tx) ([]ghostKeyRow, error) {
 	var all []ghostKeyRow
 	for rows.Next() {
 		var r ghostKeyRow
-		if err := rows.Scan(&r.id, &r.company, &r.stored, &r.status, &r.dupGroup); err != nil {
+		if err := rows.Scan(&r.id, &r.company, &r.stored, &r.status, &r.syncedAt, &r.dupGroup); err != nil {
 			return nil, err
 		}
 		r.decided = decidedStatus(r.status)
@@ -192,9 +217,21 @@ func foldGhostInto(ctx context.Context, tx pgx.Tx, keep, doomed ids.UUID) error 
 		       position            = coalesce(k.position, d.position),
 		       company_name        = coalesce(k.company_name, d.company_name),
 		       connected_on        = coalesce(k.connected_on, d.connected_on),
-		       profile_url         = coalesce(k.profile_url, d.profile_url),
+		       -- The NEWER export's URL wins. A member who changed their vanity
+		       -- address is reachable at the new one and not the old, so
+		       -- coalescing in the survivor's favour would keep a dead link
+		       -- alive purely because its row happened to be kept.
+		       profile_url = CASE
+		         WHEN d.profile_url IS NOT NULL AND d.synced_at > k.synced_at
+		           THEN d.profile_url ELSE coalesce(k.profile_url, d.profile_url) END,
 		       provider_member_ref = coalesce(k.provider_member_ref, d.provider_member_ref),
-		       matched_person_id   = coalesce(k.matched_person_id, d.matched_person_id),
+		       -- The person travels WITH the winning decision. Coalescing it
+		       -- independently let the survivor keep its own guess while
+		       -- inheriting the other copy's confirmed status, which reported a
+		       -- human's decision over a link they never made.
+		       matched_person_id = CASE
+		         WHEN array_position($3::text[], d.match_status) > array_position($3::text[], k.match_status)
+		           THEN d.matched_person_id ELSE coalesce(k.matched_person_id, d.matched_person_id) END,
 		       matched_org_id      = coalesce(k.matched_org_id, d.matched_org_id),
 		       -- The stronger decision wins, and it must be spelled here as
 		       -- well as in survivor(): the survivor is chosen before the fold,
@@ -219,16 +256,29 @@ func foldGhostInto(ctx context.Context, tx pgx.Tx, keep, doomed ids.UUID) error 
 	return nil
 }
 
-// survivor picks which of a duplicate set to keep: a row carrying a human's
-// decision outranks one that does not, and the oldest id breaks the tie so the
-// choice is deterministic across replicas and re-runs.
+// survivor picks which of a duplicate set to keep.
+//
+// Ranked by the STRENGTH of the decision on the row, not by a decided/undecided
+// flag: confirmed outranks rejected outranks suggested outranks unmatched, the
+// same order the fold uses, so the row that is kept is the row whose
+// matched_person_id the merged record will carry. Ranking by a boolean let a
+// machine suggestion tie with a human confirmation and win on age.
+//
+// The newer sync breaks a tie, and the id breaks that, so the choice is
+// deterministic across replicas and re-runs.
 func survivor(group []ghostKeyRow) ghostKeyRow {
 	best := group[0]
 	for _, r := range group[1:] {
 		switch {
-		case r.decided && !best.decided:
-			best = r
-		case r.decided == best.decided && r.id.String() < best.id.String():
+		case matchRank(r.status) != matchRank(best.status):
+			if matchRank(r.status) > matchRank(best.status) {
+				best = r
+			}
+		case !r.syncedAt.Equal(best.syncedAt):
+			if r.syncedAt.After(best.syncedAt) {
+				best = r
+			}
+		case r.id.String() < best.id.String():
 			best = r
 		}
 	}

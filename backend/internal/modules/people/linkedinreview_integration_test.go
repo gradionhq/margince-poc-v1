@@ -27,6 +27,23 @@ import (
 // auto-confirms, and Nobody Atall works somewhere unknown.
 const suggestedGhost = "Andreas Müller"
 
+// seedMember adds a second workspace member, for the tests that need a record
+// belonging to somebody other than the importer.
+func (e *dedupeEnv) seedMember(t *testing.T, name string) ids.UUID {
+	t.Helper()
+	id := ids.NewV7()
+	ctx := e.as()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO app_user (id, workspace_id, email, display_name)
+			VALUES ($1, $2, $3, $4)`, id, e.ws, id.String()+"@dd.test", name)
+		return err
+	}); err != nil {
+		t.Fatalf("seeding member %q: %v", name, err)
+	}
+	return id
+}
+
 func (e *dedupeEnv) ghostID(t *testing.T) ids.UUID {
 	t.Helper()
 	ctx := e.as()
@@ -253,5 +270,93 @@ func TestReachCountsConnectionsPerAccountAndSaysWhatItCannotShow(t *testing.T) {
 	}
 	if reach.AccountsTotal != 1 {
 		t.Errorf("reach reports %d accounts in total, want 1", reach.AccountsTotal)
+	}
+}
+
+func TestCollapseNeverLetsAMachineGuessOverrideAHumanConfirmation(t *testing.T) {
+	e := setupDedupe(t)
+	org := e.seedOrgNamed(t, "Acme GmbH")
+	guessed := e.seedContact(t, "Guessed Person")
+	confirmed := e.seedContact(t, "Confirmed Person")
+	e.employ(t, guessed, org)
+	e.employ(t, confirmed, org)
+
+	// Two rows for ONE connection, the state a normalizer change leaves behind.
+	// The OLDER carries the matcher's guess; the NEWER carries a human's
+	// confirmation of somebody else. Treating `suggested` as a decision let the
+	// older row win on age and then inherit the status `confirmed` — reporting
+	// a decision the member never made, about a person they did not name.
+	ctx := e.as()
+	older, newer := ids.NewV7(), ids.NewV7()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		for _, row := range []struct {
+			id       ids.UUID
+			company  string
+			status   string
+			person   ids.PersonID
+			syncedAt string
+		}{
+			{older, "Acme GmbH | Digital", "suggested", guessed, "2026-01-01"},
+			{newer, "Acme GmbH", "confirmed", confirmed, "2026-06-01"},
+		} {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO linkedin_connection
+				    (id, workspace_id, owner_user_id, full_name, normalized_name,
+				     company_name, normalized_company, matched_person_id, match_status,
+				     source, synced_at)
+				VALUES ($1, NULLIF(current_setting('app.workspace_id', true), '')::uuid,
+				        $2, 'Dup Person', 'dup person', $3, $4, $5, $6, 'csv_export', $7::date)`,
+				row.id, e.rep, row.company, NormalizeOrgName(row.company),
+				row.person.UUID, row.status, row.syncedAt); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("seeding the duplicate pair: %v", err)
+	}
+
+	if _, err := e.store.RenormalizeLinkedInCompanyKeys(e.as()); err != nil {
+		t.Fatalf("re-normalizing: %v", err)
+	}
+
+	status, person := e.ghostStatus(t, "Dup Person")
+	if status != "confirmed" {
+		t.Fatalf("the surviving row is %q, want confirmed — the human decided", status)
+	}
+	if person == nil || *person != confirmed.UUID {
+		t.Errorf("the surviving row points at %v, want the contact the HUMAN confirmed (%s), "+
+			"not the matcher's guess (%s)", person, confirmed, guessed)
+	}
+}
+
+func TestAConnectionNeverMatchesAContactItsOwnerMayNotSee(t *testing.T) {
+	e := setupDedupe(t)
+	org := e.seedOrgNamed(t, "Acme GmbH")
+	// A contact somebody ELSE captured privately. Capture privacy makes it
+	// theirs alone — not even an admin reads it — and the matcher runs as a
+	// system principal, which is exempt from that rule by design. Without the
+	// boundary carried on the match itself, this ghost would link to it and the
+	// review list would report the link back to a member who cannot open it.
+	private := e.seedContact(t, "Andreas Müller")
+	e.employ(t, private, org)
+	// Owned by a DIFFERENT member. Owned by the importer it would rightly
+	// match — capture privacy is about whose record it is, not about hiding it
+	// from everybody.
+	colleague := e.seedMember(t, "Colleague")
+	ctx := e.as()
+	if err := e.store.tx(ctx, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx,
+			`UPDATE person SET visibility = 'owner', owner_id = $2 WHERE id = $1`,
+			private.UUID, colleague)
+		return err
+	}); err != nil {
+		t.Fatalf("making the contact owner-private: %v", err)
+	}
+
+	e.importAndMatch(t)
+
+	if status, person := e.ghostStatus(t, "Andreas Müller"); status != "unmatched" || person != nil {
+		t.Errorf("a ghost matched a contact its owner may not see: %q → %v", status, person)
 	}
 }

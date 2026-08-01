@@ -12,6 +12,7 @@ package compose
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/gradionhq/margince/backend/internal/modules/search"
 	"github.com/gradionhq/margince/backend/internal/platform/auth"
 	"github.com/gradionhq/margince/backend/internal/platform/database"
+	"github.com/gradionhq/margince/backend/internal/shared/apperrors"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/ids"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/principal"
 	"github.com/gradionhq/margince/backend/internal/shared/kernel/relstrength"
@@ -49,8 +51,9 @@ const accountContactFetch = 200
 // the account's contact count and nothing about the shape of the graph beyond
 // it.
 func introPathLister(pool *pgxpool.Pool) agents.IntroPathLister {
-	return func(ctx context.Context, orgID ids.UUID) ([]agents.IntroRoute, error) {
+	return func(ctx context.Context, orgID ids.UUID) ([]agents.IntroRoute, bool, error) {
 		var out []agents.IntroRoute
+		var truncated bool
 		err := database.WithWorkspaceTx(ctx, pool, func(tx pgx.Tx) error {
 			// The account gate first. A route names the account's people, so a
 			// caller who cannot read the account must not learn who works
@@ -69,13 +72,18 @@ func introPathLister(pool *pgxpool.Pool) agents.IntroPathLister {
 			if err != nil {
 				return err
 			}
+			// The fetch is bounded and the ranking happens after it, so an
+			// account bigger than the bound contributes only its first slice by
+			// id. The caller is told rather than left to assume the ranking saw
+			// everything.
+			truncated = len(contacts) >= accountContactFetch
 			if len(contacts) == 0 {
 				return nil
 			}
 			out, err = rankIntroRoutes(ctx, tx, contacts)
 			return err
 		})
-		return out, err
+		return out, truncated, err
 	}
 }
 
@@ -143,7 +151,13 @@ func accountContacts(ctx context.Context, tx pgx.Tx, orgID ids.UUID) (map[ids.UU
 		  FROM relationship r
 		  JOIN person p ON p.id = r.person_id AND p.archived_at IS NULL
 		 WHERE r.kind = 'employment' AND r.organization_id = $%d
-		   AND r.archived_at IS NULL AND r.ended_at IS NULL
+		   -- Still employed TODAY. A future end date is still employment: a
+		   -- person leaving next month can still make an introduction this
+		   -- week, and the departure rule in compose/network already treats
+		   -- that row as live. Two spellings would let one surface call them
+		   -- gone while the other calls them current.
+		   AND r.archived_at IS NULL
+		   AND (r.ended_at IS NULL OR r.ended_at > current_date)
 		   AND (%s)
 		 ORDER BY p.id LIMIT %d`, orgPos, visible, accountContactFetch), args...)
 	if err != nil {
@@ -213,9 +227,22 @@ func atRiskLister(pool *pgxpool.Pool) agents.AtRiskLister {
 // it — a healthy deal is not an error and not a zero value the caller has to
 // recognise.
 //
-// Every deal in the sweep came from the caller's own row-scoped list, so
-// CoverageFor's own gates re-confirm rather than establish visibility.
+// The visibility gate is re-taken HERE, not inherited from the ListDeals that
+// produced the candidate. That list ran in an earlier transaction, and a grant
+// revoked in between would otherwise let this sweep report a deal's name and
+// freshly computed risks to somebody who had just lost the right to read it.
+// CoverageFor does not gate on its own — its first read is an unrestricted deal
+// row — so nothing else in this path would have caught it.
 func dealAtRisk(ctx context.Context, tx pgx.Tx, d crmcontracts.Deal, now time.Time) (agents.AtRiskDeal, bool, error) {
+	if err := requireVisibleDeal(ctx, tx, ids.UUID(d.Id)); err != nil {
+		if errors.Is(err, apperrors.ErrNotFound) || errors.Is(err, apperrors.ErrPermissionDenied) {
+			// The grant went away between the list and this read. Dropping the
+			// deal is the right answer; failing the whole sweep would turn one
+			// revoked grant into a broken tool.
+			return agents.AtRiskDeal{}, false, nil
+		}
+		return agents.AtRiskDeal{}, false, err
+	}
 	coverage, err := network.CoverageFor(ctx, tx, ids.From[ids.DealKind](ids.UUID(d.Id)), now)
 	if err != nil {
 		return agents.AtRiskDeal{}, false, err

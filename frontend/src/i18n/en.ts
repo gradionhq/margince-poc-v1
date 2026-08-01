@@ -607,6 +607,8 @@ export const en = {
     "Accounts on file where you already know somebody, most connections first.",
   "linkedinReach.empty":
     "None of your connections work at an account on file yet.",
+  "linkedinReach.allUnresolved":
+    "All {unresolved} of your connections work somewhere that is not an account on file yet.",
   "linkedinReach.account": "Account",
   "linkedinReach.connections": "You know",
   "linkedinReach.onFile": "Already contacts",

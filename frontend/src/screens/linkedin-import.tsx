@@ -27,6 +27,7 @@ type ImportSummary = {
 };
 
 function useImportConnections() {
+  const client = useQueryClient();
   return useMutation({
     mutationFn: async (file: File): Promise<ImportSummary> => {
       // Sent as multipart by hand rather than through the typed client: the
@@ -44,6 +45,15 @@ function useImportConnections() {
         throw new Error(problemMessage(payload));
       }
       return payload as ImportSummary;
+    },
+    // An import changes what all three cards on this tab read, and they hold
+    // separate cache keys. Without this the summary reports new matches while
+    // the queue beside it still shows the pre-import "nothing waiting" it
+    // cached on load — the page contradicts itself and only a reload fixes it.
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: ACCOUNT_KEY });
+      await client.invalidateQueries({ queryKey: ["linkedin-connections"] });
+      await client.invalidateQueries({ queryKey: ["linkedin-reach"] });
     },
   });
 }

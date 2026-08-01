@@ -617,6 +617,8 @@ export const de = {
     "Firmen im CRM, bei denen Sie bereits jemanden kennen — die meisten Verbindungen zuerst.",
   "linkedinReach.empty":
     "Noch keine Ihrer Verbindungen arbeitet bei einer erfassten Firma.",
+  "linkedinReach.allUnresolved":
+    "Alle {unresolved} Ihrer Verbindungen arbeiten bei Firmen, die noch nicht erfasst sind.",
   "linkedinReach.account": "Firma",
   "linkedinReach.connections": "Sie kennen",
   "linkedinReach.onFile": "Bereits Personen",
